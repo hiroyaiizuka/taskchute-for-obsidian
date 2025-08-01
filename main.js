@@ -33,6 +33,19 @@ class PathManager {
     return this.plugin.settings.reviewDataPath || PathManager.DEFAULT_PATHS.reviewData
   }
   
+  // 年ごとのログパスを取得
+  getLogYearPath(year) {
+    const logPath = this.getLogDataPath()
+    return `${logPath}/${year}`
+  }
+  
+  // 年フォルダの作成を確実にする
+  async ensureYearFolder(year) {
+    const yearPath = this.getLogYearPath(year)
+    await this.ensureFolderExists(yearPath)
+    return yearPath
+  }
+  
   // パスの検証
   validatePath(path) {
     // 絶対パスのチェック
@@ -510,6 +523,7 @@ class TaskChuteView extends ItemView {
     this.tasks = [] // タスクファイル情報
     this.taskInstances = [] // タスクインスタンス（描画・計測単位）
     this.globalTimerInterval = null // 複数のタイマーを管理するグローバルタイマー
+    this.logView = null // LogViewインスタンスのキャッシュ
 
     // 日付ナビゲーション用
     const today = new Date()
@@ -763,6 +777,11 @@ class TaskChuteView extends ItemView {
         icon: "📋",
       },
       {
+        key: "log",
+        label: "ログ",
+        icon: "📊",
+      },
+      {
         key: "project",
         label: "プロジェクト",
         icon: "📁",
@@ -1007,6 +1026,9 @@ class TaskChuteView extends ItemView {
       case "review":
         this.showReviewSection()
         break
+      case "log":
+        this.showLogSection()
+        break
       case "project":
         this.showProjectSection()
         break
@@ -1052,6 +1074,58 @@ class TaskChuteView extends ItemView {
     } catch (error) {
       console.error("[TaskChute] レビュー表示エラー:", error)
       new Notice("レビューの表示に失敗しました: " + error.message)
+    }
+  }
+  
+  async showLogSection() {
+    console.log("[TaskChute] Showing log section")
+    
+    try {
+      // Create a modal for log view
+      const modal = document.createElement("div")
+      modal.className = "taskchute-log-modal-overlay"
+      
+      const modalContent = modal.createEl("div", {
+        cls: "taskchute-log-modal-content"
+      })
+      
+      // Create close button
+      const closeButton = modalContent.createEl("button", {
+        cls: "log-modal-close",
+        text: "×"
+      })
+      
+      closeButton.addEventListener("click", () => {
+        modal.remove()
+        // Keep logView instance for cache
+      })
+      
+      // Close modal when clicking outside
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+          modal.remove()
+        }
+      })
+      
+      // Create or reuse log view instance
+      if (!this.logView) {
+        this.logView = new LogView(this.plugin, modalContent)
+      } else {
+        // Reuse existing instance with new container
+        this.logView.container = modalContent
+      }
+      
+      await this.logView.render()
+      
+      // Add modal to document
+      document.body.appendChild(modal)
+      
+      // Close navigation panel
+      this.toggleNavigation()
+      
+    } catch (error) {
+      console.error("[TaskChute] Failed to show log section:", error)
+      new Notice("ログの表示に失敗しました")
     }
   }
   
@@ -1330,9 +1404,193 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       throw error
     }
   }
+  
+  // Recalculate yesterday's dailySummary based on actual displayed tasks
+  async recalculateYesterdayDailySummary() {
+    try {
+      const yesterday = new Date(this.currentDate)
+      yesterday.setDate(yesterday.getDate() - 1)
+      
+      const year = yesterday.getFullYear()
+      const month = (yesterday.getMonth() + 1).toString().padStart(2, "0")
+      const day = yesterday.getDate().toString().padStart(2, "0")
+      const yesterdayString = `${year}-${month}-${day}`
+      const monthString = `${year}-${month}`
+      
+      // Load monthly log
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`
+      
+      if (!(await this.app.vault.adapter.exists(logFilePath))) {
+        return
+      }
+      
+      const logContent = await this.app.vault.adapter.read(logFilePath)
+      const monthlyLog = JSON.parse(logContent)
+      
+      // Check if yesterday's data exists and needs recalculation
+      if (!monthlyLog.dailySummary?.[yesterdayString]) {
+        return
+      }
+      
+      // Temporarily set currentDate to yesterday to simulate task loading
+      const originalDate = new Date(this.currentDate)
+      this.currentDate = yesterday
+      
+      // Count tasks that would be displayed using the same logic as loadTasks
+      let displayedTaskCount = 0
+      let completedTaskCount = 0
+      
+      // Get task files
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      const files = await this.getTaskFiles(taskFolderPath)
+      
+      // Load yesterday's data
+      const deletedInstances = this.getDeletedInstances(yesterdayString)
+      const duplicatedInstances = JSON.parse(
+        localStorage.getItem(`taskchute-duplicated-instances-${yesterdayString}`) || "[]"
+      )
+      const duplicatedCounts = duplicatedInstances.reduce((acc, instance) => {
+        const path = typeof instance === "string" ? instance : instance.path
+        acc[path] = (acc[path] || 0) + 1
+        return acc
+      }, {})
+      const hiddenRoutines = this.getHiddenRoutines(yesterdayString)
+      const hiddenRoutinePaths = hiddenRoutines
+        .filter(h => !h.instanceId || h.instanceId === null)
+        .map(h => typeof h === 'string' ? h : h.path)
+      
+      const yesterdayExecutions = await this.loadTodayExecutions(yesterdayString)
+      
+      // Count displayed tasks
+      for (const file of files) {
+        if (hiddenRoutinePaths.includes(file.path)) continue
+        
+        const permanentlyDeleted = deletedInstances.some(
+          del => del.path === file.path && del.deletionType === "permanent"
+        )
+        if (permanentlyDeleted) continue
+        
+        const content = await this.app.vault.read(file)
+        if (!content.includes("#task")) continue
+        
+        const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
+        const isRoutine = metadata?.routine === true || content.includes("#routine")
+        
+        const yesterdayExecutionsForTask = yesterdayExecutions.filter(
+          exec => exec.taskTitle === file.basename
+        )
+        
+        // Apply the same display logic
+        if (!isRoutine && yesterdayExecutionsForTask.length === 0) {
+          let shouldShow = false
+          
+          if (metadata?.target_date === yesterdayString) {
+            shouldShow = true
+          } else {
+            // Check file creation date
+            try {
+              const fileStats = this.app.vault.adapter.getFullPath(file.path)
+              const fs = require("fs")
+              const stats = fs.statSync(fileStats)
+              const fileCreationDate = new Date(stats.birthtime)
+              const fileYear = fileCreationDate.getFullYear()
+              const fileMonth = (fileCreationDate.getMonth() + 1).toString().padStart(2, "0")
+              const fileDay = fileCreationDate.getDate().toString().padStart(2, "0")
+              const fileCreationDateString = `${fileYear}-${fileMonth}-${fileDay}`
+              
+              if (yesterdayString === fileCreationDateString) {
+                shouldShow = true
+              }
+            } catch (error) {
+              shouldShow = true
+            }
+          }
+          
+          if (duplicatedCounts[file.path]) {
+            shouldShow = true
+          }
+          
+          if (!shouldShow) continue
+        }
+        
+        // Check routine display rules
+        if (isRoutine) {
+          const routineStart = metadata?.routine_start
+          const routineEnd = metadata?.routine_end
+          const routineType = metadata?.routine_type || "daily"
+          
+          if (routineStart && yesterdayString < routineStart) continue
+          if (routineEnd && yesterdayString > routineEnd) continue
+          
+          const isCreationDate = routineStart && yesterdayString === routineStart
+          const hasExecutions = yesterdayExecutionsForTask.length > 0
+          
+          let shouldShowRoutine = false
+          if (routineType === "daily") {
+            shouldShowRoutine = true
+          } else if (routineType === "weekly" || routineType === "custom") {
+            // Check weekday logic
+            const weekday = metadata?.weekday
+            const weekdays = metadata?.weekdays
+            const dayOfWeek = yesterday.getDay()
+            
+            if (weekdays && Array.isArray(weekdays)) {
+              shouldShowRoutine = weekdays.includes(dayOfWeek)
+            } else if (weekday !== undefined && weekday !== null) {
+              shouldShowRoutine = weekday === dayOfWeek
+            }
+          }
+          
+          if (!isCreationDate && !hasExecutions && !shouldShowRoutine) continue
+        }
+        
+        // Count all instances that would be displayed
+        if (yesterdayExecutionsForTask.length > 0) {
+          // For executed tasks: count each execution instance
+          displayedTaskCount += yesterdayExecutionsForTask.length
+        } else {
+          // For non-executed tasks: count base instance
+          displayedTaskCount += 1
+        }
+        
+        // Add duplicated instances
+        if (duplicatedCounts[file.path]) {
+          displayedTaskCount += duplicatedCounts[file.path]
+        }
+      }
+      
+      // Restore original date
+      this.currentDate = originalDate
+      
+      // completedTasks is simply the count of task executions for that day
+      const actualCompletedTasks = yesterdayExecutions.length
+      
+      // Update dailySummary with actual displayed task count
+      if (monthlyLog.dailySummary[yesterdayString].totalTasks !== displayedTaskCount ||
+          monthlyLog.dailySummary[yesterdayString].completedTasks !== actualCompletedTasks) {
+        console.log(`[TaskChute] Recalculating ${yesterdayString} dailySummary:`)
+        console.log(`  totalTasks: ${monthlyLog.dailySummary[yesterdayString].totalTasks} -> ${displayedTaskCount}`)
+        console.log(`  completedTasks: ${monthlyLog.dailySummary[yesterdayString].completedTasks} -> ${actualCompletedTasks}`)
+        
+        monthlyLog.dailySummary[yesterdayString].totalTasks = displayedTaskCount
+        monthlyLog.dailySummary[yesterdayString].completedTasks = actualCompletedTasks
+        monthlyLog.dailySummary[yesterdayString].lastModified = new Date().toISOString()
+        
+        // Save updated monthly log
+        await this.app.vault.adapter.write(logFilePath, JSON.stringify(monthlyLog, null, 2))
+      }
+      
+    } catch (error) {
+      console.error("[TaskChute] Failed to recalculate yesterday's dailySummary:", error)
+    }
+  }
 
   async loadTasks() {
     const startTime = performance.now()
+    
+    // Check if we need to recalculate yesterday's dailySummary
+    await this.recalculateYesterdayDailySummary()
 
     let runningTaskPathsOnLoad = []
     try {
@@ -4837,6 +5095,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       // JSONファイルに基本データを保存（コメントなし）
       await this.saveTaskCompletion(inst, null)
+      
+      // ヒートマップデータを更新（TASK-007）
+      const dateString = this.getCurrentDateString()
+      const aggregator = new DailyTaskAggregator(this.plugin)
+      await aggregator.updateDailyStats(dateString)
     } catch (e) {
       new Notice("タスク記録の保存に失敗しました")
       console.error("Task completion save error:", e)
@@ -5767,9 +6030,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             ) / tasksWithEnergy.length
           : 0
 
+      // For past dates, we need to calculate based on actual displayed tasks
+      // For today, this is a provisional value that will be recalculated tomorrow
       monthlyLog.dailySummary[dateString] = {
-        totalTasks: todayTasks.length,
-        completedTasks: completedTasks,
+        totalTasks: todayTasks.length, // Count all instances (including duplicates)
+        completedTasks: completedTasks, // Count completed instances
         totalFocusTime: totalFocusTime,
         productivityScore: avgFocus > 0 ? avgFocus / 5 : 0,
         averageFocus: avgFocus,
@@ -5886,10 +6151,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                     (t) => t.isCompleted && t.isCompleted !== false,
                   ).length
 
-                  monthlyLog.dailySummary[dateString].totalTasks =
-                    dayTasks.length
-                  monthlyLog.dailySummary[dateString].completedTasks =
-                    completedTasks
+                  monthlyLog.dailySummary[dateString].totalTasks = dayTasks.length
+                  monthlyLog.dailySummary[dateString].completedTasks = completedTasks
                 } else {
                   // その日のタスクが全て削除された場合
                   delete monthlyLog.dailySummary[dateString]
@@ -5997,10 +6260,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                     (t) => t.isCompleted && t.isCompleted !== false,
                   ).length
 
-                  monthlyLog.dailySummary[dateString].totalTasks =
-                    dayTasks.length
-                  monthlyLog.dailySummary[dateString].completedTasks =
-                    completedTasks
+                  monthlyLog.dailySummary[dateString].totalTasks = dayTasks.length
+                  monthlyLog.dailySummary[dateString].completedTasks = completedTasks
                 } else {
                   // その日のタスクが全て削除された場合
                   delete monthlyLog.dailySummary[dateString]
@@ -7235,6 +7496,298 @@ target_date: ${targetDateString}
                 min-height: 0;
                 display: flex;
                 flex-direction: column;
+            }
+            
+            /* Log Modal Styles */
+            .taskchute-log-modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            }
+            
+            .taskchute-log-modal-content {
+                background: var(--background-primary);
+                border-radius: 8px;
+                width: 90%;
+                max-width: 1200px;
+                height: 80%;
+                max-height: 800px;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+            }
+            
+            .log-modal-close {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: none;
+                border: none;
+                font-size: 24px;
+                cursor: pointer;
+                color: var(--text-muted);
+                width: 30px;
+                height: 30px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 4px;
+            }
+            
+            .log-modal-close:hover {
+                background: var(--background-modifier-hover);
+                color: var(--text-normal);
+            }
+            
+            .taskchute-log-header {
+                padding: 20px;
+                border-bottom: 1px solid var(--background-modifier-border);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            .log-title {
+                margin: 0;
+                font-size: 24px;
+            }
+            
+            .log-controls {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            
+            .year-selector {
+                padding: 5px 10px;
+                border-radius: 4px;
+                border: 1px solid var(--background-modifier-border);
+                background: var(--background-secondary);
+                color: var(--text-normal);
+                font-size: 14px;
+            }
+            
+            .refresh-button {
+                padding: 5px 12px;
+                border-radius: 4px;
+                border: 1px solid var(--background-modifier-border);
+                background: var(--background-secondary);
+                color: var(--text-normal);
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .refresh-button:hover {
+                background: var(--background-modifier-hover);
+                border-color: var(--text-accent);
+            }
+            
+            .heatmap-container {
+                flex: 1;
+                padding: 20px;
+                overflow: auto;
+            }
+            
+            .heatmap-grid {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+            }
+            
+            .heatmap-placeholder {
+                color: var(--text-muted);
+                font-size: 16px;
+            }
+            
+            /* Heatmap Grid Styles */
+            .heatmap-grid-container {
+                padding: 20px;
+            }
+            
+            .heatmap-months {
+                position: relative;
+                height: 20px;
+                margin-bottom: 8px;
+                margin-left: 43px;
+            }
+            
+            .month-label {
+                font-size: 10px;
+                color: var(--text-muted);
+                position: absolute;
+                top: 0;
+                text-align: left;
+            }
+            
+            .heatmap-weekdays-container {
+                display: flex;
+                gap: 10px;
+            }
+            
+            .heatmap-weekdays {
+                display: grid;
+                grid-template-rows: repeat(7, 1fr);
+                gap: 2px;
+                width: 20px;
+            }
+            
+            .weekday-label {
+                font-size: 10px;
+                color: var(--text-muted);
+                height: 11px;
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                padding-right: 4px;
+            }
+            
+            .heatmap-grid {
+                display: grid;
+                grid-template-rows: repeat(7, 11px);
+                gap: 2px;
+                grid-auto-flow: column;
+                width: fit-content;
+            }
+            
+            .heatmap-cell {
+                width: 11px;
+                height: 11px;
+                background: var(--background-modifier-border);
+                border-radius: 2px;
+                cursor: pointer;
+                position: relative;
+            }
+            
+            .heatmap-cell.empty {
+                background: transparent;
+                cursor: default;
+            }
+            
+            .heatmap-cell[data-level="0"] {
+                background: #ebedf0;
+            }
+            
+            .heatmap-cell[data-level="1"] {
+                background: #DEF95D;
+            }
+            
+            .heatmap-cell[data-level="2"] {
+                background: #B5EE4F;
+            }
+            
+            .heatmap-cell[data-level="3"] {
+                background: #82D523;
+            }
+            
+            .heatmap-cell[data-level="4"] {
+                background: #54A923;
+            }
+            
+            @keyframes pulse {
+                0% {
+                    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.7);
+                }
+                70% {
+                    box-shadow: 0 0 0 10px rgba(118, 75, 162, 0);
+                }
+                100% {
+                    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0);
+                }
+            }
+            
+            .heatmap-cell:hover {
+                outline: 1px solid var(--text-normal);
+                outline-offset: -1px;
+            }
+            
+            .heatmap-cell.month-start {
+                margin-left: 4px;
+            }
+            
+            .heatmap-legend {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                margin-top: 10px;
+                margin-left: 30px;
+                font-size: 12px;
+                color: var(--text-muted);
+            }
+            
+            .legend-scale {
+                display: flex;
+                gap: 2px;
+            }
+            
+            .legend-cell {
+                width: 11px;
+                height: 11px;
+                border-radius: 2px;
+            }
+            
+            /* Loading styles */
+            .heatmap-loading {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 60px 20px;
+                color: var(--text-muted);
+                font-size: 14px;
+            }
+            
+            /* Error styles */
+            .heatmap-error {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: var(--text-error);
+                font-size: 14px;
+                background: var(--background-modifier-error);
+                border-radius: 4px;
+                margin-bottom: 20px;
+            }
+            
+            .legend-cell[data-level="0"] {
+                background: #ebedf0;
+            }
+            
+            .legend-cell[data-level="1"] {
+                background: #DEF95D;
+            }
+            
+            .legend-cell[data-level="2"] {
+                background: #B5EE4F;
+            }
+            
+            .legend-cell[data-level="3"] {
+                background: #82D523;
+            }
+            
+            .legend-cell[data-level="4"] {
+                background: #54A923;
+            }
+            
+            /* Heatmap Tooltip */
+            .heatmap-tooltip {
+                background: var(--background-secondary);
+                border: 1px solid var(--background-modifier-border);
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                white-space: pre-line;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                pointer-events: none;
             }
             
             /* TASK-012: タスク名自動補完のスタイル */
@@ -13595,9 +14148,889 @@ const TaskChuteSettingTab = PluginSettingTab ? class extends PluginSettingTab {
   }
 } : null
 
+// LogView class for displaying task heatmap
+// Shows GitHub-style contribution graph for task procrastination
+// Features:
+// - Year-based visualization of task completion/procrastination
+// - Special blue animation for zero procrastination days
+// - Click navigation to specific dates
+// - Performance optimized with caching and batch rendering
+class LogView {
+  constructor(plugin, container) {
+    this.plugin = plugin
+    this.container = container
+    this.currentYear = new Date().getFullYear()
+    this.heatmapData = null
+    this.dataCache = {} // Cache for yearly data
+  }
+
+  async render() {
+    // Clear container
+    this.container.empty()
+    
+    // Create header
+    this.createHeader()
+    
+    // Show loading
+    const loadingContainer = this.container.createEl("div", {
+      cls: "heatmap-loading",
+      text: "データを読み込み中..."
+    })
+    
+    try {
+      // Force regeneration on initial render for current year
+      if (this.currentYear === new Date().getFullYear()) {
+        // Clear cache
+        delete this.dataCache[this.currentYear]
+        
+        // Delete existing yearly file to force regeneration
+        try {
+          const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+          const heatmapPath = `${yearPath}/yearly-heatmap.json`
+          if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
+            await this.plugin.app.vault.adapter.remove(heatmapPath)
+            console.log(`[TaskChute] Initial render: Deleted existing yearly data for ${this.currentYear}`)
+          }
+        } catch (error) {
+          console.error("[TaskChute] Failed to delete yearly data:", error)
+        }
+      }
+      
+      // Load yearly data (will regenerate due to deletion above)
+      this.heatmapData = await this.loadYearlyData(this.currentYear)
+      
+      // Remove loading
+      loadingContainer.remove()
+      
+      // Render heatmap
+      this.renderHeatmap(this.heatmapData)
+    } catch (error) {
+      loadingContainer.remove()
+      console.error("[TaskChute] Failed to render heatmap:", error)
+      new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
+      this.renderEmptyHeatmap(this.currentYear)
+    }
+  }
+
+  createHeader() {
+    const header = this.container.createEl("div", {
+      cls: "taskchute-log-header"
+    })
+    
+    header.createEl("h2", {
+      text: "タスク実行ログ",
+      cls: "log-title"
+    })
+    
+    const controls = header.createEl("div", {
+      cls: "log-controls"
+    })
+    
+    // Year selector
+    const yearSelector = controls.createEl("select", {
+      cls: "year-selector"
+    })
+    
+    // Add years from 2020 to current year + 1
+    const currentYear = new Date().getFullYear()
+    for (let year = currentYear + 1; year >= 2020; year--) {
+      const option = yearSelector.createEl("option", {
+        value: year.toString(),
+        text: `${year}年`
+      })
+      if (year === this.currentYear) {
+        option.selected = true
+      }
+    }
+    
+    // Refresh button
+    const refreshButton = controls.createEl("button", {
+      cls: "refresh-button",
+      text: "🔄 データ更新",
+      title: "キャッシュをクリアして再計算"
+    })
+    
+    refreshButton.addEventListener("click", async () => {
+      // Clear cache for current year
+      delete this.dataCache[this.currentYear]
+      
+      // Delete existing yearly file to force regeneration
+      try {
+        const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+        const heatmapPath = `${yearPath}/yearly-heatmap.json`
+        if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
+          await this.plugin.app.vault.adapter.remove(heatmapPath)
+          console.log(`[TaskChute] Deleted existing yearly data for ${this.currentYear}`)
+        }
+      } catch (error) {
+        console.error("[TaskChute] Failed to delete yearly data:", error)
+      }
+      
+      // Clear current heatmap and show loading
+      const heatmapContainer = this.container.querySelector(".heatmap-container")
+      if (heatmapContainer) {
+        heatmapContainer.remove()
+      }
+      
+      const loadingContainer = this.container.createEl("div", {
+        cls: "heatmap-loading",
+        text: "データを再計算中..."
+      })
+      
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear)
+        loadingContainer.remove()
+        this.renderHeatmap(this.heatmapData)
+        new Notice(`${this.currentYear}年のデータを更新しました`)
+      } catch (error) {
+        loadingContainer.remove()
+        console.error("[TaskChute] Failed to reload year data:", error)
+        new Notice(`${this.currentYear}年のデータ更新に失敗しました`)
+        this.renderEmptyHeatmap(this.currentYear)
+      }
+    })
+    
+    // Year change handler
+    yearSelector.addEventListener("change", async (e) => {
+      this.currentYear = parseInt(e.target.value)
+      
+      // Clear current heatmap and show loading
+      const heatmapContainer = this.container.querySelector(".heatmap-container")
+      if (heatmapContainer) {
+        heatmapContainer.remove()
+      }
+      
+      const loadingContainer = this.container.createEl("div", {
+        cls: "heatmap-loading",
+        text: "データを読み込み中..."
+      })
+      
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear)
+        loadingContainer.remove()
+        this.renderHeatmap(this.heatmapData)
+      } catch (error) {
+        loadingContainer.remove()
+        console.error("[TaskChute] Failed to load year data:", error)
+        new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
+        this.renderEmptyHeatmap(this.currentYear)
+      }
+    })
+  }
+
+  async loadYearlyData(year) {
+    // Check cache first
+    if (this.dataCache[year]) {
+      console.log(`[TaskChute] Loading year ${year} data from cache`)
+      return this.dataCache[year]
+    }
+
+    const yearPath = this.plugin.pathManager.getLogYearPath(year)
+    const heatmapPath = `${yearPath}/yearly-heatmap.json`
+    
+    // Check if yearly data exists
+    if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
+      try {
+        const content = await this.plugin.app.vault.adapter.read(heatmapPath)
+        const data = JSON.parse(content)
+        
+        // Validate data structure
+        if (!data || typeof data !== 'object' || !data.year || !data.days) {
+          console.warn(`[TaskChute] Invalid yearly data structure for ${year}`)
+          throw new Error("Invalid data structure")
+        }
+        
+        // Store in cache
+        this.dataCache[year] = data
+        console.log(`[TaskChute] Loaded year ${year} data from file and cached`)
+        return data
+      } catch (error) {
+        console.error("[TaskChute] Failed to load yearly data:", error)
+      }
+    }
+    
+    // Generate from monthly logs if not exists
+    const generatedData = await this.generateYearlyData(year)
+    // Store in cache
+    this.dataCache[year] = generatedData
+    return generatedData
+  }
+
+  async generateYearlyData(year) {
+    console.log(`[TaskChute] Generating yearly data for ${year}`)
+    
+    const yearlyData = {
+      year: year,
+      days: {},
+      metadata: {
+        lastUpdated: new Date().toISOString(),
+        version: "1.0"
+      }
+    }
+
+    try {
+      // Create DailyTaskAggregator instance
+      const aggregator = new DailyTaskAggregator(this.plugin)
+      
+      // Process each month
+      for (let month = 1; month <= 12; month++) {
+        const monthString = `${year}-${month.toString().padStart(2, "0")}`
+        const logDataPath = this.plugin.pathManager.getLogDataPath()
+        const logFilePath = `${logDataPath}/${monthString}-tasks.json`
+        
+        // Check if monthly log exists
+        if (await this.plugin.app.vault.adapter.exists(logFilePath)) {
+          try {
+            const logContent = await this.plugin.app.vault.adapter.read(logFilePath)
+            const monthlyLog = JSON.parse(logContent)
+            
+            // Validate monthly log structure
+            if (!monthlyLog || typeof monthlyLog !== 'object') {
+              console.warn(`[TaskChute] Invalid monthly log structure for ${monthString}`)
+              continue
+            }
+            
+            // Use dailySummary if available (preferred data source)
+            if (monthlyLog.dailySummary && typeof monthlyLog.dailySummary === 'object') {
+              for (const [dateString, summary] of Object.entries(monthlyLog.dailySummary)) {
+                // Validate date format
+                if (!dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                  console.warn(`[TaskChute] Invalid date format: ${dateString}`)
+                  continue
+                }
+                
+                // Only process dates from the target year
+                if (dateString.startsWith(`${year}-`)) {
+                  yearlyData.days[dateString] = {
+                    totalTasks: summary.totalTasks || 0,
+                    completedTasks: summary.completedTasks || 0,
+                    procrastinatedTasks: (summary.totalTasks || 0) - (summary.completedTasks || 0),
+                    completionRate: summary.totalTasks > 0 ? (summary.completedTasks / summary.totalTasks) : 0
+                  }
+                }
+              }
+            } else if (monthlyLog.taskExecutions && typeof monthlyLog.taskExecutions === 'object') {
+              // Fallback to calculating from taskExecutions if dailySummary is not available
+              for (const [dateString, dayTasks] of Object.entries(monthlyLog.taskExecutions)) {
+                // Validate date format
+                if (!dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                  console.warn(`[TaskChute] Invalid date format: ${dateString}`)
+                  continue
+                }
+                
+                // Only process dates from the target year
+                if (dateString.startsWith(`${year}-`)) {
+                  // Validate dayTasks is an array
+                  if (!Array.isArray(dayTasks)) {
+                    console.warn(`[TaskChute] Invalid task data for ${dateString}`)
+                    continue
+                  }
+                  
+                  const stats = aggregator.calculateDailyStats(dayTasks)
+                  yearlyData.days[dateString] = stats
+                }
+              }
+            }
+          } catch (parseError) {
+            console.error(`[TaskChute] Failed to parse monthly log ${monthString}:`, parseError)
+            continue
+          }
+        }
+      }
+      
+      // Save the generated yearly data
+      const yearPath = await this.plugin.pathManager.ensureYearFolder(year)
+      const heatmapPath = `${yearPath}/yearly-heatmap.json`
+      await this.plugin.app.vault.adapter.write(
+        heatmapPath,
+        JSON.stringify(yearlyData, null, 2)
+      )
+      
+      console.log(`[TaskChute] Generated yearly data for ${year} with ${Object.keys(yearlyData.days).length} days`)
+    } catch (error) {
+      console.error(`[TaskChute] Failed to generate yearly data for ${year}:`, error)
+    }
+
+    return yearlyData
+  }
+
+  renderHeatmap(data) {
+    // Remove existing heatmap if any
+    const existingHeatmap = this.container.querySelector(".heatmap-container")
+    if (existingHeatmap) {
+      existingHeatmap.remove()
+    }
+    
+    // Create heatmap container
+    const heatmapContainer = this.container.createEl("div", {
+      cls: "heatmap-container"
+    })
+    
+    // Create heatmap grid
+    const grid = this.createHeatmapGrid(data.year)
+    heatmapContainer.appendChild(grid)
+    
+    // Apply data to cells
+    this.applyDataToGrid(data)
+  }
+  
+  applyDataToGrid(data) {
+    if (!data.days) return
+    
+    // Batch updates for better performance
+    const entries = Object.entries(data.days)
+    const batchSize = 50
+    let currentIndex = 0
+    
+    const processBatch = () => {
+      const endIndex = Math.min(currentIndex + batchSize, entries.length)
+      
+      for (let i = currentIndex; i < endIndex; i++) {
+        const [dateString, stats] = entries[i]
+        const cell = this.container.querySelector(`[data-date="${dateString}"]`)
+        if (cell) {
+          const level = this.calculateLevel(stats)
+          cell.dataset.level = level.toString()
+          
+          // Set tooltip data
+          const tooltip = this.createTooltipText(dateString, stats)
+          cell.dataset.tooltip = tooltip
+        }
+      }
+      
+      currentIndex = endIndex
+      
+      // Continue processing if more data
+      if (currentIndex < entries.length) {
+        requestAnimationFrame(processBatch)
+      }
+    }
+    
+    // Start batch processing
+    requestAnimationFrame(processBatch)
+  }
+  
+  calculateLevel(stats) {
+    if (!stats || stats.totalTasks === 0) return 0
+    if (stats.procrastinatedTasks === 0) return 4 // 先送り0は最高レベル
+    
+    const rate = stats.completionRate
+    if (rate >= 0.8) return 3
+    if (rate >= 0.5) return 2
+    if (rate >= 0.2) return 1
+    return 1
+  }
+  
+  createTooltipText(dateString, stats) {
+    const date = new Date(dateString + "T00:00:00")
+    const dateText = date.toLocaleDateString("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      weekday: "long"
+    })
+    
+    if (!stats || stats.totalTasks === 0) {
+      return `${dateText}\nタスクなし`
+    }
+    
+    return `${dateText}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${Math.round(stats.completionRate * 100)}%`
+  }
+  
+  renderEmptyHeatmap(year) {
+    // Remove existing heatmap if any
+    const existingHeatmap = this.container.querySelector(".heatmap-container")
+    if (existingHeatmap) {
+      existingHeatmap.remove()
+    }
+    
+    // Create empty heatmap container
+    const heatmapContainer = this.container.createEl("div", {
+      cls: "heatmap-container"
+    })
+    
+    // Create error message
+    const errorMsg = heatmapContainer.createEl("div", {
+      cls: "heatmap-error",
+      text: `${year}年のデータは利用できません`
+    })
+    
+    // Create empty grid with default styling
+    const emptyData = {
+      year: year,
+      days: {}
+    }
+    
+    const grid = this.createHeatmapGrid(year)
+    heatmapContainer.appendChild(grid)
+    
+    // Style all cells as empty
+    const cells = grid.querySelectorAll(".heatmap-cell")
+    cells.forEach(cell => {
+      cell.dataset.level = "0"
+      cell.dataset.tooltip = "データなし"
+    })
+  }
+  
+  addCellEventListeners(cell, dateString) {
+    // Hover event for tooltip
+    cell.addEventListener("mouseenter", (e) => {
+      this.showTooltip(cell)
+    })
+    
+    cell.addEventListener("mouseleave", () => {
+      this.hideTooltip()
+    })
+    
+    // Click event to navigate to date
+    cell.addEventListener("click", async (e) => {
+      console.log(`[TaskChute] Cell clicked: ${dateString}`)
+      e.stopPropagation()
+      await this.navigateToDate(dateString)
+    })
+  }
+  
+  showTooltip(cell) {
+    // Remove existing tooltip
+    this.hideTooltip()
+    
+    const tooltipText = cell.dataset.tooltip
+    if (!tooltipText) return
+    
+    const tooltip = document.createElement("div")
+    tooltip.className = "heatmap-tooltip"
+    tooltip.textContent = tooltipText
+    
+    // Position tooltip
+    const rect = cell.getBoundingClientRect()
+    const containerRect = this.container.getBoundingClientRect()
+    
+    tooltip.style.position = "absolute"
+    tooltip.style.left = `${rect.left - containerRect.left}px`
+    tooltip.style.top = `${rect.bottom - containerRect.top + 5}px`
+    tooltip.style.zIndex = "1000"
+    
+    this.container.appendChild(tooltip)
+    this.currentTooltip = tooltip
+  }
+  
+  hideTooltip() {
+    if (this.currentTooltip) {
+      this.currentTooltip.remove()
+      this.currentTooltip = null
+    }
+  }
+  
+  async navigateToDate(dateString) {
+    console.log(`[TaskChute] Navigating to date: ${dateString}`)
+    
+    try {
+      // Parse date string
+      const [year, month, day] = dateString.split("-").map(Number)
+      
+      // Get or create TaskChute view
+      const leaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view")
+      let leaf
+      
+      if (leaves.length === 0) {
+        console.log("[TaskChute] Creating new TaskChute view")
+        leaf = this.plugin.app.workspace.getRightLeaf(false)
+        await leaf.setViewState({
+          type: "taskchute-view",
+          active: true
+        })
+        // Wait for view to be ready
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        // Get leaves again after creation
+        const newLeaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view")
+        if (newLeaves.length > 0) {
+          leaf = newLeaves[0]
+        }
+      } else {
+        leaf = leaves[0]
+      }
+      
+      const view = leaf.view
+      if (!view || typeof view.loadTasks !== 'function') {
+        console.error("[TaskChute] Valid TaskChuteView not available")
+        return
+      }
+      
+      console.log("[TaskChute] Setting current date...")
+      // Update TaskChuteView's current date
+      view.currentDate = new Date(year, month - 1, day)
+      
+      // Update date label
+      console.log("[TaskChute] Updating date label...")
+      if (view.updateDateLabel && view.containerEl) {
+        const dateLabel = view.containerEl.querySelector('.date-nav-label')
+        if (dateLabel) {
+          view.updateDateLabel(dateLabel)
+        }
+      }
+      
+      // Load tasks
+      console.log("[TaskChute] Loading tasks...")
+      await view.loadTasks()
+      
+      // Make the view active
+      this.plugin.app.workspace.setActiveLeaf(leaf)
+      
+      // Close log modal
+      console.log("[TaskChute] Closing modal...")
+      const modal = this.container.closest(".taskchute-log-modal-overlay")
+      if (modal) {
+        modal.remove()
+        console.log("[TaskChute] Modal closed")
+      } else {
+        console.warn("[TaskChute] Modal not found")
+      }
+    } catch (error) {
+      console.error("[TaskChute] Error in navigateToDate:", error)
+    }
+  }
+
+  createHeatmapGrid(year) {
+    const gridContainer = document.createElement("div")
+    gridContainer.className = "heatmap-grid-container"
+    
+    // Month names
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    // Create month labels container
+    const monthLabels = gridContainer.createEl("div", {
+      cls: "heatmap-months"
+    })
+    
+    // Create weekday labels
+    const weekdayContainer = gridContainer.createEl("div", {
+      cls: "heatmap-weekdays-container"
+    })
+    
+    const weekdayLabels = weekdayContainer.createEl("div", {
+      cls: "heatmap-weekdays"
+    })
+    // 7つのスペースを作成し、適切な位置にラベルを配置
+    const weekdays = ["日", "月", "火", "水", "木", "金", "土"]
+    weekdays.forEach((day, index) => {
+      const label = weekdayLabels.createEl("span", {
+        cls: "weekday-label"
+      })
+      // 月(index=1)、水(index=3)、金(index=5)のみテキストを表示
+      if (index === 1 || index === 3 || index === 5) {
+        label.textContent = day
+      }
+    })
+    
+    // Create grid - ALWAYS 53 columns for consistency
+    const grid = weekdayContainer.createEl("div", {
+      cls: "heatmap-grid"
+    })
+    
+    // Set fixed 53 columns
+    grid.style.gridTemplateColumns = `repeat(53, 11px)`
+    
+    // Calculate the first Sunday and last Saturday of the year grid
+    const firstDay = new Date(year, 0, 1)
+    const lastDay = new Date(year, 11, 31)
+    
+    // Find the first Sunday (could be in previous year)
+    const firstSunday = new Date(firstDay)
+    firstSunday.setDate(firstSunday.getDate() - firstDay.getDay())
+    
+    // Create exactly 53 weeks of cells (371 cells = 53 * 7)
+    const currentDate = new Date(firstSunday)
+    let weekIndex = 0
+    let lastMonthSeen = -1
+    
+    for (let i = 0; i < 371; i++) {
+      const dateString = this.formatDateString(currentDate)
+      const isCurrentYear = currentDate.getFullYear() === year
+      
+      const cell = grid.createEl("div", {
+        cls: isCurrentYear ? "heatmap-cell" : "heatmap-cell empty",
+        attr: {
+          "data-date": dateString,
+          "data-level": "0"
+        }
+      })
+      
+      // Only add event listeners to cells in the current year
+      if (isCurrentYear) {
+        this.addCellEventListeners(cell, dateString)
+        
+        // Add month label when we see a new month
+        const currentMonth = currentDate.getMonth()
+        if (currentMonth !== lastMonthSeen) {
+          const label = monthLabels.createEl("span", {
+            cls: "month-label",
+            text: months[currentMonth]
+          })
+          // Position based on current week
+          label.style.left = `${weekIndex * 13}px`
+          lastMonthSeen = currentMonth
+        }
+      }
+      
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1)
+      
+      // Increment week counter every Sunday
+      if (i > 0 && (i + 1) % 7 === 0) {
+        weekIndex++
+      }
+    }
+    
+    // Create legend
+    const legend = gridContainer.createEl("div", {
+      cls: "heatmap-legend"
+    })
+    
+    legend.createEl("span", {
+      cls: "legend-label",
+      text: "Less"
+    })
+    
+    const legendScale = legend.createEl("div", {
+      cls: "legend-scale"
+    })
+    
+    for (let i = 0; i <= 4; i++) {
+      legendScale.createEl("div", {
+        cls: "legend-cell",
+        attr: { "data-level": i.toString() }
+      })
+    }
+    
+    legend.createEl("span", {
+      cls: "legend-label",
+      text: "More"
+    })
+    
+    return gridContainer
+  }
+
+  formatDateString(date) {
+    const year = date.getFullYear()
+    const month = (date.getMonth() + 1).toString().padStart(2, "0")
+    const day = date.getDate().toString().padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+  
+  calculateMonthPositions(year) {
+    const positions = []
+    
+    // Find the first Sunday of the grid (could be in previous year)
+    const firstDayOfYear = new Date(year, 0, 1)
+    const firstSunday = new Date(firstDayOfYear)
+    firstSunday.setDate(firstSunday.getDate() - firstDayOfYear.getDay())
+    
+    for (let month = 0; month < 12; month++) {
+      const firstDayOfMonth = new Date(year, month, 1)
+      
+      // Calculate which week column this month starts in
+      const daysSinceFirstSunday = Math.floor((firstDayOfMonth - firstSunday) / (24 * 60 * 60 * 1000))
+      const weekColumn = Math.floor(daysSinceFirstSunday / 7)
+      
+      positions.push({
+        month: month,
+        weekColumn: weekColumn,
+        dayOfWeek: firstDayOfMonth.getDay()
+      })
+    }
+    return positions
+  }
+  
+  getWeekOfYear(date) {
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1)
+    const firstDayOfWeek = firstDayOfYear.getDay()
+    const daysSinceStart = Math.floor((date - firstDayOfYear) / (24 * 60 * 60 * 1000))
+    return Math.floor((daysSinceStart + firstDayOfWeek) / 7)
+  }
+  
+  getWeekPositionForMonth(year, month) {
+    const firstDayOfMonth = new Date(year, month, 1)
+    const firstDayOfYear = new Date(year, 0, 1)
+    
+    // Calculate how many weeks have passed since the first Sunday of the year grid
+    const firstSundayOffset = firstDayOfYear.getDay() // Days before first Sunday
+    const daysSinceYearStart = Math.floor((firstDayOfMonth - firstDayOfYear) / (24 * 60 * 60 * 1000))
+    const totalDays = daysSinceYearStart + firstSundayOffset
+    
+    // Week position in the grid (0-based)
+    return Math.floor(totalDays / 7)
+  }
+  
+  getTotalWeeksForYear(year) {
+    const firstDay = new Date(year, 0, 1)
+    const lastDay = new Date(year, 11, 31)
+    
+    // Find the first Sunday (could be in previous year)
+    const firstSunday = new Date(firstDay)
+    firstSunday.setDate(firstSunday.getDate() - firstDay.getDay())
+    
+    // Find the last Saturday (could be in next year)
+    const lastSaturday = new Date(lastDay)
+    lastSaturday.setDate(lastSaturday.getDate() + (6 - lastDay.getDay()))
+    
+    // Calculate total days and weeks
+    const totalDays = Math.floor((lastSaturday - firstSunday) / (24 * 60 * 60 * 1000)) + 1
+    return Math.ceil(totalDays / 7)
+  }
+
+  close() {
+    // Clean up if needed
+  }
+}
+
+// DailyTaskAggregator class for collecting task statistics
+// Aggregates daily task data from monthly logs and updates yearly heatmap data
+// Features:
+// - Calculates completion rate and procrastination count
+// - Updates yearly heatmap data in real-time
+// - Handles data validation and error recovery
+class DailyTaskAggregator {
+  constructor(plugin) {
+    this.plugin = plugin
+  }
+
+  async loadMonthlyData(dateString) {
+    try {
+      const [year, month] = dateString.split("-")
+      const monthString = `${year}-${month}`
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`
+
+      if (!(await this.plugin.app.vault.adapter.exists(logFilePath))) {
+        return { taskExecutions: {} }
+      }
+
+      const logContent = await this.plugin.app.vault.adapter.read(logFilePath)
+      return JSON.parse(logContent)
+    } catch (error) {
+      console.error("[TaskChute] Failed to load monthly data:", error)
+      return { taskExecutions: {} }
+    }
+  }
+
+  calculateDailyStats(dayTasks) {
+    const stats = {
+      totalTasks: 0,
+      completedTasks: 0,
+      procrastinatedTasks: 0,
+      completionRate: 0
+    }
+
+    if (!dayTasks || !Array.isArray(dayTasks)) {
+      return stats
+    }
+
+    // Count total tasks (unique task names)
+    const taskCompletionMap = new Map()
+    
+    dayTasks.forEach(task => {
+      // Validate task object
+      if (task && typeof task === 'object' && task.taskName && typeof task.taskName === 'string') {
+        const taskName = task.taskName
+        // isCompleted can be a date string (truthy) or false/null/undefined (falsy)
+        const isCompleted = task.isCompleted ? true : false
+        
+        // Track completion status per unique task
+        if (!taskCompletionMap.has(taskName)) {
+          taskCompletionMap.set(taskName, false)
+        }
+        
+        // If any instance is completed, mark the task as completed
+        if (isCompleted) {
+          taskCompletionMap.set(taskName, true)
+        }
+      }
+    })
+    
+    // Calculate stats based on unique tasks
+    stats.totalTasks = taskCompletionMap.size
+    stats.completedTasks = Array.from(taskCompletionMap.values()).filter(completed => completed).length
+
+    // Calculate procrastinated tasks
+    stats.procrastinatedTasks = stats.totalTasks - stats.completedTasks
+
+    // Calculate completion rate
+    stats.completionRate = stats.totalTasks > 0 
+      ? stats.completedTasks / stats.totalTasks 
+      : 0
+
+    return stats
+  }
+
+  async updateDailyStats(dateString) {
+    try {
+      // Load monthly data
+      const monthlyData = await this.loadMonthlyData(dateString)
+      const dayTasks = monthlyData.taskExecutions?.[dateString] || []
+
+      // Calculate stats
+      const stats = this.calculateDailyStats(dayTasks)
+
+      // Update yearly data
+      await this.updateYearlyData(dateString, stats)
+
+      return stats
+    } catch (error) {
+      console.error("[TaskChute] Failed to update daily stats:", error)
+      return null
+    }
+  }
+
+  async updateYearlyData(dateString, stats) {
+    try {
+      const [year] = dateString.split("-")
+      const yearPath = await this.plugin.pathManager.ensureYearFolder(year)
+      const heatmapPath = `${yearPath}/yearly-heatmap.json`
+
+      let yearlyData
+      if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
+        const content = await this.plugin.app.vault.adapter.read(heatmapPath)
+        yearlyData = JSON.parse(content)
+      } else {
+        yearlyData = {
+          year: parseInt(year),
+          days: {},
+          metadata: {
+            version: "1.0"
+          }
+        }
+      }
+
+      // Update the specific day
+      yearlyData.days[dateString] = stats
+      yearlyData.metadata.lastUpdated = new Date().toISOString()
+
+      // Save back
+      await this.plugin.app.vault.adapter.write(
+        heatmapPath,
+        JSON.stringify(yearlyData, null, 2)
+      )
+
+      // Update cache if LogView exists
+      const view = this.plugin.view
+      if (view && view.logView && view.logView.dataCache[year]) {
+        view.logView.dataCache[year] = yearlyData
+        console.log(`[TaskChute] Updated cache for year ${year}`)
+      }
+
+      console.log(`[TaskChute] Updated yearly data for ${dateString}`)
+    } catch (error) {
+      console.error("[TaskChute] Failed to update yearly data:", error)
+    }
+  }
+}
+
 module.exports = TaskChutePlusPlugin
 module.exports.TaskChutePlugin = TaskChutePlusPlugin
 module.exports.TaskChuteView = TaskChuteView
 module.exports.sortTaskInstances = sortTaskInstances
 module.exports.NavigationState = NavigationState
 module.exports.PathManager = PathManager
+module.exports.LogView = LogView
+module.exports.DailyTaskAggregator = DailyTaskAggregator
