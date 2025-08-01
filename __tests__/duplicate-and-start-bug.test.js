@@ -154,6 +154,11 @@ describe("duplicateAndStartInstance バグ再現テスト", () => {
         getTaskFolderPath: jest.fn().mockReturnValue('TaskChute/Task'),
         getProjectFolderPath: jest.fn().mockReturnValue('TaskChute/Project'),
         getLogDataPath: jest.fn().mockReturnValue('TaskChute/Log')
+      },
+      routineAliasManager: {
+        getAliases: jest.fn(() => []),
+        findCurrentName: jest.fn(),
+        addAlias: jest.fn()
       }
     }
 

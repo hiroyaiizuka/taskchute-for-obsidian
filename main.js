@@ -80,6 +80,109 @@ class PathManager {
   }
 }
 
+// RoutineAliasManager class for managing routine task name changes
+class RoutineAliasManager {
+  constructor(plugin) {
+    this.plugin = plugin
+    this.aliasCache = null
+  }
+  
+  // Get the path to the routine-aliases.json file
+  getAliasFilePath() {
+    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+    return `${taskFolderPath}/routine-aliases.json`
+  }
+  
+  // Load aliases from file
+  async loadAliases() {
+    if (this.aliasCache) return this.aliasCache
+    
+    const path = this.getAliasFilePath()
+    try {
+      if (await this.plugin.app.vault.adapter.exists(path)) {
+        const content = await this.plugin.app.vault.adapter.read(path)
+        this.aliasCache = JSON.parse(content)
+        return this.aliasCache
+      }
+    } catch (error) {
+      console.error('Failed to load routine aliases:', error)
+      new Notice('ルーチンタスクの名前変更履歴の読み込みに失敗しました')
+    }
+    
+    this.aliasCache = {}
+    return this.aliasCache
+  }
+  
+  // Save aliases to file
+  async saveAliases(aliases) {
+    try {
+      const path = this.getAliasFilePath()
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      
+      // Ensure folder exists
+      await this.plugin.pathManager.ensureFolderExists(taskFolderPath)
+      
+      // Validate JSON
+      JSON.stringify(aliases)
+      
+      await this.plugin.app.vault.adapter.write(
+        path, 
+        JSON.stringify(aliases, null, 2)
+      )
+      
+      this.aliasCache = aliases
+    } catch (error) {
+      console.error('Failed to save routine aliases:', error)
+      new Notice('ルーチンタスクの名前変更履歴の保存に失敗しました')
+    }
+  }
+  
+  // Add alias for a renamed task
+  async addAlias(newName, oldName) {
+    const aliases = await this.loadAliases()
+    
+    if (!aliases[newName]) {
+      aliases[newName] = []
+    }
+    
+    // Include existing aliases
+    if (aliases[oldName]) {
+      aliases[newName] = [...aliases[oldName], oldName]
+      delete aliases[oldName]
+    } else {
+      aliases[newName].push(oldName)
+    }
+    
+    // Remove duplicates
+    aliases[newName] = [...new Set(aliases[newName])]
+    
+    await this.saveAliases(aliases)
+  }
+  
+  // Get aliases for a task name
+  getAliases(taskName) {
+    return this.aliasCache?.[taskName] || []
+  }
+  
+  // Find current name for an old name
+  findCurrentName(oldName, visited = new Set()) {
+    if (!this.aliasCache) return null
+    
+    // Prevent circular references
+    if (visited.has(oldName)) return null
+    visited.add(oldName)
+    
+    // Find current name
+    for (const [current, aliases] of Object.entries(this.aliasCache)) {
+      if (aliases.includes(oldName)) {
+        return current
+      }
+    }
+    
+    return null
+  }
+}
+
 // NavigationState class for managing navigation panel state
 class NavigationState {
   constructor() {
@@ -914,6 +1017,47 @@ class TaskChuteView extends ItemView {
                 // エラーは無視
               }
 
+              // ルーチンタスクの場合、名前変更を記録
+              const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
+              const isRoutine = metadata?.routine === true || content.includes("#routine")
+              
+              if (isRoutine) {
+                const oldName = oldPath.split('/').pop().replace('.md', '')
+                const newName = file.basename
+                await this.plugin.routineAliasManager.addAlias(newName, oldName)
+                console.log(`[TaskChute] ルーチンタスクの名前変更を記録: ${oldName} → ${newName}`)
+              }
+              
+              // 複製情報のパスも更新する
+              const today = this.currentDate
+              const y = today.getFullYear()
+              const m = (today.getMonth() + 1).toString().padStart(2, "0")
+              const d = today.getDate().toString().padStart(2, "0")
+              const dateString = `${y}-${m}-${d}`
+              const duplicatedKey = `taskchute-duplicated-instances-${dateString}`
+              
+              try {
+                const duplicatedData = localStorage.getItem(duplicatedKey)
+                if (duplicatedData) {
+                  const duplicatedInstances = JSON.parse(duplicatedData)
+                  let updated = false
+                  
+                  duplicatedInstances.forEach(dup => {
+                    if (dup.path === oldPath) {
+                      dup.path = file.path
+                      updated = true
+                    }
+                  })
+                  
+                  if (updated) {
+                    localStorage.setItem(duplicatedKey, JSON.stringify(duplicatedInstances))
+                    console.log(`[TaskChute] 複製情報のパスを更新: ${oldPath} → ${file.path}`)
+                  }
+                }
+              } catch (e) {
+                console.error("[TaskChute] 複製情報の更新エラー:", e)
+              }
+              
               // 実行中タスクのパスを更新
               await this.updateRunningTaskPath(
                 oldPath,
@@ -1491,8 +1635,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
         const isRoutine = metadata?.routine === true || content.includes("#routine")
         
+        const aliases = this.plugin.routineAliasManager.getAliases(file.basename) || []
         const yesterdayExecutionsForTask = yesterdayExecutions.filter(
-          exec => exec.taskTitle === file.basename
+          exec => exec.taskTitle === file.basename || aliases.includes(exec.taskTitle)
         )
         
         // Apply the same display logic
@@ -1800,8 +1945,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
 
         // ルーチン化されていないタスクは、今日の実行履歴がある場合のみ表示
+        const aliasesForToday = this.plugin.routineAliasManager.getAliases(file.basename) || []
         const todayExecutionsForTask = todayExecutions.filter(
-          (exec) => exec.taskTitle === file.basename,
+          (exec) => exec.taskTitle === file.basename || aliasesForToday.includes(exec.taskTitle),
         )
 
         // ルーチンタスクでない場合は、今日の実行履歴がない場合はスキップ
@@ -1991,6 +2137,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: new Date(exec.stopTime),
               slotKey: instanceSlotKey,
               order: savedOrder, // 保存された値またはnull
+              executedTitle: exec.taskTitle,  // 実行時のタスク名を保持
               instanceId:
                 exec.instanceId || this.generateInstanceId(taskObj.path), // 保存されたIDを使用、なければ新規生成
             }
@@ -2724,7 +2871,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.tasks.push(taskObj)
         
         // 実行履歴の処理
-        const executions = todayExecutions.filter(exec => exec.taskTitle === file.basename)
+        const taskAliases = this.plugin.routineAliasManager.getAliases(file.basename) || []
+        const executions = todayExecutions.filter(exec => exec.taskTitle === file.basename || taskAliases.includes(exec.taskTitle))
         
         if (executions.length > 0) {
           // 完了済みインスタンス
@@ -2758,7 +2906,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: new Date(exec.stopTime),
               slotKey: instanceSlotKey,
               order: order,
-              instanceId: exec.instanceId || this.generateInstanceId(taskObj.path)
+              instanceId: exec.instanceId || this.generateInstanceId(taskObj.path),
+              executedTitle: exec.taskTitle  // 実行時のタスク名を保持
             })
           }
         } else {
@@ -2869,7 +3018,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // タスク表示判定（ヘルパー）
   shouldShowTask(taskObj, dateStr, todayExecutions, runningTaskPathsOnLoad, duplicatedInstances) {
-    const executions = todayExecutions.filter(exec => exec.taskTitle === taskObj.title)
+    // エイリアスを考慮して実行履歴を検索
+    const aliases = this.plugin.routineAliasManager.getAliases(taskObj.title) || []
+    const executions = todayExecutions.filter(exec => 
+      exec.taskTitle === taskObj.title || aliases.includes(exec.taskTitle)
+    )
     
     // ルーチンタスクの判定
     if (taskObj.isRoutine) {
@@ -3723,10 +3876,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   async toggleRoutine(task, button) {
     try {
+      // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      const filePath = `${taskFolderPath}/${task.title}.md`
+      const file = this.app.vault.getAbstractFileByPath(filePath)
+      
+      if (!file || !(file instanceof TFile)) {
+        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        return
+      }
+      
       if (task.isRoutine) {
         // ルーチンタスクを解除: frontmatterを消さずroutine_endとroutine:falseのみ記録
         await this.app.fileManager.processFrontMatter(
-          task.file,
+          file,
           (frontmatter) => {
             const y = this.currentDate.getFullYear()
             const m = (this.currentDate.getMonth() + 1)
@@ -4025,10 +4188,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         weekdaysArray
       });
 
-      await this.ensureFrontMatter(task.file)
+      // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      const filePath = `${taskFolderPath}/${task.title}.md`
+      const file = this.app.vault.getAbstractFileByPath(filePath)
+      
+      if (!file || !(file instanceof TFile)) {
+        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        return
+      }
+
+      await this.ensureFrontMatter(file)
       // メタデータを更新
       await this.app.fileManager.processFrontMatter(
-        task.file,
+        file,
         (frontmatter) => {
           // ルーチンフラグをtrueに設定
           frontmatter.routine = true
@@ -4717,15 +4890,36 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this.updateTaskItemDisplay(taskItem, inst)
     })
     // タスク名
+    // 実行済みタスクの場合は実行時のタイトルを使用
+    const displayTitle = inst.executedTitle || inst.task.title
     const taskName = taskItem.createEl("a", {
       cls: "task-name wikilink",
-      text: inst.task.title,
+      text: displayTitle,
       href: "#",
-      attr: { title: `${inst.task.title} を開く` },
+      attr: { title: `${displayTitle} を開く` },
     })
-    taskName.addEventListener("click", (e) => {
+    taskName.addEventListener("click", async (e) => {
       e.preventDefault()
-      this.app.workspace.openLinkText(inst.task.title, "", false)
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      // 実行済みタスクの場合は実行時のタイトルを使用
+      const searchTitle = inst.executedTitle || inst.task.title
+      let filePath = `${taskFolderPath}/${searchTitle}.md`
+      
+      // ファイルが存在しない場合、エイリアスから現在の名前を探す
+      if (!await this.app.vault.adapter.exists(filePath)) {
+        const currentName = this.plugin.routineAliasManager.findCurrentName(searchTitle)
+        if (currentName) {
+          filePath = `${taskFolderPath}/${currentName}.md`
+          // 現在の名前でファイルを開く
+          this.app.workspace.openLinkText(currentName, "", false)
+        } else {
+          // ファイルが見つからない場合は元の名前で試す
+          this.app.workspace.openLinkText(searchTitle, "", false)
+        }
+      } else {
+        // ファイルが存在する場合は通常通り開く
+        this.app.workspace.openLinkText(searchTitle, "", false)
+      }
     })
 
     // プロジェクト表示コンポーネント（タスク名の隣に配置）
@@ -13661,6 +13855,10 @@ class TaskChutePlusPlugin extends Plugin {
     // PathManagerの初期化
     this.pathManager = new PathManager(this)
     
+    // RoutineAliasManagerの初期化
+    this.routineAliasManager = new RoutineAliasManager(this)
+    await this.routineAliasManager.loadAliases()
+    
     // 初回起動時のフォルダ作成
     await this.ensureRequiredFolders()
 
@@ -15089,3 +15287,4 @@ module.exports.NavigationState = NavigationState
 module.exports.PathManager = PathManager
 module.exports.LogView = LogView
 module.exports.DailyTaskAggregator = DailyTaskAggregator
+module.exports.RoutineAliasManager = RoutineAliasManager
