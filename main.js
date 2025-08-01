@@ -1770,6 +1770,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.tasks = []
     this.taskInstances = []
     this.taskList.empty()
+    
+    // 使用済みインスタンスIDを追跡（重複防止）
+    const usedInstanceIds = new Set()
 
     // 削除済みインスタンスを取得（新形式）
     const deletedInstances = this.getDeletedInstances(this.getCurrentDateString())
@@ -2130,6 +2133,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               instanceSlotKey = exec.slotKey || slotKey
             }
 
+            // インスタンスIDの生成/取得
+            const instanceId = exec.instanceId || this.generateInstanceId(taskObj.path)
+            
+            // 重複チェック：既に使用されているinstanceIdはスキップ
+            if (usedInstanceIds.has(instanceId)) {
+              console.warn(`[TaskChute] 重複したinstanceIdをスキップ: ${instanceId} (${taskObj.title})`)
+              return
+            }
+            usedInstanceIds.add(instanceId)
+
             const instance = {
               task: taskObj,
               state: "done",
@@ -2138,8 +2151,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               slotKey: instanceSlotKey,
               order: savedOrder, // 保存された値またはnull
               executedTitle: exec.taskTitle,  // 実行時のタスク名を保持
-              instanceId:
-                exec.instanceId || this.generateInstanceId(taskObj.path), // 保存されたIDを使用、なければ新規生成
+              instanceId: instanceId
             }
 
             // manuallyPositionedフィールドは削除
@@ -2151,22 +2163,29 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // 未実行のインスタンスを1つ追加（実行履歴がない場合のみ）
         if (todayExecutionsForTask.length === 0) {
           // 実行履歴がない場合は、元の位置に未実行インスタンスを追加
-          const instance = {
-            task: taskObj,
-            state: "idle",
-            startTime: null,
-            stopTime: null,
-            slotKey: slotKey,
-            order: null, // initializeTaskOrdersで設定される
-            instanceId: this.generateInstanceId(taskObj.path), // 一意のインスタンスID
-          }
-
-          // インスタンスレベルでのフィルタリング
-          const isDeleted = this.isInstanceDeleted(instance.instanceId, taskObj.path, dateString)
-          const isHidden = this.isInstanceHidden(instance.instanceId, taskObj.path, dateString)
+          const instanceId = this.generateInstanceId(taskObj.path)
           
-          if (!isDeleted && !isHidden) {
-            this.taskInstances.push(instance)
+          // 重複チェック
+          if (!usedInstanceIds.has(instanceId)) {
+            usedInstanceIds.add(instanceId)
+            
+            const instance = {
+              task: taskObj,
+              state: "idle",
+              startTime: null,
+              stopTime: null,
+              slotKey: slotKey,
+              order: null, // initializeTaskOrdersで設定される
+              instanceId: instanceId
+            }
+
+            // インスタンスレベルでのフィルタリング
+            const isDeleted = this.isInstanceDeleted(instance.instanceId, taskObj.path, dateString)
+            const isHidden = this.isInstanceHidden(instance.instanceId, taskObj.path, dateString)
+            
+            if (!isDeleted && !isHidden) {
+              this.taskInstances.push(instance)
+            }
           }
         }
 
@@ -2176,6 +2195,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         )
         if (duplicatesForThisPath.length > 0) {
           duplicatesForThisPath.forEach((duplicateInfo) => {
+            // 重複チェック：既に使用されているinstanceIdはスキップ
+            if (usedInstanceIds.has(duplicateInfo.instanceId)) {
+              console.warn(`[TaskChute] 重複した複製instanceIdをスキップ: ${duplicateInfo.instanceId} (${taskObj.title})`)
+              return
+            }
+            usedInstanceIds.add(duplicateInfo.instanceId)
+            
             const instance = {
               task: taskObj,
               state: "idle",
@@ -2183,7 +2209,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: null,
               slotKey: slotKey,
               order: savedOrder, // 保存された値またはnull
-              instanceId: duplicateInfo.instanceId, // 保存されたinstanceIdを使用
+              instanceId: duplicateInfo.instanceId // 保存されたinstanceIdを使用
             }
 
             // インスタンスレベルでのフィルタリング
@@ -3618,6 +3644,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       console.error("実行中タスクのパス更新に失敗:", error)
     }
   }
+
 
   // インスタンスのみ削除（複製タスク用）
   async deleteInstanceOnly(inst, deletionType = "temporary") {
@@ -5334,6 +5361,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const dateString = this.getCurrentDateString()
       const aggregator = new DailyTaskAggregator(this.plugin)
       await aggregator.updateDailyStats(dateString)
+      
+      // 複製タスクの場合、複製情報を削除
+      const duplicationKey = `taskchute-duplicated-instances-${dateString}`
+      try {
+        let duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || "[]")
+        const initialLength = duplicatedInstances.length
+        
+        // 該当するinstanceIdを削除
+        duplicatedInstances = duplicatedInstances.filter(
+          (dup) => dup.instanceId !== inst.instanceId
+        )
+        
+        if (duplicatedInstances.length < initialLength) {
+          localStorage.setItem(duplicationKey, JSON.stringify(duplicatedInstances))
+          console.log(`[TaskChute] 完了した複製タスクの情報を削除: ${inst.task.title} (instanceId: ${inst.instanceId})`)
+        }
+      } catch (e) {
+        console.error("[TaskChute] 複製情報の削除エラー:", e)
+      }
     } catch (e) {
       new Notice("タスク記録の保存に失敗しました")
       console.error("Task completion save error:", e)
