@@ -1,0 +1,9 @@
+{
+  "id": "taskchute-plus",
+  "name": "TaskChute Plus Plugin",
+  "version": "0.0.1",
+  "minAppVersion": "0.12.0",
+  "author": "Hiroya Iizuka",
+  "description": "タスクシュート機能付きタイマープラグイン。#taskタグのノートを表示し、開始・終了時刻を記録してdaily noteに保存します",
+  "isDesktopOnly": false
+}

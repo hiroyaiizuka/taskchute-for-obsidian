@@ -1,0 +1,18 @@
+{
+  "name": "taskchute-plus",
+  "version": "1.0.0",
+  "description": "TaskChute Plus Plugin for Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:debug": "jest --detectOpenHandles",
+    "test:routine": "jest flexible-routine-schedule-simple.test.js"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "moment": "^2.30.1"
+  }
+}

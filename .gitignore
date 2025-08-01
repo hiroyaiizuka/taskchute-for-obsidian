@@ -1,0 +1,11 @@
+.claude
+.cursor
+.kiro
+.serena
+/data
+/node_modules
+/tmp
+.hotreload
+CLAUDE.md
+data.json
+
