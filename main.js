@@ -1678,15 +1678,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // 各ファイルの読み込みタスクを準備
     for (const file of files) {
-      // 非表示リストに含まれるルーチンタスクはスキップ
-      if (hiddenRoutinePaths.includes(file.path)) {
-        continue
-      }
       // 永続削除されたファイルはスキップ
       const permanentlyDeleted = deletedInstances.some(
         del => del.path === file.path && del.deletionType === "permanent"
       )
       if (permanentlyDeleted) continue
+      
+      // 非表示リストチェックは後で行う（実行履歴がある場合は表示するため）
 
       // ファイル読み込みをPromiseとして追加
       fileReadPromises.push(
@@ -1883,6 +1881,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 既存の実行履歴がある日は表示
           const hasExecutions = todayExecutionsForTask.length > 0
 
+          // 非表示リストに含まれているかチェック
+          const isInHiddenList = hiddenRoutinePaths.includes(file.path)
+
           // ルーチンタイプに応じた表示判定
           let shouldShowRoutine = false
 
@@ -1897,8 +1898,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             )
           }
 
-          // 新規作成日、実行履歴がある日、または表示すべきルーチンでない場合はスキップ
-          if (!isCreationDate && !hasExecutions && !shouldShowRoutine) {
+          // 実行履歴がある場合は、非表示リストに含まれていても必ず表示
+          if (hasExecutions) {
+            // 実行履歴がある = 完了済みタスクなので必ず表示
+            console.log(`[TaskChute] 実行履歴があるため表示: ${file.basename}`)
+          } else if (isInHiddenList) {
+            // 実行履歴がなく、非表示リストに含まれている場合はスキップ
+            console.log(`[TaskChute] 非表示リストのためスキップ: ${file.basename}`)
+            continue
+          } else if (!isCreationDate && !shouldShowRoutine) {
+            // 新規作成日でもなく、表示すべきルーチンでもない場合はスキップ
             continue
           }
         }
@@ -3579,6 +3588,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   
   // ルーチンタスクの削除（非表示化）
   async deleteRoutineTask(inst) {
+    // 完了済みタスクは削除できないように保護
+    if (inst.state === "done") {
+      new Notice("完了済みのタスクは削除できません。")
+      console.log(`[TaskChute] 完了済みタスクの削除を拒否: ${inst.task.title}`)
+      return
+    }
+    
     console.log(
       `[TaskChute] ルーチンタスクを非表示化: ${inst.task.title} (instanceId: ${inst.instanceId})`,
     )
