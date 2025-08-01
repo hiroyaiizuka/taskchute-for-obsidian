@@ -12,7 +12,8 @@ class PathManager {
   static DEFAULT_PATHS = {
     taskFolder: "TaskChute/Task",
     projectFolder: "TaskChute/Project",
-    logData: "TaskChute/Log"
+    logData: "TaskChute/Log",
+    reviewData: "TaskChute/Review"
   }
   
   // 設定されたパスを取得（設定がない場合はデフォルト）
@@ -26,6 +27,10 @@ class PathManager {
   
   getLogDataPath() {
     return this.plugin.settings.logDataPath || PathManager.DEFAULT_PATHS.logData
+  }
+  
+  getReviewDataPath() {
+    return this.plugin.settings.reviewDataPath || PathManager.DEFAULT_PATHS.reviewData
   }
   
   // パスの検証
@@ -1014,14 +1019,316 @@ class TaskChuteView extends ItemView {
     // TODO: Implement routine section display
   }
   
-  showReviewSection() {
+  async showReviewSection() {
     console.log("[TaskChute] Showing review section")
-    // TODO: Implement review section display
+    
+    try {
+      // 実際の現在日付を取得
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`
+      
+      // TaskChuteで選択されている日付を取得
+      const selectedDateStr = this.getCurrentDateString()
+      
+      // 使用する日付を決定（未来の日付の場合は今日の日付を使用）
+      let reviewDateStr = selectedDateStr
+      if (new Date(selectedDateStr) > new Date(todayStr)) {
+        reviewDateStr = todayStr
+        console.log(`[TaskChute] 未来の日付 ${selectedDateStr} が選択されているため、今日の日付 ${todayStr} のレビューを表示します`)
+      }
+      
+      const reviewFileName = `Review - ${reviewDateStr}.md`
+      const reviewPath = `${this.plugin.pathManager.getReviewDataPath()}/${reviewFileName}`
+      
+      // レビューファイルを作成または取得
+      const reviewFile = await this.createOrGetReviewFile(reviewPath, reviewDateStr)
+      
+      // 分割ビューで開く
+      await this.openReviewInSplit(reviewFile)
+      
+      // ナビゲーションパネルを閉じる
+      this.toggleNavigation()
+      
+    } catch (error) {
+      console.error("[TaskChute] レビュー表示エラー:", error)
+      new Notice("レビューの表示に失敗しました: " + error.message)
+    }
   }
   
   showProjectSection() {
     console.log("[TaskChute] Showing project section")
     // TODO: Implement project section display
+  }
+  
+  // レビューファイルを作成または取得
+  async createOrGetReviewFile(reviewPath, dateStr) {
+    // レビューフォルダの存在確認と作成
+    const reviewFolder = this.plugin.pathManager.getReviewDataPath()
+    await this.plugin.pathManager.ensureFolderExists(reviewFolder)
+    
+    // ファイルの存在チェック
+    let reviewFile = this.app.vault.getAbstractFileByPath(reviewPath)
+    
+    if (!reviewFile) {
+      // デフォルトテンプレートを使用
+      const template = this.getDefaultReviewTemplate()
+      
+      // プレースホルダーを置換（引数で渡された日付を使用）
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      let content = template.replace(/{{date}}/g, dateStr)
+      content = content.replace(/{{logDataPath}}/g, logDataPath)
+      
+      // ファイルを作成
+      reviewFile = await this.app.vault.create(reviewPath, content)
+      console.log(`[TaskChute] レビューファイルを作成: ${reviewPath}`)
+    }
+    
+    return reviewFile
+  }
+  
+  
+  // デフォルトレビューテンプレートを取得
+  getDefaultReviewTemplate() {
+    return `
+### 集中度・元気度の推移
+\`\`\`dataviewjs
+
+// ファイル名から日付を取得
+// ファイル名: "Review - YYYY-MM-DD"
+const fileName = dv.current().file.name
+console.log("ファイル名:", fileName)
+
+// シンプルに日付パターンだけを探す
+const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
+
+if (!dateMatch) {
+  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)
+  return
+}
+
+const currentDate = dateMatch[0] // YYYY-MM-DD
+const [year, month] = currentDate.split('-')
+const monthString = \`\${year}-\${month}\`
+console.log("抽出された日付:", currentDate)
+
+  
+
+// ログファイルパス
+
+const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
+
+  
+
+// ファイルからデータを読み込み
+
+try {
+
+const content = await app.vault.adapter.read(logPath)
+
+const monthlyLog = JSON.parse(content)
+
+const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []
+
+// 時間帯別にデータを集計
+
+const hourlyData = new Array(24).fill(null).map(() => ({ focus: [], energy: [] }))
+
+dayTasks.forEach(task => {
+
+if (task.startTime && (task.focusLevel > 0 || task.energyLevel > 0)) {
+
+// startTimeは"HH:MM:SS"形式の文字列なので、時間部分を抽出
+
+const hourStr = task.startTime.split(':')[0]
+
+const hour = parseInt(hourStr, 10)
+
+// 有効な時間範囲（0-23）のチェック
+
+if (hour >= 0 && hour < 24) {
+
+if (task.focusLevel > 0) hourlyData[hour].focus.push(task.focusLevel)
+
+if (task.energyLevel > 0) hourlyData[hour].energy.push(task.energyLevel)
+
+}
+
+}
+
+})
+
+// 平均値を計算
+
+const focusData = hourlyData.map(h =>
+
+h.focus.length > 0 ? Math.round(h.focus.reduce((a,b) => a+b) / h.focus.length * 10) / 10 : null
+
+)
+
+const energyData = hourlyData.map(h =>
+
+h.energy.length > 0 ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length * 10) / 10 : null
+
+)
+
+// グラフを表示
+
+dv.paragraph(\`\\\`\\\`\\\`chart
+
+type: line
+labels: [0時, 1時, 2時, 3時, 4時, 5時, 6時, 7時, 8時, 9時, 10時, 11時, 12時, 13時, 14時, 15時, 16時, 17時, 18時, 19時, 20時, 21時, 22時, 23時]
+
+series:
+  - title: 集中度
+    data: [\${focusData.map(v => v !== null ? v : 0).join(', ')}]
+  - title: 元気度
+    data: [\${energyData.map(v => v !== null ? v : 0).join(', ')}]
+
+tension: 0
+width: 80%
+labelColors: false
+fill: false
+beginAtZero: false
+
+\\\`\\\`\\\`\\\`\`)
+
+} catch (e) {
+
+dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')
+
+}
+
+\`\`\`
+  
+
+### コメント一覧
+
+\`\`\`dataviewjs
+
+// ファイル名から日付を取得
+// ファイル名: "Review - YYYY-MM-DD"
+const fileName = dv.current().file.name
+console.log("ファイル名:", fileName)
+
+// シンプルに日付パターンだけを探す
+const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
+
+if (!dateMatch) {
+  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)
+  return
+}
+
+const currentDate = dateMatch[0] // YYYY-MM-DD
+const [year, month] = currentDate.split('-')
+const monthString = \`\${year}-\${month}\`
+console.log("抽出された日付:", currentDate)
+
+  
+
+// ログファイルパス
+
+const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
+
+  
+
+try {
+
+const content = await app.vault.adapter.read(logPath)
+
+const monthlyLog = JSON.parse(content)
+
+const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []
+
+// コメントがあるタスクをフィルタリング
+
+const tasksWithComments = dayTasks
+
+.filter(task => task.executionComment || task.focusLevel > 0 || task.energyLevel > 0)
+
+.sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+
+if (tasksWithComments.length > 0) {
+
+// テーブルヘッダー
+
+const headers = ['タスク名', '実行時間', '所要時間', '集中度', '元気度', 'コメント']
+
+// テーブルデータ
+
+const tableData = tasksWithComments.map(task => {
+
+// startTimeとstopTimeは"HH:MM:SS"形式の文字列
+
+const startTimeParts = task.startTime.split(':')
+
+const stopTimeParts = task.stopTime.split(':')
+
+// "HH:MM"形式に変換
+
+const startTimeStr = \`\${startTimeParts[0]}:\${startTimeParts[1]}\`
+
+const stopTimeStr = \`\${stopTimeParts[0]}:\${stopTimeParts[1]}\`
+
+// durationは秒単位で保存されている
+
+const durationMinutes = Math.round(task.duration / 60)
+
+return [
+
+task.taskName,
+
+\`\${startTimeStr} - \${stopTimeStr}\`,
+
+\`\${durationMinutes}分\`,
+
+task.focusLevel > 0 ? '⭐'.repeat(task.focusLevel) : '-',
+
+task.energyLevel > 0 ? '⭐'.repeat(task.energyLevel) : '-',
+
+task.executionComment || '-'
+
+]
+
+})
+
+dv.table(headers, tableData)
+
+} else {
+
+dv.paragraph('📝 コメント付きのタスクはありません。')
+
+}
+
+} catch (e) {
+
+dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')
+
+}
+
+\`\`\`
+
+`
+  }
+  
+  // レビューを分割ビューで開く
+  async openReviewInSplit(reviewFile) {
+    try {
+      // 現在のTaskChuteViewのleafを保持
+      const currentLeaf = this.leaf
+      
+      // 右側に分割してレビューを開く
+      const rightLeaf = this.app.workspace.splitActiveLeaf("vertical")
+      await rightLeaf.openFile(reviewFile)
+      
+      // TaskChuteViewをアクティブに保つ
+      this.app.workspace.setActiveLeaf(currentLeaf)
+      
+      console.log("[TaskChute] レビューを分割表示で開きました")
+      
+    } catch (error) {
+      console.error("[TaskChute] レビュー分割表示エラー:", error)
+      throw error
+    }
   }
 
   async loadTasks() {
@@ -12739,7 +13046,8 @@ class TaskChutePlusPlugin extends Plugin {
       // パス設定
       taskFolderPath: "",
       projectFolderPath: "",
-      logDataPath: ""
+      logDataPath: "",
+      reviewDataPath: ""
     }
     
     // PathManagerの初期化
@@ -12882,6 +13190,7 @@ class TaskChutePlusPlugin extends Plugin {
       await this.pathManager.ensureFolderExists(this.pathManager.getTaskFolderPath())
       await this.pathManager.ensureFolderExists(this.pathManager.getProjectFolderPath())
       await this.pathManager.ensureFolderExists(this.pathManager.getLogDataPath())
+      await this.pathManager.ensureFolderExists(this.pathManager.getReviewDataPath())
     } catch (error) {
       new Notice("必要なフォルダの作成に失敗しました")
     }
@@ -13249,6 +13558,40 @@ const TaskChuteSettingTab = PluginSettingTab ? class extends PluginSettingTab {
           }
         })
       })
+    
+    // レビューデータパス設定
+    new Setting(containerEl)
+      .setName("レビューデータパス")
+      .setDesc("デイリーレビューファイルを保存するフォルダのパス")
+      .addText(text => {
+        text
+          .setPlaceholder(PathManager.DEFAULT_PATHS.reviewData)
+          .setValue(this.plugin.settings.reviewDataPath || "")
+          .onChange(async (value) => {
+            const validation = this.plugin.pathManager.validatePath(value)
+            if (validation.valid || value === "") {
+              this.plugin.settings.reviewDataPath = value
+              await this.plugin.saveSettings()
+            } else {
+              new Notice(validation.error)
+              text.setValue(this.plugin.settings.reviewDataPath || "")
+            }
+          })
+        
+        // フォーカスが外れた時にフォルダを作成
+        text.inputEl.addEventListener('blur', async () => {
+          if (this.plugin.settings.reviewDataPath || !this.plugin.settings.reviewDataPath) {
+            try {
+              await this.plugin.pathManager.ensureFolderExists(
+                this.plugin.pathManager.getReviewDataPath()
+              )
+            } catch (error) {
+              console.error("Failed to create review folder:", error)
+            }
+          }
+        })
+      })
+    
   }
 } : null
 
@@ -13257,3 +13600,4 @@ module.exports.TaskChutePlugin = TaskChutePlusPlugin
 module.exports.TaskChuteView = TaskChuteView
 module.exports.sortTaskInstances = sortTaskInstances
 module.exports.NavigationState = NavigationState
+module.exports.PathManager = PathManager
