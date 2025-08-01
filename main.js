@@ -6239,13 +6239,6 @@ class TaskChuteView extends ItemView {
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
     modalHeader.createEl("h3", { text: "新しいタスクを追加" })
 
-    // 閉じるボタン
-    const closeButton = modalHeader.createEl("button", {
-      cls: "modal-close-button",
-      text: "×",
-      attr: { title: "閉じる" },
-    })
-
     // フォーム
     const form = modalContent.createEl("form", { cls: "task-form" })
 
@@ -6290,10 +6283,6 @@ class TaskChuteView extends ItemView {
     })
 
     // イベントリスナー
-    closeButton.addEventListener("click", () => {
-      document.body.removeChild(modal)
-    })
-
     cancelButton.addEventListener("click", () => {
       document.body.removeChild(modal)
     })
@@ -6321,6 +6310,14 @@ class TaskChuteView extends ItemView {
 
     // モーダルを表示
     document.body.appendChild(modal)
+    
+    // モーダル外側クリックで閉じる
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        cleanup()
+        document.body.removeChild(modal)
+      }
+    })
 
     // 入力検証の設定
     this.setupTaskNameValidation(nameInput, createButton, warningMessage)
@@ -6349,7 +6346,6 @@ class TaskChuteView extends ItemView {
       clearTimeout(autocomplete.debounceTimer)
     }
     
-    closeButton.addEventListener("click", cleanup)
     cancelButton.addEventListener("click", cleanup)
     
     // フォーカスを設定
