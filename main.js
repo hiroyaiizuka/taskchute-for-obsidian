@@ -393,6 +393,20 @@ class TaskChuteView extends ItemView {
     return `${y}-${m}-${d}`
   }
   
+  // 日跨ぎタスクの期間を正しく計算するヘルパーメソッド
+  calculateCrossDayDuration(startTime, stopTime) {
+    if (!startTime || !stopTime) return 0
+    
+    let duration = stopTime - startTime
+    
+    // 負の値の場合は日跨ぎと判定し、24時間を加算
+    if (duration < 0) {
+      duration += 24 * 60 * 60 * 1000
+    }
+    
+    return duration
+  }
+  
   // 削除管理システムの統一化 - ヘルパーメソッド
   
   // 削除済みインスタンスを取得
@@ -4419,7 +4433,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      const duration = inst.stopTime - inst.startTime
+      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
       const durationStr = `${hours.toString().padStart(2, "0")}:${minutes
@@ -4806,16 +4820,26 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 実行時間 or 実行中タイマー or プレースホルダー
     if (inst.state === "done" && inst.startTime && inst.stopTime) {
       // 実行時間を計算
-      const duration = inst.stopTime - inst.startTime
+      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
       const durationStr = `${hours.toString().padStart(2, "0")}:${minutes
         .toString()
         .padStart(2, "0")}`
-      taskItem.createEl("span", {
-        cls: "task-duration",
+      
+      // 日跨ぎタスクの判定
+      const isCrossDay = inst.startTime && inst.stopTime && 
+        inst.stopTime.getDate() !== inst.startTime.getDate()
+      
+      const durationEl = taskItem.createEl("span", {
+        cls: isCrossDay ? "task-duration cross-day" : "task-duration",
         text: durationStr,
       })
+      
+      // 日跨ぎタスクにツールチップを追加
+      if (isCrossDay) {
+        durationEl.setAttribute("title", "日を跨いだタスク")
+      }
     } else if (inst.state === "running") {
       // 実行中タイマー表示用のspan
       taskItem.createEl("span", {
@@ -5242,7 +5266,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     completedTasks.forEach((inst) => {
       if (inst.startTime && inst.stopTime) {
-        const duration = inst.stopTime - inst.startTime
+        const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
         totalMinutes += duration / (1000 * 60)
       }
     })
@@ -5587,7 +5611,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // 実行時間表示（完了したタスクの場合のみ）
     if (isCompleted && inst.startTime && inst.stopTime) {
-      const duration = inst.stopTime - inst.startTime
+      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000)
       const seconds = Math.floor((duration % 60000) / 1000)
@@ -5877,10 +5901,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     try {
       // 月次ログファイルのパスを生成
-      const today = new Date()
-      const year = today.getFullYear()
-      const month = (today.getMonth() + 1).toString().padStart(2, "0")
-      const day = today.getDate().toString().padStart(2, "0")
+      // タスク開始時刻を基準日として使用（日跨ぎタスク対応）
+      const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()
+      const year = taskDate.getFullYear()
+      const month = (taskDate.getMonth() + 1).toString().padStart(2, "0")
+      const day = taskDate.getDate().toString().padStart(2, "0")
       const dateString = `${year}-${month}-${day}`
       const monthString = `${year}-${month}`
       const logDataPath = this.plugin.pathManager.getLogDataPath()
@@ -5918,7 +5943,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 完了したタスクの場合のみ実行時間を記録
       if (isCompleted) {
-        const duration = inst.stopTime - inst.startTime
+        const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
         taskExecution.startTime = inst.startTime.toTimeString().slice(0, 8)
         taskExecution.stopTime = inst.stopTime.toTimeString().slice(0, 8)
         taskExecution.duration = Math.floor(duration / 1000) // 秒単位
@@ -12350,6 +12375,20 @@ target_date: ${targetDateString}
             .taskchute-very-narrow .task-time-range,
             .taskchute-very-narrow .task-duration {
                 display: none;
+            }
+            
+            /* 日跨ぎタスクのスタイル */
+            .task-duration.cross-day {
+                color: var(--text-accent);
+                font-weight: 500;
+                position: relative;
+            }
+            
+            .task-duration.cross-day::after {
+                content: "🌙";
+                font-size: 0.8em;
+                margin-left: 4px;
+                opacity: 0.7;
             }
             
             /* タスク名を最大限表示 */
