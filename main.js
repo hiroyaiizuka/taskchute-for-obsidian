@@ -1407,7 +1407,7 @@ h.energy.length > 0 ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length
 
 dv.paragraph(\`\\\`\\\`\\\`chart
 
-type: line
+type: bar
 labels: [0時, 1時, 2時, 3時, 4時, 5時, 6時, 7時, 8時, 9時, 10時, 11時, 12時, 13時, 14時, 15時, 16時, 17時, 18時, 19時, 20時, 21時, 22時, 23時]
 
 series:
