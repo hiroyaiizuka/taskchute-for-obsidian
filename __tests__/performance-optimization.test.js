@@ -84,13 +84,6 @@ describe("パフォーマンス最適化テスト", () => {
     expect(result.length).toBe(2)
     expect(result[0].basename).toBe("task1")
     expect(result[1].basename).toBe("task2")
-
-    // ログが出力されたことを確認
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "[TaskChute] タスクフォルダから2個のファイルを読み込み",
-      ),
-    )
   })
 
   test("フォールバック処理のテスト", async () => {
@@ -146,13 +139,6 @@ describe("パフォーマンス最適化テスト", () => {
       expect.stringContaining("[TaskChute] タスクフォルダが見つかりません"),
     )
 
-    // フォールバックで正しくタスクが読み込まれたことを確認
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "[TaskChute] フォールバック: #taskタグから2個のタスクを検出",
-      ),
-    )
-
     // 結果を確認
     expect(result.length).toBe(2)
   })
@@ -169,7 +155,6 @@ describe("パフォーマンス最適化テスト", () => {
 
     // 3. パフォーマンス計測の実装確認
     expect(loadTasksSource).toContain("performance.now")
-    expect(loadTasksSource).toContain("タスク読み込み完了")
 
     // 4. 重複防止の実装確認
     expect(loadTasksSource).toContain("isDuplicate")

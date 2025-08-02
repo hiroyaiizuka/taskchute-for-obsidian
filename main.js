@@ -73,6 +73,10 @@ class PathManager {
       try {
         await this.plugin.app.vault.createFolder(path)
       } catch (error) {
+        // フォルダが既に存在する場合はエラーを無視
+        if (error.message && error.message.includes('Folder already exists')) {
+          return
+        }
         console.error(`フォルダの作成に失敗しました: ${path}`, error)
         throw error
       }
@@ -227,7 +231,6 @@ class TaskNameAutocomplete {
     const taskFolder = this.plugin.app.vault.getAbstractFileByPath(taskFolderPath)
     
     if (!taskFolder || !(taskFolder instanceof TFolder)) {
-      console.log("[TaskChute] Taskフォルダが見つかりません")
       return
     }
 
@@ -235,7 +238,6 @@ class TaskNameAutocomplete {
     
     this.taskNames = files.map(file => file.basename)
     
-    console.log(`[TaskChute] ${this.taskNames.length}個のタスク名をロードしました`)
   }
 
   searchTasks(query) {
@@ -312,7 +314,6 @@ class TaskNameAutocomplete {
     // ファイル作成時
     const createRef = this.plugin.app.vault.on("create", async (file) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath) && file.extension === "md") {
-        console.log(`[TaskChute] 新規タスクファイルが作成されました: ${file.path}`)
         await this.loadTaskNames()
       }
     })
@@ -321,7 +322,6 @@ class TaskNameAutocomplete {
     // ファイル削除時
     const deleteRef = this.plugin.app.vault.on("delete", async (file) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath) && file.extension === "md") {
-        console.log(`[TaskChute] タスクファイルが削除されました: ${file.path}`)
         await this.loadTaskNames()
       }
     })
@@ -331,7 +331,6 @@ class TaskNameAutocomplete {
     const renameRef = this.plugin.app.vault.on("rename", async (file, oldPath) => {
       if (file instanceof TFile && file.extension === "md") {
         if (file.path.startsWith(taskFolderPath) || oldPath.startsWith(taskFolderPath)) {
-          console.log(`[TaskChute] タスクファイルがリネームされました: ${oldPath} → ${file.path}`)
           await this.loadTaskNames()
         }
       }
@@ -750,7 +749,6 @@ class TaskChuteView extends ItemView {
         return
       }
       
-      console.log("[TaskChute] 旧形式の削除データを移行中...")
       
       // 現在の日付で新形式に移行
       const dateStr = this.getCurrentDateString()
@@ -775,7 +773,6 @@ class TaskChuteView extends ItemView {
       // 旧データを削除
       localStorage.removeItem("taskchute-deleted-tasks")
       
-      console.log(`[TaskChute] ${deletedPaths.length}件の削除データを移行しました`)
     } catch (e) {
       console.error("[TaskChute] 削除データの移行に失敗:", e)
     }
@@ -914,7 +911,6 @@ class TaskChuteView extends ItemView {
           }
         } catch (e) {
           // エラーを無視（テスト環境など）
-          console.log("Calendar auto-open failed:", e.message)
         }
       }, 50)
 
@@ -1035,9 +1031,6 @@ class TaskChuteView extends ItemView {
           try {
             const content = await this.app.vault.read(file)
             if (content.includes("#task")) {
-              console.log(
-                `[TaskChute] タスクファイルがリネームされました: ${oldPath} → ${file.path}`,
-              )
 
               // localStorageのキーも更新
               const oldSlotKey = localStorage.getItem(
@@ -1098,7 +1091,6 @@ class TaskChuteView extends ItemView {
                 const oldName = oldPath.split('/').pop().replace('.md', '')
                 const newName = file.basename
                 await this.plugin.routineAliasManager.addAlias(newName, oldName)
-                console.log(`[TaskChute] ルーチンタスクの名前変更を記録: ${oldName} → ${newName}`)
               }
               
               // 複製情報のパスも更新する
@@ -1124,7 +1116,6 @@ class TaskChuteView extends ItemView {
                   
                   if (updated) {
                     localStorage.setItem(duplicatedKey, JSON.stringify(duplicatedInstances))
-                    console.log(`[TaskChute] 複製情報のパスを更新: ${oldPath} → ${file.path}`)
                   }
                 }
               } catch (e) {
@@ -1273,12 +1264,10 @@ class TaskChuteView extends ItemView {
   
   // Placeholder methods for navigation sections
   showRoutineSection() {
-    console.log("[TaskChute] Showing routine section")
     // TODO: Implement routine section display
   }
   
   async showReviewSection() {
-    console.log("[TaskChute] Showing review section")
     
     try {
       // 実際の現在日付を取得
@@ -1292,7 +1281,6 @@ class TaskChuteView extends ItemView {
       let reviewDateStr = selectedDateStr
       if (new Date(selectedDateStr) > new Date(todayStr)) {
         reviewDateStr = todayStr
-        console.log(`[TaskChute] 未来の日付 ${selectedDateStr} が選択されているため、今日の日付 ${todayStr} のレビューを表示します`)
       }
       
       const reviewFileName = `Review - ${reviewDateStr}.md`
@@ -1314,7 +1302,6 @@ class TaskChuteView extends ItemView {
   }
   
   async showLogSection() {
-    console.log("[TaskChute] Showing log section")
     
     try {
       // Create a modal for log view
@@ -1366,7 +1353,6 @@ class TaskChuteView extends ItemView {
   }
   
   showProjectSection() {
-    console.log("[TaskChute] Showing project section")
     // TODO: Implement project section display
   }
   
@@ -1390,7 +1376,6 @@ class TaskChuteView extends ItemView {
       
       // ファイルを作成
       reviewFile = await this.app.vault.create(reviewPath, content)
-      console.log(`[TaskChute] レビューファイルを作成: ${reviewPath}`)
     }
     
     return reviewFile
@@ -1406,7 +1391,7 @@ class TaskChuteView extends ItemView {
 // ファイル名から日付を取得
 // ファイル名: "Review - YYYY-MM-DD"
 const fileName = dv.current().file.name
-console.log("ファイル名:", fileName)
+// console.log("ファイル名:", fileName)
 
 // シンプルに日付パターンだけを探す
 const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
@@ -1419,7 +1404,7 @@ if (!dateMatch) {
 const currentDate = dateMatch[0] // YYYY-MM-DD
 const [year, month] = currentDate.split('-')
 const monthString = \`\${year}-\${month}\`
-console.log("抽出された日付:", currentDate)
+// console.log("抽出された日付:", currentDate)
 
   
 
@@ -1518,7 +1503,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 // ファイル名から日付を取得
 // ファイル名: "Review - YYYY-MM-DD"
 const fileName = dv.current().file.name
-console.log("ファイル名:", fileName)
+// console.log("ファイル名:", fileName)
 
 // シンプルに日付パターンだけを探す
 const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
@@ -1531,7 +1516,7 @@ if (!dateMatch) {
 const currentDate = dateMatch[0] // YYYY-MM-DD
 const [year, month] = currentDate.split('-')
 const monthString = \`\${year}-\${month}\`
-console.log("抽出された日付:", currentDate)
+// console.log("抽出された日付:", currentDate)
 
   
 
@@ -1633,7 +1618,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // TaskChuteViewをアクティブに保つ
       this.app.workspace.setActiveLeaf(currentLeaf)
       
-      console.log("[TaskChute] レビューを分割表示で開きました")
       
     } catch (error) {
       console.error("[TaskChute] レビュー分割表示エラー:", error)
@@ -1806,9 +1790,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // Update dailySummary with actual displayed task count
       if (monthlyLog.dailySummary[yesterdayString].totalTasks !== displayedTaskCount ||
           monthlyLog.dailySummary[yesterdayString].completedTasks !== actualCompletedTasks) {
-        console.log(`[TaskChute] Recalculating ${yesterdayString} dailySummary:`)
-        console.log(`  totalTasks: ${monthlyLog.dailySummary[yesterdayString].totalTasks} -> ${displayedTaskCount}`)
-        console.log(`  completedTasks: ${monthlyLog.dailySummary[yesterdayString].completedTasks} -> ${actualCompletedTasks}`)
         
         monthlyLog.dailySummary[yesterdayString].totalTasks = displayedTaskCount
         monthlyLog.dailySummary[yesterdayString].completedTasks = actualCompletedTasks
@@ -1909,9 +1890,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     ])
 
     // デバッグ情報
-    console.log(`[TaskChute] 指定日: ${dateString}`)
-    console.log(`[TaskChute] 実行履歴数: ${todayExecutions.length}`)
-    console.log(`[TaskChute] タスクファイル数: ${files.length}`)
 
     // ファイル内容の並列読み込み準備
     const fileReadPromises = []
@@ -2010,9 +1988,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                     )
                     if (matchingProject) {
                       projectPath = matchingProject.path
-                      console.log(
-                        `[TaskChute] プロジェクトパスを復元: ${projectTitle} → ${projectPath}`,
-                      )
                     }
                   } catch (e) {
                     console.warn(
@@ -2048,9 +2023,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             let targetDate = null
             if (metadata && metadata.target_date) {
               targetDate = metadata.target_date
-              console.log(
-                `[TaskChute] target_dateを使用: ${file.basename} → ${targetDate}`,
-              )
 
               // target_dateが現在の表示日付と一致するかチェック
               if (dateString === targetDate) {
@@ -2080,7 +2052,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                   shouldShow = true
                 }
               } catch (error) {
-                console.log(`[TaskChute] ファイル作成日取得エラー: ${error}`)
                 // エラーの場合は安全のため表示
                 shouldShow = true
               }
@@ -2142,10 +2113,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 実行履歴がある場合は、非表示リストに含まれていても必ず表示
           if (hasExecutions) {
             // 実行履歴がある = 完了済みタスクなので必ず表示
-            console.log(`[TaskChute] 実行履歴があるため表示: ${file.basename}`)
           } else if (isInHiddenList) {
             // 実行履歴がなく、非表示リストに含まれている場合はスキップ
-            console.log(`[TaskChute] 非表示リストのためスキップ: ${file.basename}`)
             continue
           } else if (!isCreationDate && !shouldShowRoutine) {
             // 新規作成日でもなく、表示すべきルーチンでもない場合はスキップ
@@ -2309,16 +2278,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     await this.restoreRunningTaskState()
 
     // デバッグ情報: 最終的なタスクインスタンスの状態
-    console.log(
-      `[TaskChute] 最終的なタスクインスタンス数: ${this.taskInstances.length}`,
-    )
-    this.taskInstances.forEach((inst, index) => {
-      console.log(
-        `[TaskChute] インスタンス${index + 1}: ${inst.task.title} (状態: ${
-          inst.state
-        }, 開始: ${inst.startTime}, 終了: ${inst.stopTime})`,
-      )
-    })
 
     // orderフィールドの初期化（フェーズ1: 既存機能を壊さない）
     this.initializeTaskOrders()
@@ -2335,9 +2294,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const lastCleanup = localStorage.getItem("taskchute-last-cleanup")
 
       if (lastCleanup !== today) {
-        console.log(
-          "[TaskChute] 古いlocalStorageキーの自動クリーンアップを実行",
-        )
         this.cleanupOldStorageKeys()
         localStorage.setItem("taskchute-last-cleanup", today)
       }
@@ -2345,7 +2301,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // パフォーマンス計測結果
     const loadTime = performance.now() - startTime
-    console.log(`[TaskChute] タスク読み込み完了: ${loadTime.toFixed(0)}ms`)
   }
 
   // タスクファイルを取得する新しいメソッド
@@ -2356,9 +2311,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // タスクフォルダ内のMarkdownファイルのみを取得
       const files = taskFolder.children.filter(
         (file) => file.extension === "md" && file.stat,
-      )
-      console.log(
-        `[TaskChute] タスクフォルダから${files.length}個のファイルを読み込み`,
       )
       return files
     } else {
@@ -2380,16 +2332,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const results = await Promise.all(checkPromises)
       const taskFiles = results.filter((file) => file !== null)
 
-      console.log(
-        `[TaskChute] フォールバック: #taskタグから${taskFiles.length}個のタスクを検出`,
-      )
       return taskFiles
     }
   }
 
   // orderフィールドの初期化（フェーズ1: 既存機能を壊さない）
   initializeTaskOrders() {
-    console.log("[TaskChute] orderフィールドの初期化を開始")
 
     // 日付文字列を生成
     const y = this.currentDate.getFullYear()
@@ -2404,7 +2352,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const savedData = localStorage.getItem(storageKey)
       if (savedData) {
         savedOrders = JSON.parse(savedData)
-        console.log("[TaskChute] 保存された順序を読み込みました:", savedOrders)
       }
     } catch (e) {
       console.error("[TaskChute] 順序の読み込みに失敗:", e)
@@ -2486,7 +2433,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       idleInstances.sort((a, b) => a.order - b.order)
     })
 
-    console.log("[TaskChute] orderフィールドの初期化完了")
   }
 
   // orderフィールドをlocalStorageに保存
@@ -2511,7 +2457,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // localStorageに保存
     const storageKey = `taskchute-orders-${dateStr}`
     localStorage.setItem(storageKey, JSON.stringify(orders))
-    console.log("[TaskChute] orderフィールドを保存しました:", orders)
   }
 
   // 未実施タスクを現在の時間帯に自動移動する
@@ -2524,7 +2469,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this.currentDate.getDate() === today.getDate()
 
     if (!isToday) {
-      console.log("[TaskChute] 未来日・過去日では自動移動を無効化")
       return
     }
 
@@ -2552,9 +2496,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         // タスクが過去の時間帯にある場合
         if (taskSlotStartTime < currentSlotStartTime) {
-          console.log(
-            `[TaskChute] 未実施タスク "${inst.task.title}" を ${inst.slotKey} から ${currentSlot} に移動`,
-          )
 
           // 現在の時間帯に移動
           inst.slotKey = currentSlot
@@ -2595,11 +2536,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this.useOrderBasedSort.toString(),
     )
 
-    console.log(
-      `[TaskChute] ソート方式を切り替え: ${
-        this.useOrderBasedSort ? "orderベース" : "従来方式"
-      }`,
-    )
 
     // 即座に再ソート
     this.sortTaskInstancesByTimeOrder()
@@ -2723,7 +2659,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       task.order = (index + 1) * 100
     })
 
-    console.log("[TaskChute] 時間帯内の順序番号を正規化しました")
   }
 
   // 全ての順序番号を正規化する（メンテナンス用）
@@ -2753,7 +2688,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.renderTaskList()
 
     new Notice("全ての順序番号を正規化しました")
-    console.log("[TaskChute] 全ての順序番号を正規化完了")
   }
 
   // ========== 新しいシンプルな実装（フェーズ2） ==========
@@ -3062,7 +2996,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.renderTaskList()
     
     const endTime = performance.now()
-    console.log(`[TaskChute] loadTasksSimple完了: ${endTime - startTime}ms`)
   }
 
   // タスクオブジェクトの作成（ヘルパー）
@@ -3207,7 +3140,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
     
     if (deletedCount > 0) {
-      console.log(`[TaskChute] 古いlocalStorageキーを${deletedCount}個削除しました`)
     }
   }
 
@@ -3232,17 +3164,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         new Notice("従来ソートを有効化")
       },
       showOrders: () => {
-        console.log("=== 現在の順序番号 ===")
         this.taskInstances.forEach((inst) => {
-          console.log(
-            `${inst.task.title}: order=${inst.order}, slot=${inst.slotKey}, state=${inst.state}`,
-          )
         })
       },
       cleanupOldKeys: () => this.cleanupOldStorageKeys(),
     }
 
-    console.log("[TaskChute] デバッグ関数を設定: window.TaskChuteDebug")
   }
 
   // 古いlocalStorageキーをクリーンアップ（フェーズ3）
@@ -3271,28 +3198,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     keysToRemove.forEach((key) => {
       localStorage.removeItem(key)
       removedCount++
-      console.log(`[TaskChute] 古いキーを削除: ${key}`)
     })
 
     new Notice(`古いlocalStorageキーを${removedCount}個削除しました`)
-    console.log(
-      `[TaskChute] 古いlocalStorageキーのクリーンアップ完了: ${removedCount}個削除`,
-    )
   }
 
   // 手動配置フラグをリセットする（デバッグ用）
   resetManualPositioning(taskPath) {
     if (this.useOrderBasedSort) {
-      console.log(
-        `[TaskChute] orderベースソート使用中のため、手動配置フラグのリセットはスキップ`,
-      )
       return
     }
 
     localStorage.removeItem(
       `taskchute-manual-position-${this.getCurrentDateString()}-${taskPath}`,
     )
-    console.log(`[TaskChute] 手動配置フラグをリセット: ${taskPath}`)
 
     // 該当するタスクインスタンスのフラグもリセット
     this.taskInstances.forEach((inst) => {
@@ -3310,9 +3229,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // 全タスクの手動配置フラグをリセットする（デバッグ用）
   resetAllManualPositioning() {
     if (this.useOrderBasedSort) {
-      console.log(
-        `[TaskChute] orderベースソート使用中のため、手動配置フラグのリセットはスキップ`,
-      )
       return
     }
 
@@ -3326,7 +3242,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }`,
       )
     })
-    console.log(`[TaskChute] 全タスクの手動配置フラグをリセット`)
     this.renderTaskList()
   }
 
@@ -3539,9 +3454,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           runningData.taskPath &&
           deletedTasks.includes(runningData.taskPath)
         ) {
-          console.log(
-            `[TaskChute] 削除済みタスクをスキップ: ${runningData.taskTitle} (${runningData.taskPath})`,
-          )
           continue
         }
 
@@ -3714,9 +3626,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (updated) {
         const updatedContent = JSON.stringify(runningTasksData, null, 2)
         await this.app.vault.adapter.write(dataPath, updatedContent)
-        console.log(
-          `[TaskChute] 実行中タスクのパスを更新: ${oldPath} → ${newPath}`,
-        )
       }
     } catch (error) {
       console.error("実行中タスクのパス更新に失敗:", error)
@@ -3726,9 +3635,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // インスタンスのみ削除（複製タスク用）
   async deleteInstanceOnly(inst, deletionType = "temporary") {
-    console.log(
-      `[TaskChute] インスタンスを削除: ${inst.task.title} (instanceId: ${inst.instanceId}, type: ${deletionType})`,
-    )
     
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
@@ -3797,9 +3703,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // インスタンスとファイルを削除（最後のインスタンス用）
   async deleteInstanceWithFile(inst, deletionType = "permanent") {
-    console.log(
-      `[TaskChute] 最後のインスタンスを削除（ファイルも削除）: ${inst.task.title}`,
-    )
     
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
@@ -3863,13 +3766,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 完了済みタスクは削除できないように保護
     if (inst.state === "done") {
       new Notice("完了済みのタスクは削除できません。")
-      console.log(`[TaskChute] 完了済みタスクの削除を拒否: ${inst.task.title}`)
       return
     }
     
-    console.log(
-      `[TaskChute] ルーチンタスクを非表示化: ${inst.task.title} (instanceId: ${inst.instanceId})`,
-    )
     
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
@@ -4287,11 +4186,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // 拡張版のルーチンタスク設定メソッド（複数曜日対応）
   async setRoutineTaskExtended(task, button, scheduledTime, routineType, weekday, weekdaysArray) {
     try {
-      console.log("[setRoutineTaskExtended] Starting with:", {
-        routineType,
-        weekday,
-        weekdaysArray
-      });
 
       // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
@@ -4376,7 +4270,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this.renderTaskList()
       
       new Notice(noticeText)
-      console.log("[setRoutineTaskExtended] Successfully saved routine task");
     } catch (error) {
       console.error("ルーチンタスクの設定に失敗しました:", error)
       new Notice("ルーチンタスクの設定に失敗しました")
@@ -5272,9 +5165,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         "true",
       )
 
-      console.log(
-        `[TaskChute] 従来方式移動: ${moved.task.title} → ${toSlot}`,
-      )
     }
 
     // slotKeyを新グループに更新（このインスタンスだけ）
@@ -5376,9 +5266,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 表示日付が本日でない場合（前日のタスクを実行する場合）
       if (viewDateString !== todayDateString) {
-        console.log(
-          `[TaskChute] 非ルーチンタスク "${inst.task.title}" を本日（${todayDateString}）に移動します`,
-        )
 
         // target_dateを本日に更新
         const updateSuccess = await this.updateTaskTargetDate(inst.task, today)
@@ -5400,9 +5287,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 実行開始時は常に現在の時間帯に移動
     const currentSlot = this.getCurrentTimeSlot()
     if (inst.slotKey !== currentSlot) {
-      console.log(
-        `[TaskChute] タスク "${inst.task.title}" を実行開始: ${inst.slotKey} → ${currentSlot}`,
-      )
 
       // 現在の時間帯に移動
       inst.slotKey = currentSlot
@@ -5459,7 +5343,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         
         if (duplicatedInstances.length < initialLength) {
           localStorage.setItem(duplicationKey, JSON.stringify(duplicatedInstances))
-          console.log(`[TaskChute] 完了した複製タスクの情報を削除: ${inst.task.title} (instanceId: ${inst.instanceId})`)
         }
       } catch (e) {
         console.error("[TaskChute] 複製情報の削除エラー:", e)
@@ -5774,7 +5657,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       oscillator.start()
       playNote()
     } catch (error) {
-      console.log("音効果の再生に失敗しました:", error)
     }
   }
 
@@ -5890,9 +5772,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
 
-    console.log(
-      `[TaskChute] duplicateAndStartInstance: 複製情報を記録 (instanceId: ${newInst.instanceId})`,
-    )
 
     // startInstanceを呼ぶ前にrenderTaskListを呼んで、新しいインスタンスを表示
     this.renderTaskList()
@@ -6103,9 +5982,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           timestamp: new Date().toISOString(),
         }
 
-        console.log("保存開始:", completionData)
         await this.saveTaskCompletion(inst, completionData)
-        console.log("保存完了")
         modal.remove()
 
         // コメント保存後にタスクリスト表示を更新（コメントボタンの状態を反映）
@@ -6239,10 +6116,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // タスク完了データを保存
   async saveTaskCompletion(inst, completionData) {
-    console.log("saveTaskCompletion開始:", {
-      inst: inst.task.title,
-      completionData,
-    })
 
     try {
       // 月次ログファイルのパスを生成
@@ -6256,15 +6129,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
-      console.log("ログファイルパス:", logFilePath)
 
       // dataディレクトリが存在することを確認
       const dataDir = this.plugin.pathManager.getLogDataPath()
-      console.log("ディレクトリ確認:", dataDir)
       if (!(await this.app.vault.adapter.exists(dataDir))) {
-        console.log("ディレクトリを作成中...")
         await this.app.vault.adapter.mkdir(dataDir)
-        console.log("ディレクトリ作成完了")
       }
 
       // 基本的なタスク実行情報を作成
@@ -6295,7 +6164,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       // 既存のログファイルを読み込み
-      console.log("ログファイル構造初期化中...")
       let monthlyLog = {
         metadata: {
           version: "2.0",
@@ -6310,19 +6178,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       // ファイルが存在する場合は既存データを読み込み
-      console.log("既存ログファイル確認中...")
       if (await this.app.vault.adapter.exists(logFilePath)) {
-        console.log("既存ファイル発見、読み込み中...")
         try {
           const existingContent = await this.app.vault.adapter.read(logFilePath)
           const existingLog = JSON.parse(existingContent)
           monthlyLog = { ...monthlyLog, ...existingLog }
-          console.log("既存ファイル読み込み完了")
         } catch (e) {
           console.warn("既存ログファイルの読み込みに失敗、新規作成します:", e)
         }
-      } else {
-        console.log("新規ログファイルを作成します")
       }
 
       // 日次実行ログにタスクを追加または更新
@@ -6366,7 +6229,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       if (existingIndex !== -1) {
         // 既存エントリを更新（コメント追加/編集時）
-        console.log("既存エントリを更新:", taskExecution.taskName)
         monthlyLog.taskExecutions[dateString][existingIndex] = {
           ...monthlyLog.taskExecutions[dateString][existingIndex],
           ...taskExecution,
@@ -6375,7 +6237,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       } else {
         // 新規エントリを追加（タスク完了時）
-        console.log("新規エントリを追加:", taskExecution.taskName)
         monthlyLog.taskExecutions[dateString].push(taskExecution)
       }
 
@@ -6432,12 +6293,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       // JSONファイルに保存
-      console.log("JSONファイル書き込み開始...")
       const jsonContent = JSON.stringify(monthlyLog, null, 2)
-      console.log("JSON文字列生成完了、サイズ:", jsonContent.length)
 
       await this.app.vault.adapter.write(logFilePath, jsonContent)
-      console.log("JSONファイル書き込み完了")
 
       // コメント機能からの呼び出しではDaily Note保存をスキップ
       // （stopInstance時に既に保存済みのため）
@@ -6451,7 +6309,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       } else {
         // 新規エントリの作成（タスク完了時）
-        console.log("タスク完了データをJSONに保存完了")
       }
 
       // コメント機能では全タスク完了チェックやタスクリスト更新は行わない
@@ -6551,9 +6408,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               logFilePath,
               JSON.stringify(monthlyLog, null, 2),
             )
-            console.log(
-              `[TaskChute] ${baseFileName}から${totalDeletedLogs}件のログを削除（instanceId: ${instanceId}）`,
-            )
           }
         } catch (error) {
           console.error(
@@ -6564,9 +6418,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       if (totalDeletedLogs > 0) {
-        console.log(
-          `[TaskChute] 合計${totalDeletedLogs}件のタスクログを削除しました（instanceId: ${instanceId}）`,
-        )
       }
     } catch (error) {
       console.error("[TaskChute] タスクログ削除処理でエラー:", error)
@@ -6665,9 +6516,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       if (totalDeletedLogs > 0) {
-        console.log(
-          `タスク "${taskId}" のログを ${totalDeletedLogs} 件削除しました`,
-        )
         new Notice(`タスクログ ${totalDeletedLogs} 件を削除しました`)
       }
     } catch (error) {
@@ -6707,14 +6555,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   showRoutineEditModal(task, button) {
-    // デバッグログ：タスクの現在の状態を確認
-    console.log("[Routine Modal] Opening modal for task:", {
-      title: task.title,
-      routineType: task.routineType,
-      weekday: task.weekday,
-      weekdays: task.weekdays,
-      scheduledTime: task.scheduledTime
-    });
 
     // モーダルコンテナ
     const modal = document.createElement("div")
@@ -6785,8 +6625,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
 
     // 初期状態の設定
-    console.log("[Routine Modal] Setting initial state...");
-    console.log("[Routine Modal] task.isRoutine:", task.isRoutine);
     
     if (task.isRoutine) {
       // 既存のルーチンタスクの場合
@@ -6801,14 +6639,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         
         // 曜日の初期選択を設定
         if (task.weekdays && Array.isArray(task.weekdays)) {
-          console.log("[Routine Modal] Setting weekdays from array:", task.weekdays);
           task.weekdays.forEach(day => {
             if (weekdayCheckboxes[day]) {
               weekdayCheckboxes[day].checked = true
             }
           })
         } else if (task.weekday !== undefined && task.weekday !== null) {
-          console.log("[Routine Modal] Setting weekday from single value:", task.weekday);
           if (weekdayCheckboxes[task.weekday]) {
             weekdayCheckboxes[task.weekday].checked = true
           }
@@ -6820,7 +6656,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
     } else {
       // 新規ルーチン設定の場合は「毎日」をデフォルトに
-      console.log("[Routine Modal] New routine - setting daily as default");
       dailyCheckbox.checked = true
       customCheckbox.checked = false
       weekdayGroup.style.display = "none"
@@ -6961,12 +6796,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      console.log("[Routine Modal] Saving with:", {
-        routineType,
-        scheduledTime,
-        weekdaysArray,
-        weekday
-      });
 
       await this.setRoutineTaskExtended(
         task,
@@ -7038,9 +6867,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         },
       )
 
-      console.log(
-        `[TaskChute] タスク "${task.title}" のtarget_dateを ${dateString} に更新しました`,
-      )
 
       // タスクオブジェクト自体も更新（メモリ上）
       task.targetDate = dateString
@@ -7491,7 +7317,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             "taskchute-deleted-tasks",
             JSON.stringify(deletedTasks),
           )
-          console.log(`[TaskChute] 削除済みリストから「${filePath}」を削除しました`)
         }
       } catch (e) {
         console.error("[TaskChute] 削除済みリストの更新に失敗:", e)
@@ -13327,14 +13152,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // プロジェクトフォルダ内の「Project - 」で始まるファイルを取得
       if (file.path.startsWith(projectFolderPath + '/') && file.basename.startsWith('Project - ')) {
         projectFiles.push(file)
-        console.log(`[TaskChute] プロジェクトファイル発見: ${file.path}`)
         continue
       }
       
       // 互換性のため、「Project - 」で始まるファイルも他のフォルダから検索
       if (file.basename.startsWith('Project - ')) {
         projectFiles.push(file)
-        console.log(`[TaskChute] プロジェクトファイル発見（Project - ）: ${file.path}`)
         continue
       }
 
@@ -13380,11 +13203,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       if (isProject && file.basename.startsWith('Project - ')) {
         projectFiles.push(file)
-        console.log(`[TaskChute] プロジェクトファイル発見: ${file.basename}`)
       }
     }
 
-    console.log(`[TaskChute] プロジェクトファイル数: ${projectFiles.length}`)
     return projectFiles
   }
 
@@ -13660,9 +13481,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       inst.slotKey = newSlotKey
       // localStorageも更新
       localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlotKey)
-      console.log(
-        `[TaskChute] 時刻変更により時間帯移動: "${inst.task.title}" ${oldSlotKey} → ${newSlotKey}`,
-      )
     }
 
     try {
@@ -13699,9 +13517,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       inst.slotKey = newSlotKey
       // localStorageも更新
       localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlotKey)
-      console.log(
-        `[TaskChute] 実行中タスクの時刻変更により時間帯移動: "${inst.task.title}" ${oldSlotKey} → ${newSlotKey}`,
-      )
     }
 
     // 実行中タスクの状態を保存（JSON更新）
@@ -13846,7 +13661,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       } catch (e) {
         // エラーを無視（テスト環境など）
-        console.log("Date picker auto-open failed:", e.message)
       }
     }, 50) // 少し遅延させて確実にDOMに追加された後に実行
   }
@@ -14020,7 +13834,6 @@ function sortTaskInstances(taskInstances, timeSlotKeys) {
 
 // 新しいorderベースのソート関数（フェーズ2）
 function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
-  console.log("[TaskChute] orderベースのソート関数を使用")
 
   // 時間帯ごとにグループ化
   const timeSlotGroups = {}
@@ -14072,7 +13885,6 @@ function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
 
 class TaskChutePlusPlugin extends Plugin {
   async onload() {
-    console.log("TaskChute Plus Plugin loaded")
 
     // 設定を読み込み
     this.settings = (await this.loadData()) || {
@@ -14218,7 +14030,6 @@ class TaskChutePlusPlugin extends Plugin {
   }
 
   async onunload() {
-    console.log("TaskChute Plus Plugin unloaded")
 
     // 実行中タスクの状態を保存する処理を削除
     // 理由：onunloadでの非同期ファイル書き込みは信頼性が低く、
@@ -14677,7 +14488,6 @@ class LogView {
           const heatmapPath = `${yearPath}/yearly-heatmap.json`
           if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
             await this.plugin.app.vault.adapter.remove(heatmapPath)
-            console.log(`[TaskChute] Initial render: Deleted existing yearly data for ${this.currentYear}`)
           }
         } catch (error) {
           console.error("[TaskChute] Failed to delete yearly data:", error)
@@ -14748,7 +14558,6 @@ class LogView {
         const heatmapPath = `${yearPath}/yearly-heatmap.json`
         if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
           await this.plugin.app.vault.adapter.remove(heatmapPath)
-          console.log(`[TaskChute] Deleted existing yearly data for ${this.currentYear}`)
         }
       } catch (error) {
         console.error("[TaskChute] Failed to delete yearly data:", error)
@@ -14809,7 +14618,6 @@ class LogView {
   async loadYearlyData(year) {
     // Check cache first
     if (this.dataCache[year]) {
-      console.log(`[TaskChute] Loading year ${year} data from cache`)
       return this.dataCache[year]
     }
 
@@ -14830,7 +14638,6 @@ class LogView {
         
         // Store in cache
         this.dataCache[year] = data
-        console.log(`[TaskChute] Loaded year ${year} data from file and cached`)
         return data
       } catch (error) {
         console.error("[TaskChute] Failed to load yearly data:", error)
@@ -14845,7 +14652,6 @@ class LogView {
   }
 
   async generateYearlyData(year) {
-    console.log(`[TaskChute] Generating yearly data for ${year}`)
     
     const yearlyData = {
       year: year,
@@ -14934,7 +14740,6 @@ class LogView {
         JSON.stringify(yearlyData, null, 2)
       )
       
-      console.log(`[TaskChute] Generated yearly data for ${year} with ${Object.keys(yearlyData.days).length} days`)
     } catch (error) {
       console.error(`[TaskChute] Failed to generate yearly data for ${year}:`, error)
     }
@@ -15072,7 +14877,6 @@ class LogView {
     
     // Click event to navigate to date
     cell.addEventListener("click", async (e) => {
-      console.log(`[TaskChute] Cell clicked: ${dateString}`)
       e.stopPropagation()
       await this.navigateToDate(dateString)
     })
@@ -15110,7 +14914,6 @@ class LogView {
   }
   
   async navigateToDate(dateString) {
-    console.log(`[TaskChute] Navigating to date: ${dateString}`)
     
     try {
       // Parse date string
@@ -15121,7 +14924,6 @@ class LogView {
       let leaf
       
       if (leaves.length === 0) {
-        console.log("[TaskChute] Creating new TaskChute view")
         leaf = this.plugin.app.workspace.getRightLeaf(false)
         await leaf.setViewState({
           type: "taskchute-view",
@@ -15145,12 +14947,10 @@ class LogView {
         return
       }
       
-      console.log("[TaskChute] Setting current date...")
       // Update TaskChuteView's current date
       view.currentDate = new Date(year, month - 1, day)
       
       // Update date label
-      console.log("[TaskChute] Updating date label...")
       if (view.updateDateLabel && view.containerEl) {
         const dateLabel = view.containerEl.querySelector('.date-nav-label')
         if (dateLabel) {
@@ -15159,18 +14959,15 @@ class LogView {
       }
       
       // Load tasks
-      console.log("[TaskChute] Loading tasks...")
       await view.loadTasks()
       
       // Make the view active
       this.plugin.app.workspace.setActiveLeaf(leaf)
       
       // Close log modal
-      console.log("[TaskChute] Closing modal...")
       const modal = this.container.closest(".taskchute-log-modal-overlay")
       if (modal) {
         modal.remove()
-        console.log("[TaskChute] Modal closed")
       } else {
         console.warn("[TaskChute] Modal not found")
       }
@@ -15504,10 +15301,8 @@ class DailyTaskAggregator {
       const view = this.plugin.view
       if (view && view.logView && view.logView.dataCache[year]) {
         view.logView.dataCache[year] = yearlyData
-        console.log(`[TaskChute] Updated cache for year ${year}`)
       }
 
-      console.log(`[TaskChute] Updated yearly data for ${dateString}`)
     } catch (error) {
       console.error("[TaskChute] Failed to update yearly data:", error)
     }
