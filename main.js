@@ -1159,15 +1159,20 @@ class TaskChuteView extends ItemView {
     const d = this.currentDate.getDate().toString().padStart(2, "0")
     const dateStr = `${y}-${m}-${d}`
     // Wikiリンク風に表示
-    dateLabel.innerHTML = `<a href="#" class="date-wikilink" style="color:#1976d2;font-weight:bold;text-decoration:none;">${dateStr}</a>`
+    dateLabel.empty();
+    const link = dateLabel.createEl('a', {
+      cls: 'date-wikilink',
+      href: '#',
+      text: dateStr,
+      attr: {
+        style: 'color:#1976d2;font-weight:bold;text-decoration:none;'
+      }
+    });
     // クリックでノートを開く
-    const link = dateLabel.querySelector(".date-wikilink")
-    if (link) {
-      link.addEventListener("click", (e) => {
-        e.preventDefault()
-        this.app.workspace.openLinkText(dateStr, "", false)
-      })
-    }
+    link.addEventListener("click", (e) => {
+      e.preventDefault()
+      this.app.workspace.openLinkText(dateStr, "", false)
+    })
   }
   
   // 選択された日付を設定
@@ -4808,16 +4813,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
 
     // グリップアイコン（6つのドット）
-    dragHandle.innerHTML = `
-      <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-        <circle cx="2" cy="2" r="1.5"/>
-        <circle cx="8" cy="2" r="1.5"/>
-        <circle cx="2" cy="8" r="1.5"/>
-        <circle cx="8" cy="8" r="1.5"/>
-        <circle cx="2" cy="14" r="1.5"/>
-        <circle cx="8" cy="14" r="1.5"/>
-      </svg>
-    `
+    const svg = dragHandle.createSvg('svg', {
+      attr: {
+        width: '10',
+        height: '16',
+        viewBox: '0 0 10 16',
+        fill: 'currentColor'
+      }
+    });
+    svg.createSvg('circle', { attr: { cx: '2', cy: '2', r: '1.5' } });
+    svg.createSvg('circle', { attr: { cx: '8', cy: '2', r: '1.5' } });
+    svg.createSvg('circle', { attr: { cx: '2', cy: '8', r: '1.5' } });
+    svg.createSvg('circle', { attr: { cx: '8', cy: '8', r: '1.5' } });
+    svg.createSvg('circle', { attr: { cx: '2', cy: '14', r: '1.5' } });
+    svg.createSvg('circle', { attr: { cx: '8', cy: '14', r: '1.5' } });
 
     // ドラッグハンドルのイベント（ドラッグ可能な場合のみ）
     if (isDraggable) {
@@ -5093,7 +5102,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const timeRangeEl = taskItem.createEl("span", { cls: "task-time-range" })
     if (inst.state === "running" && inst.startTime) {
       // 実行中タスクの場合、終了時刻の代わりにスペースを入れて幅を揃える
-      timeRangeEl.innerHTML = `${formatTime(inst.startTime)} → <span style="display: inline-block; width: 45px;"></span>`
+      timeRangeEl.empty();
+      timeRangeEl.appendText(`${formatTime(inst.startTime)} → `);
+      timeRangeEl.createEl('span', { attr: { style: 'display: inline-block; width: 45px;' } });
     } else if (inst.state === "done" && inst.startTime && inst.stopTime) {
       timeRangeEl.setText(
         `${formatTime(inst.startTime)} → ${formatTime(inst.stopTime)}`,
@@ -5510,24 +5521,42 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // メッセージ
     const msg = document.createElement("div")
     msg.className = "celebration-message"
-    msg.innerHTML = `今日のタスクを全て完了しました！<br> <b>先送りゼロ達成、おめでとうございます！</b>`
+    msg.textContent = '今日のタスクを全て完了しました！'
+    const br = document.createElement('br')
+    msg.appendChild(br)
+    const boldText = document.createElement('b')
+    boldText.textContent = '先送りゼロ達成、おめでとうございます！'
+    msg.appendChild(boldText)
     content.appendChild(msg)
 
     // 統計
     const stats = document.createElement("div")
     stats.className = "celebration-stats"
-    stats.innerHTML = `
-      <div class="stat-item">
-        <span class="stat-number">${
-          this.taskInstances.filter((inst) => inst.state === "done").length
-        }</span>
-        <span class="stat-label">完了タスク</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-number">${this.calculateTotalTime()}</span>
-        <span class="stat-label">総作業時間</span>
-      </div>
-    `
+    stats.textContent = '';
+    
+    const statItem1 = document.createElement('div');
+    statItem1.className = 'stat-item';
+    const statNumber1 = document.createElement('span');
+    statNumber1.className = 'stat-number';
+    statNumber1.textContent = this.taskInstances.filter((inst) => inst.state === "done").length.toString();
+    statItem1.appendChild(statNumber1);
+    const statLabel1 = document.createElement('span');
+    statLabel1.className = 'stat-label';
+    statLabel1.textContent = '完了タスク';
+    statItem1.appendChild(statLabel1);
+    stats.appendChild(statItem1);
+    
+    const statItem2 = document.createElement('div');
+    statItem2.className = 'stat-item';
+    const statNumber2 = document.createElement('span');
+    statNumber2.className = 'stat-number';
+    statNumber2.textContent = this.calculateTotalTime();
+    statItem2.appendChild(statNumber2);
+    const statLabel2 = document.createElement('span');
+    statLabel2.className = 'stat-label';
+    statLabel2.textContent = '総作業時間';
+    statItem2.appendChild(statLabel2);
+    stats.appendChild(statItem2);
     content.appendChild(stats)
 
     // 拍手メッセージ
@@ -5908,13 +5937,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const existingInfo = header.createEl("div", {
         cls: "existing-comment-info",
       })
-      existingInfo.innerHTML = `
-        <small style="color: #666; font-style: italic;">
-          前回記録: ${new Date(existingComment.timestamp).toLocaleString(
-            "ja-JP",
-          )}
-        </small>
-      `
+      const small = existingInfo.createEl('small', { 
+        attr: { style: 'color: #666; font-style: italic;' }
+      });
+      small.textContent = `前回記録: ${new Date(existingComment.timestamp).toLocaleString("ja-JP")}`;
     }
 
     // メインコンテンツ
@@ -5933,13 +5959,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
 
       const timeInfo = form.createEl("div", { cls: "completion-time-info" })
-      timeInfo.innerHTML = `
-        <p><strong>実行時間:</strong> ${durationStr}</p>
-        <p><strong>開始:</strong> ${inst.startTime.toLocaleTimeString("ja-JP")} 
-           <strong>終了:</strong> ${inst.stopTime.toLocaleTimeString(
-             "ja-JP",
-           )}</p>
-      `
+      timeInfo.empty();
+      const p1 = timeInfo.createEl('p');
+      const strong1 = p1.createEl('strong');
+      strong1.textContent = '実行時間: ';
+      p1.appendText(durationStr);
+      
+      const p2 = timeInfo.createEl('p');
+      const strong2 = p2.createEl('strong');
+      strong2.textContent = '開始: ';
+      p2.appendText(inst.startTime.toLocaleTimeString("ja-JP") + ' ');
+      const strong3 = p2.createEl('strong');
+      strong3.textContent = '終了: ';
+      p2.appendText(inst.stopTime.toLocaleTimeString("ja-JP"));
     }
 
     // 評価セクション
@@ -13528,8 +13560,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       descText.textContent =
         "開始時刻を削除すると、タスクは未実行状態に戻ります。"
     } else if (inst.state === "done") {
-      descText.innerHTML =
-        "終了時刻のみ削除：実行中に戻ります<br>両方削除：未実行に戻ります"
+      descText.textContent = "終了時刻のみ削除：実行中に戻ります";
+      const br = document.createElement('br');
+      descText.appendChild(br);
+      const textNode = document.createTextNode("両方削除：未実行に戻ります");
+      descText.appendChild(textNode);
     }
 
     // ボタン
