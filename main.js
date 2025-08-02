@@ -201,8 +201,9 @@ class NavigationState {
 
 // TaskNameAutocomplete class for task name suggestions
 class TaskNameAutocomplete {
-  constructor(plugin, inputElement, containerElement) {
+  constructor(plugin, inputElement, containerElement, view = null) {
     this.plugin = plugin
+    this.view = view
     this.inputElement = inputElement
     this.containerElement = containerElement
     this.taskNames = []
@@ -443,10 +444,13 @@ class TaskNameAutocomplete {
 
   selectSuggestion(taskName) {
     // 既存の検証ロジックを適用
-    const validation = this.plugin.TaskNameValidator.validate(taskName)
-    if (!validation.isValid) {
-      new Notice("このタスク名には使用できない文字が含まれています")
-      return
+    // TaskNameValidatorはTaskChuteViewクラスのプロパティなので、viewを通じてアクセス
+    if (this.view && this.view.TaskNameValidator) {
+      const validation = this.view.TaskNameValidator.validate(taskName)
+      if (!validation.isValid) {
+        new Notice("このタスク名には使用できない文字が含まれています")
+        return
+      }
     }
     
     this.inputElement.value = taskName
@@ -454,6 +458,18 @@ class TaskNameAutocomplete {
     
     // 入力イベントを発火して検証UIを更新
     this.inputElement.dispatchEvent(new Event("input", { bubbles: true }))
+    
+    // 重要: changeイベントを発火（inputイベントに加えて）
+    this.inputElement.dispatchEvent(new Event("change", { bubbles: true }))
+    
+    // フォーカスを維持
+    this.inputElement.focus()
+    
+    // カスタムイベントで選択を通知
+    this.inputElement.dispatchEvent(new CustomEvent("autocomplete-selected", {
+      detail: { taskName },
+      bubbles: true
+    }))
   }
 
   updateSelection(items) {
@@ -464,6 +480,63 @@ class TaskNameAutocomplete {
         item.classList.remove("suggestion-item-selected")
       }
     })
+  }
+}
+
+// TaskInheritanceManager class for managing task inheritance
+class TaskInheritanceManager {
+  constructor(plugin) {
+    this.plugin = plugin
+    this.app = plugin.app
+  }
+  
+  // 既存タスクの検索と情報取得
+  async findExistingTask(taskName) {
+    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+    const taskPath = `${taskFolderPath}/${taskName}.md`
+    const file = this.app.vault.getAbstractFileByPath(taskPath)
+    
+    if (!file || !(file instanceof TFile)) {
+      return null
+    }
+    
+    // メタデータとコンテンツを取得
+    const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter || {}
+    const content = await this.app.vault.read(file)
+    
+    return {
+      file,
+      metadata,
+      content,
+      inheritableData: {
+        project: metadata.project || null,
+        isRoutine: metadata.isRoutine || false,
+        routineStart: metadata.routineStart || null,
+        routineEnd: metadata.routineEnd || null,
+        routineType: metadata.routineType || 'daily',
+        weekday: metadata.weekday || null,
+        description: this.extractDescription(content)
+      }
+    }
+  }
+  
+  // 説明文の抽出（フロントマター以外の部分）
+  extractDescription(content) {
+    const lines = content.split('\n')
+    let inFrontmatter = false
+    let description = []
+    
+    for (const line of lines) {
+      if (line === '---') {
+        inFrontmatter = !inFrontmatter
+        continue
+      }
+      if (!inFrontmatter && line.trim() && !line.startsWith('#task')) {
+        description.push(line)
+      }
+    }
+    
+    return description.join('\n').trim()
   }
 }
 
@@ -7107,8 +7180,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
     
     // TASK-008: TaskNameAutocompleteとの統合
-    const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup)
+    const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this)
     await autocomplete.initialize()
+    
+    // TaskInheritanceManager の初期化
+    const inheritanceManager = new TaskInheritanceManager(this.plugin)
+    let currentInheritance = null
 
     // タスク説明入力
     const descGroup = form.createEl("div", { cls: "form-group" })
@@ -7153,7 +7230,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         return
       }
 
-      await this.createNewTask(taskName, taskDesc)
+      // 継承データを含めてタスクを作成
+      const taskData = {
+        name: taskName,
+        description: taskDesc,
+        inheritance: currentInheritance
+      }
+      
+      await this.createNewTask(taskData)
       document.body.removeChild(modal)
     })
 
@@ -7170,6 +7254,44 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // 入力検証の設定
     this.setupTaskNameValidation(nameInput, createButton, warningMessage)
+    
+    // autocomplete-selected イベントの処理
+    nameInput.addEventListener("autocomplete-selected", async (e) => {
+      const taskName = e.detail.taskName
+      await handleTaskNameChange(taskName)
+    })
+    
+    // タスク名の手動入力時の処理（デバウンス付き）
+    let nameChangeTimer
+    nameInput.addEventListener("input", (e) => {
+      clearTimeout(nameChangeTimer)
+      nameChangeTimer = setTimeout(async () => {
+        const taskName = nameInput.value.trim()
+        await handleTaskNameChange(taskName)
+      }, 500) // 500ms のデバウンス
+    })
+    
+    // タスク名変更時の処理
+    const handleTaskNameChange = async (taskName) => {
+      if (!taskName) {
+        currentInheritance = null
+        return
+      }
+      
+      // 既存タスクの検索
+      const existingTask = await inheritanceManager.findExistingTask(taskName)
+      
+      if (existingTask && existingTask.inheritableData) {
+        currentInheritance = existingTask.inheritableData
+        // 説明文を自動的に設定
+        if (existingTask.inheritableData.description) {
+          descInput.value = existingTask.inheritableData.description
+        }
+      } else {
+        currentInheritance = null
+      }
+    }
+    
     
     // Enterキー処理（自動補完との競合を防ぐ）
     nameInput.addEventListener("keydown", (e) => {
@@ -7250,7 +7372,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     return validation.isValid;
   }
 
-  async createNewTask(taskName, taskDesc) {
+  async createNewTask(taskData) {
+    // 既存の呼び出しとの互換性を保つ
+    let taskName, taskDesc, inheritance
+    if (typeof taskData === 'string') {
+      // 旧形式の呼び出し(taskName, taskDesc)
+      taskName = taskData
+      taskDesc = arguments[1] || ''
+      inheritance = null
+    } else {
+      // 新形式の呼び出し({name, description, inheritance})
+      taskName = taskData.name
+      taskDesc = taskData.description || ''
+      inheritance = taskData.inheritance || null
+    }
     try {
       // ファイル名を生成（重複を避ける）
       let fileName = taskName
@@ -7270,22 +7405,40 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const targetDateString = `${y}-${m}-${d}`
 
       // メタデータ付きのファイル内容を作成（対象日付を記録）
-      let content = `---
-routine: false
-target_date: ${targetDateString}
----
-
-# ${taskName}
-
-#task
-
-`
+      let frontmatter = ['---']
+      
+      // 継承データがある場合は、そのデータを優先
+      if (inheritance) {
+        if (inheritance.project) {
+          frontmatter.push(`project: "${inheritance.project}"`)
+        }
+        
+        if (inheritance.isRoutine) {
+          frontmatter.push(`routine: true`)
+          frontmatter.push(`isRoutine: true`)
+          if (inheritance.routineStart) frontmatter.push(`routineStart: "${inheritance.routineStart}"`)
+          if (inheritance.routineEnd) frontmatter.push(`routineEnd: "${inheritance.routineEnd}"`)
+          if (inheritance.routineType) frontmatter.push(`routineType: "${inheritance.routineType}"`)
+          if (inheritance.weekday) frontmatter.push(`weekday: ${inheritance.weekday}`)
+        } else {
+          frontmatter.push('routine: false')
+        }
+      } else {
+        frontmatter.push('routine: false')
+      }
+      
+      frontmatter.push(`target_date: ${targetDateString}`)
+      frontmatter.push('---')
+      
+      // コンテンツの構築
+      let content = frontmatter.join('\n') + '\n\n'
+      content += `# ${taskName}\n\n`
+      content += '#task\n\n'
+      
       if (taskDesc) {
         content += `${taskDesc}\n\n`
       }
-      content += `## メモ
-
-`
+      content += `## メモ\n\n`
 
       // ファイルを作成（タスクフォルダ配下）
       const filePath = `${taskFolderPath}/${fileName}.md`
@@ -12758,6 +12911,7 @@ target_date: ${targetDateString}
                 background-color: var(--interactive-accent);
                 margin-top: 4px;
             }
+            
         `
     document.head.appendChild(style)
   }
