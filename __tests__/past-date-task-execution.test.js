@@ -147,6 +147,18 @@ describe('前日の未実施タスク実行時の動作', () => {
     taskChuteView.initializeTaskOrders = jest.fn();
     taskChuteView.moveIdleTasksToCurrentSlot = jest.fn();
     taskChuteView.cleanupOldStorageKeys = jest.fn();
+    
+    // RoutineAliasManagerのモックを追加
+    taskChuteView.plugin = {
+      routineAliasManager: {
+        getAliases: jest.fn(() => []),
+        findCurrentName: jest.fn(),
+        addAlias: jest.fn()
+      },
+      pathManager: {
+        getTaskFolderPath: jest.fn(() => 'TaskChute/Task')
+      }
+    };
     taskChuteView.getTimeSlotKeys = jest.fn().mockReturnValue([
       '0:00-8:00',
       '8:00-12:00',

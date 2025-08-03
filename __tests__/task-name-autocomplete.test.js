@@ -47,6 +47,7 @@ describe("TaskNameAutocomplete", () => {
   let containerElement
   let autocomplete
   let TaskNameAutocomplete
+  let mockView
 
   beforeEach(() => {
     // モックプラグインを作成
@@ -57,8 +58,12 @@ describe("TaskNameAutocomplete", () => {
     // Viewのメソッドをモック
     plugin.getCurrentDateString = jest.fn().mockReturnValue("2024-01-01")
     plugin.getDeletedInstances = jest.fn().mockReturnValue([])
-    plugin.TaskNameValidator = {
-      validate: jest.fn().mockReturnValue({ isValid: true, invalidChars: [] })
+    
+    // Viewのモックを作成
+    mockView = {
+      TaskNameValidator: {
+        validate: jest.fn().mockReturnValue({ isValid: true, invalidChars: [] })
+      }
     }
     
     // DOM要素をモック
@@ -74,7 +79,7 @@ describe("TaskNameAutocomplete", () => {
     TaskNameAutocomplete = getTaskNameAutocompleteClass()
     
     // インスタンスを作成
-    autocomplete = new TaskNameAutocomplete(plugin, inputElement, containerElement)
+    autocomplete = new TaskNameAutocomplete(plugin, inputElement, containerElement, mockView)
   })
 
   afterEach(() => {
@@ -236,7 +241,7 @@ describe("TaskNameAutocomplete", () => {
     })
 
     test("無効な文字を含むタスク名は選択しない", () => {
-      plugin.TaskNameValidator.validate.mockReturnValue({ 
+      mockView.TaskNameValidator.validate.mockReturnValue({ 
         isValid: false, 
         invalidChars: [":"] 
       })
@@ -245,6 +250,37 @@ describe("TaskNameAutocomplete", () => {
       autocomplete.selectSuggestion(taskName)
       
       expect(inputElement.value).toBe("") // 値は変更されない
+    })
+    
+    test("changeイベントが発火される", () => {
+      const taskName = "テストタスク"
+      const changeEventHandler = jest.fn()
+      inputElement.addEventListener("change", changeEventHandler)
+      
+      autocomplete.selectSuggestion(taskName)
+      
+      expect(changeEventHandler).toHaveBeenCalled()
+      expect(inputElement.value).toBe(taskName)
+    })
+    
+    test("カスタムイベントが発火される", () => {
+      const taskName = "テストタスク"
+      const customEventHandler = jest.fn()
+      inputElement.addEventListener("autocomplete-selected", customEventHandler)
+      
+      autocomplete.selectSuggestion(taskName)
+      
+      expect(customEventHandler).toHaveBeenCalled()
+      expect(customEventHandler.mock.calls[0][0].detail.taskName).toBe(taskName)
+    })
+    
+    test("選択後もフォーカスが維持される", () => {
+      const taskName = "テストタスク"
+      inputElement.focus = jest.fn()
+      
+      autocomplete.selectSuggestion(taskName)
+      
+      expect(inputElement.focus).toHaveBeenCalled()
     })
   })
 })

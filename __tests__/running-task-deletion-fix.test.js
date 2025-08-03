@@ -220,9 +220,6 @@ describe("実行中タスク削除後の復活バグ修正", () => {
 
       // タスクインスタンスが作成されていないことを確認
       expect(taskChute.taskInstances.length).toBe(0)
-      expect(console.log).toHaveBeenCalledWith(
-        "[TaskChute] 削除済みタスクをスキップ: タスクA (tasks/タスクA.md)"
-      )
     })
 
     test("削除されていないタスクは正常に復元される", async () => {

@@ -1,6 +1,6 @@
 // よりシンプルなテストアプローチ
 const { TaskChuteView } = require("../main")
-const { mockApp, mockLeaf } = require("../__mocks__/obsidian")
+const { mockApp, mockLeaf, TFile } = require("../__mocks__/obsidian")
 
 describe("Flexible Routine Schedule - Simplified Tests", () => {
   let taskChuteView
@@ -110,6 +110,26 @@ describe("Flexible Routine Schedule - Simplified Tests", () => {
   })
 
   describe("setRoutineTaskExtended メソッドのテスト", () => {
+    beforeEach(() => {
+      // pathManagerとgetAbstractFileByPathのモックを追加
+      taskChuteView.plugin = {
+        pathManager: {
+          getTaskFolderPath: jest.fn(() => "TaskChute/Task")
+        }
+      }
+      
+      // TFileのようなオブジェクトを作成
+      const mockFile = { 
+        path: "TaskChute/Task/テストタスク.md",
+        basename: "テストタスク",
+        extension: "md"
+      }
+      // TFileのインスタンスチェックをパスするために、コンストラクタも設定
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      taskChuteView.app.vault.getAbstractFileByPath = jest.fn(() => mockFile)
+      taskChuteView.ensureFrontMatter = jest.fn()
+    })
+
     test("カスタムルーチンの保存", async () => {
       const task = {
         title: "テストタスク",
@@ -150,6 +170,15 @@ describe("Flexible Routine Schedule - Simplified Tests", () => {
 
       const button = document.createElement("button")
       let savedFrontmatter = null
+
+      // mockFileを毎日タスク用に更新
+      const mockFile = { 
+        path: "TaskChute/Task/毎日タスク.md",
+        basename: "毎日タスク",
+        extension: "md"
+      }
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      taskChuteView.app.vault.getAbstractFileByPath = jest.fn(() => mockFile)
 
       taskChuteView.app.fileManager.processFrontMatter = jest.fn(async (file, cb) => {
         const frontmatter = {}

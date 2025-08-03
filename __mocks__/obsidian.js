@@ -219,14 +219,26 @@ const mockApp = {
   },
 }
 
+const normalizePath = (path) => {
+  // Normalize path by removing redundant slashes and dots
+  return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/\.$/, '')
+}
+
+const TFolder = jest.fn().mockImplementation(() => ({
+  path: "test-folder",
+  name: "test-folder",
+}))
+
 module.exports = {
   Plugin,
   ItemView,
   WorkspaceLeaf,
   TFile,
+  TFolder,
   Notice,
   PluginSettingTab,
   Setting,
+  normalizePath,
   mockApp,
   mockLeaf,
 }

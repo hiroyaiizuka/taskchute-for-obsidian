@@ -77,6 +77,11 @@ describe("プロジェクト設定の永続化バグ", () => {
         getTaskFolderPath: jest.fn().mockReturnValue('TaskChute/Task'),
         getProjectFolderPath: jest.fn().mockReturnValue('TaskChute/Project'),
         getLogDataPath: jest.fn().mockReturnValue('TaskChute/Log')
+      },
+      routineAliasManager: {
+        getAliases: jest.fn(() => []),
+        findCurrentName: jest.fn(),
+        addAlias: jest.fn()
       }
     }
 
