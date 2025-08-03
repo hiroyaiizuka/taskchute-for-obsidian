@@ -3824,20 +3824,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
     }
     
-    // 3. ルーチンタスクでも実行ログがあれば削除する（インスタンス単位）
-    if (isDuplicated && inst.instanceId) {
-      try {
-        await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId)
-      } catch (e) {
-        console.error("ルーチンタスクのログ削除に失敗:", e)
-      }
-    } else {
-      try {
-        await this.deleteTaskLogs(inst.task.path)
-      } catch (e) {
-        console.error("ルーチンタスクのログ削除に失敗:", e)
-      }
-    }
+    // 3. 【修正】ルーチンタスクの非表示化では実行ログを削除しない
+    // 理由：ルーチンタスクは翌日以降も継続して使用されるため、
+    // 過去の実行履歴は保持する必要がある。
+    // タスクファイル自体を削除する場合（deleteInstanceWithFile）でのみ
+    // 実行ログを削除すべき。
     
     // 4. 実行中タスクの場合は running-task.json を更新
     if (inst.state === "running") {
