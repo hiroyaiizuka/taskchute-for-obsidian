@@ -774,50 +774,8 @@ class TaskChuteView extends ItemView {
     // Keyboard selection state
     this.selectedTaskInstance = null
 
-    // 既存データの移行処理（初回のみ）
-    this.migrateOldDeletionData()
   }
 
-  // 既存データの移行処理
-  async migrateOldDeletionData() {
-    try {
-      // 旧形式の削除リストをチェック
-      const oldDeletedTasks = localStorage.getItem("taskchute-deleted-tasks")
-      if (!oldDeletedTasks) return // 移行不要
-
-      const deletedPaths = JSON.parse(oldDeletedTasks)
-      if (!Array.isArray(deletedPaths) || deletedPaths.length === 0) {
-        localStorage.removeItem("taskchute-deleted-tasks")
-        return
-      }
-
-      // 現在の日付で新形式に移行
-      const dateStr = this.getCurrentDateString()
-      const newDeletedInstances = deletedPaths.map((path) => ({
-        path: path,
-        instanceId: "legacy-" + path, // 旧データ用の特別なID
-        deletionType: "permanent",
-        deletedAt: new Date().toISOString(),
-      }))
-
-      // 既存の新形式データとマージ
-      const existingInstances = this.getDeletedInstances(dateStr)
-      const mergedInstances = [...existingInstances, ...newDeletedInstances]
-
-      // 重複を除去
-      const uniqueInstances = mergedInstances.filter(
-        (item, index, self) =>
-          index === self.findIndex((t) => t.path === item.path),
-      )
-
-      this.saveDeletedInstances(dateStr, uniqueInstances)
-
-      // 旧データを削除
-      localStorage.removeItem("taskchute-deleted-tasks")
-    } catch (e) {
-      // 移行エラーは無視
-    }
-  }
 
   getViewType() {
     return VIEW_TYPE_TASKCHUTE
@@ -1105,19 +1063,23 @@ class TaskChuteView extends ItemView {
                 localStorage.removeItem(`taskchute-position-in-slot-${oldPath}`)
               }
 
-              // 削除済みリストからも更新
-              let deletedTasks = []
+              // 削除済みインスタンスリストも更新
               try {
-                deletedTasks = JSON.parse(
-                  localStorage.getItem("taskchute-deleted-tasks") || "[]",
-                )
-                const oldIndex = deletedTasks.indexOf(oldPath)
-                if (oldIndex !== -1) {
-                  deletedTasks[oldIndex] = file.path
-                  localStorage.setItem(
-                    "taskchute-deleted-tasks",
-                    JSON.stringify(deletedTasks),
-                  )
+                const dateStr = this.getCurrentDateString()
+                let deletedInstances = this.getDeletedInstances(dateStr)
+                
+                // 古いパスを持つインスタンスを更新
+                let updated = false
+                deletedInstances = deletedInstances.map(inst => {
+                  if (inst.path === oldPath) {
+                    updated = true
+                    return { ...inst, path: file.path }
+                  }
+                  return inst
+                })
+                
+                if (updated) {
+                  this.saveDeletedInstances(dateStr, deletedInstances)
                 }
               } catch (e) {
                 // エラーは無視
@@ -2941,10 +2903,65 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.taskInstances = []
     this.taskList.empty()
 
-    // 削除済みタスクリスト
-    const deletedTasks = JSON.parse(
-      localStorage.getItem("taskchute-deleted-tasks") || "[]",
-    )
+    // 削除済みタスクリスト - 新システムのみ使用
+    let deletedTasks = []
+    try {
+      // 新システムの削除済みインスタンスを取得
+      const deletedInstances = this.getDeletedInstances(dateStr)
+      deletedTasks = deletedInstances
+        .filter(inst => inst.deletionType === "permanent")
+        .map(inst => inst.path)
+    } catch (e) {
+      console.error("Failed to parse deleted tasks:", e)
+      deletedTasks = []
+    }
+
+    // 削除済みリストのクリーンアップ（存在しないファイルを除去）
+    if (deletedTasks.length > 0) {
+      const existingDeletedTasks = []
+      // バッチ処理で効率化
+      const checkPromises = deletedTasks.map(async (path) => {
+        try {
+          // Vault APIを使用してファイルの存在を確認
+          const file =
+            this.app.vault.getFileByPath(path) ||
+            this.app.vault.getFolderByPath(path)
+          if (file) {
+            return path
+          }
+          return null
+        } catch (e) {
+          // ファイルアクセスエラーをログに記録
+          console.error(`Failed to check file existence for ${path}:`, e)
+          return null
+        }
+      })
+
+      const results = await Promise.all(checkPromises)
+      results.forEach((path) => {
+        if (path) existingDeletedTasks.push(path)
+      })
+
+      // クリーンアップ後のリストが元と異なる場合は更新
+      if (existingDeletedTasks.length !== deletedTasks.length) {
+        deletedTasks = existingDeletedTasks
+        
+        // 新システムのクリーンアップ
+        const deletedInstances = this.getDeletedInstances(dateStr)
+        const cleanedInstances = deletedInstances.filter(inst => 
+          existingDeletedTasks.includes(inst.path)
+        )
+        
+        try {
+          // 新システムの更新
+          if (cleanedInstances.length !== deletedInstances.length) {
+            this.saveDeletedInstances(dateStr, cleanedInstances)
+          }
+        } catch (e) {
+          console.error("Failed to save cleaned deleted tasks:", e)
+        }
+      }
+    }
 
     // 複製タスク情報
     const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
@@ -3555,11 +3572,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (!Array.isArray(runningTasksData)) return
 
       // 削除済みタスクリストを取得
+      // 削除済みタスクを新システムから取得
       let deletedTasks = []
       try {
-        deletedTasks = JSON.parse(
-          localStorage.getItem("taskchute-deleted-tasks") || "[]",
-        )
+        const dateStr = this.getCurrentDateString()
+        const deletedInstances = this.getDeletedInstances(dateStr)
+        deletedTasks = deletedInstances
+          .filter(inst => inst.deletionType === "permanent")
+          .map(inst => inst.path)
       } catch (e) {
         deletedTasks = []
       }
@@ -3707,7 +3727,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // ディレクトリが存在しない場合は作成
       const dirPath = this.plugin.pathManager.getLogDataPath()
-      if (!(await this.app.vault.adapter.exists(dirPath))) {
+      // Vault APIを使用してフォルダの存在を確認
+      const folder = this.app.vault.getFolderByPath(dirPath)
+      if (!folder) {
         await this.app.vault.createFolder(dirPath)
       }
 
@@ -7227,15 +7249,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 削除済みリストから該当パスを削除
       // これにより、同じ名前のタスクを再作成した場合でも正しく表示される
       try {
-        let deletedTasks = JSON.parse(
-          localStorage.getItem("taskchute-deleted-tasks") || "[]",
+        // 新システムから削除
+        const dateStr = this.getCurrentDateString()
+        let deletedInstances = this.getDeletedInstances(dateStr)
+        const filteredInstances = deletedInstances.filter(
+          inst => inst.path !== filePath
         )
-        if (deletedTasks.includes(filePath)) {
-          deletedTasks = deletedTasks.filter((path) => path !== filePath)
-          localStorage.setItem(
-            "taskchute-deleted-tasks",
-            JSON.stringify(deletedTasks),
-          )
+        if (filteredInstances.length !== deletedInstances.length) {
+          this.saveDeletedInstances(dateStr, filteredInstances)
         }
       } catch (e) {
         // 削除済みリストの更新に失敗
@@ -13526,6 +13547,43 @@ class TaskChutePlusPlugin extends Plugin {
   }
 
   async onunload() {
+    // リソースのクリーンアップ
+
+    // 1. インターバルタイマーのクリア
+    if (this.globalTimerInterval) {
+      clearInterval(this.globalTimerInterval)
+      this.globalTimerInterval = null
+    }
+
+    // 2. DOMイベントリスナーのクリーンアップ（自動的に処理される）
+    // 注: registerEventで登録されたイベントは自動的にクリーンアップされます
+
+    // 3. ビューのクリーンアップ
+    this.app.workspace.detachLeavesOfType(TaskChutePlusView.VIEW_TYPE)
+
+    // 4. 一時的なlocalStorageデータのクリーンアップ（オプション）
+    // 注: ユーザーデータは保持しますが、古い一時データは削除
+    try {
+      const today = new Date()
+      const cutoffDate = new Date(today)
+      cutoffDate.setDate(today.getDate() - 30) // 30日以前のデータを削除
+
+      const keysToCheck = Object.keys(localStorage)
+      keysToCheck.forEach((key) => {
+        // 古い日付ベースのキーを削除
+        const dateMatch = key.match(/taskchute-.*-(\d{4}-\d{2}-\d{2})/)
+        if (dateMatch) {
+          const keyDate = new Date(dateMatch[1])
+          if (keyDate < cutoffDate) {
+            localStorage.removeItem(key)
+          }
+        }
+      })
+    } catch (e) {
+      // クリーンアップエラーは無視（ベストエフォート）
+      console.error("Failed to cleanup old localStorage data:", e)
+    }
+
     // 実行中タスクの状態を保存する処理を削除
     // 理由：onunloadでの非同期ファイル書き込みは信頼性が低く、
     // Obsidian終了前に処理が完了しないため。

@@ -43,6 +43,7 @@ describe("Running Task Persistence", () => {
         getAbstractFileByPath: jest.fn(),
         adapter: mockVaultAdapter,
         createFolder: jest.fn(),
+        getFolderByPath: jest.fn().mockReturnValue(null),
       },
       workspace: {
         openLinkText: jest.fn(),
@@ -112,6 +113,7 @@ describe("Running Task Persistence", () => {
 
     taskChuteView = new TaskChuteView(mockLeaf, mockPlugin)
     taskChuteView.app = mockApp
+    taskChuteView.plugin = mockPlugin
 
     // 必要なプロパティを初期化
     taskChuteView.tasks = []

@@ -117,6 +117,8 @@ describe("実行中タスク削除後の復活バグ修正", () => {
           delete fileSystem[file.path]
         }
       }),
+      getFolderByPath: jest.fn().mockReturnValue(null),
+      createFolder: jest.fn(),
     }
 
     // モックワークスペース
@@ -162,6 +164,7 @@ describe("実行中タスク削除後の復活バグ修正", () => {
 
     taskChute = new TaskChuteView(mockApp.workspace.containerEl, mockPlugin)
     taskChute.app = mockApp
+    taskChute.plugin = mockPlugin
     taskChute.taskList = mockElement
     taskChute.currentDate = new Date("2025-07-15")
     taskChute.settings = {
@@ -197,8 +200,15 @@ describe("実行中タスク削除後の復活バグ修正", () => {
 
   describe("削除済みタスクのスキップ機能", () => {
     test("削除済みタスクは復元時にスキップされる", async () => {
-      // 削除済みタスクリストに追加
-      localStorage.setItem("taskchute-deleted-tasks", JSON.stringify(["tasks/タスクA.md"]))
+      // 新システムの削除済みインスタンスとして設定
+      taskChute.getDeletedInstances = jest.fn().mockReturnValue([
+        {
+          path: "tasks/タスクA.md",
+          instanceId: "deleted-instance",
+          deletionType: "permanent",
+          deletedAt: new Date().toISOString()
+        }
+      ])
 
       // running-task.jsonに実行中タスクを設定
       fileSystem["TaskChute/Log/running-task.json"] = JSON.stringify([
@@ -415,6 +425,7 @@ describe("実行中タスク削除後の復活バグ修正", () => {
 
       const newTaskChute = new TaskChuteView(mockApp.workspace.containerEl, mockPlugin2)
       newTaskChute.app = mockApp
+      newTaskChute.plugin = mockPlugin2
       newTaskChute.taskList = mockApp.workspace.containerEl.createEl()
       newTaskChute.currentDate = new Date("2025-07-15")
       newTaskChute.settings = taskChute.settings
