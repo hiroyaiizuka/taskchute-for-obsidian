@@ -1,4 +1,14 @@
-const { Plugin, ItemView, WorkspaceLeaf, TFile, Notice, PluginSettingTab, Setting } = require("obsidian")
+const {
+  Plugin,
+  ItemView,
+  WorkspaceLeaf,
+  TFile,
+  TFolder,
+  Notice,
+  PluginSettingTab,
+  Setting,
+  normalizePath,
+} = require("obsidian")
 
 const VIEW_TYPE_TASKCHUTE = "taskchute-view"
 
@@ -7,65 +17,76 @@ class PathManager {
   constructor(plugin) {
     this.plugin = plugin
   }
-  
+
   // デフォルトパスの定義
   static DEFAULT_PATHS = {
     taskFolder: "TaskChute/Task",
     projectFolder: "TaskChute/Project",
     logData: "TaskChute/Log",
-    reviewData: "TaskChute/Review"
+    reviewData: "TaskChute/Review",
   }
-  
+
   // 設定されたパスを取得（設定がない場合はデフォルト）
   getTaskFolderPath() {
-    return this.plugin.settings.taskFolderPath || PathManager.DEFAULT_PATHS.taskFolder
+    const path =
+      this.plugin.settings.taskFolderPath ||
+      PathManager.DEFAULT_PATHS.taskFolder
+    return normalizePath(path)
   }
-  
+
   getProjectFolderPath() {
-    return this.plugin.settings.projectFolderPath || PathManager.DEFAULT_PATHS.projectFolder
+    const path =
+      this.plugin.settings.projectFolderPath ||
+      PathManager.DEFAULT_PATHS.projectFolder
+    return normalizePath(path)
   }
-  
+
   getLogDataPath() {
-    return this.plugin.settings.logDataPath || PathManager.DEFAULT_PATHS.logData
+    const path =
+      this.plugin.settings.logDataPath || PathManager.DEFAULT_PATHS.logData
+    return normalizePath(path)
   }
-  
+
   getReviewDataPath() {
-    return this.plugin.settings.reviewDataPath || PathManager.DEFAULT_PATHS.reviewData
+    const path =
+      this.plugin.settings.reviewDataPath ||
+      PathManager.DEFAULT_PATHS.reviewData
+    return normalizePath(path)
   }
-  
+
   // 年ごとのログパスを取得
   getLogYearPath(year) {
     const logPath = this.getLogDataPath()
-    return `${logPath}/${year}`
+    return normalizePath(`${logPath}/${year}`)
   }
-  
+
   // 年フォルダの作成を確実にする
   async ensureYearFolder(year) {
     const yearPath = this.getLogYearPath(year)
     await this.ensureFolderExists(yearPath)
     return yearPath
   }
-  
+
   // パスの検証
   validatePath(path) {
     // 絶対パスのチェック
-    if (path.startsWith('/') || path.match(/^[A-Za-z]:\\/)) {
+    if (path.startsWith("/") || path.match(/^[A-Za-z]:\\/)) {
       return { valid: false, error: "絶対パスは使用できません" }
     }
-    
+
     // 危険な文字のチェック
-    if (path.includes('..')) {
+    if (path.includes("..")) {
       return { valid: false, error: "パスに'..'を含めることはできません" }
     }
-    
+
     // 特殊文字のチェック
     if (path.match(/[<>"|?*]/)) {
       return { valid: false, error: "パスに特殊文字を含めることはできません" }
     }
-    
+
     return { valid: true }
   }
-  
+
   // フォルダの自動作成
   async ensureFolderExists(path) {
     const folder = this.plugin.app.vault.getAbstractFileByPath(path)
@@ -74,10 +95,9 @@ class PathManager {
         await this.plugin.app.vault.createFolder(path)
       } catch (error) {
         // フォルダが既に存在する場合はエラーを無視
-        if (error.message && error.message.includes('Folder already exists')) {
+        if (error.message && error.message.includes("Folder already exists")) {
           return
         }
-        console.error(`フォルダの作成に失敗しました: ${path}`, error)
         throw error
       }
     }
@@ -90,17 +110,17 @@ class RoutineAliasManager {
     this.plugin = plugin
     this.aliasCache = null
   }
-  
+
   // Get the path to the routine-aliases.json file
   getAliasFilePath() {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-    return `${taskFolderPath}/routine-aliases.json`
+    return normalizePath(`${taskFolderPath}/routine-aliases.json`)
   }
-  
+
   // Load aliases from file
   async loadAliases() {
     if (this.aliasCache) return this.aliasCache
-    
+
     const path = this.getAliasFilePath()
     try {
       if (await this.plugin.app.vault.adapter.exists(path)) {
@@ -109,46 +129,44 @@ class RoutineAliasManager {
         return this.aliasCache
       }
     } catch (error) {
-      console.error('Failed to load routine aliases:', error)
-      new Notice('ルーチンタスクの名前変更履歴の読み込みに失敗しました')
+      new Notice("ルーチンタスクの名前変更履歴の読み込みに失敗しました")
     }
-    
+
     this.aliasCache = {}
     return this.aliasCache
   }
-  
+
   // Save aliases to file
   async saveAliases(aliases) {
     try {
       const path = this.getAliasFilePath()
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      
+
       // Ensure folder exists
       await this.plugin.pathManager.ensureFolderExists(taskFolderPath)
-      
+
       // Validate JSON
       JSON.stringify(aliases)
-      
+
       await this.plugin.app.vault.adapter.write(
-        path, 
-        JSON.stringify(aliases, null, 2)
+        path,
+        JSON.stringify(aliases, null, 2),
       )
-      
+
       this.aliasCache = aliases
     } catch (error) {
-      console.error('Failed to save routine aliases:', error)
-      new Notice('ルーチンタスクの名前変更履歴の保存に失敗しました')
+      new Notice("ルーチンタスクの名前変更履歴の保存に失敗しました")
     }
   }
-  
+
   // Add alias for a renamed task
   async addAlias(newName, oldName) {
     const aliases = await this.loadAliases()
-    
+
     if (!aliases[newName]) {
       aliases[newName] = []
     }
-    
+
     // Include existing aliases
     if (aliases[oldName]) {
       aliases[newName] = [...aliases[oldName], oldName]
@@ -156,33 +174,33 @@ class RoutineAliasManager {
     } else {
       aliases[newName].push(oldName)
     }
-    
+
     // Remove duplicates
     aliases[newName] = [...new Set(aliases[newName])]
-    
+
     await this.saveAliases(aliases)
   }
-  
+
   // Get aliases for a task name
   getAliases(taskName) {
     return this.aliasCache?.[taskName] || []
   }
-  
+
   // Find current name for an old name
   findCurrentName(oldName, visited = new Set()) {
     if (!this.aliasCache) return null
-    
+
     // Prevent circular references
     if (visited.has(oldName)) return null
     visited.add(oldName)
-    
+
     // Find current name
     for (const [current, aliases] of Object.entries(this.aliasCache)) {
       if (aliases.includes(oldName)) {
         return current
       }
     }
-    
+
     return null
   }
 }
@@ -226,32 +244,33 @@ class TaskNameAutocomplete {
 
   async loadTaskNames() {
     // TASK-002: タスク名の読み込み機能を実装
-    const { TFolder, TFile } = require("obsidian")
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-    const taskFolder = this.plugin.app.vault.getAbstractFileByPath(taskFolderPath)
-    
+    const taskFolder =
+      this.plugin.app.vault.getAbstractFileByPath(taskFolderPath)
+
     if (!taskFolder || !(taskFolder instanceof TFolder)) {
       return
     }
 
-    const files = taskFolder.children.filter(f => f instanceof TFile && f.extension === "md")
-    
-    this.taskNames = files.map(file => file.basename)
-    
+    const files = taskFolder.children.filter(
+      (f) => f instanceof TFile && f.extension === "md",
+    )
+
+    this.taskNames = files.map((file) => file.basename)
   }
 
   searchTasks(query) {
     // TASK-003: 検索アルゴリズムの実装
     if (!query || query.length < 1) return []
-    
+
     const lowerQuery = query.toLowerCase()
-    
+
     // スコアリング関数
     const scoredResults = this.taskNames
-      .map(name => {
+      .map((name) => {
         const lowerName = name.toLowerCase()
         let score = 0
-        
+
         // 完全一致
         if (lowerName === lowerQuery) score = 1000
         // 前方一致
@@ -260,14 +279,14 @@ class TaskNameAutocomplete {
         else if (lowerName.includes(lowerQuery)) score = 10
         // 一致なし
         else return null
-        
+
         return { name, score }
       })
       .filter(Boolean)
       .sort((a, b) => b.score - a.score)
       .slice(0, 5) // 最大5件
-    
-    return scoredResults.map(r => r.name)
+
+    return scoredResults.map((r) => r.name)
   }
 
   setupEventListeners() {
@@ -284,8 +303,13 @@ class TaskNameAutocomplete {
     // キーボードイベント
     this.inputElement.addEventListener("keydown", (e) => {
       // サジェストが表示されている場合のみナビゲーション処理
-      if (this.isVisible && (e.key === "ArrowDown" || e.key === "ArrowUp" || 
-          (e.key === "Enter" && this.selectedIndex >= 0) || e.key === "Escape")) {
+      if (
+        this.isVisible &&
+        (e.key === "ArrowDown" ||
+          e.key === "ArrowUp" ||
+          (e.key === "Enter" && this.selectedIndex >= 0) ||
+          e.key === "Escape")
+      ) {
         this.handleKeyNavigation(e)
       }
     })
@@ -305,42 +329,55 @@ class TaskNameAutocomplete {
     window.addEventListener("resize", () => this.hideSuggestions())
     window.addEventListener("scroll", () => this.hideSuggestions(), true)
   }
-  
+
   setupFileEventListeners() {
     // TASK-011: ファイルイベントへの対応
-    const { TFile } = require("obsidian")
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-    
+
     // ファイル作成時
     const createRef = this.plugin.app.vault.on("create", async (file) => {
-      if (file instanceof TFile && file.path.startsWith(taskFolderPath) && file.extension === "md") {
+      if (
+        file instanceof TFile &&
+        file.path.startsWith(taskFolderPath) &&
+        file.extension === "md"
+      ) {
         await this.loadTaskNames()
       }
     })
     this.fileEventRefs.push(createRef)
-    
+
     // ファイル削除時
     const deleteRef = this.plugin.app.vault.on("delete", async (file) => {
-      if (file instanceof TFile && file.path.startsWith(taskFolderPath) && file.extension === "md") {
+      if (
+        file instanceof TFile &&
+        file.path.startsWith(taskFolderPath) &&
+        file.extension === "md"
+      ) {
         await this.loadTaskNames()
       }
     })
     this.fileEventRefs.push(deleteRef)
-    
+
     // ファイルリネーム時
-    const renameRef = this.plugin.app.vault.on("rename", async (file, oldPath) => {
-      if (file instanceof TFile && file.extension === "md") {
-        if (file.path.startsWith(taskFolderPath) || oldPath.startsWith(taskFolderPath)) {
-          await this.loadTaskNames()
+    const renameRef = this.plugin.app.vault.on(
+      "rename",
+      async (file, oldPath) => {
+        if (file instanceof TFile && file.extension === "md") {
+          if (
+            file.path.startsWith(taskFolderPath) ||
+            oldPath.startsWith(taskFolderPath)
+          ) {
+            await this.loadTaskNames()
+          }
         }
-      }
-    })
+      },
+    )
     this.fileEventRefs.push(renameRef)
   }
-  
+
   cleanup() {
     // イベントリスナーのクリーンアップ
-    this.fileEventRefs.forEach(ref => this.plugin.app.vault.offref(ref))
+    this.fileEventRefs.forEach((ref) => this.plugin.app.vault.offref(ref))
     this.fileEventRefs = []
     clearTimeout(this.debounceTimer)
     this.hideSuggestions()
@@ -361,26 +398,28 @@ class TaskNameAutocomplete {
     // サジェスト要素を作成
     this.suggestionsElement = document.createElement("div")
     this.suggestionsElement.className = "task-name-suggestions"
-    
+
     // 各候補を追加
     suggestions.forEach((suggestion, index) => {
       const item = document.createElement("div")
       item.className = "suggestion-item"
       item.textContent = suggestion
       item.setAttribute("data-index", index)
-      
+
       // TASK-005: マウス操作のイベント処理
       item.addEventListener("mouseenter", () => {
         this.selectedIndex = index
-        this.updateSelection(this.suggestionsElement.querySelectorAll(".suggestion-item"))
+        this.updateSelection(
+          this.suggestionsElement.querySelectorAll(".suggestion-item"),
+        )
       })
-      
+
       item.addEventListener("click", (e) => {
         e.preventDefault()
         e.stopPropagation()
         this.selectSuggestion(suggestion)
       })
-      
+
       this.suggestionsElement.appendChild(item)
     })
 
@@ -390,7 +429,7 @@ class TaskNameAutocomplete {
     this.suggestionsElement.style.top = `${rect.bottom + 2}px`
     this.suggestionsElement.style.left = `${rect.left}px`
     this.suggestionsElement.style.width = `${rect.width}px`
-    
+
     // DOMに追加
     document.body.appendChild(this.suggestionsElement)
     this.isVisible = true
@@ -413,19 +452,19 @@ class TaskNameAutocomplete {
     const items = this.suggestionsElement.querySelectorAll(".suggestion-item")
     if (items.length === 0) return
 
-    switch(e.key) {
+    switch (e.key) {
       case "ArrowDown":
         e.preventDefault()
         this.selectedIndex = Math.min(this.selectedIndex + 1, items.length - 1)
         this.updateSelection(items)
         break
-        
+
       case "ArrowUp":
         e.preventDefault()
         this.selectedIndex = Math.max(this.selectedIndex - 1, -1)
         this.updateSelection(items)
         break
-        
+
       case "Enter":
         if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
           e.preventDefault()
@@ -433,7 +472,7 @@ class TaskNameAutocomplete {
           this.selectSuggestion(items[this.selectedIndex].textContent)
         }
         break
-        
+
       case "Escape":
         e.preventDefault()
         this.hideSuggestions()
@@ -451,24 +490,26 @@ class TaskNameAutocomplete {
         return
       }
     }
-    
+
     this.inputElement.value = taskName
     this.hideSuggestions()
-    
+
     // 入力イベントを発火して検証UIを更新
     this.inputElement.dispatchEvent(new Event("input", { bubbles: true }))
-    
+
     // 重要: changeイベントを発火（inputイベントに加えて）
     this.inputElement.dispatchEvent(new Event("change", { bubbles: true }))
-    
+
     // フォーカスを維持
     this.inputElement.focus()
-    
+
     // カスタムイベントで選択を通知
-    this.inputElement.dispatchEvent(new CustomEvent("autocomplete-selected", {
-      detail: { taskName },
-      bubbles: true
-    }))
+    this.inputElement.dispatchEvent(
+      new CustomEvent("autocomplete-selected", {
+        detail: { taskName },
+        bubbles: true,
+      }),
+    )
   }
 
   updateSelection(items) {
@@ -488,21 +529,22 @@ class TaskInheritanceManager {
     this.plugin = plugin
     this.app = plugin.app
   }
-  
+
   // 既存タスクの検索と情報取得
   async findExistingTask(taskName) {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
     const taskPath = `${taskFolderPath}/${taskName}.md`
     const file = this.app.vault.getAbstractFileByPath(taskPath)
-    
+
     if (!file || !(file instanceof TFile)) {
       return null
     }
-    
+
     // メタデータとコンテンツを取得
-    const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter || {}
+    const metadata =
+      this.app.metadataCache.getFileCache(file)?.frontmatter || {}
     const content = await this.app.vault.read(file)
-    
+
     return {
       file,
       metadata,
@@ -512,30 +554,30 @@ class TaskInheritanceManager {
         isRoutine: metadata.isRoutine || false,
         routineStart: metadata.routineStart || null,
         routineEnd: metadata.routineEnd || null,
-        routineType: metadata.routineType || 'daily',
+        routineType: metadata.routineType || "daily",
         weekday: metadata.weekday || null,
-        description: this.extractDescription(content)
-      }
+        description: this.extractDescription(content),
+      },
     }
   }
-  
+
   // 説明文の抽出（フロントマター以外の部分）
   extractDescription(content) {
-    const lines = content.split('\n')
+    const lines = content.split("\n")
     let inFrontmatter = false
     let description = []
-    
+
     for (const line of lines) {
-      if (line === '---') {
+      if (line === "---") {
         inFrontmatter = !inFrontmatter
         continue
       }
-      if (!inFrontmatter && line.trim() && !line.startsWith('#task')) {
+      if (!inFrontmatter && line.trim() && !line.startsWith("#task")) {
         description.push(line)
       }
     }
-    
-    return description.join('\n').trim()
+
+    return description.join("\n").trim()
   }
 }
 
@@ -544,22 +586,22 @@ class TaskChuteView extends ItemView {
   TaskNameValidator = {
     // 禁止文字のパターン
     INVALID_CHARS_PATTERN: /[:|\/\\#^]/g,
-    
+
     // 検証メソッド
     validate(taskName) {
-      const invalidChars = taskName.match(this.INVALID_CHARS_PATTERN);
+      const invalidChars = taskName.match(this.INVALID_CHARS_PATTERN)
       return {
         isValid: !invalidChars,
-        invalidChars: invalidChars ? [...new Set(invalidChars)] : []
-      };
+        invalidChars: invalidChars ? [...new Set(invalidChars)] : [],
+      }
     },
-    
+
     // エラーメッセージ生成
     getErrorMessage(invalidChars) {
-      return `使用できない文字が含まれています: ${invalidChars.join(', ')}`;
-    }
-  };
-  
+      return `使用できない文字が含まれています: ${invalidChars.join(", ")}`
+    },
+  }
+
   // 現在の日付文字列を取得するヘルパーメソッド
   getCurrentDateString() {
     const y = this.currentDate.getFullYear()
@@ -567,23 +609,23 @@ class TaskChuteView extends ItemView {
     const d = this.currentDate.getDate().toString().padStart(2, "0")
     return `${y}-${m}-${d}`
   }
-  
+
   // 日跨ぎタスクの期間を正しく計算するヘルパーメソッド
   calculateCrossDayDuration(startTime, stopTime) {
     if (!startTime || !stopTime) return 0
-    
+
     let duration = stopTime - startTime
-    
+
     // 負の値の場合は日跨ぎと判定し、24時間を加算
     if (duration < 0) {
       duration += 24 * 60 * 60 * 1000
     }
-    
+
     return duration
   }
-  
+
   // 削除管理システムの統一化 - ヘルパーメソッド
-  
+
   // 削除済みインスタンスを取得
   getDeletedInstances(dateStr) {
     const key = `taskchute-deleted-instances-${dateStr}`
@@ -592,27 +634,26 @@ class TaskChuteView extends ItemView {
       if (!data) return []
       return JSON.parse(data)
     } catch (e) {
-      console.error("[TaskChute] 削除済みインスタンスの読み込みエラー:", e)
       return []
     }
   }
-  
+
   // 削除済みインスタンスを保存
   saveDeletedInstances(dateStr, instances) {
     const key = `taskchute-deleted-instances-${dateStr}`
     try {
       localStorage.setItem(key, JSON.stringify(instances))
     } catch (e) {
-      console.error("[TaskChute] 削除済みインスタンスの保存エラー:", e)
+      // エラーは無視
     }
   }
-  
+
   // 非表示ルーチンタスクを取得（新形式対応）
   getHiddenRoutines(dateStr) {
-    const keyPlural = `taskchute-hidden-routines-${dateStr}`  // 複数形（新形式）
+    const keyPlural = `taskchute-hidden-routines-${dateStr}` // 複数形（新形式）
     const keySingular = `taskchute-hidden-routine-${dateStr}` // 単数形（旧形式）
     const hiddenRoutines = []
-    
+
     try {
       // 新形式（複数形）のデータを読み込み
       const dataPlural = localStorage.getItem(keyPlural)
@@ -620,55 +661,56 @@ class TaskChuteView extends ItemView {
         const parsed = JSON.parse(dataPlural)
         // 後方互換性: 文字列配列の場合は新形式に変換
         if (parsed.length > 0 && typeof parsed[0] === "string") {
-          hiddenRoutines.push(...parsed.map(path => ({
-            path: path,
-            instanceId: null // 旧形式はインスタンスIDを持たない
-          })))
+          hiddenRoutines.push(
+            ...parsed.map((path) => ({
+              path: path,
+              instanceId: null, // 旧形式はインスタンスIDを持たない
+            })),
+          )
         } else {
           hiddenRoutines.push(...parsed)
         }
       }
-      
+
       // 旧形式（単数形）のデータも読み込み（ホットキー削除で保存されたデータ）
       const dataSingular = localStorage.getItem(keySingular)
       if (dataSingular) {
         const parsed = JSON.parse(dataSingular)
         // 文字列配列をオブジェクト形式に変換
         if (Array.isArray(parsed)) {
-          parsed.forEach(path => {
+          parsed.forEach((path) => {
             // 重複を避ける
-            if (!hiddenRoutines.some(h => h.path === path)) {
+            if (!hiddenRoutines.some((h) => h.path === path)) {
               hiddenRoutines.push({ path, instanceId: null })
             }
           })
         }
       }
-      
+
       return hiddenRoutines
     } catch (e) {
-      console.error("[TaskChute] 非表示ルーチンの読み込みエラー:", e)
       return []
     }
   }
-  
+
   // 非表示ルーチンタスクを保存
   saveHiddenRoutines(dateStr, routines) {
     const keyPlural = `taskchute-hidden-routines-${dateStr}`
     const keySingular = `taskchute-hidden-routine-${dateStr}` // 旧形式のキー
-    
+
     try {
       // 新形式で保存
       localStorage.setItem(keyPlural, JSON.stringify(routines))
-      
+
       // 旧形式のキーが存在する場合は削除（移行完了）
       if (localStorage.getItem(keySingular)) {
         localStorage.removeItem(keySingular)
       }
     } catch (e) {
-      console.error("[TaskChute] 非表示ルーチンの保存エラー:", e)
+      // エラーは無視
     }
   }
-  
+
   // 複製されたインスタンスを取得
   getDuplicatedInstances(dateStr) {
     const key = `taskchute-duplicated-instances-${dateStr}`
@@ -677,15 +719,14 @@ class TaskChuteView extends ItemView {
       if (!data) return []
       return JSON.parse(data)
     } catch (e) {
-      console.error("[TaskChute] 複製インスタンスの読み込みエラー:", e)
       return []
     }
   }
-  
+
   // インスタンスが削除済みかチェック
   isInstanceDeleted(instanceId, taskPath, dateStr) {
     const deletedInstances = this.getDeletedInstances(dateStr)
-    return deletedInstances.some(del => {
+    return deletedInstances.some((del) => {
       // インスタンスIDでの一致を優先
       if (instanceId && del.instanceId === instanceId) return true
       // 永続削除されたファイルの場合
@@ -693,15 +734,16 @@ class TaskChuteView extends ItemView {
       return false
     })
   }
-  
+
   // インスタンスが非表示かチェック
   isInstanceHidden(instanceId, taskPath, dateStr) {
     const hiddenRoutines = this.getHiddenRoutines(dateStr)
-    return hiddenRoutines.some(hidden => {
+    return hiddenRoutines.some((hidden) => {
       // 新形式：インスタンスIDでの一致
       if (hidden.instanceId && hidden.instanceId === instanceId) return true
       // 旧形式：文字列（パス）での一致 - ただし、この場合もインスタンスIDがあるものは除外
-      if (typeof hidden === 'string' && hidden === taskPath && !instanceId) return true
+      if (typeof hidden === "string" && hidden === taskPath && !instanceId)
+        return true
       return false
     })
   }
@@ -728,53 +770,52 @@ class TaskChuteView extends ItemView {
 
     // Navigation state management
     this.navigationState = new NavigationState()
-    
+
     // Keyboard selection state
     this.selectedTaskInstance = null
-    
+
     // 既存データの移行処理（初回のみ）
     this.migrateOldDeletionData()
   }
-  
+
   // 既存データの移行処理
   async migrateOldDeletionData() {
     try {
       // 旧形式の削除リストをチェック
       const oldDeletedTasks = localStorage.getItem("taskchute-deleted-tasks")
       if (!oldDeletedTasks) return // 移行不要
-      
+
       const deletedPaths = JSON.parse(oldDeletedTasks)
       if (!Array.isArray(deletedPaths) || deletedPaths.length === 0) {
         localStorage.removeItem("taskchute-deleted-tasks")
         return
       }
-      
-      
+
       // 現在の日付で新形式に移行
       const dateStr = this.getCurrentDateString()
-      const newDeletedInstances = deletedPaths.map(path => ({
+      const newDeletedInstances = deletedPaths.map((path) => ({
         path: path,
         instanceId: "legacy-" + path, // 旧データ用の特別なID
         deletionType: "permanent",
-        deletedAt: new Date().toISOString()
+        deletedAt: new Date().toISOString(),
       }))
-      
+
       // 既存の新形式データとマージ
       const existingInstances = this.getDeletedInstances(dateStr)
       const mergedInstances = [...existingInstances, ...newDeletedInstances]
-      
+
       // 重複を除去
-      const uniqueInstances = mergedInstances.filter((item, index, self) =>
-        index === self.findIndex((t) => t.path === item.path)
+      const uniqueInstances = mergedInstances.filter(
+        (item, index, self) =>
+          index === self.findIndex((t) => t.path === item.path),
       )
-      
+
       this.saveDeletedInstances(dateStr, uniqueInstances)
-      
+
       // 旧データを削除
       localStorage.removeItem("taskchute-deleted-tasks")
-      
     } catch (e) {
-      console.error("[TaskChute] 削除データの移行に失敗:", e)
+      // 移行エラーは無視
     }
   }
 
@@ -794,7 +835,7 @@ class TaskChuteView extends ItemView {
     const topBarContainer = container.createEl("div", {
       cls: "top-bar-container",
     })
-    
+
     // Drawer Toggle Button
     const drawerToggle = topBarContainer.createEl("button", {
       cls: "drawer-toggle",
@@ -858,19 +899,19 @@ class TaskChuteView extends ItemView {
       text: "🤖",
       attr: { title: "ターミナルを開く" },
     })
-    
+
     // Event listeners for action buttons
     addTaskButton.addEventListener("click", () => this.showAddTaskModal())
     robotButton.addEventListener("click", async () => {
       try {
         await this.app.commands.executeCommandById(
-          "terminal:open-terminal.integrated.root"
+          "terminal:open-terminal.integrated.root",
         )
       } catch (error) {
         new Notice("ターミナルを開けませんでした: " + error.message)
       }
     })
-    
+
     // カレンダーUI
     calendarBtn.addEventListener("click", (e) => {
       e.stopPropagation()
@@ -1031,7 +1072,6 @@ class TaskChuteView extends ItemView {
           try {
             const content = await this.app.vault.read(file)
             if (content.includes("#task")) {
-
               // localStorageのキーも更新
               const oldSlotKey = localStorage.getItem(
                 `taskchute-slotkey-${oldPath}`,
@@ -1084,15 +1124,17 @@ class TaskChuteView extends ItemView {
               }
 
               // ルーチンタスクの場合、名前変更を記録
-              const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
-              const isRoutine = metadata?.routine === true || content.includes("#routine")
-              
+              const metadata =
+                this.app.metadataCache.getFileCache(file)?.frontmatter
+              const isRoutine =
+                metadata?.routine === true || content.includes("#routine")
+
               if (isRoutine) {
-                const oldName = oldPath.split('/').pop().replace('.md', '')
+                const oldName = oldPath.split("/").pop().replace(".md", "")
                 const newName = file.basename
                 await this.plugin.routineAliasManager.addAlias(newName, oldName)
               }
-              
+
               // 複製情報のパスも更新する
               const today = this.currentDate
               const y = today.getFullYear()
@@ -1100,28 +1142,31 @@ class TaskChuteView extends ItemView {
               const d = today.getDate().toString().padStart(2, "0")
               const dateString = `${y}-${m}-${d}`
               const duplicatedKey = `taskchute-duplicated-instances-${dateString}`
-              
+
               try {
                 const duplicatedData = localStorage.getItem(duplicatedKey)
                 if (duplicatedData) {
                   const duplicatedInstances = JSON.parse(duplicatedData)
                   let updated = false
-                  
-                  duplicatedInstances.forEach(dup => {
+
+                  duplicatedInstances.forEach((dup) => {
                     if (dup.path === oldPath) {
                       dup.path = file.path
                       updated = true
                     }
                   })
-                  
+
                   if (updated) {
-                    localStorage.setItem(duplicatedKey, JSON.stringify(duplicatedInstances))
+                    localStorage.setItem(
+                      duplicatedKey,
+                      JSON.stringify(duplicatedInstances),
+                    )
                   }
                 }
               } catch (e) {
-                console.error("[TaskChute] 複製情報の更新エラー:", e)
+                // 複製情報の更新エラーは無視
               }
-              
+
               // 実行中タスクのパスを更新
               await this.updateRunningTaskPath(
                 oldPath,
@@ -1134,7 +1179,7 @@ class TaskChuteView extends ItemView {
             }
           } catch (e) {
             // ファイル読み込みエラーは無視
-            console.error(`[TaskChute] ファイル読み込みエラー: ${e}`)
+            // ファイル読み込みエラーは無視
           }
         }
       }),
@@ -1150,36 +1195,36 @@ class TaskChuteView extends ItemView {
     const d = this.currentDate.getDate().toString().padStart(2, "0")
     const dateStr = `${y}-${m}-${d}`
     // Wikiリンク風に表示
-    dateLabel.empty();
-    const link = dateLabel.createEl('a', {
-      cls: 'date-wikilink',
-      href: '#',
+    dateLabel.empty()
+    const link = dateLabel.createEl("a", {
+      cls: "date-wikilink",
+      href: "#",
       text: dateStr,
       attr: {
-        style: 'color:#1976d2;font-weight:bold;text-decoration:none;'
-      }
-    });
+        style: "color:#1976d2;font-weight:bold;text-decoration:none;",
+      },
+    })
     // クリックでノートを開く
     link.addEventListener("click", (e) => {
       e.preventDefault()
       this.app.workspace.openLinkText(dateStr, "", false)
     })
   }
-  
+
   // 選択された日付を設定
   setSelectedDate(date) {
     // date は YYYY-MM-DD 形式の文字列
-    const [year, month, day] = date.split('-').map(Number);
-    this.currentDate = new Date(year, month - 1, day);
-    
+    const [year, month, day] = date.split("-").map(Number)
+    this.currentDate = new Date(year, month - 1, day)
+
     // 日付ラベルを更新
-    const dateLabel = this.containerEl.querySelector('.date-nav-label');
+    const dateLabel = this.containerEl.querySelector(".date-nav-label")
     if (dateLabel) {
-      this.updateDateLabel(dateLabel);
+      this.updateDateLabel(dateLabel)
     }
-    
+
     // タスクを再読み込み
-    this.loadTasks();
+    this.loadTasks()
   }
 
   // Initialize navigation event listeners
@@ -1199,20 +1244,22 @@ class TaskChuteView extends ItemView {
       })
     }
   }
-  
+
   // Toggle navigation panel visibility
   toggleNavigation() {
     this.navigationState.toggle()
-    
+
     if (this.navigationPanel && this.navigationOverlay) {
-      const taskListContainer = this.containerEl.querySelector(".task-list-container")
-      
+      const taskListContainer = this.containerEl.querySelector(
+        ".task-list-container",
+      )
+
       if (this.navigationState.isVisible) {
         this.navigationPanel.removeClass("navigation-panel-hidden")
         this.navigationPanel.addClass("navigation-panel-visible")
         this.navigationOverlay.removeClass("navigation-overlay-hidden")
         this.navigationOverlay.addClass("navigation-overlay-visible")
-        
+
         // Add grayed out effect to task list
         if (taskListContainer) {
           taskListContainer.addClass("grayed-out")
@@ -1230,13 +1277,15 @@ class TaskChuteView extends ItemView {
       }
     }
   }
-  
+
   // Handle navigation item clicks
   handleNavigationItemClick(section) {
     this.navigationState.setActiveSection(section)
-    
+
     // Update active state visually
-    const navItems = this.navigationPanel.querySelectorAll(".navigation-nav-item")
+    const navItems = this.navigationPanel.querySelectorAll(
+      ".navigation-nav-item",
+    )
     navItems.forEach((item) => {
       if (item.getAttribute("data-section") === section) {
         item.addClass("active")
@@ -1261,75 +1310,76 @@ class TaskChuteView extends ItemView {
         break
     }
   }
-  
+
   // Placeholder methods for navigation sections
   showRoutineSection() {
     // TODO: Implement routine section display
   }
-  
+
   async showReviewSection() {
-    
     try {
       // 実際の現在日付を取得
       const today = new Date()
-      const todayStr = `${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`
-      
+      const todayStr = `${today.getFullYear()}-${(today.getMonth() + 1)
+        .toString()
+        .padStart(2, "0")}-${today.getDate().toString().padStart(2, "0")}`
+
       // TaskChuteで選択されている日付を取得
       const selectedDateStr = this.getCurrentDateString()
-      
+
       // 使用する日付を決定（未来の日付の場合は今日の日付を使用）
       let reviewDateStr = selectedDateStr
       if (new Date(selectedDateStr) > new Date(todayStr)) {
         reviewDateStr = todayStr
       }
-      
+
       const reviewFileName = `Review - ${reviewDateStr}.md`
       const reviewPath = `${this.plugin.pathManager.getReviewDataPath()}/${reviewFileName}`
-      
+
       // レビューファイルを作成または取得
-      const reviewFile = await this.createOrGetReviewFile(reviewPath, reviewDateStr)
-      
+      const reviewFile = await this.createOrGetReviewFile(
+        reviewPath,
+        reviewDateStr,
+      )
+
       // 分割ビューで開く
       await this.openReviewInSplit(reviewFile)
-      
+
       // ナビゲーションパネルを閉じる
       this.toggleNavigation()
-      
     } catch (error) {
-      console.error("[TaskChute] レビュー表示エラー:", error)
       new Notice("レビューの表示に失敗しました: " + error.message)
     }
   }
-  
+
   async showLogSection() {
-    
     try {
       // Create a modal for log view
       const modal = document.createElement("div")
       modal.className = "taskchute-log-modal-overlay"
-      
+
       const modalContent = modal.createEl("div", {
-        cls: "taskchute-log-modal-content"
+        cls: "taskchute-log-modal-content",
       })
-      
+
       // Create close button
       const closeButton = modalContent.createEl("button", {
         cls: "log-modal-close",
-        text: "×"
+        text: "×",
       })
-      
+
       closeButton.addEventListener("click", () => {
         modal.remove()
         // Keep logView instance for cache
       })
-      
+
       // Close modal when clicking outside
       modal.addEventListener("click", (e) => {
         if (e.target === modal) {
           modal.remove()
         }
       })
-      
+
       // Create or reuse log view instance
       if (!this.logView) {
         this.logView = new LogView(this.plugin, modalContent)
@@ -1337,51 +1387,48 @@ class TaskChuteView extends ItemView {
         // Reuse existing instance with new container
         this.logView.container = modalContent
       }
-      
+
       await this.logView.render()
-      
+
       // Add modal to document
       document.body.appendChild(modal)
-      
+
       // Close navigation panel
       this.toggleNavigation()
-      
     } catch (error) {
-      console.error("[TaskChute] Failed to show log section:", error)
       new Notice("ログの表示に失敗しました")
     }
   }
-  
+
   showProjectSection() {
     // TODO: Implement project section display
   }
-  
+
   // レビューファイルを作成または取得
   async createOrGetReviewFile(reviewPath, dateStr) {
     // レビューフォルダの存在確認と作成
     const reviewFolder = this.plugin.pathManager.getReviewDataPath()
     await this.plugin.pathManager.ensureFolderExists(reviewFolder)
-    
+
     // ファイルの存在チェック
     let reviewFile = this.app.vault.getAbstractFileByPath(reviewPath)
-    
+
     if (!reviewFile) {
       // デフォルトテンプレートを使用
       const template = this.getDefaultReviewTemplate()
-      
+
       // プレースホルダーを置換（引数で渡された日付を使用）
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       let content = template.replace(/{{date}}/g, dateStr)
       content = content.replace(/{{logDataPath}}/g, logDataPath)
-      
+
       // ファイルを作成
       reviewFile = await this.app.vault.create(reviewPath, content)
     }
-    
+
     return reviewFile
   }
-  
-  
+
   // デフォルトレビューテンプレートを取得
   getDefaultReviewTemplate() {
     return `
@@ -1391,7 +1438,6 @@ class TaskChuteView extends ItemView {
 // ファイル名から日付を取得
 // ファイル名: "Review - YYYY-MM-DD"
 const fileName = dv.current().file.name
-// console.log("ファイル名:", fileName)
 
 // シンプルに日付パターンだけを探す
 const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
@@ -1404,7 +1450,6 @@ if (!dateMatch) {
 const currentDate = dateMatch[0] // YYYY-MM-DD
 const [year, month] = currentDate.split('-')
 const monthString = \`\${year}-\${month}\`
-// console.log("抽出された日付:", currentDate)
 
   
 
@@ -1418,7 +1463,7 @@ const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
 
 try {
 
-const content = await app.vault.adapter.read(logPath)
+const content = await dv.app.vault.adapter.read(logPath)
 
 const monthlyLog = JSON.parse(content)
 
@@ -1503,7 +1548,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 // ファイル名から日付を取得
 // ファイル名: "Review - YYYY-MM-DD"
 const fileName = dv.current().file.name
-// console.log("ファイル名:", fileName)
 
 // シンプルに日付パターンだけを探す
 const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)
@@ -1516,7 +1560,6 @@ if (!dateMatch) {
 const currentDate = dateMatch[0] // YYYY-MM-DD
 const [year, month] = currentDate.split('-')
 const monthString = \`\${year}-\${month}\`
-// console.log("抽出された日付:", currentDate)
 
   
 
@@ -1528,7 +1571,7 @@ const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
 
 try {
 
-const content = await app.vault.adapter.read(logPath)
+const content = await dv.app.vault.adapter.read(logPath)
 
 const monthlyLog = JSON.parse(content)
 
@@ -1604,71 +1647,70 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
 `
   }
-  
+
   // レビューを分割ビューで開く
   async openReviewInSplit(reviewFile) {
     try {
       // 現在のTaskChuteViewのleafを保持
       const currentLeaf = this.leaf
-      
+
       // 右側に分割してレビューを開く
       const rightLeaf = this.app.workspace.splitActiveLeaf("vertical")
       await rightLeaf.openFile(reviewFile)
-      
+
       // TaskChuteViewをアクティブに保つ
       this.app.workspace.setActiveLeaf(currentLeaf)
-      
-      
     } catch (error) {
-      console.error("[TaskChute] レビュー分割表示エラー:", error)
       throw error
     }
   }
-  
+
   // Recalculate yesterday's dailySummary based on actual displayed tasks
   async recalculateYesterdayDailySummary() {
     try {
       const yesterday = new Date(this.currentDate)
       yesterday.setDate(yesterday.getDate() - 1)
-      
+
       const year = yesterday.getFullYear()
       const month = (yesterday.getMonth() + 1).toString().padStart(2, "0")
       const day = yesterday.getDate().toString().padStart(2, "0")
       const yesterdayString = `${year}-${month}-${day}`
       const monthString = `${year}-${month}`
-      
+
       // Load monthly log
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
-      
+
       if (!(await this.app.vault.adapter.exists(logFilePath))) {
         return
       }
-      
+
       const logContent = await this.app.vault.adapter.read(logFilePath)
       const monthlyLog = JSON.parse(logContent)
-      
+
       // Check if yesterday's data exists and needs recalculation
       if (!monthlyLog.dailySummary?.[yesterdayString]) {
         return
       }
-      
+
       // Temporarily set currentDate to yesterday to simulate task loading
       const originalDate = new Date(this.currentDate)
       this.currentDate = yesterday
-      
+
       // Count tasks that would be displayed using the same logic as loadTasks
       let displayedTaskCount = 0
       let completedTaskCount = 0
-      
+
       // Get task files
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
       const files = await this.getTaskFiles(taskFolderPath)
-      
+
       // Load yesterday's data
       const deletedInstances = this.getDeletedInstances(yesterdayString)
       const duplicatedInstances = JSON.parse(
-        localStorage.getItem(`taskchute-duplicated-instances-${yesterdayString}`) || "[]"
+        localStorage.getItem(
+          `taskchute-duplicated-instances-${yesterdayString}`,
+        ) || "[]",
       )
       const duplicatedCounts = duplicatedInstances.reduce((acc, instance) => {
         const path = typeof instance === "string" ? instance : instance.path
@@ -1677,35 +1719,41 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }, {})
       const hiddenRoutines = this.getHiddenRoutines(yesterdayString)
       const hiddenRoutinePaths = hiddenRoutines
-        .filter(h => !h.instanceId || h.instanceId === null)
-        .map(h => typeof h === 'string' ? h : h.path)
-      
-      const yesterdayExecutions = await this.loadTodayExecutions(yesterdayString)
-      
+        .filter((h) => !h.instanceId || h.instanceId === null)
+        .map((h) => (typeof h === "string" ? h : h.path))
+
+      const yesterdayExecutions = await this.loadTodayExecutions(
+        yesterdayString,
+      )
+
       // Count displayed tasks
       for (const file of files) {
         if (hiddenRoutinePaths.includes(file.path)) continue
-        
+
         const permanentlyDeleted = deletedInstances.some(
-          del => del.path === file.path && del.deletionType === "permanent"
+          (del) => del.path === file.path && del.deletionType === "permanent",
         )
         if (permanentlyDeleted) continue
-        
+
         const content = await this.app.vault.read(file)
         if (!content.includes("#task")) continue
-        
+
         const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
-        const isRoutine = metadata?.routine === true || content.includes("#routine")
-        
-        const aliases = this.plugin.routineAliasManager.getAliases(file.basename) || []
+        const isRoutine =
+          metadata?.routine === true || content.includes("#routine")
+
+        const aliases =
+          this.plugin.routineAliasManager.getAliases(file.basename) || []
         const yesterdayExecutionsForTask = yesterdayExecutions.filter(
-          exec => exec.taskTitle === file.basename || aliases.includes(exec.taskTitle)
+          (exec) =>
+            exec.taskTitle === file.basename ||
+            aliases.includes(exec.taskTitle),
         )
-        
+
         // Apply the same display logic
         if (!isRoutine && yesterdayExecutionsForTask.length === 0) {
           let shouldShow = false
-          
+
           if (metadata?.target_date === yesterdayString) {
             shouldShow = true
           } else {
@@ -1716,10 +1764,15 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               const stats = fs.statSync(fileStats)
               const fileCreationDate = new Date(stats.birthtime)
               const fileYear = fileCreationDate.getFullYear()
-              const fileMonth = (fileCreationDate.getMonth() + 1).toString().padStart(2, "0")
-              const fileDay = fileCreationDate.getDate().toString().padStart(2, "0")
+              const fileMonth = (fileCreationDate.getMonth() + 1)
+                .toString()
+                .padStart(2, "0")
+              const fileDay = fileCreationDate
+                .getDate()
+                .toString()
+                .padStart(2, "0")
               const fileCreationDateString = `${fileYear}-${fileMonth}-${fileDay}`
-              
+
               if (yesterdayString === fileCreationDateString) {
                 shouldShow = true
               }
@@ -1727,26 +1780,27 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               shouldShow = true
             }
           }
-          
+
           if (duplicatedCounts[file.path]) {
             shouldShow = true
           }
-          
+
           if (!shouldShow) continue
         }
-        
+
         // Check routine display rules
         if (isRoutine) {
           const routineStart = metadata?.routine_start
           const routineEnd = metadata?.routine_end
           const routineType = metadata?.routine_type || "daily"
-          
+
           if (routineStart && yesterdayString < routineStart) continue
           if (routineEnd && yesterdayString > routineEnd) continue
-          
-          const isCreationDate = routineStart && yesterdayString === routineStart
+
+          const isCreationDate =
+            routineStart && yesterdayString === routineStart
           const hasExecutions = yesterdayExecutionsForTask.length > 0
-          
+
           let shouldShowRoutine = false
           if (routineType === "daily") {
             shouldShowRoutine = true
@@ -1755,17 +1809,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             const weekday = metadata?.weekday
             const weekdays = metadata?.weekdays
             const dayOfWeek = yesterday.getDay()
-            
+
             if (weekdays && Array.isArray(weekdays)) {
               shouldShowRoutine = weekdays.includes(dayOfWeek)
             } else if (weekday !== undefined && weekday !== null) {
               shouldShowRoutine = weekday === dayOfWeek
             }
           }
-          
+
           if (!isCreationDate && !hasExecutions && !shouldShowRoutine) continue
         }
-        
+
         // Count all instances that would be displayed
         if (yesterdayExecutionsForTask.length > 0) {
           // For executed tasks: count each execution instance
@@ -1774,39 +1828,46 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // For non-executed tasks: count base instance
           displayedTaskCount += 1
         }
-        
+
         // Add duplicated instances
         if (duplicatedCounts[file.path]) {
           displayedTaskCount += duplicatedCounts[file.path]
         }
       }
-      
+
       // Restore original date
       this.currentDate = originalDate
-      
+
       // completedTasks is simply the count of task executions for that day
       const actualCompletedTasks = yesterdayExecutions.length
-      
+
       // Update dailySummary with actual displayed task count
-      if (monthlyLog.dailySummary[yesterdayString].totalTasks !== displayedTaskCount ||
-          monthlyLog.dailySummary[yesterdayString].completedTasks !== actualCompletedTasks) {
-        
+      if (
+        monthlyLog.dailySummary[yesterdayString].totalTasks !==
+          displayedTaskCount ||
+        monthlyLog.dailySummary[yesterdayString].completedTasks !==
+          actualCompletedTasks
+      ) {
         monthlyLog.dailySummary[yesterdayString].totalTasks = displayedTaskCount
-        monthlyLog.dailySummary[yesterdayString].completedTasks = actualCompletedTasks
-        monthlyLog.dailySummary[yesterdayString].lastModified = new Date().toISOString()
-        
+        monthlyLog.dailySummary[yesterdayString].completedTasks =
+          actualCompletedTasks
+        monthlyLog.dailySummary[yesterdayString].lastModified =
+          new Date().toISOString()
+
         // Save updated monthly log
-        await this.app.vault.adapter.write(logFilePath, JSON.stringify(monthlyLog, null, 2))
+        await this.app.vault.adapter.write(
+          logFilePath,
+          JSON.stringify(monthlyLog, null, 2),
+        )
       }
-      
     } catch (error) {
-      console.error("[TaskChute] Failed to recalculate yesterday's dailySummary:", error)
+      // エラーは無視
     }
   }
 
   async loadTasks() {
     const startTime = performance.now()
-    
+
     // Check if we need to recalculate yesterday's dailySummary
     await this.recalculateYesterdayDailySummary()
 
@@ -1829,12 +1890,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.tasks = []
     this.taskInstances = []
     this.taskList.empty()
-    
+
     // 使用済みインスタンスIDを追跡（重複防止）
     const usedInstanceIds = new Set()
 
     // 削除済みインスタンスを取得（新形式）
-    const deletedInstances = this.getDeletedInstances(this.getCurrentDateString())
+    const deletedInstances = this.getDeletedInstances(
+      this.getCurrentDateString(),
+    )
 
     // 指定日付を取得（日本時間）
     const y = this.currentDate.getFullYear()
@@ -1877,8 +1940,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 後方互換性のためパスのみの配列も作成
     // ただし、インスタンスIDを持つものは除外（複製されたタスクの削除は元のタスクに影響しない）
     const hiddenRoutinePaths = hiddenRoutines
-      .filter(h => !h.instanceId || h.instanceId === null)  // インスタンスIDがないものだけ
-      .map(h => typeof h === 'string' ? h : h.path)
+      .filter((h) => !h.instanceId || h.instanceId === null) // インスタンスIDがないものだけ
+      .map((h) => (typeof h === "string" ? h : h.path))
 
     // 並列処理でパフォーマンス改善
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
@@ -1898,10 +1961,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     for (const file of files) {
       // 永続削除されたファイルはスキップ
       const permanentlyDeleted = deletedInstances.some(
-        del => del.path === file.path && del.deletionType === "permanent"
+        (del) => del.path === file.path && del.deletionType === "permanent",
       )
       if (permanentlyDeleted) continue
-      
+
       // 非表示リストチェックは後で行う（実行履歴がある場合は表示するため）
 
       // ファイル読み込みをPromiseとして追加
@@ -1910,10 +1973,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           .read(file)
           .then((content) => ({ file, content }))
           .catch((error) => {
-            console.error(
-              `[TaskChute] ファイル読み込みエラー: ${file.path}`,
-              error,
-            )
+            // ファイル読み込みエラーは無視
             return null
           }),
       )
@@ -1970,7 +2030,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               // project_pathが存在しない場合、projectTitleからprojectPathを復元
               if (!projectPath && projectTitle) {
                 // まず規約通りのパスをチェック
-                const projectFolderPath = this.plugin.pathManager.getProjectFolderPath()
+                const projectFolderPath =
+                  this.plugin.pathManager.getProjectFolderPath()
                 const reconstructedPath = `${projectFolderPath}/${projectTitle}.md`
                 const projectFile =
                   this.app.vault.getAbstractFileByPath(reconstructedPath)
@@ -1990,9 +2051,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                       projectPath = matchingProject.path
                     }
                   } catch (e) {
-                    console.warn(
-                      `[TaskChute] プロジェクトファイル検索エラー: ${e}`,
-                    )
+                    // プロジェクトファイル検索エラーは無視
                   }
                 }
               }
@@ -2001,9 +2060,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
 
         // ルーチン化されていないタスクは、今日の実行履歴がある場合のみ表示
-        const aliasesForToday = this.plugin.routineAliasManager.getAliases(file.basename) || []
+        const aliasesForToday =
+          this.plugin.routineAliasManager.getAliases(file.basename) || []
         const todayExecutionsForTask = todayExecutions.filter(
-          (exec) => exec.taskTitle === file.basename || aliasesForToday.includes(exec.taskTitle),
+          (exec) =>
+            exec.taskTitle === file.basename ||
+            aliasesForToday.includes(exec.taskTitle),
         )
 
         // ルーチンタスクでない場合は、今日の実行履歴がない場合はスキップ
@@ -2125,7 +2187,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // 重複防止のためのチェック
         const isDuplicate = this.tasks.some((t) => t.path === file.path)
         if (isDuplicate) {
-          console.warn(`[TaskChute] 重複タスクをスキップ: ${file.path}`)
+          // 重複タスクをスキップ
           continue
         }
 
@@ -2133,7 +2195,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         let slotKey = "none"
 
         // 保存されたorder情報を使用してslotKeyを決定
-        slotKey = this.determineSlotKey(file.path, savedOrders, { scheduledTime })
+        slotKey = this.determineSlotKey(file.path, savedOrders, {
+          scheduledTime,
+        })
         const savedOrder = savedOrders[file.path]?.order ?? null
 
         const taskObj = {
@@ -2161,7 +2225,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             // ルーチンタスクの場合は実行時刻から時間帯を計算
             if (isRoutine && exec.startTime) {
               // exec.startTimeはDate オブジェクトのはずだが、念のため変換
-              const startDate = exec.startTime instanceof Date ? exec.startTime : new Date(exec.startTime)
+              const startDate =
+                exec.startTime instanceof Date
+                  ? exec.startTime
+                  : new Date(exec.startTime)
               const startHour = startDate.getHours()
               const startMinute = startDate.getMinutes()
               const timeInMinutes = startHour * 60 + startMinute
@@ -2181,11 +2248,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             // インスタンスIDの生成/取得
-            const instanceId = exec.instanceId || this.generateInstanceId(taskObj.path)
-            
+            const instanceId =
+              exec.instanceId || this.generateInstanceId(taskObj.path)
+
             // 重複チェック：既に使用されているinstanceIdはスキップ
             if (usedInstanceIds.has(instanceId)) {
-              console.warn(`[TaskChute] 重複したinstanceIdをスキップ: ${instanceId} (${taskObj.title})`)
+              // 重複したinstanceIdをスキップ
               return
             }
             usedInstanceIds.add(instanceId)
@@ -2197,8 +2265,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: new Date(exec.stopTime),
               slotKey: instanceSlotKey,
               order: savedOrder, // 保存された値またはnull
-              executedTitle: exec.taskTitle,  // 実行時のタスク名を保持
-              instanceId: instanceId
+              executedTitle: exec.taskTitle, // 実行時のタスク名を保持
+              instanceId: instanceId,
             }
 
             // manuallyPositionedフィールドは削除
@@ -2211,11 +2279,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         if (todayExecutionsForTask.length === 0) {
           // 実行履歴がない場合は、元の位置に未実行インスタンスを追加
           const instanceId = this.generateInstanceId(taskObj.path)
-          
+
           // 重複チェック
           if (!usedInstanceIds.has(instanceId)) {
             usedInstanceIds.add(instanceId)
-            
+
             const instance = {
               task: taskObj,
               state: "idle",
@@ -2223,13 +2291,21 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: null,
               slotKey: slotKey,
               order: null, // initializeTaskOrdersで設定される
-              instanceId: instanceId
+              instanceId: instanceId,
             }
 
             // インスタンスレベルでのフィルタリング
-            const isDeleted = this.isInstanceDeleted(instance.instanceId, taskObj.path, dateString)
-            const isHidden = this.isInstanceHidden(instance.instanceId, taskObj.path, dateString)
-            
+            const isDeleted = this.isInstanceDeleted(
+              instance.instanceId,
+              taskObj.path,
+              dateString,
+            )
+            const isHidden = this.isInstanceHidden(
+              instance.instanceId,
+              taskObj.path,
+              dateString,
+            )
+
             if (!isDeleted && !isHidden) {
               this.taskInstances.push(instance)
             }
@@ -2244,11 +2320,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           duplicatesForThisPath.forEach((duplicateInfo) => {
             // 重複チェック：既に使用されているinstanceIdはスキップ
             if (usedInstanceIds.has(duplicateInfo.instanceId)) {
-              console.warn(`[TaskChute] 重複した複製instanceIdをスキップ: ${duplicateInfo.instanceId} (${taskObj.title})`)
+              // 重複した複製instanceIdをスキップ
               return
             }
             usedInstanceIds.add(duplicateInfo.instanceId)
-            
+
             const instance = {
               task: taskObj,
               state: "idle",
@@ -2256,13 +2332,21 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               stopTime: null,
               slotKey: slotKey,
               order: savedOrder, // 保存された値またはnull
-              instanceId: duplicateInfo.instanceId // 保存されたinstanceIdを使用
+              instanceId: duplicateInfo.instanceId, // 保存されたinstanceIdを使用
             }
 
             // インスタンスレベルでのフィルタリング
-            const isDeleted = this.isInstanceDeleted(instance.instanceId, taskObj.path, dateString)
-            const isHidden = this.isInstanceHidden(instance.instanceId, taskObj.path, dateString)
-            
+            const isDeleted = this.isInstanceDeleted(
+              instance.instanceId,
+              taskObj.path,
+              dateString,
+            )
+            const isHidden = this.isInstanceHidden(
+              instance.instanceId,
+              taskObj.path,
+              dateString,
+            )
+
             if (!isDeleted && !isHidden) {
               this.taskInstances.push(instance)
             }
@@ -2314,9 +2398,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       )
       return files
     } else {
-      console.warn(
-        `[TaskChute] タスクフォルダが見つかりません: ${taskFolderPath}`,
-      )
+      // タスクフォルダが見つかりません
       // フォールバック：従来の全ファイル検索（#taskタグでフィルタ）
       const allFiles = this.app.vault.getMarkdownFiles()
       const files = []
@@ -2338,7 +2420,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // orderフィールドの初期化（フェーズ1: 既存機能を壊さない）
   initializeTaskOrders() {
-
     // 日付文字列を生成
     const y = this.currentDate.getFullYear()
     const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0")
@@ -2354,7 +2435,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         savedOrders = JSON.parse(savedData)
       }
     } catch (e) {
-      console.error("[TaskChute] 順序の読み込みに失敗:", e)
+      // 順序の読み込みに失敗
     }
 
     // 時間帯ごとにグループ化
@@ -2432,7 +2513,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 4. 最終的に全体をorder順でソート
       idleInstances.sort((a, b) => a.order - b.order)
     })
-
   }
 
   // orderフィールドをlocalStorageに保存
@@ -2496,7 +2576,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         // タスクが過去の時間帯にある場合
         if (taskSlotStartTime < currentSlotStartTime) {
-
           // 現在の時間帯に移動
           inst.slotKey = currentSlot
 
@@ -2535,7 +2614,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       "taskchute-use-order-sort",
       this.useOrderBasedSort.toString(),
     )
-
 
     // 即座に再ソート
     this.sortTaskInstancesByTimeOrder()
@@ -2606,13 +2684,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // 複製タスクの順序番号を計算（元タスクの直下に配置）
   calculateDuplicateTaskOrder(newInst, originalInst) {
     // 同じ時間帯のタスクを取得して順序でソート
-    const slotTasks = this.taskInstances.filter(
-      (inst) => inst.slotKey === originalInst.slotKey
-    ).sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999))
+    const slotTasks = this.taskInstances
+      .filter((inst) => inst.slotKey === originalInst.slotKey)
+      .sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999))
 
     // 元タスクのソート後のインデックスを取得
-    const originalIndex = slotTasks.findIndex(inst => inst === originalInst)
-    
+    const originalIndex = slotTasks.findIndex((inst) => inst === originalInst)
+
     if (originalIndex === -1) {
       // 元タスクが見つからない場合は、デフォルトの順序番号を設定
       newInst.order = 999999
@@ -2637,8 +2715,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         newInst.order = originalOrder + Math.floor(gap / 2)
       } else {
         // 隙間がない場合は、時間帯内の順序番号を正規化してから再計算
-        this.normalizeOrdersInSlot(slotTasks.filter(t => t.slotKey === originalInst.slotKey))
-        
+        this.normalizeOrdersInSlot(
+          slotTasks.filter((t) => t.slotKey === originalInst.slotKey),
+        )
+
         // 正規化後の元タスクの順序番号を取得
         const normalizedOriginalOrder = originalInst.order ?? 0
         newInst.order = normalizedOriginalOrder + 50
@@ -2658,7 +2738,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     slotTasks.forEach((task, index) => {
       task.order = (index + 1) * 100
     })
-
   }
 
   // 全ての順序番号を正規化する（メンテナンス用）
@@ -2691,14 +2770,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   // ========== 新しいシンプルな実装（フェーズ2） ==========
-  
+
   // 保存されたorder情報を読み込む
   loadSavedOrders(dateStr) {
     try {
       const data = localStorage.getItem(`taskchute-orders-${dateStr}`)
       return data ? JSON.parse(data) : {}
     } catch (e) {
-      console.error('[TaskChute] Failed to load saved orders:', e)
       return {}
     }
   }
@@ -2707,17 +2785,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   saveTaskOrders() {
     const dateStr = this.getCurrentDateString()
     const orderData = {}
-    
-    this.taskInstances.forEach(inst => {
+
+    this.taskInstances.forEach((inst) => {
       if (inst.order !== null && inst.order !== undefined) {
         orderData[inst.task.path] = {
           slot: inst.slotKey,
-          order: inst.order
+          order: inst.order,
         }
       }
     })
-    
-    localStorage.setItem(`taskchute-orders-${dateStr}`, JSON.stringify(orderData))
+
+    localStorage.setItem(
+      `taskchute-orders-${dateStr}`,
+      JSON.stringify(orderData),
+    )
   }
 
   // slotKeyを決定する（優先順位: 保存データ > scheduledTime > デフォルト）
@@ -2726,52 +2807,53 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (savedOrders[taskPath]?.slot) {
       return savedOrders[taskPath].slot
     }
-    
+
     // 2. scheduledTimeから計算（フォールバック）
     if (taskObj.scheduledTime) {
       return this.getSlotFromScheduledTime(taskObj.scheduledTime)
     }
-    
+
     // 3. デフォルト
-    return 'none'
+    return "none"
   }
 
   // scheduledTimeから時間帯を計算
   getSlotFromScheduledTime(scheduledTime) {
-    if (!scheduledTime) return 'none'
-    
-    const [hourStr, minuteStr] = scheduledTime.split(':')
+    if (!scheduledTime) return "none"
+
+    const [hourStr, minuteStr] = scheduledTime.split(":")
     const hour = parseInt(hourStr)
     const minute = parseInt(minuteStr)
     const timeInMinutes = hour * 60 + minute
-    
+
     if (timeInMinutes >= 0 && timeInMinutes < 8 * 60) {
-      return '0:00-8:00'
+      return "0:00-8:00"
     } else if (timeInMinutes >= 8 * 60 && timeInMinutes < 12 * 60) {
-      return '8:00-12:00'
+      return "8:00-12:00"
     } else if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) {
-      return '12:00-16:00'
+      return "12:00-16:00"
     } else {
-      return '16:00-0:00'
+      return "16:00-0:00"
     }
   }
 
   // シンプルなorder計算（配列操作なし）
   calculateSimpleOrder(targetIndex, sameTasks) {
     const sorted = sameTasks.sort((a, b) => a.order - b.order)
-    
+
     if (sorted.length === 0) return 100
     if (targetIndex <= 0) return sorted[0].order - 100
-    if (targetIndex >= sorted.length) return sorted[sorted.length - 1].order + 100
-    
+    if (targetIndex >= sorted.length)
+      return sorted[sorted.length - 1].order + 100
+
     const prev = sorted[targetIndex - 1].order
     const next = sorted[targetIndex].order
-    
+
     // 隙間が十分ある場合
     if (next - prev > 1) {
       return Math.floor((prev + next) / 2)
     }
-    
+
     // 正規化が必要
     this.normalizeOrders(sorted)
     return targetIndex * 100 + 50
@@ -2801,21 +2883,29 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // nullのorderを初期化
   initializeNullOrders() {
     const timeSlotKeys = this.getTimeSlotKeys()
-    const allSlots = ['none', ...timeSlotKeys]
-    
-    allSlots.forEach(slotKey => {
+    const allSlots = ["none", ...timeSlotKeys]
+
+    allSlots.forEach((slotKey) => {
       const slotTasks = this.taskInstances.filter(
-        inst => inst.slotKey === slotKey && (inst.order === null || inst.order === undefined)
+        (inst) =>
+          inst.slotKey === slotKey &&
+          (inst.order === null || inst.order === undefined),
       )
-      
+
       if (slotTasks.length > 0) {
         // 既存のorder値の最大値を取得
         const existingOrders = this.taskInstances
-          .filter(inst => inst.slotKey === slotKey && inst.order !== null && inst.order !== undefined)
-          .map(inst => inst.order)
-        
-        const maxOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : 0
-        
+          .filter(
+            (inst) =>
+              inst.slotKey === slotKey &&
+              inst.order !== null &&
+              inst.order !== undefined,
+          )
+          .map((inst) => inst.order)
+
+        const maxOrder =
+          existingOrders.length > 0 ? Math.max(...existingOrders) : 0
+
         // nullのタスクに順番にorder値を割り当て
         slotTasks.forEach((task, index) => {
           task.order = maxOrder + (index + 1) * 100
@@ -2839,30 +2929,34 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const content = await this.app.vault.adapter.read(dataPath)
         const runningData = JSON.parse(content)
         if (Array.isArray(runningData)) {
-          runningTaskPathsOnLoad = runningData.map(task => task.taskPath)
+          runningTaskPathsOnLoad = runningData.map((task) => task.taskPath)
         }
       }
     } catch (e) {
       // Silent fail
     }
-    
+
     // 初期化
     this.tasks = []
     this.taskInstances = []
     this.taskList.empty()
-    
+
     // 削除済みタスクリスト
-    const deletedTasks = JSON.parse(localStorage.getItem('taskchute-deleted-tasks') || '[]')
-    
+    const deletedTasks = JSON.parse(
+      localStorage.getItem("taskchute-deleted-tasks") || "[]",
+    )
+
     // 複製タスク情報
     const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
     let duplicatedInstances = []
     try {
-      const storageData = JSON.parse(localStorage.getItem(duplicationKey) || '[]')
-      if (storageData.length > 0 && typeof storageData[0] === 'string') {
-        duplicatedInstances = storageData.map(path => ({
+      const storageData = JSON.parse(
+        localStorage.getItem(duplicationKey) || "[]",
+      )
+      if (storageData.length > 0 && typeof storageData[0] === "string") {
+        duplicatedInstances = storageData.map((path) => ({
           path: path,
-          instanceId: this.generateInstanceId(path)
+          instanceId: this.generateInstanceId(path),
         }))
       } else {
         duplicatedInstances = storageData
@@ -2870,55 +2964,73 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     } catch (e) {
       duplicatedInstances = []
     }
-    
+
     // 非表示ルーチンタスク
     const hiddenRoutineKey = `taskchute-hidden-routines-${dateStr}`
-    const hiddenRoutinePaths = JSON.parse(localStorage.getItem(hiddenRoutineKey) || '[]')
-    
+    const hiddenRoutinePaths = JSON.parse(
+      localStorage.getItem(hiddenRoutineKey) || "[]",
+    )
+
     // タスクファイルの取得
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
     const [todayExecutions, files] = await Promise.all([
       this.loadTodayExecutions(dateStr),
-      this.getTaskFiles(taskFolderPath)
+      this.getTaskFiles(taskFolderPath),
     ])
-    
+
     // ファイル処理
     for (const file of files) {
       // スキップ条件
       if (hiddenRoutinePaths.includes(file.path)) continue
       if (deletedTasks.includes(file.path)) continue
-      
+
       try {
         const content = await this.app.vault.read(file)
         if (!content.includes("#task")) continue
-        
+
         const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
-        
+
         // タスク情報の抽出
         const taskObj = await this.createTaskObject(file, metadata, content)
-        
+
         // 表示判定
-        if (!this.shouldShowTask(taskObj, dateStr, todayExecutions, runningTaskPathsOnLoad, duplicatedInstances)) {
+        if (
+          !this.shouldShowTask(
+            taskObj,
+            dateStr,
+            todayExecutions,
+            runningTaskPathsOnLoad,
+            duplicatedInstances,
+          )
+        ) {
           continue
         }
-        
+
         // slotKey決定（優先順位明確化）
         const slotKey = this.determineSlotKey(file.path, savedOrders, taskObj)
         const order = savedOrders[file.path]?.order ?? null
-        
+
         this.tasks.push(taskObj)
-        
+
         // 実行履歴の処理
-        const taskAliases = this.plugin.routineAliasManager.getAliases(file.basename) || []
-        const executions = todayExecutions.filter(exec => exec.taskTitle === file.basename || taskAliases.includes(exec.taskTitle))
-        
+        const taskAliases =
+          this.plugin.routineAliasManager.getAliases(file.basename) || []
+        const executions = todayExecutions.filter(
+          (exec) =>
+            exec.taskTitle === file.basename ||
+            taskAliases.includes(exec.taskTitle),
+        )
+
         if (executions.length > 0) {
           // 完了済みインスタンス
           for (const exec of executions) {
             // ルーチンタスクの場合は実行時刻から時間帯を計算
             let instanceSlotKey
             if (taskObj.isRoutine && exec.startTime) {
-              const startDate = exec.startTime instanceof Date ? exec.startTime : new Date(exec.startTime)
+              const startDate =
+                exec.startTime instanceof Date
+                  ? exec.startTime
+                  : new Date(exec.startTime)
               const startHour = startDate.getHours()
               const startMinute = startDate.getMinutes()
               const timeInMinutes = startHour * 60 + startMinute
@@ -2936,65 +3048,67 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               // 非ルーチンタスクは保存されたslotKeyを使用
               instanceSlotKey = exec.slotKey || slotKey
             }
-            
+
             this.taskInstances.push({
               task: taskObj,
-              state: 'done',
+              state: "done",
               startTime: new Date(exec.startTime),
               stopTime: new Date(exec.stopTime),
               slotKey: instanceSlotKey,
               order: order,
-              instanceId: exec.instanceId || this.generateInstanceId(taskObj.path),
-              executedTitle: exec.taskTitle  // 実行時のタスク名を保持
+              instanceId:
+                exec.instanceId || this.generateInstanceId(taskObj.path),
+              executedTitle: exec.taskTitle, // 実行時のタスク名を保持
             })
           }
         } else {
           // 未実行インスタンス
           this.taskInstances.push({
             task: taskObj,
-            state: 'idle',
+            state: "idle",
             startTime: null,
             stopTime: null,
             slotKey: slotKey,
             order: order,
-            instanceId: this.generateInstanceId(taskObj.path)
+            instanceId: this.generateInstanceId(taskObj.path),
           })
         }
-        
+
         // 複製インスタンス
-        const duplicates = duplicatedInstances.filter(dup => dup.path === file.path)
+        const duplicates = duplicatedInstances.filter(
+          (dup) => dup.path === file.path,
+        )
         for (const dup of duplicates) {
           this.taskInstances.push({
             task: taskObj,
-            state: 'idle',
+            state: "idle",
             startTime: null,
             stopTime: null,
             slotKey: slotKey,
             order: order,
-            instanceId: dup.instanceId
+            instanceId: dup.instanceId,
           })
         }
-        
       } catch (error) {
-        console.error(`[TaskChute] ファイル処理エラー: ${file.path}`, error)
+        // ファイル処理エラーは無視
       }
     }
-    
+
     // null orderの初期化
     this.initializeNullOrders()
-    
+
     // シンプルなソート
     this.sortByOrder()
-    
+
     // 実行中タスクの復元
     await this.restoreRunningTaskState()
-    
+
     // 未実施タスクを現在の時間帯に自動移動
     this.moveIdleTasksToCurrentSlot()
-    
+
     // 描画
     this.renderTaskList()
-    
+
     const endTime = performance.now()
   }
 
@@ -3004,19 +3118,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     let scheduledTime = null
     let routineStart = null
     let routineEnd = null
-    let routineType = 'daily'
+    let routineType = "daily"
     let weekday = null
     let projectPath = null
     let projectTitle = null
-    
+
     if (metadata) {
       isRoutine = metadata.routine === true
       scheduledTime = metadata.開始時刻 || null
       routineStart = metadata.routine_start || null
       routineEnd = metadata.routine_end || null
-      routineType = metadata.routine_type || 'daily'
+      routineType = metadata.routine_type || "daily"
       weekday = metadata.weekday !== undefined ? metadata.weekday : null
-      
+
       // プロジェクト情報
       projectPath = metadata.project_path || null
       if (metadata.project) {
@@ -3049,96 +3163,110 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       weekday: weekday,
       weekdays: weekdays,
       projectPath: projectPath,
-      projectTitle: projectTitle
+      projectTitle: projectTitle,
     }
   }
 
   // タスク表示判定（ヘルパー）
-  shouldShowTask(taskObj, dateStr, todayExecutions, runningTaskPathsOnLoad, duplicatedInstances) {
+  shouldShowTask(
+    taskObj,
+    dateStr,
+    todayExecutions,
+    runningTaskPathsOnLoad,
+    duplicatedInstances,
+  ) {
     // エイリアスを考慮して実行履歴を検索
-    const aliases = this.plugin.routineAliasManager.getAliases(taskObj.title) || []
-    const executions = todayExecutions.filter(exec => 
-      exec.taskTitle === taskObj.title || aliases.includes(exec.taskTitle)
+    const aliases =
+      this.plugin.routineAliasManager.getAliases(taskObj.title) || []
+    const executions = todayExecutions.filter(
+      (exec) =>
+        exec.taskTitle === taskObj.title || aliases.includes(exec.taskTitle),
     )
-    
+
     // ルーチンタスクの判定
     if (taskObj.isRoutine) {
       if (taskObj.routineStart && dateStr < taskObj.routineStart) return false
       if (taskObj.routineEnd && dateStr > taskObj.routineEnd) return false
-      
+
       // 週1ルーチンの判定
-      if (taskObj.routineType === 'weekly') {
-        const isCreationDate = taskObj.routineStart && dateStr === taskObj.routineStart
+      if (taskObj.routineType === "weekly") {
+        const isCreationDate =
+          taskObj.routineStart && dateStr === taskObj.routineStart
         const hasExecutions = executions.length > 0
-        const isTargetWeekday = this.shouldShowWeeklyRoutine(taskObj, this.currentDate)
-        
+        const isTargetWeekday = this.shouldShowWeeklyRoutine(
+          taskObj,
+          this.currentDate,
+        )
+
         if (!isCreationDate && !hasExecutions && !isTargetWeekday) return false
       }
-      
+
       return true
     }
-    
+
     // 非ルーチンタスクの判定
     if (executions.length > 0) return true
     if (runningTaskPathsOnLoad.includes(taskObj.path)) return true
-    if (duplicatedInstances.some(dup => dup.path === taskObj.path)) return true
-    
+    if (duplicatedInstances.some((dup) => dup.path === taskObj.path))
+      return true
+
     // target_dateまたは作成日の判定（簡略化）
     return false // 詳細な実装は省略
   }
 
   // ========== フェーズ3: シンプルなドラッグ&ドロップ実装 ==========
-  
+
   // 新しいmoveInstanceToSlot（超シンプル版）
   moveInstanceToSlotSimple(taskInstance, targetSlot, targetIndex) {
     // 同じ状態のタスクのみ抽出
     const sameTasks = this.taskInstances.filter(
-      inst => inst.slotKey === targetSlot && 
-              inst.state === taskInstance.state && 
-              inst !== taskInstance
+      (inst) =>
+        inst.slotKey === targetSlot &&
+        inst.state === taskInstance.state &&
+        inst !== taskInstance,
     )
-    
+
     // 新しいorder計算
     const newOrder = this.calculateSimpleOrder(targetIndex, sameTasks)
-    
+
     // 更新
     taskInstance.slotKey = targetSlot
     taskInstance.order = newOrder
-    
+
     // 保存
     this.saveTaskOrders()
-    
+
     // 再ソート・再描画
     this.sortByOrder()
     this.renderTaskList()
   }
 
   // ========== フェーズ4: クリーンアップ関数 ==========
-  
+
   // 古いlocalStorageキーを削除
   cleanupOldStorageKeys() {
     const keysToCheck = []
-    
+
     // すべてのlocalStorageキーを取得
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       keysToCheck.push(key)
     }
-    
+
     // 削除対象のキーパターン
     const patternsToDelete = [
       /^taskchute-manual-position-/,
-      /^taskchute-slotkey-/
+      /^taskchute-slotkey-/,
     ]
-    
+
     let deletedCount = 0
-    keysToCheck.forEach(key => {
-      if (patternsToDelete.some(pattern => pattern.test(key))) {
+    keysToCheck.forEach((key) => {
+      if (patternsToDelete.some((pattern) => pattern.test(key))) {
         localStorage.removeItem(key)
         deletedCount++
       }
     })
-    
+
     if (deletedCount > 0) {
     }
   }
@@ -3164,12 +3292,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         new Notice("従来ソートを有効化")
       },
       showOrders: () => {
-        this.taskInstances.forEach((inst) => {
-        })
+        this.taskInstances.forEach((inst) => {})
       },
       cleanupOldKeys: () => this.cleanupOldStorageKeys(),
     }
-
   }
 
   // 古いlocalStorageキーをクリーンアップ（フェーズ3）
@@ -3410,7 +3536,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       return executions
     } catch (error) {
-      console.error("実行履歴の読み込みに失敗:", error)
       return []
     }
   }
@@ -3461,11 +3586,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // 保存されたslotKeyと一致するインスタンスを優先的に探す
         let runningInstance = this.taskInstances.find(
           (inst) =>
-            inst.task.path === runningData.taskPath && 
+            inst.task.path === runningData.taskPath &&
             inst.state === "idle" &&
-            inst.slotKey === runningData.slotKey
+            inst.slotKey === runningData.slotKey,
         )
-        
+
         // slotKeyが一致するインスタンスが見つからない場合は、
         // 異なるslotKeyのインスタンスを探して移動させる
         if (!runningInstance) {
@@ -3543,7 +3668,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.manageTimers()
       }
     } catch (error) {
-      console.error("実行中タスクの復元に失敗:", error)
+      // 実行中タスクの復元に失敗
     }
   }
 
@@ -3589,7 +3714,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 常に上書き保存する
       await this.app.vault.adapter.write(dataPath, content)
     } catch (error) {
-      console.error("実行中タスクの保存に失敗:", error)
       new Notice("実行中タスクの保存に失敗しました")
     }
   }
@@ -3628,37 +3752,37 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         await this.app.vault.adapter.write(dataPath, updatedContent)
       }
     } catch (error) {
-      console.error("実行中タスクのパス更新に失敗:", error)
+      // 実行中タスクのパス更新に失敗
     }
   }
 
-
   // インスタンスのみ削除（複製タスク用）
   async deleteInstanceOnly(inst, deletionType = "temporary") {
-    
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
-    
+
     // 2. 削除済みインスタンスとして記録
     const dateStr = this.getCurrentDateString()
     const deletedInstances = this.getDeletedInstances(dateStr)
-    
+
     // 新しい削除記録を追加
     deletedInstances.push({
       path: inst.task.path,
       instanceId: inst.instanceId,
       deletionType: deletionType,
-      deletedAt: new Date().toISOString()
+      deletedAt: new Date().toISOString(),
     })
-    
+
     this.saveDeletedInstances(dateStr, deletedInstances)
-    
+
     // 3. 複製情報から削除（複製タスクの場合）
     const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
     try {
       let duplicatedInstances = []
-      const storageData = JSON.parse(localStorage.getItem(duplicationKey) || "[]")
-      
+      const storageData = JSON.parse(
+        localStorage.getItem(duplicationKey) || "[]",
+      )
+
       // 後方互換性処理
       if (storageData.length > 0 && typeof storageData[0] === "string") {
         duplicatedInstances = storageData.map((path) => ({
@@ -3668,30 +3792,30 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       } else {
         duplicatedInstances = storageData
       }
-      
+
       // 該当するinstanceIdを削除
       duplicatedInstances = duplicatedInstances.filter(
         (dup) => dup.instanceId !== inst.instanceId,
       )
       localStorage.setItem(duplicationKey, JSON.stringify(duplicatedInstances))
     } catch (e) {
-      console.error("[TaskChute] 複製情報の更新に失敗:", e)
+      // 複製情報の更新に失敗
     }
-    
+
     // 4. 特定のインスタンスIDのログのみを削除
     if (inst.instanceId) {
       try {
         await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId)
       } catch (e) {
-        console.error("[TaskChute] インスタンス固有のログ削除に失敗:", e)
+        // インスタンス固有のログ削除に失敗
       }
     }
-    
+
     // 5. 実行中タスクの場合は running-task.json を更新
     if (inst.state === "running") {
       await this.saveRunningTasksState()
     }
-    
+
     this.renderTaskList()
     new Notice(`「${inst.task.title}」を削除しました。`)
   }
@@ -3703,40 +3827,38 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // インスタンスとファイルを削除（最後のインスタンス用）
   async deleteInstanceWithFile(inst, deletionType = "permanent") {
-    
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
     this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
-    
+
     try {
       // 2. ファイルを削除
       await this.app.vault.delete(inst.task.file)
-      
+
       // 3. 削除済みインスタンスとして記録（永続削除）
       const dateStr = this.getCurrentDateString()
       const deletedInstances = this.getDeletedInstances(dateStr)
-      
+
       deletedInstances.push({
         path: inst.task.path,
         instanceId: inst.instanceId,
         deletionType: deletionType,
-        deletedAt: new Date().toISOString()
+        deletedAt: new Date().toISOString(),
       })
-      
+
       this.saveDeletedInstances(dateStr, deletedInstances)
-      
+
       // 4. タスクログも削除
       await this.deleteTaskLogs(inst.task.path)
-      
+
       // 5. 実行中タスクの場合は running-task.json を更新
       if (inst.state === "running") {
         await this.saveRunningTasksState()
       }
-      
+
       this.renderTaskList()
       new Notice(`「${inst.task.title}」を完全に削除しました。`)
     } catch (err) {
-      console.error("[TaskChute] ファイル削除に失敗:", err)
       new Notice("ファイル削除に失敗しました")
     }
   }
@@ -3745,13 +3867,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   async deleteLastInstance(inst) {
     await this.deleteInstanceWithFile(inst, "permanent")
   }
-  
+
   // 非ルーチンタスクの削除
   async deleteNonRoutineTask(inst) {
     const samePathInstances = this.taskInstances.filter(
-      i => i !== inst && i.task.path === inst.task.path
+      (i) => i !== inst && i.task.path === inst.task.path,
     )
-    
+
     if (samePathInstances.length > 0) {
       // 複製インスタンスの削除
       await this.deleteInstanceOnly(inst, "temporary")
@@ -3760,7 +3882,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.deleteInstanceWithFile(inst, "permanent")
     }
   }
-  
+
   // ルーチンタスクの削除（非表示化）
   async deleteRoutineTask(inst) {
     // 完了済みタスクは削除できないように保護
@@ -3768,30 +3890,32 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       new Notice("完了済みのタスクは削除できません。")
       return
     }
-    
-    
+
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
-    
+
     // 2. 複製されたタスクかどうかを判定
     const dateStr = this.getCurrentDateString()
     const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
     let isDuplicated = false
-    
+
     try {
-      const duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || "[]")
-      isDuplicated = duplicatedInstances.some(dup => 
-        dup.instanceId === inst.instanceId || 
-        (dup.path === inst.task.path && !dup.instanceId)
+      const duplicatedInstances = JSON.parse(
+        localStorage.getItem(duplicationKey) || "[]",
+      )
+      isDuplicated = duplicatedInstances.some(
+        (dup) =>
+          dup.instanceId === inst.instanceId ||
+          (dup.path === inst.task.path && !dup.instanceId),
       )
     } catch (e) {
       isDuplicated = false
     }
-    
+
     // 非表示リストに追加
     const hiddenRoutines = this.getHiddenRoutines(dateStr)
-    const alreadyHidden = hiddenRoutines.some(hidden => {
-      if (typeof hidden === 'string') {
+    const alreadyHidden = hiddenRoutines.some((hidden) => {
+      if (typeof hidden === "string") {
         return hidden === inst.task.path
       }
       if (isDuplicated) {
@@ -3802,41 +3926,46 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         return hidden.path === inst.task.path && !hidden.instanceId
       }
     })
-    
+
     if (!alreadyHidden) {
       hiddenRoutines.push({
         path: inst.task.path,
-        instanceId: isDuplicated ? inst.instanceId : null  // 複製の場合のみインスタンスIDを保存
+        instanceId: isDuplicated ? inst.instanceId : null, // 複製の場合のみインスタンスIDを保存
       })
       this.saveHiddenRoutines(dateStr, hiddenRoutines)
     }
-    
+
     // 複製リストからも削除（複製の場合のみ）
     if (isDuplicated) {
       try {
-        let duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || "[]")
-        duplicatedInstances = duplicatedInstances.filter(
-          dup => dup.instanceId !== inst.instanceId
+        let duplicatedInstances = JSON.parse(
+          localStorage.getItem(duplicationKey) || "[]",
         )
-        localStorage.setItem(duplicationKey, JSON.stringify(duplicatedInstances))
+        duplicatedInstances = duplicatedInstances.filter(
+          (dup) => dup.instanceId !== inst.instanceId,
+        )
+        localStorage.setItem(
+          duplicationKey,
+          JSON.stringify(duplicatedInstances),
+        )
       } catch (e) {
-        console.error("[TaskChute] 複製情報の更新に失敗:", e)
+        // 複製情報の更新に失敗
       }
     }
-    
+
     // 3. 【修正】ルーチンタスクの非表示化では実行ログを削除しない
     // 理由：ルーチンタスクは翌日以降も継続して使用されるため、
     // 過去の実行履歴は保持する必要がある。
     // タスクファイル自体を削除する場合（deleteInstanceWithFile）でのみ
     // 実行ログを削除すべき。
-    
+
     // 4. 実行中タスクの場合は running-task.json を更新
     if (inst.state === "running") {
       await this.saveRunningTasksState()
     }
-    
+
     this.renderTaskList()
-    
+
     if (isDuplicated) {
       new Notice(`「${inst.task.title}」の複製を削除しました。`)
     } else {
@@ -3864,7 +3993,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           runningData.taskPath === taskPath && runningData.date === dateString,
       )
     } catch (error) {
-      console.error("実行中タスクの開始日チェックに失敗:", error)
       return false // エラーの場合は安全のため非表示
     }
   }
@@ -3875,28 +4003,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
       const filePath = `${taskFolderPath}/${task.title}.md`
       const file = this.app.vault.getAbstractFileByPath(filePath)
-      
+
       if (!file || !(file instanceof TFile)) {
         new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
         return
       }
-      
+
       if (task.isRoutine) {
         // ルーチンタスクを解除: frontmatterを消さずroutine_endとroutine:falseのみ記録
-        await this.app.fileManager.processFrontMatter(
-          file,
-          (frontmatter) => {
-            const y = this.currentDate.getFullYear()
-            const m = (this.currentDate.getMonth() + 1)
-              .toString()
-              .padStart(2, "0")
-            const d = this.currentDate.getDate().toString().padStart(2, "0")
-            frontmatter.routine_end = `${y}-${m}-${d}`
-            frontmatter.routine = false
-            delete frontmatter.開始時刻
-            return frontmatter
-          },
-        )
+        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+          const y = this.currentDate.getFullYear()
+          const m = (this.currentDate.getMonth() + 1)
+            .toString()
+            .padStart(2, "0")
+          const d = this.currentDate.getDate().toString().padStart(2, "0")
+          frontmatter.routine_end = `${y}-${m}-${d}`
+          frontmatter.routine = false
+          delete frontmatter.開始時刻
+          return frontmatter
+        })
 
         // 状態リセット（slotKeyは維持）
         task.isRoutine = false
@@ -3913,7 +4038,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.showRoutineEditModal(task, button)
       }
     } catch (error) {
-      console.error("ルーチンタスクの切り替えに失敗しました:", error)
       new Notice("ルーチンタスクの設定に失敗しました")
     }
   }
@@ -4169,20 +4293,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
       new Notice(noticeText)
     } catch (error) {
-      console.error("ルーチンタスクの設定に失敗しました:", error)
       new Notice("ルーチンタスクの設定に失敗しました")
     }
   }
 
   // 拡張版のルーチンタスク設定メソッド（複数曜日対応）
-  async setRoutineTaskExtended(task, button, scheduledTime, routineType, weekday, weekdaysArray) {
+  async setRoutineTaskExtended(
+    task,
+    button,
+    scheduledTime,
+    routineType,
+    weekday,
+    weekdaysArray,
+  ) {
     try {
-
       // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
       const filePath = `${taskFolderPath}/${task.title}.md`
       const file = this.app.vault.getAbstractFileByPath(filePath)
-      
+
       if (!file || !(file instanceof TFile)) {
         new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
         return
@@ -4190,45 +4319,42 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       await this.ensureFrontMatter(file)
       // メタデータを更新
-      await this.app.fileManager.processFrontMatter(
-        file,
-        (frontmatter) => {
-          // ルーチンフラグをtrueに設定
-          frontmatter.routine = true
-          // 開始時刻を設定
-          frontmatter.開始時刻 = scheduledTime
-          // ルーチンタイプを設定
-          frontmatter.routine_type = routineType
+      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        // ルーチンフラグをtrueに設定
+        frontmatter.routine = true
+        // 開始時刻を設定
+        frontmatter.開始時刻 = scheduledTime
+        // ルーチンタイプを設定
+        frontmatter.routine_type = routineType
 
-          // カスタムタイプの場合はweekdays配列を設定
-          if (routineType === "custom" && weekdaysArray) {
-            frontmatter.weekdays = weekdaysArray
-            // 後方互換性のため、単一曜日の場合はweekdayも設定
-            if (weekday !== null) {
-              frontmatter.weekday = weekday
-            }
-          } else if (routineType === "daily") {
-            // 毎日の場合は曜日関連を削除
-            delete frontmatter.weekday
-            delete frontmatter.weekdays
+        // カスタムタイプの場合はweekdays配列を設定
+        if (routineType === "custom" && weekdaysArray) {
+          frontmatter.weekdays = weekdaysArray
+          // 後方互換性のため、単一曜日の場合はweekdayも設定
+          if (weekday !== null) {
+            frontmatter.weekday = weekday
           }
+        } else if (routineType === "daily") {
+          // 毎日の場合は曜日関連を削除
+          delete frontmatter.weekday
+          delete frontmatter.weekdays
+        }
 
-          // ルーチン化した日付を記録
-          if (!frontmatter.routine_start) {
-            const y = this.currentDate.getFullYear()
-            const m = (this.currentDate.getMonth() + 1)
-              .toString()
-              .padStart(2, "0")
-            const d = this.currentDate.getDate().toString().padStart(2, "0")
-            frontmatter.routine_start = `${y}-${m}-${d}`
-          }
-          // routine_endを必ず削除
-          if (frontmatter.routine_end) {
-            delete frontmatter.routine_end
-          }
-          return frontmatter
-        },
-      )
+        // ルーチン化した日付を記録
+        if (!frontmatter.routine_start) {
+          const y = this.currentDate.getFullYear()
+          const m = (this.currentDate.getMonth() + 1)
+            .toString()
+            .padStart(2, "0")
+          const d = this.currentDate.getDate().toString().padStart(2, "0")
+          frontmatter.routine_start = `${y}-${m}-${d}`
+        }
+        // routine_endを必ず削除
+        if (frontmatter.routine_end) {
+          delete frontmatter.routine_end
+        }
+        return frontmatter
+      })
 
       task.isRoutine = true
       task.scheduledTime = scheduledTime
@@ -4245,24 +4371,29 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // ボタンのタイトルを更新
       let titleText = "ルーチンタスク"
       let noticeText = ""
-      
-      if (routineType === "custom" && weekdaysArray && weekdaysArray.length > 0) {
-        const weekdayNames = weekdaysArray.map(day => this.getWeekdayName(day)).join("・")
+
+      if (
+        routineType === "custom" &&
+        weekdaysArray &&
+        weekdaysArray.length > 0
+      ) {
+        const weekdayNames = weekdaysArray
+          .map((day) => this.getWeekdayName(day))
+          .join("・")
         titleText = `カスタムルーチン（毎週 ${weekdayNames} ${scheduledTime}開始予定）`
         noticeText = `「${task.title}」をカスタムルーチンに設定しました（毎週 ${weekdayNames} ${scheduledTime}開始予定）`
       } else if (routineType === "daily") {
         titleText = `ルーチンタスク（${scheduledTime}開始予定）`
         noticeText = `「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`
       }
-      
+
       button.setAttribute("title", titleText)
 
       // タスクリストを再描画
       this.renderTaskList()
-      
+
       new Notice(noticeText)
     } catch (error) {
-      console.error("ルーチンタスクの設定に失敗しました:", error)
       new Notice("ルーチンタスクの設定に失敗しました")
     }
   }
@@ -4337,7 +4468,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 時間指定なしを一番上に表示（タスクがなくても常に表示）
     const noTimeHeader = this.taskList.createEl("div", {
       cls: "time-slot-header other",
-      text: "時間指定なし",
+      text: "時間指定なしい",
     })
     noTimeHeader.addEventListener("dragover", (e) => {
       e.preventDefault()
@@ -4455,31 +4586,37 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // Phase 2: タスクリストコンテナへのdragover追加
     // 既存のイベントリスナーを削除（重複防止）
     if (this.taskListDragoverHandler) {
-      this.taskList.removeEventListener("dragover", this.taskListDragoverHandler)
+      this.taskList.removeEventListener(
+        "dragover",
+        this.taskListDragoverHandler,
+      )
     }
     if (this.taskListDragleaveHandler) {
-      this.taskList.removeEventListener("dragleave", this.taskListDragleaveHandler)
+      this.taskList.removeEventListener(
+        "dragleave",
+        this.taskListDragleaveHandler,
+      )
     }
     if (this.taskListDropHandler) {
       this.taskList.removeEventListener("drop", this.taskListDropHandler)
     }
-    
+
     // dragoverハンドラー
     this.taskListDragoverHandler = (e) => {
       // 最後のタスクを取得
       const taskItems = this.taskList.querySelectorAll(".task-item")
       if (taskItems.length === 0) return
-      
+
       const lastTask = taskItems[taskItems.length - 1]
       const lastTaskRect = lastTask.getBoundingClientRect()
-      
+
       // 最後のタスクの下にマウスがある場合
       if (e.clientY > lastTaskRect.bottom) {
         e.preventDefault()
         this.taskList.classList.add("dragover-bottom")
       }
     }
-    
+
     // dragleaveハンドラー
     this.taskListDragleaveHandler = (e) => {
       // マウスがtaskListから完全に離れた場合のみクラスを削除
@@ -4487,46 +4624,46 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.taskList.classList.remove("dragover-bottom")
       }
     }
-    
+
     // dropハンドラー
     this.taskListDropHandler = (e) => {
       const taskItems = this.taskList.querySelectorAll(".task-item")
       if (taskItems.length === 0) return
-      
+
       const lastTask = taskItems[taskItems.length - 1]
       const lastTaskRect = lastTask.getBoundingClientRect()
-      
+
       if (e.clientY > lastTaskRect.bottom) {
         e.preventDefault()
         this.taskList.classList.remove("dragover-bottom")
-        
+
         // Phase 3: 最下部へのドロップ処理
         const from = e.dataTransfer.getData("text/plain")
         const [fromSlot, fromIdx] = from.split("::")
-        
+
         // 現在のslotを特定（最後のタスクから取得）
         const lastTaskSlot = lastTask.getAttribute("data-slot") || "none"
-        
+
         // 該当スロットのタスク数を取得
         const slotInstances = this.taskInstances.filter(
-          (i) => i.slotKey === lastTaskSlot
+          (i) => i.slotKey === lastTaskSlot,
         )
-        
+
         // 最下部にドロップ（全タスクの後）
         this.moveInstanceToSlot(
           fromSlot === "none" ? "none" : fromSlot,
           parseInt(fromIdx),
           lastTaskSlot,
-          slotInstances.length // 最後の位置
+          slotInstances.length, // 最後の位置
         )
       }
     }
-    
+
     // イベントリスナーを追加
     this.taskList.addEventListener("dragover", this.taskListDragoverHandler)
     this.taskList.addEventListener("dragleave", this.taskListDragleaveHandler)
     this.taskList.addEventListener("drop", this.taskListDropHandler)
-    
+
     // スクロール位置を復元
     // DOM更新が完了してから復元するため、非同期で実行
     setTimeout(() => {
@@ -4595,7 +4732,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
+      const duration = this.calculateCrossDayDuration(
+        inst.startTime,
+        inst.stopTime,
+      )
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
       const durationStr = `${hours.toString().padStart(2, "0")}:${minutes
@@ -4655,7 +4795,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (inst.task.path) {
       taskItem.setAttribute("data-task-path", inst.task.path)
     }
-    
+
     // Phase 3: スロット情報をデータ属性として設定
     taskItem.setAttribute("data-slot", slot || "none")
 
@@ -4697,20 +4837,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
 
     // グリップアイコン（6つのドット）
-    const svg = dragHandle.createSvg('svg', {
+    const svg = dragHandle.createSvg("svg", {
       attr: {
-        width: '10',
-        height: '16',
-        viewBox: '0 0 10 16',
-        fill: 'currentColor'
-      }
-    });
-    svg.createSvg('circle', { attr: { cx: '2', cy: '2', r: '1.5' } });
-    svg.createSvg('circle', { attr: { cx: '8', cy: '2', r: '1.5' } });
-    svg.createSvg('circle', { attr: { cx: '2', cy: '8', r: '1.5' } });
-    svg.createSvg('circle', { attr: { cx: '8', cy: '8', r: '1.5' } });
-    svg.createSvg('circle', { attr: { cx: '2', cy: '14', r: '1.5' } });
-    svg.createSvg('circle', { attr: { cx: '8', cy: '14', r: '1.5' } });
+        width: "10",
+        height: "16",
+        viewBox: "0 0 10 16",
+        fill: "currentColor",
+      },
+    })
+    svg.createSvg("circle", { attr: { cx: "2", cy: "2", r: "1.5" } })
+    svg.createSvg("circle", { attr: { cx: "8", cy: "2", r: "1.5" } })
+    svg.createSvg("circle", { attr: { cx: "2", cy: "8", r: "1.5" } })
+    svg.createSvg("circle", { attr: { cx: "8", cy: "8", r: "1.5" } })
+    svg.createSvg("circle", { attr: { cx: "2", cy: "14", r: "1.5" } })
+    svg.createSvg("circle", { attr: { cx: "8", cy: "14", r: "1.5" } })
 
     // ドラッグハンドルのイベント（ドラッグ可能な場合のみ）
     if (isDraggable) {
@@ -4767,7 +4907,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // Phase 2: マウス位置からドロップ位置を判定
       const rect = taskItem.getBoundingClientRect()
       const midpoint = rect.top + rect.height / 2
-      
+
       if (e.clientY < midpoint) {
         // 上半分: 上縁にインジケーター
         taskItem.classList.add("dragover")
@@ -4790,7 +4930,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       taskItem.classList.remove("dragover-invalid")
       const from = e.dataTransfer.getData("text/plain")
       const [fromSlot, fromIdx] = from.split("::")
-      
+
       // スロット名の正規化
       const fromSlotNormalized = fromSlot === "none" ? "none" : fromSlot
       const toSlotNormalized = slot ?? "none"
@@ -4800,7 +4940,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const rect = taskItem.getBoundingClientRect()
       const midpoint = rect.top + rect.height / 2
       let targetIdx = idx
-      
+
       // 完了済み・実行中タスクにドロップした場合、その位置を最小許可位置として扱う
       if (inst.state === "done" || inst.state === "running") {
         // 同じ時間帯の全タスクを取得
@@ -4827,7 +4967,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           targetIdx = idx + 1
         }
       }
-      
 
       this.moveInstanceToSlot(
         fromSlot === "none" ? "none" : fromSlot,
@@ -4897,10 +5036,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 実行済みタスクの場合は実行時のタイトルを使用
       const searchTitle = inst.executedTitle || inst.task.title
       let filePath = `${taskFolderPath}/${searchTitle}.md`
-      
+
       // ファイルが存在しない場合、エイリアスから現在の名前を探す
-      if (!await this.app.vault.adapter.exists(filePath)) {
-        const currentName = this.plugin.routineAliasManager.findCurrentName(searchTitle)
+      if (!(await this.app.vault.adapter.exists(filePath))) {
+        const currentName =
+          this.plugin.routineAliasManager.findCurrentName(searchTitle)
         if (currentName) {
           filePath = `${taskFolderPath}/${currentName}.md`
           // 現在の名前でファイルを開く
@@ -4917,45 +5057,45 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // プロジェクト表示コンポーネント（タスク名の隣に配置）
     const projectDisplay = taskItem.createEl("span", {
-      cls: "taskchute-project-display"
+      cls: "taskchute-project-display",
     })
-    
+
     if (inst.task.projectPath && inst.task.projectTitle) {
       // プロジェクト設定済みの場合
-      
+
       // フォルダアイコン + プロジェクト名のクリッカブルエリア
       const projectButton = projectDisplay.createEl("span", {
         cls: "taskchute-project-button",
-        attr: { 
-          title: `プロジェクト: ${inst.task.projectTitle}` 
-        }
+        attr: {
+          title: `プロジェクト: ${inst.task.projectTitle}`,
+        },
       })
-      
+
       // フォルダアイコン
       const folderIcon = projectButton.createEl("span", {
         cls: "taskchute-project-icon",
-        text: "📁"
+        text: "📁",
       })
-      
+
       // プロジェクト名（"Project - " プレフィックスを除去）
       const projectName = projectButton.createEl("span", {
         cls: "taskchute-project-name",
-        text: inst.task.projectTitle.replace(/^Project\s*-\s*/, '')
+        text: inst.task.projectTitle.replace(/^Project\s*-\s*/, ""),
       })
-      
+
       // プロジェクトボタンのクリックイベント（統合モーダルを表示）
       projectButton.addEventListener("click", async (e) => {
         e.stopPropagation()
         await this.showUnifiedProjectModal(inst)
       })
-      
+
       // External Linkアイコン
       const externalLinkIcon = projectDisplay.createEl("span", {
         cls: "taskchute-external-link",
         text: "🔗",
-        attr: { title: "プロジェクトノートを開く" }
+        attr: { title: "プロジェクトノートを開く" },
       })
-      
+
       // External Linkアイコンのクリックイベント
       externalLinkIcon.addEventListener("click", async (e) => {
         e.stopPropagation()
@@ -4965,9 +5105,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // プロジェクト未設定の場合（ホバーで表示）
       const projectPlaceholder = projectDisplay.createEl("span", {
         cls: "taskchute-project-placeholder",
-        attr: { title: "クリックしてプロジェクトを設定" }
+        attr: { title: "クリックしてプロジェクトを設定" },
       })
-      
+
       projectPlaceholder.addEventListener("click", async (e) => {
         e.stopPropagation()
         await this.showUnifiedProjectModal(inst)
@@ -4986,9 +5126,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const timeRangeEl = taskItem.createEl("span", { cls: "task-time-range" })
     if (inst.state === "running" && inst.startTime) {
       // 実行中タスクの場合、終了時刻の代わりにスペースを入れて幅を揃える
-      timeRangeEl.empty();
-      timeRangeEl.appendText(`${formatTime(inst.startTime)} → `);
-      timeRangeEl.createEl('span', { attr: { style: 'display: inline-block; width: 45px;' } });
+      timeRangeEl.empty()
+      timeRangeEl.appendText(`${formatTime(inst.startTime)} → `)
+      timeRangeEl.createEl("span", {
+        attr: { style: "display: inline-block; width: 45px;" },
+      })
     } else if (inst.state === "done" && inst.startTime && inst.stopTime) {
       timeRangeEl.setText(
         `${formatTime(inst.startTime)} → ${formatTime(inst.stopTime)}`,
@@ -5009,22 +5151,27 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 実行時間 or 実行中タイマー or プレースホルダー
     if (inst.state === "done" && inst.startTime && inst.stopTime) {
       // 実行時間を計算
-      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
+      const duration = this.calculateCrossDayDuration(
+        inst.startTime,
+        inst.stopTime,
+      )
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
       const durationStr = `${hours.toString().padStart(2, "0")}:${minutes
         .toString()
         .padStart(2, "0")}`
-      
+
       // 日跨ぎタスクの判定
-      const isCrossDay = inst.startTime && inst.stopTime && 
+      const isCrossDay =
+        inst.startTime &&
+        inst.stopTime &&
         inst.stopTime.getDate() !== inst.startTime.getDate()
-      
+
       const durationEl = taskItem.createEl("span", {
         cls: isCrossDay ? "task-duration cross-day" : "task-duration",
         text: durationStr,
       })
-      
+
       // 日跨ぎタスクにツールチップを追加
       if (isCrossDay) {
         durationEl.setAttribute("title", "日を跨いだタスク")
@@ -5114,7 +5261,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const moved = fromInstances[fromIdx]
     if (!moved) return
 
-
     // 完了済みタスクの移動を防ぐ
     if (moved.state === "done") {
       new Notice("完了済みタスクは移動できません")
@@ -5155,7 +5301,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }`,
         "true",
       )
-
     }
 
     // slotKeyを新グループに更新（このインスタンスだけ）
@@ -5164,7 +5309,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 配列の並び替え処理（orderベースの場合は順序番号で決定、従来方式は位置で決定）
     // 移動先の正確な位置を計算
     let globalToIdx
-    
+
     if (toInstances.length === 0) {
       // 移動先グループが空の場合
       globalToIdx = this.taskInstances.length
@@ -5178,7 +5323,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       globalToIdx = this.taskInstances.indexOf(target)
     }
 
-
     if (globalFromIdx === -1 || globalToIdx === -1) return
 
     // 並び替え
@@ -5188,7 +5332,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (globalFromIdx < globalToIdx) {
       globalToIdx--
     }
-
 
     this.taskInstances.splice(globalToIdx, 0, moved)
 
@@ -5257,16 +5400,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 表示日付が本日でない場合（前日のタスクを実行する場合）
       if (viewDateString !== todayDateString) {
-
         // target_dateを本日に更新
         const updateSuccess = await this.updateTaskTargetDate(inst.task, today)
 
         if (updateSuccess) {
           new Notice(`タスク「${inst.task.title}」を本日に移動しました`)
         } else {
-          console.error(
-            `[TaskChute] タスクの日付更新に失敗しました: ${inst.task.title}`,
-          )
+          // タスクの日付更新に失敗しました
         }
       }
     }
@@ -5278,7 +5418,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 実行開始時は常に現在の時間帯に移動
     const currentSlot = this.getCurrentTimeSlot()
     if (inst.slotKey !== currentSlot) {
-
       // 現在の時間帯に移動
       inst.slotKey = currentSlot
 
@@ -5315,32 +5454,37 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       // JSONファイルに基本データを保存（コメントなし）
       await this.saveTaskCompletion(inst, null)
-      
+
       // ヒートマップデータを更新（TASK-007）
       const dateString = this.getCurrentDateString()
       const aggregator = new DailyTaskAggregator(this.plugin)
       await aggregator.updateDailyStats(dateString)
-      
+
       // 複製タスクの場合、複製情報を削除
       const duplicationKey = `taskchute-duplicated-instances-${dateString}`
       try {
-        let duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || "[]")
+        let duplicatedInstances = JSON.parse(
+          localStorage.getItem(duplicationKey) || "[]",
+        )
         const initialLength = duplicatedInstances.length
-        
+
         // 該当するinstanceIdを削除
         duplicatedInstances = duplicatedInstances.filter(
-          (dup) => dup.instanceId !== inst.instanceId
+          (dup) => dup.instanceId !== inst.instanceId,
         )
-        
+
         if (duplicatedInstances.length < initialLength) {
-          localStorage.setItem(duplicationKey, JSON.stringify(duplicatedInstances))
+          localStorage.setItem(
+            duplicationKey,
+            JSON.stringify(duplicatedInstances),
+          )
         }
       } catch (e) {
-        console.error("[TaskChute] 複製情報の削除エラー:", e)
+        // 複製情報の削除エラー
       }
     } catch (e) {
       new Notice("タスク記録の保存に失敗しました")
-      console.error("Task completion save error:", e)
+      // Task completion save error
     }
 
     // 全タスク完了チェック
@@ -5358,120 +5502,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     )
 
     if (remainingTasks.length === 0 && this.taskInstances.length > 0) {
-      // 全てのタスクが完了した場合、演出を開始
-      this.showCompletionCelebration()
+      // 全てのタスクが完了した場合、通知のみ表示
+      new Notice("🎉 素晴らしい！全てのタスクを完了しました！", 5000)
     }
   }
 
   // 完了演出を表示
-  showCompletionCelebration() {
-    const plugin = this.app.plugins.plugins["taskchute-plus"]
-    const settings = plugin?.settings || {
-      enableCelebration: true,
-      enableSound: true,
-      enableFireworks: true,
-      enableConfetti: true,
-    }
-
-    if (!settings.enableCelebration) {
-      new Notice("🎉 素晴らしい！全てのタスクを完了しました！", 5000)
-      return
-    }
-
-    // オーバーレイ
-    const overlay = document.createElement("div")
-    overlay.className = "celebration-overlay"
-
-    // モーダル本体
-    const content = document.createElement("div")
-    content.className = "celebration-content"
-
-    // タイトル
-    const title = document.createElement("div")
-    title.className = "celebration-title"
-    title.textContent = "🎉 お疲れ様でした！ 🎉"
-    content.appendChild(title)
-
-    // メッセージ
-    const msg = document.createElement("div")
-    msg.className = "celebration-message"
-    msg.textContent = '今日のタスクを全て完了しました！'
-    const br = document.createElement('br')
-    msg.appendChild(br)
-    const boldText = document.createElement('b')
-    boldText.textContent = '先送りゼロ達成、おめでとうございます！'
-    msg.appendChild(boldText)
-    content.appendChild(msg)
-
-    // 統計
-    const stats = document.createElement("div")
-    stats.className = "celebration-stats"
-    stats.textContent = '';
-    
-    const statItem1 = document.createElement('div');
-    statItem1.className = 'stat-item';
-    const statNumber1 = document.createElement('span');
-    statNumber1.className = 'stat-number';
-    statNumber1.textContent = this.taskInstances.filter((inst) => inst.state === "done").length.toString();
-    statItem1.appendChild(statNumber1);
-    const statLabel1 = document.createElement('span');
-    statLabel1.className = 'stat-label';
-    statLabel1.textContent = '完了タスク';
-    statItem1.appendChild(statLabel1);
-    stats.appendChild(statItem1);
-    
-    const statItem2 = document.createElement('div');
-    statItem2.className = 'stat-item';
-    const statNumber2 = document.createElement('span');
-    statNumber2.className = 'stat-number';
-    statNumber2.textContent = this.calculateTotalTime();
-    statItem2.appendChild(statNumber2);
-    const statLabel2 = document.createElement('span');
-    statLabel2.className = 'stat-label';
-    statLabel2.textContent = '総作業時間';
-    statItem2.appendChild(statLabel2);
-    stats.appendChild(statItem2);
-    content.appendChild(stats)
-
-    // 拍手メッセージ
-    const applause = document.createElement("div")
-    applause.style.marginTop = "18px"
-    applause.style.fontSize = "18px"
-    applause.style.color = "#fff"
-    applause.style.fontWeight = "bold"
-    applause.style.textAlign = "center"
-    applause.textContent = "今日の自分に、拍手を送りましょう👏"
-    content.appendChild(applause)
-
-    // 花火・紙吹雪
-    if (settings.enableFireworks) {
-      const fireworks = document.createElement("div")
-      fireworks.className = "fireworks-container"
-      content.appendChild(fireworks)
-      this.startFireworks(fireworks)
-    }
-    if (settings.enableConfetti) {
-      const confetti = document.createElement("div")
-      confetti.className = "confetti-container"
-      content.appendChild(confetti)
-      this.startConfetti(confetti)
-    }
-
-    // 自動で5秒後に閉じる
-    setTimeout(() => {
-      if (overlay.parentNode) document.body.removeChild(overlay)
-    }, 5000)
-
-    // 音
-    if (settings.enableSound) this.playCelebrationSound()
-
-    // 通知
-    new Notice("🎉 先送りゼロ達成！全てのタスクを完了しました！", 5000)
-
-    // DOM追加
-    overlay.appendChild(content)
-    document.body.appendChild(overlay)
-  }
 
   // 総作業時間を計算
   calculateTotalTime() {
@@ -5482,7 +5518,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     completedTasks.forEach((inst) => {
       if (inst.startTime && inst.stopTime) {
-        const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
+        const duration = this.calculateCrossDayDuration(
+          inst.startTime,
+          inst.stopTime,
+        )
         totalMinutes += duration / (1000 * 60)
       }
     })
@@ -5495,100 +5534,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     } else {
       return `${minutes}分`
     }
-  }
-
-  // 紙吹雪エフェクト
-  startConfetti(container) {
-    const colors = [
-      "#ff6b6b",
-      "#4ecdc4",
-      "#45b7d1",
-      "#96ceb4",
-      "#feca57",
-      "#ff9ff3",
-      "#54a0ff",
-      "#5f27cd",
-    ]
-
-    const createConfetti = () => {
-      const confetti = document.createElement("div")
-      confetti.className = "confetti"
-
-      // ランダムな位置、色、サイズ
-      const x = Math.random() * 100
-      const color = colors[Math.floor(Math.random() * colors.length)]
-      const size = Math.random() * 10 + 5
-
-      confetti.style.left = `${x}%`
-      confetti.style.backgroundColor = color
-      confetti.style.width = `${size}px`
-      confetti.style.height = `${size}px`
-
-      container.appendChild(confetti)
-
-      // アニメーション終了後に要素を削除
-      setTimeout(() => {
-        if (confetti.parentNode) {
-          confetti.parentNode.removeChild(confetti)
-        }
-      }, 3000)
-    }
-
-    // 紙吹雪を連続で生成
-    const confettiInterval = setInterval(createConfetti, 100)
-
-    // 8秒後に停止
-    setTimeout(() => {
-      clearInterval(confettiInterval)
-    }, 8000)
-  }
-
-  // 花火エフェクト
-  startFireworks(container) {
-    const colors = [
-      "#ff6b6b",
-      "#4ecdc4",
-      "#45b7d1",
-      "#96ceb4",
-      "#feca57",
-      "#ff9ff3",
-      "#54a0ff",
-      "#5f27cd",
-    ]
-
-    const createFirework = () => {
-      const firework = document.createElement("div")
-      firework.className = "firework"
-
-      // ランダムな位置と色
-      const x = Math.random() * 100
-      const y = Math.random() * 100
-      const color = colors[Math.floor(Math.random() * colors.length)]
-
-      firework.style.left = `${x}%`
-      firework.style.top = `${y}%`
-      firework.style.backgroundColor = color
-
-      container.appendChild(firework)
-
-      // パーティクル効果を追加
-      this.createParticles(container, x, y, color)
-
-      // アニメーション終了後に要素を削除
-      setTimeout(() => {
-        if (firework.parentNode) {
-          firework.parentNode.removeChild(firework)
-        }
-      }, 2000)
-    }
-
-    // 花火を連続で発射
-    const fireworkInterval = setInterval(createFirework, 300)
-
-    // 10秒後に停止
-    setTimeout(() => {
-      clearInterval(fireworkInterval)
-    }, 10000)
   }
 
   // パーティクル効果
@@ -5612,44 +5557,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   // 音効果（オプション）
-  playCelebrationSound() {
-    // Web Audio APIを使用して音を再生
-    try {
-      const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)()
-      const oscillator = audioContext.createOscillator()
-      const gainNode = audioContext.createGain()
-
-      oscillator.connect(gainNode)
-      gainNode.connect(audioContext.destination)
-
-      // 成功音のメロディー
-      const frequencies = [523.25, 659.25, 783.99, 1046.5] // C, E, G, C
-      let currentNote = 0
-
-      const playNote = () => {
-        if (currentNote < frequencies.length) {
-          oscillator.frequency.setValueAtTime(
-            frequencies[currentNote],
-            audioContext.currentTime,
-          )
-          gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
-          gainNode.gain.exponentialRampToValueAtTime(
-            0.01,
-            audioContext.currentTime + 0.3,
-          )
-          currentNote++
-          setTimeout(playNote, 300)
-        } else {
-          oscillator.stop()
-        }
-      }
-
-      oscillator.start()
-      playNote()
-    } catch (error) {
-    }
-  }
 
   duplicateInstance(inst) {
     const newInst = {
@@ -5706,10 +5613,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
 
     this.renderTaskList()
-    
+
     // ルーチンタスクの複製の場合は特別なメッセージ
     if (inst.task.isRoutine) {
-      new Notice(`「${inst.task.title}」を複製しました。複製されたタスクは今日のみ表示されます。`)
+      new Notice(
+        `「${inst.task.title}」を複製しました。複製されたタスクは今日のみ表示されます。`,
+      )
     } else {
       new Notice(`「${inst.task.title}」を複製しました。`)
     }
@@ -5763,7 +5672,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
 
-
     // startInstanceを呼ぶ前にrenderTaskListを呼んで、新しいインスタンスを表示
     this.renderTaskList()
 
@@ -5807,10 +5715,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const existingInfo = header.createEl("div", {
         cls: "existing-comment-info",
       })
-      const small = existingInfo.createEl('small', { 
-        attr: { style: 'color: #666; font-style: italic;' }
-      });
-      small.textContent = `前回記録: ${new Date(existingComment.timestamp).toLocaleString("ja-JP")}`;
+      const small = existingInfo.createEl("small", {
+        attr: { style: "color: #666; font-style: italic;" },
+      })
+      small.textContent = `前回記録: ${new Date(
+        existingComment.timestamp,
+      ).toLocaleString("ja-JP")}`
     }
 
     // メインコンテンツ
@@ -5820,7 +5730,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // 実行時間表示（完了したタスクの場合のみ）
     if (isCompleted && inst.startTime && inst.stopTime) {
-      const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
+      const duration = this.calculateCrossDayDuration(
+        inst.startTime,
+        inst.stopTime,
+      )
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000)
       const seconds = Math.floor((duration % 60000) / 1000)
@@ -5829,19 +5742,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
 
       const timeInfo = form.createEl("div", { cls: "completion-time-info" })
-      timeInfo.empty();
-      const p1 = timeInfo.createEl('p');
-      const strong1 = p1.createEl('strong');
-      strong1.textContent = '実行時間: ';
-      p1.appendText(durationStr);
-      
-      const p2 = timeInfo.createEl('p');
-      const strong2 = p2.createEl('strong');
-      strong2.textContent = '開始: ';
-      p2.appendText(inst.startTime.toLocaleTimeString("ja-JP") + ' ');
-      const strong3 = p2.createEl('strong');
-      strong3.textContent = '終了: ';
-      p2.appendText(inst.stopTime.toLocaleTimeString("ja-JP"));
+      timeInfo.empty()
+      const p1 = timeInfo.createEl("p")
+      const strong1 = p1.createEl("strong")
+      strong1.textContent = "実行時間: "
+      p1.appendText(durationStr)
+
+      const p2 = timeInfo.createEl("p")
+      const strong2 = p2.createEl("strong")
+      strong2.textContent = "開始: "
+      p2.appendText(inst.startTime.toLocaleTimeString("ja-JP") + " ")
+      const strong3 = p2.createEl("strong")
+      strong3.textContent = "終了: "
+      p2.appendText(inst.stopTime.toLocaleTimeString("ja-JP"))
     }
 
     // 評価セクション
@@ -5889,10 +5802,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       cls: "star-rating",
     })
     const initialEnergyRating = existingComment?.energyLevel || 0
-    energyRating.setAttribute(
-      "data-rating",
-      initialEnergyRating.toString(),
-    )
+    energyRating.setAttribute("data-rating", initialEnergyRating.toString())
     energyRating.setAttribute("data-type", "energy")
     for (let i = 1; i <= 5; i++) {
       const star = energyRating.createEl("span", {
@@ -5900,9 +5810,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         cls: "star",
         attr: { "data-value": i.toString() },
       })
-      star.addEventListener("click", () =>
-        this.setRating(energyRating, i),
-      )
+      star.addEventListener("click", () => this.setRating(energyRating, i))
       star.addEventListener("mouseover", () =>
         this.highlightRating(energyRating, i),
       )
@@ -5979,7 +5887,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // コメント保存後にタスクリスト表示を更新（コメントボタンの状態を反映）
         this.renderTaskList()
       } catch (error) {
-        console.error("保存ボタンでエラー:", error)
         new Notice("コメントの保存中にエラーが発生しました")
         modal.remove()
       }
@@ -6080,7 +5987,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       return existingEntry || null
     } catch (error) {
-      console.error("既存コメントの取得に失敗:", error)
       return null
     }
   }
@@ -6100,14 +6006,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         existingComment.energyLevel > 0
       )
     } catch (error) {
-      console.error("コメントデータチェックに失敗:", error)
       return false
     }
   }
 
   // タスク完了データを保存
   async saveTaskCompletion(inst, completionData) {
-
     try {
       // 月次ログファイルのパスを生成
       // タスク開始時刻を基準日として使用（日跨ぎタスク対応）
@@ -6119,7 +6023,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const monthString = `${year}-${month}`
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
-
 
       // dataディレクトリが存在することを確認
       const dataDir = this.plugin.pathManager.getLogDataPath()
@@ -6148,7 +6051,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 完了したタスクの場合のみ実行時間を記録
       if (isCompleted) {
-        const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime)
+        const duration = this.calculateCrossDayDuration(
+          inst.startTime,
+          inst.stopTime,
+        )
         taskExecution.startTime = inst.startTime.toTimeString().slice(0, 8)
         taskExecution.stopTime = inst.stopTime.toTimeString().slice(0, 8)
         taskExecution.duration = Math.floor(duration / 1000) // 秒単位
@@ -6175,7 +6081,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           const existingLog = JSON.parse(existingContent)
           monthlyLog = { ...monthlyLog, ...existingLog }
         } catch (e) {
-          console.warn("既存ログファイルの読み込みに失敗、新規作成します:", e)
+          // 既存ログファイルの読み込みに失敗、新規作成します
         }
       }
 
@@ -6250,9 +6156,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 評価値のあるタスクのみで平均を計算
       const tasksWithFocus = todayTasks.filter((t) => t.focusLevel > 0)
-      const tasksWithEnergy = todayTasks.filter(
-        (t) => t.energyLevel > 0,
-      )
+      const tasksWithEnergy = todayTasks.filter((t) => t.energyLevel > 0)
 
       const avgFocus =
         tasksWithFocus.length > 0
@@ -6262,10 +6166,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       const avgEnergy =
         tasksWithEnergy.length > 0
-          ? tasksWithEnergy.reduce(
-              (sum, t) => sum + t.energyLevel,
-              0,
-            ) / tasksWithEnergy.length
+          ? tasksWithEnergy.reduce((sum, t) => sum + t.energyLevel, 0) /
+            tasksWithEnergy.length
           : 0
 
       // For past dates, we need to calculate based on actual displayed tasks
@@ -6305,7 +6207,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // コメント機能では全タスク完了チェックやタスクリスト更新は行わない
       // （タスクの状態は変更していないため）
     } catch (error) {
-      console.error("タスク完了データの保存に失敗:", error)
       new Notice("タスク記録の保存に失敗しました")
 
       // エラー時はJSONログのみ失敗
@@ -6385,8 +6286,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                     (t) => t.isCompleted && t.isCompleted !== false,
                   ).length
 
-                  monthlyLog.dailySummary[dateString].totalTasks = dayTasks.length
-                  monthlyLog.dailySummary[dateString].completedTasks = completedTasks
+                  monthlyLog.dailySummary[dateString].totalTasks =
+                    dayTasks.length
+                  monthlyLog.dailySummary[dateString].completedTasks =
+                    completedTasks
                 } else {
                   // その日のタスクが全て削除された場合
                   delete monthlyLog.dailySummary[dateString]
@@ -6401,17 +6304,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             )
           }
         } catch (error) {
-          console.error(
-            `[TaskChute] ログファイル処理エラー (${fileName}):`,
-            error,
-          )
+          // ログファイル処理エラー
         }
       }
 
       if (totalDeletedLogs > 0) {
       }
     } catch (error) {
-      console.error("[TaskChute] タスクログ削除処理でエラー:", error)
       throw error
     }
   }
@@ -6488,8 +6387,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                     (t) => t.isCompleted && t.isCompleted !== false,
                   ).length
 
-                  monthlyLog.dailySummary[dateString].totalTasks = dayTasks.length
-                  monthlyLog.dailySummary[dateString].completedTasks = completedTasks
+                  monthlyLog.dailySummary[dateString].totalTasks =
+                    dayTasks.length
+                  monthlyLog.dailySummary[dateString].completedTasks =
+                    completedTasks
                 } else {
                   // その日のタスクが全て削除された場合
                   delete monthlyLog.dailySummary[dateString]
@@ -6502,7 +6403,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             await this.app.vault.adapter.write(logFilePath, jsonContent)
           }
         } catch (error) {
-          console.warn(`ログファイル ${logFilePath} の処理中にエラー:`, error)
+          // ログファイルの処理中にエラー
         }
       }
 
@@ -6510,7 +6411,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         new Notice(`タスクログ ${totalDeletedLogs} 件を削除しました`)
       }
     } catch (error) {
-      console.error("タスクログ削除中にエラー:", error)
       new Notice("タスクログの削除に失敗しました")
     }
   }
@@ -6526,7 +6426,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // ログファイルから該当タスクのエントリを完全に削除
         await this.deleteTaskLogs(inst.task.path)
       } catch (e) {
-        console.error("JSON記録の削除に失敗:", e)
         new Notice("タスク記録の削除に失敗しました")
       }
     }
@@ -6546,7 +6445,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   showRoutineEditModal(task, button) {
-
     // モーダルコンテナ
     const modal = document.createElement("div")
     modal.className = "task-modal-overlay"
@@ -6574,7 +6472,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const typeContainer = typeGroup.createEl("div", { cls: "checkbox-group" })
 
     // 毎日チェックボックス
-    const dailyLabel = typeContainer.createEl("label", { cls: "checkbox-label" })
+    const dailyLabel = typeContainer.createEl("label", {
+      cls: "checkbox-label",
+    })
     const dailyCheckbox = dailyLabel.createEl("input", {
       type: "checkbox",
       id: "edit-routine-daily",
@@ -6583,7 +6483,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     dailyLabel.createSpan({ text: "毎日" })
 
     // 曜日を選択チェックボックス
-    const customLabel = typeContainer.createEl("label", { cls: "checkbox-label" })
+    const customLabel = typeContainer.createEl("label", {
+      cls: "checkbox-label",
+    })
     const customCheckbox = customLabel.createEl("input", {
       type: "checkbox",
       id: "edit-routine-custom",
@@ -6599,38 +6501,45 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     weekdayGroup.id = "edit-weekday-group"
     weekdayGroup.createEl("label", { text: "曜日を選択:", cls: "form-label" })
 
-    const weekdayContainer = weekdayGroup.createEl("div", { cls: "weekday-checkboxes" })
-    
+    const weekdayContainer = weekdayGroup.createEl("div", {
+      cls: "weekday-checkboxes",
+    })
+
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"]
     const weekdayCheckboxes = []
-    
+
     weekdays.forEach((day, index) => {
-      const label = weekdayContainer.createEl("label", { cls: "weekday-checkbox-label" })
+      const label = weekdayContainer.createEl("label", {
+        cls: "weekday-checkbox-label",
+      })
       const checkbox = label.createEl("input", {
         type: "checkbox",
         value: index.toString(),
-        cls: "weekday-checkbox"
+        cls: "weekday-checkbox",
       })
       label.createSpan({ text: day })
       weekdayCheckboxes.push(checkbox)
     })
 
     // 初期状態の設定
-    
+
     if (task.isRoutine) {
       // 既存のルーチンタスクの場合
       if (task.routineType === "daily") {
         dailyCheckbox.checked = true
         customCheckbox.checked = false
-      } else if (task.routineType === "weekly" || task.routineType === "custom") {
+      } else if (
+        task.routineType === "weekly" ||
+        task.routineType === "custom"
+      ) {
         // weekly は custom として扱う
         dailyCheckbox.checked = false
         customCheckbox.checked = true
         weekdayGroup.style.display = "block"
-        
+
         // 曜日の初期選択を設定
         if (task.weekdays && Array.isArray(task.weekdays)) {
-          task.weekdays.forEach(day => {
+          task.weekdays.forEach((day) => {
             if (weekdayCheckboxes[day]) {
               weekdayCheckboxes[day].checked = true
             }
@@ -6665,24 +6574,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const descGroup = form.createEl("div", { cls: "form-group" })
     const descText = descGroup.createEl("p", {
       cls: "form-description",
-      text: `毎日この時刻にルーチンタスクとして実行予定です。`
+      text: `毎日この時刻にルーチンタスクとして実行予定です。`,
     })
 
     // 説明文を更新する関数
     const updateDescription = () => {
       const selectedWeekdays = weekdayCheckboxes
-        .map((cb, index) => cb.checked ? index : null)
-        .filter(index => index !== null)
-      
+        .map((cb, index) => (cb.checked ? index : null))
+        .filter((index) => index !== null)
+
       if (customCheckbox.checked) {
         if (selectedWeekdays.length > 0) {
-          const dayNames = selectedWeekdays.map(i => weekdays[i]).join("・")
+          const dayNames = selectedWeekdays.map((i) => weekdays[i]).join("・")
           descText.textContent = `毎週 ${dayNames} の${timeInput.value}にルーチンタスクとして実行予定です。`
         } else {
           descText.textContent = "曜日を選択してください。"
         }
       } else {
-        descText.textContent = "毎日この時刻にルーチンタスクとして実行予定です。"
+        descText.textContent =
+          "毎日この時刻にルーチンタスクとして実行予定です。"
       }
     }
 
@@ -6710,11 +6620,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     })
 
     // 曜日チェックボックスの変更イベント
-    weekdayCheckboxes.forEach(cb => {
+    weekdayCheckboxes.forEach((cb) => {
       cb.addEventListener("change", updateDescription)
     })
     timeInput.addEventListener("input", updateDescription)
-    
+
     // 初期表示の更新
     updateDescription()
 
@@ -6731,7 +6641,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       text: "保存",
     })
     // 既存のルーチンタスクの場合のみ「ルーチンを外す」ボタンを表示
-    let removeButton = null;
+    let removeButton = null
     if (task.isRoutine) {
       removeButton = buttonGroup.createEl("button", {
         type: "button",
@@ -6769,17 +6679,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       let weekdaysArray = null
       let weekday = null // 後方互換性のため
-      
+
       if (routineType === "custom") {
         const selectedWeekdays = weekdayCheckboxes
-          .map((cb, index) => cb.checked ? index : null)
-          .filter(index => index !== null)
-        
+          .map((cb, index) => (cb.checked ? index : null))
+          .filter((index) => index !== null)
+
         if (selectedWeekdays.length === 0) {
           new Notice("少なくとも1つの曜日を選択してください")
           return
         }
-        
+
         weekdaysArray = selectedWeekdays
         // 後方互換性のため、単一曜日の場合はweekdayも設定
         if (selectedWeekdays.length === 1) {
@@ -6787,14 +6697,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-
       await this.setRoutineTaskExtended(
         task,
         button,
         scheduledTime,
         routineType,
         weekday,
-        weekdaysArray
+        weekdaysArray,
       )
       document.body.removeChild(modal)
     })
@@ -6834,7 +6743,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         },
       )
     } catch (e) {
-      console.error("ファイルのscheduledTime削除に失敗:", e)
+      // ファイルのscheduledTime削除に失敗
     }
   }
 
@@ -6858,13 +6767,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         },
       )
 
-
       // タスクオブジェクト自体も更新（メモリ上）
       task.targetDate = dateString
 
       return true
     } catch (e) {
-      console.error(`[TaskChute] target_date更新エラー: ${e}`)
       return false
     }
   }
@@ -6872,26 +6779,28 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   selectTask(task) {
     this.currentTask = task
   }
-  
+
   // Keyboard selection methods
   selectTaskForKeyboard(instance, element) {
     this.clearTaskSelection()
     this.selectedTaskInstance = instance
     element.classList.add("keyboard-selected")
   }
-  
+
   clearTaskSelection() {
     if (this.selectedTaskInstance) {
       if (this.taskList) {
-        const selectedItems = this.taskList.querySelectorAll(".task-item.keyboard-selected")
-        selectedItems.forEach(item => {
+        const selectedItems = this.taskList.querySelectorAll(
+          ".task-item.keyboard-selected",
+        )
+        selectedItems.forEach((item) => {
           item.classList.remove("keyboard-selected")
         })
       }
       this.selectedTaskInstance = null
     }
   }
-  
+
   handleKeyboardShortcut(e) {
     // Don't handle shortcuts if typing in input fields
     const activeElement = document.activeElement
@@ -6943,12 +6852,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         break
     }
   }
-  
+
   async deleteSelectedTask() {
     if (!this.selectedTaskInstance) return
-    
+
     const inst = this.selectedTaskInstance
-    
+
     // 削除確認ダイアログを表示
     const confirmed = await this.showDeleteConfirmDialog(inst)
     if (confirmed) {
@@ -6960,41 +6869,41 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
     }
   }
-  
+
   showDeleteConfirmDialog(inst) {
     return new Promise((resolve) => {
       const modal = document.createElement("div")
       modal.className = "task-modal-overlay"
       const modalContent = modal.createEl("div", { cls: "task-modal-content" })
-      
+
       modalContent.createEl("h3", { text: "タスクの削除確認" })
-      modalContent.createEl("p", { 
-        text: `「${inst.task.title}」を削除してもよろしいですか？` 
+      modalContent.createEl("p", {
+        text: `「${inst.task.title}」を削除してもよろしいですか？`,
       })
-      
+
       const buttonContainer = modalContent.createEl("div", {
         cls: "modal-button-container",
       })
-      
+
       const confirmButton = buttonContainer.createEl("button", {
         text: "削除",
         cls: "mod-cta",
       })
-      
+
       const cancelButton = buttonContainer.createEl("button", {
         text: "キャンセル",
       })
-      
+
       confirmButton.addEventListener("click", () => {
         modal.remove()
         resolve(true)
       })
-      
+
       cancelButton.addEventListener("click", () => {
         modal.remove()
         resolve(false)
       })
-      
+
       document.body.appendChild(modal)
     })
   }
@@ -7021,17 +6930,22 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       cls: "form-input",
       placeholder: "タスク名を入力してください",
     })
-    
+
     // 警告メッセージ要素の追加
     const warningMessage = nameGroup.createEl("div", {
       cls: "task-name-warning hidden",
-      attr: { role: "alert", "aria-live": "polite" }
+      attr: { role: "alert", "aria-live": "polite" },
     })
-    
+
     // TASK-008: TaskNameAutocompleteとの統合
-    const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this)
+    const autocomplete = new TaskNameAutocomplete(
+      this.plugin,
+      nameInput,
+      nameGroup,
+      this,
+    )
     await autocomplete.initialize()
-    
+
     // TaskInheritanceManager の初期化
     const inheritanceManager = new TaskInheritanceManager(this.plugin)
     let currentInheritance = null
@@ -7072,7 +6986,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         new Notice("タスク名を入力してください")
         return
       }
-      
+
       // 送信時に再度検証
       if (!this.validateTaskNameBeforeSubmit(nameInput)) {
         this.highlightWarning(warningMessage)
@@ -7083,16 +6997,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const taskData = {
         name: taskName,
         description: taskDesc,
-        inheritance: currentInheritance
+        inheritance: currentInheritance,
       }
-      
+
       await this.createNewTask(taskData)
       document.body.removeChild(modal)
     })
 
     // モーダルを表示
     document.body.appendChild(modal)
-    
+
     // モーダル外側クリックで閉じる
     modal.addEventListener("click", (e) => {
       if (e.target === modal) {
@@ -7103,13 +7017,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // 入力検証の設定
     this.setupTaskNameValidation(nameInput, createButton, warningMessage)
-    
+
     // autocomplete-selected イベントの処理
     nameInput.addEventListener("autocomplete-selected", async (e) => {
       const taskName = e.detail.taskName
       await handleTaskNameChange(taskName)
     })
-    
+
     // タスク名の手動入力時の処理（デバウンス付き）
     let nameChangeTimer
     nameInput.addEventListener("input", (e) => {
@@ -7119,17 +7033,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         await handleTaskNameChange(taskName)
       }, 500) // 500ms のデバウンス
     })
-    
+
     // タスク名変更時の処理
     const handleTaskNameChange = async (taskName) => {
       if (!taskName) {
         currentInheritance = null
         return
       }
-      
+
       // 既存タスクの検索
       const existingTask = await inheritanceManager.findExistingTask(taskName)
-      
+
       if (existingTask && existingTask.inheritableData) {
         currentInheritance = existingTask.inheritableData
         // 説明文を自動的に設定
@@ -7140,8 +7054,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         currentInheritance = null
       }
     }
-    
-    
+
     // Enterキー処理（自動補完との競合を防ぐ）
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -7159,80 +7072,94 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // フォーム送信はしない（タスク作成は作成ボタンのクリックのみ）
       }
     })
-    
+
     // モーダルが閉じられる時に自動補完も非表示にする
     const cleanup = () => {
       autocomplete.hideSuggestions()
       clearTimeout(autocomplete.debounceTimer)
     }
-    
+
     cancelButton.addEventListener("click", cleanup)
-    
+
     // フォーカスを設定
     nameInput.focus()
   }
-  
+
   // タスク名検証のセットアップ
   setupTaskNameValidation(inputElement, submitButton, warningElement) {
     // デバウンス用タイマー
-    let validationTimer;
-    
+    let validationTimer
+
     inputElement.addEventListener("input", () => {
-      clearTimeout(validationTimer);
+      clearTimeout(validationTimer)
       validationTimer = setTimeout(() => {
-        const validation = this.TaskNameValidator.validate(inputElement.value);
-        this.updateValidationUI(inputElement, submitButton, warningElement, validation);
-      }, 50); // 50ms以内の検証要件に対応
-    });
-    
+        const validation = this.TaskNameValidator.validate(inputElement.value)
+        this.updateValidationUI(
+          inputElement,
+          submitButton,
+          warningElement,
+          validation,
+        )
+      }, 50) // 50ms以内の検証要件に対応
+    })
+
     // 初期状態の設定
-    const initialValidation = this.TaskNameValidator.validate(inputElement.value);
-    this.updateValidationUI(inputElement, submitButton, warningElement, initialValidation);
+    const initialValidation = this.TaskNameValidator.validate(
+      inputElement.value,
+    )
+    this.updateValidationUI(
+      inputElement,
+      submitButton,
+      warningElement,
+      initialValidation,
+    )
   }
-  
+
   // 検証UIの更新
   updateValidationUI(input, button, warning, validation) {
     if (validation.isValid) {
       // 正常状態
-      input.classList.remove("error");
-      button.disabled = false;
-      button.classList.remove("disabled");
-      warning.classList.add("hidden");
-      warning.textContent = "";
+      input.classList.remove("error")
+      button.disabled = false
+      button.classList.remove("disabled")
+      warning.classList.add("hidden")
+      warning.textContent = ""
     } else {
       // エラー状態
-      input.classList.add("error");
-      button.disabled = true;
-      button.classList.add("disabled");
-      warning.classList.remove("hidden");
-      warning.textContent = this.TaskNameValidator.getErrorMessage(validation.invalidChars);
+      input.classList.add("error")
+      button.disabled = true
+      button.classList.add("disabled")
+      warning.classList.remove("hidden")
+      warning.textContent = this.TaskNameValidator.getErrorMessage(
+        validation.invalidChars,
+      )
     }
   }
-  
+
   // 警告メッセージの強調表示
   highlightWarning(warningElement) {
-    warningElement.classList.add("highlight");
-    setTimeout(() => warningElement.classList.remove("highlight"), 300);
+    warningElement.classList.add("highlight")
+    setTimeout(() => warningElement.classList.remove("highlight"), 300)
   }
-  
+
   // 送信前の検証
   validateTaskNameBeforeSubmit(nameInput) {
-    const validation = this.TaskNameValidator.validate(nameInput.value);
-    return validation.isValid;
+    const validation = this.TaskNameValidator.validate(nameInput.value)
+    return validation.isValid
   }
 
   async createNewTask(taskData) {
     // 既存の呼び出しとの互換性を保つ
     let taskName, taskDesc, inheritance
-    if (typeof taskData === 'string') {
+    if (typeof taskData === "string") {
       // 旧形式の呼び出し(taskName, taskDesc)
       taskName = taskData
-      taskDesc = arguments[1] || ''
+      taskDesc = arguments[1] || ""
       inheritance = null
     } else {
       // 新形式の呼び出し({name, description, inheritance})
       taskName = taskData.name
-      taskDesc = taskData.description || ''
+      taskDesc = taskData.description || ""
       inheritance = taskData.inheritance || null
     }
     try {
@@ -7254,36 +7181,40 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const targetDateString = `${y}-${m}-${d}`
 
       // メタデータ付きのファイル内容を作成（対象日付を記録）
-      let frontmatter = ['---']
-      
+      let frontmatter = ["---"]
+
       // 継承データがある場合は、そのデータを優先
       if (inheritance) {
         if (inheritance.project) {
           frontmatter.push(`project: "${inheritance.project}"`)
         }
-        
+
         if (inheritance.isRoutine) {
           frontmatter.push(`routine: true`)
           frontmatter.push(`isRoutine: true`)
-          if (inheritance.routineStart) frontmatter.push(`routineStart: "${inheritance.routineStart}"`)
-          if (inheritance.routineEnd) frontmatter.push(`routineEnd: "${inheritance.routineEnd}"`)
-          if (inheritance.routineType) frontmatter.push(`routineType: "${inheritance.routineType}"`)
-          if (inheritance.weekday) frontmatter.push(`weekday: ${inheritance.weekday}`)
+          if (inheritance.routineStart)
+            frontmatter.push(`routineStart: "${inheritance.routineStart}"`)
+          if (inheritance.routineEnd)
+            frontmatter.push(`routineEnd: "${inheritance.routineEnd}"`)
+          if (inheritance.routineType)
+            frontmatter.push(`routineType: "${inheritance.routineType}"`)
+          if (inheritance.weekday)
+            frontmatter.push(`weekday: ${inheritance.weekday}`)
         } else {
-          frontmatter.push('routine: false')
+          frontmatter.push("routine: false")
         }
       } else {
-        frontmatter.push('routine: false')
+        frontmatter.push("routine: false")
       }
-      
+
       frontmatter.push(`target_date: ${targetDateString}`)
-      frontmatter.push('---')
-      
+      frontmatter.push("---")
+
       // コンテンツの構築
-      let content = frontmatter.join('\n') + '\n\n'
+      let content = frontmatter.join("\n") + "\n\n"
       content += `# ${taskName}\n\n`
-      content += '#task\n\n'
-      
+      content += "#task\n\n"
+
       if (taskDesc) {
         content += `${taskDesc}\n\n`
       }
@@ -7291,10 +7222,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // ファイルを作成（タスクフォルダ配下）
       const filePath = `${taskFolderPath}/${fileName}.md`
-      const file = await this.app.vault.create(
-        filePath,
-        content,
-      )
+      const file = await this.app.vault.create(filePath, content)
 
       // 削除済みリストから該当パスを削除
       // これにより、同じ名前のタスクを再作成した場合でも正しく表示される
@@ -7303,14 +7231,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           localStorage.getItem("taskchute-deleted-tasks") || "[]",
         )
         if (deletedTasks.includes(filePath)) {
-          deletedTasks = deletedTasks.filter(path => path !== filePath)
+          deletedTasks = deletedTasks.filter((path) => path !== filePath)
           localStorage.setItem(
             "taskchute-deleted-tasks",
             JSON.stringify(deletedTasks),
           )
         }
       } catch (e) {
-        console.error("[TaskChute] 削除済みリストの更新に失敗:", e)
+        // 削除済みリストの更新に失敗
       }
 
       // タスク作成後は loadTasks を再実行して、適切なフィルタリングを適用
@@ -7319,15 +7247,18 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       new Notice(`タスク「${taskName}」を作成しました`)
     } catch (error) {
-      console.error("タスク作成に失敗しました:", error)
-      
+      // タスク作成に失敗しました
+
       // エラーメッセージの改善
       let errorMessage = "タスクの作成に失敗しました"
-      if (error.message.includes("Invalid characters") || 
-          this.TaskNameValidator.validate(taskName).isValid === false) {
-        errorMessage = "タスクの作成に失敗しました: ファイル名に使用できない文字が含まれています"
+      if (
+        error.message.includes("Invalid characters") ||
+        this.TaskNameValidator.validate(taskName).isValid === false
+      ) {
+        errorMessage =
+          "タスクの作成に失敗しました: ファイル名に使用できない文字が含まれています"
       }
-      
+
       new Notice(errorMessage)
     }
   }
@@ -7362,7 +7293,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       try {
         projectFiles = await this.loadAvailableProjects()
       } catch (error) {
-        console.error("プロジェクトリストの読み込みに失敗:", error)
         new Notice("プロジェクトリストの読み込みに失敗しました")
         modal.remove()
         return
@@ -7475,7 +7405,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           document.body.removeChild(modal)
           this.renderTaskList()
         } catch (error) {
-          console.error("プロジェクトの設定に失敗:", error)
           new Notice("プロジェクトの設定に失敗しました")
         }
       })
@@ -7490,7 +7419,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // モーダルを表示
       document.body.appendChild(modal)
     } catch (error) {
-      console.error("プロジェクトモーダルの表示に失敗:", error)
       new Notice("プロジェクト設定画面の表示に失敗しました")
     }
   }
@@ -7525,7 +7453,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       try {
         projectFiles = await this.loadAvailableProjects()
       } catch (error) {
-        console.error("プロジェクトリストの読み込みに失敗:", error)
         new Notice("プロジェクトリストの読み込みに失敗しました")
         modal.remove()
         return
@@ -7628,7 +7555,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           document.body.removeChild(modal)
           this.renderTaskList()
         } catch (error) {
-          console.error("プロジェクトの設定に失敗:", error)
           new Notice("プロジェクトの設定に失敗しました")
         }
       })
@@ -7643,7 +7569,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // モーダルを表示
       document.body.appendChild(modal)
     } catch (error) {
-      console.error("プロジェクト選択モーダルの表示に失敗:", error)
       new Notice("プロジェクト選択画面の表示に失敗しました")
     }
   }
@@ -7656,43 +7581,47 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // プロジェクト表示の更新
   updateProjectDisplay(inst) {
     // 該当するタスクアイテムを見つける
-    const taskItem = this.taskList.querySelector(`[data-task-path="${inst.task.path}"]`)
+    const taskItem = this.taskList.querySelector(
+      `[data-task-path="${inst.task.path}"]`,
+    )
     if (taskItem) {
-      const projectDisplay = taskItem.querySelector('.taskchute-project-display')
+      const projectDisplay = taskItem.querySelector(
+        ".taskchute-project-display",
+      )
       if (projectDisplay) {
         // 既存の表示をクリア
         projectDisplay.empty()
-        
+
         if (inst.task.projectPath && inst.task.projectTitle) {
           // プロジェクト設定済みの場合
           const projectButton = projectDisplay.createEl("span", {
             cls: "taskchute-project-button",
-            attr: { 
-              title: `プロジェクト: ${inst.task.projectTitle}` 
-            }
+            attr: {
+              title: `プロジェクト: ${inst.task.projectTitle}`,
+            },
           })
-          
+
           const folderIcon = projectButton.createEl("span", {
             cls: "taskchute-project-icon",
-            text: "📁"
+            text: "📁",
           })
-          
+
           const projectName = projectButton.createEl("span", {
             cls: "taskchute-project-name",
-            text: inst.task.projectTitle.replace(/^Project\s*-\s*/, '')
+            text: inst.task.projectTitle.replace(/^Project\s*-\s*/, ""),
           })
-          
+
           projectButton.addEventListener("click", async (e) => {
             e.stopPropagation()
             await this.showUnifiedProjectModal(inst)
           })
-          
+
           const externalLinkIcon = projectDisplay.createEl("span", {
             cls: "taskchute-external-link",
             text: "🔗",
-            attr: { title: "プロジェクトノートを開く" }
+            attr: { title: "プロジェクトノートを開く" },
           })
-          
+
           externalLinkIcon.addEventListener("click", async (e) => {
             e.stopPropagation()
             await this.openProjectInSplit(inst.task.projectPath)
@@ -7701,9 +7630,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // プロジェクト未設定の場合（ホバーで表示）
           const projectPlaceholder = projectDisplay.createEl("span", {
             cls: "taskchute-project-placeholder",
-            attr: { title: "クリックしてプロジェクトを設定" }
+            attr: { title: "クリックしてプロジェクトを設定" },
           })
-          
+
           projectPlaceholder.addEventListener("click", async (e) => {
             e.stopPropagation()
             await this.showUnifiedProjectModal(inst)
@@ -7735,7 +7664,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         8000,
       )
     } catch (error) {
-      console.error("ルーチンタスクの表示に失敗しました:", error)
       new Notice("ルーチンタスクの表示に失敗しました")
     }
   }
@@ -9123,35 +9051,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -9170,26 +9077,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -9223,23 +9118,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -9297,16 +9178,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -9314,12 +9186,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -9373,16 +9240,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -9631,35 +9489,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -9678,26 +9515,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -9731,23 +9556,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -9805,16 +9616,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -9822,12 +9624,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -9881,16 +9678,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -10139,35 +9927,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -10186,26 +9953,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -10239,23 +9994,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -10313,16 +10054,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -10330,12 +10062,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -10389,16 +10116,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -10861,35 +10579,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -10908,26 +10605,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -10961,23 +10646,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -11035,16 +10706,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -11052,12 +10714,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -11111,16 +10768,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -11369,35 +11017,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -11416,26 +11043,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -11469,23 +11084,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -11543,16 +11144,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -11560,12 +11152,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -11619,16 +11206,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -11877,35 +11455,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 完了演出スタイル */
-            .celebration-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0, 0, 0, 0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2000;
-                animation: fadeIn 0.5s ease-in;
-            }
+
 
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
 
-            .celebration-content {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                animation: bounceIn 0.8s ease-out;
-                position: relative;
-                overflow: hidden;
-            }
+
 
             @keyframes bounceIn {
                 0% {
@@ -11924,26 +11481,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-title {
-                font-size: 32px;
-                font-weight: bold;
-                color: white;
-                margin-bottom: 20px;
-                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-                animation: pulse 2s infinite;
-            }
+
 
             @keyframes pulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.05); }
             }
 
-            .celebration-message {
-                font-size: 18px;
-                color: white;
-                margin-bottom: 30px;
-                opacity: 0.9;
-            }
+
 
             .fireworks-container {
                 position: absolute;
@@ -11977,23 +11522,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 }
             }
 
-            .celebration-close-btn {
-                background: rgba(255, 255, 255, 0.2);
-                border: 2px solid white;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 25px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                margin-top: 20px;
-            }
 
-            .celebration-close-btn:hover {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1.05);
-            }
+
+
 
             /* 花火の追加エフェクト */
             .firework::before,
@@ -12051,16 +11582,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-                animation: glowPulse 3s ease-in-out infinite;
-            }
+
 
             @keyframes glowPulse {
                 0%, 100% { opacity: 0.3; }
@@ -12068,12 +11590,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 統計表示スタイル */
-            .celebration-stats {
-                display: flex;
-                justify-content: space-around;
-                margin: 20px 0;
-                gap: 20px;
-            }
+
 
             .stat-item {
                 text-align: center;
@@ -12127,16 +11644,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             /* 追加の演出効果 */
-            .celebration-content::after {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-                animation: shimmer 2s ease-in-out infinite;
-            }
+
 
             @keyframes shimmer {
                 0% { transform: translateX(-100%); }
@@ -12823,13 +12331,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const width = container.offsetWidth
 
     // 既存のレスポンシブクラスを削除
-    container.classList.remove('taskchute-narrow', 'taskchute-very-narrow')
+    container.classList.remove("taskchute-narrow", "taskchute-very-narrow")
 
     // 幅に応じてクラスを追加
     if (width <= 600) {
-      container.classList.add('taskchute-very-narrow')
+      container.classList.add("taskchute-very-narrow")
     } else if (width <= 800) {
-      container.classList.add('taskchute-narrow')
+      container.classList.add("taskchute-narrow")
     }
   }
 
@@ -12875,7 +12383,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       e.stopPropagation()
       tooltip.remove()
     })
-
 
     // 「未実行に戻す」項目を追加
     const resetItem = tooltip.createEl("div", {
@@ -12928,7 +12435,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     deleteItem.addEventListener("click", async (e) => {
       e.stopPropagation()
       tooltip.remove()
-      
+
       // 統一された削除処理を使用
       if (inst.task.isRoutine) {
         await this.deleteRoutineTask(inst)
@@ -13128,7 +12635,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // TaskChuteViewをアクティブに保つ
       this.app.workspace.setActiveLeaf(currentLeaf)
     } catch (error) {
-      console.error("プロジェクト分割表示エラー:", error)
       new Notice("プロジェクトの表示に失敗しました")
     }
   }
@@ -13141,13 +12647,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     for (const file of files) {
       // プロジェクトフォルダ内の「Project - 」で始まるファイルを取得
-      if (file.path.startsWith(projectFolderPath + '/') && file.basename.startsWith('Project - ')) {
+      if (
+        file.path.startsWith(projectFolderPath + "/") &&
+        file.basename.startsWith("Project - ")
+      ) {
         projectFiles.push(file)
         continue
       }
-      
+
       // 互換性のため、「Project - 」で始まるファイルも他のフォルダから検索
-      if (file.basename.startsWith('Project - ')) {
+      if (file.basename.startsWith("Project - ")) {
         projectFiles.push(file)
         continue
       }
@@ -13192,7 +12701,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      if (isProject && file.basename.startsWith('Project - ')) {
+      if (isProject && file.basename.startsWith("Project - ")) {
         projectFiles.push(file)
       }
     }
@@ -13241,7 +12750,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       new Notice(`プロジェクト設定を保存しました`)
     } catch (error) {
-      console.error("プロジェクト設定に失敗しました:", error)
       new Notice("プロジェクト設定に失敗しました")
     }
   }
@@ -13372,11 +12880,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       descText.textContent =
         "開始時刻を削除すると、タスクは未実行状態に戻ります。"
     } else if (inst.state === "done") {
-      descText.textContent = "終了時刻のみ削除：実行中に戻ります";
-      const br = document.createElement('br');
-      descText.appendChild(br);
-      const textNode = document.createTextNode("両方削除：未実行に戻ります");
-      descText.appendChild(textNode);
+      descText.textContent = "終了時刻のみ削除：実行中に戻ります"
+      const br = document.createElement("br")
+      descText.appendChild(br)
+      const textNode = document.createTextNode("両方削除：未実行に戻ります")
+      descText.appendChild(textNode)
     }
 
     // ボタン
@@ -13478,7 +12986,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // JSONファイルのデータを更新
       await this.saveTaskCompletion(inst, null)
     } catch (e) {
-      console.error("時刻更新時のJSON保存に失敗:", e)
+      // 時刻更新時のJSON保存に失敗
     }
 
     // UI 更新
@@ -13536,7 +13044,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       try {
         await this.saveTaskCompletion(inst, { isCompleted: false })
       } catch (e) {
-        console.error("タスク状態の更新に失敗:", e)
+        // タスク状態の更新に失敗
       }
     }
 
@@ -13571,7 +13079,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       await this.saveTaskCompletion(inst, { isCompleted: false })
     } catch (e) {
-      console.error("タスク状態の更新に失敗:", e)
+      // タスク状態の更新に失敗
     }
 
     this.renderTaskList()
@@ -13680,7 +13188,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 成功通知
       new Notice(`「${inst.task.title}」を${targetDate}に移動しました`)
     } catch (error) {
-      console.error("タスクの移動に失敗しました:", error)
       new Notice("タスクの移動に失敗しました")
     }
   }
@@ -13726,7 +13233,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // ファイルを更新
       await this.app.vault.modify(file, content)
     } catch (error) {
-      console.error("メタデータの更新に失敗しました:", error)
       throw error
     }
   }
@@ -13825,7 +13331,6 @@ function sortTaskInstances(taskInstances, timeSlotKeys) {
 
 // 新しいorderベースのソート関数（フェーズ2）
 function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
-
   // 時間帯ごとにグループ化
   const timeSlotGroups = {}
   timeSlotKeys.forEach((slot) => {
@@ -13876,27 +13381,22 @@ function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
 
 class TaskChutePlusPlugin extends Plugin {
   async onload() {
-
     // 設定を読み込み
     this.settings = (await this.loadData()) || {
-      enableCelebration: true,
-      enableSound: true,
-      enableFireworks: true,
-      enableConfetti: true,
       // パス設定
       taskFolderPath: "",
       projectFolderPath: "",
       logDataPath: "",
-      reviewDataPath: ""
+      reviewDataPath: "",
     }
-    
+
     // PathManagerの初期化
     this.pathManager = new PathManager(this)
-    
+
     // RoutineAliasManagerの初期化
     this.routineAliasManager = new RoutineAliasManager(this)
     await this.routineAliasManager.loadAliases()
-    
+
     // 初回起動時のフォルダ作成
     await this.ensureRequiredFolders()
 
@@ -13906,7 +13406,10 @@ class TaskChutePlusPlugin extends Plugin {
     }
 
     // ビュータイプを登録
-    this.registerView(VIEW_TYPE_TASKCHUTE, (leaf) => new TaskChuteView(leaf, this))
+    this.registerView(
+      VIEW_TYPE_TASKCHUTE,
+      (leaf) => new TaskChuteView(leaf, this),
+    )
 
     // リボンアイコンを追加
     this.addRibbonIcon("checkmark", "TaskChuteを開く", () => {
@@ -13930,7 +13433,7 @@ class TaskChutePlusPlugin extends Plugin {
         this.showSettingsModal()
       },
     })
-    
+
     // Keyboard shortcut commands
     this.addCommand({
       id: "duplicate-selected-task",
@@ -13946,7 +13449,7 @@ class TaskChutePlusPlugin extends Plugin {
         }
       },
     })
-    
+
     this.addCommand({
       id: "delete-selected-task",
       name: "選択されたタスクを削除",
@@ -13960,7 +13463,7 @@ class TaskChutePlusPlugin extends Plugin {
         }
       },
     })
-    
+
     this.addCommand({
       id: "reset-selected-task",
       name: "選択されたタスクを未実行に戻す",
@@ -13979,19 +13482,21 @@ class TaskChutePlusPlugin extends Plugin {
         }
       },
     })
-    
+
     // 今日のタスクを表示するコマンド
     this.addCommand({
-      id: 'show-today-tasks',
-      name: '今日のタスクを表示',
-      description: 'Show today\'s tasks',
-      hotkeys: [{
-        modifiers: ['Alt'],
-        key: 't'
-      }],
+      id: "show-today-tasks",
+      name: "今日のタスクを表示",
+      description: "Show today's tasks",
+      hotkeys: [
+        {
+          modifiers: ["Alt"],
+          key: "t",
+        },
+      ],
       callback: () => {
-        this.showTodayTasks();
-      }
+        this.showTodayTasks()
+      },
     })
 
     // Obsidian起動時にTaskChuteビューを自動で開き、currentDateを今日にリセット
@@ -14021,28 +13526,35 @@ class TaskChutePlusPlugin extends Plugin {
   }
 
   async onunload() {
-
     // 実行中タスクの状態を保存する処理を削除
     // 理由：onunloadでの非同期ファイル書き込みは信頼性が低く、
     // Obsidian終了前に処理が完了しないため。
     // 状態の保存はstartInstance/stopInstance時に同期的に行う方針に変更。
   }
-  
+
   async ensureRequiredFolders() {
     try {
-      await this.pathManager.ensureFolderExists(this.pathManager.getTaskFolderPath())
-      await this.pathManager.ensureFolderExists(this.pathManager.getProjectFolderPath())
-      await this.pathManager.ensureFolderExists(this.pathManager.getLogDataPath())
-      await this.pathManager.ensureFolderExists(this.pathManager.getReviewDataPath())
+      await this.pathManager.ensureFolderExists(
+        this.pathManager.getTaskFolderPath(),
+      )
+      await this.pathManager.ensureFolderExists(
+        this.pathManager.getProjectFolderPath(),
+      )
+      await this.pathManager.ensureFolderExists(
+        this.pathManager.getLogDataPath(),
+      )
+      await this.pathManager.ensureFolderExists(
+        this.pathManager.getReviewDataPath(),
+      )
     } catch (error) {
       new Notice("必要なフォルダの作成に失敗しました")
     }
   }
-  
+
   async saveSettings() {
     await this.saveData(this.settings)
   }
-  
+
   getTaskChuteView() {
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)[0]
     if (leaf && leaf.view instanceof TaskChuteView) {
@@ -14065,53 +13577,51 @@ class TaskChutePlusPlugin extends Plugin {
     })
     workspace.revealLeaf(leaf)
   }
-  
+
   // 今日のタスクを表示
   async showTodayTasks() {
     try {
       // TaskChuteビューを取得または作成
-      const leaf = await this.getOrCreateTaskChuteView();
-      
+      const leaf = await this.getOrCreateTaskChuteView()
+
       if (leaf && leaf.view && leaf.view.setSelectedDate) {
         // 今日の日付を設定
-        const today = moment().format('YYYY-MM-DD');
-        leaf.view.setSelectedDate(today);
-        
+        const today = moment().format("YYYY-MM-DD")
+        leaf.view.setSelectedDate(today)
+
         // ビューを更新
         if (leaf.view.refresh) {
-          await leaf.view.refresh();
+          await leaf.view.refresh()
         }
-        
+
         // ビューにフォーカスを移す
-        this.app.workspace.revealLeaf(leaf);
+        this.app.workspace.revealLeaf(leaf)
       } else {
-        console.error('TaskChuteView not found or setSelectedDate method missing');
-        new Notice('TaskChuteビューの初期化に失敗しました');
+        new Notice("TaskChuteビューの初期化に失敗しました")
       }
     } catch (error) {
-      console.error('Failed to show today tasks:', error);
-      new Notice('今日のタスクの表示に失敗しました');
+      new Notice("今日のタスクの表示に失敗しました")
     }
   }
-  
+
   // TaskChuteビューを取得または作成するヘルパーメソッド
   async getOrCreateTaskChuteView() {
     // 既存のTaskChuteビューを探す
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE);
-    
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+
     if (leaves.length > 0) {
       // 既存のビューを使用
-      return leaves[0];
+      return leaves[0]
     }
-    
+
     // 新しいビューを作成
-    const leaf = this.app.workspace.getRightLeaf(false);
+    const leaf = this.app.workspace.getRightLeaf(false)
     await leaf.setViewState({
       type: VIEW_TYPE_TASKCHUTE,
-      active: true
-    });
-    
-    return leaf;
+      active: true,
+    })
+
+    return leaf
   }
 
   // 設定モーダルを表示
@@ -14135,24 +13645,6 @@ class TaskChutePlusPlugin extends Plugin {
     // フォーム
     const form = modalContent.createEl("form", { cls: "task-form" })
 
-    // 演出設定
-    const celebrationGroup = form.createEl("div", { cls: "form-group" })
-    celebrationGroup.createEl("label", {
-      text: "完了演出を有効にする",
-      cls: "form-label",
-    })
-    const celebrationCheckbox = celebrationGroup.createEl("input", {
-      type: "checkbox",
-      cls: "form-checkbox",
-      checked: this.settings.enableCelebration,
-    })
-
-    // 音効果設定
-    const soundGroup = form.createEl("div", { cls: "form-group" })
-    soundGroup.createEl("label", {
-      text: "音効果を有効にする",
-      cls: "form-label",
-    })
     const soundCheckbox = soundGroup.createEl("input", {
       type: "checkbox",
       cls: "form-checkbox",
@@ -14209,11 +13701,6 @@ class TaskChutePlusPlugin extends Plugin {
       e.preventDefault()
 
       // 設定を保存
-      this.settings.enableCelebration = celebrationCheckbox.checked
-      this.settings.enableSound = soundCheckbox.checked
-      this.settings.enableFireworks = fireworksCheckbox.checked
-      this.settings.enableConfetti = confettiCheckbox.checked
-
       await this.saveData(this.settings)
       new Notice("設定を保存しました")
       document.body.removeChild(modal)
@@ -14225,218 +13712,165 @@ class TaskChutePlusPlugin extends Plugin {
 }
 
 // PluginSettingTabが存在する場合のみ定義
-const TaskChuteSettingTab = PluginSettingTab ? class extends PluginSettingTab {
-  constructor(app, plugin) {
-    super(app, plugin)
-    this.plugin = plugin
-  }
+const TaskChuteSettingTab = PluginSettingTab
+  ? class extends PluginSettingTab {
+      constructor(app, plugin) {
+        super(app, plugin)
+        this.plugin = plugin
+      }
 
-  display() {
-    const { containerEl } = this
+      display() {
+        const { containerEl } = this
 
-    containerEl.empty()
+        containerEl.empty()
 
-    containerEl.createEl("h2", { text: "TaskChute Plus 設定" })
-    containerEl.createEl("h3", { text: "完了エフェクト" })
+        containerEl.createEl("h2", { text: "TaskChute Plus 設定" })
+        // パス設定セクション
+        containerEl.createEl("h3", { text: "パス設定" })
 
-    new Setting(containerEl)
-      .setName("完了時のお祝いエフェクト")
-      .setDesc("タスク完了時にお祝いのエフェクトを表示します")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableCelebration)
-          .onChange(async (value) => {
-            try {
-              this.plugin.settings.enableCelebration = value
-              await this.plugin.saveData(this.plugin.settings)
-            } catch (error) {
-              console.error("Failed to save enableCelebration setting:", error)
-            }
-          })
-      )
+        new Setting(containerEl)
+          .setName("タスクフォルダパス")
+          .setDesc("タスクファイルを保存するフォルダのパス")
+          .addText((text) => {
+            text
+              .setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder)
+              .setValue(this.plugin.settings.taskFolderPath || "")
+              .onChange(async (value) => {
+                const validation = this.plugin.pathManager.validatePath(value)
+                if (validation.valid || value === "") {
+                  this.plugin.settings.taskFolderPath = value
+                  await this.plugin.saveSettings()
+                } else {
+                  new Notice(validation.error)
+                  text.setValue(this.plugin.settings.taskFolderPath || "")
+                }
+              })
 
-    new Setting(containerEl)
-      .setName("完了時のサウンド")
-      .setDesc("タスク完了時に効果音を再生します")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableSound)
-          .onChange(async (value) => {
-            try {
-              this.plugin.settings.enableSound = value
-              await this.plugin.saveData(this.plugin.settings)
-            } catch (error) {
-              console.error("Failed to save enableSound setting:", error)
-            }
+            // フォーカスが外れた時にフォルダを作成
+            text.inputEl.addEventListener("blur", async () => {
+              if (
+                this.plugin.settings.taskFolderPath ||
+                !this.plugin.settings.taskFolderPath
+              ) {
+                try {
+                  await this.plugin.pathManager.ensureFolderExists(
+                    this.plugin.pathManager.getTaskFolderPath(),
+                  )
+                } catch (error) {
+                  // Failed to create task folder
+                }
+              }
+            })
           })
-      )
 
-    new Setting(containerEl)
-      .setName("花火エフェクト")
-      .setDesc("お祝いエフェクト時に花火を表示します（お祝いエフェクトがオンの時のみ有効）")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableFireworks)
-          .onChange(async (value) => {
-            try {
-              this.plugin.settings.enableFireworks = value
-              await this.plugin.saveData(this.plugin.settings)
-            } catch (error) {
-              console.error("Failed to save enableFireworks setting:", error)
-            }
-          })
-      )
+        new Setting(containerEl)
+          .setName("プロジェクトフォルダパス")
+          .setDesc("プロジェクトファイルを保存するフォルダのパス")
+          .addText((text) => {
+            text
+              .setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder)
+              .setValue(this.plugin.settings.projectFolderPath || "")
+              .onChange(async (value) => {
+                const validation = this.plugin.pathManager.validatePath(value)
+                if (validation.valid || value === "") {
+                  this.plugin.settings.projectFolderPath = value
+                  await this.plugin.saveSettings()
+                } else {
+                  new Notice(validation.error)
+                  text.setValue(this.plugin.settings.projectFolderPath || "")
+                }
+              })
 
-    new Setting(containerEl)
-      .setName("紙吹雪エフェクト")
-      .setDesc("お祝いエフェクト時に紙吹雪を表示します（お祝いエフェクトがオンの時のみ有効）")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableConfetti)
-          .onChange(async (value) => {
-            try {
-              this.plugin.settings.enableConfetti = value
-              await this.plugin.saveData(this.plugin.settings)
-            } catch (error) {
-              console.error("Failed to save enableConfetti setting:", error)
-            }
+            // フォーカスが外れた時にフォルダを作成
+            text.inputEl.addEventListener("blur", async () => {
+              if (
+                this.plugin.settings.projectFolderPath ||
+                !this.plugin.settings.projectFolderPath
+              ) {
+                try {
+                  await this.plugin.pathManager.ensureFolderExists(
+                    this.plugin.pathManager.getProjectFolderPath(),
+                  )
+                } catch (error) {
+                  // Failed to create project folder
+                }
+              }
+            })
           })
-      )
-    
-    // パス設定セクション
-    containerEl.createEl("h3", { text: "パス設定" })
-    
-    new Setting(containerEl)
-      .setName("タスクフォルダパス")
-      .setDesc("タスクファイルを保存するフォルダのパス")
-      .addText(text => {
-        text
-          .setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder)
-          .setValue(this.plugin.settings.taskFolderPath || "")
-          .onChange(async (value) => {
-            const validation = this.plugin.pathManager.validatePath(value)
-            if (validation.valid || value === "") {
-              this.plugin.settings.taskFolderPath = value
-              await this.plugin.saveSettings()
-            } else {
-              new Notice(validation.error)
-              text.setValue(this.plugin.settings.taskFolderPath || "")
-            }
+
+        new Setting(containerEl)
+          .setName("ログデータパス")
+          .setDesc("タスクの実行ログを保存するフォルダのパス")
+          .addText((text) => {
+            text
+              .setPlaceholder(PathManager.DEFAULT_PATHS.logData)
+              .setValue(this.plugin.settings.logDataPath || "")
+              .onChange(async (value) => {
+                const validation = this.plugin.pathManager.validatePath(value)
+                if (validation.valid || value === "") {
+                  this.plugin.settings.logDataPath = value
+                  await this.plugin.saveSettings()
+                } else {
+                  new Notice(validation.error)
+                  text.setValue(this.plugin.settings.logDataPath || "")
+                }
+              })
+
+            // フォーカスが外れた時にフォルダを作成
+            text.inputEl.addEventListener("blur", async () => {
+              if (
+                this.plugin.settings.logDataPath ||
+                !this.plugin.settings.logDataPath
+              ) {
+                try {
+                  await this.plugin.pathManager.ensureFolderExists(
+                    this.plugin.pathManager.getLogDataPath(),
+                  )
+                } catch (error) {
+                  // Failed to create log data folder
+                }
+              }
+            })
           })
-        
-        // フォーカスが外れた時にフォルダを作成
-        text.inputEl.addEventListener('blur', async () => {
-          if (this.plugin.settings.taskFolderPath || !this.plugin.settings.taskFolderPath) {
-            try {
-              await this.plugin.pathManager.ensureFolderExists(
-                this.plugin.pathManager.getTaskFolderPath()
-              )
-            } catch (error) {
-              console.error("Failed to create task folder:", error)
-            }
-          }
-        })
-      })
-    
-    new Setting(containerEl)
-      .setName("プロジェクトフォルダパス")
-      .setDesc("プロジェクトファイルを保存するフォルダのパス")
-      .addText(text => {
-        text
-          .setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder)
-          .setValue(this.plugin.settings.projectFolderPath || "")
-          .onChange(async (value) => {
-            const validation = this.plugin.pathManager.validatePath(value)
-            if (validation.valid || value === "") {
-              this.plugin.settings.projectFolderPath = value
-              await this.plugin.saveSettings()
-            } else {
-              new Notice(validation.error)
-              text.setValue(this.plugin.settings.projectFolderPath || "")
-            }
+
+        // レビューデータパス設定
+        new Setting(containerEl)
+          .setName("レビューデータパス")
+          .setDesc("デイリーレビューファイルを保存するフォルダのパス")
+          .addText((text) => {
+            text
+              .setPlaceholder(PathManager.DEFAULT_PATHS.reviewData)
+              .setValue(this.plugin.settings.reviewDataPath || "")
+              .onChange(async (value) => {
+                const validation = this.plugin.pathManager.validatePath(value)
+                if (validation.valid || value === "") {
+                  this.plugin.settings.reviewDataPath = value
+                  await this.plugin.saveSettings()
+                } else {
+                  new Notice(validation.error)
+                  text.setValue(this.plugin.settings.reviewDataPath || "")
+                }
+              })
+
+            // フォーカスが外れた時にフォルダを作成
+            text.inputEl.addEventListener("blur", async () => {
+              if (
+                this.plugin.settings.reviewDataPath ||
+                !this.plugin.settings.reviewDataPath
+              ) {
+                try {
+                  await this.plugin.pathManager.ensureFolderExists(
+                    this.plugin.pathManager.getReviewDataPath(),
+                  )
+                } catch (error) {
+                  // Failed to create review folder
+                }
+              }
+            })
           })
-        
-        // フォーカスが外れた時にフォルダを作成
-        text.inputEl.addEventListener('blur', async () => {
-          if (this.plugin.settings.projectFolderPath || !this.plugin.settings.projectFolderPath) {
-            try {
-              await this.plugin.pathManager.ensureFolderExists(
-                this.plugin.pathManager.getProjectFolderPath()
-              )
-            } catch (error) {
-              console.error("Failed to create project folder:", error)
-            }
-          }
-        })
-      })
-    
-    new Setting(containerEl)
-      .setName("ログデータパス")
-      .setDesc("タスクの実行ログを保存するフォルダのパス")
-      .addText(text => {
-        text
-          .setPlaceholder(PathManager.DEFAULT_PATHS.logData)
-          .setValue(this.plugin.settings.logDataPath || "")
-          .onChange(async (value) => {
-            const validation = this.plugin.pathManager.validatePath(value)
-            if (validation.valid || value === "") {
-              this.plugin.settings.logDataPath = value
-              await this.plugin.saveSettings()
-            } else {
-              new Notice(validation.error)
-              text.setValue(this.plugin.settings.logDataPath || "")
-            }
-          })
-        
-        // フォーカスが外れた時にフォルダを作成
-        text.inputEl.addEventListener('blur', async () => {
-          if (this.plugin.settings.logDataPath || !this.plugin.settings.logDataPath) {
-            try {
-              await this.plugin.pathManager.ensureFolderExists(
-                this.plugin.pathManager.getLogDataPath()
-              )
-            } catch (error) {
-              console.error("Failed to create log data folder:", error)
-            }
-          }
-        })
-      })
-    
-    // レビューデータパス設定
-    new Setting(containerEl)
-      .setName("レビューデータパス")
-      .setDesc("デイリーレビューファイルを保存するフォルダのパス")
-      .addText(text => {
-        text
-          .setPlaceholder(PathManager.DEFAULT_PATHS.reviewData)
-          .setValue(this.plugin.settings.reviewDataPath || "")
-          .onChange(async (value) => {
-            const validation = this.plugin.pathManager.validatePath(value)
-            if (validation.valid || value === "") {
-              this.plugin.settings.reviewDataPath = value
-              await this.plugin.saveSettings()
-            } else {
-              new Notice(validation.error)
-              text.setValue(this.plugin.settings.reviewDataPath || "")
-            }
-          })
-        
-        // フォーカスが外れた時にフォルダを作成
-        text.inputEl.addEventListener('blur', async () => {
-          if (this.plugin.settings.reviewDataPath || !this.plugin.settings.reviewDataPath) {
-            try {
-              await this.plugin.pathManager.ensureFolderExists(
-                this.plugin.pathManager.getReviewDataPath()
-              )
-            } catch (error) {
-              console.error("Failed to create review folder:", error)
-            }
-          }
-        })
-      })
-    
-  }
-} : null
+      }
+    }
+  : null
 
 // LogView class for displaying task heatmap
 // Shows GitHub-style contribution graph for task procrastination
@@ -14457,45 +13891,46 @@ class LogView {
   async render() {
     // Clear container
     this.container.empty()
-    
+
     // Create header
     this.createHeader()
-    
+
     // Show loading
     const loadingContainer = this.container.createEl("div", {
       cls: "heatmap-loading",
-      text: "データを読み込み中..."
+      text: "データを読み込み中...",
     })
-    
+
     try {
       // Force regeneration on initial render for current year
       if (this.currentYear === new Date().getFullYear()) {
         // Clear cache
         delete this.dataCache[this.currentYear]
-        
+
         // Delete existing yearly file to force regeneration
         try {
-          const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+          const yearPath = this.plugin.pathManager.getLogYearPath(
+            this.currentYear,
+          )
           const heatmapPath = `${yearPath}/yearly-heatmap.json`
           if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
             await this.plugin.app.vault.adapter.remove(heatmapPath)
           }
         } catch (error) {
-          console.error("[TaskChute] Failed to delete yearly data:", error)
+          // Failed to delete yearly data
         }
       }
-      
+
       // Load yearly data (will regenerate due to deletion above)
       this.heatmapData = await this.loadYearlyData(this.currentYear)
-      
+
       // Remove loading
       loadingContainer.remove()
-      
+
       // Render heatmap
       this.renderHeatmap(this.heatmapData)
     } catch (error) {
       loadingContainer.remove()
-      console.error("[TaskChute] Failed to render heatmap:", error)
       new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
       this.renderEmptyHeatmap(this.currentYear)
     }
@@ -14503,68 +13938,71 @@ class LogView {
 
   createHeader() {
     const header = this.container.createEl("div", {
-      cls: "taskchute-log-header"
+      cls: "taskchute-log-header",
     })
-    
+
     header.createEl("h2", {
       text: "タスク実行ログ",
-      cls: "log-title"
+      cls: "log-title",
     })
-    
+
     const controls = header.createEl("div", {
-      cls: "log-controls"
+      cls: "log-controls",
     })
-    
+
     // Year selector
     const yearSelector = controls.createEl("select", {
-      cls: "year-selector"
+      cls: "year-selector",
     })
-    
+
     // Add years from 2020 to current year + 1
     const currentYear = new Date().getFullYear()
     for (let year = currentYear + 1; year >= 2020; year--) {
       const option = yearSelector.createEl("option", {
         value: year.toString(),
-        text: `${year}年`
+        text: `${year}年`,
       })
       if (year === this.currentYear) {
         option.selected = true
       }
     }
-    
+
     // Refresh button
     const refreshButton = controls.createEl("button", {
       cls: "refresh-button",
       text: "🔄 データ更新",
-      title: "キャッシュをクリアして再計算"
+      title: "キャッシュをクリアして再計算",
     })
-    
+
     refreshButton.addEventListener("click", async () => {
       // Clear cache for current year
       delete this.dataCache[this.currentYear]
-      
+
       // Delete existing yearly file to force regeneration
       try {
-        const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+        const yearPath = this.plugin.pathManager.getLogYearPath(
+          this.currentYear,
+        )
         const heatmapPath = `${yearPath}/yearly-heatmap.json`
         if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
           await this.plugin.app.vault.adapter.remove(heatmapPath)
         }
       } catch (error) {
-        console.error("[TaskChute] Failed to delete yearly data:", error)
+        // Failed to delete yearly data
       }
-      
+
       // Clear current heatmap and show loading
-      const heatmapContainer = this.container.querySelector(".heatmap-container")
+      const heatmapContainer =
+        this.container.querySelector(".heatmap-container")
       if (heatmapContainer) {
         heatmapContainer.remove()
       }
-      
+
       const loadingContainer = this.container.createEl("div", {
         cls: "heatmap-loading",
-        text: "データを再計算中..."
+        text: "データを再計算中...",
       })
-      
+
       try {
         this.heatmapData = await this.loadYearlyData(this.currentYear)
         loadingContainer.remove()
@@ -14572,34 +14010,33 @@ class LogView {
         new Notice(`${this.currentYear}年のデータを更新しました`)
       } catch (error) {
         loadingContainer.remove()
-        console.error("[TaskChute] Failed to reload year data:", error)
         new Notice(`${this.currentYear}年のデータ更新に失敗しました`)
         this.renderEmptyHeatmap(this.currentYear)
       }
     })
-    
+
     // Year change handler
     yearSelector.addEventListener("change", async (e) => {
       this.currentYear = parseInt(e.target.value)
-      
+
       // Clear current heatmap and show loading
-      const heatmapContainer = this.container.querySelector(".heatmap-container")
+      const heatmapContainer =
+        this.container.querySelector(".heatmap-container")
       if (heatmapContainer) {
         heatmapContainer.remove()
       }
-      
+
       const loadingContainer = this.container.createEl("div", {
         cls: "heatmap-loading",
-        text: "データを読み込み中..."
+        text: "データを読み込み中...",
       })
-      
+
       try {
         this.heatmapData = await this.loadYearlyData(this.currentYear)
         loadingContainer.remove()
         this.renderHeatmap(this.heatmapData)
       } catch (error) {
         loadingContainer.remove()
-        console.error("[TaskChute] Failed to load year data:", error)
         new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
         this.renderEmptyHeatmap(this.currentYear)
       }
@@ -14614,27 +14051,26 @@ class LogView {
 
     const yearPath = this.plugin.pathManager.getLogYearPath(year)
     const heatmapPath = `${yearPath}/yearly-heatmap.json`
-    
+
     // Check if yearly data exists
     if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
       try {
         const content = await this.plugin.app.vault.adapter.read(heatmapPath)
         const data = JSON.parse(content)
-        
+
         // Validate data structure
-        if (!data || typeof data !== 'object' || !data.year || !data.days) {
-          console.warn(`[TaskChute] Invalid yearly data structure for ${year}`)
+        if (!data || typeof data !== "object" || !data.year || !data.days) {
           throw new Error("Invalid data structure")
         }
-        
+
         // Store in cache
         this.dataCache[year] = data
         return data
       } catch (error) {
-        console.error("[TaskChute] Failed to load yearly data:", error)
+        // Failed to load yearly data
       }
     }
-    
+
     // Generate from monthly logs if not exists
     const generatedData = await this.generateYearlyData(year)
     // Store in cache
@@ -14643,96 +14079,109 @@ class LogView {
   }
 
   async generateYearlyData(year) {
-    
     const yearlyData = {
       year: year,
       days: {},
       metadata: {
         lastUpdated: new Date().toISOString(),
-        version: "1.0"
-      }
+        version: "1.0",
+      },
     }
 
     try {
       // Create DailyTaskAggregator instance
       const aggregator = new DailyTaskAggregator(this.plugin)
-      
+
       // Process each month
       for (let month = 1; month <= 12; month++) {
         const monthString = `${year}-${month.toString().padStart(2, "0")}`
         const logDataPath = this.plugin.pathManager.getLogDataPath()
         const logFilePath = `${logDataPath}/${monthString}-tasks.json`
-        
+
         // Check if monthly log exists
         if (await this.plugin.app.vault.adapter.exists(logFilePath)) {
           try {
-            const logContent = await this.plugin.app.vault.adapter.read(logFilePath)
+            const logContent = await this.plugin.app.vault.adapter.read(
+              logFilePath,
+            )
             const monthlyLog = JSON.parse(logContent)
-            
+
             // Validate monthly log structure
-            if (!monthlyLog || typeof monthlyLog !== 'object') {
-              console.warn(`[TaskChute] Invalid monthly log structure for ${monthString}`)
+            if (!monthlyLog || typeof monthlyLog !== "object") {
+              // Invalid monthly log structure
               continue
             }
-            
+
             // Use dailySummary if available (preferred data source)
-            if (monthlyLog.dailySummary && typeof monthlyLog.dailySummary === 'object') {
-              for (const [dateString, summary] of Object.entries(monthlyLog.dailySummary)) {
+            if (
+              monthlyLog.dailySummary &&
+              typeof monthlyLog.dailySummary === "object"
+            ) {
+              for (const [dateString, summary] of Object.entries(
+                monthlyLog.dailySummary,
+              )) {
                 // Validate date format
                 if (!dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                  console.warn(`[TaskChute] Invalid date format: ${dateString}`)
+                  // Invalid date format
                   continue
                 }
-                
+
                 // Only process dates from the target year
                 if (dateString.startsWith(`${year}-`)) {
                   yearlyData.days[dateString] = {
                     totalTasks: summary.totalTasks || 0,
                     completedTasks: summary.completedTasks || 0,
-                    procrastinatedTasks: (summary.totalTasks || 0) - (summary.completedTasks || 0),
-                    completionRate: summary.totalTasks > 0 ? (summary.completedTasks / summary.totalTasks) : 0
+                    procrastinatedTasks:
+                      (summary.totalTasks || 0) - (summary.completedTasks || 0),
+                    completionRate:
+                      summary.totalTasks > 0
+                        ? summary.completedTasks / summary.totalTasks
+                        : 0,
                   }
                 }
               }
-            } else if (monthlyLog.taskExecutions && typeof monthlyLog.taskExecutions === 'object') {
+            } else if (
+              monthlyLog.taskExecutions &&
+              typeof monthlyLog.taskExecutions === "object"
+            ) {
               // Fallback to calculating from taskExecutions if dailySummary is not available
-              for (const [dateString, dayTasks] of Object.entries(monthlyLog.taskExecutions)) {
+              for (const [dateString, dayTasks] of Object.entries(
+                monthlyLog.taskExecutions,
+              )) {
                 // Validate date format
                 if (!dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                  console.warn(`[TaskChute] Invalid date format: ${dateString}`)
+                  // Invalid date format
                   continue
                 }
-                
+
                 // Only process dates from the target year
                 if (dateString.startsWith(`${year}-`)) {
                   // Validate dayTasks is an array
                   if (!Array.isArray(dayTasks)) {
-                    console.warn(`[TaskChute] Invalid task data for ${dateString}`)
+                    // Invalid task data
                     continue
                   }
-                  
+
                   const stats = aggregator.calculateDailyStats(dayTasks)
                   yearlyData.days[dateString] = stats
                 }
               }
             }
           } catch (parseError) {
-            console.error(`[TaskChute] Failed to parse monthly log ${monthString}:`, parseError)
             continue
           }
         }
       }
-      
+
       // Save the generated yearly data
       const yearPath = await this.plugin.pathManager.ensureYearFolder(year)
       const heatmapPath = `${yearPath}/yearly-heatmap.json`
       await this.plugin.app.vault.adapter.write(
         heatmapPath,
-        JSON.stringify(yearlyData, null, 2)
+        JSON.stringify(yearlyData, null, 2),
       )
-      
     } catch (error) {
-      console.error(`[TaskChute] Failed to generate yearly data for ${year}:`, error)
+      // Failed to generate yearly data
     }
 
     return yearlyData
@@ -14744,346 +14193,362 @@ class LogView {
     if (existingHeatmap) {
       existingHeatmap.remove()
     }
-    
+
     // Create heatmap container
     const heatmapContainer = this.container.createEl("div", {
-      cls: "heatmap-container"
+      cls: "heatmap-container",
     })
-    
+
     // Create heatmap grid
     const grid = this.createHeatmapGrid(data.year)
     heatmapContainer.appendChild(grid)
-    
+
     // Apply data to cells
     this.applyDataToGrid(data)
   }
-  
+
   applyDataToGrid(data) {
     if (!data.days) return
-    
+
     // Batch updates for better performance
     const entries = Object.entries(data.days)
     const batchSize = 50
     let currentIndex = 0
-    
+
     const processBatch = () => {
       const endIndex = Math.min(currentIndex + batchSize, entries.length)
-      
+
       for (let i = currentIndex; i < endIndex; i++) {
         const [dateString, stats] = entries[i]
         const cell = this.container.querySelector(`[data-date="${dateString}"]`)
         if (cell) {
           const level = this.calculateLevel(stats)
           cell.dataset.level = level.toString()
-          
+
           // Set tooltip data
           const tooltip = this.createTooltipText(dateString, stats)
           cell.dataset.tooltip = tooltip
         }
       }
-      
+
       currentIndex = endIndex
-      
+
       // Continue processing if more data
       if (currentIndex < entries.length) {
         requestAnimationFrame(processBatch)
       }
     }
-    
+
     // Start batch processing
     requestAnimationFrame(processBatch)
   }
-  
+
   calculateLevel(stats) {
     if (!stats || stats.totalTasks === 0) return 0
     if (stats.procrastinatedTasks === 0) return 4 // 先送り0は最高レベル
-    
+
     const rate = stats.completionRate
     if (rate >= 0.8) return 3
     if (rate >= 0.5) return 2
     if (rate >= 0.2) return 1
     return 1
   }
-  
+
   createTooltipText(dateString, stats) {
     const date = new Date(dateString + "T00:00:00")
     const dateText = date.toLocaleDateString("ja-JP", {
       year: "numeric",
       month: "long",
       day: "numeric",
-      weekday: "long"
+      weekday: "long",
     })
-    
+
     if (!stats || stats.totalTasks === 0) {
       return `${dateText}\nタスクなし`
     }
-    
-    return `${dateText}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${Math.round(stats.completionRate * 100)}%`
+
+    return `${dateText}\n総タスク: ${stats.totalTasks}\n完了: ${
+      stats.completedTasks
+    }\n先送り: ${stats.procrastinatedTasks}\n完了率: ${Math.round(
+      stats.completionRate * 100,
+    )}%`
   }
-  
+
   renderEmptyHeatmap(year) {
     // Remove existing heatmap if any
     const existingHeatmap = this.container.querySelector(".heatmap-container")
     if (existingHeatmap) {
       existingHeatmap.remove()
     }
-    
+
     // Create empty heatmap container
     const heatmapContainer = this.container.createEl("div", {
-      cls: "heatmap-container"
+      cls: "heatmap-container",
     })
-    
+
     // Create error message
     const errorMsg = heatmapContainer.createEl("div", {
       cls: "heatmap-error",
-      text: `${year}年のデータは利用できません`
+      text: `${year}年のデータは利用できません`,
     })
-    
+
     // Create empty grid with default styling
     const emptyData = {
       year: year,
-      days: {}
+      days: {},
     }
-    
+
     const grid = this.createHeatmapGrid(year)
     heatmapContainer.appendChild(grid)
-    
+
     // Style all cells as empty
     const cells = grid.querySelectorAll(".heatmap-cell")
-    cells.forEach(cell => {
+    cells.forEach((cell) => {
       cell.dataset.level = "0"
       cell.dataset.tooltip = "データなし"
     })
   }
-  
+
   addCellEventListeners(cell, dateString) {
     // Hover event for tooltip
     cell.addEventListener("mouseenter", (e) => {
       this.showTooltip(cell)
     })
-    
+
     cell.addEventListener("mouseleave", () => {
       this.hideTooltip()
     })
-    
+
     // Click event to navigate to date
     cell.addEventListener("click", async (e) => {
       e.stopPropagation()
       await this.navigateToDate(dateString)
     })
   }
-  
+
   showTooltip(cell) {
     // Remove existing tooltip
     this.hideTooltip()
-    
+
     const tooltipText = cell.dataset.tooltip
     if (!tooltipText) return
-    
+
     const tooltip = document.createElement("div")
     tooltip.className = "heatmap-tooltip"
     tooltip.textContent = tooltipText
-    
+
     // Position tooltip
     const rect = cell.getBoundingClientRect()
     const containerRect = this.container.getBoundingClientRect()
-    
+
     tooltip.style.position = "absolute"
     tooltip.style.left = `${rect.left - containerRect.left}px`
     tooltip.style.top = `${rect.bottom - containerRect.top + 5}px`
     tooltip.style.zIndex = "1000"
-    
+
     this.container.appendChild(tooltip)
     this.currentTooltip = tooltip
   }
-  
+
   hideTooltip() {
     if (this.currentTooltip) {
       this.currentTooltip.remove()
       this.currentTooltip = null
     }
   }
-  
+
   async navigateToDate(dateString) {
-    
     try {
       // Parse date string
       const [year, month, day] = dateString.split("-").map(Number)
-      
+
       // Get or create TaskChute view
       const leaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view")
       let leaf
-      
+
       if (leaves.length === 0) {
         leaf = this.plugin.app.workspace.getRightLeaf(false)
         await leaf.setViewState({
           type: "taskchute-view",
-          active: true
+          active: true,
         })
         // Wait for view to be ready
-        await new Promise(resolve => setTimeout(resolve, 300))
-        
+        await new Promise((resolve) => setTimeout(resolve, 300))
+
         // Get leaves again after creation
-        const newLeaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view")
+        const newLeaves =
+          this.plugin.app.workspace.getLeavesOfType("taskchute-view")
         if (newLeaves.length > 0) {
           leaf = newLeaves[0]
         }
       } else {
         leaf = leaves[0]
       }
-      
+
       const view = leaf.view
-      if (!view || typeof view.loadTasks !== 'function') {
-        console.error("[TaskChute] Valid TaskChuteView not available")
+      if (!view || typeof view.loadTasks !== "function") {
         return
       }
-      
+
       // Update TaskChuteView's current date
       view.currentDate = new Date(year, month - 1, day)
-      
+
       // Update date label
       if (view.updateDateLabel && view.containerEl) {
-        const dateLabel = view.containerEl.querySelector('.date-nav-label')
+        const dateLabel = view.containerEl.querySelector(".date-nav-label")
         if (dateLabel) {
           view.updateDateLabel(dateLabel)
         }
       }
-      
+
       // Load tasks
       await view.loadTasks()
-      
+
       // Make the view active
       this.plugin.app.workspace.setActiveLeaf(leaf)
-      
+
       // Close log modal
       const modal = this.container.closest(".taskchute-log-modal-overlay")
       if (modal) {
         modal.remove()
       } else {
-        console.warn("[TaskChute] Modal not found")
+        // Modal not found
       }
     } catch (error) {
-      console.error("[TaskChute] Error in navigateToDate:", error)
+      // Error in navigateToDate
     }
   }
 
   createHeatmapGrid(year) {
     const gridContainer = document.createElement("div")
     gridContainer.className = "heatmap-grid-container"
-    
+
     // Month names
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ]
+
     // Create month labels container
     const monthLabels = gridContainer.createEl("div", {
-      cls: "heatmap-months"
+      cls: "heatmap-months",
     })
-    
+
     // Create weekday labels
     const weekdayContainer = gridContainer.createEl("div", {
-      cls: "heatmap-weekdays-container"
+      cls: "heatmap-weekdays-container",
     })
-    
+
     const weekdayLabels = weekdayContainer.createEl("div", {
-      cls: "heatmap-weekdays"
+      cls: "heatmap-weekdays",
     })
     // 7つのスペースを作成し、適切な位置にラベルを配置
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"]
     weekdays.forEach((day, index) => {
       const label = weekdayLabels.createEl("span", {
-        cls: "weekday-label"
+        cls: "weekday-label",
       })
       // 月(index=1)、水(index=3)、金(index=5)のみテキストを表示
       if (index === 1 || index === 3 || index === 5) {
         label.textContent = day
       }
     })
-    
+
     // Create grid - ALWAYS 53 columns for consistency
     const grid = weekdayContainer.createEl("div", {
-      cls: "heatmap-grid"
+      cls: "heatmap-grid",
     })
-    
+
     // Set fixed 53 columns
     grid.style.gridTemplateColumns = `repeat(53, 11px)`
-    
+
     // Calculate the first Sunday and last Saturday of the year grid
     const firstDay = new Date(year, 0, 1)
     const lastDay = new Date(year, 11, 31)
-    
+
     // Find the first Sunday (could be in previous year)
     const firstSunday = new Date(firstDay)
     firstSunday.setDate(firstSunday.getDate() - firstDay.getDay())
-    
+
     // Create exactly 53 weeks of cells (371 cells = 53 * 7)
     const currentDate = new Date(firstSunday)
     let weekIndex = 0
     let lastMonthSeen = -1
-    
+
     for (let i = 0; i < 371; i++) {
       const dateString = this.formatDateString(currentDate)
       const isCurrentYear = currentDate.getFullYear() === year
-      
+
       const cell = grid.createEl("div", {
         cls: isCurrentYear ? "heatmap-cell" : "heatmap-cell empty",
         attr: {
           "data-date": dateString,
-          "data-level": "0"
-        }
+          "data-level": "0",
+        },
       })
-      
+
       // Only add event listeners to cells in the current year
       if (isCurrentYear) {
         this.addCellEventListeners(cell, dateString)
-        
+
         // Add month label when we see a new month
         const currentMonth = currentDate.getMonth()
         if (currentMonth !== lastMonthSeen) {
           const label = monthLabels.createEl("span", {
             cls: "month-label",
-            text: months[currentMonth]
+            text: months[currentMonth],
           })
           // Position based on current week
           label.style.left = `${weekIndex * 13}px`
           lastMonthSeen = currentMonth
         }
       }
-      
+
       // Move to next day
       currentDate.setDate(currentDate.getDate() + 1)
-      
+
       // Increment week counter every Sunday
       if (i > 0 && (i + 1) % 7 === 0) {
         weekIndex++
       }
     }
-    
+
     // Create legend
     const legend = gridContainer.createEl("div", {
-      cls: "heatmap-legend"
+      cls: "heatmap-legend",
     })
-    
+
     legend.createEl("span", {
       cls: "legend-label",
-      text: "Less"
+      text: "Less",
     })
-    
+
     const legendScale = legend.createEl("div", {
-      cls: "legend-scale"
+      cls: "legend-scale",
     })
-    
+
     for (let i = 0; i <= 4; i++) {
       legendScale.createEl("div", {
         cls: "legend-cell",
-        attr: { "data-level": i.toString() }
+        attr: { "data-level": i.toString() },
       })
     }
-    
+
     legend.createEl("span", {
       cls: "legend-label",
-      text: "More"
+      text: "More",
     })
-    
+
     return gridContainer
   }
 
@@ -15093,65 +14558,72 @@ class LogView {
     const day = date.getDate().toString().padStart(2, "0")
     return `${year}-${month}-${day}`
   }
-  
+
   calculateMonthPositions(year) {
     const positions = []
-    
+
     // Find the first Sunday of the grid (could be in previous year)
     const firstDayOfYear = new Date(year, 0, 1)
     const firstSunday = new Date(firstDayOfYear)
     firstSunday.setDate(firstSunday.getDate() - firstDayOfYear.getDay())
-    
+
     for (let month = 0; month < 12; month++) {
       const firstDayOfMonth = new Date(year, month, 1)
-      
+
       // Calculate which week column this month starts in
-      const daysSinceFirstSunday = Math.floor((firstDayOfMonth - firstSunday) / (24 * 60 * 60 * 1000))
+      const daysSinceFirstSunday = Math.floor(
+        (firstDayOfMonth - firstSunday) / (24 * 60 * 60 * 1000),
+      )
       const weekColumn = Math.floor(daysSinceFirstSunday / 7)
-      
+
       positions.push({
         month: month,
         weekColumn: weekColumn,
-        dayOfWeek: firstDayOfMonth.getDay()
+        dayOfWeek: firstDayOfMonth.getDay(),
       })
     }
     return positions
   }
-  
+
   getWeekOfYear(date) {
     const firstDayOfYear = new Date(date.getFullYear(), 0, 1)
     const firstDayOfWeek = firstDayOfYear.getDay()
-    const daysSinceStart = Math.floor((date - firstDayOfYear) / (24 * 60 * 60 * 1000))
+    const daysSinceStart = Math.floor(
+      (date - firstDayOfYear) / (24 * 60 * 60 * 1000),
+    )
     return Math.floor((daysSinceStart + firstDayOfWeek) / 7)
   }
-  
+
   getWeekPositionForMonth(year, month) {
     const firstDayOfMonth = new Date(year, month, 1)
     const firstDayOfYear = new Date(year, 0, 1)
-    
+
     // Calculate how many weeks have passed since the first Sunday of the year grid
     const firstSundayOffset = firstDayOfYear.getDay() // Days before first Sunday
-    const daysSinceYearStart = Math.floor((firstDayOfMonth - firstDayOfYear) / (24 * 60 * 60 * 1000))
+    const daysSinceYearStart = Math.floor(
+      (firstDayOfMonth - firstDayOfYear) / (24 * 60 * 60 * 1000),
+    )
     const totalDays = daysSinceYearStart + firstSundayOffset
-    
+
     // Week position in the grid (0-based)
     return Math.floor(totalDays / 7)
   }
-  
+
   getTotalWeeksForYear(year) {
     const firstDay = new Date(year, 0, 1)
     const lastDay = new Date(year, 11, 31)
-    
+
     // Find the first Sunday (could be in previous year)
     const firstSunday = new Date(firstDay)
     firstSunday.setDate(firstSunday.getDate() - firstDay.getDay())
-    
+
     // Find the last Saturday (could be in next year)
     const lastSaturday = new Date(lastDay)
     lastSaturday.setDate(lastSaturday.getDate() + (6 - lastDay.getDay()))
-    
+
     // Calculate total days and weeks
-    const totalDays = Math.floor((lastSaturday - firstSunday) / (24 * 60 * 60 * 1000)) + 1
+    const totalDays =
+      Math.floor((lastSaturday - firstSunday) / (24 * 60 * 60 * 1000)) + 1
     return Math.ceil(totalDays / 7)
   }
 
@@ -15185,7 +14657,6 @@ class DailyTaskAggregator {
       const logContent = await this.plugin.app.vault.adapter.read(logFilePath)
       return JSON.parse(logContent)
     } catch (error) {
-      console.error("[TaskChute] Failed to load monthly data:", error)
       return { taskExecutions: {} }
     }
   }
@@ -15195,7 +14666,7 @@ class DailyTaskAggregator {
       totalTasks: 0,
       completedTasks: 0,
       procrastinatedTasks: 0,
-      completionRate: 0
+      completionRate: 0,
     }
 
     if (!dayTasks || !Array.isArray(dayTasks)) {
@@ -15204,37 +14675,43 @@ class DailyTaskAggregator {
 
     // Count total tasks (unique task names)
     const taskCompletionMap = new Map()
-    
-    dayTasks.forEach(task => {
+
+    dayTasks.forEach((task) => {
       // Validate task object
-      if (task && typeof task === 'object' && task.taskName && typeof task.taskName === 'string') {
+      if (
+        task &&
+        typeof task === "object" &&
+        task.taskName &&
+        typeof task.taskName === "string"
+      ) {
         const taskName = task.taskName
         // isCompleted can be a date string (truthy) or false/null/undefined (falsy)
         const isCompleted = task.isCompleted ? true : false
-        
+
         // Track completion status per unique task
         if (!taskCompletionMap.has(taskName)) {
           taskCompletionMap.set(taskName, false)
         }
-        
+
         // If any instance is completed, mark the task as completed
         if (isCompleted) {
           taskCompletionMap.set(taskName, true)
         }
       }
     })
-    
+
     // Calculate stats based on unique tasks
     stats.totalTasks = taskCompletionMap.size
-    stats.completedTasks = Array.from(taskCompletionMap.values()).filter(completed => completed).length
+    stats.completedTasks = Array.from(taskCompletionMap.values()).filter(
+      (completed) => completed,
+    ).length
 
     // Calculate procrastinated tasks
     stats.procrastinatedTasks = stats.totalTasks - stats.completedTasks
 
     // Calculate completion rate
-    stats.completionRate = stats.totalTasks > 0 
-      ? stats.completedTasks / stats.totalTasks 
-      : 0
+    stats.completionRate =
+      stats.totalTasks > 0 ? stats.completedTasks / stats.totalTasks : 0
 
     return stats
   }
@@ -15253,7 +14730,6 @@ class DailyTaskAggregator {
 
       return stats
     } catch (error) {
-      console.error("[TaskChute] Failed to update daily stats:", error)
       return null
     }
   }
@@ -15273,8 +14749,8 @@ class DailyTaskAggregator {
           year: parseInt(year),
           days: {},
           metadata: {
-            version: "1.0"
-          }
+            version: "1.0",
+          },
         }
       }
 
@@ -15285,7 +14761,7 @@ class DailyTaskAggregator {
       // Save back
       await this.plugin.app.vault.adapter.write(
         heatmapPath,
-        JSON.stringify(yearlyData, null, 2)
+        JSON.stringify(yearlyData, null, 2),
       )
 
       // Update cache if LogView exists
@@ -15293,9 +14769,8 @@ class DailyTaskAggregator {
       if (view && view.logView && view.logView.dataCache[year]) {
         view.logView.dataCache[year] = yearlyData
       }
-
     } catch (error) {
-      console.error("[TaskChute] Failed to update yearly data:", error)
+      // Failed to update yearly data
     }
   }
 }

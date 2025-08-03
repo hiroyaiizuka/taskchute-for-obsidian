@@ -150,9 +150,6 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       mockVaultAdapter.exists.mockResolvedValue(true)
       mockVaultAdapter.read.mockResolvedValue("invalid json")
 
-      // console.errorをモック
-      const consoleSpy = jest.spyOn(console, "error").mockImplementation()
-
       const mockTask = {
         title: "Test Task",
         path: "test-task.md",
@@ -165,9 +162,15 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.getExistingTaskComment(instance)
 
       expect(result).toBeNull()
-      expect(consoleSpy).toHaveBeenCalled()
+      // console.errorは削除されたため、エラーが静かに処理されることを確認
+      const today = new Date()
+      const year = today.getFullYear()
+      const month = (today.getMonth() + 1).toString().padStart(2, "0")
+      expect(mockVaultAdapter.read).toHaveBeenCalledWith(
+        `TaskChute/Log/${year}-${month}-tasks.json`
+      )
 
-      consoleSpy.mockRestore()
+
     })
 
     test("should return null when task has no meaningful comment", async () => {
@@ -341,7 +344,7 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
       expect(Notice).toHaveBeenCalledWith("タスク記録の保存に失敗しました")
 
-      consoleSpy.mockRestore()
+
     })
 
     test("should create new log structure when file doesn't exist", async () => {
@@ -634,8 +637,6 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     })
 
     test("hasCommentData should handle errors gracefully", async () => {
-      const consoleSpy = jest.spyOn(console, "error").mockImplementation()
-
       mockVaultAdapter.exists.mockRejectedValue(new Error("File system error"))
 
       const mockInstance = {
@@ -652,9 +653,10 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.hasCommentData(mockInstance)
 
       expect(result).toBe(false)
-      expect(consoleSpy).toHaveBeenCalled()
+      // console.errorは削除されたため、エラーが静かに処理されることを確認
+      expect(mockVaultAdapter.exists).toHaveBeenCalled()
 
-      consoleSpy.mockRestore()
+
     })
   })
 })

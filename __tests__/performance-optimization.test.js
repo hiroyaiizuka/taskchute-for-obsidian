@@ -134,10 +134,9 @@ describe("パフォーマンス最適化テスト", () => {
     // getTaskFilesを実行
     const result = await view.getTaskFiles("TaskChute/Task")
 
-    // フォールバック警告が出力されたことを確認
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("[TaskChute] タスクフォルダが見つかりません"),
-    )
+    // フォールバック処理が実行されたことを確認（フォルダが見つからない場合）
+    // console.warnは削除されたので、代わりに全ファイル検索が実行されることを確認
+    expect(mockApp.vault.getMarkdownFiles).toHaveBeenCalled()
 
     // 結果を確認
     expect(result.length).toBe(2)

@@ -197,17 +197,18 @@ describe('RoutineAliasManager', () => {
   
   describe('エラーハンドリング', () => {
     test('エイリアス保存時のエラー', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
-      mockApp.vault.adapter.write.mockRejectedValue(new Error('Write error'))
-      
-      // コンソールエラーのモック
+      // console.errorのモック
       const consoleError = jest.spyOn(console, 'error').mockImplementation()
+      
+      // ファイル書き込みでエラーが発生
+      mockApp.vault.adapter.write.mockRejectedValue(new Error('Write failed'))
       
       await manager.addAlias('新タスク', '旧タスク')
       
-      expect(consoleError).toHaveBeenCalledWith(
-        'Failed to save routine aliases:',
-        expect.any(Error)
+      // console.errorは削除されたので、代わりにNoticeが呼ばれることを確認
+      const Notice = require('obsidian').Notice
+      expect(Notice).toHaveBeenCalledWith(
+        'ルーチンタスクの名前変更履歴の保存に失敗しました'
       )
       
       consoleError.mockRestore()
