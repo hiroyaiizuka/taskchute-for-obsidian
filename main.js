@@ -582,6 +582,12 @@ class TaskInheritanceManager {
 }
 
 class TaskChuteView extends ItemView {
+  // idle-task-auto-move機能のプロパティ
+  lastTimeSlotCheck = null     // 最後の時間帯チェック時刻
+  moveInProgress = false        // 移動処理中フラグ
+  currentTimeSlotCache = null   // 現在の時間帯キャッシュ
+  cacheExpiry = null           // キャッシュ有効期限
+  
   // タスク名検証ユーティリティ
   TaskNameValidator = {
     // 禁止文字のパターン
@@ -788,6 +794,9 @@ class TaskChuteView extends ItemView {
   async onOpen() {
     const container = this.containerEl.children[1]
     container.empty()
+
+    // idle-task-auto-move: 時間帯境界チェックをスケジュール
+    this.scheduleBoundaryCheck()
 
     // トップバーコンテナ（日付ナビゲーションとdrawerアイコンを同じ高さに）
     const topBarContainer = container.createEl("div", {
@@ -2501,7 +2510,212 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     localStorage.setItem(storageKey, JSON.stringify(orders))
   }
 
-  // 未実施タスクを現在の時間帯に自動移動する
+  // idle-task-auto-move: リアルタイムチェック関数
+  checkAndMoveIdleTasks() {
+    // 移動処理中なら中止
+    if (this.moveInProgress) {
+      return
+    }
+
+    // 今日以外の日付では自動移動を無効化
+    const today = new Date()
+    const isToday =
+      this.currentDate.getFullYear() === today.getFullYear() &&
+      this.currentDate.getMonth() === today.getMonth() &&
+      this.currentDate.getDate() === today.getDate()
+
+    if (!isToday) {
+      return
+    }
+
+    this.moveInProgress = true
+    try {
+      const currentSlot = this.getCurrentTimeSlotCached()
+      const tasksToMove = this.identifyTasksToMove(currentSlot)
+      
+      if (tasksToMove.length > 0) {
+        this.performBatchMove(tasksToMove, currentSlot)
+        this.sortTasksAfterMove()
+        this.renderTaskList()
+        console.log(`[idle-task-auto-move] Moved ${tasksToMove.length} tasks to ${currentSlot}`)
+      }
+    } catch (error) {
+      console.error('[idle-task-auto-move] Error during auto-move:', error)
+    } finally {
+      this.moveInProgress = false
+    }
+  }
+
+  // idle-task-auto-move: 移動対象タスクの特定
+  identifyTasksToMove(currentSlot) {
+    const slotPriority = {
+      "0:00-8:00": 0,
+      "8:00-12:00": 1,
+      "12:00-16:00": 2,
+      "16:00-0:00": 3
+    }
+    
+    const currentPriority = slotPriority[currentSlot]
+    const tasksToMove = []
+    
+    this.taskInstances.forEach(inst => {
+      // 未着手タスクのみ対象
+      if (inst.state !== "idle") return
+      if (inst.slotKey === "none") return
+      
+      const taskPriority = slotPriority[inst.slotKey]
+      
+      // 過去の時間帯のタスクを特定
+      if (taskPriority < currentPriority) {
+        tasksToMove.push({
+          instance: inst,
+          originalSlot: inst.slotKey,
+          startTime: inst.parsedStartTime || 0
+        })
+      }
+    })
+    
+    // 開始時刻順にソート
+    return tasksToMove.sort((a, b) => a.startTime - b.startTime)
+  }
+
+  // idle-task-auto-move: 複数タスク同時移動処理（最適化版）
+  performBatchMove(tasksToMove, targetSlot) {
+    // パフォーマンス最適化: 100個以上の場合は分割処理
+    if (tasksToMove.length > 100) {
+      return this.performBatchMoveOptimized(tasksToMove, targetSlot)
+    }
+    
+    const moveResults = []
+    
+    tasksToMove.forEach(({ instance, originalSlot }) => {
+      try {
+        // 時間帯を更新
+        instance.slotKey = targetSlot
+        
+        // LocalStorageに保存
+        const storageKey = `taskchute-slotkey-${instance.task.path}`
+        localStorage.setItem(storageKey, targetSlot)
+        
+        moveResults.push({
+          success: true,
+          taskName: instance.task.basename || instance.task.title,
+          from: originalSlot,
+          to: targetSlot
+        })
+      } catch (error) {
+        moveResults.push({
+          success: false,
+          taskName: instance.task.basename || instance.task.title,
+          error: error.message
+        })
+      }
+    })
+    
+    return moveResults
+  }
+
+  // idle-task-auto-move: 大量タスクの最適化処理
+  performBatchMoveOptimized(tasksToMove, targetSlot) {
+    const chunks = []
+    for (let i = 0; i < tasksToMove.length; i += 50) {
+      chunks.push(tasksToMove.slice(i, i + 50))
+    }
+    
+    let processedCount = 0
+    const allResults = []
+    
+    // 非同期で順次処理
+    chunks.forEach((chunk, index) => {
+      setTimeout(() => {
+        const results = this.performBatchMove(chunk, targetSlot)
+        allResults.push(...results)
+        processedCount += chunk.length
+        
+        if (processedCount === tasksToMove.length) {
+          this.sortTasksAfterMove()
+          this.renderTaskListOptimized()
+          console.log(`[idle-task-auto-move] Optimized move completed: ${processedCount} tasks`)
+        }
+      }, index * 100) // 100ms間隔で処理
+    })
+    
+    return allResults
+  }
+
+  // idle-task-auto-move: レンダリングの最適化
+  renderTaskListOptimized() {
+    // デバウンス処理
+    if (this.renderDebounceTimer) {
+      clearTimeout(this.renderDebounceTimer)
+    }
+    
+    this.renderDebounceTimer = setTimeout(() => {
+      this.renderTaskList()
+      this.renderDebounceTimer = null
+    }, 100)
+  }
+
+  // idle-task-auto-move: 移動後のソート
+  sortTasksAfterMove() {
+    // 既存のソート関数を使用
+    this.sortTaskInstancesByTimeOrder()
+  }
+
+  // idle-task-auto-move: キャッシュ付き時間帯取得
+  getCurrentTimeSlotCached() {
+    const now = Date.now()
+    
+    // キャッシュが有効な場合は返す
+    if (this.currentTimeSlotCache && 
+        this.cacheExpiry && 
+        now < this.cacheExpiry) {
+      return this.currentTimeSlotCache
+    }
+    
+    // 新しい値を計算してキャッシュ
+    this.currentTimeSlotCache = this.getCurrentTimeSlot()
+    this.cacheExpiry = now + 30000 // 30秒間有効
+    
+    return this.currentTimeSlotCache
+  }
+
+  // idle-task-auto-move: 時間帯境界での精密チェック
+  scheduleBoundaryCheck() {
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const boundaries = [0, 8*60, 12*60, 16*60] // 0:00, 8:00, 12:00, 16:00
+    
+    // 次の境界を計算
+    let nextBoundary = boundaries.find(b => b > currentMinutes)
+    if (!nextBoundary) {
+      nextBoundary = 24 * 60 // 翌日の0:00
+    }
+    
+    const msUntilBoundary = (nextBoundary - currentMinutes) * 60 * 1000
+    
+    // 境界時刻の1秒後に実行
+    if (this.boundaryCheckTimeout) {
+      clearTimeout(this.boundaryCheckTimeout)
+    }
+    
+    this.boundaryCheckTimeout = setTimeout(() => {
+      this.performBoundaryTransition()
+      this.scheduleBoundaryCheck() // 次の境界をスケジュール
+    }, msUntilBoundary + 1000)
+  }
+
+  // idle-task-auto-move: 境界時刻での移動実行
+  performBoundaryTransition() {
+    console.log('[idle-task-auto-move] Time slot boundary reached')
+    // キャッシュをクリア
+    this.currentTimeSlotCache = null
+    this.cacheExpiry = null
+    // 移動チェックを実行
+    this.checkAndMoveIdleTasks()
+  }
+
+  // 未実施タスクを現在の時間帯に自動移動する（既存メソッド、互換性のため残す）
   moveIdleTasksToCurrentSlot() {
     // 今日以外の日付では自動移動を無効化
     const today = new Date()
@@ -12785,18 +12999,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       .filter((inst) => inst.state === "running")
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime()) // 開始時間でソート
 
-    if (runningInstances.length === 0) {
-      // 実行中タスクがなければタイマーを停止
-      clearInterval(this.globalTimerInterval)
-      this.globalTimerInterval = null
-      return
-    }
-
+    // idle-task-auto-move: タイマーを常に起動（実行中タスクがなくても）
     this.globalTimerInterval = setInterval(() => {
       // 実行中タスクのタイマー表示更新のみ（slotKeyは変更しない）
       const runningInstances = this.taskInstances.filter(
         (i) => i.state === "running",
       )
+
+      // idle-task-auto-move: 60秒ごとに時間帯チェック
+      const now = Date.now()
+      if (!this.lastTimeSlotCheck || now - this.lastTimeSlotCheck >= 60000) {
+        this.checkAndMoveIdleTasks()
+        this.lastTimeSlotCheck = now
+      }
 
       // タスクリスト内のタイマー表示を更新
       runningInstances.forEach((runningInst) => {
