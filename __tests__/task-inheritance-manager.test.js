@@ -11,7 +11,7 @@ function getTaskInheritanceManagerClass() {
   const mainCode = fs.readFileSync(path.join(__dirname, "../main.js"), "utf8")
   
   // TaskInheritanceManagerクラスの定義を抽出
-  const classMatch = mainCode.match(/class TaskInheritanceManager[\s\S]+?(?=\nclass\s|\n\/\/\s*End of file|$)/)
+  const classMatch = mainCode.match(/class TaskInheritanceManager\s*\{[\s\S]*?\n\}/)
   if (!classMatch) {
     throw new Error("TaskInheritanceManager class not found")
   }

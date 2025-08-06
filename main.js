@@ -581,6 +581,224 @@ class TaskInheritanceManager {
   }
 }
 
+// ProjectNoteSyncManager class for syncing task comments to project notes
+class ProjectNoteSyncManager {
+  constructor(app, pathManager) {
+    this.app = app
+    this.pathManager = pathManager
+  }
+
+  // プロジェクトノートパスを取得
+  async getProjectNotePath(inst) {
+    if (!inst.task.projectPath && !inst.task.projectTitle) {
+      return null
+    }
+    
+    // projectPathが既に存在する場合はそれを使用
+    if (inst.task.projectPath) {
+      return inst.task.projectPath
+    }
+    
+    // projectTitleからパスを構築
+    const projectFolderPath = this.pathManager.getProjectFolderPath()
+    const projectPath = `${projectFolderPath}/${inst.task.projectTitle}.md`
+    
+    // ファイルの存在確認
+    const file = this.app.vault.getAbstractFileByPath(projectPath)
+    return file ? projectPath : null
+  }
+
+  // ログセクションを検出または作成
+  async ensureLogSection(content) {
+    // 正規表現で既存のログセクションを検出
+    // #ログ、##ログ、# Log、## Log などのバリエーションに対応
+    const logSectionRegex = /^#{1,2}\s+(ログ|log|Log|LOG)\s*$/im
+    const match = content.match(logSectionRegex)
+    
+    if (match) {
+      // 既存セクションの位置を返す
+      return {
+        exists: true,
+        position: match.index + match[0].length,
+        content: content
+      }
+    }
+    
+    // セクションが存在しない場合、末尾に追加
+    const newContent = content.trimEnd() + '\n\n## ログ\n'
+    return {
+      exists: false,
+      position: newContent.length,
+      content: newContent
+    }
+  }
+
+  // コメントエントリをフォーマット
+  formatCommentEntry(inst, completionData, dateString) {
+    const wikilink = `[[${dateString}]]`
+    const comment = completionData.executionComment
+    
+    // 複数行コメントの処理（各行をリスト形式でインデント）
+    const formattedComment = comment
+      .split('\n')
+      .map((line) => `    - ${line}`)
+      .join('\n')
+    
+    return {
+      date: dateString,
+      entry: `- ${wikilink}\n${formattedComment}`,
+      instanceId: inst.instanceId
+    }
+  }
+
+  // 既存ログをパースして構造化
+  parseExistingLogs(content, logSectionPosition) {
+    const lines = content.substring(logSectionPosition).split('\n')
+    const logs = []
+    let currentDate = null
+    let currentDateLine = -1
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      
+      // 日付エントリの検出 (- [[YYYY-MM-DD]])
+      const dateMatch = line.match(/^-\s+\[\[(\d{4}-\d{2}-\d{2})\]\]/)
+      if (dateMatch) {
+        currentDate = dateMatch[1]
+        currentDateLine = i
+        logs.push({
+          date: currentDate,
+          lineIndex: i,
+          entries: []
+        })
+      } 
+      // コメントエントリの検出 (TABまたはスペースでインデントされた - で始まる行)
+      else if (currentDate && line.match(/^(\t|    )-\s+/)) {
+        const log = logs[logs.length - 1]
+        log.entries.push({
+          lineIndex: i,
+          content: line
+        })
+      }
+    }
+    
+    return logs
+  }
+
+  // 挿入位置を検出
+  findInsertPosition(content, existingDateLog, logSectionPosition) {
+    // ログセクションから後の部分のみを対象にする
+    const logContent = content.substring(logSectionPosition)
+    const logLines = logContent.split('\n')
+    
+    // 既存の日付エントリの最後のコメントの次の行に挿入
+    const lastEntryLine = existingDateLog.lineIndex + existingDateLog.entries.length + 1
+    
+    // ログセクション内での位置を計算
+    let relativePosition = 0
+    for (let i = 0; i < lastEntryLine && i < logLines.length; i++) {
+      relativePosition += logLines[i].length + 1 // +1 for newline
+    }
+    
+    // 全体のコンテンツ内での絶対位置に変換
+    return logSectionPosition + relativePosition
+  }
+
+  // 日付の挿入位置を検出（降順）
+  findDateInsertPosition(content, logs, newDate, sectionPosition) {
+    if (logs.length === 0) {
+      // ログが空の場合、セクションの直後に挿入
+      return sectionPosition + 1
+    }
+    
+    // 日付を比較して適切な位置を見つける（降順 - 新しい日付が上）
+    for (let i = 0; i < logs.length; i++) {
+      if (newDate > logs[i].date) {
+        // この日付の前に挿入（新しい日付なので上に）
+        const logContent = content.substring(sectionPosition)
+        const logLines = logContent.split('\n')
+        
+        // ログセクション内での位置を計算
+        let relativePosition = 0
+        for (let j = 0; j < logs[i].lineIndex && j < logLines.length; j++) {
+          relativePosition += logLines[j].length + 1
+        }
+        
+        return sectionPosition + relativePosition
+      }
+    }
+    
+    // 最も古い日付の後に挿入（このエントリが最も古い）
+    const lastLog = logs[logs.length - 1]
+    return this.findInsertPosition(content, lastLog, sectionPosition)
+  }
+
+  // 指定位置に文字列を挿入
+  insertAtPosition(content, text, position) {
+    return content.substring(0, position) + text + '\n' + content.substring(position)
+  }
+
+  // 日付文字列をフォーマット
+  formatDateString(date) {
+    const year = date.getFullYear()
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // プロジェクトノートを更新
+  async updateProjectNote(projectPath, inst, completionData) {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(projectPath)
+      if (!file) {
+        throw new Error(`プロジェクトノートが見つかりません: ${projectPath}`)
+      }
+      
+      // 現在のコンテンツを読み込み
+      let content = await this.app.vault.read(file)
+      
+      // ログセクションを確保
+      const sectionResult = await this.ensureLogSection(content)
+      content = sectionResult.content
+      
+      // 日付文字列を生成
+      const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()
+      const dateString = this.formatDateString(taskDate)
+      
+      // コメントエントリをフォーマット
+      const entry = this.formatCommentEntry(inst, completionData, dateString)
+      
+      // 既存ログをパース
+      const logs = this.parseExistingLogs(content, sectionResult.position)
+      
+      // 同じ日付のログを検索
+      const existingDateLog = logs.find(log => log.date === dateString)
+      
+      if (existingDateLog) {
+        // 同じ日付が存在する場合、その下に追記（コメント部分のみ）
+        const insertPosition = this.findInsertPosition(content, existingDateLog, sectionResult.position)
+        // コメント部分のみを抽出（日付行を除く）
+        const commentOnly = entry.entry.split('\n').slice(1).join('\n')
+        content = this.insertAtPosition(content, commentOnly, insertPosition)
+      } else {
+        // 新しい日付の場合、適切な位置に挿入（降順）
+        const insertPosition = this.findDateInsertPosition(content, logs, dateString, sectionResult.position)
+        // 既存のログがある場合は後ろに空行を追加
+        const entryWithSpacing = logs.length > 0 ? `${entry.entry}\n` : entry.entry
+        content = this.insertAtPosition(content, entryWithSpacing, insertPosition)
+      }
+      
+      // ファイルを更新
+      await this.app.vault.modify(file, content)
+      
+      return true
+    } catch (error) {
+      console.error('プロジェクトノート更新エラー:', error)
+      throw error
+    }
+  }
+}
+
 class TaskChuteView extends ItemView {
   // idle-task-auto-move機能のプロパティ
   lastTimeSlotCheck = null     // 最後の時間帯チェック時刻
@@ -6426,6 +6644,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       await this.app.vault.adapter.write(logFilePath, jsonContent)
 
+      // プロジェクトノートへの同期
+      if (completionData && completionData.executionComment && 
+          (inst.task.projectPath || inst.task.projectTitle)) {
+        await this.syncCommentToProjectNote(inst, completionData)
+      }
+
       // コメント機能からの呼び出しではDaily Note保存をスキップ
       // （stopInstance時に既に保存済みのため）
 
@@ -6447,6 +6671,28 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // エラー時はJSONログのみ失敗
       // Daily Note保存は stopInstance で既に実行済み
+    }
+  }
+
+  // プロジェクトノートにコメントを同期
+  async syncCommentToProjectNote(inst, completionData) {
+    try {
+      const syncManager = new ProjectNoteSyncManager(this.app, this.plugin.pathManager)
+      const projectPath = await syncManager.getProjectNotePath(inst)
+      
+      if (!projectPath) {
+        // プロジェクトノートが見つからない場合はスキップ（エラーにしない）
+        return
+      }
+      
+      await syncManager.updateProjectNote(projectPath, inst, completionData)
+      
+      // 成功通知（オプション - 必要に応じてコメントアウトを解除）
+      // new Notice(`プロジェクト「${inst.task.projectTitle}」のログを更新しました`)
+    } catch (error) {
+      console.error('プロジェクトノート同期エラー:', error)
+      new Notice(`プロジェクトノートの更新に失敗しました: ${error.message}`)
+      // エラーが発生してもタスクコメント自体の保存は継続
     }
   }
 
@@ -15057,3 +15303,4 @@ module.exports.PathManager = PathManager
 module.exports.LogView = LogView
 module.exports.DailyTaskAggregator = DailyTaskAggregator
 module.exports.RoutineAliasManager = RoutineAliasManager
+module.exports.ProjectNoteSyncManager = ProjectNoteSyncManager
