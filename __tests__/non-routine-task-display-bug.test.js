@@ -217,13 +217,31 @@ describe("Non-Routine Task Display Bug", () => {
 
       // 7/8にタスクを作成
       mockApp.vault.getMarkdownFiles.mockReturnValue([nonRoutineTaskFile])
-      mockApp.vault.read.mockResolvedValue(`
+      mockApp.vault.read.mockImplementation((file) => {
+        const path = file?.path || file;
+        if (path === "TaskChute/Log/running-task.json") {
+          // saveRunningTasksStateが呼ばれた後の内容
+          return Promise.resolve(JSON.stringify([{
+            date: "2024-07-08",
+            taskTitle: "非ルーチンタスクA",
+            taskPath: "Tasks/非ルーチンタスクA.md",
+            startTime: new Date("2024-07-08T10:00:00").toISOString(),
+            taskDescription: "",
+            slotKey: "none",
+            isRoutine: false,
+            taskId: "task-id",
+            instanceId: "instance-id"
+          }]))
+        }
+        // タスクファイルの内容
+        return Promise.resolve(`
 # 非ルーチンタスクA
 
 #task
 
 タスクの説明
 `)
+      })
 
       // メタデータキャッシュ（ルーチンでない）
       mockApp.metadataCache.getFileCache.mockReturnValue({
@@ -248,7 +266,7 @@ describe("Non-Routine Task Display Bug", () => {
       await taskChuteView.saveRunningTasksState()
 
       // 実行中タスクが保存されていることを確認
-      const runningTaskData = await mockVaultAdapter.read(
+      const runningTaskData = await mockApp.vault.read(
         "TaskChute/Log/running-task.json",
       )
       const runningTasks = JSON.parse(runningTaskData)

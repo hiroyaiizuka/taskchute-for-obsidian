@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("Task Duplicate Comment Separation", () => {
   let mockApp
@@ -17,6 +28,10 @@ describe("Task Duplicate Comment Separation", () => {
           list: jest.fn(),
           getFullPath: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([]),
         getAbstractFileByPath: jest.fn(),
         read: jest.fn(),
@@ -123,8 +138,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -132,6 +152,7 @@ describe("Task Duplicate Comment Separation", () => {
       const instance1 = {
         instanceId: instanceId1,
         task: { title: "Test Task" },
+        startTime: new Date("2024-03-15T10:00:00"),
       }
 
       const result1 = await taskChuteView.getExistingTaskComment(instance1)
@@ -145,6 +166,7 @@ describe("Task Duplicate Comment Separation", () => {
       const instance2 = {
         instanceId: instanceId2,
         task: { title: "Test Task" },
+        startTime: new Date("2024-03-15T10:00:00"),
       }
 
       const result2 = await taskChuteView.getExistingTaskComment(instance2)
@@ -175,8 +197,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -184,6 +211,7 @@ describe("Task Duplicate Comment Separation", () => {
       const instance2 = {
         instanceId: instanceId2,
         task: { title: "Test Task" },
+        startTime: new Date("2024-03-15T10:00:00"),
       }
 
       const result = await taskChuteView.getExistingTaskComment(instance2)
@@ -202,8 +230,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -233,8 +266,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -303,8 +341,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -313,6 +356,7 @@ describe("Task Duplicate Comment Separation", () => {
         instanceId: originalInstanceId,
         task: { title: "Test Task", path: "test-task.md" },
         state: "done",
+        startTime: new Date("2024-01-15T10:00:00"),
       }
 
       // 複製されたタスクインスタンス
@@ -320,6 +364,7 @@ describe("Task Duplicate Comment Separation", () => {
         instanceId: duplicatedInstanceId,
         task: { title: "Test Task", path: "test-task.md" },
         state: "idle",
+        startTime: new Date("2024-01-15T10:00:00"),
       }
 
       // 元のタスクはコメントが存在する
@@ -360,8 +405,13 @@ describe("Task Duplicate Comment Separation", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -369,12 +419,14 @@ describe("Task Duplicate Comment Separation", () => {
         instanceId: originalInstanceId,
         task: { title: "Test Task", path: "test-task.md" },
         state: "done",
+        startTime: new Date("2024-01-15T10:00:00"),
       }
 
       const duplicatedInstance = {
         instanceId: duplicatedInstanceId,
         task: { title: "Test Task", path: "test-task.md" },
         state: "idle",
+        startTime: new Date("2024-01-15T10:00:00"),
       }
 
       // 元のタスクはコメントデータがある

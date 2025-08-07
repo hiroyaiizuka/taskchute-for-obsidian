@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 // Obsidianのモック
 const mockObsidian = {
@@ -18,12 +29,17 @@ const mockObsidian = {
   },
   app: {
     vault: {
-      adapter: {
+        adapter: {
         exists: jest.fn(),
         read: jest.fn(),
         write: jest.fn(),
         mkdir: jest.fn(),
       },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        createFolder: jest.fn(),
       getMarkdownFiles: jest.fn(() => []),
     },
     workspace: {
@@ -110,10 +126,15 @@ describe("プロジェクト設定バグの修正確認", () => {
       }
 
       // モックの設定
-      mockVaultAdapter.exists
-        .mockResolvedValueOnce(true) // dataディレクトリは存在
-        .mockResolvedValueOnce(false) // ログファイルは新規作成
-      mockVaultAdapter.write.mockResolvedValue()
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockObsidian.app.vault.getAbstractFileByPath.mockReturnValue(null) // 新規作成
+      mockObsidian.app.vault.create.mockResolvedValue()
+      mockObsidian.app.vault.modify.mockResolvedValue()
+      mockObsidian.app.vault.createFolder.mockResolvedValue()
 
       console.log("修正確認テスト開始: saveTaskCompletion を実行")
 
@@ -128,11 +149,11 @@ describe("プロジェクト設定バグの修正確認", () => {
 
         console.log("saveTaskCompletion 実行完了")
 
-        // write が呼ばれたことを確認
-        expect(mockVaultAdapter.write).toHaveBeenCalledTimes(1)
+        // create が呼ばれたことを確認（新規作成の場合）
+        expect(mockObsidian.app.vault.create).toHaveBeenCalledTimes(1)
 
         // 保存されたデータを取得
-        const writeCall = mockVaultAdapter.write.mock.calls[0]
+        const writeCall = mockObsidian.app.vault.create.mock.calls[0]
         const savedData = JSON.parse(writeCall[1])
 
         // 修正確認：project が正しく projectTitle で保存されていることを確認
@@ -179,10 +200,15 @@ describe("プロジェクト設定バグの修正確認", () => {
       }
 
       // モックの設定
-      mockVaultAdapter.exists
-        .mockResolvedValueOnce(true) // dataディレクトリは存在
-        .mockResolvedValueOnce(false) // ログファイルは新規作成
-      mockVaultAdapter.write.mockResolvedValue()
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockObsidian.app.vault.getAbstractFileByPath.mockReturnValue(null) // 新規作成
+      mockObsidian.app.vault.create.mockResolvedValue()
+      mockObsidian.app.vault.modify.mockResolvedValue()
+      mockObsidian.app.vault.createFolder.mockResolvedValue()
 
       // saveTaskCompletion を実行
       await taskChuteView.saveTaskCompletion(instance, {
@@ -193,7 +219,7 @@ describe("プロジェクト設定バグの修正確認", () => {
       })
 
       // 保存されたデータを取得
-      const writeCall = mockVaultAdapter.write.mock.calls[0]
+      const writeCall = mockObsidian.app.vault.create.mock.calls[0]
       const savedData = JSON.parse(writeCall[1])
       const taskExecution = savedData.taskExecutions["2024-01-15"][0]
 
@@ -227,10 +253,15 @@ describe("プロジェクト設定バグの修正確認", () => {
       }
 
       // モックの設定
-      mockVaultAdapter.exists
-        .mockResolvedValueOnce(true) // dataディレクトリは存在
-        .mockResolvedValueOnce(false) // ログファイルは新規作成
-      mockVaultAdapter.write.mockResolvedValue()
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockObsidian.app.vault.getAbstractFileByPath.mockReturnValue(null) // 新規作成
+      mockObsidian.app.vault.create.mockResolvedValue()
+      mockObsidian.app.vault.modify.mockResolvedValue()
+      mockObsidian.app.vault.createFolder.mockResolvedValue()
 
       // saveTaskCompletion を実行
       await taskChuteView.saveTaskCompletion(instance, {
@@ -241,7 +272,7 @@ describe("プロジェクト設定バグの修正確認", () => {
       })
 
       // 保存されたデータを取得
-      const writeCall = mockVaultAdapter.write.mock.calls[0]
+      const writeCall = mockObsidian.app.vault.create.mock.calls[0]
       const savedData = JSON.parse(writeCall[1])
       const taskExecution = savedData.taskExecutions["2024-01-15"][0]
 

@@ -1,5 +1,20 @@
 const { TaskChuteView, DailyTaskAggregator } = require('../main')
-const { mockApp, mockLeaf, TFile } = require('../__mocks__/obsidian')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
+const { TFile } = require('obsidian')
+const { mockApp, mockLeaf } = require('../__mocks__/obsidian')
 
 // DailyTaskAggregatorをモック
 jest.mock('../main', () => {
@@ -50,8 +65,30 @@ describe('ルーチンタスクのリネームと複製によるバグ', () => {
       }
     }
     
+    // モックAppオブジェクトを作成
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        adapter: {
+          exists: jest.fn(),
+          read: jest.fn(),
+          write: jest.fn(),
+          list: jest.fn()
+        }
+      },
+      metadataCache: {
+        getFileCache: jest.fn()
+      },
+      fileManager: {
+        processFrontMatter: jest.fn()
+      }
+    }
+    
     taskChuteView = new TaskChuteView(mockLeaf, mockPlugin)
-    taskChuteView.app = mockApp
+    taskChuteView.app = app
     taskChuteView.plugin = mockPlugin
     taskChuteView.currentDate = new Date(2024, 0, 15) // 2024-01-15
     
@@ -93,7 +130,7 @@ describe('ルーチンタスクのリネームと複製によるバグ', () => {
       }
     }
     
-    taskChuteView.app.vault.adapter.exists = jest.fn().mockResolvedValue(true)
+    taskChuteView.app.vault.getAbstractFileByPath = jest.fn().mockResolvedValue(true)
     taskChuteView.app.vault.adapter.list = jest.fn().mockResolvedValue({
       files: ['TaskChute/Log/2024-01-tasks.json']
     })
@@ -126,6 +163,10 @@ describe('ルーチンタスクのリネームと複製によるバグ', () => {
       instanceId: 'instance-1',
       slotKey: '8:00-12:00'
     }
+    
+    // Mock DailyTaskAggregator and saveTaskCompletion
+    taskChuteView.saveTaskCompletion = jest.fn().mockResolvedValue()
+    taskChuteView.getTaskRecordDateString = jest.fn().mockReturnValue('2024-01-15')
     
     // stopInstanceを実行
     await taskChuteView.stopInstance(instance)

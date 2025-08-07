@@ -37,10 +37,29 @@ describe("Running Task Persistence", () => {
     mockApp = {
       vault: {
         getMarkdownFiles: jest.fn().mockReturnValue([]),
-        read: jest.fn(),
-        create: jest.fn(),
-        modify: jest.fn(),
-        getAbstractFileByPath: jest.fn(),
+        read: jest.fn((file) => {
+          const path = file.path || file
+          if (!mockFileSystem[path]) return Promise.resolve('')
+          return Promise.resolve(mockFileSystem[path])
+        }),
+        create: jest.fn((path, content) => {
+          mockFileSystem[path] = content
+          return Promise.resolve()
+        }),
+        modify: jest.fn((file, content) => {
+          const path = file.path || file
+          mockFileSystem[path] = content
+          return Promise.resolve()
+        }),
+        getAbstractFileByPath: jest.fn((path) => {
+          if (mockFileSystem[path]) {
+            const file = { path }
+            file.constructor = TFile
+            Object.setPrototypeOf(file, TFile.prototype)
+            return file
+          }
+          return null
+        }),
         adapter: mockVaultAdapter,
         createFolder: jest.fn(),
         getFolderByPath: jest.fn().mockReturnValue(null),
@@ -156,7 +175,7 @@ describe("Running Task Persistence", () => {
 
       // 保存データの確認
       const savedData = JSON.parse(
-        await mockVaultAdapter.read(
+        await mockApp.vault.read(
           "TaskChute/Log/running-task.json",
         ),
       )
@@ -200,7 +219,7 @@ describe("Running Task Persistence", () => {
 
       // 保存データの確認
       const savedData = JSON.parse(
-        await mockVaultAdapter.read(
+        await mockApp.vault.read(
           "TaskChute/Log/running-task.json",
         ),
       )
@@ -234,7 +253,7 @@ describe("Running Task Persistence", () => {
       ]
 
       // 保存データをファイルシステムに配置
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify(savedData),
       )
@@ -289,7 +308,7 @@ describe("Running Task Persistence", () => {
       ]
 
       // 保存データをファイルシステムに配置
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify(savedData),
       )
@@ -338,7 +357,7 @@ describe("Running Task Persistence", () => {
       ]
 
       // 保存データをファイルシステムに配置
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify(savedData),
       )
@@ -397,7 +416,7 @@ describe("Running Task Persistence", () => {
       ]
 
       // 保存データをファイルシステムに配置
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify(savedData),
       )
@@ -416,7 +435,7 @@ describe("Running Task Persistence", () => {
 
     test("should handle empty running task data gracefully", async () => {
       // 空のデータを準備
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify([]),
       )
@@ -488,7 +507,7 @@ describe("Running Task Persistence", () => {
 
       // 保存データの確認
       const savedData = JSON.parse(
-        await mockVaultAdapter.read(
+        await mockApp.vault.read(
           "TaskChute/Log/running-task.json",
         ),
       )
@@ -526,7 +545,7 @@ describe("Running Task Persistence", () => {
   describe("Edge Cases", () => {
     test("should handle corrupted JSON data gracefully", async () => {
       // 破損したJSONデータを準備
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         "{ invalid json",
       )
@@ -544,7 +563,7 @@ describe("Running Task Persistence", () => {
 
     test("should handle non-array data gracefully", async () => {
       // 配列でないデータを準備
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify({ not: "an array" }),
       )
@@ -568,7 +587,7 @@ describe("Running Task Persistence", () => {
         },
       ]
 
-      await mockVaultAdapter.write(
+      await mockApp.vault.modify(
         "TaskChute/Log/running-task.json",
         JSON.stringify(savedData),
       )

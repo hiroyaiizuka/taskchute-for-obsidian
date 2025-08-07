@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("コメント分離の修正確認", () => {
   let taskChuteView
@@ -12,6 +23,10 @@ describe("コメント分離の修正確認", () => {
           exists: jest.fn(),
           read: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
       },
       metadataCache: {
         getFileCache: jest.fn(),
@@ -48,8 +63,12 @@ describe("コメント分離の修正確認", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(logData))
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(JSON.stringify(logData))
 
     // 元のタスクインスタンス
     const originalInstance = {
@@ -92,8 +111,12 @@ describe("コメント分離の修正確認", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(logData))
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(JSON.stringify(logData))
 
     // instanceIdがないタスクインスタンス
     const instanceWithoutId = {
@@ -122,8 +145,12 @@ describe("コメント分離の修正確認", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(logData))
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(JSON.stringify(logData))
 
     // 同じタスク名だが異なるinstanceIdを持つ、未実行状態のタスク
     const idleInstanceWithDifferentId = {

@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("Task Creation Date Bug - Simple Test", () => {
   let view

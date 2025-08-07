@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("ルーチンタスクのコメント引き継ぎバグ", () => {
   let view
@@ -21,6 +32,10 @@ describe("ルーチンタスクのコメント引き継ぎバグ", () => {
           write: jest.fn(),
           mkdir: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([]),
         getAbstractFileByPath: jest.fn(),
       },
@@ -84,13 +99,17 @@ describe("ルーチンタスクのコメント引き継ぎバグ", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockImplementation((path) => {
+    mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
-        return Promise.resolve(true)
+        const mockFile = { path: 'TaskChute/Log/2025-01-tasks.json' }
+        mockFile.constructor = TFile
+        Object.setPrototypeOf(mockFile, TFile.prototype)
+        return mockFile
       }
-      return Promise.resolve(false)
+      return null
     })
-    mockApp.vault.adapter.read.mockImplementation((path) => {
+    mockApp.vault.read.mockImplementation((file) => {
+      const path = file?.path || file
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
         return Promise.resolve(JSON.stringify(monthlyLog))
       }
@@ -166,13 +185,17 @@ describe("ルーチンタスクのコメント引き継ぎバグ", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockImplementation((path) => {
+    mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
-        return Promise.resolve(true)
+        const mockFile = { path: 'TaskChute/Log/2025-01-tasks.json' }
+        mockFile.constructor = TFile
+        Object.setPrototypeOf(mockFile, TFile.prototype)
+        return mockFile
       }
-      return Promise.resolve(false)
+      return null
     })
-    mockApp.vault.adapter.read.mockImplementation((path) => {
+    mockApp.vault.read.mockImplementation((file) => {
+      const path = file?.path || file
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
         return Promise.resolve(JSON.stringify(monthlyLog))
       }
@@ -221,13 +244,17 @@ describe("ルーチンタスクのコメント引き継ぎバグ", () => {
       },
     }
 
-    mockApp.vault.adapter.exists.mockImplementation((path) => {
+    mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
-        return Promise.resolve(true)
+        const mockFile = { path: 'TaskChute/Log/2025-01-tasks.json' }
+        mockFile.constructor = TFile
+        Object.setPrototypeOf(mockFile, TFile.prototype)
+        return mockFile
       }
-      return Promise.resolve(false)
+      return null
     })
-    mockApp.vault.adapter.read.mockImplementation((path) => {
+    mockApp.vault.read.mockImplementation((file) => {
+      const path = file?.path || file
       if (path === 'TaskChute/Log/2025-01-tasks.json') {
         return Promise.resolve(JSON.stringify(monthlyLog))
       }

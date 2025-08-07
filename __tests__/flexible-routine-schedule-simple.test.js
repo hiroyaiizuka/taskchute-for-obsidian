@@ -1,6 +1,21 @@
 // よりシンプルなテストアプローチ
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
+const { TFile } = require('obsidian')
 const { TaskChuteView } = require("../main")
-const { mockApp, mockLeaf, TFile } = require("../__mocks__/obsidian")
+const { mockApp, mockLeaf } = require("../__mocks__/obsidian")
 
 describe("Flexible Routine Schedule - Simplified Tests", () => {
   let taskChuteView
@@ -8,7 +23,27 @@ describe("Flexible Routine Schedule - Simplified Tests", () => {
   let leaf
 
   beforeEach(() => {
-    app = mockApp
+    // 完全なAppモックを作成
+    app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        getMarkdownFiles: jest.fn(() => []),
+        adapter: {
+          exists: jest.fn(),
+          read: jest.fn(),
+          write: jest.fn()
+        }
+      },
+      metadataCache: {
+        getFileCache: jest.fn()
+      },
+      fileManager: {
+        processFrontMatter: jest.fn()
+      }
+    }
     leaf = mockLeaf
     // プラグインのモック（PathManagerを含む）
     const mockPlugin = {

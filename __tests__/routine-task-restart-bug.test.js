@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("ルーチンタスクの再起動時の時間帯バグ", () => {
   let view
@@ -27,6 +38,10 @@ describe("ルーチンタスクの再起動時の時間帯バグ", () => {
           read: jest.fn(),
           write: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getAbstractFileByPath: jest.fn(),
         read: jest.fn(),
       },
@@ -142,8 +157,12 @@ describe("ルーチンタスクの再起動時の時間帯バグ", () => {
     ]
 
     // running-task.jsonの内容をモック
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(runningTaskData))
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(JSON.stringify(runningTaskData))
 
     // ステップ3: 再起動をシミュレート（loadTasksが再度呼ばれる）
     view.tasks = []
@@ -164,7 +183,7 @@ describe("ルーチンタスクの再起動時の時間帯バグ", () => {
 
     // ステップ4: restoreRunningTaskStateを実行
     // 修正後のrestoreRunningTaskStateの動作をシミュレート
-    const runningTasks = JSON.parse(await mockApp.vault.adapter.read())
+    const runningTasks = JSON.parse(await mockApp.vault.read())
     for (const runningData of runningTasks) {
       // 保存されたslotKeyと一致するインスタンスを優先的に探す
       let runningInstance = view.taskInstances.find(
@@ -255,7 +274,7 @@ describe("ルーチンタスクの再起動時の時間帯バグ", () => {
       },
     ]
 
-    mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(runningTaskData))
+    mockApp.vault.read.mockResolvedValue(JSON.stringify(runningTaskData))
 
     // 再起動をシミュレート
     view.tasks = []
@@ -276,7 +295,7 @@ describe("ルーチンタスクの再起動時の時間帯バグ", () => {
 
     // restoreRunningTaskStateを実行
     // 修正後のrestoreRunningTaskStateの動作をシミュレート
-    const runningTasks = JSON.parse(await mockApp.vault.adapter.read())
+    const runningTasks = JSON.parse(await mockApp.vault.read())
     for (const runningData of runningTasks) {
       // 保存されたslotKeyと一致するインスタンスを優先的に探す
       let runningInstance = view.taskInstances.find(

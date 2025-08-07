@@ -9,6 +9,8 @@ jest.mock("obsidian", () => ({
   Notice: jest.fn(),
 }))
 
+const { TFile } = require('obsidian')
+
 describe("時刻修正時の二重記録バグ", () => {
   let taskChuteView
   let mockApp
@@ -61,6 +63,10 @@ describe("時刻修正時の二重記録バグ", () => {
           write: jest.fn(),
           mkdir: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([]),
         read: jest.fn(),
         create: jest.fn(),
@@ -114,8 +120,12 @@ describe("時刻修正時の二重記録バグ", () => {
 
   test("バグ修正後: 時刻修正時にタスクが正しく更新される", async () => {
     // 既存JSONファイルをモック
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(
       JSON.stringify(MOCK_EXISTING_JSON),
     )
 
@@ -142,10 +152,10 @@ describe("時刻修正時の二重記録バグ", () => {
     await taskChuteView.saveTaskCompletion(completedInstance, null)
 
     // JSON書き込みが呼ばれたことを確認
-    expect(mockApp.vault.adapter.write).toHaveBeenCalled()
+    expect(mockApp.vault.modify).toHaveBeenCalled()
 
     // 書き込まれた内容を取得
-    const writeCall = mockApp.vault.adapter.write.mock.calls[0]
+    const writeCall = mockApp.vault.modify.mock.calls[0]
     const writtenContent = JSON.parse(writeCall[1])
 
     // 同じ日のタスク実行ログを確認
@@ -174,8 +184,12 @@ describe("時刻修正時の二重記録バグ", () => {
   test("時刻修正時の期待される正しい動作（修正後）", async () => {
     // 修正後のテスト: 正しく既存エントリが更新されることを確認
 
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(
       JSON.stringify(MOCK_EXISTING_JSON),
     )
 
@@ -199,7 +213,7 @@ describe("時刻修正時の二重記録バグ", () => {
 
     await taskChuteView.saveTaskCompletion(completedInstance, null)
 
-    const writeCall = mockApp.vault.adapter.write.mock.calls[0]
+    const writeCall = mockApp.vault.modify.mock.calls[0]
     const writtenContent = JSON.parse(writeCall[1])
     const tasksForDay = writtenContent.taskExecutions["2025-07-11"]
 

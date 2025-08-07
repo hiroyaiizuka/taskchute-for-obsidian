@@ -1,5 +1,16 @@
 const { TaskChuteView } = require('../main.js')
 
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
+
 describe('実行済みタスク名の保持テスト', () => {
   let taskChuteView
   
@@ -21,7 +32,11 @@ describe('実行済みタスク名の保持テスト', () => {
       vault: {
         adapter: {
           exists: jest.fn()
-        }
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
       },
       workspace: {
         openLinkText: jest.fn()
@@ -97,7 +112,7 @@ describe('実行済みタスク名の保持テスト', () => {
       }
       
       // ファイルが存在しない場合のモック
-      taskChuteView.app.vault.adapter.exists.mockResolvedValue(false)
+      taskChuteView.app.vault.getAbstractFileByPath.mockResolvedValue(false)
       
       // findCurrentNameが新しい名前を返す
       taskChuteView.plugin.routineAliasManager.findCurrentName

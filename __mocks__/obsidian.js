@@ -180,6 +180,7 @@ const mockApp = {
     create: jest.fn().mockResolvedValue(null),
     modify: jest.fn().mockResolvedValue(null),
     delete: jest.fn().mockResolvedValue(null),
+    createFolder: jest.fn().mockResolvedValue(null),
     getAbstractFileByPath: jest.fn().mockReturnValue(null),
     on: jest.fn().mockReturnValue({ unload: jest.fn() }),
     adapter: {

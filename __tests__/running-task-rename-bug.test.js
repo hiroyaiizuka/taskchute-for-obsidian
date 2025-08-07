@@ -1,5 +1,16 @@
 const { TaskChuteView } = require('../main.js')
 
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
+
 describe('実行中タスクの名前変更バグ', () => {
   let view
   
@@ -21,7 +32,15 @@ describe('実行中タスクの名前変更バグ', () => {
           exists: jest.fn().mockResolvedValue(false),
           read: jest.fn().mockResolvedValue('[]'),
           write: jest.fn().mockResolvedValue()
-        }
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn()
       }
     }
   })
@@ -38,17 +57,22 @@ describe('実行中タスクの名前変更バグ', () => {
         }
       ], null, 2)
       
-      view.app.vault.adapter.exists.mockResolvedValue(true)
-      view.app.vault.adapter.read.mockResolvedValue(initialData)
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/running-task.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      view.app.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      view.app.vault.read.mockResolvedValue(initialData)
       
       // updateRunningTaskPathを実行
       await view.updateRunningTaskPath('tasks/タスクA.md', 'tasks/タスクB.md', 'タスクB')
       
-      // writeが呼ばれたことを確認
-      expect(view.app.vault.adapter.write).toHaveBeenCalled()
+      // modifyが呼ばれたことを確認
+      expect(view.app.vault.modify).toHaveBeenCalled()
       
       // 書き込まれたデータを確認
-      const writtenData = JSON.parse(view.app.vault.adapter.write.mock.calls[0][1])
+      const writtenData = JSON.parse(view.app.vault.modify.mock.calls[0][1])
       expect(writtenData[0].taskPath).toBe('tasks/タスクB.md')
       expect(writtenData[0].taskTitle).toBe('タスクB')
     })
@@ -63,13 +87,18 @@ describe('実行中タスクの名前変更バグ', () => {
         }
       ], null, 2)
       
-      view.app.vault.adapter.exists.mockResolvedValue(true)
-      view.app.vault.adapter.read.mockResolvedValue(initialData)
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/running-task.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      view.app.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      view.app.vault.read.mockResolvedValue(initialData)
       
       await view.updateRunningTaskPath('tasks/タスクA.md', 'tasks/タスクB.md', 'タスクB')
       
-      // writeが呼ばれていないことを確認
-      expect(view.app.vault.adapter.write).not.toHaveBeenCalled()
+      // modifyが呼ばれていないことを確認
+      expect(view.app.vault.modify).not.toHaveBeenCalled()
     })
 
     test('複数のタスクがある場合、対象のタスクのみ更新する', async () => {
@@ -88,12 +117,17 @@ describe('実行中タスクの名前変更バグ', () => {
         }
       ], null, 2)
       
-      view.app.vault.adapter.exists.mockResolvedValue(true)
-      view.app.vault.adapter.read.mockResolvedValue(initialData)
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/running-task.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      view.app.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      view.app.vault.read.mockResolvedValue(initialData)
       
       await view.updateRunningTaskPath('tasks/タスクA.md', 'tasks/タスクB.md', 'タスクB')
       
-      const writtenData = JSON.parse(view.app.vault.adapter.write.mock.calls[0][1])
+      const writtenData = JSON.parse(view.app.vault.modify.mock.calls[0][1])
       expect(writtenData).toHaveLength(2)
       expect(writtenData[0].taskPath).toBe('tasks/タスクB.md')
       expect(writtenData[0].taskTitle).toBe('タスクB')
@@ -102,21 +136,26 @@ describe('実行中タスクの名前変更バグ', () => {
     })
 
     test('running-task.jsonが存在しない場合は何もしない', async () => {
-      view.app.vault.adapter.exists.mockResolvedValue(false)
+      view.app.vault.getAbstractFileByPath.mockReturnValue(null)
       
       await view.updateRunningTaskPath('tasks/タスクA.md', 'tasks/タスクB.md', 'タスクB')
       
-      expect(view.app.vault.adapter.read).not.toHaveBeenCalled()
-      expect(view.app.vault.adapter.write).not.toHaveBeenCalled()
+      expect(view.app.vault.read).not.toHaveBeenCalled()
+      expect(view.app.vault.modify).not.toHaveBeenCalled()
     })
 
     test('データが配列でない場合は何もしない', async () => {
-      view.app.vault.adapter.exists.mockResolvedValue(true)
-      view.app.vault.adapter.read.mockResolvedValue('{}') // オブジェクトを返す
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/running-task.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      view.app.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      view.app.vault.read.mockResolvedValue('{}') // オブジェクトを返す
       
       await view.updateRunningTaskPath('tasks/タスクA.md', 'tasks/タスクB.md', 'タスクB')
       
-      expect(view.app.vault.adapter.write).not.toHaveBeenCalled()
+      expect(view.app.vault.modify).not.toHaveBeenCalled()
     })
   })
 })

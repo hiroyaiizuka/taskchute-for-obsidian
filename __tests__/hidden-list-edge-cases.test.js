@@ -35,6 +35,10 @@ describe('非表示リストのエッジケース', () => {
           write: jest.fn()
         },
         getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        getAbstractFileByPath: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([])
       },
       metadataCache: {

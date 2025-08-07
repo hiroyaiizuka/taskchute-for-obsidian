@@ -1,7 +1,18 @@
 // running-task-deletion-fix.test.js
 // 実行中タスクを削除した後、再起動時に復活しないことを確認するテスト
 
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("実行中タスク削除後の復活バグ修正", () => {
   let taskChute
@@ -108,9 +119,29 @@ describe("実行中タスク削除後の復活バグ修正", () => {
     // モックVault
     mockVault = {
       adapter: mockAdapter,
-      getAbstractFileByPath: jest.fn(() => ({
-        children: [],
-      })),
+      getAbstractFileByPath: jest.fn((path) => {
+        if (fileSystem[path]) {
+          const file = { path }
+          file.constructor = TFile
+          Object.setPrototypeOf(file, TFile.prototype)
+          return file
+        }
+        return null
+      }),
+      read: jest.fn((file) => {
+        const path = file.path || file
+        if (!fileSystem[path]) throw new Error("File not found")
+        return Promise.resolve(fileSystem[path])
+      }),
+      create: jest.fn((path, content) => {
+        fileSystem[path] = content
+        return Promise.resolve()
+      }),
+      modify: jest.fn((file, content) => {
+        const path = file.path || file
+        fileSystem[path] = content
+        return Promise.resolve()
+      }),
       delete: jest.fn((file) => {
         if (file && file.path) {
           deletedFiles.push(file.path)

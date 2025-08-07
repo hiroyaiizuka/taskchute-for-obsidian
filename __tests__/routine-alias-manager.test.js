@@ -1,5 +1,20 @@
 const { RoutineAliasManager } = require('../main.js')
 
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
+const { TFile, Notice } = require('obsidian')
+
 describe('RoutineAliasManager', () => {
   let manager
   let mockPlugin
@@ -13,7 +28,11 @@ describe('RoutineAliasManager', () => {
           exists: jest.fn(),
           read: jest.fn(),
           write: jest.fn()
-        }
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn()
       }
     }
     
@@ -21,7 +40,7 @@ describe('RoutineAliasManager', () => {
       app: mockApp,
       pathManager: {
         getTaskFolderPath: jest.fn(() => 'TaskChute/Task'),
-        ensureFolderExists: jest.fn()
+        ensureFolderExists: jest.fn().mockResolvedValue()
       }
     }
     
@@ -43,7 +62,7 @@ describe('RoutineAliasManager', () => {
   
   describe('エイリアスの読み込み', () => {
     test('ファイルが存在しない場合は空オブジェクトを返す', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
       
       const aliases = await manager.loadAliases()
       
@@ -57,8 +76,13 @@ describe('RoutineAliasManager', () => {
         '朝のランニング': ['朝のジョギング', '朝の運動']
       }
       
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(mockData))
+      // TFileインスタンスのモック
+      const mockAliasFile = { path: 'TaskChute/Task/routine-aliases.json' }
+      mockAliasFile.constructor = TFile
+      Object.setPrototypeOf(mockAliasFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockAliasFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockData))
       
       const aliases = await manager.loadAliases()
       
@@ -73,17 +97,17 @@ describe('RoutineAliasManager', () => {
       const aliases = await manager.loadAliases()
       
       expect(aliases).toBe(cachedData)
-      expect(mockApp.vault.adapter.exists).not.toHaveBeenCalled()
+      expect(mockApp.vault.getAbstractFileByPath).not.toHaveBeenCalled()
     })
   })
   
   describe('エイリアスの追加', () => {
     test('新しいタスクのエイリアスを追加', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
       
       await manager.addAlias('新タスク', '旧タスク')
       
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledWith(
+      expect(mockApp.vault.create).toHaveBeenCalledWith(
         'TaskChute/Task/routine-aliases.json',
         JSON.stringify({ '新タスク': ['旧タスク'] }, null, 2)
       )
@@ -94,8 +118,12 @@ describe('RoutineAliasManager', () => {
         'タスクB': ['タスクA']
       }
       
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(existingData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'TaskChute/Task/routine-aliases.json' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(existingData))
       
       await manager.addAlias('タスクC', 'タスクB')
       
@@ -103,8 +131,8 @@ describe('RoutineAliasManager', () => {
         'タスクC': ['タスクA', 'タスクB']
       }
       
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledWith(
-        'TaskChute/Task/routine-aliases.json',
+      expect(mockApp.vault.modify).toHaveBeenCalledWith(
+        mockFile,
         JSON.stringify(expectedData, null, 2)
       )
     })
@@ -114,8 +142,12 @@ describe('RoutineAliasManager', () => {
         'タスクB': ['タスクA']
       }
       
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(existingData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'TaskChute/Task/routine-aliases.json' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(existingData))
       
       await manager.addAlias('タスクB', 'タスクA')
       
@@ -123,8 +155,8 @@ describe('RoutineAliasManager', () => {
         'タスクB': ['タスクA'] // 重複していない
       }
       
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledWith(
-        'TaskChute/Task/routine-aliases.json',
+      expect(mockApp.vault.modify).toHaveBeenCalledWith(
+        mockFile,
         JSON.stringify(expectedData, null, 2)
       )
     })
@@ -201,7 +233,8 @@ describe('RoutineAliasManager', () => {
       const consoleError = jest.spyOn(console, 'error').mockImplementation()
       
       // ファイル書き込みでエラーが発生
-      mockApp.vault.adapter.write.mockRejectedValue(new Error('Write failed'))
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
+      mockApp.vault.create.mockRejectedValue(new Error('Write failed'))
       
       await manager.addAlias('新タスク', '旧タスク')
       
@@ -215,8 +248,12 @@ describe('RoutineAliasManager', () => {
     })
     
     test('破損したJSONファイルの処理', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue('{ invalid json')
+      // TFileインスタンスのモック
+      const mockFile = { path: 'TaskChute/Task/routine-aliases.json' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue('{ invalid json')
       
       const aliases = await manager.loadAliases()
       

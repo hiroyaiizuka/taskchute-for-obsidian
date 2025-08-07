@@ -1,5 +1,5 @@
 const { TaskChuteView } = require('../main')
-const { Notice } = require('obsidian')
+const { Notice, TFile } = require('obsidian')
 
 // ObsidianのAPIをモック
 jest.mock('obsidian', () => ({
@@ -35,6 +35,10 @@ describe('完了済みタスクの表示制御', () => {
           write: jest.fn(),
           getFullPath: jest.fn()
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getAbstractFileByPath: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([])
       },
@@ -142,15 +146,33 @@ routine_start: 2025-07-08
 #task`
 
     // モックの設定
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockImplementation((path) => {
+    // TFileインスタンスのモック
+    const mockLogFile = { path: 'TaskChute/Log/2025-08-tasks.json' }
+    mockLogFile.constructor = TFile
+    Object.setPrototypeOf(mockLogFile, TFile.prototype)
+    
+    const mockTaskFile = { path: taskPath }
+    mockTaskFile.constructor = TFile
+    Object.setPrototypeOf(mockTaskFile, TFile.prototype)
+    
+    mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
       if (path.includes('2025-08-tasks.json')) {
-        return JSON.stringify(monthlyLog)
+        return mockLogFile
       }
       if (path === taskPath) {
-        return fileContent
+        return mockTaskFile
       }
-      return ''
+      return null
+    })
+    
+    mockApp.vault.read.mockImplementation((file) => {
+      if (file === mockLogFile || (file && file.path && file.path.includes('2025-08-tasks.json'))) {
+        return Promise.resolve(JSON.stringify(monthlyLog))
+      }
+      if (file === mockTaskFile || (file && file.path === taskPath)) {
+        return Promise.resolve(fileContent)
+      }
+      return Promise.resolve('')
     })
     
     mockApp.metadataCache.getFileCache.mockReturnValue({
@@ -257,7 +279,7 @@ routine_start: 2025-07-08
     )
 
     // 実行履歴なし
-    mockApp.vault.adapter.read.mockImplementation((path) => {
+    mockApp.vault.read.mockImplementation((path) => {
       if (path.includes('2025-08-tasks.json')) {
         return JSON.stringify({ taskExecutions: {} })
       }

@@ -1,4 +1,15 @@
 const { TaskChuteView, TaskChutePlugin } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 require('../__mocks__/obsidian')
 
 describe('TaskNameValidator', () => {

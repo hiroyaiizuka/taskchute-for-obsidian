@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 // Obsidianのモック
 const mockObsidian = {
@@ -25,9 +36,11 @@ const mockObsidian = {
         mkdir: jest.fn(),
         getFullPath: jest.fn((path) => `/mock/path/${path}`),
       },
-      getMarkdownFiles: jest.fn(() => []),
       getAbstractFileByPath: jest.fn(),
-      read: jest.fn(), // vaultのreadメソッドを追加
+      read: jest.fn(),
+      modify: jest.fn(),
+      create: jest.fn(),
+      getMarkdownFiles: jest.fn(() => []),
     },
     workspace: {
       onLayoutReady: jest.fn(),
@@ -213,7 +226,7 @@ project: "[[開発プロジェクト]]"
       })
 
       // loadTodayExecutionsのモック
-      mockVaultAdapter.exists.mockResolvedValue(false) // 実行履歴ファイルがない
+      // mockAppは定義されていないので、既に定義済みのモックを使用
 
       // タスクを読み込み
       await taskChuteView.loadTasks()
@@ -285,7 +298,7 @@ project: "[[修正テストプロジェクト]]"
       })
 
       // loadTodayExecutionsのモック
-      mockVaultAdapter.exists.mockResolvedValue(false) // 実行履歴ファイルがない
+      // mockAppは定義されていないので、既に定義済みのモックを使用
 
       // タスクを読み込み
       await taskChuteView.loadTasks()

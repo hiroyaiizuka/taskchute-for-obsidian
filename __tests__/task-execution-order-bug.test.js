@@ -5,7 +5,18 @@ describe("タスク実行時の並び替えバグ", () => {
   // sortTaskInstances関数を直接テスト
   test("実行済みタスクの直後に新規実行タスクが配置される", () => {
     // sortTaskInstances関数をインポート
-    const { sortTaskInstances } = require("../main.js")
+    const { sortTaskInstances } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
     const timeSlotKeys = ["0:00-8:00", "8:00-12:00", "12:00-16:00", "16:00-0:00"]
     
     // 現在時刻のモック
@@ -113,7 +124,7 @@ describe("タスク実行時の並び替えバグ", () => {
   })
   
   test("実行中タスクも完了タスクの後に正しく配置される", () => {
-    const { sortTaskInstances } = require("../main.js")
+    const { sortTaskInstances, TFile } = require("../main.js")
     const timeSlotKeys = ["0:00-8:00", "8:00-12:00", "12:00-16:00", "16:00-0:00"]
     const now = moment()
     
@@ -149,7 +160,7 @@ describe("タスク実行時の並び替えバグ", () => {
   })
   
   test("開始ボタンを押した瞬間に実行中タスクが正しい位置に移動する", () => {
-    const { sortTaskInstances } = require("../main.js")
+    const { sortTaskInstances, TFile } = require("../main.js")
     const timeSlotKeys = ["0:00-8:00", "8:00-12:00", "12:00-16:00", "16:00-0:00"]
     const now = moment()
     
@@ -211,7 +222,7 @@ describe("タスク実行時の並び替えバグ", () => {
   })
 
   test("異なる時間帯のタスクを実行すると現在の時間帯の実行済みタスクの直後に移動する", () => {
-    const { sortTaskInstances } = require("../main.js")
+    const { sortTaskInstances, TFile } = require("../main.js")
     const timeSlotKeys = ["0:00-8:00", "8:00-12:00", "12:00-16:00", "16:00-0:00"]
     const now = moment()
     

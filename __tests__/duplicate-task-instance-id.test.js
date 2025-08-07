@@ -1,12 +1,54 @@
 // Obsidianのモックを先に読み込む
 const { mockApp, mockLeaf } = require("../__mocks__/obsidian.js")
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("複製タスクのインスタンスID管理", () => {
   let taskChuteView
+  let mockApp
+  let mockLeaf
 
   beforeEach(() => {
     jest.clearAllMocks()
+    
+    // mockAppの定義
+    mockApp = {
+      vault: {
+        adapter: {
+          exists: jest.fn(),
+          read: jest.fn(),
+          write: jest.fn(),
+          mkdir: jest.fn()
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn()
+      },
+      workspace: {
+        openLinkText: jest.fn()
+      },
+      metadataCache: {
+        getFileCache: jest.fn()
+      },
+      fileManager: {
+        processFrontMatter: jest.fn()
+      }
+    }
+    
+    // mockLeafの定義
+    mockLeaf = {}
+    
     // プラグインのモック（PathManagerを含む）
     const mockPlugin = {
       pathManager: {
@@ -65,8 +107,8 @@ describe("複製タスクのインスタンスID管理", () => {
     taskChuteView.currentDate = new Date("2025-01-15")
 
     // 基本的なモック設定
-    mockApp.vault.adapter.exists.mockResolvedValue(false)
-    mockApp.vault.adapter.write.mockResolvedValue()
+    mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
+    mockApp.vault.modify.mockResolvedValue()
     mockApp.vault.adapter.mkdir.mockResolvedValue()
 
     // 現在の日付を固定
@@ -123,6 +165,11 @@ describe("複製タスクのインスタンスID管理", () => {
   })
 
   test("複製されたタスクの実行ログが別々に保存される", async () => {
+    // 最初はgetAbstractFileByPathがnullを返す（ファイルが存在しない）
+    mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
+    // createFolderのモックを追加
+    mockApp.vault.createFolder = jest.fn().mockResolvedValue()
+    
     const mockTask = {
       title: "タスクA",
       path: "TaskChute/Task/タスクA.md",
@@ -157,13 +204,21 @@ describe("複製タスクのインスタンスID管理", () => {
       energyLevel: 5,
     })
 
-    // 書き込まれたデータを取得
-    const firstWriteCall = mockApp.vault.adapter.write.mock.calls[0]
-    const firstWrittenData = JSON.parse(firstWriteCall[1])
+    // 書き込まれたデータを取得（createまたはmodify）
+    expect(mockApp.vault.create.mock.calls.length + mockApp.vault.modify.mock.calls.length).toBeGreaterThan(0)
+    
+    const firstWriteCall = mockApp.vault.create.mock.calls.length > 0 
+      ? mockApp.vault.create.mock.calls[0]
+      : mockApp.vault.modify.mock.calls[0]
+    const firstWrittenData = firstWriteCall ? JSON.parse(firstWriteCall[1]) : {}
 
     // 既存のログファイルをモック
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(
       JSON.stringify(firstWrittenData),
     )
 
@@ -175,7 +230,7 @@ describe("複製タスクのインスタンスID管理", () => {
     })
 
     // 2回目の書き込みデータを取得
-    const secondWriteCall = mockApp.vault.adapter.write.mock.calls[1]
+    const secondWriteCall = mockApp.vault.modify.mock.calls[0] // modifyは最初の呼び出し
     const secondWrittenData = JSON.parse(secondWriteCall[1])
 
     // 両方のログが保存されていることを確認
@@ -202,6 +257,10 @@ describe("複製タスクのインスタンスID管理", () => {
   })
 
   test("既存ログの更新時はinstanceIdで正しく識別される", async () => {
+    // getAbstractFileByPathとcreateFolderのモック
+    mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
+    mockApp.vault.createFolder = jest.fn().mockResolvedValue()
+    
     const mockTask = {
       title: "タスクA",
       path: "TaskChute/Task/タスクA.md",
@@ -226,13 +285,18 @@ describe("複製タスクのインスタンスID管理", () => {
       energyLevel: 3,
     })
 
-    const firstWrittenData = JSON.parse(
-      mockApp.vault.adapter.write.mock.calls[0][1],
-    )
+    const firstWriteCall = mockApp.vault.create.mock.calls.length > 0 
+      ? mockApp.vault.create.mock.calls[0]
+      : mockApp.vault.modify.mock.calls[0]
+    const firstWrittenData = firstWriteCall ? JSON.parse(firstWriteCall[1]) : {}
 
     // 既存ログをモック
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(
       JSON.stringify(firstWrittenData),
     )
 
@@ -243,7 +307,7 @@ describe("複製タスクのインスタンスID管理", () => {
       energyLevel: 5,
     })
 
-    const updatedData = JSON.parse(mockApp.vault.adapter.write.mock.calls[1][1])
+    const updatedData = JSON.parse(mockApp.vault.modify.mock.calls[0][1])
     const todayLogs = updatedData.taskExecutions["2025-01-15"]
 
     // ログが1つのままであることを確認
@@ -279,8 +343,12 @@ describe("複製タスクのインスタンスID管理", () => {
       patterns: {},
     }
 
-    mockApp.vault.adapter.exists.mockResolvedValue(true)
-    mockApp.vault.adapter.read.mockResolvedValue(
+    // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+    mockApp.vault.read.mockResolvedValue(
       JSON.stringify(existingLogData),
     )
 
@@ -307,7 +375,7 @@ describe("複製タスクのインスタンスID管理", () => {
       energyLevel: 4,
     })
 
-    const writtenData = JSON.parse(mockApp.vault.adapter.write.mock.calls[0][1])
+    const writtenData = JSON.parse(mockApp.vault.modify.mock.calls[0][1])
     const todayLogs = writtenData.taskExecutions["2025-01-15"]
 
     // 両方のログが保存されていることを確認

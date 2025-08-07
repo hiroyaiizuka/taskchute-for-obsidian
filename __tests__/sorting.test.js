@@ -1,4 +1,15 @@
-const { sortTaskInstances } = require("../main.js")
+const { sortTaskInstances } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 const moment = require("moment")
 
 describe("TaskChuteソート関数", () => {

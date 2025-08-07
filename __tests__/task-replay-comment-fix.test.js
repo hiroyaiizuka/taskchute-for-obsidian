@@ -1,4 +1,15 @@
-const { TaskChuteView } = require("../main.js")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
 
 describe("Task Replay Comment Fix", () => {
   let mockApp
@@ -17,6 +28,10 @@ describe("Task Replay Comment Fix", () => {
           list: jest.fn(),
           getFullPath: jest.fn(),
         },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
         getMarkdownFiles: jest.fn().mockReturnValue([]),
         getAbstractFileByPath: jest.fn(),
         read: jest.fn(),
@@ -95,8 +110,12 @@ describe("Task Replay Comment Fix", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -166,8 +185,12 @@ describe("Task Replay Comment Fix", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 
@@ -212,8 +235,12 @@ describe("Task Replay Comment Fix", () => {
         },
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(
         JSON.stringify(mockMonthlyLog),
       )
 

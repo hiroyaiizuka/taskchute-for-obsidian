@@ -1,13 +1,14 @@
-const { Plugin, ItemView, WorkspaceLeaf, TFile, Notice } = require("obsidian")
-
 // モック設定
 jest.mock("obsidian", () => ({
   Plugin: jest.fn(),
   ItemView: jest.fn(),
   WorkspaceLeaf: jest.fn(),
   TFile: jest.fn(),
+  TFolder: jest.fn(),
   Notice: jest.fn(),
 }))
+
+const { Plugin, ItemView, WorkspaceLeaf, TFile, TFolder, Notice } = require("obsidian")
 
 // TaskChuteView クラスをインポート
 const TaskChutePlusPlugin = require("../main.js")
@@ -239,10 +240,31 @@ describe("Delete Task Logs Feature", () => {
       }
 
       // 新しい実装に合わせて、dataディレクトリ存在とファイルリストをモック
-      mockApp.vault.adapter.exists.mockImplementation((path) => {
-        return path === "TaskChute/Log"
-          ? Promise.resolve(true)
-          : Promise.resolve(false)
+      const mockFile1 = { path: "TaskChute/Log/2025-07-tasks.json" }
+      mockFile1.constructor = TFile
+      Object.setPrototypeOf(mockFile1, TFile.prototype)
+      
+      const mockFile2 = { path: "TaskChute/Log/2025-06-tasks.json" }
+      mockFile2.constructor = TFile
+      Object.setPrototypeOf(mockFile2, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
+        if (path === "TaskChute/Log") {
+          const mockFolder = { 
+            path: "TaskChute/Log", 
+            children: [mockFile1, mockFile2] // TFileインスタンスをchildrenに設定
+          }
+          mockFolder.constructor = TFolder
+          Object.setPrototypeOf(mockFolder, TFolder.prototype)
+          return mockFolder
+        }
+        if (path === "TaskChute/Log/2025-07-tasks.json") {
+          return mockFile1
+        }
+        if (path === "TaskChute/Log/2025-06-tasks.json") {
+          return mockFile2
+        }
+        return null
       })
 
       // ファイル一覧のモック
@@ -256,7 +278,8 @@ describe("Delete Task Logs Feature", () => {
       })
 
       // ファイル読み込みのモック
-      mockApp.vault.adapter.read.mockImplementation((path) => {
+      mockApp.vault.read.mockImplementation((file) => {
+        const path = file?.path || file;
         if (
           path === "TaskChute/Log/2025-07-tasks.json"
         ) {
@@ -274,15 +297,15 @@ describe("Delete Task Logs Feature", () => {
       await taskChuteView.deleteTaskLogs(taskId)
 
       // 書き込みが2回呼ばれることを確認（両月のファイル）
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledTimes(2)
+      expect(mockApp.vault.modify).toHaveBeenCalledTimes(2)
 
       // 書き込み内容を確認
-      const writeCalls = mockApp.vault.adapter.write.mock.calls
+      const writeCalls = mockApp.vault.modify.mock.calls
 
       // 7月ファイルの確認
       const julyWriteCall = writeCalls.find(
         (call) =>
-          call[0] ===
+          (call[0]?.path || call[0]) ===
           "TaskChute/Log/2025-07-tasks.json",
       )
       expect(julyWriteCall).toBeDefined()
@@ -308,7 +331,7 @@ describe("Delete Task Logs Feature", () => {
       // 6月ファイルの確認
       const juneWriteCall = writeCalls.find(
         (call) =>
-          call[0] ===
+          (call[0]?.path || call[0]) ===
           "TaskChute/Log/2025-06-tasks.json",
       )
       expect(juneWriteCall).toBeDefined()
@@ -350,7 +373,7 @@ describe("Delete Task Logs Feature", () => {
       }
 
       // 新しい実装に合わせてdataディレクトリとファイルリストをモック
-      mockApp.vault.adapter.exists.mockImplementation((path) => {
+      mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
         return path === "TaskChute/Log"
           ? Promise.resolve(true)
           : Promise.resolve(false)
@@ -361,7 +384,7 @@ describe("Delete Task Logs Feature", () => {
         folders: [],
       })
 
-      mockApp.vault.adapter.read.mockImplementation((path) => {
+      mockApp.vault.read.mockImplementation((path) => {
         if (
           path === "TaskChute/Log/2025-07-tasks.json"
         ) {
@@ -375,29 +398,29 @@ describe("Delete Task Logs Feature", () => {
       await taskChuteView.deleteTaskLogs(taskId)
 
       // ファイルが変更されないため、書き込みは呼ばれない
-      expect(mockApp.vault.adapter.write).not.toHaveBeenCalled()
+      expect(mockApp.vault.modify).not.toHaveBeenCalled()
     })
 
     test("should handle empty data directory gracefully", async () => {
       const taskId = "Any/Task.md"
 
       // dataディレクトリが存在しない場合
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
 
       // deleteTaskLogsを実行
       await taskChuteView.deleteTaskLogs(taskId)
 
       // 何も処理されないことを確認
       expect(mockApp.vault.adapter.list).not.toHaveBeenCalled()
-      expect(mockApp.vault.adapter.read).not.toHaveBeenCalled()
-      expect(mockApp.vault.adapter.write).not.toHaveBeenCalled()
+      expect(mockApp.vault.read).not.toHaveBeenCalled()
+      expect(mockApp.vault.modify).not.toHaveBeenCalled()
     })
 
     test("should handle corrupted JSON files gracefully", async () => {
       const taskId = "Test/Task.md"
 
       // dataディレクトリが存在し、ファイルリストが返される
-      mockApp.vault.adapter.exists.mockImplementation((path) => {
+      mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
         return path === "TaskChute/Log"
           ? Promise.resolve(true)
           : Promise.resolve(false)
@@ -409,7 +432,7 @@ describe("Delete Task Logs Feature", () => {
       })
 
       // 壊れたJSONファイルをモック
-      mockApp.vault.adapter.read.mockImplementation((path) => {
+      mockApp.vault.read.mockImplementation((path) => {
         if (
           path === "TaskChute/Log/2025-07-tasks.json"
         ) {
@@ -423,7 +446,7 @@ describe("Delete Task Logs Feature", () => {
       await expect(taskChuteView.deleteTaskLogs(taskId)).resolves.not.toThrow()
 
       // 書き込みは呼ばれない（処理が正常にスキップされる）
-      expect(mockApp.vault.adapter.write).not.toHaveBeenCalled()
+      expect(mockApp.vault.modify).not.toHaveBeenCalled()
     })
 
     test("should update metadata lastUpdated when logs are deleted", async () => {
@@ -449,10 +472,24 @@ describe("Delete Task Logs Feature", () => {
       }
 
       // dataディレクトリとファイルリストのモック
-      mockApp.vault.adapter.exists.mockImplementation((path) => {
-        return path === "TaskChute/Log"
-          ? Promise.resolve(true)
-          : Promise.resolve(false)
+      const mockFile = { path: "TaskChute/Log/2025-07-tasks.json" }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
+        if (path === "TaskChute/Log") {
+          const mockFolder = { 
+            path: "TaskChute/Log", 
+            children: [mockFile]
+          }
+          mockFolder.constructor = TFolder
+          Object.setPrototypeOf(mockFolder, TFolder.prototype)
+          return mockFolder
+        }
+        if (path === "TaskChute/Log/2025-07-tasks.json") {
+          return mockFile
+        }
+        return null
       })
 
       mockApp.vault.adapter.list.mockResolvedValue({
@@ -460,7 +497,8 @@ describe("Delete Task Logs Feature", () => {
         folders: [],
       })
 
-      mockApp.vault.adapter.read.mockImplementation((path) => {
+      mockApp.vault.read.mockImplementation((file) => {
+        const path = file?.path || file;
         if (
           path === "TaskChute/Log/2025-07-tasks.json"
         ) {
@@ -476,9 +514,9 @@ describe("Delete Task Logs Feature", () => {
 
       await taskChuteView.deleteTaskLogs(taskId)
 
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledTimes(1)
+      expect(mockApp.vault.modify).toHaveBeenCalledTimes(1)
 
-      const writeCall = mockApp.vault.adapter.write.mock.calls[0]
+      const writeCall = mockApp.vault.modify.mock.calls[0]
       const updatedData = JSON.parse(writeCall[1])
 
       // lastUpdatedが更新されていることを確認

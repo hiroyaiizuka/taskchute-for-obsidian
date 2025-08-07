@@ -1,4 +1,18 @@
 const { LogView } = require('../main')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
 const { TFile } = require('obsidian')
 
 describe('LogView', () => {
@@ -37,7 +51,15 @@ describe('LogView', () => {
           exists: jest.fn(),
           read: jest.fn(),
           write: jest.fn()
-        }
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn()
       }
     }
 
@@ -72,7 +94,7 @@ describe('LogView', () => {
       const result = await logView.loadYearlyData(2025)
 
       expect(result).toBe(cachedData)
-      expect(mockApp.vault.adapter.exists).not.toHaveBeenCalled()
+      expect(mockApp.vault.getAbstractFileByPath).not.toHaveBeenCalled()
     })
 
     test('should load from file and cache if not in cache', async () => {
@@ -80,8 +102,9 @@ describe('LogView', () => {
         year: 2025,
         days: { '2025-01-01': { totalTasks: 5, completedTasks: 3 } }
       }
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(fileData))
+      const mockFile = new TFile()
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(fileData))
 
       const result = await logView.loadYearlyData(2025)
 
@@ -91,8 +114,9 @@ describe('LogView', () => {
 
     test('should validate data structure', async () => {
       const invalidData = { invalid: 'structure' }
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(invalidData))
+      const mockFile = new TFile()
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(invalidData))
 
       const result = await logView.loadYearlyData(2025)
 
@@ -102,7 +126,7 @@ describe('LogView', () => {
     })
 
     test('should generate yearly data if file does not exist', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
       
       // Mock generateYearlyData
       logView.generateYearlyData = jest.fn().mockResolvedValue({

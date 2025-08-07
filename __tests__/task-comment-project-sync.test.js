@@ -4,6 +4,17 @@ const path = require('path')
 // Obsidian APIのモック
 require('../__mocks__/obsidian')
 
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
+
 // ProjectNoteSyncManagerのテスト
 describe('ProjectNoteSyncManager', () => {
   let app, pathManager, syncManager
@@ -211,6 +222,8 @@ describe('Task Comment Project Sync - Integration', () => {
           getAbstractFileByPath: jest.fn(),
           read: jest.fn(),
           modify: jest.fn(),
+          create: jest.fn(),
+          createFolder: jest.fn(),
           adapter: {
             write: jest.fn(),
             exists: jest.fn().mockResolvedValue(true),
@@ -247,20 +260,47 @@ describe('Task Comment Project Sync - Integration', () => {
       energyLevel: 3
     }
 
-    // プロジェクトノートの存在をモック
-    plugin.app.vault.getAbstractFileByPath.mockReturnValue({ 
-      path: 'TaskChute/Project/TestProject.md' 
+    // TFileインスタンスのモック
+    const mockProjectFile = { path: 'TaskChute/Project/TestProject.md' }
+    mockProjectFile.constructor = TFile
+    Object.setPrototypeOf(mockProjectFile, TFile.prototype)
+    
+    const mockLogFile = { path: 'TaskChute/Log/2025-07-tasks.json' }
+    mockLogFile.constructor = TFile
+    Object.setPrototypeOf(mockLogFile, TFile.prototype)
+    
+    // ファイルの存在をモック
+    plugin.app.vault.getAbstractFileByPath.mockImplementation((path) => {
+      if (path === 'TaskChute/Project/TestProject.md') {
+        return mockProjectFile
+      }
+      if (path === 'TaskChute/Log/2025-07-tasks.json') {
+        return mockLogFile
+      }
+      if (path === 'TaskChute/Log') {
+        return { children: [] } // ディレクトリモック
+      }
+      return null
     })
     
-    // プロジェクトノートの内容をモック
-    plugin.app.vault.read.mockResolvedValue('# TestProject\n\n## 概要\nプロジェクトの説明')
-
-    // JSONログファイルの内容をモック
-    plugin.app.vault.adapter.read.mockResolvedValue(JSON.stringify({
-      metadata: {},
-      taskExecutions: {},
-      dailySummary: {}
-    }))
+    // ファイル内容をモック
+    plugin.app.vault.read.mockImplementation(async (file) => {
+      if (file === mockLogFile || file.path === 'TaskChute/Log/2025-07-tasks.json') {
+        return JSON.stringify({
+          metadata: {},
+          taskExecutions: {},
+          dailySummary: {}
+        })
+      }
+      if (file === mockProjectFile || file.path === 'TaskChute/Project/TestProject.md') {
+        return '# TestProject\n\n## 概要\nプロジェクトの説明'
+      }
+      return ''
+    })
+    
+    // createとcreateFolderのモック
+    plugin.app.vault.create.mockResolvedValue()
+    plugin.app.vault.createFolder.mockResolvedValue()
 
     // saveTaskCompletionを呼び出し
     await view.saveTaskCompletion(inst, completionData)
@@ -268,13 +308,24 @@ describe('Task Comment Project Sync - Integration', () => {
     // プロジェクトノートが更新されたことを確認
     expect(plugin.app.vault.modify).toHaveBeenCalled()
     
-    // 更新内容にログセクションとコメントが含まれることを確認
-    const modifyCall = plugin.app.vault.modify.mock.calls[0]
-    const updatedContent = modifyCall[1]
+    // modify呼び出しを確認（複数回呼ばれる可能性がある）
+    const modifyCalls = plugin.app.vault.modify.mock.calls
     
-    expect(updatedContent).toContain('## ログ')
-    expect(updatedContent).toContain('[[2025-07-24]]')
-    expect(updatedContent).toContain('    - テストコメント')
+    // プロジェクトノートの更新を探す
+    let projectNoteUpdated = false
+    for (const call of modifyCalls) {
+      const [file, content] = call
+      if (file && file.path === 'TaskChute/Project/TestProject.md') {
+        // プロジェクトノートの更新内容を確認
+        expect(content).toContain('## ログ')
+        expect(content).toContain('[[2025-07-24]]')
+        expect(content).toContain('    - テストコメント')
+        projectNoteUpdated = true
+        break
+      }
+    }
+    
+    expect(projectNoteUpdated).toBe(true)
   })
 
   test('プロジェクトノートが存在しない場合はエラーにならない', async () => {

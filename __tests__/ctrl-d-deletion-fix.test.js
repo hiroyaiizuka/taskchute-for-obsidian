@@ -55,6 +55,17 @@ describe('Control+D削除処理の修正', () => {
 
     // ビューの初期化
     const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  TFile: jest.fn(),
+  Notice: jest.fn(),
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn()
+}))
+
+const { TFile } = require('obsidian')
     // プラグインのモック（PathManagerを含む）
     const mockPlugin = {
       pathManager: {

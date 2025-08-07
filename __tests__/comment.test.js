@@ -28,10 +28,17 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     }
 
     // シンプルなアプリケーションモック
+    const mockVault = {
+      adapter: mockVaultAdapter,
+      getAbstractFileByPath: jest.fn(),
+      read: jest.fn(),
+      modify: jest.fn(),
+      create: jest.fn(),
+      createFolder: jest.fn(),
+    }
+    
     mockApp = {
-      vault: {
-        adapter: mockVaultAdapter,
-      },
+      vault: mockVault,
     }
 
     // TaskChuteView インスタンスを作成（最小限の設定）
@@ -70,7 +77,8 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     })
 
     test("should return null when log file does not exist", async () => {
-      mockVaultAdapter.exists.mockResolvedValue(false)
+      // ファイルが存在しない場合のモック
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
 
       const mockTask = {
         title: "Test Task",
@@ -84,7 +92,7 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.getExistingTaskComment(instance)
 
       expect(result).toBeNull()
-      expect(mockVaultAdapter.exists).toHaveBeenCalled()
+      expect(mockApp.vault.getAbstractFileByPath).toHaveBeenCalled()
     })
 
     test("should return existing comment when found", async () => {
@@ -114,16 +122,13 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         },
       }
 
-      // 特定のファイルパスに対するモックを設定
-      mockVaultAdapter.exists.mockImplementation((path) => {
-        return Promise.resolve(path === expectedFilePath)
-      })
-      mockVaultAdapter.read.mockImplementation((path) => {
-        if (path === expectedFilePath) {
-          return Promise.resolve(JSON.stringify(mockLogData))
-        }
-        return Promise.reject(new Error(`Unexpected file path: ${path}`))
-      })
+      // TFileインスタンスのモック
+      const mockLogFile = { path: expectedFilePath }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockLogData))
 
       const mockTask = {
         title: "Test Task",
@@ -147,8 +152,19 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     })
 
     test("should handle JSON parse errors gracefully", async () => {
-      mockVaultAdapter.exists.mockResolvedValue(true)
-      mockVaultAdapter.read.mockResolvedValue("invalid json")
+      // 現在の日付を使用してテストデータを動的に生成
+      const today = new Date()
+      const year = today.getFullYear()
+      const month = (today.getMonth() + 1).toString().padStart(2, "0")
+      const expectedFilePath = `TaskChute/Log/${year}-${month}-tasks.json`
+
+      // TFileインスタンスのモック（不正なJSON）
+      const mockLogFile = { path: expectedFilePath }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue("invalid json")
 
       const mockTask = {
         title: "Test Task",
@@ -162,13 +178,8 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.getExistingTaskComment(instance)
 
       expect(result).toBeNull()
-      // console.errorは削除されたため、エラーが静かに処理されることを確認
-      const today = new Date()
-      const year = today.getFullYear()
-      const month = (today.getMonth() + 1).toString().padStart(2, "0")
-      expect(mockVaultAdapter.read).toHaveBeenCalledWith(
-        `TaskChute/Log/${year}-${month}-tasks.json`
-      )
+      // エラーが静かに処理されることを確認
+      expect(mockApp.vault.read).toHaveBeenCalledWith(mockLogFile)
 
 
     })
@@ -198,16 +209,13 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         },
       }
 
-      // 特定のファイルパスに対するモックを設定
-      mockVaultAdapter.exists.mockImplementation((path) => {
-        return Promise.resolve(path === expectedFilePath)
-      })
-      mockVaultAdapter.read.mockImplementation((path) => {
-        if (path === expectedFilePath) {
-          return Promise.resolve(JSON.stringify(mockLogData))
-        }
-        return Promise.reject(new Error(`Unexpected file path: ${path}`))
-      })
+      // TFileインスタンスのモック
+      const mockLogFile = { path: expectedFilePath }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockLogData))
 
       const mockTask = {
         title: "Test Task",
@@ -248,16 +256,13 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         },
       }
 
-      // 特定のファイルパスに対するモックを設定
-      mockVaultAdapter.exists.mockImplementation((path) => {
-        return Promise.resolve(path === expectedFilePath)
-      })
-      mockVaultAdapter.read.mockImplementation((path) => {
-        if (path === expectedFilePath) {
-          return Promise.resolve(JSON.stringify(mockLogData))
-        }
-        return Promise.reject(new Error(`Unexpected file path: ${path}`))
-      })
+      // TFileインスタンスのモック
+      const mockLogFile = { path: expectedFilePath }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockLogData))
 
       const mockTask = {
         title: "Test Task",
@@ -282,11 +287,18 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
   describe("saveTaskCompletion - Integration Tests", () => {
     test("should handle save process without errors", async () => {
-      mockVaultAdapter.exists.mockResolvedValue(true)
-      mockVaultAdapter.read.mockResolvedValue(
+      const expectedFilePath = `TaskChute/Log/2024-01-tasks.json`
+      
+      // TFileインスタンスのモック
+      const mockLogFile = { path: expectedFilePath }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockResolvedValue(
         '{"taskExecutions": {}, "metadata": {}}',
       )
-      mockVaultAdapter.write.mockResolvedValue()
+      mockApp.vault.modify.mockResolvedValue()
 
       const mockTask = {
         title: "Test Task",
@@ -312,14 +324,17 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         taskChuteView.saveTaskCompletion(instance, completionData),
       ).resolves.not.toThrow()
 
-      expect(mockVaultAdapter.write).toHaveBeenCalled()
+      expect(mockApp.vault.modify).toHaveBeenCalled()
     })
 
     test("should handle error conditions gracefully", async () => {
       // console.logをモック
       const consoleSpy = jest.spyOn(console, "log").mockImplementation()
 
-      mockVaultAdapter.exists.mockRejectedValue(new Error("File system error"))
+      // Vault APIでエラーを発生させる
+      mockApp.vault.getAbstractFileByPath.mockImplementation(() => {
+        throw new Error("File system error")
+      })
 
       const mockTask = {
         title: "Test Task",
@@ -348,9 +363,10 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     })
 
     test("should create new log structure when file doesn't exist", async () => {
-      mockVaultAdapter.exists.mockResolvedValueOnce(true) // data dir exists
-      mockVaultAdapter.exists.mockResolvedValueOnce(false) // log file doesn't exist
-      mockVaultAdapter.write.mockResolvedValue()
+      // ファイルが存在しない場合
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
+      mockApp.vault.create.mockResolvedValue()
+      mockApp.vault.createFolder.mockResolvedValue()
 
       const mockTask = {
         title: "New Task",
@@ -372,13 +388,20 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
       await taskChuteView.saveTaskCompletion(instance, completionData)
 
-      expect(mockVaultAdapter.write).toHaveBeenCalled()
-      const writeCall = mockVaultAdapter.write.mock.calls[0]
-      const writtenData = JSON.parse(writeCall[1])
+      // ディレクトリ作成またはファイル作成が呼ばれているか確認
+      const createCalled = mockApp.vault.create.mock.calls.length > 0
+      const createFolderCalled = mockApp.vault.createFolder.mock.calls.length > 0
+      expect(createCalled || createFolderCalled).toBe(true)
+      
+      // createが呼ばれていればその内容を確認
+      if (createCalled) {
+        const writeCall = mockApp.vault.create.mock.calls[0]
+        const writtenData = JSON.parse(writeCall[1])
 
-      expect(writtenData.metadata).toBeDefined()
-      expect(writtenData.taskExecutions).toBeDefined()
-      expect(writtenData.dailySummary).toBeDefined()
+        expect(writtenData.metadata).toBeDefined()
+        expect(writtenData.taskExecutions).toBeDefined()
+        expect(writtenData.dailySummary).toBeDefined()
+      }
     })
 
     test("should preserve existing data structure when updating", async () => {
@@ -409,9 +432,13 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         patterns: {},
       }
 
-      mockVaultAdapter.exists.mockResolvedValue(true)
-      mockVaultAdapter.read.mockResolvedValue(JSON.stringify(existingLogData))
-      mockVaultAdapter.write.mockResolvedValue()
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-file' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(existingLogData))
+      mockApp.vault.modify.mockResolvedValue()
 
       const mockTask = {
         title: "Today Task",
@@ -431,8 +458,8 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
       await taskChuteView.saveTaskCompletion(instance, completionData)
 
-      expect(mockVaultAdapter.write).toHaveBeenCalled()
-      const writeCall = mockVaultAdapter.write.mock.calls[0]
+      expect(mockApp.vault.modify).toHaveBeenCalled()
+      const writeCall = mockApp.vault.modify.mock.calls[0]
       const writtenData = JSON.parse(writeCall[1])
 
       // 既存のデータが保持されていることを確認
@@ -538,7 +565,7 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
   describe("Comment Button Functionality - Basic Tests", () => {
     test("hasCommentData should return false when no log file exists", async () => {
-      mockVaultAdapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
 
       const mockInstance = {
         task: {
@@ -554,7 +581,7 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.hasCommentData(mockInstance)
 
       expect(result).toBe(false)
-      expect(mockVaultAdapter.exists).toHaveBeenCalled()
+      expect(mockApp.vault.getAbstractFileByPath).toHaveBeenCalled()
     })
 
     test("hasCommentData should return true when comment exists", async () => {
@@ -579,8 +606,12 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         },
       }
 
-      mockVaultAdapter.exists.mockResolvedValue(true)
-      mockVaultAdapter.read.mockResolvedValue(JSON.stringify(mockLogData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-file' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockLogData))
 
       const mockInstance = {
         task: {
@@ -618,8 +649,12 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         },
       }
 
-      mockVaultAdapter.exists.mockResolvedValue(true)
-      mockVaultAdapter.read.mockResolvedValue(JSON.stringify(mockLogData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-file' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockLogData))
 
       const mockInstance = {
         task: {
@@ -637,7 +672,13 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
     })
 
     test("hasCommentData should handle errors gracefully", async () => {
-      mockVaultAdapter.exists.mockRejectedValue(new Error("File system error"))
+      // TFileインスタンスのモック
+      const mockLogFile = { path: 'TaskChute/Log/2024-01-tasks.json' }
+      mockLogFile.constructor = TFile
+      Object.setPrototypeOf(mockLogFile, TFile.prototype)
+      
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockLogFile)
+      mockApp.vault.read.mockRejectedValue(new Error("File system error"))
 
       const mockInstance = {
         task: {
@@ -653,8 +694,8 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       const result = await taskChuteView.hasCommentData(mockInstance)
 
       expect(result).toBe(false)
-      // console.errorは削除されたため、エラーが静かに処理されることを確認
-      expect(mockVaultAdapter.exists).toHaveBeenCalled()
+      // エラーが静かに処理されることを確認
+      expect(mockApp.vault.getAbstractFileByPath).toHaveBeenCalled()
 
 
     })

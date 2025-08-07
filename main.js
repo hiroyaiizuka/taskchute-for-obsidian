@@ -123,8 +123,9 @@ class RoutineAliasManager {
 
     const path = this.getAliasFilePath()
     try {
-      if (await this.plugin.app.vault.adapter.exists(path)) {
-        const content = await this.plugin.app.vault.adapter.read(path)
+      const file = this.plugin.app.vault.getAbstractFileByPath(path)
+      if (file && file instanceof TFile) {
+        const content = await this.plugin.app.vault.read(file)
         this.aliasCache = JSON.parse(content)
         return this.aliasCache
       }
@@ -148,10 +149,12 @@ class RoutineAliasManager {
       // Validate JSON
       JSON.stringify(aliases)
 
-      await this.plugin.app.vault.adapter.write(
-        path,
-        JSON.stringify(aliases, null, 2),
-      )
+      const file = this.plugin.app.vault.getAbstractFileByPath(path)
+      if (file && file instanceof TFile) {
+        await this.plugin.app.vault.modify(file, JSON.stringify(aliases, null, 2))
+      } else {
+        await this.plugin.app.vault.create(path, JSON.stringify(aliases, null, 2))
+      }
 
       this.aliasCache = aliases
     } catch (error) {
@@ -851,6 +854,25 @@ class TaskChuteView extends ItemView {
     return `${y}-${m}-${d}`
   }
 
+  // タスクの記録日付を取得（常に開始日を返す）
+  getTaskRecordDate(inst) {
+    if (!inst.startTime) {
+      // Task has no startTime - using current date as fallback
+      return new Date();
+    }
+    
+    return inst.startTime instanceof Date 
+      ? inst.startTime 
+      : new Date(inst.startTime);
+  }
+  // タスクの記録日付文字列を取得
+  getTaskRecordDateString(inst) {
+    const taskDate = this.getTaskRecordDate(inst);
+    const year = taskDate.getFullYear();
+    const month = (taskDate.getMonth() + 1).toString().padStart(2, "0");
+    const day = taskDate.getDate().toString().padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   // 日跨ぎタスクの期間を正しく計算するヘルパーメソッド
   calculateCrossDayDuration(startTime, stopTime) {
     if (!startTime || !stopTime) return 0
@@ -1667,7 +1689,9 @@ const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
 
 try {
 
-const content = await dv.app.vault.adapter.read(logPath)
+const logFile = dv.app.vault.getAbstractFileByPath(logPath)
+const content = logFile ? await dv.app.vault.read(logFile) : null
+if (!content) throw new Error('Log file not found')
 
 const monthlyLog = JSON.parse(content)
 
@@ -1775,7 +1799,9 @@ const logPath = \`{{logDataPath}}/\${monthString}-tasks.json\`
 
 try {
 
-const content = await dv.app.vault.adapter.read(logPath)
+const logFile = dv.app.vault.getAbstractFileByPath(logPath)
+const content = logFile ? await dv.app.vault.read(logFile) : null
+if (!content) throw new Error('Log file not found')
 
 const monthlyLog = JSON.parse(content)
 
@@ -1885,11 +1911,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
-      if (!(await this.app.vault.adapter.exists(logFilePath))) {
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (!logFile || !(logFile instanceof TFile)) {
         return
       }
 
-      const logContent = await this.app.vault.adapter.read(logFilePath)
+      const logContent = await this.app.vault.read(logFile)
       const monthlyLog = JSON.parse(logContent)
 
       // Check if yesterday's data exists and needs recalculation
@@ -1963,6 +1990,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           } else {
             // Check file creation date
             try {
+              // Note: getFullPath is needed for Node.js file stats
               const fileStats = this.app.vault.adapter.getFullPath(file.path)
               const fs = require("fs")
               const stats = fs.statSync(fileStats)
@@ -2059,10 +2087,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           new Date().toISOString()
 
         // Save updated monthly log
-        await this.app.vault.adapter.write(
-          logFilePath,
-          JSON.stringify(monthlyLog, null, 2),
-        )
+        const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+        if (logFile && logFile instanceof TFile) {
+          await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
+        } else {
+          await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2))
+        }
       }
     } catch (error) {
       // エラーは無視
@@ -2079,8 +2109,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const dataPath = `${logDataPath}/running-task.json`
-      if (await this.app.vault.adapter.exists(dataPath)) {
-        const content = await this.app.vault.adapter.read(dataPath)
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (dataFile && dataFile instanceof TFile) {
+        const content = await this.app.vault.read(dataFile)
         const runningData = JSON.parse(content) // 配列を期待
         if (Array.isArray(runningData)) {
           // 日付チェックはrestoreRunningTaskStateに任せる
@@ -2296,6 +2327,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               }
             } else {
               // target_dateがない場合は従来通りファイルの作成日をチェック
+              // Note: getFullPath is needed for Node.js file stats
               const fileStats = this.app.vault.adapter.getFullPath(file.path)
               const fs = require("fs")
 
@@ -2775,9 +2807,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.performBatchMove(tasksToMove, currentSlot)
         this.sortTasksAfterMove()
         this.renderTaskList()
-        console.log(
-          `[idle-task-auto-move] Moved ${tasksToMove.length} tasks to ${currentSlot}`,
-        )
+        // Successfully moved idle tasks to current slot
       }
     } catch (error) {
       console.error("[idle-task-auto-move] Error during auto-move:", error)
@@ -2875,9 +2905,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         if (processedCount === tasksToMove.length) {
           this.sortTasksAfterMove()
           this.renderTaskListOptimized()
-          console.log(
-            `[idle-task-auto-move] Optimized move completed: ${processedCount} tasks`,
-          )
+          // Optimized move completed successfully
         }
       }, index * 100) // 100ms間隔で処理
     })
@@ -2951,7 +2979,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // idle-task-auto-move: 境界時刻での移動実行
   performBoundaryTransition() {
-    console.log("[idle-task-auto-move] Time slot boundary reached")
+    // Time slot boundary reached - performing transition
     // キャッシュをクリア
     this.currentTimeSlotCache = null
     this.cacheExpiry = null
@@ -3345,8 +3373,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const dataPath = `${logDataPath}/running-task.json`
-      if (await this.app.vault.adapter.exists(dataPath)) {
-        const content = await this.app.vault.adapter.read(dataPath)
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (dataFile && dataFile instanceof TFile) {
+        const content = await this.app.vault.read(dataFile)
         const runningData = JSON.parse(content)
         if (Array.isArray(runningData)) {
           runningTaskPathsOnLoad = runningData.map((task) => task.taskPath)
@@ -3370,7 +3399,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         .filter((inst) => inst.deletionType === "permanent")
         .map((inst) => inst.path)
     } catch (e) {
-      console.error("Failed to parse deleted tasks:", e)
+      // Failed to parse deleted tasks - returning empty array
       deletedTasks = []
     }
 
@@ -3390,7 +3419,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           return null
         } catch (e) {
           // ファイルアクセスエラーをログに記録
-          console.error(`Failed to check file existence for ${path}:`, e)
+          // Failed to check file existence - treating as deleted
           return null
         }
       })
@@ -3416,7 +3445,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             this.saveDeletedInstances(dateStr, cleanedInstances)
           }
         } catch (e) {
-          console.error("Failed to save cleaned deleted tasks:", e)
+          // Failed to save cleaned deleted tasks list
         }
       }
     }
@@ -3968,12 +3997,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
       // ログファイルが存在しない場合は空配列を返す
-      if (!(await this.app.vault.adapter.exists(logFilePath))) {
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (!logFile || !(logFile instanceof TFile)) {
         return []
       }
 
       // ログファイルを読み込み
-      const logContent = await this.app.vault.adapter.read(logFilePath)
+      const logContent = await this.app.vault.read(logFile)
       const monthlyLog = JSON.parse(logContent)
 
       // 指定日付のタスク実行履歴を取得
@@ -4020,11 +4050,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const dataPath = `${logDataPath}/running-task.json`
-      if (!(await this.app.vault.adapter.exists(dataPath))) {
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (!dataFile || !(dataFile instanceof TFile)) {
         return // ファイルがなければ何もしない
       }
 
-      const content = await this.app.vault.adapter.read(dataPath)
+      const content = await this.app.vault.read(dataFile)
       const runningTasksData = JSON.parse(content) // 配列を期待
 
       if (!Array.isArray(runningTasksData)) return
@@ -4192,7 +4223,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       // 常に上書き保存する
-      await this.app.vault.adapter.write(dataPath, content)
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (dataFile && dataFile instanceof TFile) {
+        await this.app.vault.modify(dataFile, content)
+      } else {
+        await this.app.vault.create(dataPath, content)
+      }
     } catch (error) {
       new Notice("実行中タスクの保存に失敗しました")
     }
@@ -4208,11 +4244,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const dataPath = `${logDataPath}/running-task.json`
-      if (!(await this.app.vault.adapter.exists(dataPath))) {
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (!dataFile || !(dataFile instanceof TFile)) {
         return
       }
 
-      const content = await this.app.vault.adapter.read(dataPath)
+      const content = await this.app.vault.read(dataFile)
       const runningTasksData = JSON.parse(content)
 
       if (!Array.isArray(runningTasksData)) return
@@ -4229,7 +4266,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       if (updated) {
         const updatedContent = JSON.stringify(runningTasksData, null, 2)
-        await this.app.vault.adapter.write(dataPath, updatedContent)
+        const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+        if (dataFile && dataFile instanceof TFile) {
+          await this.app.vault.modify(dataFile, updatedContent)
+        }
       }
     } catch (error) {
       // 実行中タスクのパス更新に失敗
@@ -4458,11 +4498,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const dataPath = `${logDataPath}/running-task.json`
-      if (!(await this.app.vault.adapter.exists(dataPath))) {
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
+      if (!dataFile || !(dataFile instanceof TFile)) {
         return false
       }
 
-      const content = await this.app.vault.adapter.read(dataPath)
+      const content = await this.app.vault.read(dataFile)
       const runningTasksData = JSON.parse(content)
 
       if (!Array.isArray(runningTasksData)) return false
@@ -5971,13 +6012,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // JSONファイルに基本データを保存（コメントなし）
       await this.saveTaskCompletion(inst, null)
 
-      // ヒートマップデータを更新（TASK-007）
-      const dateString = this.getCurrentDateString()
+      // ヒートマップデータを更新（開始日基準）
+      const taskDateString = this.getTaskRecordDateString(inst)
       const aggregator = new DailyTaskAggregator(this.plugin)
-      await aggregator.updateDailyStats(dateString)
+      await aggregator.updateDailyStats(taskDateString)
 
       // 複製タスクの場合、複製情報を削除
-      const duplicationKey = `taskchute-duplicated-instances-${dateString}`
+      const duplicationKey = `taskchute-duplicated-instances-${taskDateString}`
       try {
         let duplicatedInstances = JSON.parse(
           localStorage.getItem(duplicationKey) || "[]",
@@ -6477,12 +6518,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
       // ログファイルが存在しない場合は null を返す
-      if (!(await this.app.vault.adapter.exists(logFilePath))) {
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (!logFile || !(logFile instanceof TFile)) {
         return null
       }
 
       // ログファイルを読み込み
-      const logContent = await this.app.vault.adapter.read(logFilePath)
+      const logContent = await this.app.vault.read(logFile)
       const monthlyLog = JSON.parse(logContent)
 
       // 表示中の日付文字列を生成
@@ -6529,21 +6571,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // タスク完了データを保存
   async saveTaskCompletion(inst, completionData) {
     try {
-      // 月次ログファイルのパスを生成
-      // タスク開始時刻を基準日として使用（日跨ぎタスク対応）
-      const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()
+      // ヘルパーメソッドを使用して開始日基準の日付を取得
+      const taskDate = this.getTaskRecordDate(inst)
+      const dateString = this.getTaskRecordDateString(inst)
       const year = taskDate.getFullYear()
       const month = (taskDate.getMonth() + 1).toString().padStart(2, "0")
-      const day = taskDate.getDate().toString().padStart(2, "0")
-      const dateString = `${year}-${month}-${day}`
       const monthString = `${year}-${month}`
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
       // dataディレクトリが存在することを確認
       const dataDir = this.plugin.pathManager.getLogDataPath()
-      if (!(await this.app.vault.adapter.exists(dataDir))) {
-        await this.app.vault.adapter.mkdir(dataDir)
+      const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
+      if (!dataDirExists) {
+        await this.app.vault.createFolder(dataDir)
       }
 
       // 基本的なタスク実行情報を作成
@@ -6591,9 +6632,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       // ファイルが存在する場合は既存データを読み込み
-      if (await this.app.vault.adapter.exists(logFilePath)) {
+      const existingFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (existingFile && existingFile instanceof TFile) {
         try {
-          const existingContent = await this.app.vault.adapter.read(logFilePath)
+          const existingContent = await this.app.vault.read(existingFile)
           const existingLog = JSON.parse(existingContent)
           monthlyLog = { ...monthlyLog, ...existingLog }
         } catch (e) {
@@ -6704,7 +6746,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // JSONファイルに保存
       const jsonContent = JSON.stringify(monthlyLog, null, 2)
 
-      await this.app.vault.adapter.write(logFilePath, jsonContent)
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (logFile && logFile instanceof TFile) {
+        await this.app.vault.modify(logFile, jsonContent)
+      } else {
+        await this.app.vault.create(logFilePath, jsonContent)
+      }
 
       // プロジェクトノートへの同期
       if (
@@ -6771,15 +6818,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const dataDir = this.plugin.pathManager.getLogDataPath()
 
       // dataディレクトリが存在しない場合は何もしない
-      if (!(await this.app.vault.adapter.exists(dataDir))) {
+      const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
+      if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
         return
       }
 
       // dataディレクトリ内の実際のファイル一覧を取得
-      const files = await this.app.vault.adapter.list(dataDir)
+      const files = dataDirExists.children.filter(f => f instanceof TFile).map(f => f.path)
 
       // -tasks.jsonで終わるファイルのみを処理
-      const taskJsonFiles = files.files.filter((file) =>
+      const taskJsonFiles = files.filter((file) =>
         file.endsWith("-tasks.json"),
       )
 
@@ -6789,7 +6837,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         try {
           // ファイルを読み込み
-          const content = await this.app.vault.adapter.read(logFilePath)
+          const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+          if (!logFile || !(logFile instanceof TFile)) continue
+          const content = await this.app.vault.read(logFile)
           const monthlyLog = JSON.parse(content)
 
           // 該当taskIdとinstanceIdのログを削除
@@ -6848,10 +6898,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             }
 
             // ファイルに書き戻し
-            await this.app.vault.adapter.write(
-              logFilePath,
-              JSON.stringify(monthlyLog, null, 2),
-            )
+            const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+            if (logFile && logFile instanceof TFile) {
+              await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
+            }
           }
         } catch (error) {
           // ログファイル処理エラー
@@ -6872,15 +6922,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const dataDir = this.plugin.pathManager.getLogDataPath()
 
       // dataディレクトリが存在しない場合は何もしない
-      if (!(await this.app.vault.adapter.exists(dataDir))) {
+      const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
+      if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
         return
       }
 
       // dataディレクトリ内の実際のファイル一覧を取得
-      const files = await this.app.vault.adapter.list(dataDir)
+      const files = dataDirExists.children.filter(f => f instanceof TFile).map(f => f.path)
 
       // -tasks.jsonで終わるファイルのみを処理
-      const taskJsonFiles = files.files.filter((file) =>
+      const taskJsonFiles = files.filter((file) =>
         file.endsWith("-tasks.json"),
       )
 
@@ -6891,7 +6942,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         try {
           // ファイルを読み込み
-          const content = await this.app.vault.adapter.read(logFilePath)
+          const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+          if (!logFile || !(logFile instanceof TFile)) continue
+          const content = await this.app.vault.read(logFile)
           const monthlyLog = JSON.parse(content)
 
           // 該当taskIdのログを削除
@@ -6950,7 +7003,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
             // ファイルに書き戻し
             const jsonContent = JSON.stringify(monthlyLog, null, 2)
-            await this.app.vault.adapter.write(logFilePath, jsonContent)
+            const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (logFile && logFile instanceof TFile) {
+        await this.app.vault.modify(logFile, jsonContent)
+      } else {
+        await this.app.vault.create(logFilePath, jsonContent)
+      }
           }
         } catch (error) {
           // ログファイルの処理中にエラー
@@ -13266,7 +13324,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               isProject = true
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          // フロントマター解析エラー - スキップ
+        }
       }
 
       // 本文中の #project も後方互換でチェック
@@ -14131,7 +14191,7 @@ class TaskChutePlusPlugin extends Plugin {
       })
     } catch (e) {
       // クリーンアップエラーは無視（ベストエフォート）
-      console.error("Failed to cleanup old localStorage data:", e)
+      // Failed to cleanup old localStorage data - best effort operation
     }
 
     // 実行中タスクの状態を保存する処理を削除
@@ -14521,8 +14581,9 @@ class LogView {
             this.currentYear,
           )
           const heatmapPath = `${yearPath}/yearly-heatmap.json`
-          if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
-            await this.plugin.app.vault.adapter.remove(heatmapPath)
+          const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+          if (heatmapFile && heatmapFile instanceof TFile) {
+            await this.plugin.app.vault.delete(heatmapFile)
           }
         } catch (error) {
           // Failed to delete yearly data
@@ -14592,8 +14653,9 @@ class LogView {
           this.currentYear,
         )
         const heatmapPath = `${yearPath}/yearly-heatmap.json`
-        if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
-          await this.plugin.app.vault.adapter.remove(heatmapPath)
+        const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+        if (heatmapFile && heatmapFile instanceof TFile) {
+          await this.plugin.app.vault.delete(heatmapFile)
         }
       } catch (error) {
         // Failed to delete yearly data
@@ -14661,9 +14723,10 @@ class LogView {
     const heatmapPath = `${yearPath}/yearly-heatmap.json`
 
     // Check if yearly data exists
-    if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
+    const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+    if (heatmapFile && heatmapFile instanceof TFile) {
       try {
-        const content = await this.plugin.app.vault.adapter.read(heatmapPath)
+        const content = await this.plugin.app.vault.read(heatmapFile)
         const data = JSON.parse(content)
 
         // Validate data structure
@@ -14707,11 +14770,10 @@ class LogView {
         const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
         // Check if monthly log exists
-        if (await this.plugin.app.vault.adapter.exists(logFilePath)) {
+        const logFile = this.plugin.app.vault.getAbstractFileByPath(logFilePath)
+        if (logFile && logFile instanceof TFile) {
           try {
-            const logContent = await this.plugin.app.vault.adapter.read(
-              logFilePath,
-            )
+            const logContent = await this.plugin.app.vault.read(logFile)
             const monthlyLog = JSON.parse(logContent)
 
             // Validate monthly log structure
@@ -14784,10 +14846,12 @@ class LogView {
       // Save the generated yearly data
       const yearPath = await this.plugin.pathManager.ensureYearFolder(year)
       const heatmapPath = `${yearPath}/yearly-heatmap.json`
-      await this.plugin.app.vault.adapter.write(
-        heatmapPath,
-        JSON.stringify(yearlyData, null, 2),
-      )
+      const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+      if (heatmapFile && heatmapFile instanceof TFile) {
+        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
+      } else {
+        await this.plugin.app.vault.create(heatmapPath, JSON.stringify(yearlyData, null, 2))
+      }
     } catch (error) {
       // Failed to generate yearly data
     }
@@ -15258,11 +15322,12 @@ class DailyTaskAggregator {
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`
 
-      if (!(await this.plugin.app.vault.adapter.exists(logFilePath))) {
+      const logFile = this.plugin.app.vault.getAbstractFileByPath(logFilePath)
+      if (!logFile || !(logFile instanceof TFile)) {
         return { taskExecutions: {} }
       }
 
-      const logContent = await this.plugin.app.vault.adapter.read(logFilePath)
+      const logContent = await this.plugin.app.vault.read(logFile)
       return JSON.parse(logContent)
     } catch (error) {
       return { taskExecutions: {} }
@@ -15349,8 +15414,9 @@ class DailyTaskAggregator {
       const heatmapPath = `${yearPath}/yearly-heatmap.json`
 
       let yearlyData
-      if (await this.plugin.app.vault.adapter.exists(heatmapPath)) {
-        const content = await this.plugin.app.vault.adapter.read(heatmapPath)
+      const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+      if (heatmapFile && heatmapFile instanceof TFile) {
+        const content = await this.plugin.app.vault.read(heatmapFile)
         yearlyData = JSON.parse(content)
       } else {
         yearlyData = {
@@ -15367,10 +15433,11 @@ class DailyTaskAggregator {
       yearlyData.metadata.lastUpdated = new Date().toISOString()
 
       // Save back
-      await this.plugin.app.vault.adapter.write(
-        heatmapPath,
-        JSON.stringify(yearlyData, null, 2),
-      )
+      if (heatmapFile && heatmapFile instanceof TFile) {
+        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
+      } else {
+        await this.plugin.app.vault.create(heatmapPath, JSON.stringify(yearlyData, null, 2))
+      }
 
       // Update cache if LogView exists
       const view = this.plugin.view

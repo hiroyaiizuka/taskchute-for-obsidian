@@ -1,3 +1,17 @@
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
+const { TFile } = require('obsidian')
 const { DailyTaskAggregator } = require('../main')
 
 describe('DailyTaskAggregator', () => {
@@ -12,7 +26,11 @@ describe('DailyTaskAggregator', () => {
           exists: jest.fn(),
           read: jest.fn(),
           write: jest.fn()
-        }
+        },
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(),
+        modify: jest.fn(),
+        create: jest.fn(),
       }
     }
 
@@ -112,17 +130,21 @@ describe('DailyTaskAggregator', () => {
         }
       }
       
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(monthlyData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(monthlyData))
 
       const result = await aggregator.loadMonthlyData('2025-01-01')
 
       expect(result).toEqual(monthlyData)
-      expect(mockApp.vault.adapter.read).toHaveBeenCalledWith('TaskChute/Log/2025-01-tasks.json')
+      expect(mockApp.vault.read).toHaveBeenCalledWith(mockFile)
     })
 
     test('should return empty object if file does not exist', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
 
       const result = await aggregator.loadMonthlyData('2025-01-01')
 
@@ -147,8 +169,12 @@ describe('DailyTaskAggregator', () => {
         }
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(monthlyData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(monthlyData))
 
       aggregator.updateYearlyData = jest.fn()
 
@@ -165,10 +191,14 @@ describe('DailyTaskAggregator', () => {
     })
 
     test('should handle errors gracefully', async () => {
-      mockApp.vault.adapter.exists.mockRejectedValue(new Error('Read error'))
+      mockApp.vault.getAbstractFileByPath.mockImplementation(() => {
+        throw new Error('Read error')
+      })
 
       const stats = await aggregator.updateDailyStats('2025-01-01')
 
+      // loadMonthlyData catches the error and returns empty data
+      // So updateDailyStats returns default stats, not null
       expect(stats).toEqual({
         totalTasks: 0,
         completedTasks: 0,
@@ -180,7 +210,7 @@ describe('DailyTaskAggregator', () => {
 
   describe('updateYearlyData', () => {
     test('should create new yearly data if not exists', async () => {
-      mockApp.vault.adapter.exists.mockResolvedValue(false)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(null)
 
       const stats = {
         totalTasks: 5,
@@ -191,12 +221,12 @@ describe('DailyTaskAggregator', () => {
 
       await aggregator.updateYearlyData('2025-01-01', stats)
 
-      expect(mockApp.vault.adapter.write).toHaveBeenCalledWith(
+      expect(mockApp.vault.create).toHaveBeenCalledWith(
         'TaskChute/Log/2025/yearly-heatmap.json',
         expect.stringContaining('"year": 2025')
       )
 
-      const writtenData = JSON.parse(mockApp.vault.adapter.write.mock.calls[0][1])
+      const writtenData = JSON.parse(mockApp.vault.create.mock.calls[0][1])
       expect(writtenData.days['2025-01-01']).toEqual(stats)
     })
 
@@ -209,8 +239,12 @@ describe('DailyTaskAggregator', () => {
         metadata: { version: '1.0' }
       }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(existingData))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(existingData))
 
       const newStats = {
         totalTasks: 5,
@@ -221,7 +255,7 @@ describe('DailyTaskAggregator', () => {
 
       await aggregator.updateYearlyData('2025-01-02', newStats)
 
-      const writtenData = JSON.parse(mockApp.vault.adapter.write.mock.calls[0][1])
+      const writtenData = JSON.parse(mockApp.vault.modify.mock.calls[0][1])
       expect(writtenData.days['2025-01-01']).toEqual(existingData.days['2025-01-01'])
       expect(writtenData.days['2025-01-02']).toEqual(newStats)
     })
@@ -231,9 +265,13 @@ describe('DailyTaskAggregator', () => {
       const logView = { dataCache: { 2025: cachedData } }
       plugin.view = { logView }
 
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(cachedData))
-      mockApp.vault.adapter.write.mockResolvedValue()
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(cachedData))
+      mockApp.vault.modify.mockResolvedValue()
 
       await aggregator.updateYearlyData('2025-01-01', {
         totalTasks: 1,
@@ -241,7 +279,7 @@ describe('DailyTaskAggregator', () => {
       })
 
       // Write should have been called with updated data
-      const writtenData = JSON.parse(mockApp.vault.adapter.write.mock.calls[0][1])
+      const writtenData = JSON.parse(mockApp.vault.modify.mock.calls[0][1])
       expect(writtenData.days['2025-01-01']).toEqual({
         totalTasks: 1,
         completedTasks: 1

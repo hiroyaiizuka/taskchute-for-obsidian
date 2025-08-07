@@ -1,5 +1,19 @@
-const { TaskChuteView } = require("../main.js")
-const { TFile } = require("obsidian")
+const { TaskChuteView } = require('../main.js')
+
+// Obsidianモジュールのモック
+jest.mock('obsidian', () => ({
+  Plugin: jest.fn(),
+  ItemView: jest.fn(),
+  WorkspaceLeaf: jest.fn(),
+  TFile: jest.fn(),
+  TFolder: jest.fn(),
+  Notice: jest.fn(),
+  PluginSettingTab: jest.fn(),
+  Setting: jest.fn(),
+  normalizePath: jest.fn(path => path)
+}))
+
+const { TFile } = require('obsidian')
 
 // モックオブジェクト
 const mockApp = {
@@ -279,8 +293,12 @@ describe("duplicateAndStartInstance バグ再現テスト", () => {
         },
       }
 
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(mockJsonLog))
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockJsonLog))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
 
       // 7. 複製されたタスクを削除
       await view.deleteDuplicatedInstance(duplicatedInstance)
@@ -545,8 +563,12 @@ routine: false
       }
 
       // 2. JSONログファイルの読み込みをモック
-      mockApp.vault.adapter.exists.mockResolvedValue(true)
-      mockApp.vault.adapter.read.mockResolvedValue(JSON.stringify(mockJsonLog))
+      // TFileインスタンスのモック
+      const mockFile = { path: 'mock-path' }
+      mockFile.constructor = TFile
+      Object.setPrototypeOf(mockFile, TFile.prototype)
+      mockApp.vault.getAbstractFileByPath.mockReturnValue(mockFile)
+      mockApp.vault.read.mockResolvedValue(JSON.stringify(mockJsonLog))
 
       // 3. loadTodayExecutions を実行
       const executions = await view.loadTodayExecutions("2024-01-15")
@@ -572,14 +594,11 @@ routine: false
       // 7. loadTasks を実行
       await view.loadTasks()
 
-      // 8. ❌ 削除されたタスクが復活している
+      // 8. ✅ 修正後：削除されたタスクは復活しない (deleteTaskLogsByInstanceIdが呼ばれたため)
       const revivedInstance = view.taskInstances.find(
         (inst) => inst.instanceId === deletedInstanceId,
       )
-      expect(revivedInstance).toBeDefined()
-      expect(revivedInstance.state).toBe("done")
-      expect(revivedInstance.task.title).toBe("TestTask")
-      expect(revivedInstance.task.path).toBe(taskPath)
+      expect(revivedInstance).toBeUndefined()
     })
 
     test("複製情報の有無による削除処理の分岐を検証", async () => {

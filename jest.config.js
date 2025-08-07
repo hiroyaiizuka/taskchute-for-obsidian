@@ -8,5 +8,5 @@ module.exports = {
     "^obsidian$": "<rootDir>/__mocks__/obsidian.js",
   },
   testTimeout: 10000,
-  verbose: true,
+  verbose: true
 }

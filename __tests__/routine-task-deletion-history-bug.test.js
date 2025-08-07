@@ -228,7 +228,7 @@ describe("Routine Task Deletion History Bug", () => {
       }
 
       // ログディレクトリの存在とファイルリストをモック
-      mockApp.vault.adapter.exists.mockImplementation((path) => {
+      mockApp.vault.getAbstractFileByPath.mockImplementation((path) => {
         return path === "TaskChute/Log"
           ? Promise.resolve(true)
           : Promise.resolve(false)
@@ -240,7 +240,7 @@ describe("Routine Task Deletion History Bug", () => {
       })
 
       // ファイル読み込みのモック
-      mockApp.vault.adapter.read.mockImplementation((path) => {
+      mockApp.vault.read.mockImplementation((path) => {
         if (path === "TaskChute/Log/2025-08-tasks.json") {
           return Promise.resolve(JSON.stringify(augustTasksJson))
         } else {
@@ -270,7 +270,7 @@ describe("Routine Task Deletion History Bug", () => {
       expect(deleteTaskLogsSpy).not.toHaveBeenCalled()
 
       // ログファイルへの書き込みが発生しないことを確認
-      expect(mockApp.vault.adapter.write).not.toHaveBeenCalled()
+      expect(mockApp.vault.modify).not.toHaveBeenCalled()
 
       // タスクインスタンスは削除されていることを確認
       expect(taskChuteView.taskInstances).not.toContain(routineTaskInstance)
