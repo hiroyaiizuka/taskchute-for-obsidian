@@ -2353,38 +2353,43 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         // ルーチンタスクの表示判定
         if (isRoutine) {
-          // 新規作成日（routine_start）は常に表示
           const isCreationDate = routineStart && dateString === routineStart
-
-          // 既存の実行履歴がある日は表示
           const hasExecutions = todayExecutionsForTask.length > 0
-
-          // 非表示リストに含まれているかチェック
           const isInHiddenList = hiddenRoutinePaths.includes(file.path)
-
+          
           // ルーチンタイプに応じた表示判定
-          let shouldShowRoutine = false
-
+          let shouldShowByRoutineLogic = false
           if (routineType === "daily") {
-            // 毎日ルーチンは常に表示
-            shouldShowRoutine = true
+            shouldShowByRoutineLogic = true
           } else if (routineType === "weekly" || routineType === "custom") {
-            // 週次またはカスタムルーチンの場合は曜日をチェック
-            shouldShowRoutine = this.shouldShowWeeklyRoutine(
+            shouldShowByRoutineLogic = this.shouldShowWeeklyRoutine(
               { routineType, weekday, weekdays },
               this.currentDate,
             )
           }
 
-          // 実行履歴がある場合は、非表示リストに含まれていても必ず表示
-          if (hasExecutions) {
-            // 実行履歴がある = 完了済みタスクなので必ず表示
-          } else if (isInHiddenList) {
-            // 実行履歴がなく、非表示リストに含まれている場合はスキップ
-            continue
-          } else if (!isCreationDate && !shouldShowRoutine) {
-            // 新規作成日でもなく、表示すべきルーチンでもない場合はスキップ
-            continue
+          // 重要：target_dateがroutine_startと同じ場合は無視する（初期設定として扱う）
+          const hasMovedTargetDate = metadata && metadata.target_date && 
+                                     metadata.target_date !== routineStart
+          
+          // 移動されたルーチンタスクの処理
+          if (hasMovedTargetDate) {
+            // 移動先の日付でのみ表示
+            if (dateString !== metadata.target_date) {
+              continue  // 移動先でない日はスキップ
+            }
+            // 移動先の日付なので表示を継続
+          } else {
+            // 通常のルーチンタスク表示ロジック
+            // 実行履歴がある場合は必ず表示
+            if (hasExecutions) {
+              // 何もしない（表示する）
+            } else if (isInHiddenList) {
+              continue  // 非表示リストに含まれている
+            } else if (!isCreationDate && !shouldShowByRoutineLogic) {
+              continue  // 表示すべき日ではない
+            }
+            // それ以外は表示する
           }
         }
 
@@ -7745,14 +7750,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             frontmatter.push(`routineType: "${inheritance.routineType}"`)
           if (inheritance.weekday)
             frontmatter.push(`weekday: ${inheritance.weekday}`)
+          // ルーチンタスクには作成時のtarget_dateは設定しない（日跨ぎ移動専用）
         } else {
           frontmatter.push("routine: false")
+          // 非ルーチンタスクにのみtarget_dateを設定
+          frontmatter.push(`target_date: ${targetDateString}`)
         }
       } else {
         frontmatter.push("routine: false")
+        // 継承データがない場合は非ルーチンタスクとしてtarget_dateを設定
+        frontmatter.push(`target_date: ${targetDateString}`)
       }
-
-      frontmatter.push(`target_date: ${targetDateString}`)
       frontmatter.push("---")
 
       // コンテンツの構築
@@ -13736,12 +13744,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // タスクを指定日付に移動
   async moveTaskToDate(inst, targetDate) {
     try {
-      // ルーチンタスクの移動を防ぐ
-      if (inst.task.isRoutine) {
-        new Notice("ルーチンタスクは移動できません")
-        return
-      }
-
       // 実行中タスクの移動を防ぐ
       if (inst.state === "running") {
         new Notice("実行中のタスクは移動できません")

@@ -134,7 +134,7 @@ describe("Task Date Move Feature", () => {
   })
 
   describe("moveTaskToDate", () => {
-    it("should prevent moving routine tasks", async () => {
+    it("should allow moving routine tasks", async () => {
       const inst = {
         task: { 
           title: "ルーチンタスク", 
@@ -145,12 +145,15 @@ describe("Task Date Move Feature", () => {
       }
 
       // updateTaskMetadataをスパイに置き換え
-      view.updateTaskMetadata = jest.fn()
+      view.updateTaskMetadata = jest.fn().mockResolvedValue()
 
       await view.moveTaskToDate(inst, "2025-07-25")
 
-      expect(Notice).toHaveBeenCalledWith("ルーチンタスクは移動できません")
-      expect(view.updateTaskMetadata).not.toHaveBeenCalled()
+      expect(view.updateTaskMetadata).toHaveBeenCalledWith("routine-task.md", {
+        target_date: "2025-07-25"
+      })
+      expect(view.loadTasks).toHaveBeenCalled()
+      expect(Notice).toHaveBeenCalledWith("「ルーチンタスク」を2025-07-25に移動しました")
     })
 
     it("should prevent moving running tasks", async () => {
