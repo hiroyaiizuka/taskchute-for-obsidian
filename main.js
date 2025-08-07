@@ -614,22 +614,22 @@ class ProjectNoteSyncManager {
     // #ログ、##ログ、# Log、## Log などのバリエーションに対応
     const logSectionRegex = /^#{1,2}\s+(ログ|log|Log|LOG)\s*$/im
     const match = content.match(logSectionRegex)
-    
+
     if (match) {
       // 既存セクションの位置を返す
       return {
         exists: true,
         position: match.index + match[0].length,
-        content: content
+        content: content,
       }
     }
-    
+
     // セクションが存在しない場合、末尾に追加
-    const newContent = content.trimEnd() + '\n\n## ログ\n'
+    const newContent = content.trimEnd() + "\n\n## ログ\n"
     return {
       exists: false,
       position: newContent.length,
-      content: newContent
+      content: newContent,
     }
   }
 
@@ -637,30 +637,30 @@ class ProjectNoteSyncManager {
   formatCommentEntry(inst, completionData, dateString) {
     const wikilink = `[[${dateString}]]`
     const comment = completionData.executionComment
-    
+
     // 複数行コメントの処理（各行をリスト形式でインデント）
     const formattedComment = comment
-      .split('\n')
+      .split("\n")
       .map((line) => `    - ${line}`)
-      .join('\n')
-    
+      .join("\n")
+
     return {
       date: dateString,
       entry: `- ${wikilink}\n${formattedComment}`,
-      instanceId: inst.instanceId
+      instanceId: inst.instanceId,
     }
   }
 
   // 既存ログをパースして構造化
   parseExistingLogs(content, logSectionPosition) {
-    const lines = content.substring(logSectionPosition).split('\n')
+    const lines = content.substring(logSectionPosition).split("\n")
     const logs = []
     let currentDate = null
     let currentDateLine = -1
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      
+
       // 日付エントリの検出 (- [[YYYY-MM-DD]])
       const dateMatch = line.match(/^-\s+\[\[(\d{4}-\d{2}-\d{2})\]\]/)
       if (dateMatch) {
@@ -669,19 +669,19 @@ class ProjectNoteSyncManager {
         logs.push({
           date: currentDate,
           lineIndex: i,
-          entries: []
+          entries: [],
         })
-      } 
+      }
       // コメントエントリの検出 (TABまたはスペースでインデントされた - で始まる行)
       else if (currentDate && line.match(/^(\t|    )-\s+/)) {
         const log = logs[logs.length - 1]
         log.entries.push({
           lineIndex: i,
-          content: line
+          content: line,
         })
       }
     }
-    
+
     return logs
   }
 
@@ -689,17 +689,18 @@ class ProjectNoteSyncManager {
   findInsertPosition(content, existingDateLog, logSectionPosition) {
     // ログセクションから後の部分のみを対象にする
     const logContent = content.substring(logSectionPosition)
-    const logLines = logContent.split('\n')
-    
+    const logLines = logContent.split("\n")
+
     // 既存の日付エントリの最後のコメントの次の行に挿入
-    const lastEntryLine = existingDateLog.lineIndex + existingDateLog.entries.length + 1
-    
+    const lastEntryLine =
+      existingDateLog.lineIndex + existingDateLog.entries.length + 1
+
     // ログセクション内での位置を計算
     let relativePosition = 0
     for (let i = 0; i < lastEntryLine && i < logLines.length; i++) {
       relativePosition += logLines[i].length + 1 // +1 for newline
     }
-    
+
     // 全体のコンテンツ内での絶対位置に変換
     return logSectionPosition + relativePosition
   }
@@ -710,24 +711,24 @@ class ProjectNoteSyncManager {
       // ログが空の場合、セクションの直後に挿入
       return sectionPosition + 1
     }
-    
+
     // 日付を比較して適切な位置を見つける（降順 - 新しい日付が上）
     for (let i = 0; i < logs.length; i++) {
       if (newDate > logs[i].date) {
         // この日付の前に挿入（新しい日付なので上に）
         const logContent = content.substring(sectionPosition)
-        const logLines = logContent.split('\n')
-        
+        const logLines = logContent.split("\n")
+
         // ログセクション内での位置を計算
         let relativePosition = 0
         for (let j = 0; j < logs[i].lineIndex && j < logLines.length; j++) {
           relativePosition += logLines[j].length + 1
         }
-        
+
         return sectionPosition + relativePosition
       }
     }
-    
+
     // 最も古い日付の後に挿入（このエントリが最も古い）
     const lastLog = logs[logs.length - 1]
     return this.findInsertPosition(content, lastLog, sectionPosition)
@@ -735,14 +736,16 @@ class ProjectNoteSyncManager {
 
   // 指定位置に文字列を挿入
   insertAtPosition(content, text, position) {
-    return content.substring(0, position) + text + '\n' + content.substring(position)
+    return (
+      content.substring(0, position) + text + "\n" + content.substring(position)
+    )
   }
 
   // 日付文字列をフォーマット
   formatDateString(date) {
     const year = date.getFullYear()
-    const month = (date.getMonth() + 1).toString().padStart(2, '0')
-    const day = date.getDate().toString().padStart(2, '0')
+    const month = (date.getMonth() + 1).toString().padStart(2, "0")
+    const day = date.getDate().toString().padStart(2, "0")
     return `${year}-${month}-${day}`
   }
 
@@ -753,47 +756,61 @@ class ProjectNoteSyncManager {
       if (!file) {
         throw new Error(`プロジェクトノートが見つかりません: ${projectPath}`)
       }
-      
+
       // 現在のコンテンツを読み込み
       let content = await this.app.vault.read(file)
-      
+
       // ログセクションを確保
       const sectionResult = await this.ensureLogSection(content)
       content = sectionResult.content
-      
+
       // 日付文字列を生成
       const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()
       const dateString = this.formatDateString(taskDate)
-      
+
       // コメントエントリをフォーマット
       const entry = this.formatCommentEntry(inst, completionData, dateString)
-      
+
       // 既存ログをパース
       const logs = this.parseExistingLogs(content, sectionResult.position)
-      
+
       // 同じ日付のログを検索
-      const existingDateLog = logs.find(log => log.date === dateString)
-      
+      const existingDateLog = logs.find((log) => log.date === dateString)
+
       if (existingDateLog) {
         // 同じ日付が存在する場合、その下に追記（コメント部分のみ）
-        const insertPosition = this.findInsertPosition(content, existingDateLog, sectionResult.position)
+        const insertPosition = this.findInsertPosition(
+          content,
+          existingDateLog,
+          sectionResult.position,
+        )
         // コメント部分のみを抽出（日付行を除く）
-        const commentOnly = entry.entry.split('\n').slice(1).join('\n')
+        const commentOnly = entry.entry.split("\n").slice(1).join("\n")
         content = this.insertAtPosition(content, commentOnly, insertPosition)
       } else {
         // 新しい日付の場合、適切な位置に挿入（降順）
-        const insertPosition = this.findDateInsertPosition(content, logs, dateString, sectionResult.position)
+        const insertPosition = this.findDateInsertPosition(
+          content,
+          logs,
+          dateString,
+          sectionResult.position,
+        )
         // 既存のログがある場合は後ろに空行を追加
-        const entryWithSpacing = logs.length > 0 ? `${entry.entry}\n` : entry.entry
-        content = this.insertAtPosition(content, entryWithSpacing, insertPosition)
+        const entryWithSpacing =
+          logs.length > 0 ? `${entry.entry}\n` : entry.entry
+        content = this.insertAtPosition(
+          content,
+          entryWithSpacing,
+          insertPosition,
+        )
       }
-      
+
       // ファイルを更新
       await this.app.vault.modify(file, content)
-      
+
       return true
     } catch (error) {
-      console.error('プロジェクトノート更新エラー:', error)
+      console.error("プロジェクトノート更新エラー:", error)
       throw error
     }
   }
@@ -801,11 +818,11 @@ class ProjectNoteSyncManager {
 
 class TaskChuteView extends ItemView {
   // idle-task-auto-move機能のプロパティ
-  lastTimeSlotCheck = null     // 最後の時間帯チェック時刻
-  moveInProgress = false        // 移動処理中フラグ
-  currentTimeSlotCache = null   // 現在の時間帯キャッシュ
-  cacheExpiry = null           // キャッシュ有効期限
-  
+  lastTimeSlotCheck = null // 最後の時間帯チェック時刻
+  moveInProgress = false // 移動処理中フラグ
+  currentTimeSlotCache = null // 現在の時間帯キャッシュ
+  cacheExpiry = null // キャッシュ有効期限
+
   // タスク名検証ユーティリティ
   TaskNameValidator = {
     // 禁止文字のパターン
@@ -997,9 +1014,7 @@ class TaskChuteView extends ItemView {
 
     // Keyboard selection state
     this.selectedTaskInstance = null
-
   }
-
 
   getViewType() {
     return VIEW_TYPE_TASKCHUTE
@@ -1294,17 +1309,17 @@ class TaskChuteView extends ItemView {
               try {
                 const dateStr = this.getCurrentDateString()
                 let deletedInstances = this.getDeletedInstances(dateStr)
-                
+
                 // 古いパスを持つインスタンスを更新
                 let updated = false
-                deletedInstances = deletedInstances.map(inst => {
+                deletedInstances = deletedInstances.map((inst) => {
                   if (inst.path === oldPath) {
                     updated = true
                     return { ...inst, path: file.path }
                   }
                   return inst
                 })
-                
+
                 if (updated) {
                   this.saveDeletedInstances(dateStr, deletedInstances)
                 }
@@ -2750,15 +2765,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const currentSlot = this.getCurrentTimeSlotCached()
       const tasksToMove = this.identifyTasksToMove(currentSlot)
-      
+
       if (tasksToMove.length > 0) {
         this.performBatchMove(tasksToMove, currentSlot)
         this.sortTasksAfterMove()
         this.renderTaskList()
-        console.log(`[idle-task-auto-move] Moved ${tasksToMove.length} tasks to ${currentSlot}`)
+        console.log(
+          `[idle-task-auto-move] Moved ${tasksToMove.length} tasks to ${currentSlot}`,
+        )
       }
     } catch (error) {
-      console.error('[idle-task-auto-move] Error during auto-move:', error)
+      console.error("[idle-task-auto-move] Error during auto-move:", error)
     } finally {
       this.moveInProgress = false
     }
@@ -2770,29 +2787,29 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       "0:00-8:00": 0,
       "8:00-12:00": 1,
       "12:00-16:00": 2,
-      "16:00-0:00": 3
+      "16:00-0:00": 3,
     }
-    
+
     const currentPriority = slotPriority[currentSlot]
     const tasksToMove = []
-    
-    this.taskInstances.forEach(inst => {
+
+    this.taskInstances.forEach((inst) => {
       // 未着手タスクのみ対象
       if (inst.state !== "idle") return
       if (inst.slotKey === "none") return
-      
+
       const taskPriority = slotPriority[inst.slotKey]
-      
+
       // 過去の時間帯のタスクを特定
       if (taskPriority < currentPriority) {
         tasksToMove.push({
           instance: inst,
           originalSlot: inst.slotKey,
-          startTime: inst.parsedStartTime || 0
+          startTime: inst.parsedStartTime || 0,
         })
       }
     })
-    
+
     // 開始時刻順にソート
     return tasksToMove.sort((a, b) => a.startTime - b.startTime)
   }
@@ -2803,33 +2820,33 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (tasksToMove.length > 100) {
       return this.performBatchMoveOptimized(tasksToMove, targetSlot)
     }
-    
+
     const moveResults = []
-    
+
     tasksToMove.forEach(({ instance, originalSlot }) => {
       try {
         // 時間帯を更新
         instance.slotKey = targetSlot
-        
+
         // LocalStorageに保存
         const storageKey = `taskchute-slotkey-${instance.task.path}`
         localStorage.setItem(storageKey, targetSlot)
-        
+
         moveResults.push({
           success: true,
           taskName: instance.task.basename || instance.task.title,
           from: originalSlot,
-          to: targetSlot
+          to: targetSlot,
         })
       } catch (error) {
         moveResults.push({
           success: false,
           taskName: instance.task.basename || instance.task.title,
-          error: error.message
+          error: error.message,
         })
       }
     })
-    
+
     return moveResults
   }
 
@@ -2839,25 +2856,27 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     for (let i = 0; i < tasksToMove.length; i += 50) {
       chunks.push(tasksToMove.slice(i, i + 50))
     }
-    
+
     let processedCount = 0
     const allResults = []
-    
+
     // 非同期で順次処理
     chunks.forEach((chunk, index) => {
       setTimeout(() => {
         const results = this.performBatchMove(chunk, targetSlot)
         allResults.push(...results)
         processedCount += chunk.length
-        
+
         if (processedCount === tasksToMove.length) {
           this.sortTasksAfterMove()
           this.renderTaskListOptimized()
-          console.log(`[idle-task-auto-move] Optimized move completed: ${processedCount} tasks`)
+          console.log(
+            `[idle-task-auto-move] Optimized move completed: ${processedCount} tasks`,
+          )
         }
       }, index * 100) // 100ms間隔で処理
     })
-    
+
     return allResults
   }
 
@@ -2867,7 +2886,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (this.renderDebounceTimer) {
       clearTimeout(this.renderDebounceTimer)
     }
-    
+
     this.renderDebounceTimer = setTimeout(() => {
       this.renderTaskList()
       this.renderDebounceTimer = null
@@ -2883,18 +2902,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // idle-task-auto-move: キャッシュ付き時間帯取得
   getCurrentTimeSlotCached() {
     const now = Date.now()
-    
+
     // キャッシュが有効な場合は返す
-    if (this.currentTimeSlotCache && 
-        this.cacheExpiry && 
-        now < this.cacheExpiry) {
+    if (
+      this.currentTimeSlotCache &&
+      this.cacheExpiry &&
+      now < this.cacheExpiry
+    ) {
       return this.currentTimeSlotCache
     }
-    
+
     // 新しい値を計算してキャッシュ
     this.currentTimeSlotCache = this.getCurrentTimeSlot()
     this.cacheExpiry = now + 30000 // 30秒間有効
-    
+
     return this.currentTimeSlotCache
   }
 
@@ -2902,21 +2923,21 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   scheduleBoundaryCheck() {
     const now = new Date()
     const currentMinutes = now.getHours() * 60 + now.getMinutes()
-    const boundaries = [0, 8*60, 12*60, 16*60] // 0:00, 8:00, 12:00, 16:00
-    
+    const boundaries = [0, 8 * 60, 12 * 60, 16 * 60] // 0:00, 8:00, 12:00, 16:00
+
     // 次の境界を計算
-    let nextBoundary = boundaries.find(b => b > currentMinutes)
+    let nextBoundary = boundaries.find((b) => b > currentMinutes)
     if (!nextBoundary) {
       nextBoundary = 24 * 60 // 翌日の0:00
     }
-    
+
     const msUntilBoundary = (nextBoundary - currentMinutes) * 60 * 1000
-    
+
     // 境界時刻の1秒後に実行
     if (this.boundaryCheckTimeout) {
       clearTimeout(this.boundaryCheckTimeout)
     }
-    
+
     this.boundaryCheckTimeout = setTimeout(() => {
       this.performBoundaryTransition()
       this.scheduleBoundaryCheck() // 次の境界をスケジュール
@@ -2925,7 +2946,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // idle-task-auto-move: 境界時刻での移動実行
   performBoundaryTransition() {
-    console.log('[idle-task-auto-move] Time slot boundary reached')
+    console.log("[idle-task-auto-move] Time slot boundary reached")
     // キャッシュをクリア
     this.currentTimeSlotCache = null
     this.cacheExpiry = null
@@ -3341,8 +3362,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 新システムの削除済みインスタンスを取得
       const deletedInstances = this.getDeletedInstances(dateStr)
       deletedTasks = deletedInstances
-        .filter(inst => inst.deletionType === "permanent")
-        .map(inst => inst.path)
+        .filter((inst) => inst.deletionType === "permanent")
+        .map((inst) => inst.path)
     } catch (e) {
       console.error("Failed to parse deleted tasks:", e)
       deletedTasks = []
@@ -3377,13 +3398,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // クリーンアップ後のリストが元と異なる場合は更新
       if (existingDeletedTasks.length !== deletedTasks.length) {
         deletedTasks = existingDeletedTasks
-        
+
         // 新システムのクリーンアップ
         const deletedInstances = this.getDeletedInstances(dateStr)
-        const cleanedInstances = deletedInstances.filter(inst => 
-          existingDeletedTasks.includes(inst.path)
+        const cleanedInstances = deletedInstances.filter((inst) =>
+          existingDeletedTasks.includes(inst.path),
         )
-        
+
         try {
           // 新システムの更新
           if (cleanedInstances.length !== deletedInstances.length) {
@@ -4010,8 +4031,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const dateStr = this.getCurrentDateString()
         const deletedInstances = this.getDeletedInstances(dateStr)
         deletedTasks = deletedInstances
-          .filter(inst => inst.deletionType === "permanent")
-          .map(inst => inst.path)
+          .filter((inst) => inst.deletionType === "permanent")
+          .map((inst) => inst.path)
       } catch (e) {
         deletedTasks = []
       }
@@ -4922,7 +4943,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 時間指定なしを一番上に表示（タスクがなくても常に表示）
     const noTimeHeader = this.taskList.createEl("div", {
       cls: "time-slot-header other",
-      text: "時間指定なしい",
+      text: "時間指定なし",
     })
     noTimeHeader.addEventListener("dragover", (e) => {
       e.preventDefault()
@@ -5230,13 +5251,31 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // コメントボタンの状態更新
     const commentButton = taskItem.querySelector(".comment-button")
     if (commentButton) {
+      // 状態に応じてボタンを有効/無効化
+      if (inst.state === "done") {
+        commentButton.classList.remove("disabled")
+        commentButton.removeAttribute("disabled")
+      } else {
+        commentButton.classList.add("disabled")
+        commentButton.setAttribute("disabled", "true")
+      }
+      
+      // data属性も更新
+      commentButton.setAttribute("data-task-state", inst.state)
+      
+      // 既存コメントの有無でactiveクラスを設定
       this.hasCommentData(inst).then((hasComment) => {
         if (hasComment) {
           commentButton.classList.add("active")
-          commentButton.setAttribute("title", "コメントを編集")
+          commentButton.classList.remove("no-comment")
         } else {
           commentButton.classList.remove("active")
-          commentButton.setAttribute("title", "コメントを記録")
+          // 完了済みでコメントなしの場合は特別なクラスを追加
+          if (inst.state === "done") {
+            commentButton.classList.add("no-comment")
+          } else {
+            commentButton.classList.remove("no-comment")
+          }
         }
       })
     }
@@ -5646,12 +5685,28 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const commentButton = taskItem.createEl("button", {
       cls: "comment-button",
       text: "💬",
-      attr: { title: "コメントを記録" },
+      attr: { 
+        "data-task-state": inst.state  // 状態を属性として保持
+      },
     })
+
+    // 状態に応じた初期スタイル設定
+    if (inst.state !== "done") {
+      commentButton.classList.add("disabled")
+      commentButton.setAttribute("disabled", "true")
+    }
 
     // コメントボタンのクリックイベント
     commentButton.addEventListener("click", async (e) => {
       e.stopPropagation()
+      
+      // タスク状態チェック
+      if (inst.state !== "done") {
+        // 未完了タスクの場合は何もしない
+        return
+      }
+      
+      // 完了タスクの場合のみモーダル表示
       await this.showTaskCompletionModal(inst)
     })
 
@@ -5659,10 +5714,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.hasCommentData(inst).then((hasComment) => {
       if (hasComment) {
         commentButton.classList.add("active")
-        commentButton.setAttribute("title", "コメントを編集")
       } else {
         commentButton.classList.remove("active")
-        commentButton.setAttribute("title", "コメントを記録")
+        // 完了済みでコメントなしの場合は特別なクラスを追加
+        if (inst.state === "done") {
+          commentButton.classList.add("no-comment")
+        }
       }
     })
 
@@ -6645,8 +6702,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.app.vault.adapter.write(logFilePath, jsonContent)
 
       // プロジェクトノートへの同期
-      if (completionData && completionData.executionComment && 
-          (inst.task.projectPath || inst.task.projectTitle)) {
+      if (
+        completionData &&
+        completionData.executionComment &&
+        (inst.task.projectPath || inst.task.projectTitle)
+      ) {
         await this.syncCommentToProjectNote(inst, completionData)
       }
 
@@ -6677,20 +6737,23 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // プロジェクトノートにコメントを同期
   async syncCommentToProjectNote(inst, completionData) {
     try {
-      const syncManager = new ProjectNoteSyncManager(this.app, this.plugin.pathManager)
+      const syncManager = new ProjectNoteSyncManager(
+        this.app,
+        this.plugin.pathManager,
+      )
       const projectPath = await syncManager.getProjectNotePath(inst)
-      
+
       if (!projectPath) {
         // プロジェクトノートが見つからない場合はスキップ（エラーにしない）
         return
       }
-      
+
       await syncManager.updateProjectNote(projectPath, inst, completionData)
-      
+
       // 成功通知（オプション - 必要に応じてコメントアウトを解除）
       // new Notice(`プロジェクト「${inst.task.projectTitle}」のログを更新しました`)
     } catch (error) {
-      console.error('プロジェクトノート同期エラー:', error)
+      console.error("プロジェクトノート同期エラー:", error)
       new Notice(`プロジェクトノートの更新に失敗しました: ${error.message}`)
       // エラーが発生してもタスクコメント自体の保存は継続
     }
@@ -7713,7 +7776,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const dateStr = this.getCurrentDateString()
         let deletedInstances = this.getDeletedInstances(dateStr)
         const filteredInstances = deletedInstances.filter(
-          inst => inst.path !== filePath
+          (inst) => inst.path !== filePath,
         )
         if (filteredInstances.length !== deletedInstances.length) {
           this.saveDeletedInstances(dateStr, filteredInstances)
@@ -8943,16 +9006,30 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 opacity: 0;
                 width: 100%;
                 text-align: center;
+                visibility: visible; /* デフォルトは表示 */
             }
             
-            .task-item:hover .comment-button {
+            .task-item:hover .comment-button:not(.disabled) {
                 opacity: 0.6;
             }
             
-            .comment-button:hover {
+            .comment-button:not(.disabled):hover {
                 opacity: 1 !important;
                 background: var(--background-modifier-border);
                 color: var(--text-normal);
+            }
+            
+            /* コメントボタンの無効化スタイル - スペースは維持して非表示 */
+            .comment-button.disabled {
+                visibility: hidden;
+            }
+            
+            /* 既存コメントがある場合は表示するが、クリック不可 */
+            .comment-button.disabled.active {
+                visibility: visible;
+                opacity: 0.6;
+                pointer-events: none;
+                cursor: not-allowed;
             }
             
             .comment-button.active {
@@ -8962,6 +9039,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             
             .task-item:hover .comment-button.active {
                 opacity: 1;
+            }
+            
+            /* 完了済みでコメント未記入のタスク - グレーアウト表示 */
+            .comment-button.no-comment {
+                opacity: 0.3;
+                visibility: visible;
+            }
+            
+            .task-item:hover .comment-button.no-comment {
+                opacity: 0.5;
             }
             
             /* プロジェクト表示コンポーネント全体 */
