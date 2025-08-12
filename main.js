@@ -434,7 +434,8 @@ class TaskNameAutocomplete {
 
     // 入力フィールドの位置を取得して配置
     const rect = this.inputElement.getBoundingClientRect()
-    this.suggestionsElement.style.position = "absolute"
+    // CSSクラスを使用してスタイルを適用
+    this.suggestionsElement.className = "taskchute-autocomplete-suggestions"
     this.suggestionsElement.style.top = `${rect.bottom + 2}px`
     this.suggestionsElement.style.left = `${rect.left}px`
     this.suggestionsElement.style.width = `${rect.width}px`
@@ -819,7 +820,8 @@ class ProjectNoteSyncManager {
 
       return true
     } catch (error) {
-      console.error("プロジェクトノート更新エラー:", error)
+      // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
+      // console.error("プロジェクトノート更新エラー:", error)
       throw error
     }
   }
@@ -2827,7 +2829,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // Successfully moved idle tasks to current slot
       }
     } catch (error) {
-      console.error("[idle-task-auto-move] Error during auto-move:", error)
+      // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
+      // console.error("[idle-task-auto-move] Error during auto-move:", error)
     } finally {
       this.moveInProgress = false
     }
@@ -6669,6 +6672,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // インスタンスIDがある場合は、インスタンスIDでのみ検索（複製タスク対応）
       // インスタンスIDがない場合は、後方互換性のため他の条件で検索
       let existingIndex = -1
+      let existingTaskData = null  // 既存データを保存するための変数
 
       if (taskExecution.instanceId) {
         // インスタンスIDがある場合は、インスタンスIDでのみ検索
@@ -6700,6 +6704,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
 
       if (existingIndex !== -1) {
+        // 更新前の既存データを保存
+        existingTaskData = monthlyLog.taskExecutions[dateString][existingIndex]
+        
         // 既存エントリを更新（コメント追加/編集時）
         monthlyLog.taskExecutions[dateString][existingIndex] = {
           ...monthlyLog.taskExecutions[dateString][existingIndex],
@@ -6774,7 +6781,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (
         completionData &&
         completionData.executionComment &&
-        (inst.task.projectPath || inst.task.projectTitle)
+        (inst.task.projectPath || inst.task.projectTitle) &&
+        this.hasCommentChanged(existingTaskData, completionData)  // 更新前のデータと比較
       ) {
         await this.syncCommentToProjectNote(inst, completionData)
       }
@@ -6803,6 +6811,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
+  // コメント変更検出メソッド
+  // コメント変更検出メソッド
+  hasCommentChanged(oldData, newData) {
+    // null/undefined の安全な処理とデフォルト値の設定
+    const oldComment = oldData?.executionComment || ''
+    const newComment = newData?.executionComment || ''
+    
+    // 文字列の厳密な比較
+    return oldComment !== newComment
+  }
+
   // プロジェクトノートにコメントを同期
   async syncCommentToProjectNote(inst, completionData) {
     try {
@@ -6822,7 +6841,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 成功通知（オプション - 必要に応じてコメントアウトを解除）
       // new Notice(`プロジェクト「${inst.task.projectTitle}」のログを更新しました`)
     } catch (error) {
-      console.error("プロジェクトノート同期エラー:", error)
+      // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
+      // console.error("プロジェクトノート同期エラー:", error)
       new Notice(`プロジェクトノートの更新に失敗しました: ${error.message}`)
       // エラーが発生してもタスクコメント自体の保存は継続
     }
@@ -14089,7 +14109,7 @@ class TaskChutePlusPlugin extends Plugin {
     this.addCommand({
       id: "duplicate-selected-task",
       name: "選択されたタスクを複製",
-      hotkeys: [{ modifiers: ["Ctrl"], key: "c" }],
+      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
       callback: () => {
         const view = this.getTaskChuteView()
         if (view && view.selectedTaskInstance) {
@@ -14104,7 +14124,7 @@ class TaskChutePlusPlugin extends Plugin {
     this.addCommand({
       id: "delete-selected-task",
       name: "選択されたタスクを削除",
-      hotkeys: [{ modifiers: ["Ctrl"], key: "d" }],
+      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
       callback: () => {
         const view = this.getTaskChuteView()
         if (view && view.selectedTaskInstance) {
@@ -14118,7 +14138,7 @@ class TaskChutePlusPlugin extends Plugin {
     this.addCommand({
       id: "reset-selected-task",
       name: "選択されたタスクを未実行に戻す",
-      hotkeys: [{ modifiers: ["Ctrl"], key: "u" }],
+      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
       callback: () => {
         const view = this.getTaskChuteView()
         if (view && view.selectedTaskInstance) {
@@ -14139,12 +14159,7 @@ class TaskChutePlusPlugin extends Plugin {
       id: "show-today-tasks",
       name: "今日のタスクを表示",
       description: "Show today's tasks",
-      hotkeys: [
-        {
-          modifiers: ["Alt"],
-          key: "t",
-        },
-      ],
+      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
       callback: () => {
         this.showTodayTasks()
       },
@@ -14412,9 +14427,12 @@ const TaskChuteSettingTab = PluginSettingTab
 
         containerEl.empty()
 
-        containerEl.createEl("h2", { text: "TaskChute Plus 設定" })
-        // パス設定セクション
-        containerEl.createEl("h3", { text: "パス設定" })
+        // メインタイトルをsetHeadingで設定
+        new Setting(containerEl)
+          .setName("TaskChute Plus 設定")
+          .setHeading()
+        // パス設定セクションもsetHeadingで設定
+        new Setting(containerEl).setName("パス設定").setHeading()
 
         new Setting(containerEl)
           .setName("タスクフォルダパス")

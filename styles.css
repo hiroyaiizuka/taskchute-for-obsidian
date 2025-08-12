@@ -1,0 +1,280 @@
+/* TaskChute Plus Plugin Styles */
+
+/* オートコンプリート候補リスト */
+.taskchute-autocomplete-suggestions {
+  position: absolute;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.taskchute-autocomplete-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.taskchute-autocomplete-item:hover,
+.taskchute-autocomplete-item.selected {
+  background-color: var(--background-modifier-hover);
+}
+
+.taskchute-autocomplete-title {
+  font-weight: 500;
+}
+
+.taskchute-autocomplete-project {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* 日付ピッカー */
+.taskchute-date-picker {
+  position: absolute;
+  z-index: 10000;
+}
+
+/* 右クリックメニュー */
+.taskchute-context-menu {
+  position: fixed;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 150px;
+}
+
+.taskchute-context-menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.taskchute-context-menu-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+/* コメントモーダル */
+.taskchute-comment-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.taskchute-comment-content {
+  background-color: var(--background-primary);
+  border-radius: 8px;
+  padding: 20px;
+  width: 500px;
+  max-width: 90%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.taskchute-comment-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-normal);
+}
+
+.taskchute-comment-task-name {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.taskchute-comment-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.taskchute-rating-container {
+  margin: 20px 0;
+}
+
+.taskchute-rating-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-normal);
+}
+
+.taskchute-rating-stars {
+  display: flex;
+  gap: 5px;
+}
+
+.taskchute-rating-star {
+  font-size: 24px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.taskchute-rating-value {
+  margin-left: 10px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.taskchute-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.taskchute-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s;
+}
+
+.taskchute-button-primary {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.taskchute-button-primary:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.taskchute-button-secondary {
+  background-color: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.taskchute-button-secondary:hover {
+  background-color: var(--background-modifier-border-hover);
+}
+
+/* タスクリスト関連 */
+.taskchute-task-item {
+  padding: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-task-item.selected {
+  background-color: var(--background-modifier-hover);
+}
+
+.taskchute-task-item.dragging {
+  opacity: 0.5;
+}
+
+.taskchute-task-item.drag-over {
+  border-top: 2px solid var(--interactive-accent);
+}
+
+/* プロジェクト選択ドロップダウン */
+.taskchute-project-select {
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.taskchute-project-select:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+/* タイマー表示 */
+.taskchute-timer {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--text-accent);
+}
+
+.taskchute-timer.running {
+  color: var(--text-success);
+  font-weight: bold;
+}
+
+/* ステータスバッジ */
+.taskchute-status-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.taskchute-status-idle {
+  background-color: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.taskchute-status-running {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.taskchute-status-done {
+  background-color: var(--background-modifier-success);
+  color: var(--text-success);
+}
+
+/* ナビゲーションボタン */
+.taskchute-nav-button {
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.taskchute-nav-button:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.taskchute-nav-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* エラーメッセージ */
+.taskchute-error {
+  padding: 8px 12px;
+  background-color: var(--background-modifier-error);
+  color: var(--text-error);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+/* 情報メッセージ */
+.taskchute-info {
+  padding: 8px 12px;
+  background-color: var(--background-modifier-message);
+  color: var(--text-normal);
+  border-radius: 4px;
+  margin: 8px 0;
+}
