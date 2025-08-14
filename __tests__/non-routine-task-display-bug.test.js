@@ -32,6 +32,13 @@ describe("Non-Routine Task Display Bug", () => {
       }),
       createFolder: jest.fn(() => Promise.resolve()),
       getFullPath: jest.fn((path) => `/mock/path/${path}`),
+      stat: jest.fn((path) => {
+        // 非ルーチンタスクのファイルは7/8に作成されたと仮定
+        return Promise.resolve({
+          ctime: new Date("2024-07-08T00:00:00.000Z").getTime(),
+          mtime: new Date("2024-07-08T00:00:00.000Z").getTime(),
+        })
+      }),
     }
 
     // fsモックの設定
@@ -277,6 +284,34 @@ describe("Non-Routine Task Display Bug", () => {
       taskChuteView.currentDate = new Date("2024-07-09")
       taskChuteView.tasks = []
       taskChuteView.taskInstances = []
+
+      // 7/9ではrunning-task.jsonが空または前日のデータのままという状況をシミュレート
+      // loadTasksの際にrunning-task.jsonが読まれても、日付が異なるため復元されない
+      mockApp.vault.read.mockImplementation((file) => {
+        const path = file?.path || file;
+        if (path === "TaskChute/Log/running-task.json") {
+          // 前日（7/8）の実行中タスクデータがまだ残っている
+          return Promise.resolve(JSON.stringify([{
+            date: "2024-07-08",  // 前日の日付
+            taskTitle: "非ルーチンタスクA",
+            taskPath: "Tasks/非ルーチンタスクA.md",
+            startTime: new Date("2024-07-08T10:00:00").toISOString(),
+            taskDescription: "",
+            slotKey: "none",
+            isRoutine: false,
+            taskId: "task-id",
+            instanceId: "instance-id"
+          }]))
+        }
+        // タスクファイルの内容
+        return Promise.resolve(`
+# 非ルーチンタスクA
+
+#task
+
+タスクの説明
+`)
+      })
 
       // 7/9でタスクリストを読み込み
       await taskChuteView.loadTasks()
