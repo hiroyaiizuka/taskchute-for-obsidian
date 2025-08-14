@@ -821,7 +821,6 @@ class ProjectNoteSyncManager {
       return true
     } catch (error) {
       // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
-      // console.error("プロジェクトノート更新エラー:", error)
       throw error
     }
   }
@@ -2001,11 +2000,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           } else {
             // Check file creation date
             try {
-              // Note: getFullPath is needed for Node.js file stats
-              const fileStats = this.app.vault.adapter.getFullPath(file.path)
-              const fs = require("fs")
-              const stats = fs.statSync(fileStats)
-              const fileCreationDate = new Date(stats.birthtime)
+              // Use Vault stat for cross-platform compatibility
+              const stats = await this.app.vault.adapter.stat(file.path)
+              const fileCreationDate = new Date(stats.ctime || stats.mtime)
               const fileYear = fileCreationDate.getFullYear()
               const fileMonth = (fileCreationDate.getMonth() + 1)
                 .toString()
@@ -2057,6 +2054,30 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               shouldShowRoutine = weekdays.includes(dayOfWeek)
             } else if (weekday !== undefined && weekday !== null) {
               shouldShowRoutine = weekday === dayOfWeek
+            }
+          } else if (routineType === "monthly") {
+            // Check monthly routine logic
+            const monthlyWeek = metadata?.monthly_week
+            const monthlyWeekday = metadata?.monthly_weekday
+            
+            if (monthlyWeek !== undefined && monthlyWeek !== null &&
+                monthlyWeekday !== undefined && monthlyWeekday !== null) {
+              const year = yesterday.getFullYear()
+              const month = yesterday.getMonth()
+              const targetDate = this.getNthWeekdayOfMonth(
+                year,
+                month,
+                monthlyWeekday,
+                monthlyWeek
+              )
+              
+              if (targetDate) {
+                shouldShowRoutine = targetDate.getDate() === yesterday.getDate()
+              } else {
+                shouldShowRoutine = false
+              }
+            } else {
+              shouldShowRoutine = false
             }
           }
 
@@ -2249,6 +2270,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         let routineType = "daily" // デフォルトは毎日
         let weekday = null
         let weekdays = null // 複数曜日対応
+        let monthlyWeek = null // 月次ルーチン: 週指定
+        let monthlyWeekday = null // 月次ルーチン: 曜日指定
 
         if (metadata) {
           // メタデータから読み込み
@@ -2259,6 +2282,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           routineType = metadata.routine_type || "daily" // 新規追加
           weekday = metadata.weekday !== undefined ? metadata.weekday : null // 新規追加
           weekdays = metadata.weekdays || null // 複数曜日対応
+          monthlyWeek = metadata.monthly_week || null // 月次ルーチン: 週指定
+          monthlyWeekday = metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null // 月次ルーチン: 曜日指定
         } else {
           // 後方互換性: 既存のタグ形式から読み込み
           isRoutine = content.includes("#routine")
@@ -2344,13 +2369,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               }
             } else {
               // target_dateがない場合は従来通りファイルの作成日をチェック
-              // Note: getFullPath is needed for Node.js file stats
-              const fileStats = this.app.vault.adapter.getFullPath(file.path)
-              const fs = require("fs")
-
               try {
-                const stats = fs.statSync(fileStats)
-                const fileCreationDate = new Date(stats.birthtime)
+                // Use Vault stat for cross-platform compatibility
+                const stats = await this.app.vault.adapter.stat(file.path)
+                const fileCreationDate = new Date(stats.ctime || stats.mtime)
                 // ローカルタイムゾーンで日付文字列を生成（UTCではなく）
                 const year = fileCreationDate.getFullYear()
                 const month = (fileCreationDate.getMonth() + 1)
@@ -2415,6 +2437,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               { routineType, weekday, weekdays },
               this.currentDate,
             )
+          } else if (routineType === "monthly") {
+            shouldShowByRoutineLogic = this.shouldShowWeeklyRoutine(
+              { routineType, monthlyWeek, monthlyWeekday },
+              this.currentDate,
+            )
           }
 
           // 重要：target_dateがroutine_startと同じ場合は無視する（初期設定として扱う）
@@ -2470,6 +2497,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           routineType: routineType,
           weekday: weekday,
           weekdays: weekdays,
+          monthlyWeek: monthlyWeek,
+          monthlyWeekday: monthlyWeekday,
           projectPath: projectPath,
           projectTitle: projectTitle,
         }
@@ -2830,7 +2859,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
     } catch (error) {
       // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
-      // console.error("[idle-task-auto-move] Error during auto-move:", error)
     } finally {
       this.moveInProgress = false
     }
@@ -3644,6 +3672,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     let routineEnd = null
     let routineType = "daily"
     let weekday = null
+    let weekdays = null
+    let monthlyWeek = null
+    let monthlyWeekday = null
     let projectPath = null
     let projectTitle = null
 
@@ -3654,6 +3685,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       routineEnd = metadata.routine_end || null
       routineType = metadata.routine_type || "daily"
       weekday = metadata.weekday !== undefined ? metadata.weekday : null
+      weekdays = metadata.weekdays || null
+      monthlyWeek = metadata.monthly_week || null
+      monthlyWeekday = metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null
 
       // プロジェクト情報
       projectPath = metadata.project_path || null
@@ -3686,6 +3720,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       routineType: routineType,
       weekday: weekday,
       weekdays: weekdays,
+      monthlyWeek: monthlyWeek,
+      monthlyWeekday: monthlyWeekday,
       projectPath: projectPath,
       projectTitle: projectTitle,
     }
@@ -4846,6 +4882,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     routineType,
     weekday,
     weekdaysArray,
+    monthlyWeek,      // 新規パラメータ
+    monthlyWeekday    // 新規パラメータ
   ) {
     try {
       // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
@@ -4875,10 +4913,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           if (weekday !== null) {
             frontmatter.weekday = weekday
           }
+        } else if (routineType === "monthly") {
+          // 月次ルーチンの場合
+          frontmatter.monthly_week = monthlyWeek
+          frontmatter.monthly_weekday = monthlyWeekday
+          // 月次の場合は週次設定をクリア
+          delete frontmatter.weekday
+          delete frontmatter.weekdays
         } else if (routineType === "daily") {
           // 毎日の場合は曜日関連を削除
           delete frontmatter.weekday
           delete frontmatter.weekdays
+          delete frontmatter.monthly_week
+          delete frontmatter.monthly_weekday
         }
 
         // ルーチン化した日付を記録
@@ -4902,6 +4949,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       task.routineType = routineType
       task.weekday = weekday
       task.weekdays = weekdaysArray
+      task.monthlyWeek = monthlyWeek
+      task.monthlyWeekday = monthlyWeekday
       button.classList.add("active")
 
       // ルーチンタスクに設定された場合、手動配置フラグをリセット
@@ -4913,7 +4962,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       let titleText = "ルーチンタスク"
       let noticeText = ""
 
-      if (
+      if (routineType === "monthly") {
+        const weekLabel = monthlyWeek === "last" ? "最終" : `第${monthlyWeek}`
+        const weekdayName = this.getWeekdayName(monthlyWeekday)
+        titleText = `月次ルーチン（毎月${weekLabel}${weekdayName} ${scheduledTime}開始予定）`
+        noticeText = `「${task.title}」を月次ルーチンに設定しました（毎月${weekLabel}${weekdayName} ${scheduledTime}開始予定）`
+      } else if (
         routineType === "custom" &&
         weekdaysArray &&
         weekdaysArray.length > 0
@@ -5597,7 +5651,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       let filePath = `${taskFolderPath}/${searchTitle}.md`
 
       // ファイルが存在しない場合、エイリアスから現在の名前を探す
-      if (!(await this.app.vault.adapter.exists(filePath))) {
+      if (!this.app.vault.getAbstractFileByPath(filePath)) {
         const currentName =
           this.plugin.routineAliasManager.findCurrentName(searchTitle)
         if (currentName) {
@@ -6842,7 +6896,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // new Notice(`プロジェクト「${inst.task.projectTitle}」のログを更新しました`)
     } catch (error) {
       // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
-      // console.error("プロジェクトノート同期エラー:", error)
       new Notice(`プロジェクトノートの更新に失敗しました: ${error.message}`)
       // エラーが発生してもタスクコメント自体の保存は継続
     }
@@ -7140,6 +7193,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       value: "custom",
     })
     customLabel.createSpan({ text: "曜日を選択" })
+    
+    // 月次チェックボックス
+    const monthlyLabel = typeContainer.createEl("label", {
+      cls: "checkbox-label",
+    })
+    const monthlyCheckbox = monthlyLabel.createEl("input", {
+      type: "checkbox",
+      id: "edit-routine-monthly",
+      value: "monthly",
+    })
+    monthlyLabel.createSpan({ text: "月次" })
 
     // 曜日選択（複数選択チェックボックス）
     const weekdayGroup = form.createEl("div", {
@@ -7168,14 +7232,59 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       label.createSpan({ text: day })
       weekdayCheckboxes.push(checkbox)
     })
+    
+    // 月次設定グループ
+    const monthlyGroup = form.createEl("div", {
+      cls: "form-group",
+      style: "display: none;", // 初期状態は非表示
+    })
+    monthlyGroup.id = "edit-monthly-group"
+    
+    // 週選択
+    const weekSelectGroup = monthlyGroup.createEl("div", { cls: "form-inline-group" })
+    weekSelectGroup.createEl("label", { text: "週:", cls: "form-label" })
+    const weekSelect = weekSelectGroup.createEl("select", {
+      cls: "form-select"
+    })
+    
+    // 週選択オプション
+    const weekOptions = [
+      { value: "1", text: "第1週" },
+      { value: "2", text: "第2週" },
+      { value: "3", text: "第3週" },
+      { value: "4", text: "第4週" },
+      { value: "5", text: "第5週" },
+      { value: "last", text: "最終週" }
+    ]
+    
+    weekOptions.forEach(option => {
+      weekSelect.createEl("option", {
+        value: option.value,
+        text: option.text
+      })
+    })
+    
+    // 曜日選択
+    const monthlyWeekdayGroup = monthlyGroup.createEl("div", { cls: "form-inline-group" })
+    monthlyWeekdayGroup.createEl("label", { text: "曜日:", cls: "form-label" })
+    const monthlyWeekdaySelect = monthlyWeekdayGroup.createEl("select", {
+      cls: "form-select"
+    })
+    
+    weekdays.forEach((day, index) => {
+      monthlyWeekdaySelect.createEl("option", {
+        value: index.toString(),
+        text: day + "曜日"
+      })
+    })
 
     // 初期状態の設定
-
     if (task.isRoutine) {
       // 既存のルーチンタスクの場合
       if (task.routineType === "daily") {
         dailyCheckbox.checked = true
         customCheckbox.checked = false
+        monthlyCheckbox.checked = false
       } else if (
         task.routineType === "weekly" ||
         task.routineType === "custom"
@@ -7183,6 +7292,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // weekly は custom として扱う
         dailyCheckbox.checked = false
         customCheckbox.checked = true
+        monthlyCheckbox.checked = false
         weekdayGroup.style.display = "block"
 
         // 曜日の初期選択を設定
@@ -7197,16 +7307,33 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             weekdayCheckboxes[task.weekday].checked = true
           }
         }
+      } else if (task.routineType === "monthly") {
+        // 月次ルーチンの場合
+        dailyCheckbox.checked = false
+        customCheckbox.checked = false
+        monthlyCheckbox.checked = true
+        monthlyGroup.style.display = "block"
+        
+        // 月次設定の初期値
+        if (task.monthlyWeek) {
+          weekSelect.value = task.monthlyWeek.toString()
+        }
+        if (task.monthlyWeekday !== undefined && task.monthlyWeekday !== null) {
+          monthlyWeekdaySelect.value = task.monthlyWeekday.toString()
+        }
       } else {
         // ルーチンタイプが不明な場合はデフォルトで毎日
         dailyCheckbox.checked = true
         customCheckbox.checked = false
+        monthlyCheckbox.checked = false
       }
     } else {
       // 新規ルーチン設定の場合は「毎日」をデフォルトに
       dailyCheckbox.checked = true
       customCheckbox.checked = false
+      monthlyCheckbox.checked = false
       weekdayGroup.style.display = "none"
+      monthlyGroup.style.display = "none"
     }
 
     // 開始時刻入力
@@ -7238,6 +7365,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         } else {
           descText.textContent = "曜日を選択してください。"
         }
+      } else if (monthlyCheckbox.checked) {
+        const weekLabel = weekSelect.value === "last" ? "最終" : `第${weekSelect.value}`
+        const weekdayName = weekdays[parseInt(monthlyWeekdaySelect.value)]
+        descText.textContent = `毎月${weekLabel}${weekdayName}曜日の${timeInput.value}にルーチンタスクとして実行予定です。`
       } else {
         descText.textContent =
           "毎日この時刻にルーチンタスクとして実行予定です。"
@@ -7248,10 +7379,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     dailyCheckbox.addEventListener("change", () => {
       if (dailyCheckbox.checked) {
         customCheckbox.checked = false
+        monthlyCheckbox.checked = false
         weekdayGroup.style.display = "none"
+        monthlyGroup.style.display = "none"
         updateDescription()
-      } else if (!customCheckbox.checked) {
-        // どちらも選択されていない場合は、チェックを維持
+      } else if (!customCheckbox.checked && !monthlyCheckbox.checked) {
+        // どれも選択されていない場合は、チェックを維持
         dailyCheckbox.checked = true
       }
     })
@@ -7259,11 +7392,26 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     customCheckbox.addEventListener("change", () => {
       if (customCheckbox.checked) {
         dailyCheckbox.checked = false
+        monthlyCheckbox.checked = false
         weekdayGroup.style.display = "block"
+        monthlyGroup.style.display = "none"
         updateDescription()
-      } else if (!dailyCheckbox.checked) {
-        // どちらも選択されていない場合は、チェックを維持
+      } else if (!dailyCheckbox.checked && !monthlyCheckbox.checked) {
+        // どれも選択されていない場合は、チェックを維持
         customCheckbox.checked = true
+      }
+    })
+    
+    monthlyCheckbox.addEventListener("change", () => {
+      if (monthlyCheckbox.checked) {
+        dailyCheckbox.checked = false
+        customCheckbox.checked = false
+        weekdayGroup.style.display = "none"
+        monthlyGroup.style.display = "block"
+        updateDescription()
+      } else if (!dailyCheckbox.checked && !customCheckbox.checked) {
+        // どれも選択されていない場合は、チェックを維持
+        monthlyCheckbox.checked = true
       }
     })
 
@@ -7271,6 +7419,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     weekdayCheckboxes.forEach((cb) => {
       cb.addEventListener("change", updateDescription)
     })
+    
+    // 月次設定の変更イベント
+    weekSelect.addEventListener("change", updateDescription)
+    monthlyWeekdaySelect.addEventListener("change", updateDescription)
     timeInput.addEventListener("input", updateDescription)
 
     // 初期表示の更新
@@ -7317,7 +7469,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
     form.addEventListener("submit", async (e) => {
       e.preventDefault()
-      const routineType = customCheckbox.checked ? "custom" : "daily"
+      let routineType = "daily"
+      let weekdaysArray = null
+      let weekday = null
+      let monthlyWeek = null
+      let monthlyWeekday = null
+      
       const scheduledTime = timeInput.value
 
       if (!scheduledTime) {
@@ -7325,10 +7482,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         return
       }
 
-      let weekdaysArray = null
-      let weekday = null // 後方互換性のため
-
-      if (routineType === "custom") {
+      if (customCheckbox.checked) {
+        routineType = "custom"
         const selectedWeekdays = weekdayCheckboxes
           .map((cb, index) => (cb.checked ? index : null))
           .filter((index) => index !== null)
@@ -7343,6 +7498,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         if (selectedWeekdays.length === 1) {
           weekday = selectedWeekdays[0]
         }
+      } else if (monthlyCheckbox.checked) {
+        routineType = "monthly"
+        monthlyWeek = weekSelect.value === "last" ? "last" : parseInt(weekSelect.value)
+        monthlyWeekday = parseInt(monthlyWeekdaySelect.value)
       }
 
       await this.setRoutineTaskExtended(
@@ -7352,6 +7511,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         routineType,
         weekday,
         weekdaysArray,
+        monthlyWeek,
+        monthlyWeekday
       )
       document.body.removeChild(modal)
     })
@@ -12960,6 +13121,44 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     return date.getDay() === weekday
   }
 
+  getNthWeekdayOfMonth(year, month, weekday, n) {
+    // 第N週の特定曜日の日付を計算
+    // n = 1-5: 第N週
+    // n = "last": 最終週
+    
+    if (n === "last") {
+      // 月末から逆算して最後の該当曜日を見つける
+      const lastDay = new Date(year, month + 1, 0)
+      let currentDay = lastDay.getDate()
+      
+      while (currentDay >= 1) {
+        const date = new Date(year, month, currentDay)
+        if (date.getDay() === weekday) {
+          return date
+        }
+        currentDay--
+      }
+      return null
+    } else {
+      // 月初から順番に該当曜日を数える
+      const firstDay = new Date(year, month, 1)
+      const lastDay = new Date(year, month + 1, 0)
+      let count = 0
+      
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = new Date(year, month, day)
+        if (date.getDay() === weekday) {
+          count++
+          if (count === n) {
+            return date
+          }
+        }
+      }
+      // 第N週が存在しない場合
+      return null
+    }
+  }
+
   // 週1回ルーチンの表示判定（カスタム複数曜日対応版）
   shouldShowWeeklyRoutine(task, currentDate) {
     // weeklyタイプの場合（後方互換性）
@@ -12979,6 +13178,32 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (task.weekday !== undefined && task.weekday !== null) {
         return this.isTargetWeekday(currentDate, task.weekday)
       }
+    }
+    
+    // 月次ルーチンの判定（新規）
+    if (task.routineType === "monthly") {
+      // 必要なパラメータが揃っているかチェック
+      if (task.monthlyWeek === undefined || task.monthlyWeek === null ||
+          task.monthlyWeekday === undefined || task.monthlyWeekday === null) {
+        return false
+      }
+      
+      const year = currentDate.getFullYear()
+      const month = currentDate.getMonth()
+      const targetDate = this.getNthWeekdayOfMonth(
+        year, 
+        month, 
+        task.monthlyWeekday, 
+        task.monthlyWeek
+      )
+      
+      // targetDateがnullの場合（存在しない第N週）はfalseを返す
+      if (!targetDate) {
+        return false
+      }
+      
+      // 現在の日付が対象日付と一致するか判定
+      return targetDate.getDate() === currentDate.getDate()
     }
 
     return false
@@ -14427,11 +14652,7 @@ const TaskChuteSettingTab = PluginSettingTab
 
         containerEl.empty()
 
-        // メインタイトルをsetHeadingで設定
-        new Setting(containerEl)
-          .setName("TaskChute Plus 設定")
-          .setHeading()
-        // パス設定セクションもsetHeadingで設定
+        // パス設定セクション（一般設定は上部にヘッダーなしで配置）
         new Setting(containerEl).setName("パス設定").setHeading()
 
         new Setting(containerEl)

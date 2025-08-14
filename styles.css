@@ -278,3 +278,83 @@
   border-radius: 4px;
   margin: 8px 0;
 }
+
+/* カレンダー入力 */
+.taskchute-calendar-input {
+  position: absolute;
+  z-index: 10000;
+}
+
+/* ツールチップ */
+.taskchute-tooltip {
+  position: absolute;
+  z-index: 1000;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-normal);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-width: 200px;
+  word-wrap: break-word;
+}
+
+/* タスクハイライト */
+.taskchute-task-highlight {
+  background-color: var(--background-secondary);
+  transition: background 0.3s ease;
+}
+
+/* インライン入力 */
+.taskchute-inline-input {
+  position: absolute;
+  z-index: 1000;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ヒートマップパーティクル */
+.taskchute-heatmap-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: particle-fade 2s ease-out forwards;
+}
+
+@keyframes particle-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.5) rotate(360deg);
+  }
+}
+
+/* ルーチンフォームグループ */
+.taskchute-routine-group {
+  margin: 10px 0;
+}
+
+.taskchute-routine-group.hidden {
+  display: none;
+}
+
+.taskchute-routine-group.visible {
+  display: block;
+}
+
+/* ヒートマップグリッド */
+.taskchute-heatmap-grid {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  max-width: 720px;
+}
