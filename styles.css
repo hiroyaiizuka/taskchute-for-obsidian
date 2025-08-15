@@ -351,6 +351,39 @@
   display: block;
 }
 
+/* Additional styles for guideline compliance */
+.taskchute-input-absolute {
+  position: absolute;
+}
+
+.taskchute-hidden {
+  display: none !important;
+}
+
+.taskchute-slot-menu {
+  position: fixed;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 150px;
+}
+
+.taskchute-menu-option {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  background-color: transparent;
+  transition: background-color 0.2s;
+}
+
+.taskchute-menu-option:hover,
+.taskchute-menu-option-hover {
+  background-color: var(--background-modifier-hover);
+}
+
 /* ヒートマップグリッド */
 .taskchute-heatmap-grid {
   display: grid;

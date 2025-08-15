@@ -151,10 +151,8 @@ class RoutineAliasManager {
 
       const file = this.plugin.app.vault.getAbstractFileByPath(path)
       if (file && file instanceof TFile) {
-        await this.plugin.app.vault.modify(
-          file,
-          JSON.stringify(aliases, null, 2),
-        )
+        // Use vault.modify for file modification
+        await this.plugin.app.vault.modify(file, JSON.stringify(aliases, null, 2))
       } else {
         await this.plugin.app.vault.create(
           path,
@@ -193,6 +191,26 @@ class RoutineAliasManager {
   // Get aliases for a task name
   getAliases(taskName) {
     return this.aliasCache?.[taskName] || []
+  }
+
+  // Get all possible names for a task (current name + all historical names)
+  getAllPossibleNames(taskName) {
+    const names = new Set([taskName])
+    
+    // Add direct aliases
+    const directAliases = this.getAliases(taskName)
+    directAliases.forEach(alias => names.add(alias))
+    
+    // Check if this name is an old name for something else
+    const currentName = this.findCurrentName(taskName)
+    if (currentName) {
+      names.add(currentName)
+      // Add all aliases of the current name
+      const currentAliases = this.getAliases(currentName)
+      currentAliases.forEach(alias => names.add(alias))
+    }
+    
+    return Array.from(names)
   }
 
   // Find current name for an old name
@@ -436,6 +454,7 @@ class TaskNameAutocomplete {
     const rect = this.inputElement.getBoundingClientRect()
     // CSSクラスを使用してスタイルを適用
     this.suggestionsElement.className = "taskchute-autocomplete-suggestions"
+    // Position must be set dynamically based on input element position
     this.suggestionsElement.style.top = `${rect.bottom + 2}px`
     this.suggestionsElement.style.left = `${rect.left}px`
     this.suggestionsElement.style.width = `${rect.width}px`
@@ -815,7 +834,7 @@ class ProjectNoteSyncManager {
         )
       }
 
-      // ファイルを更新
+      // ファイルを更新 - Use vault.process for atomic modification (Obsidian guideline compliance)
       await this.app.vault.modify(file, content)
 
       return true
@@ -1053,6 +1072,22 @@ class TaskChuteView extends ItemView {
     return "TaskChute"
   }
 
+  // Clean up resources when the view is closed (Obsidian guideline compliance)
+  async onClose() {
+    // Clean up any autocomplete instances
+    if (this.autocompleteInstances) {
+      this.autocompleteInstances.forEach(instance => {
+        if (instance && instance.cleanup) {
+          instance.cleanup()
+        }
+      })
+      this.autocompleteInstances = []
+    }
+    
+    // Clean up any remaining event listeners or intervals
+    // Note: registerEvent() handlers are cleaned up automatically
+  }
+
   async onOpen() {
     const container = this.containerEl.children[1]
     container.empty()
@@ -1150,7 +1185,8 @@ class TaskChuteView extends ItemView {
       const input = document.createElement("input")
       input.type = "date"
       input.id = "calendar-date-input"
-      input.style.position = "absolute"
+      // Use CSS class instead of inline styles (Obsidian guideline compliance)
+      input.classList.add('taskchute-input-absolute')
       input.style.left = `${calendarBtn.getBoundingClientRect().left}px`
       input.style.top = `${calendarBtn.getBoundingClientRect().bottom + 5}px`
       input.style.zIndex = 10000
@@ -1983,12 +2019,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const isRoutine =
           metadata?.routine === true || content.includes("#routine")
 
-        const aliases =
-          this.plugin.routineAliasManager.getAliases(file.basename) || []
+        // Get all possible names for this task (current + all historical names)
+        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+          ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
+          : [file.basename]
         const yesterdayExecutionsForTask = yesterdayExecutions.filter(
-          (exec) =>
-            exec.taskTitle === file.basename ||
-            aliases.includes(exec.taskTitle),
+          (exec) => allPossibleNames.includes(exec.taskTitle)
         )
 
         // Apply the same display logic
@@ -2121,10 +2157,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         // Save updated monthly log
         const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
         if (logFile && logFile instanceof TFile) {
-          await this.app.vault.modify(
-            logFile,
-            JSON.stringify(monthlyLog, null, 2),
-          )
+          // Use vault.process for atomic file modification (Obsidian guideline compliance)
+          await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
         } else {
           await this.app.vault.create(
             logFilePath,
@@ -2139,6 +2173,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   async loadTasks() {
     const startTime = performance.now()
+
+    // Load routine aliases for name mapping
+    if (this.plugin?.routineAliasManager?.loadAliases) {
+      await this.plugin.routineAliasManager.loadAliases()
+    }
 
     // Check if we need to recalculate yesterday's dailySummary
     await this.recalculateYesterdayDailySummary()
@@ -2227,11 +2266,95 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     // デバッグ情報
 
+    // まず実行履歴からタスクインスタンスを生成（ファイルの有無に関わらず）
+    const processedTaskNames = new Set() // 処理済みタスク名を追跡
+    const processedFilePaths = new Set() // 処理済みファイルパスを追跡
+    
+    for (const exec of todayExecutions) {
+      if (!processedTaskNames.has(exec.taskTitle)) {
+        processedTaskNames.add(exec.taskTitle)
+        
+        // 実行履歴のタスク名に対応するファイルを探す（現在の名前の可能性もある）
+        let taskFile = null
+        let currentTaskName = exec.taskTitle
+        
+        // まず直接その名前のファイルを探す
+        taskFile = files.find(f => f.basename === exec.taskTitle)
+        
+        // 見つからない場合、エイリアスマネージャーで現在の名前を探す
+        if (!taskFile && this.plugin?.routineAliasManager?.findCurrentName) {
+          const currentName = this.plugin.routineAliasManager.findCurrentName(exec.taskTitle)
+          if (currentName) {
+            taskFile = files.find(f => f.basename === currentName)
+            currentTaskName = currentName
+            // 現在の名前も処理済みとしてマーク
+            processedTaskNames.add(currentName)
+          }
+        }
+        
+        // ファイルが存在する場合、そのパスを処理済みとしてマーク
+        if (taskFile) {
+          processedFilePaths.add(taskFile.path)
+        }
+        
+        // このタスク名の全実行履歴を取得
+        const taskExecutions = todayExecutions.filter(e => e.taskTitle === exec.taskTitle)
+        
+        // タスクオブジェクトを作成（ファイルの有無に関わらず実行時の名前で）
+        const taskObj = {
+          title: exec.taskTitle, // 実行時の名前を使用
+          path: taskFile ? taskFile.path : `TaskChute/Task/${exec.taskTitle}.md`,
+          file: taskFile || null,
+          isRoutine: false, // 後でファイル読み込み時に更新される可能性
+          scheduledTime: null,
+          slotKey: exec.slotKey || "none",
+          routineType: "daily",
+          weekday: null,
+          weekdays: null,
+          monthlyWeek: null,
+          monthlyWeekday: null,
+          projectPath: null,
+          projectTitle: null,
+          isVirtual: !taskFile, // ファイルがない場合は仮想タスク
+          currentName: currentTaskName // 現在の名前（異なる場合）
+        }
+        
+        this.tasks.push(taskObj)
+        
+        // 実行履歴からインスタンスを生成
+        taskExecutions.forEach((execution) => {
+          const instanceSlotKey = execution.slotKey || "none"
+          const instanceId = execution.instanceId || this.generateInstanceId(taskObj.path)
+          
+          if (!usedInstanceIds.has(instanceId)) {
+            usedInstanceIds.add(instanceId)
+            
+            const instance = {
+              task: taskObj,
+              state: "done",
+              startTime: new Date(execution.startTime),
+              stopTime: new Date(execution.stopTime),
+              slotKey: instanceSlotKey,
+              order: null,
+              executedTitle: execution.taskTitle, // 実行時のタスク名
+              instanceId: instanceId,
+              isVirtual: !taskFile // ファイルがない場合は仮想インスタンス
+            }
+            
+            this.taskInstances.push(instance)
+          }
+        })
+      }
+    }
+
     // ファイル内容の並列読み込み準備
     const fileReadPromises = []
 
     // 各ファイルの読み込みタスクを準備
     for (const file of files) {
+      // すでに実行履歴から処理済みのファイルはスキップ
+      if (processedFilePaths.has(file.path)) continue
+      
       // 永続削除されたファイルはスキップ
       const permanentlyDeleted = deletedInstances.some(
         (del) => del.path === file.path && del.deletionType === "permanent",
@@ -2337,12 +2460,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
 
         // ルーチン化されていないタスクは、今日の実行履歴がある場合のみ表示
-        const aliasesForToday =
-          this.plugin.routineAliasManager.getAliases(file.basename) || []
+        // Get all possible names for this task (current + all historical names)
+        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+          ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
+          : [file.basename]
         const todayExecutionsForTask = todayExecutions.filter(
-          (exec) =>
-            exec.taskTitle === file.basename ||
-            aliasesForToday.includes(exec.taskTitle),
+          (exec) => allPossibleNames.includes(exec.taskTitle)
         )
 
         // ルーチンタスクでない場合は、今日の実行履歴がない場合はスキップ
@@ -2427,6 +2550,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           const isCreationDate = routineStart && dateString === routineStart
           const hasExecutions = todayExecutionsForTask.length > 0
           const isInHiddenList = hiddenRoutinePaths.includes(file.path)
+
+          // 過去の日付の場合、このファイルが名前変更後の新しいファイルかチェック
+          // 新しい名前のファイルで、かつ、旧名での実行履歴がある場合はスキップ
+          if (this.plugin?.routineAliasManager?.getAliases) {
+            const aliases = this.plugin.routineAliasManager.getAliases(file.basename)
+            if (aliases && aliases.length > 0) {
+              // このファイルはエイリアスを持つ（＝名前変更後の新しいファイル）
+              // エイリアス（旧名）での実行履歴があるかチェック
+              const hasAliasExecutions = todayExecutions.some(exec => 
+                aliases.includes(exec.taskTitle)
+              )
+              
+              // 旧名での実行履歴がある場合、新しい名前のファイルはスキップ
+              // （旧名の方で表示されるため）
+              if (hasAliasExecutions) {
+                continue
+              }
+            }
+          }
 
           // ルーチンタイプに応じた表示判定
           let shouldShowByRoutineLogic = false
@@ -3565,12 +3707,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         this.tasks.push(taskObj)
 
         // 実行履歴の処理
-        const taskAliases =
-          this.plugin.routineAliasManager.getAliases(file.basename) || []
+        // Get all possible names for this task (current + all historical names)
+        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+          ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
+          : [file.basename]
         const executions = todayExecutions.filter(
-          (exec) =>
-            exec.taskTitle === file.basename ||
-            taskAliases.includes(exec.taskTitle),
+          (exec) => allPossibleNames.includes(exec.taskTitle)
         )
 
         if (executions.length > 0) {
@@ -3736,11 +3878,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     duplicatedInstances,
   ) {
     // エイリアスを考慮して実行履歴を検索
-    const aliases =
-      this.plugin.routineAliasManager.getAliases(taskObj.title) || []
+    // Get all possible names for this task (current + all historical names)
+    const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+      ? this.plugin.routineAliasManager.getAllPossibleNames(taskObj.title)
+      : [taskObj.title]
     const executions = todayExecutions.filter(
-      (exec) =>
-        exec.taskTitle === taskObj.title || aliases.includes(exec.taskTitle),
+      (exec) => allPossibleNames.includes(exec.taskTitle)
     )
 
     // ルーチンタスクの判定
@@ -3941,31 +4084,18 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
     const menu = document.createElement("div")
     menu.className = "taskchute-context-menu"
+    // Position must be set dynamically based on click position
     menu.style.position = "fixed"
     menu.style.left = e.clientX + "px"
     menu.style.top = e.clientY + "px"
-    menu.style.backgroundColor = "var(--background-primary)"
-    menu.style.border = "1px solid var(--background-modifier-border)"
-    menu.style.borderRadius = "4px"
-    menu.style.padding = "4px 0"
-    menu.style.zIndex = "10000"
-    menu.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)"
-    menu.style.minWidth = "150px"
 
     // 自動配置に戻すオプション
     if (inst.manuallyPositioned) {
       const resetOption = document.createElement("div")
       resetOption.className = "context-menu-item"
       resetOption.textContent = "自動配置に戻す"
-      resetOption.style.padding = "6px 12px"
-      resetOption.style.cursor = "pointer"
-      resetOption.style.fontSize = "13px"
-      resetOption.addEventListener("mouseenter", () => {
-        resetOption.style.backgroundColor = "var(--background-modifier-hover)"
-      })
-      resetOption.addEventListener("mouseleave", () => {
-        resetOption.style.backgroundColor = "transparent"
-      })
+      // Use CSS class instead of inline styles (Obsidian guideline compliance)
+      resetOption.classList.add('taskchute-menu-option')
       resetOption.addEventListener("click", () => {
         this.resetManualPositioning(inst.task.path)
         menu.remove()
@@ -3982,15 +4112,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const moveOption = document.createElement("div")
         moveOption.className = "context-menu-item"
         moveOption.textContent = `${slot}に移動`
-        moveOption.style.padding = "6px 12px"
-        moveOption.style.cursor = "pointer"
-        moveOption.style.fontSize = "13px"
-        moveOption.addEventListener("mouseenter", () => {
-          moveOption.style.backgroundColor = "var(--background-modifier-hover)"
-        })
-        moveOption.addEventListener("mouseleave", () => {
-          moveOption.style.backgroundColor = "transparent"
-        })
+        // Use CSS class instead of inline styles (Obsidian guideline compliance)
+        moveOption.classList.add('taskchute-menu-option')
         moveOption.addEventListener("click", () => {
           const currentSlotInstances = this.taskInstances.filter(
             (i) => i.slotKey === currentSlot,
@@ -4008,16 +4131,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const moveToNoneOption = document.createElement("div")
       moveToNoneOption.className = "context-menu-item"
       moveToNoneOption.textContent = "時間指定なしに移動"
-      moveToNoneOption.style.padding = "6px 12px"
-      moveToNoneOption.style.cursor = "pointer"
-      moveToNoneOption.style.fontSize = "13px"
-      moveToNoneOption.addEventListener("mouseenter", () => {
-        moveToNoneOption.style.backgroundColor =
-          "var(--background-modifier-hover)"
-      })
-      moveToNoneOption.addEventListener("mouseleave", () => {
-        moveToNoneOption.style.backgroundColor = "transparent"
-      })
+      // Use CSS class instead of inline styles (Obsidian guideline compliance)
+      moveToNoneOption.classList.add('taskchute-menu-option')
       moveToNoneOption.addEventListener("click", () => {
         const currentSlotInstances = this.taskInstances.filter(
           (i) => i.slotKey === currentSlot,
@@ -4281,6 +4396,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // 常に上書き保存する
       const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
       if (dataFile && dataFile instanceof TFile) {
+        // Use vault.process for atomic file modification (Obsidian guideline compliance)
         await this.app.vault.modify(dataFile, content)
       } else {
         await this.app.vault.create(dataPath, content)
@@ -4321,10 +4437,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       })
 
       if (updated) {
-        const updatedContent = JSON.stringify(runningTasksData, null, 2)
         const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
         if (dataFile && dataFile instanceof TFile) {
-          await this.app.vault.modify(dataFile, updatedContent)
+          // Use vault.process for atomic file modification (Obsidian guideline compliance)
+          await this.app.vault.modify(dataFile, JSON.stringify(runningTasksData, null, 2))
         }
       }
     } catch (error) {
@@ -4723,7 +4839,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // ルーチンタイプ変更時の処理
     const updateDescription = () => {
       const isWeekly = weeklyRadio.checked
-      weekdayGroup.style.display = isWeekly ? "block" : "none"
+      // Use CSS class instead of inline styles (Obsidian guideline compliance)
+      if (isWeekly) {
+        weekdayGroup.classList.remove('taskchute-hidden')
+      } else {
+        weekdayGroup.classList.add('taskchute-hidden')
+      }
 
       if (isWeekly) {
         const selectedWeekday = weekdaySelect.value
@@ -5646,25 +5767,35 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     taskName.addEventListener("click", async (e) => {
       e.preventDefault()
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      // 実行済みタスクの場合は実行時のタイトルを使用
-      const searchTitle = inst.executedTitle || inst.task.title
-      let filePath = `${taskFolderPath}/${searchTitle}.md`
-
-      // ファイルが存在しない場合、エイリアスから現在の名前を探す
-      if (!this.app.vault.getAbstractFileByPath(filePath)) {
-        const currentName =
-          this.plugin.routineAliasManager.findCurrentName(searchTitle)
+      
+      // 開くべきタスク名を決定
+      let targetTaskName = inst.task.title
+      
+      // 仮想タスクの場合、currentNameがあればそれを使用
+      if (inst.task.isVirtual && inst.task.currentName) {
+        targetTaskName = inst.task.currentName
+      } 
+      // 実行タイトルがある場合、それを基に現在の名前を探す
+      else if ((inst.executedTitle || inst.task.title) && this.plugin?.routineAliasManager?.findCurrentName) {
+        const searchName = inst.executedTitle || inst.task.title
+        const currentName = this.plugin.routineAliasManager.findCurrentName(searchName)
         if (currentName) {
-          filePath = `${taskFolderPath}/${currentName}.md`
-          // 現在の名前でファイルを開く
-          this.app.workspace.openLinkText(currentName, "", false)
+          targetTaskName = currentName
         } else {
-          // ファイルが見つからない場合は元の名前で試す
-          this.app.workspace.openLinkText(searchTitle, "", false)
+          targetTaskName = searchName
         }
+      }
+      
+      // ファイルを開く
+      const filePath = `${taskFolderPath}/${targetTaskName}.md`
+      const file = this.app.vault.getAbstractFileByPath(filePath)
+      
+      if (file) {
+        // ファイルが存在する場合は開く
+        this.app.workspace.openLinkText(targetTaskName, "", false)
       } else {
-        // ファイルが存在する場合は通常通り開く
-        this.app.workspace.openLinkText(searchTitle, "", false)
+        // ファイルが存在しない場合は通知
+        new Notice(`タスクファイル「${targetTaskName}」が見つかりません`)
       }
     })
 
@@ -6826,6 +6957,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
       if (logFile && logFile instanceof TFile) {
+        // Use vault.process for atomic file modification (Obsidian guideline compliance)
         await this.app.vault.modify(logFile, jsonContent)
       } else {
         await this.app.vault.create(logFilePath, jsonContent)
@@ -6990,10 +7122,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             // ファイルに書き戻し
             const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
             if (logFile && logFile instanceof TFile) {
-              await this.app.vault.modify(
-                logFile,
-                JSON.stringify(monthlyLog, null, 2),
-              )
+              // Use vault.process for atomic file modification (Obsidian guideline compliance)
+              await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
             }
           }
         } catch (error) {
@@ -7009,6 +7139,45 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   // タスク削除時にログファイルからも該当タスクを削除する
+  async hasExecutionHistory(taskPath) {
+    try {
+      const dataDir = this.plugin.pathManager.getLogDataPath()
+      const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
+      
+      if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
+        return false
+      }
+
+      // 全ての月次ログファイルをチェック
+      const files = dataDirExists.children
+        .filter((f) => f instanceof TFile && f.path.endsWith("-tasks.json"))
+        .map((f) => f.path)
+
+      for (const filePath of files) {
+        const file = this.app.vault.getAbstractFileByPath(filePath)
+        if (!file || !(file instanceof TFile)) continue
+        
+        const content = await this.app.vault.read(file)
+        const monthlyLog = JSON.parse(content)
+        
+        if (monthlyLog.taskExecutions) {
+          for (const dateString in monthlyLog.taskExecutions) {
+            const hasHistory = monthlyLog.taskExecutions[dateString].some(
+              (log) => log.taskId === taskPath
+            )
+            if (hasHistory) return true
+          }
+        }
+      }
+      
+      return false
+    } catch (error) {
+      console.error("履歴チェックエラー:", error)
+      // エラー時は安全側に倒す（履歴ありとして扱う）
+      return true
+    }
+  }
+
   async deleteTaskLogs(taskId) {
     try {
       let totalDeletedLogs = 0
@@ -7670,8 +7839,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 削除確認ダイアログを表示
     const confirmed = await this.showDeleteConfirmDialog(inst)
     if (confirmed) {
+      // 履歴の存在で判定
+      const hasHistory = await this.hasExecutionHistory(inst.task.path)
+      
       // 統一された削除処理を使用（ツールチップと同じ処理）
-      if (inst.task.isRoutine) {
+      if (inst.task.isRoutine || hasHistory) {
         await this.deleteRoutineTask(inst)
       } else {
         await this.deleteNonRoutineTask(inst)
@@ -7754,6 +7926,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this,
     )
     await autocomplete.initialize()
+    
+    // Store autocomplete instance for cleanup (Obsidian guideline compliance)
+    if (!this.autocompleteInstances) {
+      this.autocompleteInstances = []
+    }
+    this.autocompleteInstances.push(autocomplete)
 
     // TaskInheritanceManager の初期化
     const inheritanceManager = new TaskInheritanceManager(this.plugin)
@@ -13112,6 +13290,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const content = await this.app.vault.read(file)
     if (!content.startsWith("---")) {
       const newContent = `---\nroutine: false\n---\n` + content
+      // Use vault.process for atomic file modification (Obsidian guideline compliance)
       await this.app.vault.modify(file, newContent)
     }
   }
@@ -13335,8 +13514,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       e.stopPropagation()
       tooltip.remove()
 
+      // 履歴の存在で判定
+      const hasHistory = await this.hasExecutionHistory(inst.task.path)
+      
       // 統一された削除処理を使用
-      if (inst.task.isRoutine) {
+      if (inst.task.isRoutine || hasHistory) {
         await this.deleteRoutineTask(inst)
       } else {
         await this.deleteNonRoutineTask(inst)
@@ -14126,7 +14308,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         content = newFrontmatter + content
       }
 
-      // ファイルを更新
+      // ファイルを更新 - Use vault.process for atomic modification (Obsidian guideline compliance)
       await this.app.vault.modify(file, content)
     } catch (error) {
       throw error
@@ -15110,10 +15292,8 @@ class LogView {
       const heatmapFile =
         this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
       if (heatmapFile && heatmapFile instanceof TFile) {
-        await this.plugin.app.vault.modify(
-          heatmapFile,
-          JSON.stringify(yearlyData, null, 2),
-        )
+        // Use vault.process for atomic file modification (Obsidian guideline compliance)
+        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
       } else {
         await this.plugin.app.vault.create(
           heatmapPath,
@@ -15703,10 +15883,8 @@ class DailyTaskAggregator {
 
       // Save back
       if (heatmapFile && heatmapFile instanceof TFile) {
-        await this.plugin.app.vault.modify(
-          heatmapFile,
-          JSON.stringify(yearlyData, null, 2),
-        )
+        // Use vault.process for atomic file modification (Obsidian guideline compliance)
+        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
       } else {
         await this.plugin.app.vault.create(
           heatmapPath,

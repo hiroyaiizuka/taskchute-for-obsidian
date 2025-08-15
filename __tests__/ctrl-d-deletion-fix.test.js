@@ -95,6 +95,9 @@ const { TFile } = require('obsidian')
     view.saveHiddenRoutines = jest.fn()
     view.generateInstanceId = jest.fn().mockImplementation(path => `instance-${path}`)
     
+    // 履歴保護機能のモック（デフォルトは履歴なし）
+    view.hasExecutionHistory = jest.fn().mockResolvedValue(false)
+    
     // deleteNonRoutineTaskとdeleteRoutineTaskのモック
     view.deleteNonRoutineTask = jest.fn().mockImplementation(async function(inst) {
       const samePathInstances = this.taskInstances.filter(
@@ -173,6 +176,9 @@ const { TFile } = require('obsidian')
         instanceId: 'test-instance-1'
       }
 
+      // 新規タスクなので履歴なし
+      view.hasExecutionHistory.mockResolvedValueOnce(false)
+
       view.selectedTaskInstance = taskInstance
       view.taskInstances = [taskInstance]
       view.tasks = [taskInstance.task]
@@ -233,6 +239,9 @@ const { TFile } = require('obsidian')
         state: 'idle',
         instanceId: 'test-instance-2'
       }
+
+      // 複製タスクも履歴なしとして扱う
+      view.hasExecutionHistory.mockResolvedValueOnce(false)
 
       view.selectedTaskInstance = taskInstance2
       view.taskInstances = [taskInstance1, taskInstance2]
@@ -338,6 +347,9 @@ const { TFile } = require('obsidian')
         startTime: new Date()
       }
 
+      // 実行中タスクは履歴がある可能性が高い
+      view.hasExecutionHistory.mockResolvedValueOnce(true)
+
       view.selectedTaskInstance = taskInstance
       view.taskInstances = [taskInstance]
       view.tasks = [taskInstance.task]
@@ -348,8 +360,11 @@ const { TFile } = require('obsidian')
       // running-task.jsonが更新されることを確認
       expect(view.saveRunningTasksState).toHaveBeenCalled()
       
-      // ファイルが削除されることを確認
-      expect(mockVault.delete).toHaveBeenCalledWith(taskFile)
+      // 履歴があるため安全削除が使われ、ファイルは削除されない
+      expect(mockVault.delete).not.toHaveBeenCalled()
+      
+      // deleteRoutineTask（安全削除）が呼ばれることを確認
+      expect(view.deleteRoutineTask).toHaveBeenCalledWith(taskInstance)
     })
   })
 
@@ -383,7 +398,7 @@ const { TFile } = require('obsidian')
 
   describe('日付をまたいだ動作の確認', () => {
     test('削除した非ルーチンタスクは翌日も表示されない', async () => {
-      // 1月25日に削除
+      // 1月25日に削除（履歴のない新規タスク）
       const taskFile = {
         path: 'TaskChute/Task/永続削除タスク.md',
         basename: '永続削除タスク',
@@ -400,6 +415,9 @@ const { TFile } = require('obsidian')
         state: 'idle',
         instanceId: 'test-instance-1'
       }
+
+      // 履歴がない新規タスクなので、完全削除される
+      view.hasExecutionHistory.mockResolvedValueOnce(false)
 
       view.selectedTaskInstance = taskInstance
       view.taskInstances = [taskInstance]
