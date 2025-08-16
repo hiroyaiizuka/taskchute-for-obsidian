@@ -152,7 +152,10 @@ class RoutineAliasManager {
       const file = this.plugin.app.vault.getAbstractFileByPath(path)
       if (file && file instanceof TFile) {
         // Use vault.modify for file modification
-        await this.plugin.app.vault.modify(file, JSON.stringify(aliases, null, 2))
+        await this.plugin.app.vault.modify(
+          file,
+          JSON.stringify(aliases, null, 2),
+        )
       } else {
         await this.plugin.app.vault.create(
           path,
@@ -196,20 +199,20 @@ class RoutineAliasManager {
   // Get all possible names for a task (current name + all historical names)
   getAllPossibleNames(taskName) {
     const names = new Set([taskName])
-    
+
     // Add direct aliases
     const directAliases = this.getAliases(taskName)
-    directAliases.forEach(alias => names.add(alias))
-    
+    directAliases.forEach((alias) => names.add(alias))
+
     // Check if this name is an old name for something else
     const currentName = this.findCurrentName(taskName)
     if (currentName) {
       names.add(currentName)
       // Add all aliases of the current name
       const currentAliases = this.getAliases(currentName)
-      currentAliases.forEach(alias => names.add(alias))
+      currentAliases.forEach((alias) => names.add(alias))
     }
-    
+
     return Array.from(names)
   }
 
@@ -1037,6 +1040,43 @@ class TaskChuteView extends ItemView {
     })
   }
 
+  // 複製タスクかどうかを判定
+  isDuplicatedTask(inst, dateStr) {
+    const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
+    console.log(
+      `[TaskChute DEBUG] isDuplicatedTask開始: instanceId=${inst.instanceId}, dateStr=${dateStr}, key=${duplicationKey}`,
+    )
+
+    // localStorage の生データを確認
+    const rawData = localStorage.getItem(duplicationKey)
+    console.log(`[TaskChute DEBUG] localStorage生データ:`, rawData)
+
+    try {
+      const duplicatedInstances = JSON.parse(rawData || "[]")
+      console.log(`[TaskChute DEBUG] 複製リスト:`, duplicatedInstances)
+
+      // 詳細比較のため個別にチェック
+      if (duplicatedInstances.length > 0) {
+        duplicatedInstances.forEach((dup, idx) => {
+          console.log(
+            `[TaskChute DEBUG] 複製${idx}: instanceId=${
+              dup.instanceId
+            }, 一致判定=${dup.instanceId === inst.instanceId}`,
+          )
+        })
+      }
+
+      const result = duplicatedInstances.some(
+        (dup) => dup.instanceId === inst.instanceId,
+      )
+      console.log(`[TaskChute DEBUG] 複製判定結果: ${result}`)
+      return result
+    } catch (e) {
+      console.error("[TaskChute] 複製タスク判定エラー:", e)
+      return false
+    }
+  }
+
   constructor(leaf, plugin) {
     super(leaf)
     this.plugin = plugin
@@ -1076,14 +1116,14 @@ class TaskChuteView extends ItemView {
   async onClose() {
     // Clean up any autocomplete instances
     if (this.autocompleteInstances) {
-      this.autocompleteInstances.forEach(instance => {
+      this.autocompleteInstances.forEach((instance) => {
         if (instance && instance.cleanup) {
           instance.cleanup()
         }
       })
       this.autocompleteInstances = []
     }
-    
+
     // Clean up any remaining event listeners or intervals
     // Note: registerEvent() handlers are cleaned up automatically
   }
@@ -1186,7 +1226,7 @@ class TaskChuteView extends ItemView {
       input.type = "date"
       input.id = "calendar-date-input"
       // Use CSS class instead of inline styles (Obsidian guideline compliance)
-      input.classList.add('taskchute-input-absolute')
+      input.classList.add("taskchute-input-absolute")
       input.style.left = `${calendarBtn.getBoundingClientRect().left}px`
       input.style.top = `${calendarBtn.getBoundingClientRect().bottom + 5}px`
       input.style.zIndex = 10000
@@ -2020,11 +2060,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           metadata?.routine === true || content.includes("#routine")
 
         // Get all possible names for this task (current + all historical names)
-        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+        const allPossibleNames = this.plugin?.routineAliasManager
+          ?.getAllPossibleNames
           ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
           : [file.basename]
-        const yesterdayExecutionsForTask = yesterdayExecutions.filter(
-          (exec) => allPossibleNames.includes(exec.taskTitle)
+        const yesterdayExecutionsForTask = yesterdayExecutions.filter((exec) =>
+          allPossibleNames.includes(exec.taskTitle),
         )
 
         // Apply the same display logic
@@ -2095,18 +2136,22 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             // Check monthly routine logic
             const monthlyWeek = metadata?.monthly_week
             const monthlyWeekday = metadata?.monthly_weekday
-            
-            if (monthlyWeek !== undefined && monthlyWeek !== null &&
-                monthlyWeekday !== undefined && monthlyWeekday !== null) {
+
+            if (
+              monthlyWeek !== undefined &&
+              monthlyWeek !== null &&
+              monthlyWeekday !== undefined &&
+              monthlyWeekday !== null
+            ) {
               const year = yesterday.getFullYear()
               const month = yesterday.getMonth()
               const targetDate = this.getNthWeekdayOfMonth(
                 year,
                 month,
                 monthlyWeekday,
-                monthlyWeek
+                monthlyWeek,
               )
-              
+
               if (targetDate) {
                 shouldShowRoutine = targetDate.getDate() === yesterday.getDate()
               } else {
@@ -2158,7 +2203,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
         if (logFile && logFile instanceof TFile) {
           // Use vault.process for atomic file modification (Obsidian guideline compliance)
-          await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
+          await this.app.vault.modify(
+            logFile,
+            JSON.stringify(monthlyLog, null, 2),
+          )
         } else {
           await this.app.vault.create(
             logFilePath,
@@ -2269,41 +2317,47 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // まず実行履歴からタスクインスタンスを生成（ファイルの有無に関わらず）
     const processedTaskNames = new Set() // 処理済みタスク名を追跡
     const processedFilePaths = new Set() // 処理済みファイルパスを追跡
-    
+
     for (const exec of todayExecutions) {
       if (!processedTaskNames.has(exec.taskTitle)) {
         processedTaskNames.add(exec.taskTitle)
-        
+
         // 実行履歴のタスク名に対応するファイルを探す（現在の名前の可能性もある）
         let taskFile = null
         let currentTaskName = exec.taskTitle
-        
+
         // まず直接その名前のファイルを探す
-        taskFile = files.find(f => f.basename === exec.taskTitle)
-        
+        taskFile = files.find((f) => f.basename === exec.taskTitle)
+
         // 見つからない場合、エイリアスマネージャーで現在の名前を探す
         if (!taskFile && this.plugin?.routineAliasManager?.findCurrentName) {
-          const currentName = this.plugin.routineAliasManager.findCurrentName(exec.taskTitle)
+          const currentName = this.plugin.routineAliasManager.findCurrentName(
+            exec.taskTitle,
+          )
           if (currentName) {
-            taskFile = files.find(f => f.basename === currentName)
+            taskFile = files.find((f) => f.basename === currentName)
             currentTaskName = currentName
             // 現在の名前も処理済みとしてマーク
             processedTaskNames.add(currentName)
           }
         }
-        
+
         // ファイルが存在する場合、そのパスを処理済みとしてマーク
         if (taskFile) {
           processedFilePaths.add(taskFile.path)
         }
-        
+
         // このタスク名の全実行履歴を取得
-        const taskExecutions = todayExecutions.filter(e => e.taskTitle === exec.taskTitle)
-        
+        const taskExecutions = todayExecutions.filter(
+          (e) => e.taskTitle === exec.taskTitle,
+        )
+
         // タスクオブジェクトを作成（ファイルの有無に関わらず実行時の名前で）
         const taskObj = {
           title: exec.taskTitle, // 実行時の名前を使用
-          path: taskFile ? taskFile.path : `TaskChute/Task/${exec.taskTitle}.md`,
+          path: taskFile
+            ? taskFile.path
+            : `TaskChute/Task/${exec.taskTitle}.md`,
           file: taskFile || null,
           isRoutine: false, // 後でファイル読み込み時に更新される可能性
           scheduledTime: null,
@@ -2316,19 +2370,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           projectPath: null,
           projectTitle: null,
           isVirtual: !taskFile, // ファイルがない場合は仮想タスク
-          currentName: currentTaskName // 現在の名前（異なる場合）
+          currentName: currentTaskName, // 現在の名前（異なる場合）
         }
-        
+
         this.tasks.push(taskObj)
-        
+
         // 実行履歴からインスタンスを生成
         taskExecutions.forEach((execution) => {
           const instanceSlotKey = execution.slotKey || "none"
-          const instanceId = execution.instanceId || this.generateInstanceId(taskObj.path)
-          
+          const instanceId =
+            execution.instanceId || this.generateInstanceId(taskObj.path)
+
           if (!usedInstanceIds.has(instanceId)) {
             usedInstanceIds.add(instanceId)
-            
+
             const instance = {
               task: taskObj,
               state: "done",
@@ -2338,9 +2393,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               order: null,
               executedTitle: execution.taskTitle, // 実行時のタスク名
               instanceId: instanceId,
-              isVirtual: !taskFile // ファイルがない場合は仮想インスタンス
+              isVirtual: !taskFile, // ファイルがない場合は仮想インスタンス
             }
-            
+
             this.taskInstances.push(instance)
           }
         })
@@ -2354,7 +2409,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     for (const file of files) {
       // すでに実行履歴から処理済みのファイルはスキップ
       if (processedFilePaths.has(file.path)) continue
-      
+
       // 永続削除されたファイルはスキップ
       const permanentlyDeleted = deletedInstances.some(
         (del) => del.path === file.path && del.deletionType === "permanent",
@@ -2406,7 +2461,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           weekday = metadata.weekday !== undefined ? metadata.weekday : null // 新規追加
           weekdays = metadata.weekdays || null // 複数曜日対応
           monthlyWeek = metadata.monthly_week || null // 月次ルーチン: 週指定
-          monthlyWeekday = metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null // 月次ルーチン: 曜日指定
+          monthlyWeekday =
+            metadata.monthly_weekday !== undefined
+              ? metadata.monthly_weekday
+              : null // 月次ルーチン: 曜日指定
         } else {
           // 後方互換性: 既存のタグ形式から読み込み
           isRoutine = content.includes("#routine")
@@ -2461,11 +2519,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         // ルーチン化されていないタスクは、今日の実行履歴がある場合のみ表示
         // Get all possible names for this task (current + all historical names)
-        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+        const allPossibleNames = this.plugin?.routineAliasManager
+          ?.getAllPossibleNames
           ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
           : [file.basename]
-        const todayExecutionsForTask = todayExecutions.filter(
-          (exec) => allPossibleNames.includes(exec.taskTitle)
+        const todayExecutionsForTask = todayExecutions.filter((exec) =>
+          allPossibleNames.includes(exec.taskTitle),
         )
 
         // ルーチンタスクでない場合は、今日の実行履歴がない場合はスキップ
@@ -2554,14 +2613,16 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 過去の日付の場合、このファイルが名前変更後の新しいファイルかチェック
           // 新しい名前のファイルで、かつ、旧名での実行履歴がある場合はスキップ
           if (this.plugin?.routineAliasManager?.getAliases) {
-            const aliases = this.plugin.routineAliasManager.getAliases(file.basename)
+            const aliases = this.plugin.routineAliasManager.getAliases(
+              file.basename,
+            )
             if (aliases && aliases.length > 0) {
               // このファイルはエイリアスを持つ（＝名前変更後の新しいファイル）
               // エイリアス（旧名）での実行履歴があるかチェック
-              const hasAliasExecutions = todayExecutions.some(exec => 
-                aliases.includes(exec.taskTitle)
+              const hasAliasExecutions = todayExecutions.some((exec) =>
+                aliases.includes(exec.taskTitle),
               )
-              
+
               // 旧名での実行履歴がある場合、新しい名前のファイルはスキップ
               // （旧名の方で表示されるため）
               if (hasAliasExecutions) {
@@ -3708,11 +3769,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         // 実行履歴の処理
         // Get all possible names for this task (current + all historical names)
-        const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+        const allPossibleNames = this.plugin?.routineAliasManager
+          ?.getAllPossibleNames
           ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
           : [file.basename]
-        const executions = todayExecutions.filter(
-          (exec) => allPossibleNames.includes(exec.taskTitle)
+        const executions = todayExecutions.filter((exec) =>
+          allPossibleNames.includes(exec.taskTitle),
         )
 
         if (executions.length > 0) {
@@ -3829,7 +3891,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       weekday = metadata.weekday !== undefined ? metadata.weekday : null
       weekdays = metadata.weekdays || null
       monthlyWeek = metadata.monthly_week || null
-      monthlyWeekday = metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null
+      monthlyWeekday =
+        metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null
 
       // プロジェクト情報
       projectPath = metadata.project_path || null
@@ -3879,11 +3942,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   ) {
     // エイリアスを考慮して実行履歴を検索
     // Get all possible names for this task (current + all historical names)
-    const allPossibleNames = this.plugin?.routineAliasManager?.getAllPossibleNames
+    const allPossibleNames = this.plugin?.routineAliasManager
+      ?.getAllPossibleNames
       ? this.plugin.routineAliasManager.getAllPossibleNames(taskObj.title)
       : [taskObj.title]
-    const executions = todayExecutions.filter(
-      (exec) => allPossibleNames.includes(exec.taskTitle)
+    const executions = todayExecutions.filter((exec) =>
+      allPossibleNames.includes(exec.taskTitle),
     )
 
     // ルーチンタスクの判定
@@ -4095,7 +4159,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       resetOption.className = "context-menu-item"
       resetOption.textContent = "自動配置に戻す"
       // Use CSS class instead of inline styles (Obsidian guideline compliance)
-      resetOption.classList.add('taskchute-menu-option')
+      resetOption.classList.add("taskchute-menu-option")
       resetOption.addEventListener("click", () => {
         this.resetManualPositioning(inst.task.path)
         menu.remove()
@@ -4113,7 +4177,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         moveOption.className = "context-menu-item"
         moveOption.textContent = `${slot}に移動`
         // Use CSS class instead of inline styles (Obsidian guideline compliance)
-        moveOption.classList.add('taskchute-menu-option')
+        moveOption.classList.add("taskchute-menu-option")
         moveOption.addEventListener("click", () => {
           const currentSlotInstances = this.taskInstances.filter(
             (i) => i.slotKey === currentSlot,
@@ -4132,7 +4196,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       moveToNoneOption.className = "context-menu-item"
       moveToNoneOption.textContent = "時間指定なしに移動"
       // Use CSS class instead of inline styles (Obsidian guideline compliance)
-      moveToNoneOption.classList.add('taskchute-menu-option')
+      moveToNoneOption.classList.add("taskchute-menu-option")
       moveToNoneOption.addEventListener("click", () => {
         const currentSlotInstances = this.taskInstances.filter(
           (i) => i.slotKey === currentSlot,
@@ -4440,7 +4504,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         const dataFile = this.app.vault.getAbstractFileByPath(dataPath)
         if (dataFile && dataFile instanceof TFile) {
           // Use vault.process for atomic file modification (Obsidian guideline compliance)
-          await this.app.vault.modify(dataFile, JSON.stringify(runningTasksData, null, 2))
+          await this.app.vault.modify(
+            dataFile,
+            JSON.stringify(runningTasksData, null, 2),
+          )
         }
       }
     } catch (error) {
@@ -4450,6 +4517,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // インスタンスのみ削除（複製タスク用）
   async deleteInstanceOnly(inst, deletionType = "temporary") {
+    console.log(
+      `[TaskChute DEBUG] deleteInstanceOnly呼び出し: ${inst.task.title}, instanceId: ${inst.instanceId}`,
+    )
+
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
 
@@ -4577,79 +4648,98 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // ルーチンタスクの削除（非表示化）
   async deleteRoutineTask(inst) {
-    // 完了済みタスクは削除できないように保護
-    if (inst.state === "done") {
-      new Notice("完了済みのタスクは削除できません。")
-      return
-    }
-
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
 
     // 2. 複製されたタスクかどうかを判定
     const dateStr = this.getCurrentDateString()
-    const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
-    let isDuplicated = false
-
-    try {
-      const duplicatedInstances = JSON.parse(
-        localStorage.getItem(duplicationKey) || "[]",
-      )
-      isDuplicated = duplicatedInstances.some(
-        (dup) =>
-          dup.instanceId === inst.instanceId ||
-          (dup.path === inst.task.path && !dup.instanceId),
-      )
-    } catch (e) {
-      isDuplicated = false
-    }
+    const isDuplicated = this.isDuplicatedTask(inst, dateStr)
 
     // 非表示リストに追加
     const hiddenRoutines = this.getHiddenRoutines(dateStr)
     const alreadyHidden = hiddenRoutines.some((hidden) => {
+      // 複製タスクの判定
+      if (isDuplicated) {
+        return hidden.instanceId === inst.instanceId
+      }
+
+      // オリジナルタスクの判定
       if (typeof hidden === "string") {
         return hidden === inst.task.path
       }
-      if (isDuplicated) {
-        // 複製の場合はインスタンスIDで判定
-        return hidden.instanceId === inst.instanceId
-      } else {
-        // 複製でない場合はパスで判定
-        return hidden.path === inst.task.path && !hidden.instanceId
-      }
+      return hidden.path === inst.task.path && !hidden.instanceId
     })
 
     if (!alreadyHidden) {
-      hiddenRoutines.push({
-        path: inst.task.path,
-        instanceId: isDuplicated ? inst.instanceId : null, // 複製の場合のみインスタンスIDを保存
-      })
+      if (isDuplicated) {
+        // 複製タスクの場合、必ずinstanceIdを含める
+        hiddenRoutines.push({
+          path: inst.task.path,
+          instanceId: inst.instanceId,
+        })
+      } else {
+        // オリジナルタスクの場合、instanceIdはnull
+        hiddenRoutines.push({
+          path: inst.task.path,
+          instanceId: null,
+        })
+      }
       this.saveHiddenRoutines(dateStr, hiddenRoutines)
     }
 
     // 複製リストからも削除（複製の場合のみ）
     if (isDuplicated) {
       try {
+        const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
         let duplicatedInstances = JSON.parse(
           localStorage.getItem(duplicationKey) || "[]",
         )
+        const beforeLength = duplicatedInstances.length
         duplicatedInstances = duplicatedInstances.filter(
           (dup) => dup.instanceId !== inst.instanceId,
         )
+
+        // ログ出力で削除確認
+        console.log(
+          `[TaskChute] 複製リストから削除: ${beforeLength} -> ${duplicatedInstances.length}`,
+        )
+
         localStorage.setItem(
           duplicationKey,
           JSON.stringify(duplicatedInstances),
         )
       } catch (e) {
-        // 複製情報の更新に失敗
+        console.error("[TaskChute] 複製情報の更新に失敗:", e)
       }
     }
 
-    // 3. 【修正】ルーチンタスクの非表示化では実行ログを削除しない
-    // 理由：ルーチンタスクは翌日以降も継続して使用されるため、
-    // 過去の実行履歴は保持する必要がある。
-    // タスクファイル自体を削除する場合（deleteInstanceWithFile）でのみ
-    // 実行ログを削除すべき。
+    // 3. 【重要な修正】ルーチンタスク削除時はTaskExecutionsからも削除
+    // ユーザーがルーチンタスクを削除した場合（複製・オリジナル関係なく）、
+    // そのインスタンスは完全に削除されるべきで、TaskExecutionsに残っていると翌日再表示されてしまう
+    console.log(
+      `[TaskChute DEBUG] isDuplicated: ${isDuplicated}, instanceId: ${inst.instanceId}`,
+    )
+    if (inst.instanceId) {
+      try {
+        const taskType = isDuplicated ? "複製タスク" : "オリジナルタスク"
+        console.log(
+          `[TaskChute] ${taskType}のTaskExecutions削除開始: taskPath=${inst.task.path}, instanceId=${inst.instanceId}`,
+        )
+        const deletedCount = await this.deleteTaskLogsByInstanceId(
+          inst.task.path,
+          inst.instanceId,
+        )
+        console.log(
+          `[TaskChute] ${taskType}のTaskExecutions削除完了: ${inst.instanceId}, 削除件数: ${deletedCount}`,
+        )
+      } catch (e) {
+        console.error("[TaskChute] TaskExecutions削除に失敗:", e)
+      }
+    } else {
+      console.log(
+        `[TaskChute DEBUG] TaskExecutions削除スキップ: instanceId未設定`,
+      )
+    }
 
     // 4. 実行中タスクの場合は running-task.json を更新
     if (inst.state === "running") {
@@ -4659,9 +4749,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.renderTaskList()
 
     if (isDuplicated) {
-      new Notice(`「${inst.task.title}」の複製を削除しました。`)
+      new Notice(`「${inst.task.title}」の複製を本日のリストから削除しました。`)
     } else {
-      new Notice(`「${inst.task.title}」を本日のリストから非表示にしました。`)
+      new Notice(
+        `「${inst.task.title}」を本日のリストから削除しました。\n（他の日付には影響しません）`,
+      )
     }
   }
 
@@ -4841,9 +4933,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const isWeekly = weeklyRadio.checked
       // Use CSS class instead of inline styles (Obsidian guideline compliance)
       if (isWeekly) {
-        weekdayGroup.classList.remove('taskchute-hidden')
+        weekdayGroup.classList.remove("taskchute-hidden")
       } else {
-        weekdayGroup.classList.add('taskchute-hidden')
+        weekdayGroup.classList.add("taskchute-hidden")
       }
 
       if (isWeekly) {
@@ -5003,8 +5095,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     routineType,
     weekday,
     weekdaysArray,
-    monthlyWeek,      // 新規パラメータ
-    monthlyWeekday    // 新規パラメータ
+    monthlyWeek, // 新規パラメータ
+    monthlyWeekday, // 新規パラメータ
   ) {
     try {
       // タスク名からファイルを探す（複製されたタスクの場合、元のファイルを参照している可能性があるため）
@@ -5767,29 +5859,33 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     taskName.addEventListener("click", async (e) => {
       e.preventDefault()
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      
+
       // 開くべきタスク名を決定
       let targetTaskName = inst.task.title
-      
+
       // 仮想タスクの場合、currentNameがあればそれを使用
       if (inst.task.isVirtual && inst.task.currentName) {
         targetTaskName = inst.task.currentName
-      } 
+      }
       // 実行タイトルがある場合、それを基に現在の名前を探す
-      else if ((inst.executedTitle || inst.task.title) && this.plugin?.routineAliasManager?.findCurrentName) {
+      else if (
+        (inst.executedTitle || inst.task.title) &&
+        this.plugin?.routineAliasManager?.findCurrentName
+      ) {
         const searchName = inst.executedTitle || inst.task.title
-        const currentName = this.plugin.routineAliasManager.findCurrentName(searchName)
+        const currentName =
+          this.plugin.routineAliasManager.findCurrentName(searchName)
         if (currentName) {
           targetTaskName = currentName
         } else {
           targetTaskName = searchName
         }
       }
-      
+
       // ファイルを開く
       const filePath = `${taskFolderPath}/${targetTaskName}.md`
       const file = this.app.vault.getAbstractFileByPath(filePath)
-      
+
       if (file) {
         // ファイルが存在する場合は開く
         this.app.workspace.openLinkText(targetTaskName, "", false)
@@ -6222,28 +6318,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const aggregator = new DailyTaskAggregator(this.plugin)
       await aggregator.updateDailyStats(taskDateString)
 
-      // 複製タスクの場合、複製情報を削除
-      const duplicationKey = `taskchute-duplicated-instances-${taskDateString}`
-      try {
-        let duplicatedInstances = JSON.parse(
-          localStorage.getItem(duplicationKey) || "[]",
-        )
-        const initialLength = duplicatedInstances.length
-
-        // 該当するinstanceIdを削除
-        duplicatedInstances = duplicatedInstances.filter(
-          (dup) => dup.instanceId !== inst.instanceId,
-        )
-
-        if (duplicatedInstances.length < initialLength) {
-          localStorage.setItem(
-            duplicationKey,
-            JSON.stringify(duplicatedInstances),
-          )
-        }
-      } catch (e) {
-        // 複製情報の削除エラー
-      }
+      // 複製情報の削除はタスク削除時（deleteRoutineTask）のみ行う
+      // stopInstance では削除せず、実行履歴のみ記録する
     } catch (e) {
       new Notice("タスク記録の保存に失敗しました")
       // Task completion save error
@@ -6387,6 +6463,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   async duplicateAndStartInstance(inst) {
+    console.log(
+      `[TaskChute DEBUG] duplicateAndStartInstance開始: ${inst.task.title}`,
+    )
+
     // 現在の時間帯を取得
     const currentSlot = this.getCurrentTimeSlot()
 
@@ -6401,6 +6481,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       instanceId: this.generateInstanceId(inst.task.path), // 新しい一意のインスタンスID
     }
     this.taskInstances.push(newInst)
+    console.log(
+      `[TaskChute DEBUG] 新しいインスタンス作成: instanceId=${newInst.instanceId}`,
+    )
 
     // 複製情報をlocalStorageに保存（duplicateInstance と同じ処理）
     const today = this.currentDate
@@ -6409,6 +6492,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const d = today.getDate().toString().padStart(2, "0")
     const dateString = `${y}-${m}-${d}`
     const storageKey = `taskchute-duplicated-instances-${dateString}`
+    console.log(
+      `[TaskChute DEBUG] 複製情報保存: dateString=${dateString}, key=${storageKey}`,
+    )
 
     let duplicatedInstances = []
     try {
@@ -6432,7 +6518,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       path: inst.task.path,
       instanceId: newInst.instanceId,
     })
+    console.log(
+      `[TaskChute DEBUG] 複製情報追加: path=${inst.task.path}, instanceId=${newInst.instanceId}`,
+    )
+    console.log(
+      `[TaskChute DEBUG] 保存前duplicatedInstances:`,
+      duplicatedInstances,
+    )
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
+    console.log(`[TaskChute DEBUG] localStorage保存完了`)
+
+    // 保存直後の確認
+    const savedData = localStorage.getItem(storageKey)
+    console.log(`[TaskChute DEBUG] 保存直後のlocalStorage:`, savedData)
 
     // startInstanceを呼ぶ前にrenderTaskListを呼んで、新しいインスタンスを表示
     this.renderTaskList()
@@ -6857,7 +6955,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // インスタンスIDがある場合は、インスタンスIDでのみ検索（複製タスク対応）
       // インスタンスIDがない場合は、後方互換性のため他の条件で検索
       let existingIndex = -1
-      let existingTaskData = null  // 既存データを保存するための変数
+      let existingTaskData = null // 既存データを保存するための変数
 
       if (taskExecution.instanceId) {
         // インスタンスIDがある場合は、インスタンスIDでのみ検索
@@ -6891,7 +6989,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (existingIndex !== -1) {
         // 更新前の既存データを保存
         existingTaskData = monthlyLog.taskExecutions[dateString][existingIndex]
-        
+
         // 既存エントリを更新（コメント追加/編集時）
         monthlyLog.taskExecutions[dateString][existingIndex] = {
           ...monthlyLog.taskExecutions[dateString][existingIndex],
@@ -6968,7 +7066,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         completionData &&
         completionData.executionComment &&
         (inst.task.projectPath || inst.task.projectTitle) &&
-        this.hasCommentChanged(existingTaskData, completionData)  // 更新前のデータと比較
+        this.hasCommentChanged(existingTaskData, completionData) // 更新前のデータと比較
       ) {
         await this.syncCommentToProjectNote(inst, completionData)
       }
@@ -7001,9 +7099,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // コメント変更検出メソッド
   hasCommentChanged(oldData, newData) {
     // null/undefined の安全な処理とデフォルト値の設定
-    const oldComment = oldData?.executionComment || ''
-    const newComment = newData?.executionComment || ''
-    
+    const oldComment = oldData?.executionComment || ""
+    const newComment = newData?.executionComment || ""
+
     // 文字列の厳密な比較
     return oldComment !== newComment
   }
@@ -7038,11 +7136,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       let totalDeletedLogs = 0
       const dataDir = this.plugin.pathManager.getLogDataPath()
+      console.log(
+        `[TaskChute DEBUG] deleteTaskLogsByInstanceId開始: taskPath=${taskPath}, instanceId=${instanceId}, dataDir=${dataDir}`,
+      )
 
       // dataディレクトリが存在しない場合は何もしない
       const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
       if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
-        return
+        console.log(
+          `[TaskChute DEBUG] dataディレクトリが存在しない: ${dataDir}`,
+        )
+        return 0
       }
 
       // dataディレクトリ内の実際のファイル一覧を取得
@@ -7052,15 +7156,26 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // -tasks.jsonで終わるファイルのみを処理
       const taskJsonFiles = files.filter((file) => file.endsWith("-tasks.json"))
+      console.log(
+        `[TaskChute DEBUG] 検索対象ファイル: ${
+          taskJsonFiles.length
+        }件 - ${taskJsonFiles.join(", ")}`,
+      )
 
       for (const fileName of taskJsonFiles) {
         const baseFileName = fileName.split("/").pop()
         const logFilePath = `${dataDir}/${baseFileName}`
+        console.log(`[TaskChute DEBUG] ファイル処理中: ${logFilePath}`)
 
         try {
           // ファイルを読み込み
           const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
-          if (!logFile || !(logFile instanceof TFile)) continue
+          if (!logFile || !(logFile instanceof TFile)) {
+            console.log(
+              `[TaskChute DEBUG] ファイルが見つからない: ${logFilePath}`,
+            )
+            continue
+          }
           const content = await this.app.vault.read(logFile)
           const monthlyLog = JSON.parse(content)
 
@@ -7072,6 +7187,15 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               const dayLogs = monthlyLog.taskExecutions[dateString]
               const originalLength = dayLogs.length
 
+              console.log(
+                `[TaskChute DEBUG] ${dateString}: ${originalLength}件のログをチェック`,
+              )
+              dayLogs.forEach((log, idx) => {
+                console.log(
+                  `[TaskChute DEBUG] ログ${idx}: taskId=${log.taskId}, instanceId=${log.instanceId}`,
+                )
+              })
+
               // taskIdが一致し、かつinstanceIdも一致するログを除外
               monthlyLog.taskExecutions[dateString] = dayLogs.filter(
                 (log) =>
@@ -7081,6 +7205,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               const deletedCount =
                 originalLength - monthlyLog.taskExecutions[dateString].length
               if (deletedCount > 0) {
+                console.log(
+                  `[TaskChute DEBUG] ${dateString}で${deletedCount}件削除`,
+                )
                 totalDeletedLogs += deletedCount
                 fileModified = true
               }
@@ -7123,7 +7250,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
             if (logFile && logFile instanceof TFile) {
               // Use vault.process for atomic file modification (Obsidian guideline compliance)
-              await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
+              await this.app.vault.modify(
+                logFile,
+                JSON.stringify(monthlyLog, null, 2),
+              )
             }
           }
         } catch (error) {
@@ -7131,9 +7261,15 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      if (totalDeletedLogs > 0) {
-      }
+      console.log(
+        `[TaskChute DEBUG] deleteTaskLogsByInstanceId完了: 合計${totalDeletedLogs}件削除`,
+      )
+      return totalDeletedLogs
     } catch (error) {
+      console.error(
+        `[TaskChute DEBUG] deleteTaskLogsByInstanceIdエラー:`,
+        error,
+      )
       throw error
     }
   }
@@ -7143,7 +7279,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       const dataDir = this.plugin.pathManager.getLogDataPath()
       const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
-      
+
       if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
         return false
       }
@@ -7156,20 +7292,20 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       for (const filePath of files) {
         const file = this.app.vault.getAbstractFileByPath(filePath)
         if (!file || !(file instanceof TFile)) continue
-        
+
         const content = await this.app.vault.read(file)
         const monthlyLog = JSON.parse(content)
-        
+
         if (monthlyLog.taskExecutions) {
           for (const dateString in monthlyLog.taskExecutions) {
             const hasHistory = monthlyLog.taskExecutions[dateString].some(
-              (log) => log.taskId === taskPath
+              (log) => log.taskId === taskPath,
             )
             if (hasHistory) return true
           }
         }
       }
-      
+
       return false
     } catch (error) {
       console.error("履歴チェックエラー:", error)
@@ -7362,7 +7498,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       value: "custom",
     })
     customLabel.createSpan({ text: "曜日を選択" })
-    
+
     // 月次チェックボックス
     const monthlyLabel = typeContainer.createEl("label", {
       cls: "checkbox-label",
@@ -7401,21 +7537,23 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       label.createSpan({ text: day })
       weekdayCheckboxes.push(checkbox)
     })
-    
+
     // 月次設定グループ
     const monthlyGroup = form.createEl("div", {
       cls: "form-group",
       style: "display: none;", // 初期状態は非表示
     })
     monthlyGroup.id = "edit-monthly-group"
-    
+
     // 週選択
-    const weekSelectGroup = monthlyGroup.createEl("div", { cls: "form-inline-group" })
+    const weekSelectGroup = monthlyGroup.createEl("div", {
+      cls: "form-inline-group",
+    })
     weekSelectGroup.createEl("label", { text: "週:", cls: "form-label" })
     const weekSelect = weekSelectGroup.createEl("select", {
-      cls: "form-select"
+      cls: "form-select",
     })
-    
+
     // 週選択オプション
     const weekOptions = [
       { value: "1", text: "第1週" },
@@ -7423,27 +7561,29 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       { value: "3", text: "第3週" },
       { value: "4", text: "第4週" },
       { value: "5", text: "第5週" },
-      { value: "last", text: "最終週" }
+      { value: "last", text: "最終週" },
     ]
-    
-    weekOptions.forEach(option => {
+
+    weekOptions.forEach((option) => {
       weekSelect.createEl("option", {
         value: option.value,
-        text: option.text
+        text: option.text,
       })
     })
-    
+
     // 曜日選択
-    const monthlyWeekdayGroup = monthlyGroup.createEl("div", { cls: "form-inline-group" })
+    const monthlyWeekdayGroup = monthlyGroup.createEl("div", {
+      cls: "form-inline-group",
+    })
     monthlyWeekdayGroup.createEl("label", { text: "曜日:", cls: "form-label" })
     const monthlyWeekdaySelect = monthlyWeekdayGroup.createEl("select", {
-      cls: "form-select"
+      cls: "form-select",
     })
-    
+
     weekdays.forEach((day, index) => {
       monthlyWeekdaySelect.createEl("option", {
         value: index.toString(),
-        text: day + "曜日"
+        text: day + "曜日",
       })
     })
 
@@ -7482,7 +7622,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         customCheckbox.checked = false
         monthlyCheckbox.checked = true
         monthlyGroup.style.display = "block"
-        
+
         // 月次設定の初期値
         if (task.monthlyWeek) {
           weekSelect.value = task.monthlyWeek.toString()
@@ -7535,7 +7675,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           descText.textContent = "曜日を選択してください。"
         }
       } else if (monthlyCheckbox.checked) {
-        const weekLabel = weekSelect.value === "last" ? "最終" : `第${weekSelect.value}`
+        const weekLabel =
+          weekSelect.value === "last" ? "最終" : `第${weekSelect.value}`
         const weekdayName = weekdays[parseInt(monthlyWeekdaySelect.value)]
         descText.textContent = `毎月${weekLabel}${weekdayName}曜日の${timeInput.value}にルーチンタスクとして実行予定です。`
       } else {
@@ -7570,7 +7711,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         customCheckbox.checked = true
       }
     })
-    
+
     monthlyCheckbox.addEventListener("change", () => {
       if (monthlyCheckbox.checked) {
         dailyCheckbox.checked = false
@@ -7588,7 +7729,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     weekdayCheckboxes.forEach((cb) => {
       cb.addEventListener("change", updateDescription)
     })
-    
+
     // 月次設定の変更イベント
     weekSelect.addEventListener("change", updateDescription)
     monthlyWeekdaySelect.addEventListener("change", updateDescription)
@@ -7643,7 +7784,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       let weekday = null
       let monthlyWeek = null
       let monthlyWeekday = null
-      
+
       const scheduledTime = timeInput.value
 
       if (!scheduledTime) {
@@ -7669,7 +7810,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       } else if (monthlyCheckbox.checked) {
         routineType = "monthly"
-        monthlyWeek = weekSelect.value === "last" ? "last" : parseInt(weekSelect.value)
+        monthlyWeek =
+          weekSelect.value === "last" ? "last" : parseInt(weekSelect.value)
         monthlyWeekday = parseInt(monthlyWeekdaySelect.value)
       }
 
@@ -7681,7 +7823,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         weekday,
         weekdaysArray,
         monthlyWeek,
-        monthlyWeekday
+        monthlyWeekday,
       )
       document.body.removeChild(modal)
     })
@@ -7841,7 +7983,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     if (confirmed) {
       // 履歴の存在で判定
       const hasHistory = await this.hasExecutionHistory(inst.task.path)
-      
+
       // 統一された削除処理を使用（ツールチップと同じ処理）
       if (inst.task.isRoutine || hasHistory) {
         await this.deleteRoutineTask(inst)
@@ -7926,7 +8068,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this,
     )
     await autocomplete.initialize()
-    
+
     // Store autocomplete instance for cleanup (Obsidian guideline compliance)
     if (!this.autocompleteInstances) {
       this.autocompleteInstances = []
@@ -13304,12 +13446,12 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 第N週の特定曜日の日付を計算
     // n = 1-5: 第N週
     // n = "last": 最終週
-    
+
     if (n === "last") {
       // 月末から逆算して最後の該当曜日を見つける
       const lastDay = new Date(year, month + 1, 0)
       let currentDay = lastDay.getDate()
-      
+
       while (currentDay >= 1) {
         const date = new Date(year, month, currentDay)
         if (date.getDay() === weekday) {
@@ -13323,7 +13465,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       const firstDay = new Date(year, month, 1)
       const lastDay = new Date(year, month + 1, 0)
       let count = 0
-      
+
       for (let day = 1; day <= lastDay.getDate(); day++) {
         const date = new Date(year, month, day)
         if (date.getDay() === weekday) {
@@ -13358,29 +13500,33 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         return this.isTargetWeekday(currentDate, task.weekday)
       }
     }
-    
+
     // 月次ルーチンの判定（新規）
     if (task.routineType === "monthly") {
       // 必要なパラメータが揃っているかチェック
-      if (task.monthlyWeek === undefined || task.monthlyWeek === null ||
-          task.monthlyWeekday === undefined || task.monthlyWeekday === null) {
+      if (
+        task.monthlyWeek === undefined ||
+        task.monthlyWeek === null ||
+        task.monthlyWeekday === undefined ||
+        task.monthlyWeekday === null
+      ) {
         return false
       }
-      
+
       const year = currentDate.getFullYear()
       const month = currentDate.getMonth()
       const targetDate = this.getNthWeekdayOfMonth(
-        year, 
-        month, 
-        task.monthlyWeekday, 
-        task.monthlyWeek
+        year,
+        month,
+        task.monthlyWeekday,
+        task.monthlyWeek,
       )
-      
+
       // targetDateがnullの場合（存在しない第N週）はfalseを返す
       if (!targetDate) {
         return false
       }
-      
+
       // 現在の日付が対象日付と一致するか判定
       return targetDate.getDate() === currentDate.getDate()
     }
@@ -13516,7 +13662,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // 履歴の存在で判定
       const hasHistory = await this.hasExecutionHistory(inst.task.path)
-      
+
       // 統一された削除処理を使用
       if (inst.task.isRoutine || hasHistory) {
         await this.deleteRoutineTask(inst)
@@ -15293,7 +15439,10 @@ class LogView {
         this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
       if (heatmapFile && heatmapFile instanceof TFile) {
         // Use vault.process for atomic file modification (Obsidian guideline compliance)
-        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
+        await this.plugin.app.vault.modify(
+          heatmapFile,
+          JSON.stringify(yearlyData, null, 2),
+        )
       } else {
         await this.plugin.app.vault.create(
           heatmapPath,
@@ -15884,7 +16033,10 @@ class DailyTaskAggregator {
       // Save back
       if (heatmapFile && heatmapFile instanceof TFile) {
         // Use vault.process for atomic file modification (Obsidian guideline compliance)
-        await this.plugin.app.vault.modify(heatmapFile, JSON.stringify(yearlyData, null, 2))
+        await this.plugin.app.vault.modify(
+          heatmapFile,
+          JSON.stringify(yearlyData, null, 2),
+        )
       } else {
         await this.plugin.app.vault.create(
           heatmapPath,
