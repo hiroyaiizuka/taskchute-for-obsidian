@@ -2365,7 +2365,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // メタデータからルーチン情報を読み込み
           const metadata = this.app.metadataCache.getFileCache(taskFile)?.frontmatter
           if (metadata) {
-            isRoutine = metadata.routine === true || metadata.isRoutine === true
+            isRoutine = metadata.isRoutine === true  // Phase 3: routineプロパティチェック削除
             scheduledTime = metadata.開始時刻 || null
             routineType = metadata.routine_type || "daily"
             weekday = metadata.weekday !== undefined ? metadata.weekday : null
@@ -2510,17 +2510,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // console.log(...)
           //   `[TaskChute DEBUG] loadTasks: ファイル=${file.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
           // )
-          isRoutine = metadata.routine === true || metadata.isRoutine === true
+          isRoutine = metadata.isRoutine === true  // Phase 3: routineプロパティチェック削除
           // console.log(...)
           //   `[TaskChute DEBUG] loadTasks: 判定結果 isRoutine=${isRoutine}`,
           // )
-          // 【マイグレーション】routineがtrueだがisRoutineがundefinedの場合、isRoutineを追加
-          if (metadata.routine === true && metadata.isRoutine === undefined) {
-            // console.log(...)
-            //   `[TaskChute DEBUG] マイグレーション: ${file.path} にisRoutineを追加`,
-            // )
-            this.migrateRoutineTaskMetadata(file)
-          }
+          // Phase 4: 自動マイグレーション削除（Phase 2で手動実行済み）
           scheduledTime = metadata.開始時刻 || null
           routineStart = metadata.routine_start || null
           routineEnd = metadata.routine_end || null
@@ -3953,7 +3947,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       // console.log(...)
       //   `[TaskChute DEBUG] createTaskObject: metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
       // )
-      isRoutine = metadata.routine === true || metadata.isRoutine === true
+      isRoutine = metadata.isRoutine === true  // Phase 3: routineプロパティチェック削除
       // console.log(...)
       //   `[TaskChute DEBUG] createTaskObject: 判定結果 isRoutine=${isRoutine}`,
       // )
@@ -4735,8 +4729,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           inst.task.file,
         )?.frontmatter
         if (metadata) {
-          actualIsRoutine =
-            metadata.routine === true || metadata.isRoutine === true
+          actualIsRoutine = metadata.isRoutine === true  // Phase 3: routine削除
           // console.log(...)
         }
       }
@@ -4918,8 +4911,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             .padStart(2, "0")
           const d = this.currentDate.getDate().toString().padStart(2, "0")
           frontmatter.routine_end = `${y}-${m}-${d}`
-          frontmatter.routine = false
-          frontmatter.isRoutine = false  // 【修正】isRoutineもfalseに設定
+          frontmatter.isRoutine = false  // Phase 4: routineプロパティ操作削除
           delete frontmatter.開始時刻
           return frontmatter
         })
@@ -5134,8 +5126,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.app.fileManager.processFrontMatter(
         task.file,
         (frontmatter) => {
-          // ルーチンフラグをtrueに設定（両方のプロパティで互換性を確保）
-          frontmatter.routine = true
+          // ルーチンフラグをtrueに設定（Phase 1: routineプロパティの新規設定を停止）
           frontmatter.isRoutine = true
           // 開始時刻を設定
           frontmatter.開始時刻 = scheduledTime
@@ -5229,8 +5220,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.ensureFrontMatter(file)
       // メタデータを更新
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        // ルーチンフラグをtrueに設定（両方のプロパティで互換性を確保）
-        frontmatter.routine = true
+        // ルーチンフラグをtrueに設定（Phase 1: routineプロパティの新規設定を停止）
         frontmatter.isRoutine = true
         // 開始時刻を設定
         frontmatter.開始時刻 = scheduledTime
@@ -8401,7 +8391,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
 
         if (inheritance.isRoutine) {
-          frontmatter.push(`routine: true`)
           frontmatter.push(`isRoutine: true`)
           if (inheritance.routineStart)
             frontmatter.push(`routineStart: "${inheritance.routineStart}"`)
@@ -8413,12 +8402,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             frontmatter.push(`weekday: ${inheritance.weekday}`)
           // ルーチンタスクには作成時のtarget_dateは設定しない（日跨ぎ移動専用）
         } else {
-          frontmatter.push("routine: false")
           // 非ルーチンタスクにのみtarget_dateを設定
           frontmatter.push(`target_date: ${targetDateString}`)
         }
       } else {
-        frontmatter.push("routine: false")
         // 継承データがない場合は非ルーチンタスクとしてtarget_dateを設定
         frontmatter.push(`target_date: ${targetDateString}`)
       }
@@ -13514,7 +13501,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   async ensureFrontMatter(file) {
     const content = await this.app.vault.read(file)
     if (!content.startsWith("---")) {
-      const newContent = `---\nroutine: false\n---\n` + content
+      const newContent = `---\n---\n` + content
       // Use vault.process for atomic file modification (Obsidian guideline compliance)
       await this.app.vault.modify(file, newContent)
     }
@@ -14499,21 +14486,43 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
-  // ルーチンタスクのメタデータマイグレーション
-  async migrateRoutineTaskMetadata(file) {
+  // Phase 4: 旧マイグレーション関数を削除（互換性のため関数は残すが中身は空）
+
+  // Phase 2: 全ファイルのroutine→isRoutineマイグレーション
+  async migrateAllRoutineProperties() {
     try {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        if (
-          frontmatter.routine === true &&
-          frontmatter.isRoutine === undefined
-        ) {
-          frontmatter.isRoutine = true
-// console.log(`[TaskChute DEBUG] マイグレーション完了: ${file.path}`)
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+      const allTaskFiles = this.app.vault.getMarkdownFiles().filter(file => 
+        file.path.startsWith(taskFolderPath)
+      )
+      
+      let migratedCount = 0
+      
+      for (const file of allTaskFiles) {
+        const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
+        if (metadata && metadata.routine === true) {
+          await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+            if (frontmatter.routine === true) {
+              // isRoutineが未設定の場合は設定
+              if (frontmatter.isRoutine === undefined) {
+                frontmatter.isRoutine = true
+              }
+              // Phase 2: routineプロパティを削除
+              delete frontmatter.routine
+              migratedCount++
+              console.log(`[TaskChute Phase2] マイグレーション: ${file.path}`)
+            }
+            return frontmatter
+          })
         }
-        return frontmatter
-      })
+      }
+      
+      new Notice(`Phase 2マイグレーション完了: ${migratedCount}個のファイルを更新しました`)
+      console.log(`[TaskChute Phase2] 完了: ${migratedCount}個のファイルをマイグレーション`)
+      
     } catch (error) {
-      console.error(`[TaskChute] マイグレーション失敗: ${file.path}`, error)
+      console.error(`[TaskChute Phase2] マイグレーション失敗:`, error)
+      new Notice(`マイグレーションエラー: ${error.message}`)
     }
   }
 
@@ -14858,7 +14867,8 @@ class TaskChutePlusPlugin extends Plugin {
     // 注: registerEventで登録されたイベントは自動的にクリーンアップされます
 
     // 3. ビューのクリーンアップ
-    this.app.workspace.detachLeavesOfType(TaskChutePlusView.VIEW_TYPE)
+    // ガイドライン違反のため削除: onunloadでのdetachLeavesOfTypeは使用しない
+    // プラグイン更新時にビューの位置が保持されるように変更
 
     // 4. 一時的なlocalStorageデータのクリーンアップ（オプション）
     // 注: ユーザーデータは保持しますが、古い一時データは削除

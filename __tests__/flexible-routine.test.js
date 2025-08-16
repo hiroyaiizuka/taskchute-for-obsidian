@@ -147,7 +147,7 @@ describe('Flexible Routine Schedule', () => {
       )
       
       const frontmatter = processFrontMatterCallback.mock.calls[0][0]
-      expect(frontmatter.routine).toBe(true)
+      expect(frontmatter.isRoutine).toBe(true)
       expect(frontmatter.開始時刻).toBe('09:00')
       expect(frontmatter.routine_type).toBe('daily')
       expect(frontmatter.weekday).toBeUndefined()
@@ -173,7 +173,7 @@ describe('Flexible Routine Schedule', () => {
       )
       
       const frontmatter = processFrontMatterCallback.mock.calls[0][0]
-      expect(frontmatter.routine).toBe(true)
+      expect(frontmatter.isRoutine).toBe(true)
       expect(frontmatter.開始時刻).toBe('10:00')
       expect(frontmatter.routine_type).toBe('weekly')
       expect(frontmatter.weekday).toBe(1)

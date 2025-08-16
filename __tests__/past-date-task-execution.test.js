@@ -480,7 +480,7 @@ target_date: 2024-07-08
       const path = file?.path || file;
       if (path === routineTaskFile.path) {
         return Promise.resolve(`---
-routine: true
+isRoutine: true
 開始時刻: 09:00
 ---
 # ルーチンタスクA
@@ -493,7 +493,7 @@ routine: true
     
     mockMetadataCache.getFileCache.mockReturnValue({
       frontmatter: {
-        routine: true,
+        isRoutine: true,
         開始時刻: '09:00'
       }
     });

@@ -189,7 +189,7 @@ describe("Flexible Routine Schedule - Simplified Tests", () => {
         task, button, "10:00", "custom", null, [1, 3, 5]
       )
 
-      expect(savedFrontmatter.routine).toBe(true)
+      expect(savedFrontmatter.isRoutine).toBe(true)
       expect(savedFrontmatter.開始時刻).toBe("10:00")
       expect(savedFrontmatter.routine_type).toBe("custom")
       expect(savedFrontmatter.weekdays).toEqual([1, 3, 5])
@@ -228,7 +228,7 @@ describe("Flexible Routine Schedule - Simplified Tests", () => {
         task, button, "09:00", "daily", null, null
       )
 
-      expect(savedFrontmatter.routine).toBe(true)
+      expect(savedFrontmatter.isRoutine).toBe(true)
       expect(savedFrontmatter.開始時刻).toBe("09:00")
       expect(savedFrontmatter.routine_type).toBe("daily")
       expect(savedFrontmatter.weekday).toBeUndefined()
