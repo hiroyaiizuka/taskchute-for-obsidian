@@ -6444,6 +6444,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 全タスク完了チェック
     this.checkAllTasksCompleted()
 
+    // 完了タスクのorder番号を再計算してstartTime順序を反映
+    this.initializeTaskOrders()
+
     // タスクリストを再描画してソートを適用
     this.renderTaskList()
   }
