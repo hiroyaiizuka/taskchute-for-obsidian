@@ -2453,7 +2453,21 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         if (metadata) {
           // メタデータから読み込み
-          isRoutine = metadata.routine === true
+          console.log(
+            `[TaskChute DEBUG] loadTasks: ファイル=${file.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
+          )
+          isRoutine = metadata.routine === true || metadata.isRoutine === true
+          console.log(
+            `[TaskChute DEBUG] loadTasks: 判定結果 isRoutine=${isRoutine}`,
+          )
+
+          // 【マイグレーション】routineがtrueだがisRoutineがundefinedの場合、isRoutineを追加
+          if (metadata.routine === true && metadata.isRoutine === undefined) {
+            console.log(
+              `[TaskChute DEBUG] マイグレーション: ${file.path} にisRoutineを追加`,
+            )
+            this.migrateRoutineTaskMetadata(file)
+          }
           scheduledTime = metadata.開始時刻 || null
           routineStart = metadata.routine_start || null
           routineEnd = metadata.routine_end || null
@@ -3883,7 +3897,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     let projectTitle = null
 
     if (metadata) {
-      isRoutine = metadata.routine === true
+      console.log(
+        `[TaskChute DEBUG] createTaskObject: metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
+      )
+      isRoutine = metadata.routine === true || metadata.isRoutine === true
+      console.log(
+        `[TaskChute DEBUG] createTaskObject: 判定結果 isRoutine=${isRoutine}`,
+      )
       scheduledTime = metadata.開始時刻 || null
       routineStart = metadata.routine_start || null
       routineEnd = metadata.routine_end || null
@@ -4360,7 +4380,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               title: runningData.taskTitle,
               description: runningData.taskDescription || "",
               path: runningData.taskPath,
-              isRoutine: runningData.isRoutine || false,
+              isRoutine: runningData.isRoutine === true, // 明示的にtrueの場合のみtrueにする
               file: null, // 実際のファイルオブジェクトは後で必要に応じて取得
             }
           } else {
@@ -4439,7 +4459,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           taskDescription: inst.task.description || "",
           slotKey: inst.slotKey,
           originalSlotKey: inst.originalSlotKey || inst.slotKey, // 開始時のslotKeyも保存
-          isRoutine: inst.task.isRoutine || false,
+          isRoutine: inst.task.isRoutine === true,
           taskId: inst.task.id,
           instanceId: inst.instanceId, // インスタンスIDを保存
         }
@@ -4646,8 +4666,39 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
-  // ルーチンタスクの削除（非表示化）
+  // ルーチンタスクの削除（非表示化）または履歴のある非ルーチンタスクの削除
   async deleteRoutineTask(inst) {
+    // 【重要な修正】削除時にファイルから最新のisRoutine状態を確認
+    let actualIsRoutine = inst.task.isRoutine
+    try {
+      if (inst.task.path && inst.task.file) {
+        const metadata = this.app.metadataCache.getFileCache(
+          inst.task.file,
+        )?.frontmatter
+        if (metadata) {
+          actualIsRoutine =
+            metadata.routine === true || metadata.isRoutine === true
+          console.log(
+            `[TaskChute DEBUG] ファイルから再確認: ${inst.task.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}, actualIsRoutine=${actualIsRoutine}`,
+          )
+        }
+      }
+    } catch (e) {
+      console.error("[TaskChute] ファイルメタデータ確認エラー:", e)
+    }
+
+    console.log(
+      `[TaskChute DEBUG] deleteRoutineTask開始: isRoutine=${inst.task.isRoutine}, actualIsRoutine=${actualIsRoutine}, path=${inst.task.path}, instanceId=${inst.instanceId}`,
+    )
+
+    // 【重要な修正】インスタンス削除前に同じパスのインスタンス数をカウント
+    const samePathInstancesBeforeDeletion = this.taskInstances.filter(
+      (i) => i.task.path === inst.task.path,
+    )
+    console.log(
+      `[TaskChute DEBUG] 削除前の同じパスのインスタンス数: ${samePathInstancesBeforeDeletion.length}`,
+    )
+
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
 
@@ -4746,9 +4797,42 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.saveRunningTasksState()
     }
 
+    // 5. 非ルーチンタスクの場合はファイルも削除
+    console.log(
+      `[TaskChute DEBUG] ファイル削除判定: isRoutine=${inst.task.isRoutine}, actualIsRoutine=${actualIsRoutine}, path=${inst.task.path}`,
+    )
+    if (!actualIsRoutine) {
+      try {
+        // 削除前にカウントした値を使用（削除後だと常に0になってしまう）
+        const remainingInstances = samePathInstancesBeforeDeletion.length - 1
+        console.log(
+          `[TaskChute DEBUG] 削除後の同じパスのインスタンス数: ${remainingInstances}`,
+        )
+
+        if (remainingInstances === 0) {
+          // 最後のインスタンスの場合、ファイルとタスクリストからも削除
+          this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
+          await this.app.vault.delete(inst.task.file)
+          console.log(
+            `[TaskChute] 非ルーチンタスクのファイル削除: ${inst.task.path}`,
+          )
+        } else {
+          console.log(
+            `[TaskChute DEBUG] ファイル削除スキップ: 他のインスタンスが存在`,
+          )
+        }
+      } catch (e) {
+        console.error("[TaskChute] 非ルーチンタスクのファイル削除に失敗:", e)
+      }
+    } else {
+      console.log(`[TaskChute DEBUG] ルーチンタスクのためファイル削除スキップ`)
+    }
+
     this.renderTaskList()
 
-    if (isDuplicated) {
+    if (!actualIsRoutine) {
+      new Notice(`「${inst.task.title}」を完全に削除しました。`)
+    } else if (isDuplicated) {
       new Notice(`「${inst.task.title}」の複製を本日のリストから削除しました。`)
     } else {
       new Notice(
@@ -5018,8 +5102,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.app.fileManager.processFrontMatter(
         task.file,
         (frontmatter) => {
-          // ルーチンフラグをtrueに設定
+          // ルーチンフラグをtrueに設定（両方のプロパティで互換性を確保）
           frontmatter.routine = true
+          frontmatter.isRoutine = true
           // 開始時刻を設定
           frontmatter.開始時刻 = scheduledTime
           // ルーチンタイプを設定
@@ -5112,8 +5197,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.ensureFrontMatter(file)
       // メタデータを更新
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        // ルーチンフラグをtrueに設定
+        // ルーチンフラグをtrueに設定（両方のプロパティで互換性を確保）
         frontmatter.routine = true
+        frontmatter.isRoutine = true
         // 開始時刻を設定
         frontmatter.開始時刻 = scheduledTime
         // ルーチンタイプを設定
@@ -6397,6 +6483,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // 音効果（オプション）
 
   duplicateInstance(inst) {
+    console.log(
+      `[TaskChute DEBUG] duplicateInstance開始: isRoutine=${inst.task.isRoutine}, path=${inst.task.path}`,
+    )
     const newInst = {
       task: inst.task,
       state: "idle",
@@ -6406,6 +6495,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       order: null, // 後で計算される
       instanceId: this.generateInstanceId(inst.task.path), // 新しい一意のインスタンスID
     }
+    console.log(
+      `[TaskChute DEBUG] 複製インスタンス作成: isRoutine=${newInst.task.isRoutine}`,
+    )
 
     const currentIndex = this.taskInstances.indexOf(inst)
 
@@ -14413,6 +14505,24 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       new Notice(`「${inst.task.title}」を${targetDate}に移動しました`)
     } catch (error) {
       new Notice("タスクの移動に失敗しました")
+    }
+  }
+
+  // ルーチンタスクのメタデータマイグレーション
+  async migrateRoutineTaskMetadata(file) {
+    try {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        if (
+          frontmatter.routine === true &&
+          frontmatter.isRoutine === undefined
+        ) {
+          frontmatter.isRoutine = true
+          console.log(`[TaskChute DEBUG] マイグレーション完了: ${file.path}`)
+        }
+        return frontmatter
+      })
+    } catch (error) {
+      console.error(`[TaskChute] マイグレーション失敗: ${file.path}`, error)
     }
   }
 
