@@ -1228,7 +1228,7 @@ class TaskChuteView extends ItemView {
       // Use CSS class instead of inline styles (Obsidian guideline compliance)
       input.classList.add("taskchute-input-absolute")
       input.style.left = `${calendarBtn.getBoundingClientRect().left}px`
-      input.style.top = `${calendarBtn.getBoundingClientRect().bottom + 5}px`
+      input.style.top = `${calendarBtn.getBoundingClientRect().top - 900}px`
       input.style.zIndex = 10000
       // 現在日付をセット
       const y = this.currentDate.getFullYear()
@@ -9657,7 +9657,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 padding: 2px;
                 border-radius: 4px;
                 transition: all 0.2s ease;
-                opacity: 0.6;
+                opacity: 0.4;
                 width: 100%;
                 text-align: center;
             }
@@ -9720,14 +9720,15 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
                 opacity: 1;
             }
             
-            /* 完了済みでコメント未記入のタスク - グレーアウト表示 */
+            /* 完了済みでコメント未記入のタスク - 通常時非表示、ホバー時表示（空間は保持） */
             .comment-button.no-comment {
-                opacity: 0.3;
-                visibility: visible;
+                opacity: 0;
+                visibility: hidden;
             }
             
             .task-item:hover .comment-button.no-comment {
-                opacity: 0.5;
+                opacity: 0.6;
+                visibility: visible;
             }
             
             /* プロジェクト表示コンポーネント全体 */

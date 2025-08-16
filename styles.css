@@ -354,6 +354,7 @@
 /* Additional styles for guideline compliance */
 .taskchute-input-absolute {
   position: absolute;
+  z-index: 10000;
 }
 
 .taskchute-hidden {
