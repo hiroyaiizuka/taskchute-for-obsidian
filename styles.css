@@ -392,3 +392,9 @@
   width: 100%;
   max-width: 720px;
 }
+
+/* タスク移動時のハイライト */
+.taskchute-task-moved {
+  background-color: var(--background-secondary) !important;
+  transition: background-color 0.3s ease;
+}

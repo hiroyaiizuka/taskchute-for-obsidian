@@ -1043,33 +1043,30 @@ class TaskChuteView extends ItemView {
   // 複製タスクかどうかを判定
   isDuplicatedTask(inst, dateStr) {
     const duplicationKey = `taskchute-duplicated-instances-${dateStr}`
-    console.log(
-      `[TaskChute DEBUG] isDuplicatedTask開始: instanceId=${inst.instanceId}, dateStr=${dateStr}, key=${duplicationKey}`,
-    )
-
+    // console.log(...)
+    //   `[TaskChute DEBUG] isDuplicatedTask開始: instanceId=${inst.instanceId}, dateStr=${dateStr}, key=${duplicationKey}`,
+    // )
     // localStorage の生データを確認
     const rawData = localStorage.getItem(duplicationKey)
-    console.log(`[TaskChute DEBUG] localStorage生データ:`, rawData)
-
+// console.log(`[TaskChute DEBUG] localStorage生データ:`, rawData)
     try {
       const duplicatedInstances = JSON.parse(rawData || "[]")
-      console.log(`[TaskChute DEBUG] 複製リスト:`, duplicatedInstances)
-
+// console.log(`[TaskChute DEBUG] 複製リスト:`, duplicatedInstances)
       // 詳細比較のため個別にチェック
       if (duplicatedInstances.length > 0) {
         duplicatedInstances.forEach((dup, idx) => {
-          console.log(
-            `[TaskChute DEBUG] 複製${idx}: instanceId=${
-              dup.instanceId
-            }, 一致判定=${dup.instanceId === inst.instanceId}`,
-          )
+          // console.log(...)
+          //   `[TaskChute DEBUG] 複製${idx}: instanceId=${
+          //     dup.instanceId
+          //   }, 一致判定=${dup.instanceId === inst.instanceId}`,
+          // )
         })
       }
 
       const result = duplicatedInstances.some(
         (dup) => dup.instanceId === inst.instanceId,
       )
-      console.log(`[TaskChute DEBUG] 複製判定結果: ${result}`)
+// console.log(`[TaskChute DEBUG] 複製判定結果: ${result}`)
       return result
     } catch (e) {
       console.error("[TaskChute] 複製タスク判定エラー:", e)
@@ -2353,22 +2350,79 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         )
 
         // タスクオブジェクトを作成（ファイルの有無に関わらず実行時の名前で）
+        // 【修正】ファイルが存在する場合はメタデータからルーチン情報を読み込み
+        let isRoutine = false
+        let scheduledTime = null
+        let routineType = "daily"
+        let weekday = null
+        let weekdays = null
+        let monthlyWeek = null
+        let monthlyWeekday = null
+        let projectPath = null
+        let projectTitle = null
+
+        if (taskFile) {
+          // メタデータからルーチン情報を読み込み
+          const metadata = this.app.metadataCache.getFileCache(taskFile)?.frontmatter
+          if (metadata) {
+            isRoutine = metadata.routine === true || metadata.isRoutine === true
+            scheduledTime = metadata.開始時刻 || null
+            routineType = metadata.routine_type || "daily"
+            weekday = metadata.weekday !== undefined ? metadata.weekday : null
+            weekdays = metadata.weekdays || null
+            monthlyWeek = metadata.monthly_week || null
+            monthlyWeekday = metadata.monthly_weekday !== undefined ? metadata.monthly_weekday : null
+            
+            // プロジェクト情報を読み込み
+            projectPath = metadata.project_path || null
+            if (metadata.project) {
+              const projectMatch = metadata.project.match(/\[\[([^\]]+)\]\]/)
+              if (projectMatch) {
+                projectTitle = projectMatch[1]
+                // project_pathが存在しない場合、projectTitleからprojectPathを復元
+                if (!projectPath && projectTitle) {
+                  const projectFolderPath = this.plugin.pathManager.getProjectFolderPath()
+                  const reconstructedPath = `${projectFolderPath}/${projectTitle}.md`
+                  const projectFile = this.app.vault.getAbstractFileByPath(reconstructedPath)
+                  if (projectFile) {
+                    projectPath = reconstructedPath
+                  } else {
+                    try {
+                      const allFiles = this.app.vault.getMarkdownFiles()
+                      const matchingProject = allFiles.find(
+                        (file) =>
+                          file.basename === projectTitle &&
+                          (file.path.includes("Project") || file.path.includes("project")),
+                      )
+                      if (matchingProject) {
+                        projectPath = matchingProject.path
+                      }
+                    } catch (e) {
+                      // プロジェクトファイル検索エラーは無視
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
         const taskObj = {
           title: exec.taskTitle, // 実行時の名前を使用
           path: taskFile
             ? taskFile.path
             : `TaskChute/Task/${exec.taskTitle}.md`,
           file: taskFile || null,
-          isRoutine: false, // 後でファイル読み込み時に更新される可能性
-          scheduledTime: null,
+          isRoutine: isRoutine, // 【修正】メタデータから正しく読み込み
+          scheduledTime: scheduledTime,
           slotKey: exec.slotKey || "none",
-          routineType: "daily",
-          weekday: null,
-          weekdays: null,
-          monthlyWeek: null,
-          monthlyWeekday: null,
-          projectPath: null,
-          projectTitle: null,
+          routineType: routineType,
+          weekday: weekday,
+          weekdays: weekdays,
+          monthlyWeek: monthlyWeek,
+          monthlyWeekday: monthlyWeekday,
+          projectPath: projectPath,
+          projectTitle: projectTitle,
           isVirtual: !taskFile, // ファイルがない場合は仮想タスク
           currentName: currentTaskName, // 現在の名前（異なる場合）
         }
@@ -2453,19 +2507,18 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
         if (metadata) {
           // メタデータから読み込み
-          console.log(
-            `[TaskChute DEBUG] loadTasks: ファイル=${file.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
-          )
+          // console.log(...)
+          //   `[TaskChute DEBUG] loadTasks: ファイル=${file.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
+          // )
           isRoutine = metadata.routine === true || metadata.isRoutine === true
-          console.log(
-            `[TaskChute DEBUG] loadTasks: 判定結果 isRoutine=${isRoutine}`,
-          )
-
+          // console.log(...)
+          //   `[TaskChute DEBUG] loadTasks: 判定結果 isRoutine=${isRoutine}`,
+          // )
           // 【マイグレーション】routineがtrueだがisRoutineがundefinedの場合、isRoutineを追加
           if (metadata.routine === true && metadata.isRoutine === undefined) {
-            console.log(
-              `[TaskChute DEBUG] マイグレーション: ${file.path} にisRoutineを追加`,
-            )
+            // console.log(...)
+            //   `[TaskChute DEBUG] マイグレーション: ${file.path} にisRoutineを追加`,
+            // )
             this.migrateRoutineTaskMetadata(file)
           }
           scheduledTime = metadata.開始時刻 || null
@@ -3897,13 +3950,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     let projectTitle = null
 
     if (metadata) {
-      console.log(
-        `[TaskChute DEBUG] createTaskObject: metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
-      )
+      // console.log(...)
+      //   `[TaskChute DEBUG] createTaskObject: metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}`,
+      // )
       isRoutine = metadata.routine === true || metadata.isRoutine === true
-      console.log(
-        `[TaskChute DEBUG] createTaskObject: 判定結果 isRoutine=${isRoutine}`,
-      )
+      // console.log(...)
+      //   `[TaskChute DEBUG] createTaskObject: 判定結果 isRoutine=${isRoutine}`,
+      // )
       scheduledTime = metadata.開始時刻 || null
       routineStart = metadata.routine_start || null
       routineEnd = metadata.routine_end || null
@@ -4355,6 +4408,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             inst.slotKey === runningData.slotKey,
         )
 
+        // 【修正】最初に見つかったインスタンスのisRoutineも復元データから更新
+        if (runningInstance && runningInstance.task && runningData.isRoutine !== undefined) {
+          runningInstance.task.isRoutine = runningData.isRoutine === true
+        }
+
         // slotKeyが一致するインスタンスが見つからない場合は、
         // 異なるslotKeyのインスタンスを探して移動させる
         if (!runningInstance) {
@@ -4366,6 +4424,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 見つかった場合は正しいslotKeyに移動
           if (runningInstance) {
             runningInstance.slotKey = runningData.slotKey
+            // 【修正】既存インスタンスのisRoutineも復元データから更新
+            if (runningInstance.task && runningData.isRoutine !== undefined) {
+              runningInstance.task.isRoutine = runningData.isRoutine === true
+            }
           }
         }
 
@@ -4537,10 +4599,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // インスタンスのみ削除（複製タスク用）
   async deleteInstanceOnly(inst, deletionType = "temporary") {
-    console.log(
-      `[TaskChute DEBUG] deleteInstanceOnly呼び出し: ${inst.task.title}, instanceId: ${inst.instanceId}`,
-    )
-
+    // console.log(`[TaskChute DEBUG] deleteInstanceOnly呼び出し: ${inst.task.title}, instanceId: ${inst.instanceId}`)
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
 
@@ -4678,27 +4737,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         if (metadata) {
           actualIsRoutine =
             metadata.routine === true || metadata.isRoutine === true
-          console.log(
-            `[TaskChute DEBUG] ファイルから再確認: ${inst.task.path}, metadata.routine=${metadata.routine}, metadata.isRoutine=${metadata.isRoutine}, actualIsRoutine=${actualIsRoutine}`,
-          )
+          // console.log(...)
         }
       }
     } catch (e) {
       console.error("[TaskChute] ファイルメタデータ確認エラー:", e)
     }
 
-    console.log(
-      `[TaskChute DEBUG] deleteRoutineTask開始: isRoutine=${inst.task.isRoutine}, actualIsRoutine=${actualIsRoutine}, path=${inst.task.path}, instanceId=${inst.instanceId}`,
-    )
-
+    // console.log(...)
     // 【重要な修正】インスタンス削除前に同じパスのインスタンス数をカウント
     const samePathInstancesBeforeDeletion = this.taskInstances.filter(
       (i) => i.task.path === inst.task.path,
     )
-    console.log(
-      `[TaskChute DEBUG] 削除前の同じパスのインスタンス数: ${samePathInstancesBeforeDeletion.length}`,
-    )
-
+    // console.log(...)
     // 1. インスタンスをtaskInstancesから削除
     this.taskInstances = this.taskInstances.filter((i) => i !== inst)
 
@@ -4751,10 +4802,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         )
 
         // ログ出力で削除確認
-        console.log(
-          `[TaskChute] 複製リストから削除: ${beforeLength} -> ${duplicatedInstances.length}`,
-        )
-
+        // console.log(...)
         localStorage.setItem(
           duplicationKey,
           JSON.stringify(duplicatedInstances),
@@ -4767,29 +4815,21 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 3. 【重要な修正】ルーチンタスク削除時はTaskExecutionsからも削除
     // ユーザーがルーチンタスクを削除した場合（複製・オリジナル関係なく）、
     // そのインスタンスは完全に削除されるべきで、TaskExecutionsに残っていると翌日再表示されてしまう
-    console.log(
-      `[TaskChute DEBUG] isDuplicated: ${isDuplicated}, instanceId: ${inst.instanceId}`,
-    )
+    // console.log(...)
     if (inst.instanceId) {
       try {
         const taskType = isDuplicated ? "複製タスク" : "オリジナルタスク"
-        console.log(
-          `[TaskChute] ${taskType}のTaskExecutions削除開始: taskPath=${inst.task.path}, instanceId=${inst.instanceId}`,
-        )
+        // console.log(...)
         const deletedCount = await this.deleteTaskLogsByInstanceId(
           inst.task.path,
           inst.instanceId,
         )
-        console.log(
-          `[TaskChute] ${taskType}のTaskExecutions削除完了: ${inst.instanceId}, 削除件数: ${deletedCount}`,
-        )
+        // console.log(...)
       } catch (e) {
         console.error("[TaskChute] TaskExecutions削除に失敗:", e)
       }
     } else {
-      console.log(
-        `[TaskChute DEBUG] TaskExecutions削除スキップ: instanceId未設定`,
-      )
+      // console.log(...)
     }
 
     // 4. 実行中タスクの場合は running-task.json を更新
@@ -4798,34 +4838,25 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
 
     // 5. 非ルーチンタスクの場合はファイルも削除
-    console.log(
-      `[TaskChute DEBUG] ファイル削除判定: isRoutine=${inst.task.isRoutine}, actualIsRoutine=${actualIsRoutine}, path=${inst.task.path}`,
-    )
+    // console.log(...)
     if (!actualIsRoutine) {
       try {
         // 削除前にカウントした値を使用（削除後だと常に0になってしまう）
         const remainingInstances = samePathInstancesBeforeDeletion.length - 1
-        console.log(
-          `[TaskChute DEBUG] 削除後の同じパスのインスタンス数: ${remainingInstances}`,
-        )
-
+        // console.log(...)
         if (remainingInstances === 0) {
           // 最後のインスタンスの場合、ファイルとタスクリストからも削除
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
           await this.app.vault.delete(inst.task.file)
-          console.log(
-            `[TaskChute] 非ルーチンタスクのファイル削除: ${inst.task.path}`,
-          )
+          // console.log(...)
         } else {
-          console.log(
-            `[TaskChute DEBUG] ファイル削除スキップ: 他のインスタンスが存在`,
-          )
+          // console.log(...)
         }
       } catch (e) {
         console.error("[TaskChute] 非ルーチンタスクのファイル削除に失敗:", e)
       }
     } else {
-      console.log(`[TaskChute DEBUG] ルーチンタスクのためファイル削除スキップ`)
+// console.log(`[TaskChute DEBUG] ルーチンタスクのためファイル削除スキップ`)
     }
 
     this.renderTaskList()
@@ -4888,6 +4919,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           const d = this.currentDate.getDate().toString().padStart(2, "0")
           frontmatter.routine_end = `${y}-${m}-${d}`
           frontmatter.routine = false
+          frontmatter.isRoutine = false  // 【修正】isRoutineもfalseに設定
           delete frontmatter.開始時刻
           return frontmatter
         })
@@ -6299,16 +6331,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           })
 
         // ホバー時の色を適用（一時的なハイライト）
-        movedTaskItem.style.background = "var(--background-secondary)"
-        movedTaskItem.style.transition = "background 0.3s ease"
+        movedTaskItem.classList.add("taskchute-task-moved")
 
         // スクロールして表示
         movedTaskItem.scrollIntoView({ behavior: "smooth", block: "nearest" })
 
-        // 0.5秒後に元の色に戻す
+        // 0.5秒後に元のクラスに戻す
         setTimeout(() => {
-          movedTaskItem.style.background = ""
-          movedTaskItem.style.transition = ""
+          movedTaskItem.classList.remove("taskchute-task-moved")
         }, 500)
       }
     }
@@ -6467,6 +6497,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       particle.className = "particle"
       particle.style.left = `${x}%`
       particle.style.top = `${y}%`
+      particle.className = "taskchute-heatmap-particle"
       particle.style.backgroundColor = color
       particle.style.transform = `rotate(${i * 45}deg)`
 
@@ -6483,9 +6514,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   // 音効果（オプション）
 
   duplicateInstance(inst) {
-    console.log(
-      `[TaskChute DEBUG] duplicateInstance開始: isRoutine=${inst.task.isRoutine}, path=${inst.task.path}`,
-    )
+    // console.log(...)
     const newInst = {
       task: inst.task,
       state: "idle",
@@ -6495,10 +6524,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       order: null, // 後で計算される
       instanceId: this.generateInstanceId(inst.task.path), // 新しい一意のインスタンスID
     }
-    console.log(
-      `[TaskChute DEBUG] 複製インスタンス作成: isRoutine=${newInst.task.isRoutine}`,
-    )
-
+    // console.log(...)
     const currentIndex = this.taskInstances.indexOf(inst)
 
     if (currentIndex !== -1) {
@@ -6555,10 +6581,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   }
 
   async duplicateAndStartInstance(inst) {
-    console.log(
-      `[TaskChute DEBUG] duplicateAndStartInstance開始: ${inst.task.title}`,
-    )
-
+    // console.log(...)
     // 現在の時間帯を取得
     const currentSlot = this.getCurrentTimeSlot()
 
@@ -6573,10 +6596,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       instanceId: this.generateInstanceId(inst.task.path), // 新しい一意のインスタンスID
     }
     this.taskInstances.push(newInst)
-    console.log(
-      `[TaskChute DEBUG] 新しいインスタンス作成: instanceId=${newInst.instanceId}`,
-    )
-
+    // console.log(...)
     // 複製情報をlocalStorageに保存（duplicateInstance と同じ処理）
     const today = this.currentDate
     const y = today.getFullYear()
@@ -6584,10 +6604,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const d = today.getDate().toString().padStart(2, "0")
     const dateString = `${y}-${m}-${d}`
     const storageKey = `taskchute-duplicated-instances-${dateString}`
-    console.log(
-      `[TaskChute DEBUG] 複製情報保存: dateString=${dateString}, key=${storageKey}`,
-    )
-
+    // console.log(...)
     let duplicatedInstances = []
     try {
       const storageData = JSON.parse(localStorage.getItem(storageKey) || "[]")
@@ -6610,20 +6627,13 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       path: inst.task.path,
       instanceId: newInst.instanceId,
     })
-    console.log(
-      `[TaskChute DEBUG] 複製情報追加: path=${inst.task.path}, instanceId=${newInst.instanceId}`,
-    )
-    console.log(
-      `[TaskChute DEBUG] 保存前duplicatedInstances:`,
-      duplicatedInstances,
-    )
+    // console.log(...)
+    // console.log(...)
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
-    console.log(`[TaskChute DEBUG] localStorage保存完了`)
-
+// console.log(`[TaskChute DEBUG] localStorage保存完了`)
     // 保存直後の確認
     const savedData = localStorage.getItem(storageKey)
-    console.log(`[TaskChute DEBUG] 保存直後のlocalStorage:`, savedData)
-
+// console.log(`[TaskChute DEBUG] 保存直後のlocalStorage:`, savedData)
     // startInstanceを呼ぶ前にrenderTaskListを呼んで、新しいインスタンスを表示
     this.renderTaskList()
 
@@ -7228,16 +7238,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     try {
       let totalDeletedLogs = 0
       const dataDir = this.plugin.pathManager.getLogDataPath()
-      console.log(
-        `[TaskChute DEBUG] deleteTaskLogsByInstanceId開始: taskPath=${taskPath}, instanceId=${instanceId}, dataDir=${dataDir}`,
-      )
-
+      // console.log(...)
       // dataディレクトリが存在しない場合は何もしない
       const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
       if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
-        console.log(
-          `[TaskChute DEBUG] dataディレクトリが存在しない: ${dataDir}`,
-        )
+        // console.log(...)
         return 0
       }
 
@@ -7248,24 +7253,17 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
       // -tasks.jsonで終わるファイルのみを処理
       const taskJsonFiles = files.filter((file) => file.endsWith("-tasks.json"))
-      console.log(
-        `[TaskChute DEBUG] 検索対象ファイル: ${
-          taskJsonFiles.length
-        }件 - ${taskJsonFiles.join(", ")}`,
-      )
+      // console.log(`[TaskChute DEBUG] 検索対象ファイル: ${taskJsonFiles.length}件 - ${taskJsonFiles.join(", ")}`)
 
       for (const fileName of taskJsonFiles) {
         const baseFileName = fileName.split("/").pop()
         const logFilePath = `${dataDir}/${baseFileName}`
-        console.log(`[TaskChute DEBUG] ファイル処理中: ${logFilePath}`)
-
+// console.log(`[TaskChute DEBUG] ファイル処理中: ${logFilePath}`)
         try {
           // ファイルを読み込み
           const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
           if (!logFile || !(logFile instanceof TFile)) {
-            console.log(
-              `[TaskChute DEBUG] ファイルが見つからない: ${logFilePath}`,
-            )
+            // console.log(...)
             continue
           }
           const content = await this.app.vault.read(logFile)
@@ -7279,13 +7277,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               const dayLogs = monthlyLog.taskExecutions[dateString]
               const originalLength = dayLogs.length
 
-              console.log(
-                `[TaskChute DEBUG] ${dateString}: ${originalLength}件のログをチェック`,
-              )
+              // console.log(...)
               dayLogs.forEach((log, idx) => {
-                console.log(
-                  `[TaskChute DEBUG] ログ${idx}: taskId=${log.taskId}, instanceId=${log.instanceId}`,
-                )
+                // console.log(...)
               })
 
               // taskIdが一致し、かつinstanceIdも一致するログを除外
@@ -7297,9 +7291,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               const deletedCount =
                 originalLength - monthlyLog.taskExecutions[dateString].length
               if (deletedCount > 0) {
-                console.log(
-                  `[TaskChute DEBUG] ${dateString}で${deletedCount}件削除`,
-                )
+                // console.log(...)
                 totalDeletedLogs += deletedCount
                 fileModified = true
               }
@@ -7353,15 +7345,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         }
       }
 
-      console.log(
-        `[TaskChute DEBUG] deleteTaskLogsByInstanceId完了: 合計${totalDeletedLogs}件削除`,
-      )
+      // console.log(...)
       return totalDeletedLogs
     } catch (error) {
-      console.error(
-        `[TaskChute DEBUG] deleteTaskLogsByInstanceIdエラー:`,
-        error,
-      )
+      console.error(`[TaskChute DEBUG] deleteTaskLogsByInstanceIdエラー:`, error)
       throw error
     }
   }
@@ -14518,7 +14505,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           frontmatter.isRoutine === undefined
         ) {
           frontmatter.isRoutine = true
-          console.log(`[TaskChute DEBUG] マイグレーション完了: ${file.path}`)
+// console.log(`[TaskChute DEBUG] マイグレーション完了: ${file.path}`)
         }
         return frontmatter
       })
