@@ -1031,11 +1031,19 @@ class TaskChuteView extends ItemView {
   isInstanceHidden(instanceId, taskPath, dateStr) {
     const hiddenRoutines = this.getHiddenRoutines(dateStr)
     return hiddenRoutines.some((hidden) => {
-      // 新形式：インスタンスIDでの一致
+      // 複製タスク削除の場合（instanceIdあり）：instanceIdのみで判定
       if (hidden.instanceId && hidden.instanceId === instanceId) return true
-      // 旧形式：文字列（パス）での一致 - ただし、この場合もインスタンスIDがあるものは除外
-      if (typeof hidden === "string" && hidden === taskPath && !instanceId)
+      
+      // 【重要】オリジナルタスク削除の場合（instanceId: null）：pathで判定
+      // hidden.instanceIdがnullの場合のみpathで判定することで、
+      // 複製タスクの削除がオリジナルタスクに影響しないようにする
+      if (hidden.instanceId === null && hidden.path && hidden.path === taskPath) {
         return true
+      }
+      
+      // 旧形式：文字列（パス）での一致（後方互換性）
+      if (typeof hidden === "string" && hidden === taskPath) return true
+      
       return false
     })
   }
@@ -2450,7 +2458,22 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               isVirtual: !taskFile, // ファイルがない場合は仮想インスタンス
             }
 
-            this.taskInstances.push(instance)
+            // 【修正】実行履歴から復元時も非表示チェックを行う
+            const isDeleted = this.isInstanceDeleted(
+              instanceId,
+              taskObj.path,
+              dateString
+            )
+            const isHidden = this.isInstanceHidden(
+              instanceId,
+              taskObj.path,
+              dateString
+            )
+
+            // チェック後に追加
+            if (!isDeleted && !isHidden) {
+              this.taskInstances.push(instance)
+            }
           }
         })
       }
@@ -4830,9 +4853,24 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.saveRunningTasksState()
     }
 
-    // 5. 非ルーチンタスクの場合はファイルも削除
-    // console.log(...)
+    // 5. 非ルーチンタスクの場合はファイルも削除（ただし履歴がある場合は保護）
+    // 【重要な修正】履歴チェックを追加してデータ損失を防ぐ
+    let hasHistory = false
     if (!actualIsRoutine) {
+      // ルーチンでない場合のみ履歴をチェック
+      try {
+        hasHistory = await this.hasExecutionHistory(inst.task.path)
+        if (hasHistory) {
+          console.log(`[TaskChute] タスク「${inst.task.title}」には実行履歴があるため、ファイルを保護します`)
+        }
+      } catch (e) {
+        console.error("[TaskChute] 履歴チェックエラー:", e)
+        hasHistory = true  // エラー時は安全側に倒す
+      }
+    }
+    
+    // ファイル削除は「非ルーチン」かつ「履歴なし」の場合のみ
+    if (!actualIsRoutine && !hasHistory) {
       try {
         // 削除前にカウントした値を使用（削除後だと常に0になってしまう）
         const remainingInstances = samePathInstancesBeforeDeletion.length - 1
@@ -4841,7 +4879,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 最後のインスタンスの場合、ファイルとタスクリストからも削除
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
           await this.app.vault.delete(inst.task.file)
-          // console.log(...)
+          console.log(`[TaskChute] ファイル削除: ${inst.task.path}（履歴なし）`)
         } else {
           // console.log(...)
         }
@@ -4849,13 +4887,19 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         console.error("[TaskChute] 非ルーチンタスクのファイル削除に失敗:", e)
       }
     } else {
-// console.log(`[TaskChute DEBUG] ルーチンタスクのためファイル削除スキップ`)
+      if (hasHistory) {
+        console.log(`[TaskChute] 実行履歴があるためファイルを保護: ${inst.task.path}`)
+      } else if (actualIsRoutine) {
+        console.log(`[TaskChute] ルーチンタスクのためファイル削除スキップ: ${inst.task.path}`)
+      }
     }
 
     this.renderTaskList()
 
-    if (!actualIsRoutine) {
+    if (!actualIsRoutine && !hasHistory) {
       new Notice(`「${inst.task.title}」を完全に削除しました。`)
+    } else if (!actualIsRoutine && hasHistory) {
+      new Notice(`「${inst.task.title}」を本日のリストから削除しました。\n（実行履歴が存在するためファイルは保護されています）`)
     } else if (isDuplicated) {
       new Notice(`「${inst.task.title}」の複製を本日のリストから削除しました。`)
     } else {
@@ -7381,6 +7425,48 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       return false
     } catch (error) {
       console.error("履歴チェックエラー:", error)
+      // エラー時は安全側に倒す（履歴ありとして扱う）
+      return true
+    }
+  }
+
+  async hasExecutionHistory(taskPath) {
+    try {
+      const dataDir = this.plugin.pathManager.getLogDataPath()
+      const dataDirExists = this.app.vault.getAbstractFileByPath(dataDir)
+
+      if (!dataDirExists || !(dataDirExists instanceof TFolder)) {
+        return false
+      }
+
+      // 全ての月次ログファイルをチェック
+      const files = dataDirExists.children
+        .filter((f) => f instanceof TFile && f.path.endsWith("-tasks.json"))
+        .map((f) => f.path)
+
+      for (const filePath of files) {
+        const file = this.app.vault.getAbstractFileByPath(filePath)
+        if (!file || !(file instanceof TFile)) continue
+
+        const content = await this.app.vault.read(file)
+        const monthlyLog = JSON.parse(content)
+
+        if (monthlyLog.taskExecutions) {
+          for (const dateString in monthlyLog.taskExecutions) {
+            const hasHistory = monthlyLog.taskExecutions[dateString].some(
+              (log) => log.taskId === taskPath
+            )
+            if (hasHistory) {
+              console.log(`[TaskChute] 実行履歴を検出: ${taskPath} (${dateString})`)
+              return true
+            }
+          }
+        }
+      }
+
+      return false
+    } catch (error) {
+      console.error("[TaskChute] 履歴チェックエラー:", error)
       // エラー時は安全側に倒す（履歴ありとして扱う）
       return true
     }
