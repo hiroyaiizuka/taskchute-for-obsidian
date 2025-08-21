@@ -132,15 +132,32 @@
   transition: opacity 0.2s, transform 0.2s;
 }
 
-.taskchute-star-filled {
+/* 星の評価表示用のスタイル */
+.star-rating .star {
+  font-size: 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-block;
+  user-select: none;
+  /* 絵文字はfilterで色を変更できないため、opacity とtransformで制御 */
+}
+
+.star-rating .star:hover {
+  transform: scale(1.2);
+}
+
+.star-rating .star.taskchute-star-filled {
+  /* 選択された星は元の絵文字の色をそのまま使用（濃い金色） */
   opacity: 1;
   transform: scale(1.1);
 }
 
-.taskchute-star-empty {
-  opacity: 0.3;
+.star-rating .star.taskchute-star-empty {
+  /* 未選択の星は透明度を下げて薄く見せる */
+  opacity: 0.2;
   transform: scale(1);
 }
+
 
 .taskchute-rating-value {
   margin-left: 10px;
