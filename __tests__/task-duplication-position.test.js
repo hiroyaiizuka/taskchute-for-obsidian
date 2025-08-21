@@ -77,6 +77,7 @@ describe('タスク複製時の配置位置', () => {
       view.sortTaskInstancesByTimeOrder = jest.fn()
       view.generateInstanceId = jest.fn(() => `instance-${Date.now()}-${Math.random()}`)
       view.getCurrentDateString = jest.fn(() => '2025-01-22')
+      view.updateDailySummaryTaskCount = jest.fn()
     }
 
     // localStorage のモック
@@ -95,7 +96,7 @@ describe('タスク複製時の配置位置', () => {
     jest.clearAllMocks()
   })
 
-  test('複製タスクが元タスクの直下に配置される（基本ケース）', () => {
+  test('複製タスクが元タスクの直下に配置される（基本ケース）', async () => {
     // テストデータの準備
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const task2 = { title: 'タスク2', path: 'task2.md' }
@@ -108,7 +109,7 @@ describe('タスク複製時の配置位置', () => {
     view.taskInstances = [inst1, inst2, inst3]
 
     // タスク2を複製
-    view.duplicateInstance(inst2)
+    await view.duplicateInstance(inst2)
 
     // 検証
     expect(view.taskInstances.length).toBe(4)
@@ -124,7 +125,7 @@ describe('タスク複製時の配置位置', () => {
     expect(newInstance.state).toBe('idle')
   })
 
-  test('時間帯の最後のタスクを複製した場合', () => {
+  test('時間帯の最後のタスクを複製した場合', async () => {
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const task2 = { title: 'タスク2', path: 'task2.md' }
 
@@ -134,7 +135,7 @@ describe('タスク複製時の配置位置', () => {
     view.taskInstances = [inst1, inst2]
 
     // 最後のタスクを複製
-    view.duplicateInstance(inst2)
+    await view.duplicateInstance(inst2)
 
     // 検証
     expect(view.taskInstances.length).toBe(3)
@@ -147,7 +148,7 @@ describe('タスク複製時の配置位置', () => {
     expect(newInstance.order).toBe(300) // 最後のタスクの順序番号 + 100
   })
 
-  test('順序番号の隙間がない場合の処理', () => {
+  test('順序番号の隙間がない場合の処理', async () => {
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const task2 = { title: 'タスク2', path: 'task2.md' }
     const task3 = { title: 'タスク3', path: 'task3.md' }
@@ -159,7 +160,7 @@ describe('タスク複製時の配置位置', () => {
     view.taskInstances = [inst1, inst2, inst3]
 
     // タスク2を複製
-    view.duplicateInstance(inst2)
+    await view.duplicateInstance(inst2)
 
     // 正規化が実行されたことを確認
     expect(inst1.order).toBe(100)
@@ -174,7 +175,7 @@ describe('タスク複製時の配置位置', () => {
     expect(newInstance.order).toBe(250) // 正規化後の値
   })
 
-  test('異なる時間帯のタスクは影響を受けない', () => {
+  test('異なる時間帯のタスクは影響を受けない', async () => {
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const task2 = { title: 'タスク2', path: 'task2.md' }
     const task3 = { title: 'タスク3', path: 'task3.md' }
@@ -186,13 +187,13 @@ describe('タスク複製時の配置位置', () => {
     view.taskInstances = [inst1, inst2, inst3]
 
     // タスク1を複製
-    view.duplicateInstance(inst1)
+    await view.duplicateInstance(inst1)
 
     // 異なる時間帯のタスクの順序番号が変わっていないことを確認
     expect(inst3.order).toBe(100)
   })
 
-  test('複製情報が正しく処理される', () => {
+  test('複製情報が正しく処理される', async () => {
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const inst1 = { task: task1, slotKey: '8:00-12:00', order: 100, state: 'idle' }
 
@@ -202,7 +203,7 @@ describe('タスク複製時の配置位置', () => {
     const initialCount = view.taskInstances.length
 
     // タスクを複製
-    view.duplicateInstance(inst1)
+    await view.duplicateInstance(inst1)
 
     // 新しいインスタンスが追加されたことを確認
     expect(view.taskInstances.length).toBe(initialCount + 1)
@@ -217,7 +218,7 @@ describe('タスク複製時の配置位置', () => {
     expect(newInstance.task.path).toBe('task1.md')
   })
 
-  test('完了通知が表示される', () => {
+  test('完了通知が表示される', async () => {
     const task1 = { title: 'タスク1', path: 'task1.md' }
     const inst1 = { task: task1, slotKey: '8:00-12:00', order: 100, state: 'idle' }
 
@@ -227,7 +228,7 @@ describe('タスク複製時の配置位置', () => {
     global.Notice.mockClear()
 
     // タスクを複製
-    view.duplicateInstance(inst1)
+    await view.duplicateInstance(inst1)
 
     // renderTaskListが呼ばれたことを確認
     expect(view.renderTaskList).toHaveBeenCalled()

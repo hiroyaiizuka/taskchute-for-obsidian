@@ -1983,244 +1983,6 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
-  // Recalculate yesterday's dailySummary based on actual displayed tasks
-  async recalculateYesterdayDailySummary() {
-    try {
-      const yesterday = new Date(this.currentDate)
-      yesterday.setDate(yesterday.getDate() - 1)
-
-      const year = yesterday.getFullYear()
-      const month = (yesterday.getMonth() + 1).toString().padStart(2, "0")
-      const day = yesterday.getDate().toString().padStart(2, "0")
-      const yesterdayString = `${year}-${month}-${day}`
-      const monthString = `${year}-${month}`
-
-      // Load monthly log
-      const logDataPath = this.plugin.pathManager.getLogDataPath()
-      const logFilePath = `${logDataPath}/${monthString}-tasks.json`
-
-      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
-      if (!logFile || !(logFile instanceof TFile)) {
-        return
-      }
-
-      const logContent = await this.app.vault.read(logFile)
-      const monthlyLog = JSON.parse(logContent)
-
-      // Check if yesterday's data exists and needs recalculation
-      if (!monthlyLog.dailySummary?.[yesterdayString]) {
-        return
-      }
-
-      // Temporarily set currentDate to yesterday to simulate task loading
-      const originalDate = new Date(this.currentDate)
-      this.currentDate = yesterday
-
-      // Count tasks that would be displayed using the same logic as loadTasks
-      let displayedTaskCount = 0
-      let completedTaskCount = 0
-
-      // Get task files
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      const files = await this.getTaskFiles(taskFolderPath)
-
-      // Load yesterday's data
-      const deletedInstances = this.getDeletedInstances(yesterdayString)
-      const duplicatedInstances = JSON.parse(
-        localStorage.getItem(
-          `taskchute-duplicated-instances-${yesterdayString}`,
-        ) || "[]",
-      )
-      const duplicatedCounts = duplicatedInstances.reduce((acc, instance) => {
-        const path = typeof instance === "string" ? instance : instance.path
-        acc[path] = (acc[path] || 0) + 1
-        return acc
-      }, {})
-      const hiddenRoutines = this.getHiddenRoutines(yesterdayString)
-      const hiddenRoutinePaths = hiddenRoutines
-        .filter((h) => !h.instanceId || h.instanceId === null)
-        .map((h) => (typeof h === "string" ? h : h.path))
-
-      const yesterdayExecutions = await this.loadTodayExecutions(
-        yesterdayString,
-      )
-
-      // Count displayed tasks
-      for (const file of files) {
-        if (hiddenRoutinePaths.includes(file.path)) continue
-
-        const permanentlyDeleted = deletedInstances.some(
-          (del) => del.path === file.path && del.deletionType === "permanent",
-        )
-        if (permanentlyDeleted) continue
-
-        const content = await this.app.vault.read(file)
-        if (!content.includes("#task")) continue
-
-        const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter
-        const isRoutine =
-          metadata?.routine === true || content.includes("#routine")
-
-        // Get all possible names for this task (current + all historical names)
-        const allPossibleNames = this.plugin?.routineAliasManager
-          ?.getAllPossibleNames
-          ? this.plugin.routineAliasManager.getAllPossibleNames(file.basename)
-          : [file.basename]
-        const yesterdayExecutionsForTask = yesterdayExecutions.filter((exec) =>
-          allPossibleNames.includes(exec.taskTitle),
-        )
-
-        // Apply the same display logic
-        if (!isRoutine && yesterdayExecutionsForTask.length === 0) {
-          let shouldShow = false
-
-          if (metadata?.target_date === yesterdayString) {
-            shouldShow = true
-          } else {
-            // Check file creation date
-            try {
-              // Use Vault stat for cross-platform compatibility
-              const stats = await this.app.vault.adapter.stat(file.path)
-              const fileCreationDate = new Date(stats.ctime || stats.mtime)
-              const fileYear = fileCreationDate.getFullYear()
-              const fileMonth = (fileCreationDate.getMonth() + 1)
-                .toString()
-                .padStart(2, "0")
-              const fileDay = fileCreationDate
-                .getDate()
-                .toString()
-                .padStart(2, "0")
-              const fileCreationDateString = `${fileYear}-${fileMonth}-${fileDay}`
-
-              if (yesterdayString === fileCreationDateString) {
-                shouldShow = true
-              }
-            } catch (error) {
-              shouldShow = true
-            }
-          }
-
-          if (duplicatedCounts[file.path]) {
-            shouldShow = true
-          }
-
-          if (!shouldShow) continue
-        }
-
-        // Check routine display rules
-        if (isRoutine) {
-          const routineStart = metadata?.routine_start
-          const routineEnd = metadata?.routine_end
-          const routineType = metadata?.routine_type || "daily"
-
-          if (routineStart && yesterdayString < routineStart) continue
-          if (routineEnd && yesterdayString > routineEnd) continue
-
-          const isCreationDate =
-            routineStart && yesterdayString === routineStart
-          const hasExecutions = yesterdayExecutionsForTask.length > 0
-
-          let shouldShowRoutine = false
-          if (routineType === "daily") {
-            shouldShowRoutine = true
-          } else if (routineType === "weekly" || routineType === "custom") {
-            // Check weekday logic
-            const weekday = metadata?.weekday
-            const weekdays = metadata?.weekdays
-            const dayOfWeek = yesterday.getDay()
-
-            if (weekdays && Array.isArray(weekdays)) {
-              shouldShowRoutine = weekdays.includes(dayOfWeek)
-            } else if (weekday !== undefined && weekday !== null) {
-              shouldShowRoutine = weekday === dayOfWeek
-            }
-          } else if (routineType === "monthly") {
-            // Check monthly routine logic
-            const monthlyWeek = metadata?.monthly_week
-            const monthlyWeekday = metadata?.monthly_weekday
-
-            if (
-              monthlyWeek !== undefined &&
-              monthlyWeek !== null &&
-              monthlyWeekday !== undefined &&
-              monthlyWeekday !== null
-            ) {
-              const year = yesterday.getFullYear()
-              const month = yesterday.getMonth()
-              const targetDate = this.getNthWeekdayOfMonth(
-                year,
-                month,
-                monthlyWeekday,
-                monthlyWeek,
-              )
-
-              if (targetDate) {
-                shouldShowRoutine = targetDate.getDate() === yesterday.getDate()
-              } else {
-                shouldShowRoutine = false
-              }
-            } else {
-              shouldShowRoutine = false
-            }
-          }
-
-          if (!isCreationDate && !hasExecutions && !shouldShowRoutine) continue
-        }
-
-        // Count all instances that would be displayed
-        if (yesterdayExecutionsForTask.length > 0) {
-          // For executed tasks: count each execution instance
-          displayedTaskCount += yesterdayExecutionsForTask.length
-        } else {
-          // For non-executed tasks: count base instance
-          displayedTaskCount += 1
-        }
-
-        // Add duplicated instances
-        if (duplicatedCounts[file.path]) {
-          displayedTaskCount += duplicatedCounts[file.path]
-        }
-      }
-
-      // Restore original date
-      this.currentDate = originalDate
-
-      // completedTasks is simply the count of task executions for that day
-      const actualCompletedTasks = yesterdayExecutions.length
-
-      // Update dailySummary with actual displayed task count
-      if (
-        monthlyLog.dailySummary[yesterdayString].totalTasks !==
-          displayedTaskCount ||
-        monthlyLog.dailySummary[yesterdayString].completedTasks !==
-          actualCompletedTasks
-      ) {
-        monthlyLog.dailySummary[yesterdayString].totalTasks = displayedTaskCount
-        monthlyLog.dailySummary[yesterdayString].completedTasks =
-          actualCompletedTasks
-        monthlyLog.dailySummary[yesterdayString].lastModified =
-          new Date().toISOString()
-
-        // Save updated monthly log
-        const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
-        if (logFile && logFile instanceof TFile) {
-          // Use vault.process for atomic file modification (Obsidian guideline compliance)
-          await this.app.vault.modify(
-            logFile,
-            JSON.stringify(monthlyLog, null, 2),
-          )
-        } else {
-          await this.app.vault.create(
-            logFilePath,
-            JSON.stringify(monthlyLog, null, 2),
-          )
-        }
-      }
-    } catch (error) {
-      // エラーは無視
-    }
-  }
-
   async loadTasks() {
     const startTime = performance.now()
 
@@ -2229,8 +1991,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       await this.plugin.routineAliasManager.loadAliases()
     }
 
-    // Check if we need to recalculate yesterday's dailySummary
-    await this.recalculateYesterdayDailySummary()
+    // Skip recalculation - we now use taskInstances.length for accurate counting
+    // await this.recalculateYesterdayDailySummary()
 
     let runningTaskPathsOnLoad = []
     try {
@@ -4878,6 +4640,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
     }
 
+    // Update totalTasks count after deletion
+    await this.updateDailySummaryTaskCount()
+
     this.renderTaskList()
 
     if (!actualIsRoutine && !hasHistory) {
@@ -5614,6 +5379,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       this.taskList.scrollTop = scrollTop
       this.taskList.scrollLeft = scrollLeft
     }, 0)
+    
+    // Update totalTasks count whenever task list is rendered
+    // This covers new task creation and other task list changes
+    this.updateDailySummaryTaskCount()
   }
 
   updateTaskItemDisplay(taskItem, inst) {
@@ -6534,7 +6303,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
 
   // 音効果（オプション）
 
-  duplicateInstance(inst) {
+  async duplicateInstance(inst) {
     // console.log(...)
     const newInst = {
       task: inst.task,
@@ -6588,6 +6357,9 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       instanceId: newInst.instanceId,
     })
     localStorage.setItem(storageKey, JSON.stringify(duplicatedInstances))
+
+    // Update totalTasks count after duplication
+    await this.updateDailySummaryTaskCount()
 
     this.renderTaskList()
 
@@ -6655,6 +6427,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     // 保存直後の確認
     const savedData = localStorage.getItem(storageKey)
 // console.log(`[TaskChute DEBUG] 保存直後のlocalStorage:`, savedData)
+    
+    // Update totalTasks count after duplication
+    await this.updateDailySummaryTaskCount()
+    
     // startInstanceを呼ぶ前にrenderTaskListを呼んで、新しいインスタンスを表示
     this.renderTaskList()
 
@@ -6994,6 +6770,50 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
+  // Update only the totalTasks count in dailySummary when tasks are added/removed
+  async updateDailySummaryTaskCount() {
+    try {
+      const today = this.currentDate
+      const year = today.getFullYear()
+      const month = (today.getMonth() + 1).toString().padStart(2, "0")
+      const day = today.getDate().toString().padStart(2, "0")
+      const dateString = `${year}-${month}-${day}`
+      const monthString = `${year}-${month}`
+      
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`
+      
+      // Load existing monthly log
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath)
+      if (!logFile || !(logFile instanceof TFile)) {
+        // If log file doesn't exist, don't create it here
+        // It will be created when a task is actually completed
+        return
+      }
+      
+      const logContent = await this.app.vault.read(logFile)
+      const monthlyLog = JSON.parse(logContent)
+      
+      // Update only totalTasks if dailySummary exists for today
+      if (monthlyLog.dailySummary && monthlyLog.dailySummary[dateString]) {
+        const currentTotal = monthlyLog.dailySummary[dateString].totalTasks || 0
+        const newTotal = this.taskInstances.length
+        
+        // Only update if the count has changed
+        if (currentTotal !== newTotal) {
+          monthlyLog.dailySummary[dateString].totalTasks = newTotal
+          monthlyLog.dailySummary[dateString].lastModified = new Date().toISOString()
+          
+          // Save the updated log
+          await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2))
+        }
+      }
+    } catch (error) {
+      // Silently fail - this is not critical
+      console.error('Failed to update task count:', error)
+    }
+  }
+
   // タスク完了データを保存
   async saveTaskCompletion(inst, completionData) {
     try {
@@ -7158,10 +6978,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
             tasksWithEnergy.length
           : 0
 
-      // For past dates, we need to calculate based on actual displayed tasks
-      // For today, this is a provisional value that will be recalculated tomorrow
+      // Use the actual displayed task count from taskInstances
+      // This ensures consistency with the UI display
       monthlyLog.dailySummary[dateString] = {
-        totalTasks: todayTasks.length, // Count all instances (including duplicates)
+        totalTasks: this.taskInstances.length, // Use actual displayed task count
         completedTasks: completedTasks, // Count completed instances
         totalFocusTime: totalFocusTime,
         productivityScore: avgFocus > 0 ? avgFocus / 5 : 0,
@@ -8073,7 +7893,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     }
   }
 
-  handleKeyboardShortcut(e) {
+  async handleKeyboardShortcut(e) {
     // Don't handle shortcuts if typing in input fields
     const activeElement = document.activeElement
     if (
@@ -8101,7 +7921,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       case "c":
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault()
-          this.duplicateInstance(this.selectedTaskInstance)
+          await this.duplicateInstance(this.selectedTaskInstance)
           this.clearTaskSelection()
         }
         break
@@ -13795,10 +13615,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       text: "📄 タスクを複製",
     })
     duplicateItem.setAttribute("title", "同じタスクをすぐ下に追加します")
-    duplicateItem.addEventListener("click", (e) => {
+    duplicateItem.addEventListener("click", async (e) => {
       e.stopPropagation()
       tooltip.remove()
-      this.duplicateInstance(inst)
+      await this.duplicateInstance(inst)
     })
 
     // 削除項目を追加
@@ -14846,10 +14666,10 @@ class TaskChutePlusPlugin extends Plugin {
       id: "duplicate-selected-task",
       name: "選択されたタスクを複製",
       // デフォルトホットキーは削除（ユーザーが設定で定義可能）
-      callback: () => {
+      callback: async () => {
         const view = this.getTaskChuteView()
         if (view && view.selectedTaskInstance) {
-          view.duplicateInstance(view.selectedTaskInstance)
+          await view.duplicateInstance(view.selectedTaskInstance)
           view.clearTaskSelection()
         } else {
           new Notice("タスクが選択されていません")
@@ -14895,7 +14715,12 @@ class TaskChutePlusPlugin extends Plugin {
       id: "show-today-tasks",
       name: "今日のタスクを表示",
       description: "Show today's tasks",
-      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
+      hotkeys: [
+        {
+          modifiers: ["Alt"],
+          key: "t"
+        }
+      ],
       callback: () => {
         this.showTodayTasks()
       },
@@ -15062,47 +14887,60 @@ class TaskChutePlusPlugin extends Plugin {
   // 今日のタスクを表示
   async showTodayTasks() {
     try {
-      // TaskChuteビューを取得または作成
-      const leaf = await this.getOrCreateTaskChuteView()
-
-      if (leaf && leaf.view && leaf.view.setSelectedDate) {
-        // 今日の日付を設定
-        const today = moment().format("YYYY-MM-DD")
-        leaf.view.setSelectedDate(today)
-
-        // ビューを更新
-        if (leaf.view.refresh) {
-          await leaf.view.refresh()
+      // 既存のTaskChuteビューを取得
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+      
+      if (leaves.length > 0) {
+        const leaf = leaves[0]
+        const view = leaf.view
+        
+        if (view instanceof TaskChuteView) {
+          // 今日の日付を設定
+          const today = new Date()
+          view.currentDate = today
+          
+          // 日付ラベルを更新
+          const dateLabel = view.containerEl.querySelector(".date-nav-label")
+          if (dateLabel) {
+            view.updateDateLabel(dateLabel)
+          }
+          
+          // タスクを再読み込み
+          await view.loadTasks()
+          
+          // ビューにフォーカスを移動
+          this.app.workspace.revealLeaf(leaf)
         }
-
-        // ビューにフォーカスを移す
-        this.app.workspace.revealLeaf(leaf)
       } else {
-        new Notice("TaskChuteビューの初期化に失敗しました")
+        // ビューが存在しない場合は、既存のタブでビューを開く
+        const leaf = this.app.workspace.getLeaf(false) // false = 既存のタブを使用
+        await leaf.setViewState({
+          type: VIEW_TYPE_TASKCHUTE,
+          active: true,
+        })
+        
+        // ビューが初期化されるまで少し待つ
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        // 今日の日付でタスクを読み込み
+        if (leaf.view instanceof TaskChuteView) {
+          const today = new Date()
+          leaf.view.currentDate = today
+          
+          // 日付ラベルを更新
+          const dateLabel = leaf.view.containerEl.querySelector(".date-nav-label")
+          if (dateLabel) {
+            leaf.view.updateDateLabel(dateLabel)
+          }
+          
+          await leaf.view.loadTasks()
+        }
+        
+        this.app.workspace.revealLeaf(leaf)
       }
     } catch (error) {
-      new Notice("今日のタスクの表示に失敗しました")
+      console.error("Error showing today's tasks:", error)
     }
-  }
-
-  // TaskChuteビューを取得または作成するヘルパーメソッド
-  async getOrCreateTaskChuteView() {
-    // 既存のTaskChuteビューを探す
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
-
-    if (leaves.length > 0) {
-      // 既存のビューを使用
-      return leaves[0]
-    }
-
-    // 新しいビューを作成
-    const leaf = this.app.workspace.getRightLeaf(false)
-    await leaf.setViewState({
-      type: VIEW_TYPE_TASKCHUTE,
-      active: true,
-    })
-
-    return leaf
   }
 
   // 設定モーダルを表示
