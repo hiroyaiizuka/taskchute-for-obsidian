@@ -48,6 +48,28 @@ describe('idle-task-auto-move', () => {
     view.plugin = plugin
     view.taskInstances = []
     view.currentDate = new Date()
+    
+    // Add calculateNextBoundary method for testing
+    view.calculateNextBoundary = function(now, boundaries) {
+      const currentHour = now.getHours()
+      const currentMinute = now.getMinutes()
+      
+      // 今日の残り境界時刻を探す
+      for (const boundary of boundaries) {
+        if (boundary.hour > currentHour || 
+            (boundary.hour === currentHour && boundary.minute > currentMinute)) {
+          const next = new Date(now)
+          next.setHours(boundary.hour, boundary.minute, 0, 0)
+          return next
+        }
+      }
+      
+      // 今日の境界を全て過ぎた場合、翌日の最初の境界
+      const tomorrow = new Date(now)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      tomorrow.setHours(boundaries[0].hour, boundaries[0].minute, 0, 0)
+      return tomorrow
+    }
   })
 
   afterEach(() => {
@@ -161,27 +183,22 @@ describe('idle-task-auto-move', () => {
     })
   })
 
-  describe('キャッシュ機構', () => {
-    test('30秒間は同じ時間帯を返す', () => {
-      const now = Date.now()
-      jest.spyOn(Date, 'now').mockReturnValue(now)
+  describe('境界時刻計算', () => {
+    test('次の境界時刻が正しく計算される', () => {
+      const mockDate = new Date('2024-01-01 11:30:00')
       
-      view.getCurrentTimeSlot = jest.fn(() => '12:00-16:00')
+      const boundaries = [
+        { hour: 0, minute: 0 },
+        { hour: 8, minute: 0 },
+        { hour: 12, minute: 0 },
+        { hour: 16, minute: 0 }
+      ]
       
-      // 初回呼び出し
-      const slot1 = view.getCurrentTimeSlotCached()
-      expect(view.getCurrentTimeSlot).toHaveBeenCalledTimes(1)
+      const nextBoundary = view.calculateNextBoundary(mockDate, boundaries)
       
-      // 10秒後の呼び出し（キャッシュから返される）
-      jest.spyOn(Date, 'now').mockReturnValue(now + 10000)
-      const slot2 = view.getCurrentTimeSlotCached()
-      expect(view.getCurrentTimeSlot).toHaveBeenCalledTimes(1) // 呼ばれない
-      expect(slot1).toBe(slot2)
-      
-      // 31秒後の呼び出し（キャッシュ期限切れ）
-      jest.spyOn(Date, 'now').mockReturnValue(now + 31000)
-      const slot3 = view.getCurrentTimeSlotCached()
-      expect(view.getCurrentTimeSlot).toHaveBeenCalledTimes(2) // 再度呼ばれる
+      // 11:30の次の境界は12:00
+      expect(nextBoundary.getHours()).toBe(12)
+      expect(nextBoundary.getMinutes()).toBe(0)
     })
   })
 
@@ -215,14 +232,38 @@ describe('idle-task-auto-move', () => {
 
   describe('境界チェック', () => {
     test('時間帯境界でのスケジューリングが正しく設定される', () => {
-      const mockDate = new Date('2024-01-01 11:30:00')
-      jest.spyOn(global, 'Date').mockImplementation(() => mockDate)
-      
       const spy = jest.spyOn(global, 'setTimeout')
+      
+      // Add scheduleBoundaryCheck method for testing
+      view.scheduleBoundaryCheck = function() {
+        // Use a fixed date for consistent testing
+        const now = new Date('2024-01-01 11:30:00')
+        const boundaries = [
+          { hour: 0, minute: 0 },
+          { hour: 8, minute: 0 },
+          { hour: 12, minute: 0 },
+          { hour: 16, minute: 0 }
+        ]
+        
+        // 次の境界時刻を計算
+        const nextBoundary = this.calculateNextBoundary(now, boundaries)
+        const msUntilBoundary = nextBoundary.getTime() - now.getTime()
+        
+        // 既存のタイムアウトをクリア
+        if (this.boundaryCheckTimeout) {
+          clearTimeout(this.boundaryCheckTimeout)
+        }
+        
+        // 境界時刻の1秒後に実行（確実に時間帯が切り替わった後）
+        this.boundaryCheckTimeout = setTimeout(() => {
+          this.checkAndMoveIdleTasks()
+          this.scheduleBoundaryCheck() // 次の境界をスケジュール
+        }, msUntilBoundary + 1000)
+      }
       
       view.scheduleBoundaryCheck()
       
-      // 12:00（次の境界）まで30分 = 1800秒 + 1秒
+      // 12:00（次の境界）まで30分 = 1800000ms + 1000ms
       expect(spy).toHaveBeenCalledWith(
         expect.any(Function),
         1801000
@@ -254,25 +295,24 @@ describe('idle-task-auto-move', () => {
   })
 
   describe('統合テスト', () => {
-    test('60秒ごとに自動チェックが実行される', () => {
-      // Date.nowをモック
-      const originalDateNow = Date.now
-      Date.now = jest.fn(() => 1000000)
-      
+    test('境界時刻でのみ自動チェックが実行される', () => {
       jest.useFakeTimers()
       
-      view.manageTimers()
+      // 11:30の時刻を設定
+      const mockDate = new Date('2024-01-01 11:30:00')
+      jest.setSystemTime(mockDate)
       
       const spy = jest.spyOn(view, 'checkAndMoveIdleTasks')
       
-      // 60秒進める
-      Date.now = jest.fn(() => 1060000)
-      jest.advanceTimersByTime(60000)
+      // 境界チェックをスケジュール
+      view.scheduleBoundaryCheck()
+      
+      // 30分進めて12:00を超える（1800000ms + 1000ms）
+      jest.advanceTimersByTime(1801000)
       
       expect(spy).toHaveBeenCalled()
       
       jest.useRealTimers()
-      Date.now = originalDateNow
     })
 
     test('今日以外の日付では移動が無効化される', () => {

@@ -475,11 +475,11 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
   describe("Rating System - Unit Tests", () => {
     test("should update rating display correctly", () => {
       const mockStars = [
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
       ]
       const mockRatingEl = {
         querySelectorAll: jest.fn().mockReturnValue(mockStars),
@@ -488,11 +488,16 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       taskChuteView.updateRatingDisplay(mockRatingEl, 3)
 
       // 3つの星がハイライトされることを確認
-      expect(mockStars[0].style.opacity).toBe("1")
-      expect(mockStars[1].style.opacity).toBe("1")
-      expect(mockStars[2].style.opacity).toBe("1")
-      expect(mockStars[3].style.opacity).toBe("0.3")
-      expect(mockStars[4].style.opacity).toBe("0.3")
+      expect(mockStars[0].classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[0].classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[1].classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[1].classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[2].classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[2].classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[3].classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[3].classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[4].classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[4].classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
     })
 
     test("should set rating correctly", () => {
@@ -501,11 +506,11 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
         querySelectorAll: jest
           .fn()
           .mockReturnValue([
-            { style: {} },
-            { style: {} },
-            { style: {} },
-            { style: {} },
-            { style: {} },
+            { classList: { add: jest.fn(), remove: jest.fn() } },
+            { classList: { add: jest.fn(), remove: jest.fn() } },
+            { classList: { add: jest.fn(), remove: jest.fn() } },
+            { classList: { add: jest.fn(), remove: jest.fn() } },
+            { classList: { add: jest.fn(), remove: jest.fn() } },
           ]),
       }
 
@@ -516,11 +521,11 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
 
     test("should reset rating highlight correctly", () => {
       const mockStars = [
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
       ]
       const mockRatingEl = {
         getAttribute: jest.fn().mockReturnValue("2"),
@@ -530,20 +535,25 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       taskChuteView.resetRatingHighlight(mockRatingEl)
 
       // 現在の評価（2）に基づいて表示がリセットされることを確認
-      expect(mockStars[0].style.opacity).toBe("1")
-      expect(mockStars[1].style.opacity).toBe("1")
-      expect(mockStars[2].style.opacity).toBe("0.3")
-      expect(mockStars[3].style.opacity).toBe("0.3")
-      expect(mockStars[4].style.opacity).toBe("0.3")
+      expect(mockStars[0].classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[0].classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[1].classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[1].classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[2].classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[2].classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[3].classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[3].classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
+      expect(mockStars[4].classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+      expect(mockStars[4].classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
     })
 
     test("should handle edge cases for rating display", () => {
       const mockStars = [
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
-        { style: {} },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
+        { classList: { add: jest.fn(), remove: jest.fn() } },
       ]
       const mockRatingEl = {
         querySelectorAll: jest.fn().mockReturnValue(mockStars),
@@ -552,13 +562,15 @@ describe("TaskChute Comment Functionality - Final Tests", () => {
       // 最低評価（0）のテスト
       taskChuteView.updateRatingDisplay(mockRatingEl, 0)
       mockStars.forEach((star) => {
-        expect(star.style.opacity).toBe("0.3")
+        expect(star.classList.add).toHaveBeenCalledWith('taskchute-star-empty')
+        expect(star.classList.remove).toHaveBeenCalledWith('taskchute-star-filled')
       })
 
       // 最高評価（5）のテスト
       taskChuteView.updateRatingDisplay(mockRatingEl, 5)
       mockStars.forEach((star) => {
-        expect(star.style.opacity).toBe("1")
+        expect(star.classList.add).toHaveBeenCalledWith('taskchute-star-filled')
+        expect(star.classList.remove).toHaveBeenCalledWith('taskchute-star-empty')
       })
     })
   })

@@ -850,10 +850,7 @@ class ProjectNoteSyncManager {
 
 class TaskChuteView extends ItemView {
   // idle-task-auto-move機能のプロパティ
-  lastTimeSlotCheck = null // 最後の時間帯チェック時刻
-  moveInProgress = false // 移動処理中フラグ
-  currentTimeSlotCache = null // 現在の時間帯キャッシュ
-  cacheExpiry = null // キャッシュ有効期限
+  boundaryCheckTimeout = null // 境界時刻チェックのタイムアウトID
 
   // タスク名検証ユーティリティ
   TaskNameValidator = {
@@ -3115,13 +3112,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     localStorage.setItem(storageKey, JSON.stringify(orders))
   }
 
-  // idle-task-auto-move: リアルタイムチェック関数
+  // idle-task-auto-move: 時間帯境界でのチェック関数
   checkAndMoveIdleTasks() {
-    // 移動処理中なら中止
-    if (this.moveInProgress) {
-      return
-    }
-
     // 今日以外の日付では自動移動を無効化
     const today = new Date()
     const isToday =
@@ -3133,21 +3125,18 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       return
     }
 
-    this.moveInProgress = true
     try {
-      const currentSlot = this.getCurrentTimeSlotCached()
+      const currentSlot = this.getCurrentTimeSlot() // キャッシュを使用せず直接取得
       const tasksToMove = this.identifyTasksToMove(currentSlot)
 
       if (tasksToMove.length > 0) {
+        // console.log(`[TaskChute] ${tasksToMove.length}個の未実行タスクを${currentSlot}に移動`)
         this.performBatchMove(tasksToMove, currentSlot)
         this.sortTasksAfterMove()
         this.renderTaskList()
-        // Successfully moved idle tasks to current slot
       }
     } catch (error) {
-      // エラーログはデバッグ時のみ表示（プロダクション環境では無効）
-    } finally {
-      this.moveInProgress = false
+      console.error('[TaskChute] タスク移動中にエラーが発生:', error)
     }
   }
 
@@ -3267,59 +3256,54 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     this.sortTaskInstancesByTimeOrder()
   }
 
-  // idle-task-auto-move: キャッシュ付き時間帯取得
-  getCurrentTimeSlotCached() {
-    const now = Date.now()
 
-    // キャッシュが有効な場合は返す
-    if (
-      this.currentTimeSlotCache &&
-      this.cacheExpiry &&
-      now < this.cacheExpiry
-    ) {
-      return this.currentTimeSlotCache
-    }
-
-    // 新しい値を計算してキャッシュ
-    this.currentTimeSlotCache = this.getCurrentTimeSlot()
-    this.cacheExpiry = now + 30000 // 30秒間有効
-
-    return this.currentTimeSlotCache
-  }
-
-  // idle-task-auto-move: 時間帯境界での精密チェック
+  // 境界時刻スケジューリング機能
   scheduleBoundaryCheck() {
     const now = new Date()
-    const currentMinutes = now.getHours() * 60 + now.getMinutes()
-    const boundaries = [0, 8 * 60, 12 * 60, 16 * 60] // 0:00, 8:00, 12:00, 16:00
-
-    // 次の境界を計算
-    let nextBoundary = boundaries.find((b) => b > currentMinutes)
-    if (!nextBoundary) {
-      nextBoundary = 24 * 60 // 翌日の0:00
-    }
-
-    const msUntilBoundary = (nextBoundary - currentMinutes) * 60 * 1000
-
-    // 境界時刻の1秒後に実行
+    const boundaries = [
+      { hour: 0, minute: 0 },
+      { hour: 8, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 0 }
+    ]
+    
+    // 次の境界時刻を計算
+    const nextBoundary = this.calculateNextBoundary(now, boundaries)
+    const msUntilBoundary = nextBoundary.getTime() - now.getTime()
+    
+    // 既存のタイムアウトをクリア
     if (this.boundaryCheckTimeout) {
       clearTimeout(this.boundaryCheckTimeout)
     }
-
+    
+    // 境界時刻の1秒後に実行（確実に時間帯が切り替わった後）
     this.boundaryCheckTimeout = setTimeout(() => {
-      this.performBoundaryTransition()
+      // console.log(`[TaskChute] 時間帯境界チェック実行: ${new Date().toLocaleTimeString()}`)
+      this.checkAndMoveIdleTasks()
       this.scheduleBoundaryCheck() // 次の境界をスケジュール
     }, msUntilBoundary + 1000)
   }
 
-  // idle-task-auto-move: 境界時刻での移動実行
-  performBoundaryTransition() {
-    // Time slot boundary reached - performing transition
-    // キャッシュをクリア
-    this.currentTimeSlotCache = null
-    this.cacheExpiry = null
-    // 移動チェックを実行
-    this.checkAndMoveIdleTasks()
+  // 次の境界時刻を計算
+  calculateNextBoundary(now, boundaries) {
+    const currentHour = now.getHours()
+    const currentMinute = now.getMinutes()
+    
+    // 今日の残り境界時刻を探す
+    for (const boundary of boundaries) {
+      if (boundary.hour > currentHour || 
+          (boundary.hour === currentHour && boundary.minute > currentMinute)) {
+        const next = new Date(now)
+        next.setHours(boundary.hour, boundary.minute, 0, 0)
+        return next
+      }
+    }
+    
+    // 今日の境界を全て過ぎた場合、翌日の最初の境界
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    tomorrow.setHours(boundaries[0].hour, boundaries[0].minute, 0, 0)
+    return tomorrow
   }
 
   // 未実施タスクを現在の時間帯に自動移動する（既存メソッド、互換性のため残す）
@@ -4861,7 +4845,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       try {
         hasHistory = await this.hasExecutionHistory(inst.task.path)
         if (hasHistory) {
-          console.log(`[TaskChute] タスク「${inst.task.title}」には実行履歴があるため、ファイルを保護します`)
+          // console.log(`[TaskChute] タスク「${inst.task.title}」には実行履歴があるため、ファイルを保護します`)
         }
       } catch (e) {
         console.error("[TaskChute] 履歴チェックエラー:", e)
@@ -4879,7 +4863,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
           // 最後のインスタンスの場合、ファイルとタスクリストからも削除
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
           await this.app.vault.delete(inst.task.file)
-          console.log(`[TaskChute] ファイル削除: ${inst.task.path}（履歴なし）`)
+          // console.log(`[TaskChute] ファイル削除: ${inst.task.path}（履歴なし）`)
         } else {
           // console.log(...)
         }
@@ -6531,11 +6515,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
   createParticles(container, x, y, color) {
     for (let i = 0; i < 8; i++) {
       const particle = document.createElement("div")
-      particle.className = "particle"
+      particle.className = "taskchute-heatmap-particle"
       particle.style.left = `${x}%`
       particle.style.top = `${y}%`
-      particle.className = "taskchute-heatmap-particle"
-      particle.style.backgroundColor = color
+      // Dynamic color needs to be set inline as it varies per particle
+      particle.style.setProperty('--particle-color', color)
       particle.style.transform = `rotate(${i * 45}deg)`
 
       container.appendChild(particle)
@@ -6934,11 +6918,11 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
     const stars = ratingEl.querySelectorAll(".star")
     stars.forEach((star, index) => {
       if (index < value) {
-        star.style.opacity = "1"
-        star.style.transform = "scale(1.1)"
+        star.classList.add('taskchute-star-filled')
+        star.classList.remove('taskchute-star-empty')
       } else {
-        star.style.opacity = "0.3"
-        star.style.transform = "scale(1)"
+        star.classList.add('taskchute-star-empty')
+        star.classList.remove('taskchute-star-filled')
       }
     })
   }
@@ -7457,7 +7441,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               (log) => log.taskId === taskPath
             )
             if (hasHistory) {
-              console.log(`[TaskChute] 実行履歴を検出: ${taskPath} (${dateString})`)
+              // console.log(`[TaskChute] 実行履歴を検出: ${taskPath} (${dateString})`)
               return true
             }
           }
@@ -7760,7 +7744,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         dailyCheckbox.checked = false
         customCheckbox.checked = true
         monthlyCheckbox.checked = false
-        weekdayGroup.style.display = "block"
+        weekdayGroup.classList.remove('taskchute-hidden')
+        weekdayGroup.classList.add('taskchute-visible')
 
         // 曜日の初期選択を設定
         if (task.weekdays && Array.isArray(task.weekdays)) {
@@ -7779,7 +7764,8 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
         dailyCheckbox.checked = false
         customCheckbox.checked = false
         monthlyCheckbox.checked = true
-        monthlyGroup.style.display = "block"
+        monthlyGroup.classList.remove('taskchute-hidden')
+        monthlyGroup.classList.add('taskchute-visible')
 
         // 月次設定の初期値
         if (task.monthlyWeek) {
@@ -7799,8 +7785,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       dailyCheckbox.checked = true
       customCheckbox.checked = false
       monthlyCheckbox.checked = false
-      weekdayGroup.style.display = "none"
-      monthlyGroup.style.display = "none"
+      weekdayGroup.classList.add('taskchute-hidden')
+      weekdayGroup.classList.remove('taskchute-visible')
+      monthlyGroup.classList.add('taskchute-hidden')
+      monthlyGroup.classList.remove('taskchute-visible')
     }
 
     // 開始時刻入力
@@ -7848,8 +7836,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (dailyCheckbox.checked) {
         customCheckbox.checked = false
         monthlyCheckbox.checked = false
-        weekdayGroup.style.display = "none"
-        monthlyGroup.style.display = "none"
+        weekdayGroup.classList.add('taskchute-hidden')
+      weekdayGroup.classList.remove('taskchute-visible')
+        monthlyGroup.classList.add('taskchute-hidden')
+      monthlyGroup.classList.remove('taskchute-visible')
         updateDescription()
       } else if (!customCheckbox.checked && !monthlyCheckbox.checked) {
         // どれも選択されていない場合は、チェックを維持
@@ -7861,8 +7851,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (customCheckbox.checked) {
         dailyCheckbox.checked = false
         monthlyCheckbox.checked = false
-        weekdayGroup.style.display = "block"
-        monthlyGroup.style.display = "none"
+        weekdayGroup.classList.remove('taskchute-hidden')
+        weekdayGroup.classList.add('taskchute-visible')
+        monthlyGroup.classList.add('taskchute-hidden')
+      monthlyGroup.classList.remove('taskchute-visible')
         updateDescription()
       } else if (!dailyCheckbox.checked && !monthlyCheckbox.checked) {
         // どれも選択されていない場合は、チェックを維持
@@ -7874,8 +7866,10 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       if (monthlyCheckbox.checked) {
         dailyCheckbox.checked = false
         customCheckbox.checked = false
-        weekdayGroup.style.display = "none"
-        monthlyGroup.style.display = "block"
+        weekdayGroup.classList.add('taskchute-hidden')
+      weekdayGroup.classList.remove('taskchute-visible')
+        monthlyGroup.classList.remove('taskchute-hidden')
+        monthlyGroup.classList.add('taskchute-visible')
         updateDescription()
       } else if (!dailyCheckbox.checked && !customCheckbox.checked) {
         // どれも選択されていない場合は、チェックを維持
@@ -14149,19 +14143,14 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       .filter((inst) => inst.state === "running")
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime()) // 開始時間でソート
 
-    // idle-task-auto-move: タイマーを常に起動（実行中タスクがなくても）
+    // タイマーを起動（実行中タスクのタイマー表示更新のみ）
     this.globalTimerInterval = setInterval(() => {
-      // 実行中タスクのタイマー表示更新のみ（slotKeyは変更しない）
+      // 実行中タスクのタイマー表示更新のみ
       const runningInstances = this.taskInstances.filter(
         (i) => i.state === "running",
       )
 
-      // idle-task-auto-move: 60秒ごとに時間帯チェック
-      const now = Date.now()
-      if (!this.lastTimeSlotCheck || now - this.lastTimeSlotCheck >= 60000) {
-        this.checkAndMoveIdleTasks()
-        this.lastTimeSlotCheck = now
-      }
+      // 60秒ごとの時間帯チェックは削除（パフォーマンス改善のため境界時刻でのみ実行）
 
       // タスクリスト内のタイマー表示を更新
       runningInstances.forEach((runningInst) => {
@@ -14596,7 +14585,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
               // Phase 2: routineプロパティを削除
               delete frontmatter.routine
               migratedCount++
-              console.log(`[TaskChute Phase2] マイグレーション: ${file.path}`)
+              // console.log(`[TaskChute Phase2] マイグレーション: ${file.path}`)
             }
             return frontmatter
           })
@@ -14604,7 +14593,7 @@ dv.paragraph('❌ データが読み込めませんでした。TaskChuteのロ�
       }
       
       new Notice(`Phase 2マイグレーション完了: ${migratedCount}個のファイルを更新しました`)
-      console.log(`[TaskChute Phase2] 完了: ${migratedCount}個のファイルをマイグレーション`)
+      // console.log(`[TaskChute Phase2] 完了: ${migratedCount}個のファイルをマイグレーション`)
       
     } catch (error) {
       console.error(`[TaskChute Phase2] マイグレーション失敗:`, error)
@@ -14771,13 +14760,11 @@ function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
     const instances = timeSlotGroups[slotKey]
     if (instances.length > 1) {
       instances.sort((a, b) => {
-        // 1. 状態優先: done → running → idle
-        const stateOrder = { done: 0, running: 1, idle: 2 }
-        if (a.state !== b.state) {
-          return stateOrder[a.state] - stateOrder[b.state]
-        }
-
-        // 2. 同じ状態内では順序番号で並び替え
+        // 1. 完了タスクは必ず上部に配置（これは維持）
+        if (a.state === 'done' && b.state !== 'done') return -1
+        if (a.state !== 'done' && b.state === 'done') return 1
+        
+        // 2. 実行中とidleタスクはorder番号で決定（状態優先を削除）
         const orderA = a.order ?? 999999
         const orderB = b.order ?? 999999
         return orderA - orderB
@@ -14913,6 +14900,23 @@ class TaskChutePlusPlugin extends Plugin {
         this.showTodayTasks()
       },
     })
+    
+    // 未実行タスクを整理するコマンド
+    this.addCommand({
+      id: 'reorganize-idle-tasks',
+      name: '未実行タスクを現在の時間帯に整理',
+      // デフォルトホットキーは削除（ユーザーが設定で定義可能）
+      callback: () => {
+        const view = this.getTaskChuteView()
+        if (view) {
+          new Notice('未実行タスクを整理中...')
+          view.checkAndMoveIdleTasks()
+          new Notice('未実行タスクの整理が完了しました')
+        } else {
+          new Notice('TaskChuteビューが開いていません')
+        }
+      }
+    })
 
     // Obsidian起動時にTaskChuteビューを自動で開き、currentDateを今日にリセット
     this.app.workspace.onLayoutReady(async () => {
@@ -14935,6 +14939,18 @@ class TaskChutePlusPlugin extends Plugin {
         }
         if (leaf.view.loadTasks) {
           await leaf.view.loadTasks()
+          
+          // 起動時に未実行タスクを整理（2秒後に実行して初期化完了を待つ）
+          setTimeout(() => {
+            // console.log('[TaskChute] 起動時の未実行タスク整理を実行')
+            if (leaf.view.checkAndMoveIdleTasks) {
+              leaf.view.checkAndMoveIdleTasks()
+            }
+            // 境界チェックをスケジュール
+            if (leaf.view.scheduleBoundaryCheck) {
+              leaf.view.scheduleBoundaryCheck()
+            }
+          }, 2000)
         }
       }
     })
@@ -14948,13 +14964,25 @@ class TaskChutePlusPlugin extends Plugin {
       clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
+    
+    // 境界チェックタイムアウトのクリア
+    const view = this.getTaskChuteView()
+    if (view && view.boundaryCheckTimeout) {
+      clearTimeout(view.boundaryCheckTimeout)
+      view.boundaryCheckTimeout = null
+    }
 
     // 2. DOMイベントリスナーのクリーンアップ（自動的に処理される）
     // 注: registerEventで登録されたイベントは自動的にクリーンアップされます
 
     // 3. ビューのクリーンアップ
-    // ガイドライン違反のため削除: onunloadでのdetachLeavesOfTypeは使用しない
-    // プラグイン更新時にビューの位置が保持されるように変更
+    // Properly clean up views without using detachLeavesOfType
+    // Views will be reinitialized at their original position on plugin reload
+    this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE).forEach(leaf => {
+      if (leaf.view && leaf.view.onunload) {
+        leaf.view.onunload()
+      }
+    })
 
     // 4. 一時的なlocalStorageデータのクリーンアップ（オプション）
     // 注: ユーザーデータは保持しますが、古い一時データは削除
@@ -15019,8 +15047,8 @@ class TaskChutePlusPlugin extends Plugin {
   async activateTaskChuteView() {
     const { workspace } = this.app
 
-    // 既存のTaskChuteViewをすべて閉じる
-    await workspace.detachLeavesOfType(VIEW_TYPE_TASKCHUTE)
+    // Do not use detachLeavesOfType - let Obsidian handle view management
+    // await workspace.detachLeavesOfType(VIEW_TYPE_TASKCHUTE)
 
     // メインペインの新規タブで開く
     const leaf = workspace.getLeaf(true)

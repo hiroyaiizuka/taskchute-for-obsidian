@@ -129,7 +129,17 @@
 .taskchute-rating-star {
   font-size: 24px;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.taskchute-star-filled {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.taskchute-star-empty {
+  opacity: 0.3;
+  transform: scale(1);
 }
 
 .taskchute-rating-value {
@@ -323,6 +333,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
+  background-color: var(--particle-color, var(--interactive-accent));
   pointer-events: none;
   animation: particle-fade 2s ease-out forwards;
 }
@@ -343,22 +354,20 @@
   margin: 10px 0;
 }
 
-.taskchute-routine-group.hidden {
-  display: none;
+.taskchute-routine-group.hidden,
+.taskchute-hidden {
+  display: none !important;
 }
 
-.taskchute-routine-group.visible {
-  display: block;
+.taskchute-routine-group.visible,
+.taskchute-visible {
+  display: block !important;
 }
 
 /* Additional styles for guideline compliance */
 .taskchute-input-absolute {
   position: absolute;
   z-index: 10000;
-}
-
-.taskchute-hidden {
-  display: none !important;
 }
 
 .taskchute-slot-menu {
