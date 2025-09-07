@@ -37,8 +37,8 @@ export interface TaskInstance {
   instanceId: string;
   state: 'idle' | 'running' | 'done' | 'paused';
   slotKey: string;
-  manualPosition?: number;
-  positionInSlot?: number;
+  order?: number;  // For order-based sorting
+  positionInSlot?: number;  // Deprecated - kept for backward compatibility
   startTime?: Date;
   stopTime?: Date;
   pausedDuration?: number;

@@ -217,6 +217,33 @@
   border-top: 2px solid var(--interactive-accent);
 }
 
+/* ドラッグオーバー時の視覚的フィードバック */
+.task-item.dragover-top {
+  border-top: 2px solid var(--interactive-accent);
+  margin-top: -2px;
+}
+
+.task-item.dragover-bottom {
+  border-bottom: 2px solid var(--interactive-accent);
+  margin-bottom: -2px;
+}
+
+.task-item.dragover-invalid {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.task-item.dragging {
+  opacity: 0.5;
+  cursor: move;
+}
+
+/* タイムスロットヘッダーのドラッグオーバー */
+.time-slot-header.dragover {
+  background-color: var(--background-modifier-hover);
+  border: 1px dashed var(--interactive-accent);
+}
+
 /* プロジェクト選択ドロップダウン */
 .taskchute-project-select {
   padding: 4px 8px;

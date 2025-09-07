@@ -287,6 +287,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.addCommand({
       id: "duplicate-selected-task",
       name: "選択されたタスクを複製",
+      // ホットキーはデフォルトで設定しない
       callback: async () => {
         const view = this.getTaskChuteView();
         if (view && view.selectedTaskInstance) {
@@ -301,6 +302,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.addCommand({
       id: "delete-selected-task",
       name: "選択されたタスクを削除",
+      // ホットキーはデフォルトで設定しない
       callback: () => {
         const view = this.getTaskChuteView();
         if (view && view.selectedTaskInstance) {

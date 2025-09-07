@@ -110,6 +110,10 @@ export class TaskChuteView extends ItemView {
 
     await this.setupUI(container);
     await this.loadTasks();
+    
+    // Restore any running tasks from persistence
+    await this.restoreRunningTaskState();
+    
     this.applyStyles();
     this.setupResizeObserver();
     this.initializeNavigationEventListeners();
@@ -310,9 +314,10 @@ export class TaskChuteView extends ItemView {
     const dayName = current.toLocaleDateString('ja-JP', { weekday: 'short' });
     const dateStr = `${this.currentDate.getMonth() + 1}/${this.currentDate.getDate()}`;
     
+    // 日付 曜日の順番に変更
     label.textContent = isToday 
-      ? `今日 (${dayName} ${dateStr})` 
-      : `${dayName} ${dateStr}`;
+      ? `今日 (${dateStr} ${dayName})` 
+      : `${dateStr} ${dayName}`;
   }
 
   private getCurrentDateString(): string {
@@ -577,7 +582,10 @@ export class TaskChuteView extends ItemView {
 
     this.setupTimeSlotDragHandlers(noTimeHeader, "none");
     
-    instances.forEach((inst, idx) => {
+    // Sort instances by order before rendering
+    const sortedInstances = this.sortByOrder(instances);
+    
+    sortedInstances.forEach((inst, idx) => {
       this.createTaskInstanceItem(inst, "none", idx);
     });
   }
@@ -590,7 +598,10 @@ export class TaskChuteView extends ItemView {
 
     this.setupTimeSlotDragHandlers(timeSlotHeader, slot);
     
-    instances.forEach((inst, idx) => {
+    // Sort instances by order before rendering
+    const sortedInstances = this.sortByOrder(instances);
+    
+    sortedInstances.forEach((inst, idx) => {
       this.createTaskInstanceItem(inst, slot, idx);
     });
   }
@@ -1150,6 +1161,37 @@ export class TaskChuteView extends ItemView {
     // フォーム
     const form = modalContent.createEl("form", { cls: "task-form" });
     
+    // ルーチンタイプ選択
+    const typeGroup = form.createEl("div", { cls: "form-group" });
+    typeGroup.createEl("label", { text: "ルーチンタイプ:", cls: "form-label" });
+    const typeSelect = typeGroup.createEl("select", {
+      cls: "form-input",
+    }) as HTMLSelectElement;
+    
+    // オプション追加
+    const options = [
+      { value: "daily", text: "毎日" },
+      { value: "weekdays", text: "平日のみ" },
+      { value: "weekends", text: "週末のみ" },
+      { value: "weekly", text: "週次（曜日指定）" },
+      { value: "monthly", text: "月次（第X週のX曜日）" },
+    ];
+    
+    options.forEach(opt => {
+      const option = typeSelect.createEl("option", {
+        value: opt.value,
+        text: opt.text,
+      });
+      if (task.routine_type === opt.value) {
+        option.selected = true;
+      }
+    });
+    
+    // 現在のルーチンタイプまたはデフォルト
+    if (!task.routine_type) {
+      typeSelect.value = "daily";
+    }
+    
     // 開始時刻入力
     const timeGroup = form.createEl("div", { cls: "form-group" });
     timeGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" });
@@ -1159,17 +1201,109 @@ export class TaskChuteView extends ItemView {
       value: task.scheduledTime || "09:00",
     }) as HTMLInputElement;
     
-    // 説明
-    const descGroup = form.createEl("div", { cls: "form-group" });
-    const descText = descGroup.createEl("p", {
-      cls: "form-description",
-      text: `毎日${timeInput.value}にルーチンタスクとして実行予定です。`,
+    // 週次設定グループ（初期非表示）
+    const weeklyGroup = form.createEl("div", { 
+      cls: "form-group",
+      style: "display: none;"
+    });
+    weeklyGroup.createEl("label", { text: "曜日を選択:", cls: "form-label" });
+    const weekdayContainer = weeklyGroup.createEl("div", { cls: "weekday-checkboxes" });
+    
+    const weekdays = [
+      { value: 0, label: "日" },
+      { value: 1, label: "月" },
+      { value: 2, label: "火" },
+      { value: 3, label: "水" },
+      { value: 4, label: "木" },
+      { value: 5, label: "金" },
+      { value: 6, label: "土" },
+    ];
+    
+    const weekdayCheckboxes: HTMLInputElement[] = [];
+    weekdays.forEach(day => {
+      const label = weekdayContainer.createEl("label", { 
+        cls: "weekday-checkbox-label" 
+      });
+      const checkbox = label.createEl("input", {
+        type: "checkbox",
+        value: day.value.toString(),
+      }) as HTMLInputElement;
+      weekdayCheckboxes.push(checkbox);
+      
+      // 既存の設定を反映
+      if (task.weekdays && Array.isArray(task.weekdays)) {
+        checkbox.checked = task.weekdays.includes(day.value);
+      }
+      
+      label.createEl("span", { text: day.label });
     });
     
-    // 時刻変更時に説明文を更新
-    timeInput.addEventListener("input", () => {
-      descText.textContent = `毎日${timeInput.value}にルーチンタスクとして実行予定です。`;
+    // 月次設定グループ（初期非表示）
+    const monthlyGroup = form.createEl("div", { 
+      cls: "form-group",
+      style: "display: none;"
     });
+    monthlyGroup.createEl("label", { text: "月次設定:", cls: "form-label" });
+    
+    const monthlyContainer = monthlyGroup.createEl("div", { 
+      cls: "monthly-settings",
+      style: "display: flex; gap: 10px; align-items: center;"
+    });
+    
+    monthlyContainer.createEl("span", { text: "第" });
+    const weekSelect = monthlyContainer.createEl("select", {
+      cls: "form-input",
+      style: "width: 60px;"
+    }) as HTMLSelectElement;
+    
+    for (let i = 1; i <= 5; i++) {
+      const option = weekSelect.createEl("option", {
+        value: (i - 1).toString(),
+        text: i.toString(),
+      });
+      if (task.monthly_week === i - 1) {
+        option.selected = true;
+      }
+    }
+    
+    monthlyContainer.createEl("span", { text: "週の" });
+    const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
+      cls: "form-input",
+      style: "width: 80px;"
+    }) as HTMLSelectElement;
+    
+    weekdays.forEach(day => {
+      const option = monthlyWeekdaySelect.createEl("option", {
+        value: day.value.toString(),
+        text: day.label + "曜日",
+      });
+      if (task.monthly_weekday === day.value) {
+        option.selected = true;
+      }
+    });
+    
+    // タイプ変更時の表示切り替え
+    typeSelect.addEventListener("change", () => {
+      const selectedType = typeSelect.value;
+      
+      // 全て非表示にする
+      weeklyGroup.style.display = "none";
+      monthlyGroup.style.display = "none";
+      
+      // 選択に応じて表示
+      if (selectedType === "weekly") {
+        weeklyGroup.style.display = "block";
+      } else if (selectedType === "monthly") {
+        monthlyGroup.style.display = "block";
+      }
+    });
+    
+    // 初期表示設定
+    if (task.routine_type === "weekly") {
+      weeklyGroup.style.display = "block";
+    } else if (task.routine_type === "monthly") {
+      monthlyGroup.style.display = "block";
+    }
     
     // ボタンエリア
     const buttonGroup = form.createEl("div", { cls: "form-button-group" });
@@ -1214,13 +1348,44 @@ export class TaskChuteView extends ItemView {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const scheduledTime = timeInput.value;
+      const routineType = typeSelect.value;
       
       if (!scheduledTime) {
         new Notice("開始時刻を入力してください");
         return;
       }
       
-      await this.setRoutineTask(task, button, scheduledTime);
+      // 週次の場合、曜日が選択されているか確認
+      if (routineType === "weekly") {
+        const selectedWeekdays = weekdayCheckboxes
+          .filter(cb => cb.checked)
+          .map(cb => parseInt(cb.value));
+        
+        if (selectedWeekdays.length === 0) {
+          new Notice("曜日を選択してください");
+          return;
+        }
+      }
+      
+      // ルーチンタスクとして設定
+      await this.setRoutineTaskWithDetails(
+        task, 
+        button, 
+        scheduledTime, 
+        routineType,
+        {
+          weekdays: routineType === "weekly" 
+            ? weekdayCheckboxes.filter(cb => cb.checked).map(cb => parseInt(cb.value))
+            : undefined,
+          monthly_week: routineType === "monthly" 
+            ? parseInt(weekSelect.value)
+            : undefined,
+          monthly_weekday: routineType === "monthly"
+            ? parseInt(monthlyWeekdaySelect.value)
+            : undefined,
+        }
+      );
+      
       document.body.removeChild(modal);
     });
     
@@ -1426,6 +1591,9 @@ export class TaskChuteView extends ItemView {
       // Save state
       this.saveInstanceState(inst);
       
+      // Save running task state for persistence
+      await this.saveRunningTasksState();
+      
       // Update UI
       this.renderTaskList();
       
@@ -1466,6 +1634,13 @@ export class TaskChuteView extends ItemView {
       // Save to log
       await this.saveTaskLog(inst);
       
+      // Save running task state (remove this task from running tasks)
+      await this.saveRunningTasksState();
+      
+      // CRITICAL: Recalculate task orders to maintain execution time order
+      // This ensures completed tasks are sorted by startTime immediately
+      this.initializeTaskOrders();
+      
       // Update UI
       this.renderTaskList();
 
@@ -1487,6 +1662,122 @@ export class TaskChuteView extends ItemView {
     }
 
     return duration;
+  }
+
+  // ===========================================
+  // Running Task Persistence Methods
+  // ===========================================
+
+  async saveRunningTasksState(): Promise<void> {
+    try {
+      const runningInstances = this.taskInstances.filter(
+        (inst) => inst.state === "running"
+      );
+
+      const dataToSave = runningInstances.map((inst) => {
+        const today = inst.startTime ? new Date(inst.startTime) : new Date();
+        const y = today.getFullYear();
+        const m = (today.getMonth() + 1).toString().padStart(2, "0");
+        const d = today.getDate().toString().padStart(2, "0");
+        const dateString = `${y}-${m}-${d}`;
+
+        return {
+          date: dateString,
+          taskTitle: inst.task.name,
+          taskPath: inst.task.path,
+          startTime: inst.startTime ? inst.startTime.toISOString() : new Date().toISOString(),
+          slotKey: inst.slotKey,
+          instanceId: inst.instanceId,
+          taskDescription: inst.task.description || "",
+          isRoutine: inst.task.isRoutine === true
+        };
+      });
+
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const dataPath = `${logDataPath}/running-task.json`;
+      
+      await this.app.vault.adapter.write(dataPath, JSON.stringify(dataToSave, null, 2));
+      
+      console.log("[TaskChute DEBUG] Running tasks saved:", dataToSave);
+    } catch (e) {
+      console.error("[TaskChute] 実行中タスクの保存に失敗:", e);
+    }
+  }
+
+  async restoreRunningTaskState(): Promise<void> {
+    try {
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const dataPath = `${logDataPath}/running-task.json`;
+      const dataFile = this.app.vault.getAbstractFileByPath(dataPath);
+      
+      if (!dataFile || !(dataFile instanceof TFile)) {
+        console.log("[TaskChute DEBUG] No running-task.json found");
+        return;
+      }
+
+      const content = await this.app.vault.read(dataFile);
+      const runningTasksData = JSON.parse(content);
+
+      if (!Array.isArray(runningTasksData)) {
+        console.log("[TaskChute DEBUG] Invalid running tasks data format");
+        return;
+      }
+
+      // 現在の日付文字列を取得
+      const currentDateString = this.getCurrentDateString();
+      console.log("[TaskChute DEBUG] Current date for restore:", currentDateString);
+
+      // 削除済みタスクリストを取得
+      const deletedInstances = this.getDeletedInstances(currentDateString);
+      const deletedTasks = deletedInstances
+        .filter((inst) => inst.deletionType === "permanent")
+        .map((inst) => inst.path);
+
+      let restored = false;
+      for (const runningData of runningTasksData) {
+        console.log("[TaskChute DEBUG] Processing running data:", runningData);
+        
+        if (runningData.date !== currentDateString) {
+          console.log("[TaskChute DEBUG] Skipping different date:", runningData.date);
+          continue;
+        }
+
+        // 削除済みタスクはスキップ
+        if (runningData.taskPath && deletedTasks.includes(runningData.taskPath)) {
+          console.log("[TaskChute DEBUG] Skipping deleted task:", runningData.taskPath);
+          continue;
+        }
+
+        // 既存のインスタンスを検索
+        let runningInstance = this.taskInstances.find(
+          (inst) =>
+            inst.task.path === runningData.taskPath &&
+            inst.state === "idle" &&
+            (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+        );
+
+        console.log("[TaskChute DEBUG] Found matching instance:", !!runningInstance);
+
+        if (runningInstance) {
+          runningInstance.state = "running";
+          runningInstance.startTime = new Date(runningData.startTime);
+          runningInstance.stopTime = null;
+          this.currentInstance = runningInstance;
+          restored = true;
+          console.log("[TaskChute DEBUG] Restored running task:", runningInstance.task.name);
+        } else {
+          console.log("[TaskChute DEBUG] No matching instance found for:", runningData.taskPath);
+        }
+      }
+
+      if (restored) {
+        this.manageTimers(); // タイマー管理を再開
+        this.renderTaskList(); // UIを更新
+        console.log("[TaskChute DEBUG] Running task restoration completed");
+      }
+    } catch (e) {
+      console.error("[TaskChute] 実行中タスクの復元に失敗:", e);
+    }
   }
 
   private saveInstanceState(inst: TaskInstance): void {
@@ -1669,7 +1960,12 @@ export class TaskChuteView extends ItemView {
 
   deleteSelectedTask(): void {
     if (this.selectedTaskInstance) {
-      this.deleteTask(this.selectedTaskInstance);
+      // 削除確認モーダルを表示
+      this.showDeleteConfirmDialog(this.selectedTaskInstance).then((confirmed) => {
+        if (confirmed) {
+          this.deleteTask(this.selectedTaskInstance);
+        }
+      });
     } else {
       new Notice("タスクが選択されていません");
     }
@@ -1686,6 +1982,14 @@ export class TaskChuteView extends ItemView {
   showTodayTasks(): void {
     const today = new Date();
     this.currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
+    // カレンダー表示（日付ラベル）を更新
+    const dateLabel = this.containerEl.querySelector('.date-nav-label') as HTMLElement;
+    if (dateLabel) {
+      this.updateDateLabel(dateLabel);
+    }
+    
+    // タスクリストを更新
     this.loadTasks().then(() => {
       new Notice(`今日のタスクを表示しました`);
     });
@@ -1706,11 +2010,159 @@ export class TaskChuteView extends ItemView {
 
   private sortTaskInstancesByTimeOrder(): void {
     if (this.useOrderBasedSort) {
-      this.taskInstances.sort((a, b) => {
-        // Implementation of order-based sort
-        return 0; // Simplified
+      // Load saved orders
+      const savedOrders = this.loadSavedOrders();
+      
+      // Apply saved orders to instances
+      this.taskInstances.forEach(inst => {
+        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || 'none'}`;
+        if (savedOrders[key] !== undefined) {
+          inst.order = savedOrders[key];
+        }
       });
+      
+      // Initialize orders for tasks without saved order
+      this.initializeTaskOrders();
     }
+  }
+
+  private initializeTaskOrders(): void {
+    // Group tasks by slot
+    const slotGroups: Record<string, TaskInstance[]> = {};
+    
+    this.taskInstances.forEach(inst => {
+      const slot = inst.slotKey || 'none';
+      if (!slotGroups[slot]) {
+        slotGroups[slot] = [];
+      }
+      slotGroups[slot].push(inst);
+    });
+    
+    // Sort each slot group and assign order numbers
+    Object.keys(slotGroups).forEach(slot => {
+      const instances = slotGroups[slot];
+      
+      // Sort by state priority first, then by existing order or startTime
+      instances.sort((a, b) => {
+        // State priority: idle/running -> done
+        const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
+        const stateCompare = statePriority[a.state] - statePriority[b.state];
+        if (stateCompare !== 0) return stateCompare;
+        
+        // For done tasks, sort by startTime
+        if (a.state === 'done' && b.state === 'done') {
+          if (a.startTime && b.startTime) {
+            return a.startTime.getTime() - b.startTime.getTime();
+          }
+        }
+        
+        // Use existing order if available
+        if (a.order !== undefined && b.order !== undefined) {
+          return a.order - b.order;
+        }
+        
+        return 0;
+      });
+      
+      // Assign order numbers
+      instances.forEach((inst, index) => {
+        inst.order = index;
+      });
+    });
+    
+    // Save the orders
+    this.saveTaskOrders();
+  }
+
+  private saveTaskOrders(): void {
+    const dateStr = this.getCurrentDateString();
+    const orderKey = `taskchute-orders-${dateStr}`;
+    
+    const orders: Record<string, number> = {};
+    this.taskInstances.forEach(inst => {
+      if (inst.order !== undefined) {
+        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || 'none'}`;
+        orders[key] = inst.order;
+      }
+    });
+    
+    try {
+      localStorage.setItem(orderKey, JSON.stringify(orders));
+    } catch (error) {
+      console.error('Failed to save task orders:', error);
+    }
+  }
+
+  private loadSavedOrders(): Record<string, number> {
+    const dateStr = this.getCurrentDateString();
+    const orderKey = `taskchute-orders-${dateStr}`;
+    
+    try {
+      const saved = localStorage.getItem(orderKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.error('Failed to load saved orders:', error);
+    }
+    
+    return {};
+  }
+
+  private sortByOrder(instances: TaskInstance[]): TaskInstance[] {
+    return instances.sort((a, b) => {
+      // State priority: idle/running/paused -> done
+      const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
+      const stateCompare = statePriority[a.state] - statePriority[b.state];
+      
+      if (stateCompare !== 0) {
+        return stateCompare;
+      }
+      
+      // For done tasks, sort by startTime
+      if (a.state === 'done' && b.state === 'done') {
+        if (a.startTime && b.startTime) {
+          return a.startTime.getTime() - b.startTime.getTime();
+        }
+      }
+      
+      // Sort by order number
+      const aOrder = a.order ?? 999999;
+      const bOrder = b.order ?? 999999;
+      return aOrder - bOrder;
+    });
+  }
+
+  private moveTaskToSlot(inst: TaskInstance, newSlot: string, position?: number): void {
+    // Update slot
+    const oldSlot = inst.slotKey;
+    inst.slotKey = newSlot;
+    
+    // Get all tasks in the target slot (excluding the moving task)
+    const slotTasks = this.taskInstances.filter(
+      t => t.slotKey === newSlot && t !== inst
+    );
+    
+    // Sort existing tasks by their current order
+    this.sortByOrder(slotTasks);
+    
+    // Insert the task at the specified position
+    if (position !== undefined && position >= 0) {
+      // Insert at specific position
+      slotTasks.splice(position, 0, inst);
+    } else {
+      // Add to the end
+      slotTasks.push(inst);
+    }
+    
+    // Reassign order numbers for all tasks in the slot
+    slotTasks.forEach((task, idx) => {
+      task.order = idx;
+    });
+    
+    // Save changes
+    this.saveTaskOrders();
+    this.renderTaskList();
   }
 
   private applyResponsiveClasses(): void {
@@ -1958,19 +2410,99 @@ export class TaskChuteView extends ItemView {
   }
 
   private handleDragOver(e: DragEvent, taskItem: HTMLElement, inst: TaskInstance): void {
-    // Handle drag over logic
+    e.preventDefault();
+    
+    // Clear previous classes
+    this.clearDragoverClasses(taskItem);
+    
+    // Don't show indicators for completed tasks
+    if (inst.state === 'done') {
+      taskItem.classList.add('dragover-invalid');
+      return;
+    }
+    
+    // Calculate drop position based on mouse position
+    const rect = taskItem.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const height = rect.height;
+    const isBottomHalf = y > height / 2;
+    
+    // Add appropriate visual feedback
+    if (isBottomHalf) {
+      taskItem.classList.add('dragover-bottom');
+    } else {
+      taskItem.classList.add('dragover-top');
+    }
   }
 
   private clearDragoverClasses(taskItem: HTMLElement): void {
-    taskItem.classList.remove("dragover", "dragover-bottom", "dragover-invalid");
+    taskItem.classList.remove("dragover", "dragover-top", "dragover-bottom", "dragover-invalid");
   }
 
-  private handleDrop(e: DragEvent, taskItem: HTMLElement, inst: TaskInstance): void {
-    // Handle drop logic
+  private handleDrop(e: DragEvent, taskItem: HTMLElement, targetInst: TaskInstance): void {
+    const data = e.dataTransfer?.getData("text/plain");
+    if (!data) return;
+    
+    const [sourceSlot, sourceIdx] = data.split("::");
+    const targetSlot = targetInst.slotKey || "none";
+    
+    // Find the source instance
+    const sourceInst = this.taskInstances.find(inst => {
+      const instSlot = inst.slotKey || "none";
+      const slotInstances = this.taskInstances.filter(t => (t.slotKey || "none") === instSlot);
+      const sortedSlotInstances = this.sortByOrder(slotInstances);
+      const idx = sortedSlotInstances.indexOf(inst);
+      return instSlot === sourceSlot && idx === parseInt(sourceIdx);
+    });
+    
+    if (!sourceInst || sourceInst.state === "done") return;
+    
+    // Calculate drop position
+    const rect = taskItem.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const isBottomHalf = y > rect.height / 2;
+    
+    // Get tasks in target slot
+    const targetSlotTasks = this.taskInstances.filter(
+      t => (t.slotKey || "none") === targetSlot
+    );
+    const sortedTargetTasks = this.sortByOrder(targetSlotTasks);
+    
+    // Find target position
+    const targetIndex = sortedTargetTasks.indexOf(targetInst);
+    let newPosition = isBottomHalf ? targetIndex + 1 : targetIndex;
+    
+    // If moving within the same slot, adjust position
+    if (sourceSlot === targetSlot) {
+      const sourceIndex = sortedTargetTasks.indexOf(sourceInst);
+      if (sourceIndex < newPosition) {
+        newPosition--;
+      }
+    }
+    
+    // Move the task
+    this.moveTaskToSlot(sourceInst, targetSlot, newPosition);
   }
 
   private handleSlotDrop(e: DragEvent, slot: string): void {
-    // Handle slot drop logic
+    const data = e.dataTransfer?.getData("text/plain");
+    if (!data) return;
+    
+    const [sourceSlot, sourceIdx] = data.split("::");
+    
+    // Find the source instance
+    const sourceInst = this.taskInstances.find(inst => {
+      const instSlot = inst.slotKey || "none";
+      const slotInstances = this.taskInstances.filter(t => (t.slotKey || "none") === instSlot);
+      const sortedSlotInstances = this.sortByOrder(slotInstances);
+      const idx = sortedSlotInstances.indexOf(inst);
+      return instSlot === sourceSlot && idx === parseInt(sourceIdx);
+    });
+    
+    if (!sourceInst || sourceInst.state === "done") return;
+    
+    // Move to the end of the target slot
+    this.moveTaskToSlot(sourceInst, slot);
   }
 
   private toggleNavigation(): void {
@@ -2026,6 +2558,130 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、UIを最新化
       await this.loadTasks();
       new Notice(`「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`);
+    } catch (error) {
+      console.error("Failed to set routine task:", error);
+      new Notice("ルーチンタスクの設定に失敗しました");
+    }
+  }
+
+  private async setRoutineTaskWithDetails(
+    task: any, 
+    button: HTMLElement, 
+    scheduledTime: string, 
+    routineType: string,
+    details: {
+      weekdays?: number[];
+      monthly_week?: number;
+      monthly_weekday?: number;
+    }
+  ): Promise<void> {
+    try {
+      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+      const filePath = `${taskFolderPath}/${task.title}.md`;
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      
+      if (!file || !(file instanceof TFile)) {
+        new Notice(`タスクファイル「${task.title}.md」が見つかりません`);
+        return;
+      }
+      
+      // ルーチンタスクとして設定
+      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        frontmatter.isRoutine = true;
+        frontmatter.開始時刻 = scheduledTime;
+        frontmatter.routine_type = routineType;
+        
+        // 現在の日付を設定
+        const y = this.currentDate.getFullYear();
+        const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
+        const d = this.currentDate.getDate().toString().padStart(2, "0");
+        frontmatter.routine_start = `${y}-${m}-${d}`;
+        
+        // 既存のルーチン設定をクリア
+        delete frontmatter.routine_end;
+        delete frontmatter.weekday;
+        delete frontmatter.weekdays;
+        delete frontmatter.monthly_week;
+        delete frontmatter.monthly_weekday;
+        
+        // タイプに応じて設定を追加
+        switch (routineType) {
+          case "daily":
+          case "weekdays":
+          case "weekends":
+            // これらのタイプは追加設定不要
+            break;
+            
+          case "weekly":
+            if (details.weekdays && details.weekdays.length > 0) {
+              if (details.weekdays.length === 1) {
+                // 単一曜日の場合
+                frontmatter.weekday = details.weekdays[0];
+              } else {
+                // 複数曜日の場合
+                frontmatter.weekdays = details.weekdays;
+              }
+            }
+            break;
+            
+          case "monthly":
+            if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
+              frontmatter.monthly_week = details.monthly_week;
+              frontmatter.monthly_weekday = details.monthly_weekday;
+            }
+            break;
+        }
+        
+        return frontmatter;
+      });
+      
+      // 状態更新
+      task.isRoutine = true;
+      task.scheduledTime = scheduledTime;
+      task.routine_type = routineType;
+      
+      // タイプに応じて詳細情報も更新
+      if (routineType === "weekly" && details.weekdays) {
+        task.weekdays = details.weekdays;
+      } else if (routineType === "monthly") {
+        task.monthly_week = details.monthly_week;
+        task.monthly_weekday = details.monthly_weekday;
+      }
+      
+      button.classList.add("active");
+      
+      // ツールチップテキストを生成
+      let tooltipText = `ルーチンタスク（${scheduledTime}開始予定）`;
+      switch (routineType) {
+        case "daily":
+          tooltipText += " - 毎日";
+          break;
+        case "weekdays":
+          tooltipText += " - 平日のみ";
+          break;
+        case "weekends":
+          tooltipText += " - 週末のみ";
+          break;
+        case "weekly":
+          if (details.weekdays) {
+            const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+            const days = details.weekdays.map(d => dayNames[d]).join(",");
+            tooltipText += ` - 毎週${days}`;
+          }
+          break;
+        case "monthly":
+          if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
+            const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+            tooltipText += ` - 第${details.monthly_week + 1}${dayNames[details.monthly_weekday]}曜日`;
+          }
+          break;
+      }
+      
+      button.setAttribute("title", tooltipText);
+      
+      // タスク情報を再取得し、UIを最新化
+      await this.loadTasks();
+      new Notice(`「${task.title}」をルーチンタスクに設定しました`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
       new Notice("ルーチンタスクの設定に失敗しました");
@@ -2374,14 +3030,13 @@ export class TaskChuteView extends ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${taskName}.md`;
       
-      // 今日の日付を取得
+      // 現在表示中の日付を取得
       const dateStr = this.getCurrentDateString();
       
-      // フロントマターを作成（タスクタグを含める）
+      // フロントマターを作成（非ルーチンタスクはtargetDateのみ）
       const frontmatter = [
         "---",
-        `estimatedMinutes: ${estimatedMinutes}`,
-        `createdAt: ${new Date().toISOString()}`,
+        `targetDate: "${dateStr}"`,
         "---",
         "",
         `#task`,
