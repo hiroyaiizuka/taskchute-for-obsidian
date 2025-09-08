@@ -2205,7 +2205,7 @@ select.form-input {
 }
 `;
 
-// src/views/TaskChuteView-refactored.ts
+// src/views/TaskChuteView.helpers.ts
 async function loadTasksRefactored() {
   var _a;
   this.tasks = [];
@@ -2542,8 +2542,10 @@ async function shouldShowNonRoutineTask(file, metadata, dateString) {
   if (isDeleted) {
     return false;
   }
-  if ((metadata == null ? void 0 : metadata.target_date) && metadata.target_date === dateString) {
-    return true;
+  if (metadata == null ? void 0 : metadata.target_date) {
+    const shouldShow = metadata.target_date === dateString;
+    console.log(`[TaskChute Debug] target_date is set: ${metadata.target_date}, dateString: ${dateString}, shouldShow: ${shouldShow}`);
+    return shouldShow;
   }
   try {
     const stats = await this.app.vault.adapter.stat(file.path);
@@ -2555,7 +2557,7 @@ async function shouldShowNonRoutineTask(file, metadata, dateString) {
     const month = (fileCreationDate.getMonth() + 1).toString().padStart(2, "0");
     const day = fileCreationDate.getDate().toString().padStart(2, "0");
     const fileCreationDateString = `${year}-${month}-${day}`;
-    console.log(`[TaskChute Debug] File creation date: ${fileCreationDateString}, today: ${dateString}`);
+    console.log(`[TaskChute Debug] No target_date, checking file creation date: ${fileCreationDateString}, today: ${dateString}`);
     if (dateString === fileCreationDateString) {
       return true;
     }

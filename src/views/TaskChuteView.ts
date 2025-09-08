@@ -10,7 +10,7 @@ import {
   AutocompleteInstance 
 } from '../types';
 import { TASKCHUTE_FULL_CSS } from '../styles/full-css';
-import { loadTasksRefactored } from './TaskChuteView-refactored';
+import { loadTasksRefactored } from './TaskChuteView.helpers';
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 

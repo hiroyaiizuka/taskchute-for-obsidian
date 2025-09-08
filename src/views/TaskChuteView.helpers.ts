@@ -49,7 +49,7 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       }
     }
 
-    // Then, process routine tasks that haven't been executed today
+    // Then, process tasks that haven't been executed today (routine and non-routine)
     for (const file of taskFiles) {
       if (processedFilePaths.has(file.path)) continue;
       
@@ -64,8 +64,17 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       // Check if it's a routine task
       const isRoutine = metadata?.isRoutine === true || content.includes("#routine");
       
-      if (isRoutine && shouldShowRoutineTask.call(this, metadata, this.currentDate)) {
-        await createRoutineTask.call(this, file, content, metadata, dateString);
+      if (isRoutine) {
+        // Process routine task
+        if (shouldShowRoutineTask.call(this, metadata, this.currentDate)) {
+          await createRoutineTask.call(this, file, content, metadata, dateString);
+        }
+      } else {
+        // Process non-routine task - only show if conditions are met
+        const shouldShow = await shouldShowNonRoutineTask.call(this, file, metadata, dateString);
+        if (shouldShow) {
+          await createNonRoutineTask.call(this, file, content, metadata, dateString);
+        }
       }
     }
     
@@ -125,6 +134,30 @@ function calculateSlotKeyFromTime(timeStr: string): string {
 async function createTaskFromExecutions(this: any, executions: any[], file: any, dateString: string): Promise<void> {
   const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
   
+  // Extract project info
+  let projectPath = null;
+  let projectTitle = null;
+  
+  // First check if project_path is already set
+  if (metadata?.project_path) {
+    projectPath = metadata.project_path;
+    projectTitle = extractProjectTitle(metadata.project);
+  } else if (metadata?.project) {
+    projectTitle = extractProjectTitle(metadata.project);
+    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
+    if (projectTitle) {
+      // Try to find the project file in the vault
+      const allFiles = this.app.vault.getMarkdownFiles();
+      const projectFile = allFiles.find(f => f.basename === projectTitle);
+      if (projectFile) {
+        projectPath = projectFile.path;
+        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
+      } else {
+        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
+      }
+    }
+  }
+  
   const taskData = {
     file: file || null,
     frontmatter: metadata || {},
@@ -132,8 +165,8 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
     name: executions[0].taskTitle,
     title: executions[0].taskTitle,
     project: metadata?.project,
-    projectPath: metadata?.project_path,
-    projectTitle: extractProjectTitle(metadata?.project),
+    projectPath: projectPath,
+    projectTitle: projectTitle,
     isRoutine: metadata?.isRoutine === true || false,
     routineType: metadata?.routine_type,
     scheduledTime: metadata?.開始時刻,
@@ -165,7 +198,31 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
   }
 }
 
-async function createRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
+async function createNonRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
+  // Extract project info
+  let projectPath = null;
+  let projectTitle = null;
+  
+  // First check if project_path is already set
+  if (metadata?.project_path) {
+    projectPath = metadata.project_path;
+    projectTitle = extractProjectTitle(metadata.project);
+  } else if (metadata?.project) {
+    projectTitle = extractProjectTitle(metadata.project);
+    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
+    if (projectTitle) {
+      // Try to find the project file in the vault
+      const allFiles = this.app.vault.getMarkdownFiles();
+      const projectFile = allFiles.find(f => f.basename === projectTitle);
+      if (projectFile) {
+        projectPath = projectFile.path;
+        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
+      } else {
+        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
+      }
+    }
+  }
+  
   const taskData = {
     file,
     frontmatter: metadata || {},
@@ -173,8 +230,69 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
     name: file.basename,
     title: file.basename,
     project: metadata?.project,
-    projectPath: metadata?.project_path,
-    projectTitle: extractProjectTitle(metadata?.project),
+    projectPath: projectPath,
+    projectTitle: projectTitle,
+    isRoutine: false,
+    scheduledTime: metadata?.開始時刻,
+  };
+
+  this.tasks.push(taskData);
+
+  // Create idle instance for non-routine task
+  const instance = {
+    task: taskData,
+    instanceId: this.generateInstanceId(taskData.path),
+    state: 'idle',
+    slotKey: getScheduledSlotKey(metadata?.開始時刻) || 'none',
+    date: dateString,
+  };
+
+  // Check if deleted - check by path only for non-routine tasks
+  const deletedKey = `taskchute-deleted-instances-${dateString}`;
+  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
+  const isDeleted = deletedInstances.some((d: any) => 
+    d.path === file.path
+  );
+
+  if (!isDeleted) {
+    this.taskInstances.push(instance);
+  }
+}
+
+async function createRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
+  // Extract project info
+  let projectPath = null;
+  let projectTitle = null;
+  
+  // First check if project_path is already set
+  if (metadata?.project_path) {
+    projectPath = metadata.project_path;
+    projectTitle = extractProjectTitle(metadata.project);
+  } else if (metadata?.project) {
+    projectTitle = extractProjectTitle(metadata.project);
+    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
+    if (projectTitle) {
+      // Try to find the project file in the vault
+      const allFiles = this.app.vault.getMarkdownFiles();
+      const projectFile = allFiles.find(f => f.basename === projectTitle);
+      if (projectFile) {
+        projectPath = projectFile.path;
+        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
+      } else {
+        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
+      }
+    }
+  }
+  
+  const taskData = {
+    file,
+    frontmatter: metadata || {},
+    path: file.path,
+    name: file.basename,
+    title: file.basename,
+    project: metadata?.project,
+    projectPath: projectPath,
+    projectTitle: projectTitle,
     isRoutine: true,
     routineType: metadata?.routine_type || 'daily',
     scheduledTime: metadata?.開始時刻,
@@ -231,6 +349,7 @@ function shouldShowRoutineTask(this: any, metadata: any, date: Date): boolean {
       return dayOfWeek === 0 || dayOfWeek === 6; // Saturday and Sunday
       
     case 'weekly':
+    case 'custom':  // custom is treated same as weekly
       if (metadata.weekday !== undefined) {
         return dayOfWeek === metadata.weekday;
       }
@@ -253,8 +372,16 @@ function shouldShowRoutineTask(this: any, metadata: any, date: Date): boolean {
 
 function extractProjectTitle(projectField: string | undefined): string | undefined {
   if (!projectField) return undefined;
+  
+  // Check for [[...]] format first
   const match = projectField.match(/\[\[([^\]]+)\]\]/);
-  return match ? match[1] : undefined;
+  if (match) {
+    return match[1];
+  }
+  
+  // If not in [[...]] format, return as-is (for plain text project names)
+  // This handles cases like "Project - Taskchute for Local"
+  return projectField;
 }
 
 function parseTimeString(timeStr: string, dateStr: string): Date | undefined {
@@ -291,4 +418,57 @@ function isInstanceHidden(this: any, instanceId: string, path: string, dateStrin
   return hiddenRoutines.some((h: any) => 
     (typeof h === 'string' ? h === path : (h.instanceId === instanceId || h.path === path))
   );
+}
+
+async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dateString: string): Promise<boolean> {
+  // First check if task is deleted
+  const deletedKey = `taskchute-deleted-instances-${dateString}`;
+  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
+  const isDeleted = deletedInstances.some((d: any) => 
+    d.path === file.path
+  );
+  
+  console.log(`[TaskChute Debug] shouldShowNonRoutineTask: file=${file.path}, dateString=${dateString}, isDeleted=${isDeleted}, deletedInstances=`, deletedInstances);
+  
+  if (isDeleted) {
+    return false;  // Don't show deleted tasks
+  }
+
+  // Check if task has a target_date set
+  if (metadata?.target_date) {
+    // If target_date is set, show only on that specific date
+    const shouldShow = metadata.target_date === dateString;
+    console.log(`[TaskChute Debug] target_date is set: ${metadata.target_date}, dateString: ${dateString}, shouldShow: ${shouldShow}`);
+    return shouldShow;
+  }
+
+  // Only check file creation date if target_date is NOT set
+  try {
+    const stats = await this.app.vault.adapter.stat(file.path);
+    if (!stats) {
+      // File doesn't exist
+      return false;
+    }
+    
+    const fileCreationDate = new Date(stats.ctime || stats.mtime);
+    
+    // Generate date string in local timezone
+    const year = fileCreationDate.getFullYear();
+    const month = (fileCreationDate.getMonth() + 1).toString().padStart(2, "0");
+    const day = fileCreationDate.getDate().toString().padStart(2, "0");
+    const fileCreationDateString = `${year}-${month}-${day}`;
+    
+    console.log(`[TaskChute Debug] No target_date, checking file creation date: ${fileCreationDateString}, today: ${dateString}`);
+    
+    // Show only on creation date
+    if (dateString === fileCreationDateString) {
+      return true;
+    }
+  } catch (error) {
+    console.log(`[TaskChute Debug] Error checking file stats:`, error);
+    // Don't show on error (file might be deleted)
+    return false;
+  }
+  
+  return false;
 }
