@@ -997,6 +997,8 @@ export class TaskChuteView extends ItemView {
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
     const existingComment = await this.getExistingTaskComment(inst);
+    // デバッグ：取得したコメントデータを確認
+    console.log("既存コメントデータ:", existingComment);
     const modal = document.createElement("div");
     modal.className = "taskchute-comment-modal";
     const modalContent = modal.createEl("div", {
@@ -1036,13 +1038,14 @@ export class TaskChuteView extends ItemView {
     // 集中度
     const focusGroup = ratingSection.createEl("div", { cls: "rating-group" });
     focusGroup.createEl("label", { text: "集中度:", cls: "rating-label" });
+    const initialFocusRating = existingComment?.focusLevel || 0;
     const focusRating = focusGroup.createEl("div", { 
       cls: "star-rating", 
-      attr: { "data-rating": this.convertToFiveScale(existingComment?.focus || 0).toString() } 
+      attr: { "data-rating": initialFocusRating.toString() } 
     });
     for (let i = 1; i <= 5; i++) {
       const star = focusRating.createEl("span", { 
-        cls: `star ${i <= this.convertToFiveScale(existingComment?.focus || 0) ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
+        cls: `star ${i <= initialFocusRating ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
         text: "⭐"
       });
       star.addEventListener("click", () => {
@@ -1055,17 +1058,20 @@ export class TaskChuteView extends ItemView {
         this.resetRatingHighlight(focusRating);
       });
     }
+    // 初期値を表示に反映
+    this.updateRatingDisplay(focusRating, initialFocusRating);
     
     // 元気度  
     const energyGroup = ratingSection.createEl("div", { cls: "rating-group" });
     energyGroup.createEl("label", { text: "元気度:", cls: "rating-label" });
+    const initialEnergyRating = existingComment?.energyLevel || 0;
     const energyRating = energyGroup.createEl("div", { 
       cls: "star-rating", 
-      attr: { "data-rating": this.convertToFiveScale(existingComment?.energy || 0).toString() } 
+      attr: { "data-rating": initialEnergyRating.toString() } 
     });
     for (let i = 1; i <= 5; i++) {
       const star = energyRating.createEl("span", { 
-        cls: `star ${i <= this.convertToFiveScale(existingComment?.energy || 0) ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
+        cls: `star ${i <= initialEnergyRating ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
         text: "⭐"
       });
       star.addEventListener("click", () => {
@@ -1078,15 +1084,20 @@ export class TaskChuteView extends ItemView {
         this.resetRatingHighlight(energyRating);
       });
     }
+    // 初期値を表示に反映
+    this.updateRatingDisplay(energyRating, initialEnergyRating);
     
     // コメント入力エリア
     const commentSection = modalContent.createEl("div", { cls: "taskchute-comment-section" });
     commentSection.createEl("label", { text: "感想・学び・次回への改善点:", cls: "comment-label" });
     const commentInput = commentSection.createEl("textarea", {
       cls: "taskchute-comment-textarea",
-      placeholder: "今回のタスクで感じたこと、学んだこと、次回への改善点などを自由にお書きください...",
-      value: existingComment?.comment || ""
+      placeholder: "今回のタスクで感じたこと、学んだこと、次回への改善点などを自由にお書きください..."
     });
+    // ⚠️ 重要：valueプロパティに直接代入（steering documentの指示通り）
+    if (existingComment?.executionComment) {
+      (commentInput as HTMLTextAreaElement).value = existingComment.executionComment;
+    }
     
     // アクションボタン
     const buttonGroup = modalContent.createEl("div", { cls: "taskchute-comment-actions" });
@@ -1229,8 +1240,7 @@ export class TaskChuteView extends ItemView {
       
       // instanceIdが一致するエントリを検索
       const existingEntry = todayTasks.find(
-        (entry: any) => entry.instanceId === inst.instanceId && 
-        (entry.executionComment || entry.focusLevel > 0 || entry.energyLevel > 0)
+        (entry: any) => entry.instanceId === inst.instanceId
       );
 
       return existingEntry || null;

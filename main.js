@@ -3284,6 +3284,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   }
   async showTaskCompletionModal(inst) {
     const existingComment = await this.getExistingTaskComment(inst);
+    console.log("\u65E2\u5B58\u30B3\u30E1\u30F3\u30C8\u30C7\u30FC\u30BF:", existingComment);
     const modal = document.createElement("div");
     modal.className = "taskchute-comment-modal";
     const modalContent = modal.createEl("div", {
@@ -3312,13 +3313,14 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     ratingSection.createEl("h3", { text: "\u4ECA\u56DE\u306E\u30BF\u30B9\u30AF\u306F\u3044\u304B\u304C\u3067\u3057\u305F\u304B\uFF1F" });
     const focusGroup = ratingSection.createEl("div", { cls: "rating-group" });
     focusGroup.createEl("label", { text: "\u96C6\u4E2D\u5EA6:", cls: "rating-label" });
+    const initialFocusRating = (existingComment == null ? void 0 : existingComment.focusLevel) || 0;
     const focusRating = focusGroup.createEl("div", {
       cls: "star-rating",
-      attr: { "data-rating": this.convertToFiveScale((existingComment == null ? void 0 : existingComment.focus) || 0).toString() }
+      attr: { "data-rating": initialFocusRating.toString() }
     });
     for (let i = 1; i <= 5; i++) {
       const star = focusRating.createEl("span", {
-        cls: `star ${i <= this.convertToFiveScale((existingComment == null ? void 0 : existingComment.focus) || 0) ? "taskchute-star-filled" : "taskchute-star-empty"}`,
+        cls: `star ${i <= initialFocusRating ? "taskchute-star-filled" : "taskchute-star-empty"}`,
         text: "\u2B50"
       });
       star.addEventListener("click", () => {
@@ -3331,15 +3333,17 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         this.resetRatingHighlight(focusRating);
       });
     }
+    this.updateRatingDisplay(focusRating, initialFocusRating);
     const energyGroup = ratingSection.createEl("div", { cls: "rating-group" });
     energyGroup.createEl("label", { text: "\u5143\u6C17\u5EA6:", cls: "rating-label" });
+    const initialEnergyRating = (existingComment == null ? void 0 : existingComment.energyLevel) || 0;
     const energyRating = energyGroup.createEl("div", {
       cls: "star-rating",
-      attr: { "data-rating": this.convertToFiveScale((existingComment == null ? void 0 : existingComment.energy) || 0).toString() }
+      attr: { "data-rating": initialEnergyRating.toString() }
     });
     for (let i = 1; i <= 5; i++) {
       const star = energyRating.createEl("span", {
-        cls: `star ${i <= this.convertToFiveScale((existingComment == null ? void 0 : existingComment.energy) || 0) ? "taskchute-star-filled" : "taskchute-star-empty"}`,
+        cls: `star ${i <= initialEnergyRating ? "taskchute-star-filled" : "taskchute-star-empty"}`,
         text: "\u2B50"
       });
       star.addEventListener("click", () => {
@@ -3352,13 +3356,16 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         this.resetRatingHighlight(energyRating);
       });
     }
+    this.updateRatingDisplay(energyRating, initialEnergyRating);
     const commentSection = modalContent.createEl("div", { cls: "taskchute-comment-section" });
     commentSection.createEl("label", { text: "\u611F\u60F3\u30FB\u5B66\u3073\u30FB\u6B21\u56DE\u3078\u306E\u6539\u5584\u70B9:", cls: "comment-label" });
     const commentInput = commentSection.createEl("textarea", {
       cls: "taskchute-comment-textarea",
-      placeholder: "\u4ECA\u56DE\u306E\u30BF\u30B9\u30AF\u3067\u611F\u3058\u305F\u3053\u3068\u3001\u5B66\u3093\u3060\u3053\u3068\u3001\u6B21\u56DE\u3078\u306E\u6539\u5584\u70B9\u306A\u3069\u3092\u81EA\u7531\u306B\u304A\u66F8\u304D\u304F\u3060\u3055\u3044...",
-      value: (existingComment == null ? void 0 : existingComment.comment) || ""
+      placeholder: "\u4ECA\u56DE\u306E\u30BF\u30B9\u30AF\u3067\u611F\u3058\u305F\u3053\u3068\u3001\u5B66\u3093\u3060\u3053\u3068\u3001\u6B21\u56DE\u3078\u306E\u6539\u5584\u70B9\u306A\u3069\u3092\u81EA\u7531\u306B\u304A\u66F8\u304D\u304F\u3060\u3055\u3044..."
     });
+    if (existingComment == null ? void 0 : existingComment.executionComment) {
+      commentInput.value = existingComment.executionComment;
+    }
     const buttonGroup = modalContent.createEl("div", { cls: "taskchute-comment-actions" });
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
@@ -3470,7 +3477,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const dateString = `${year}-${month}-${day}`;
       const todayTasks = ((_a = monthlyLog.taskExecutions) == null ? void 0 : _a[dateString]) || [];
       const existingEntry = todayTasks.find(
-        (entry) => entry.instanceId === inst.instanceId && (entry.executionComment || entry.focusLevel > 0 || entry.energyLevel > 0)
+        (entry) => entry.instanceId === inst.instanceId
       );
       return existingEntry || null;
     } catch (error) {
