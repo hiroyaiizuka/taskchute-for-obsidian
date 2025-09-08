@@ -1182,8 +1182,17 @@ export class TaskChuteView extends ItemView {
 
   private async hasCommentData(inst: TaskInstance): Promise<boolean> {
     try {
-      const comment = await this.getExistingTaskComment(inst);
-      return comment !== null && (comment.comment || comment.energy || comment.focus);
+      const existingComment = await this.getExistingTaskComment(inst);
+      if (!existingComment) {
+        return false;
+      }
+
+      return (
+        (existingComment.executionComment && 
+          existingComment.executionComment.trim().length > 0) ||
+        existingComment.focusLevel > 0 ||
+        existingComment.energyLevel > 0
+      );
     } catch (error) {
       return false;
     }
@@ -1191,11 +1200,40 @@ export class TaskChuteView extends ItemView {
   
   private async getExistingTaskComment(inst: TaskInstance): Promise<any> {
     try {
-      // コメントデータをlocalStorageから取得
-      const dateStr = this.getCurrentDateString();
-      const key = `taskchute-comment-${dateStr}-${inst.instanceId}`;
-      const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : null;
+      // instanceIdが存在しない場合は、コメントなしとして扱う
+      if (!inst.instanceId) {
+        return null;
+      }
+
+      // 月次ログファイルのパス生成
+      const currentDate = this.currentDate;
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+      const day = currentDate.getDate().toString().padStart(2, "0");
+      const monthString = `${year}-${month}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
+
+      // JSONファイルを読み込み
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
+      if (!logFile || !(logFile instanceof TFile)) {
+        return null;
+      }
+
+      const logContent = await this.app.vault.read(logFile);
+      const monthlyLog = JSON.parse(logContent);
+
+      // 該当日付のタスク実行ログから検索
+      const dateString = `${year}-${month}-${day}`;
+      const todayTasks = monthlyLog.taskExecutions?.[dateString] || [];
+      
+      // instanceIdが一致するエントリを検索
+      const existingEntry = todayTasks.find(
+        (entry: any) => entry.instanceId === inst.instanceId && 
+        (entry.executionComment || entry.focusLevel > 0 || entry.energyLevel > 0)
+      );
+
+      return existingEntry || null;
     } catch (error) {
       return null;
     }
@@ -1203,10 +1241,74 @@ export class TaskChuteView extends ItemView {
   
   private async saveTaskComment(inst: TaskInstance, data: { comment: string; energy: number; focus: number }): Promise<void> {
     try {
-      // コメントデータをlocalStorageに保存
-      const dateStr = this.getCurrentDateString();
-      const key = `taskchute-comment-${dateStr}-${inst.instanceId}`;
-      localStorage.setItem(key, JSON.stringify(data));
+      // instanceIdが存在しない場合はエラー
+      if (!inst.instanceId) {
+        throw new Error("instanceId is required");
+      }
+
+      // 月次ログファイルのパス生成
+      const currentDate = this.currentDate;
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+      const day = currentDate.getDate().toString().padStart(2, "0");
+      const monthString = `${year}-${month}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
+      const dateString = `${year}-${month}-${day}`;
+
+      // JSONファイルを読み込み（存在しない場合は新規作成）
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
+      let monthlyLog: any = { taskExecutions: {} };
+      
+      if (logFile && logFile instanceof TFile) {
+        const logContent = await this.app.vault.read(logFile);
+        monthlyLog = JSON.parse(logContent);
+      }
+
+      // 該当日付のタスク実行ログを取得または初期化
+      if (!monthlyLog.taskExecutions) {
+        monthlyLog.taskExecutions = {};
+      }
+      if (!monthlyLog.taskExecutions[dateString]) {
+        monthlyLog.taskExecutions[dateString] = [];
+      }
+
+      const todayTasks = monthlyLog.taskExecutions[dateString];
+      
+      // instanceIdが一致するエントリを検索
+      const existingIndex = todayTasks.findIndex(
+        (entry: any) => entry.instanceId === inst.instanceId
+      );
+
+      // コメントデータの構造を仕様に合わせる
+      const commentData = {
+        ...inst,
+        executionComment: data.comment,
+        focusLevel: data.focus,
+        energyLevel: data.energy,
+        timestamp: new Date().toISOString()
+      };
+
+      if (existingIndex >= 0) {
+        // 既存エントリを更新
+        todayTasks[existingIndex] = {
+          ...todayTasks[existingIndex],
+          executionComment: commentData.executionComment,
+          focusLevel: commentData.focusLevel,
+          energyLevel: commentData.energyLevel,
+          timestamp: commentData.timestamp
+        };
+      } else {
+        // 新規エントリを追加
+        todayTasks.push(commentData);
+      }
+
+      // JSONファイルに保存
+      if (logFile && logFile instanceof TFile) {
+        await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
+      } else {
+        await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
+      }
       
       new Notice("コメントを保存しました");
     } catch (error) {

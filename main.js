@@ -3439,27 +3439,96 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   }
   async hasCommentData(inst) {
     try {
-      const comment = await this.getExistingTaskComment(inst);
-      return comment !== null && (comment.comment || comment.energy || comment.focus);
+      const existingComment = await this.getExistingTaskComment(inst);
+      if (!existingComment) {
+        return false;
+      }
+      return existingComment.executionComment && existingComment.executionComment.trim().length > 0 || existingComment.focusLevel > 0 || existingComment.energyLevel > 0;
     } catch (error) {
       return false;
     }
   }
   async getExistingTaskComment(inst) {
+    var _a;
     try {
-      const dateStr = this.getCurrentDateString();
-      const key = `taskchute-comment-${dateStr}-${inst.instanceId}`;
-      const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : null;
+      if (!inst.instanceId) {
+        return null;
+      }
+      const currentDate = this.currentDate;
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+      const day = currentDate.getDate().toString().padStart(2, "0");
+      const monthString = `${year}-${month}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
+      if (!logFile || !(logFile instanceof import_obsidian3.TFile)) {
+        return null;
+      }
+      const logContent = await this.app.vault.read(logFile);
+      const monthlyLog = JSON.parse(logContent);
+      const dateString = `${year}-${month}-${day}`;
+      const todayTasks = ((_a = monthlyLog.taskExecutions) == null ? void 0 : _a[dateString]) || [];
+      const existingEntry = todayTasks.find(
+        (entry) => entry.instanceId === inst.instanceId && (entry.executionComment || entry.focusLevel > 0 || entry.energyLevel > 0)
+      );
+      return existingEntry || null;
     } catch (error) {
       return null;
     }
   }
   async saveTaskComment(inst, data) {
     try {
-      const dateStr = this.getCurrentDateString();
-      const key = `taskchute-comment-${dateStr}-${inst.instanceId}`;
-      localStorage.setItem(key, JSON.stringify(data));
+      if (!inst.instanceId) {
+        throw new Error("instanceId is required");
+      }
+      const currentDate = this.currentDate;
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+      const day = currentDate.getDate().toString().padStart(2, "0");
+      const monthString = `${year}-${month}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
+      const dateString = `${year}-${month}-${day}`;
+      const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
+      let monthlyLog = { taskExecutions: {} };
+      if (logFile && logFile instanceof import_obsidian3.TFile) {
+        const logContent = await this.app.vault.read(logFile);
+        monthlyLog = JSON.parse(logContent);
+      }
+      if (!monthlyLog.taskExecutions) {
+        monthlyLog.taskExecutions = {};
+      }
+      if (!monthlyLog.taskExecutions[dateString]) {
+        monthlyLog.taskExecutions[dateString] = [];
+      }
+      const todayTasks = monthlyLog.taskExecutions[dateString];
+      const existingIndex = todayTasks.findIndex(
+        (entry) => entry.instanceId === inst.instanceId
+      );
+      const commentData = {
+        ...inst,
+        executionComment: data.comment,
+        focusLevel: data.focus,
+        energyLevel: data.energy,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (existingIndex >= 0) {
+        todayTasks[existingIndex] = {
+          ...todayTasks[existingIndex],
+          executionComment: commentData.executionComment,
+          focusLevel: commentData.focusLevel,
+          energyLevel: commentData.energyLevel,
+          timestamp: commentData.timestamp
+        };
+      } else {
+        todayTasks.push(commentData);
+      }
+      if (logFile && logFile instanceof import_obsidian3.TFile) {
+        await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
+      } else {
+        await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
+      }
       new import_obsidian3.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
     } catch (error) {
       console.error("Failed to save comment:", error);
