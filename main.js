@@ -2486,8 +2486,16 @@ function shouldShowRoutineTask(metadata, date) {
       return false;
     case "monthly":
       if (metadata.monthly_week !== void 0 && metadata.monthly_weekday !== void 0) {
-        const weekOfMonth = Math.floor((date.getDate() - 1) / 7);
-        return weekOfMonth === metadata.monthly_week && dayOfWeek === metadata.monthly_weekday;
+        if (dayOfWeek !== metadata.monthly_weekday) {
+          return false;
+        }
+        if (metadata.monthly_week === "last") {
+          const nextWeek = new Date(date);
+          nextWeek.setDate(date.getDate() + 7);
+          return nextWeek.getMonth() !== date.getMonth();
+        }
+        const weekOfMonth = Math.floor((date.getDate() - 1) / 7) + 1;
+        return weekOfMonth === metadata.monthly_week;
       }
       return false;
     default:

@@ -360,8 +360,22 @@ function shouldShowRoutineTask(this: any, metadata: any, date: Date): boolean {
       
     case 'monthly':
       if (metadata.monthly_week !== undefined && metadata.monthly_weekday !== undefined) {
-        const weekOfMonth = Math.floor((date.getDate() - 1) / 7);
-        return weekOfMonth === metadata.monthly_week && dayOfWeek === metadata.monthly_weekday;
+        // 指定された曜日と一致しない場合は表示しない
+        if (dayOfWeek !== metadata.monthly_weekday) {
+          return false;
+        }
+        
+        // "last"週の処理
+        if (metadata.monthly_week === 'last') {
+          // 次週の同じ曜日が翌月なら、今週が最終週
+          const nextWeek = new Date(date);
+          nextWeek.setDate(date.getDate() + 7);
+          return nextWeek.getMonth() !== date.getMonth();
+        }
+        
+        // その月で何回目の該当曜日かを計算（1ベース）
+        const weekOfMonth = Math.floor((date.getDate() - 1) / 7) + 1;
+        return weekOfMonth === metadata.monthly_week;
       }
       return false;
       
