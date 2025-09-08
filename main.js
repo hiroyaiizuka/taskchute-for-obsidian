@@ -3285,87 +3285,157 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   async showTaskCompletionModal(inst) {
     const existingComment = await this.getExistingTaskComment(inst);
     const modal = document.createElement("div");
-    modal.className = "task-modal-overlay";
+    modal.className = "taskchute-comment-modal";
     const modalContent = modal.createEl("div", {
-      cls: "task-modal-content completion-modal"
+      cls: "taskchute-comment-content"
     });
-    const header = modalContent.createEl("div", { cls: "modal-header" });
-    const isCompleted = inst.state === "done";
+    const header = modalContent.createEl("div", { cls: "taskchute-modal-header" });
     const headerText = existingComment ? `\u270F\uFE0F \u300C${inst.task.title}\u300D\u306E\u30B3\u30E1\u30F3\u30C8\u3092\u7DE8\u96C6` : `\u{1F389} \u304A\u75B2\u308C\u69D8\u3067\u3057\u305F\uFF01\u300C${inst.task.title}\u300D\u304C\u5B8C\u4E86\u3057\u307E\u3057\u305F`;
-    header.createEl("h3", { text: headerText });
-    const closeButton = header.createEl("button", {
-      cls: "modal-close-button",
-      text: "\xD7"
+    header.createEl("h2", { text: headerText });
+    if (inst.state === "done" && inst.actualTime) {
+      const timeInfo = modalContent.createEl("div", { cls: "taskchute-time-info" });
+      const duration = this.formatTime(inst.actualTime);
+      const startTime = inst.startTime ? new Date(inst.startTime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
+      const endTime = inst.stopTime ? new Date(inst.stopTime).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "";
+      timeInfo.createEl("div", {
+        text: `\u5B9F\u884C\u6642\u9593: ${duration}`,
+        cls: "time-duration"
+      });
+      if (startTime && endTime) {
+        timeInfo.createEl("div", {
+          text: `\u958B\u59CB: ${startTime} \u7D42\u4E86: ${endTime}`,
+          cls: "time-range"
+        });
+      }
+    }
+    const ratingSection = modalContent.createEl("div", { cls: "taskchute-rating-section" });
+    ratingSection.createEl("h3", { text: "\u4ECA\u56DE\u306E\u30BF\u30B9\u30AF\u306F\u3044\u304B\u304C\u3067\u3057\u305F\u304B\uFF1F" });
+    const focusGroup = ratingSection.createEl("div", { cls: "rating-group" });
+    focusGroup.createEl("label", { text: "\u96C6\u4E2D\u5EA6:", cls: "rating-label" });
+    const focusRating = focusGroup.createEl("div", {
+      cls: "star-rating",
+      attr: { "data-rating": this.convertToFiveScale((existingComment == null ? void 0 : existingComment.focus) || 0).toString() }
     });
-    const form = modalContent.createEl("form", { cls: "task-form" });
-    const commentGroup = form.createEl("div", { cls: "form-group" });
-    commentGroup.createEl("label", { text: "\u30B3\u30E1\u30F3\u30C8:", cls: "form-label" });
-    const commentInput = commentGroup.createEl("textarea", {
-      cls: "form-textarea",
-      placeholder: "\u30BF\u30B9\u30AF\u306E\u632F\u308A\u8FD4\u308A\u3084\u6C17\u3065\u304D\u3092\u8A18\u9332...",
+    for (let i = 1; i <= 5; i++) {
+      const star = focusRating.createEl("span", {
+        cls: `star ${i <= this.convertToFiveScale((existingComment == null ? void 0 : existingComment.focus) || 0) ? "taskchute-star-filled" : "taskchute-star-empty"}`,
+        text: "\u2B50"
+      });
+      star.addEventListener("click", () => {
+        this.setRating(focusRating, i);
+      });
+      star.addEventListener("mouseenter", () => {
+        this.highlightRating(focusRating, i);
+      });
+      star.addEventListener("mouseleave", () => {
+        this.resetRatingHighlight(focusRating);
+      });
+    }
+    const energyGroup = ratingSection.createEl("div", { cls: "rating-group" });
+    energyGroup.createEl("label", { text: "\u5143\u6C17\u5EA6:", cls: "rating-label" });
+    const energyRating = energyGroup.createEl("div", {
+      cls: "star-rating",
+      attr: { "data-rating": this.convertToFiveScale((existingComment == null ? void 0 : existingComment.energy) || 0).toString() }
+    });
+    for (let i = 1; i <= 5; i++) {
+      const star = energyRating.createEl("span", {
+        cls: `star ${i <= this.convertToFiveScale((existingComment == null ? void 0 : existingComment.energy) || 0) ? "taskchute-star-filled" : "taskchute-star-empty"}`,
+        text: "\u2B50"
+      });
+      star.addEventListener("click", () => {
+        this.setRating(energyRating, i);
+      });
+      star.addEventListener("mouseenter", () => {
+        this.highlightRating(energyRating, i);
+      });
+      star.addEventListener("mouseleave", () => {
+        this.resetRatingHighlight(energyRating);
+      });
+    }
+    const commentSection = modalContent.createEl("div", { cls: "taskchute-comment-section" });
+    commentSection.createEl("label", { text: "\u611F\u60F3\u30FB\u5B66\u3073\u30FB\u6B21\u56DE\u3078\u306E\u6539\u5584\u70B9:", cls: "comment-label" });
+    const commentInput = commentSection.createEl("textarea", {
+      cls: "taskchute-comment-textarea",
+      placeholder: "\u4ECA\u56DE\u306E\u30BF\u30B9\u30AF\u3067\u611F\u3058\u305F\u3053\u3068\u3001\u5B66\u3093\u3060\u3053\u3068\u3001\u6B21\u56DE\u3078\u306E\u6539\u5584\u70B9\u306A\u3069\u3092\u81EA\u7531\u306B\u304A\u66F8\u304D\u304F\u3060\u3055\u3044...",
       value: (existingComment == null ? void 0 : existingComment.comment) || ""
     });
-    const energyGroup = form.createEl("div", { cls: "form-group slider-group" });
-    energyGroup.createEl("label", { text: "\u96C6\u4E2D\u5EA6:", cls: "form-label" });
-    const energyValue = energyGroup.createEl("span", {
-      cls: "slider-value",
-      text: (existingComment == null ? void 0 : existingComment.energy) || "5"
-    });
-    const energySlider = energyGroup.createEl("input", {
-      type: "range",
-      cls: "form-slider",
-      min: "1",
-      max: "10",
-      value: (existingComment == null ? void 0 : existingComment.energy) || "5"
-    });
-    energySlider.addEventListener("input", () => {
-      energyValue.textContent = energySlider.value;
-    });
-    const focusGroup = form.createEl("div", { cls: "form-group slider-group" });
-    focusGroup.createEl("label", { text: "\u75B2\u52B4\u5EA6:", cls: "form-label" });
-    const focusValue = focusGroup.createEl("span", {
-      cls: "slider-value",
-      text: (existingComment == null ? void 0 : existingComment.focus) || "5"
-    });
-    const focusSlider = focusGroup.createEl("input", {
-      type: "range",
-      cls: "form-slider",
-      min: "1",
-      max: "10",
-      value: (existingComment == null ? void 0 : existingComment.focus) || "5"
-    });
-    focusSlider.addEventListener("input", () => {
-      focusValue.textContent = focusSlider.value;
-    });
-    const buttonGroup = form.createEl("div", { cls: "form-button-group" });
+    const buttonGroup = modalContent.createEl("div", { cls: "taskchute-comment-actions" });
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
-      cls: "form-button cancel",
+      cls: "taskchute-button-cancel",
       text: "\u30AD\u30E3\u30F3\u30BB\u30EB"
     });
     const saveButton = buttonGroup.createEl("button", {
-      type: "submit",
-      cls: "form-button create",
+      type: "button",
+      cls: "taskchute-button-save",
       text: "\u4FDD\u5B58"
     });
-    closeButton.addEventListener("click", () => {
+    const closeModal = () => {
       document.body.removeChild(modal);
+    };
+    const handleEsc = (e) => {
+      if (e.key === "Escape") {
+        closeModal();
+        document.removeEventListener("keydown", handleEsc);
+      }
+    };
+    document.addEventListener("keydown", handleEsc);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        closeModal();
+      }
     });
-    cancelButton.addEventListener("click", () => {
-      document.body.removeChild(modal);
-    });
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    cancelButton.addEventListener("click", closeModal);
+    saveButton.addEventListener("click", async () => {
+      const focusValue = parseInt(focusRating.getAttribute("data-rating") || "0");
+      const energyValue = parseInt(energyRating.getAttribute("data-rating") || "0");
       await this.saveTaskComment(inst, {
         comment: commentInput.value,
-        energy: parseInt(energySlider.value),
-        focus: parseInt(focusSlider.value)
+        energy: energyValue,
+        focus: focusValue,
+        focusLevel: focusValue,
+        // 新形式との互換性
+        energyLevel: energyValue,
+        // 新形式との互換性
+        executionComment: commentInput.value,
+        // 新形式との互換性
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      document.body.removeChild(modal);
+      closeModal();
       this.renderTaskList();
     });
     document.body.appendChild(modal);
     commentInput.focus();
+  }
+  // 星評価ヘルパー関数
+  setRating(ratingEl, value) {
+    ratingEl.setAttribute("data-rating", value.toString());
+    this.updateRatingDisplay(ratingEl, value);
+  }
+  highlightRating(ratingEl, value) {
+    this.updateRatingDisplay(ratingEl, value);
+  }
+  resetRatingHighlight(ratingEl) {
+    const currentRating = parseInt(ratingEl.getAttribute("data-rating") || "0");
+    this.updateRatingDisplay(ratingEl, currentRating);
+  }
+  updateRatingDisplay(ratingEl, value) {
+    const stars = ratingEl.querySelectorAll(".star");
+    stars.forEach((star, index) => {
+      if (index < value) {
+        star.classList.add("taskchute-star-filled");
+        star.classList.remove("taskchute-star-empty");
+      } else {
+        star.classList.add("taskchute-star-empty");
+        star.classList.remove("taskchute-star-filled");
+      }
+    });
+  }
+  // 10段階を5段階に変換
+  convertToFiveScale(value) {
+    if (value === 0) return 0;
+    if (value > 5) return Math.ceil(value / 2);
+    return value;
   }
   async hasCommentData(inst) {
     try {

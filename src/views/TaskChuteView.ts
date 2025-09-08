@@ -996,114 +996,188 @@ export class TaskChuteView extends ItemView {
   }
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
-    // 既存のコメントデータを取得
     const existingComment = await this.getExistingTaskComment(inst);
-    
     const modal = document.createElement("div");
-    modal.className = "task-modal-overlay";
+    modal.className = "taskchute-comment-modal";
     const modalContent = modal.createEl("div", {
-      cls: "task-modal-content completion-modal",
+      cls: "taskchute-comment-content"
     });
     
     // ヘッダー
-    const header = modalContent.createEl("div", { cls: "modal-header" });
-    const isCompleted = inst.state === "done";
+    const header = modalContent.createEl("div", { cls: "taskchute-modal-header" });
     const headerText = existingComment
       ? `✏️ 「${inst.task.title}」のコメントを編集`
       : `🎉 お疲れ様でした！「${inst.task.title}」が完了しました`;
+    header.createEl("h2", { text: headerText });
     
-    header.createEl("h3", { text: headerText });
+    // 実行時間表示（完了タスクのみ）
+    if (inst.state === "done" && inst.actualTime) {
+      const timeInfo = modalContent.createEl("div", { cls: "taskchute-time-info" });
+      const duration = this.formatTime(inst.actualTime);
+      const startTime = inst.startTime ? new Date(inst.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
+      const endTime = inst.stopTime ? new Date(inst.stopTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
+      
+      timeInfo.createEl("div", { 
+        text: `実行時間: ${duration}`,
+        cls: "time-duration"
+      });
+      if (startTime && endTime) {
+        timeInfo.createEl("div", { 
+          text: `開始: ${startTime} 終了: ${endTime}`,
+          cls: "time-range"
+        });
+      }
+    }
     
-    // 閉じるボタン
-    const closeButton = header.createEl("button", {
-      cls: "modal-close-button",
-      text: "×",
+    // 評価セクション
+    const ratingSection = modalContent.createEl("div", { cls: "taskchute-rating-section" });
+    ratingSection.createEl("h3", { text: "今回のタスクはいかがでしたか？" });
+    
+    // 集中度
+    const focusGroup = ratingSection.createEl("div", { cls: "rating-group" });
+    focusGroup.createEl("label", { text: "集中度:", cls: "rating-label" });
+    const focusRating = focusGroup.createEl("div", { 
+      cls: "star-rating", 
+      attr: { "data-rating": this.convertToFiveScale(existingComment?.focus || 0).toString() } 
+    });
+    for (let i = 1; i <= 5; i++) {
+      const star = focusRating.createEl("span", { 
+        cls: `star ${i <= this.convertToFiveScale(existingComment?.focus || 0) ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
+        text: "⭐"
+      });
+      star.addEventListener("click", () => {
+        this.setRating(focusRating, i);
+      });
+      star.addEventListener("mouseenter", () => {
+        this.highlightRating(focusRating, i);
+      });
+      star.addEventListener("mouseleave", () => {
+        this.resetRatingHighlight(focusRating);
+      });
+    }
+    
+    // 元気度  
+    const energyGroup = ratingSection.createEl("div", { cls: "rating-group" });
+    energyGroup.createEl("label", { text: "元気度:", cls: "rating-label" });
+    const energyRating = energyGroup.createEl("div", { 
+      cls: "star-rating", 
+      attr: { "data-rating": this.convertToFiveScale(existingComment?.energy || 0).toString() } 
+    });
+    for (let i = 1; i <= 5; i++) {
+      const star = energyRating.createEl("span", { 
+        cls: `star ${i <= this.convertToFiveScale(existingComment?.energy || 0) ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
+        text: "⭐"
+      });
+      star.addEventListener("click", () => {
+        this.setRating(energyRating, i);
+      });
+      star.addEventListener("mouseenter", () => {
+        this.highlightRating(energyRating, i);
+      });
+      star.addEventListener("mouseleave", () => {
+        this.resetRatingHighlight(energyRating);
+      });
+    }
+    
+    // コメント入力エリア
+    const commentSection = modalContent.createEl("div", { cls: "taskchute-comment-section" });
+    commentSection.createEl("label", { text: "感想・学び・次回への改善点:", cls: "comment-label" });
+    const commentInput = commentSection.createEl("textarea", {
+      cls: "taskchute-comment-textarea",
+      placeholder: "今回のタスクで感じたこと、学んだこと、次回への改善点などを自由にお書きください...",
+      value: existingComment?.comment || ""
     });
     
-    // フォーム
-    const form = modalContent.createEl("form", { cls: "task-form" });
-    
-    // コメント入力
-    const commentGroup = form.createEl("div", { cls: "form-group" });
-    commentGroup.createEl("label", { text: "コメント:", cls: "form-label" });
-    const commentInput = commentGroup.createEl("textarea", {
-      cls: "form-textarea",
-      placeholder: "タスクの振り返りや気づきを記録...",
-      value: existingComment?.comment || "",
-    });
-    
-    // エネルギーレベル
-    const energyGroup = form.createEl("div", { cls: "form-group slider-group" });
-    energyGroup.createEl("label", { text: "集中度:", cls: "form-label" });
-    const energyValue = energyGroup.createEl("span", {
-      cls: "slider-value",
-      text: existingComment?.energy || "5",
-    });
-    const energySlider = energyGroup.createEl("input", {
-      type: "range",
-      cls: "form-slider",
-      min: "1",
-      max: "10",
-      value: existingComment?.energy || "5",
-    });
-    
-    energySlider.addEventListener("input", () => {
-      energyValue.textContent = energySlider.value;
-    });
-    
-    // 疲労度
-    const focusGroup = form.createEl("div", { cls: "form-group slider-group" });
-    focusGroup.createEl("label", { text: "疲労度:", cls: "form-label" });
-    const focusValue = focusGroup.createEl("span", {
-      cls: "slider-value",
-      text: existingComment?.focus || "5",
-    });
-    const focusSlider = focusGroup.createEl("input", {
-      type: "range",
-      cls: "form-slider",
-      min: "1",
-      max: "10",
-      value: existingComment?.focus || "5",
-    });
-    
-    focusSlider.addEventListener("input", () => {
-      focusValue.textContent = focusSlider.value;
-    });
-    
-    // ボタンエリア
-    const buttonGroup = form.createEl("div", { cls: "form-button-group" });
+    // アクションボタン
+    const buttonGroup = modalContent.createEl("div", { cls: "taskchute-comment-actions" });
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
-      cls: "form-button cancel",
-      text: "キャンセル",
+      cls: "taskchute-button-cancel",
+      text: "キャンセル"
     });
     const saveButton = buttonGroup.createEl("button", {
-      type: "submit",
-      cls: "form-button create",
-      text: "保存",
+      type: "button",
+      cls: "taskchute-button-save",
+      text: "保存"
     });
     
-    // イベントリスナー
-    closeButton.addEventListener("click", () => {
+    // イベントハンドラ
+    const closeModal = () => {
       document.body.removeChild(modal);
-    });
-    cancelButton.addEventListener("click", () => {
-      document.body.removeChild(modal);
+    };
+    
+    // ESCキーでモーダルを閉じる
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeModal();
+        document.removeEventListener("keydown", handleEsc);
+      }
+    };
+    document.addEventListener("keydown", handleEsc);
+    
+    // モーダル外クリックで閉じる
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        closeModal();
+      }
     });
     
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    cancelButton.addEventListener("click", closeModal);
+    
+    saveButton.addEventListener("click", async () => {
+      const focusValue = parseInt(focusRating.getAttribute("data-rating") || "0");
+      const energyValue = parseInt(energyRating.getAttribute("data-rating") || "0");
+      
       await this.saveTaskComment(inst, {
         comment: (commentInput as HTMLTextAreaElement).value,
-        energy: parseInt(energySlider.value),
-        focus: parseInt(focusSlider.value),
-      });
-      document.body.removeChild(modal);
+        energy: energyValue,
+        focus: focusValue,
+        focusLevel: focusValue,  // 新形式との互換性
+        energyLevel: energyValue, // 新形式との互換性
+        executionComment: (commentInput as HTMLTextAreaElement).value, // 新形式との互換性
+        timestamp: new Date().toISOString()
+      } as any);
+      closeModal();
       this.renderTaskList();
     });
     
     document.body.appendChild(modal);
     commentInput.focus();
+  }
+  
+  // 星評価ヘルパー関数
+  private setRating(ratingEl: HTMLElement, value: number): void {
+    ratingEl.setAttribute("data-rating", value.toString());
+    this.updateRatingDisplay(ratingEl, value);
+  }
+  
+  private highlightRating(ratingEl: HTMLElement, value: number): void {
+    this.updateRatingDisplay(ratingEl, value);
+  }
+  
+  private resetRatingHighlight(ratingEl: HTMLElement): void {
+    const currentRating = parseInt(ratingEl.getAttribute("data-rating") || "0");
+    this.updateRatingDisplay(ratingEl, currentRating);
+  }
+  
+  private updateRatingDisplay(ratingEl: HTMLElement, value: number): void {
+    const stars = ratingEl.querySelectorAll(".star");
+    stars.forEach((star, index) => {
+      if (index < value) {
+        star.classList.add("taskchute-star-filled");
+        star.classList.remove("taskchute-star-empty");
+      } else {
+        star.classList.add("taskchute-star-empty");
+        star.classList.remove("taskchute-star-filled");
+      }
+    });
+  }
+  
+  // 10段階を5段階に変換
+  private convertToFiveScale(value: number): number {
+    if (value === 0) return 0;
+    if (value > 5) return Math.ceil(value / 2);
+    return value;
   }
 
   private async hasCommentData(inst: TaskInstance): Promise<boolean> {
