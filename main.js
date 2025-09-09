@@ -4930,7 +4930,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const dateStr = this.getCurrentDateString();
       const frontmatter = [
         "---",
-        `targetDate: "${dateStr}"`,
+        `target_date: "${dateStr}"`,
         "---",
         "",
         `#task`,

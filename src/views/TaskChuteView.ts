@@ -3219,10 +3219,10 @@ export class TaskChuteView extends ItemView {
       // 現在表示中の日付を取得
       const dateStr = this.getCurrentDateString();
       
-      // フロントマターを作成（非ルーチンタスクはtargetDateのみ）
+      // フロントマターを作成（非ルーチンタスクはtarget_dateのみ）
       const frontmatter = [
         "---",
-        `targetDate: "${dateStr}"`,
+        `target_date: "${dateStr}"`,
         "---",
         "",
         `#task`,
