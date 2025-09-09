@@ -66,7 +66,7 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       
       if (isRoutine) {
         // Process routine task
-        if (shouldShowRoutineTask.call(this, metadata, this.currentDate)) {
+        if (shouldShowRoutineTask.call(this, metadata, this.currentDate, dateString)) {
           await createRoutineTask.call(this, file, content, metadata, dateString);
         }
       } else {
@@ -332,8 +332,18 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
   }
 }
 
-function shouldShowRoutineTask(this: any, metadata: any, date: Date): boolean {
+function shouldShowRoutineTask(this: any, metadata: any, date: Date, dateString: string): boolean {
   if (!metadata) return false;
+  
+  // Check if this routine task has been moved to a different date
+  // If target_date exists and differs from routine_start, it's a moved routine task
+  const hasMovedTargetDate = metadata.target_date && 
+    metadata.target_date !== metadata.routine_start;
+  
+  if (hasMovedTargetDate) {
+    // Show only on the target date
+    return dateString === metadata.target_date;
+  }
   
   const routineType = metadata.routine_type || 'daily';
   const dayOfWeek = date.getDay(); // 0 = Sunday

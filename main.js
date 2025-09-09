@@ -2246,7 +2246,7 @@ async function loadTasksRefactored() {
       }
       const isRoutine = (metadata == null ? void 0 : metadata.isRoutine) === true || content.includes("#routine");
       if (isRoutine) {
-        if (shouldShowRoutineTask.call(this, metadata, this.currentDate)) {
+        if (shouldShowRoutineTask.call(this, metadata, this.currentDate, dateString)) {
           await createRoutineTask.call(this, file, content, metadata, dateString);
         }
       } else {
@@ -2462,8 +2462,12 @@ async function createRoutineTask(file, content, metadata, dateString) {
     this.taskInstances.push(instance);
   }
 }
-function shouldShowRoutineTask(metadata, date) {
+function shouldShowRoutineTask(metadata, date, dateString) {
   if (!metadata) return false;
+  const hasMovedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start;
+  if (hasMovedTargetDate) {
+    return dateString === metadata.target_date;
+  }
   const routineType = metadata.routine_type || "daily";
   const dayOfWeek = date.getDay();
   switch (routineType) {
