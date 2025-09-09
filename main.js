@@ -2709,11 +2709,13 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
+      await this.restoreRunningTaskState();
     });
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
+      await this.restoreRunningTaskState();
     });
     this.setupCalendarButton(calendarBtn, dateLabel);
     topBarContainer.createEl("div", {
@@ -2837,6 +2839,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
         await this.loadTasks();
+        await this.restoreRunningTaskState();
         input.remove();
       });
       input.addEventListener("blur", () => input.remove());
@@ -3014,9 +3017,6 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     const viewDate = new Date(this.currentDate);
     viewDate.setHours(0, 0, 0, 0);
     const isFutureTask = viewDate > today;
-    if (this.currentInstance === inst && inst.state === "running") {
-      taskItem.classList.add("selected");
-    }
     if (inst.state === "done") {
       taskItem.classList.add("completed");
     }
@@ -3106,12 +3106,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       cls: "task-name",
       text: inst.task.name
     });
-    if (inst.state === "done") {
-      taskName.style.opacity = "0.6";
-      taskName.style.color = "var(--text-muted)";
-    } else {
-      taskName.style.color = "var(--text-accent)";
-    }
+    taskName.style.color = "var(--text-accent)";
     taskName.addEventListener("click", async (e) => {
       e.stopPropagation();
       try {

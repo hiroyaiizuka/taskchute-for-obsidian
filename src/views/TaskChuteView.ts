@@ -207,12 +207,14 @@ export class TaskChuteView extends ItemView {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
+      await this.restoreRunningTaskState();
     });
     
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
+      await this.restoreRunningTaskState();
     });
     
     // Calendar button functionality
@@ -379,6 +381,7 @@ export class TaskChuteView extends ItemView {
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
         await this.loadTasks();
+        await this.restoreRunningTaskState();
         input.remove();
       });
       
@@ -622,10 +625,10 @@ export class TaskChuteView extends ItemView {
     viewDate.setHours(0, 0, 0, 0);
     const isFutureTask = viewDate > today;
 
-    // Add selection state
-    if (this.currentInstance === inst && inst.state === "running") {
-      taskItem.classList.add("selected");
-    }
+    // Add selection state (disabled to remove background color for running tasks)
+    // if (this.currentInstance === inst && inst.state === "running") {
+    //   taskItem.classList.add("selected");
+    // }
 
     // Add completion state
     if (inst.state === "done") {
@@ -758,14 +761,8 @@ export class TaskChuteView extends ItemView {
       text: inst.task.name,
     });
 
-    // Apply different style for completed tasks
-    if (inst.state === "done") {
-      taskName.style.opacity = "0.6";
-      taskName.style.color = "var(--text-muted)";
-    } else {
-      // Apply link-like style for non-completed tasks
-      taskName.style.color = "var(--text-accent)";
-    }
+    // Apply same style for all tasks (completed and non-completed)
+    taskName.style.color = "var(--text-accent)";
 
     // Click handler to open task file
     taskName.addEventListener("click", async (e) => {
