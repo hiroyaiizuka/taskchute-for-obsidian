@@ -4006,7 +4006,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         }
       }
       if (restored) {
-        this.manageTimers();
+        this.startGlobalTimer();
         this.renderTaskList();
         console.log("[TaskChute DEBUG] Running task restoration completed");
       }
@@ -4054,7 +4054,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       return;
     }
     runningInstances.forEach((inst) => {
-      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer`);
+      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer-display`);
       if (timerEl) {
         this.updateTimerDisplay(timerEl, inst);
       }
@@ -4064,9 +4064,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     if (!inst.startTime) return;
     const now = /* @__PURE__ */ new Date();
     const elapsed = now.getTime() - inst.startTime.getTime();
-    const minutes = Math.floor(elapsed / (1e3 * 60));
+    const hours = Math.floor(elapsed / (1e3 * 60 * 60));
+    const minutes = Math.floor(elapsed % (1e3 * 60 * 60) / (1e3 * 60));
     const seconds = Math.floor(elapsed % (1e3 * 60) / 1e3);
-    timerEl.textContent = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+    timerEl.textContent = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
   stopGlobalTimer() {
     if (this.globalTimerInterval) {

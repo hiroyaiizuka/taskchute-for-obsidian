@@ -1957,7 +1957,7 @@ export class TaskChuteView extends ItemView {
       }
 
       if (restored) {
-        this.manageTimers(); // タイマー管理を再開
+        this.startGlobalTimer(); // タイマー管理を再開
         this.renderTaskList(); // UIを更新
         console.log("[TaskChute DEBUG] Running task restoration completed");
       }
@@ -2015,7 +2015,7 @@ export class TaskChuteView extends ItemView {
     }
 
     runningInstances.forEach(inst => {
-      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer`) as HTMLElement;
+      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer-display`) as HTMLElement;
       if (timerEl) {
         this.updateTimerDisplay(timerEl, inst);
       }
@@ -2027,10 +2027,12 @@ export class TaskChuteView extends ItemView {
 
     const now = new Date();
     const elapsed = now.getTime() - inst.startTime.getTime();
-    const minutes = Math.floor(elapsed / (1000 * 60));
+    const hours = Math.floor(elapsed / (1000 * 60 * 60));
+    const minutes = Math.floor((elapsed % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((elapsed % (1000 * 60)) / 1000);
     
-    timerEl.textContent = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+    // HH:MM:SS形式で表示（main.jsと同じ形式）
+    timerEl.textContent = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
 
   private stopGlobalTimer(): void {
