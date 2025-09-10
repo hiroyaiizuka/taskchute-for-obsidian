@@ -14575,7 +14575,7 @@ function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
     }
   })
 
-  // 各時間帯グループ内でソート（超シンプル）
+  // 各時間帯グループ内でソート（order優先、未設定時は開始時刻で安定化）
   Object.keys(timeSlotGroups).forEach((slotKey) => {
     const instances = timeSlotGroups[slotKey]
     if (instances.length > 1) {
@@ -14584,10 +14584,30 @@ function sortTaskInstancesByOrder(taskInstances, timeSlotKeys) {
         if (a.state === 'done' && b.state !== 'done') return -1
         if (a.state !== 'done' && b.state === 'done') return 1
         
-        // 2. 実行中とidleタスクはorder番号で決定（状態優先を削除）
-        const orderA = a.order ?? 999999
-        const orderB = b.order ?? 999999
-        return orderA - orderB
+        // 2. 実行中とidleタスクはorder番号で決定。
+        //    ただし、orderが未設定（null/undefined）または同一の場合は、
+        //    scheduledTime(HH:MM)の昇順で安定化する。
+        const hasOrderA = a.order !== null && a.order !== undefined
+        const hasOrderB = b.order !== null && b.order !== undefined
+
+        if (hasOrderA && hasOrderB) {
+          if (a.order !== b.order) return a.order - b.order
+          // orderが同一なら開始時刻で安定化
+        } else if (hasOrderA && !hasOrderB) {
+          return -1 // orderがある方を優先
+        } else if (!hasOrderA && hasOrderB) {
+          return 1 // orderがある方を優先
+        }
+
+        // Fallback: scheduledTime(HH:MM)で比較
+        const timeA = a?.task?.scheduledTime
+        const timeB = b?.task?.scheduledTime
+        if (!timeA && !timeB) return 0
+        if (!timeA) return 1
+        if (!timeB) return -1
+        const [hourA, minuteA] = timeA.split(":").map((v) => parseInt(v, 10))
+        const [hourB, minuteB] = timeB.split(":").map((v) => parseInt(v, 10))
+        return hourA * 60 + minuteA - (hourB * 60 + minuteB)
       })
 
       timeSlotGroups[slotKey] = instances
