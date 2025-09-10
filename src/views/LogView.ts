@@ -1,302 +1,319 @@
-import { TFile, Notice } from 'obsidian';
-import { HeatmapData } from '../types';
+import { TFile, Notice } from 'obsidian'
+import { HeatmapDayStats, HeatmapYearData } from '../types'
+import { HeatmapService } from '../services/HeatmapService'
 
 interface PluginWithPath {
-  app: any;
+  app: any
   pathManager: {
-    getLogDataPath(): string;
-    getLogYearPath(year: number): string;
-    ensureYearFolder(year: number): Promise<string>;
-  };
+    getLogDataPath(): string
+    getLogYearPath(year: number): string
+    ensureYearFolder(year: number | string): Promise<string>
+  }
 }
 
 export class LogView {
-  private plugin: PluginWithPath;
-  private container: HTMLElement;
-  private currentYear: number;
-  private heatmapData: HeatmapData | null = null;
-  private dataCache: { [year: number]: HeatmapData } = {};
+  private plugin: PluginWithPath
+  private container: HTMLElement
+  private currentYear: number
+  private heatmapData: HeatmapYearData | null = null
+  private dataCache: { [year: number]: HeatmapYearData } = {}
+  private heatmapService: HeatmapService
 
   constructor(plugin: PluginWithPath, container: HTMLElement) {
-    this.plugin = plugin;
-    this.container = container;
-    this.currentYear = new Date().getFullYear();
+    this.plugin = plugin
+    this.container = container
+    this.currentYear = new Date().getFullYear()
+    this.heatmapService = new HeatmapService(plugin as any)
   }
 
   async render(): Promise<void> {
-    // Clear container
-    this.container.empty();
+    this.container.empty()
 
-    // Create header
-    this.createHeader();
+    // Header
+    this.createHeader()
 
-    // Show loading
+    // Loading
     const loadingContainer = this.container.createEl('div', {
       cls: 'heatmap-loading',
       text: 'データを読み込み中...'
-    });
+    })
 
     try {
       // Force regeneration on initial render for current year
       if (this.currentYear === new Date().getFullYear()) {
-        // Clear cache
-        delete this.dataCache[this.currentYear];
-        
-        // Delete existing yearly file to force regeneration
+        delete this.dataCache[this.currentYear]
         try {
-          const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear);
-          const yearFile = this.plugin.app.vault.getAbstractFileByPath(
-            `${yearPath}/yearly-heatmap.json`
-          );
-          if (yearFile instanceof TFile) {
-            await this.plugin.app.vault.delete(yearFile);
+          const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+          const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`)
+          if (heatmapFile && heatmapFile instanceof TFile) {
+            await this.plugin.app.vault.delete(heatmapFile)
           }
-        } catch (error) {
-          // File might not exist, ignore
-        }
+        } catch (_) {}
       }
 
-      // Load or generate data
-      this.heatmapData = await this.loadYearlyData(this.currentYear);
-      
-      // Remove loading
-      loadingContainer.remove();
-      
-      // Render heatmap
-      this.renderHeatmap();
+      // Load data
+      this.heatmapData = await this.loadYearlyData(this.currentYear)
+      loadingContainer.remove()
+      this.renderHeatmap()
     } catch (error) {
-      loadingContainer.textContent = 'データの読み込みに失敗しました';
-      console.error('Failed to load heatmap data:', error);
+      loadingContainer.remove()
+      new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
+      this.renderEmptyHeatmap(this.currentYear)
     }
   }
 
   private createHeader(): void {
-    const header = this.container.createEl('div', { cls: 'heatmap-header' });
-    
-    // Year navigation
-    const yearNav = header.createEl('div', { cls: 'year-navigation' });
-    
-    const prevButton = yearNav.createEl('button', {
-      text: '◀',
-      cls: 'year-nav-button'
-    });
-    prevButton.onclick = () => this.changeYear(this.currentYear - 1);
-    
-    const yearLabel = yearNav.createEl('span', {
-      text: `${this.currentYear}年`,
-      cls: 'year-label'
-    });
-    
-    const nextButton = yearNav.createEl('button', {
-      text: '▶',
-      cls: 'year-nav-button'
-    });
-    nextButton.onclick = () => this.changeYear(this.currentYear + 1);
-    
-    // Stats
-    const stats = header.createEl('div', { cls: 'heatmap-stats' });
-    if (this.heatmapData) {
-      const totalDays = Object.keys(this.heatmapData).length;
-      const totalMinutes = Object.values(this.heatmapData).reduce(
-        (sum, day) => sum + (day.totalMinutes || 0), 0
-      );
-      const totalTasks = Object.values(this.heatmapData).reduce(
-        (sum, day) => sum + (day.totalTasks || 0), 0
-      );
-      
-      stats.createEl('div', {
-        text: `${totalDays}日 / ${totalTasks}タスク / ${Math.round(totalMinutes / 60)}時間`,
-        cls: 'stats-text'
-      });
-    }
-  }
+    const header = this.container.createEl('div', { cls: 'taskchute-log-header' })
+    header.createEl('h2', { text: 'タスク実行ログ', cls: 'log-title' })
 
-  private async loadYearlyData(year: number): Promise<HeatmapData> {
-    // Check cache first
-    if (this.dataCache[year]) {
-      return this.dataCache[year];
+    const controls = header.createEl('div', { cls: 'log-controls' })
+    const yearSelector = controls.createEl('select', { cls: 'year-selector' }) as HTMLSelectElement
+    const current = new Date().getFullYear()
+    for (let y = current + 1; y >= 2020; y--) {
+      const opt = yearSelector.createEl('option', { value: String(y), text: `${y}年` })
+      if (y === this.currentYear) opt.selected = true
     }
 
-    // Ensure year folder exists
-    await this.plugin.pathManager.ensureYearFolder(year);
-    
-    const yearPath = this.plugin.pathManager.getLogYearPath(year);
-    const heatmapPath = `${yearPath}/yearly-heatmap.json`;
-    
-    try {
-      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath);
-      if (file instanceof TFile) {
-        const content = await this.plugin.app.vault.read(file);
-        const data = JSON.parse(content);
-        this.dataCache[year] = data;
-        return data;
-      }
-    } catch (error) {
-      console.log('Generating new heatmap data for year:', year);
-    }
+    const refreshButton = controls.createEl('button', {
+      cls: 'refresh-button',
+      text: '🔄 データ更新',
+      attr: { title: 'キャッシュをクリアして再計算' }
+    })
 
-    // Generate new data
-    const data = await this.generateYearlyHeatmap(year);
-    this.dataCache[year] = data;
-    
-    // Save to file
-    try {
-      await this.plugin.app.vault.create(
-        heatmapPath,
-        JSON.stringify(data, null, 2)
-      );
-    } catch (error) {
-      if (error.message?.includes('File already exists')) {
-        const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath);
-        if (file instanceof TFile) {
-          await this.plugin.app.vault.modify(file, JSON.stringify(data, null, 2));
-        }
-      }
-    }
-    
-    return data;
-  }
-
-  private async generateYearlyHeatmap(year: number): Promise<HeatmapData> {
-    const heatmapData: HeatmapData = {};
-    const logPath = this.plugin.pathManager.getLogDataPath();
-    
-    // Process each month
-    for (let month = 1; month <= 12; month++) {
-      const monthStr = String(month).padStart(2, '0');
-      const monthFile = `${logPath}/${year}-${monthStr}-tasks.json`;
-      
+    refreshButton.addEventListener('click', async () => {
+      delete this.dataCache[this.currentYear]
       try {
-        const file = this.plugin.app.vault.getAbstractFileByPath(monthFile);
-        if (file instanceof TFile) {
-          const content = await this.plugin.app.vault.read(file);
-          const monthData = JSON.parse(content);
-          
-          // Process each day
-          for (const [date, tasks] of Object.entries(monthData)) {
-            let totalMinutes = 0;
-            let totalTasks = 0;
-            
-            for (const task of Object.values(tasks as any)) {
-              if (task.actualMinutes) {
-                totalMinutes += task.actualMinutes;
-              }
-              if (task.status === 'done' || task.status === 'completed') {
-                totalTasks++;
-              }
-            }
-            
-            heatmapData[date] = {
-              totalMinutes,
-              totalTasks,
-              procrastination: 0 // Calculate based on scheduled vs actual
-            };
-          }
+        const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear)
+        const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`)
+        if (heatmapFile && heatmapFile instanceof TFile) {
+          await this.plugin.app.vault.delete(heatmapFile)
         }
-      } catch (error) {
-        // Month file doesn't exist, skip
+      } catch (_) {}
+
+      const container = this.container.querySelector('.heatmap-container')
+      if (container) container.remove()
+      const loading = this.container.createEl('div', { cls: 'heatmap-loading', text: 'データを再計算中...' })
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear)
+        loading.remove()
+        this.renderHeatmap()
+        new Notice(`${this.currentYear}年のデータを更新しました`)
+      } catch (e) {
+        loading.remove()
+        new Notice(`${this.currentYear}年のデータ更新に失敗しました`)
+        this.renderEmptyHeatmap(this.currentYear)
       }
-    }
-    
-    return heatmapData;
+    })
+
+    yearSelector.addEventListener('change', async (e: any) => {
+      this.currentYear = parseInt(e.target.value, 10)
+      const container = this.container.querySelector('.heatmap-container')
+      if (container) container.remove()
+      const loading = this.container.createEl('div', { cls: 'heatmap-loading', text: 'データを読み込み中...' })
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear)
+        loading.remove()
+        this.renderHeatmap()
+      } catch (err) {
+        loading.remove()
+        new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`)
+        this.renderEmptyHeatmap(this.currentYear)
+      }
+    })
+  }
+
+  private async loadYearlyData(year: number): Promise<HeatmapYearData> {
+    if (this.dataCache[year]) return this.dataCache[year]
+    await this.plugin.pathManager.ensureYearFolder(year)
+    const data = await this.heatmapService.loadYearlyData(year)
+    this.dataCache[year] = data
+    return data
   }
 
   private renderHeatmap(): void {
-    if (!this.heatmapData) return;
-    
-    const heatmapContainer = this.container.createEl('div', {
-      cls: 'heatmap-container'
-    });
-    
-    // Create month labels
-    const monthsContainer = heatmapContainer.createEl('div', {
-      cls: 'heatmap-months'
-    });
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    months.forEach(month => {
-      monthsContainer.createEl('div', {
-        text: month,
-        cls: 'month-label'
-      });
-    });
-    
-    // Create day grid
-    const gridContainer = heatmapContainer.createEl('div', {
-      cls: 'heatmap-grid'
-    });
-    
-    // Generate all days of the year
-    const startDate = new Date(this.currentYear, 0, 1);
-    const endDate = new Date(this.currentYear, 11, 31);
-    
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const dateStr = this.formatDate(d);
-      const dayData = this.heatmapData[dateStr];
-      
-      const dayEl = gridContainer.createEl('div', {
-        cls: 'heatmap-day',
-        attr: {
-          'data-date': dateStr,
-          'data-minutes': dayData?.totalMinutes || 0,
-          'data-tasks': dayData?.totalTasks || 0
-        }
-      });
-      
-      // Set intensity based on activity
-      if (dayData) {
-        const intensity = this.calculateIntensity(dayData.totalMinutes);
-        dayEl.addClass(`intensity-${intensity}`);
-        
-        // Special animation for zero procrastination days
-        if (dayData.procrastination === 0 && dayData.totalTasks > 0) {
-          dayEl.addClass('zero-procrastination');
+    if (!this.heatmapData) return
+    const existed = this.container.querySelector('.heatmap-container')
+    if (existed) existed.remove()
+    const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' })
+    const grid = this.createHeatmapGrid(this.heatmapData.year)
+    heatmapContainer.appendChild(grid)
+    this.applyDataToGrid(this.heatmapData)
+  }
+
+  private renderEmptyHeatmap(year: number): void {
+    const existed = this.container.querySelector('.heatmap-container')
+    if (existed) existed.remove()
+    const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' })
+    heatmapContainer.createEl('div', { cls: 'heatmap-error', text: `${year}年のデータは利用できません` })
+    const grid = this.createHeatmapGrid(year)
+    heatmapContainer.appendChild(grid)
+    const cells = grid.querySelectorAll('.heatmap-cell')
+    cells.forEach((cell) => {
+      ;(cell as HTMLElement).dataset.level = '0'
+      ;(cell as HTMLElement).dataset.tooltip = 'データなし'
+    })
+  }
+
+  private applyDataToGrid(data: HeatmapYearData): void {
+    if (!data.days) return
+    const entries = Object.entries(data.days)
+    const batchSize = 50
+    let currentIndex = 0
+    const processBatch = () => {
+      const endIndex = Math.min(currentIndex + batchSize, entries.length)
+      for (let i = currentIndex; i < endIndex; i++) {
+        const [dateString, stats] = entries[i]
+        const cell = this.container.querySelector(`[data-date="${dateString}"]`) as HTMLElement | null
+        if (cell) {
+          const level = this.calculateLevel(stats as HeatmapDayStats)
+          cell.dataset.level = String(level)
+          cell.dataset.tooltip = this.createTooltipText(dateString, stats as HeatmapDayStats)
         }
       }
-      
-      // Click handler
-      dayEl.onclick = () => {
-        this.navigateToDate(dateStr);
-      };
-      
-      // Tooltip
-      dayEl.title = `${dateStr}\n${dayData?.totalTasks || 0}タスク\n${dayData?.totalMinutes || 0}分`;
+      currentIndex = endIndex
+      if (currentIndex < entries.length) requestAnimationFrame(processBatch)
+    }
+    requestAnimationFrame(processBatch)
+  }
+
+  private calculateLevel(stats: HeatmapDayStats): number {
+    if (!stats || stats.totalTasks === 0) return 0
+    if (stats.procrastinatedTasks === 0) return 4
+    const rate = stats.completionRate
+    if (rate >= 0.8) return 3
+    if (rate >= 0.5) return 2
+    if (rate >= 0.2) return 1
+    return 1
+  }
+
+  private createTooltipText(dateString: string, stats: HeatmapDayStats): string {
+    const date = new Date(dateString + 'T00:00:00')
+    const dateText = date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+    if (!stats || stats.totalTasks === 0) return `${dateText}\nタスクなし`
+    return `${dateText}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${Math.round(stats.completionRate * 100)}%`
+  }
+
+  private addCellEventListeners(cell: HTMLElement, dateString: string): void {
+    cell.addEventListener('mouseenter', () => this.showTooltip(cell))
+    cell.addEventListener('mouseleave', () => this.hideTooltip())
+    cell.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      await this.navigateToDate(dateString)
+    })
+  }
+
+  private showTooltip(cell: HTMLElement): void {
+    this.hideTooltip()
+    const tooltipText = (cell as HTMLElement).dataset.tooltip
+    if (!tooltipText) return
+    const tooltip = document.createElement('div')
+    tooltip.className = 'heatmap-tooltip'
+    tooltip.textContent = tooltipText
+    const rect = cell.getBoundingClientRect()
+    const containerRect = this.container.getBoundingClientRect()
+    tooltip.style.position = 'absolute'
+    tooltip.style.left = `${rect.left - containerRect.left}px`
+    tooltip.style.top = `${rect.bottom - containerRect.top + 5}px`
+    tooltip.style.zIndex = '1000'
+    this.container.appendChild(tooltip)
+    ;(this as any).currentTooltip = tooltip
+  }
+
+  private hideTooltip(): void {
+    const current = (this as any).currentTooltip as HTMLElement | undefined
+    if (current) {
+      current.remove()
+      ;(this as any).currentTooltip = null
     }
   }
 
-  private calculateIntensity(minutes: number): number {
-    if (minutes === 0) return 0;
-    if (minutes < 60) return 1;
-    if (minutes < 180) return 2;
-    if (minutes < 360) return 3;
-    return 4;
+  private async navigateToDate(dateString: string): Promise<void> {
+    try {
+      const [year, month, day] = dateString.split('-').map(Number)
+      const leaves = this.plugin.app.workspace.getLeavesOfType('taskchute-view')
+      let leaf: any
+      if (leaves.length === 0) {
+        leaf = this.plugin.app.workspace.getRightLeaf(false)
+        await leaf.setViewState({ type: 'taskchute-view', active: true })
+        await new Promise((r) => setTimeout(r, 300))
+        const newLeaves = this.plugin.app.workspace.getLeavesOfType('taskchute-view')
+        if (newLeaves.length > 0) leaf = newLeaves[0]
+      } else {
+        leaf = leaves[0]
+      }
+      const view = leaf.view
+      if (!view || typeof view.loadTasks !== 'function') return
+      view.currentDate = new Date(year, month - 1, day)
+      if (view.updateDateLabel && view.containerEl) {
+        const dateLabel = view.containerEl.querySelector('.date-nav-label')
+        if (dateLabel) view.updateDateLabel(dateLabel)
+      }
+      await view.loadTasks()
+      this.plugin.app.workspace.setActiveLeaf(leaf)
+      const modal = this.container.closest('.taskchute-log-modal-overlay')
+      if (modal) (modal as HTMLElement).remove()
+    } catch (_) {}
   }
 
-  private formatDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  private createHeatmapGrid(year: number): HTMLElement {
+    const gridContainer = document.createElement('div')
+    gridContainer.className = 'heatmap-grid-container'
+
+    // Month labels & weekday labels
+    const monthLabels = gridContainer.createEl('div', { cls: 'heatmap-months' })
+    const weekdayContainer = gridContainer.createEl('div', { cls: 'heatmap-weekdays-container' })
+    const weekdayLabels = weekdayContainer.createEl('div', { cls: 'heatmap-weekdays' })
+    const weekdays = ['日','月','火','水','木','金','土']
+    weekdays.forEach((day, idx) => {
+      const label = weekdayLabels.createEl('span', { cls: 'weekday-label' })
+      if (idx === 1 || idx === 3 || idx === 5) label.textContent = day
+    })
+
+    const grid = weekdayContainer.createEl('div', { cls: 'heatmap-grid' })
+    grid.style.gridTemplateColumns = `repeat(53, 11px)`
+
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const firstDay = new Date(year, 0, 1)
+    const firstSunday = new Date(firstDay)
+    firstSunday.setDate(firstSunday.getDate() - firstDay.getDay())
+
+    const currentDate = new Date(firstSunday)
+    let weekIndex = 0
+    let lastMonthSeen = -1
+    for (let i = 0; i < 371; i++) {
+      const dateStr = this.formatDate(currentDate)
+      const isCurrentYear = currentDate.getFullYear() === year
+      const cell = grid.createEl('div', {
+        cls: isCurrentYear ? 'heatmap-cell' : 'heatmap-cell empty',
+        attr: { 'data-date': dateStr, 'data-level': '0' }
+      })
+      if (isCurrentYear) {
+        this.addCellEventListeners(cell, dateStr)
+        const cm = currentDate.getMonth()
+        if (cm !== lastMonthSeen) {
+          const label = monthLabels.createEl('span', { cls: 'month-label', text: months[cm] })
+          label.style.left = `${weekIndex * 13}px`
+          lastMonthSeen = cm
+        }
+      }
+      currentDate.setDate(currentDate.getDate() + 1)
+      if (i > 0 && (i + 1) % 7 === 0) weekIndex++
+    }
+
+    const legend = gridContainer.createEl('div', { cls: 'heatmap-legend' })
+    legend.createEl('span', { cls: 'legend-label', text: 'Less' })
+    const legendScale = legend.createEl('div', { cls: 'legend-scale' })
+    for (let i = 0; i <= 4; i++) legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(i) } })
+    legend.createEl('span', { cls: 'legend-label', text: 'More' })
+
+    return gridContainer
   }
 
-  private async changeYear(year: number): Promise<void> {
-    this.currentYear = year;
-    await this.render();
-  }
-
-  private navigateToDate(dateStr: string): void {
-    // Trigger navigation in main view
-    const event = new CustomEvent('taskchute-navigate-date', {
-      detail: { date: dateStr }
-    });
-    window.dispatchEvent(event);
-    
-    new Notice(`${dateStr}に移動しました`);
-  }
-
-  destroy(): void {
-    this.container.empty();
-    this.dataCache = {};
-    this.heatmapData = null;
+  private formatDate(d: Date): string {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
 }
+

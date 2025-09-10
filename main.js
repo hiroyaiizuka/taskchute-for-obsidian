@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => TaskChutePlusPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/managers/PathManager.ts
 var import_obsidian = require("obsidian");
@@ -200,7 +200,438 @@ var RoutineAliasManager = class {
 };
 
 // src/views/TaskChuteView.ts
+var import_obsidian5 = require("obsidian");
+
+// src/views/LogView.ts
+var import_obsidian4 = require("obsidian");
+
+// src/services/HeatmapService.ts
 var import_obsidian3 = require("obsidian");
+var HeatmapService = class {
+  constructor(plugin) {
+    this.plugin = plugin;
+  }
+  async loadYearlyData(year) {
+    const yearPath = this.plugin.pathManager.getLogYearPath(year);
+    const heatmapPath = (0, import_obsidian3.normalizePath)(`${yearPath}/yearly-heatmap.json`);
+    const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath);
+    if (file && file instanceof import_obsidian3.TFile) {
+      try {
+        const content = await this.plugin.app.vault.read(file);
+        const data = JSON.parse(content);
+        if (!data || typeof data !== "object" || !data.year || !data.days) {
+          throw new Error("Invalid yearly heatmap data");
+        }
+        return data;
+      } catch (_) {
+      }
+    }
+    return await this.generateYearlyData(year);
+  }
+  async generateYearlyData(year) {
+    const yearlyData = {
+      year,
+      days: {},
+      metadata: {
+        version: "1.0",
+        lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    };
+    try {
+      for (let month = 1; month <= 12; month++) {
+        const monthString = `${year}-${String(month).padStart(2, "0")}`;
+        const logDataPath = this.plugin.pathManager.getLogDataPath();
+        const logFilePath = (0, import_obsidian3.normalizePath)(`${logDataPath}/${monthString}-tasks.json`);
+        const file2 = this.plugin.app.vault.getAbstractFileByPath(logFilePath);
+        if (!file2 || !(file2 instanceof import_obsidian3.TFile)) continue;
+        const content2 = await this.plugin.app.vault.read(file2);
+        const monthlyLog = JSON.parse(content2);
+        if (!monthlyLog || typeof monthlyLog !== "object") continue;
+        if (monthlyLog.dailySummary && typeof monthlyLog.dailySummary === "object") {
+          for (const [dateString, summary] of Object.entries(monthlyLog.dailySummary)) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue;
+            if (!dateString.startsWith(`${year}-`)) continue;
+            const totalTasks = Number(summary.totalTasks) || 0;
+            const completedTasks = Number(summary.completedTasks) || 0;
+            const stats = {
+              totalTasks,
+              completedTasks,
+              procrastinatedTasks: Math.max(0, totalTasks - completedTasks),
+              completionRate: totalTasks > 0 ? completedTasks / totalTasks : 0
+            };
+            yearlyData.days[dateString] = stats;
+          }
+        } else if (monthlyLog.taskExecutions && typeof monthlyLog.taskExecutions === "object") {
+          for (const [dateString, dayTasks] of Object.entries(monthlyLog.taskExecutions)) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue;
+            if (!dateString.startsWith(`${year}-`)) continue;
+            if (!Array.isArray(dayTasks)) continue;
+            const stats = this.calculateDailyStats(dayTasks);
+            yearlyData.days[dateString] = stats;
+          }
+        }
+      }
+      const yearPath = await this.plugin.pathManager.ensureYearFolder(String(year));
+      const heatmapPath = (0, import_obsidian3.normalizePath)(`${yearPath}/yearly-heatmap.json`);
+      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath);
+      const content = JSON.stringify(yearlyData, null, 2);
+      if (file && file instanceof import_obsidian3.TFile) {
+        await this.plugin.app.vault.modify(file, content);
+      } else {
+        await this.plugin.app.vault.create(heatmapPath, content);
+      }
+    } catch (_) {
+    }
+    return yearlyData;
+  }
+  calculateDailyStats(dayTasks) {
+    const map = /* @__PURE__ */ new Map();
+    for (const task of dayTasks) {
+      if (!task || typeof task !== "object") continue;
+      const name = task.taskName;
+      if (!name || typeof name !== "string") continue;
+      const isCompleted = !!task.isCompleted;
+      if (!map.has(name)) map.set(name, false);
+      if (isCompleted) map.set(name, true);
+    }
+    const totalTasks = map.size;
+    const completedTasks = Array.from(map.values()).filter(Boolean).length;
+    return {
+      totalTasks,
+      completedTasks,
+      procrastinatedTasks: Math.max(0, totalTasks - completedTasks),
+      completionRate: totalTasks > 0 ? completedTasks / totalTasks : 0
+    };
+  }
+  async updateDailyStats(dateString) {
+    var _a;
+    try {
+      const monthly = await this.loadMonthlyData(dateString);
+      const dayTasks = ((_a = monthly.taskExecutions) == null ? void 0 : _a[dateString]) || [];
+      const stats = this.calculateDailyStats(dayTasks);
+      await this.updateYearlyData(dateString, stats);
+      return stats;
+    } catch (_) {
+      return null;
+    }
+  }
+  async loadMonthlyData(dateString) {
+    try {
+      const [year, month] = dateString.split("-");
+      const monthString = `${year}-${month}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logFilePath = (0, import_obsidian3.normalizePath)(`${logDataPath}/${monthString}-tasks.json`);
+      const file = this.plugin.app.vault.getAbstractFileByPath(logFilePath);
+      if (!file || !(file instanceof import_obsidian3.TFile)) return { taskExecutions: {} };
+      const content = await this.plugin.app.vault.read(file);
+      return JSON.parse(content);
+    } catch (_) {
+      return { taskExecutions: {} };
+    }
+  }
+  async updateYearlyData(dateString, stats) {
+    try {
+      const [year] = dateString.split("-");
+      const yearPath = await this.plugin.pathManager.ensureYearFolder(year);
+      const heatmapPath = (0, import_obsidian3.normalizePath)(`${yearPath}/yearly-heatmap.json`);
+      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath);
+      let yearly;
+      if (file && file instanceof import_obsidian3.TFile) {
+        const content = await this.plugin.app.vault.read(file);
+        yearly = JSON.parse(content);
+      } else {
+        yearly = { year: parseInt(year, 10), days: {}, metadata: { version: "1.0" } };
+      }
+      yearly.days[dateString] = stats;
+      if (!yearly.metadata) yearly.metadata = { version: "1.0" };
+      yearly.metadata.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+      const out = JSON.stringify(yearly, null, 2);
+      if (file && file instanceof import_obsidian3.TFile) {
+        await this.plugin.app.vault.modify(file, out);
+      } else {
+        await this.plugin.app.vault.create(heatmapPath, out);
+      }
+    } catch (_) {
+    }
+  }
+};
+
+// src/views/LogView.ts
+var LogView = class {
+  constructor(plugin, container) {
+    this.heatmapData = null;
+    this.dataCache = {};
+    this.plugin = plugin;
+    this.container = container;
+    this.currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+    this.heatmapService = new HeatmapService(plugin);
+  }
+  async render() {
+    this.container.empty();
+    this.createHeader();
+    const loadingContainer = this.container.createEl("div", {
+      cls: "heatmap-loading",
+      text: "\u30C7\u30FC\u30BF\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D..."
+    });
+    try {
+      if (this.currentYear === (/* @__PURE__ */ new Date()).getFullYear()) {
+        delete this.dataCache[this.currentYear];
+        try {
+          const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear);
+          const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`);
+          if (heatmapFile && heatmapFile instanceof import_obsidian4.TFile) {
+            await this.plugin.app.vault.delete(heatmapFile);
+          }
+        } catch (_) {
+        }
+      }
+      this.heatmapData = await this.loadYearlyData(this.currentYear);
+      loadingContainer.remove();
+      this.renderHeatmap();
+    } catch (error) {
+      loadingContainer.remove();
+      new import_obsidian4.Notice(`${this.currentYear}\u5E74\u306E\u30C7\u30FC\u30BF\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+      this.renderEmptyHeatmap(this.currentYear);
+    }
+  }
+  createHeader() {
+    const header = this.container.createEl("div", { cls: "taskchute-log-header" });
+    header.createEl("h2", { text: "\u30BF\u30B9\u30AF\u5B9F\u884C\u30ED\u30B0", cls: "log-title" });
+    const controls = header.createEl("div", { cls: "log-controls" });
+    const yearSelector = controls.createEl("select", { cls: "year-selector" });
+    const current = (/* @__PURE__ */ new Date()).getFullYear();
+    for (let y = current + 1; y >= 2020; y--) {
+      const opt = yearSelector.createEl("option", { value: String(y), text: `${y}\u5E74` });
+      if (y === this.currentYear) opt.selected = true;
+    }
+    const refreshButton = controls.createEl("button", {
+      cls: "refresh-button",
+      text: "\u{1F504} \u30C7\u30FC\u30BF\u66F4\u65B0",
+      attr: { title: "\u30AD\u30E3\u30C3\u30B7\u30E5\u3092\u30AF\u30EA\u30A2\u3057\u3066\u518D\u8A08\u7B97" }
+    });
+    refreshButton.addEventListener("click", async () => {
+      delete this.dataCache[this.currentYear];
+      try {
+        const yearPath = this.plugin.pathManager.getLogYearPath(this.currentYear);
+        const heatmapFile = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`);
+        if (heatmapFile && heatmapFile instanceof import_obsidian4.TFile) {
+          await this.plugin.app.vault.delete(heatmapFile);
+        }
+      } catch (_) {
+      }
+      const container = this.container.querySelector(".heatmap-container");
+      if (container) container.remove();
+      const loading = this.container.createEl("div", { cls: "heatmap-loading", text: "\u30C7\u30FC\u30BF\u3092\u518D\u8A08\u7B97\u4E2D..." });
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear);
+        loading.remove();
+        this.renderHeatmap();
+        new import_obsidian4.Notice(`${this.currentYear}\u5E74\u306E\u30C7\u30FC\u30BF\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+      } catch (e) {
+        loading.remove();
+        new import_obsidian4.Notice(`${this.currentYear}\u5E74\u306E\u30C7\u30FC\u30BF\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+        this.renderEmptyHeatmap(this.currentYear);
+      }
+    });
+    yearSelector.addEventListener("change", async (e) => {
+      this.currentYear = parseInt(e.target.value, 10);
+      const container = this.container.querySelector(".heatmap-container");
+      if (container) container.remove();
+      const loading = this.container.createEl("div", { cls: "heatmap-loading", text: "\u30C7\u30FC\u30BF\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D..." });
+      try {
+        this.heatmapData = await this.loadYearlyData(this.currentYear);
+        loading.remove();
+        this.renderHeatmap();
+      } catch (err) {
+        loading.remove();
+        new import_obsidian4.Notice(`${this.currentYear}\u5E74\u306E\u30C7\u30FC\u30BF\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+        this.renderEmptyHeatmap(this.currentYear);
+      }
+    });
+  }
+  async loadYearlyData(year) {
+    if (this.dataCache[year]) return this.dataCache[year];
+    await this.plugin.pathManager.ensureYearFolder(year);
+    const data = await this.heatmapService.loadYearlyData(year);
+    this.dataCache[year] = data;
+    return data;
+  }
+  renderHeatmap() {
+    if (!this.heatmapData) return;
+    const existed = this.container.querySelector(".heatmap-container");
+    if (existed) existed.remove();
+    const heatmapContainer = this.container.createEl("div", { cls: "heatmap-container" });
+    const grid = this.createHeatmapGrid(this.heatmapData.year);
+    heatmapContainer.appendChild(grid);
+    this.applyDataToGrid(this.heatmapData);
+  }
+  renderEmptyHeatmap(year) {
+    const existed = this.container.querySelector(".heatmap-container");
+    if (existed) existed.remove();
+    const heatmapContainer = this.container.createEl("div", { cls: "heatmap-container" });
+    heatmapContainer.createEl("div", { cls: "heatmap-error", text: `${year}\u5E74\u306E\u30C7\u30FC\u30BF\u306F\u5229\u7528\u3067\u304D\u307E\u305B\u3093` });
+    const grid = this.createHeatmapGrid(year);
+    heatmapContainer.appendChild(grid);
+    const cells = grid.querySelectorAll(".heatmap-cell");
+    cells.forEach((cell) => {
+      ;
+      cell.dataset.level = "0";
+      cell.dataset.tooltip = "\u30C7\u30FC\u30BF\u306A\u3057";
+    });
+  }
+  applyDataToGrid(data) {
+    if (!data.days) return;
+    const entries = Object.entries(data.days);
+    const batchSize = 50;
+    let currentIndex = 0;
+    const processBatch = () => {
+      const endIndex = Math.min(currentIndex + batchSize, entries.length);
+      for (let i = currentIndex; i < endIndex; i++) {
+        const [dateString, stats] = entries[i];
+        const cell = this.container.querySelector(`[data-date="${dateString}"]`);
+        if (cell) {
+          const level = this.calculateLevel(stats);
+          cell.dataset.level = String(level);
+          cell.dataset.tooltip = this.createTooltipText(dateString, stats);
+        }
+      }
+      currentIndex = endIndex;
+      if (currentIndex < entries.length) requestAnimationFrame(processBatch);
+    };
+    requestAnimationFrame(processBatch);
+  }
+  calculateLevel(stats) {
+    if (!stats || stats.totalTasks === 0) return 0;
+    if (stats.procrastinatedTasks === 0) return 4;
+    const rate = stats.completionRate;
+    if (rate >= 0.8) return 3;
+    if (rate >= 0.5) return 2;
+    if (rate >= 0.2) return 1;
+    return 1;
+  }
+  createTooltipText(dateString, stats) {
+    const date = /* @__PURE__ */ new Date(dateString + "T00:00:00");
+    const dateText = date.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
+    if (!stats || stats.totalTasks === 0) return `${dateText}
+\u30BF\u30B9\u30AF\u306A\u3057`;
+    return `${dateText}
+\u7DCF\u30BF\u30B9\u30AF: ${stats.totalTasks}
+\u5B8C\u4E86: ${stats.completedTasks}
+\u5148\u9001\u308A: ${stats.procrastinatedTasks}
+\u5B8C\u4E86\u7387: ${Math.round(stats.completionRate * 100)}%`;
+  }
+  addCellEventListeners(cell, dateString) {
+    cell.addEventListener("mouseenter", () => this.showTooltip(cell));
+    cell.addEventListener("mouseleave", () => this.hideTooltip());
+    cell.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await this.navigateToDate(dateString);
+    });
+  }
+  showTooltip(cell) {
+    this.hideTooltip();
+    const tooltipText = cell.dataset.tooltip;
+    if (!tooltipText) return;
+    const tooltip = document.createElement("div");
+    tooltip.className = "heatmap-tooltip";
+    tooltip.textContent = tooltipText;
+    const rect = cell.getBoundingClientRect();
+    const containerRect = this.container.getBoundingClientRect();
+    tooltip.style.position = "absolute";
+    tooltip.style.left = `${rect.left - containerRect.left}px`;
+    tooltip.style.top = `${rect.bottom - containerRect.top + 5}px`;
+    tooltip.style.zIndex = "1000";
+    this.container.appendChild(tooltip);
+    this.currentTooltip = tooltip;
+  }
+  hideTooltip() {
+    const current = this.currentTooltip;
+    if (current) {
+      current.remove();
+      this.currentTooltip = null;
+    }
+  }
+  async navigateToDate(dateString) {
+    try {
+      const [year, month, day] = dateString.split("-").map(Number);
+      const leaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view");
+      let leaf;
+      if (leaves.length === 0) {
+        leaf = this.plugin.app.workspace.getRightLeaf(false);
+        await leaf.setViewState({ type: "taskchute-view", active: true });
+        await new Promise((r) => setTimeout(r, 300));
+        const newLeaves = this.plugin.app.workspace.getLeavesOfType("taskchute-view");
+        if (newLeaves.length > 0) leaf = newLeaves[0];
+      } else {
+        leaf = leaves[0];
+      }
+      const view = leaf.view;
+      if (!view || typeof view.loadTasks !== "function") return;
+      view.currentDate = new Date(year, month - 1, day);
+      if (view.updateDateLabel && view.containerEl) {
+        const dateLabel = view.containerEl.querySelector(".date-nav-label");
+        if (dateLabel) view.updateDateLabel(dateLabel);
+      }
+      await view.loadTasks();
+      this.plugin.app.workspace.setActiveLeaf(leaf);
+      const modal = this.container.closest(".taskchute-log-modal-overlay");
+      if (modal) modal.remove();
+    } catch (_) {
+    }
+  }
+  createHeatmapGrid(year) {
+    const gridContainer = document.createElement("div");
+    gridContainer.className = "heatmap-grid-container";
+    const monthLabels = gridContainer.createEl("div", { cls: "heatmap-months" });
+    const weekdayContainer = gridContainer.createEl("div", { cls: "heatmap-weekdays-container" });
+    const weekdayLabels = weekdayContainer.createEl("div", { cls: "heatmap-weekdays" });
+    const weekdays = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
+    weekdays.forEach((day, idx) => {
+      const label = weekdayLabels.createEl("span", { cls: "weekday-label" });
+      if (idx === 1 || idx === 3 || idx === 5) label.textContent = day;
+    });
+    const grid = weekdayContainer.createEl("div", { cls: "heatmap-grid" });
+    grid.style.gridTemplateColumns = `repeat(53, 11px)`;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const firstDay = new Date(year, 0, 1);
+    const firstSunday = new Date(firstDay);
+    firstSunday.setDate(firstSunday.getDate() - firstDay.getDay());
+    const currentDate = new Date(firstSunday);
+    let weekIndex = 0;
+    let lastMonthSeen = -1;
+    for (let i = 0; i < 371; i++) {
+      const dateStr = this.formatDate(currentDate);
+      const isCurrentYear = currentDate.getFullYear() === year;
+      const cell = grid.createEl("div", {
+        cls: isCurrentYear ? "heatmap-cell" : "heatmap-cell empty",
+        attr: { "data-date": dateStr, "data-level": "0" }
+      });
+      if (isCurrentYear) {
+        this.addCellEventListeners(cell, dateStr);
+        const cm = currentDate.getMonth();
+        if (cm !== lastMonthSeen) {
+          const label = monthLabels.createEl("span", { cls: "month-label", text: months[cm] });
+          label.style.left = `${weekIndex * 13}px`;
+          lastMonthSeen = cm;
+        }
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+      if (i > 0 && (i + 1) % 7 === 0) weekIndex++;
+    }
+    const legend = gridContainer.createEl("div", { cls: "heatmap-legend" });
+    legend.createEl("span", { cls: "legend-label", text: "Less" });
+    const legendScale = legend.createEl("div", { cls: "legend-scale" });
+    for (let i = 0; i <= 4; i++) legendScale.createEl("div", { cls: "legend-cell", attr: { "data-level": String(i) } });
+    legend.createEl("span", { cls: "legend-label", text: "More" });
+    return gridContainer;
+  }
+  formatDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+};
 
 // src/styles/full-css.ts
 var TASKCHUTE_FULL_CSS = `
@@ -2587,7 +3018,7 @@ var NavigationStateManager = class {
     this.isOpen = false;
   }
 };
-var TaskChuteView = class extends import_obsidian3.ItemView {
+var TaskChuteView = class extends import_obsidian5.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.tasks = [];
@@ -2743,7 +3174,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
           "terminal:open-terminal.integrated.root"
         );
       } catch (error) {
-        new import_obsidian3.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
+        new import_obsidian5.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
       }
     });
   }
@@ -3089,7 +3520,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     playButton.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (isFutureTask) {
-        new import_obsidian3.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        new import_obsidian5.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
       if (inst.state === "running") {
@@ -3112,7 +3543,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       try {
         await this.app.workspace.openLinkText(inst.task.path, "", false);
       } catch (error) {
-        new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+        new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
       }
     });
   }
@@ -3275,10 +3706,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       this.taskInstances.push(newInstance);
       this.saveInstanceState(newInstance);
       this.renderTaskList();
-      new import_obsidian3.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to duplicate instance:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showTaskCompletionModal(inst) {
@@ -3468,7 +3899,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
-      if (!logFile || !(logFile instanceof import_obsidian3.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian5.TFile)) {
         return null;
       }
       const logContent = await this.app.vault.read(logFile);
@@ -3498,7 +3929,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const dateString = `${year}-${month}-${day}`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
       let monthlyLog = { taskExecutions: {} };
-      if (logFile && logFile instanceof import_obsidian3.TFile) {
+      if (logFile && logFile instanceof import_obsidian5.TFile) {
         const logContent = await this.app.vault.read(logFile);
         monthlyLog = JSON.parse(logContent);
       }
@@ -3530,15 +3961,15 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       } else {
         todayTasks.push(commentData);
       }
-      if (logFile && logFile instanceof import_obsidian3.TFile) {
+      if (logFile && logFile instanceof import_obsidian5.TFile) {
         await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
       } else {
         await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
       }
-      new import_obsidian3.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
     } catch (error) {
       console.error("Failed to save comment:", error);
-      new import_obsidian3.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   showRoutineEditModal(task, button) {
@@ -3704,13 +4135,13 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const scheduledTime = timeInput.value;
       const routineType = typeSelect.value;
       if (!scheduledTime) {
-        new import_obsidian3.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian5.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       if (routineType === "weekly") {
         const selectedWeekdays = weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => parseInt(cb.value));
         if (selectedWeekdays.length === 0) {
-          new import_obsidian3.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
+          new import_obsidian5.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
           return;
         }
       }
@@ -3735,8 +4166,8 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian5.TFile)) {
+        new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       if (task.isRoutine) {
@@ -3754,12 +4185,12 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         button.classList.remove("active");
         button.setAttribute("title", "\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A");
         await this.loadTasks();
-        new import_obsidian3.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
+        new import_obsidian5.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
       } else {
         this.showRoutineEditModal(task, button);
       }
     } catch (error) {
-      new import_obsidian3.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   showTaskSettingsTooltip(inst, button) {
@@ -3883,10 +4314,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       if (!this.globalTimerInterval) {
         this.startGlobalTimer();
       }
-      new import_obsidian3.Notice(`\u958B\u59CB: ${inst.task.name}`);
+      new import_obsidian5.Notice(`\u958B\u59CB: ${inst.task.name}`);
     } catch (error) {
       console.error("Failed to start instance:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async stopInstance(inst) {
@@ -3906,12 +4337,22 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       this.saveInstanceState(inst);
       await this.saveTaskLog(inst);
       await this.saveRunningTasksState();
+      try {
+        const start = inst.startTime || /* @__PURE__ */ new Date();
+        const yyyy = start.getFullYear();
+        const mm = String(start.getMonth() + 1).padStart(2, "0");
+        const dd = String(start.getDate()).padStart(2, "0");
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const heatmap = new HeatmapService(this.plugin);
+        await heatmap.updateDailyStats(dateStr);
+      } catch (_) {
+      }
       this.initializeTaskOrders();
       this.renderTaskList();
-      new import_obsidian3.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
+      new import_obsidian5.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
     } catch (error) {
       console.error("Failed to stop instance:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   calculateCrossDayDuration(startTime, stopTime) {
@@ -3960,7 +4401,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const dataPath = `${logDataPath}/running-task.json`;
       const dataFile = this.app.vault.getAbstractFileByPath(dataPath);
-      if (!dataFile || !(dataFile instanceof import_obsidian3.TFile)) {
+      if (!dataFile || !(dataFile instanceof import_obsidian5.TFile)) {
         console.log("[TaskChute DEBUG] No running-task.json found");
         return;
       }
@@ -4148,7 +4589,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     if (this.selectedTaskInstance) {
       this.duplicateTask(this.selectedTaskInstance);
     } else {
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   deleteSelectedTask() {
@@ -4159,14 +4600,14 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         }
       });
     } else {
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   resetSelectedTask() {
     if (this.selectedTaskInstance) {
       this.resetTask(this.selectedTaskInstance);
     } else {
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   showTodayTasks() {
@@ -4177,12 +4618,12 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       this.updateDateLabel(dateLabel);
     }
     this.loadTasks().then(() => {
-      new import_obsidian3.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
     });
   }
   reorganizeIdleTasks() {
     this.moveIdleTasksToCurrentTime();
-    new import_obsidian3.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
+    new import_obsidian5.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
   }
   // ===========================================
   // Utility Methods
@@ -4418,7 +4859,29 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   // Placeholder Methods (to be implemented)
   // ===========================================
   handleNavigationItemClick(section) {
-    new import_obsidian3.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
+    if (section === "log") {
+      this.openLogModal();
+      this.closeNavigation();
+      return;
+    }
+    new import_obsidian5.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
+  }
+  openLogModal() {
+    const overlay = document.createElement("div");
+    overlay.className = "taskchute-log-modal-overlay";
+    const content = overlay.createEl("div", { cls: "taskchute-log-modal-content" });
+    const closeBtn = content.createEl("button", { cls: "log-modal-close", text: "\xD7", attr: { title: "\u9589\u3058\u308B" } });
+    closeBtn.addEventListener("click", () => {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    });
+    const logView = new LogView(this.plugin, content);
+    logView.render();
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
+    });
+    document.body.appendChild(overlay);
   }
   handleKeyboardShortcut(e) {
   }
@@ -4488,7 +4951,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const monthString = `${year}-${month}`;
       const logPath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logPath);
-      if (!logFile || !(logFile instanceof import_obsidian3.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian5.TFile)) {
         return 0;
       }
       const content = await this.app.vault.read(logFile);
@@ -4512,7 +4975,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     }
   }
   showTaskContextMenu(e, inst) {
-    new import_obsidian3.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian5.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   handleDragOver(e, taskItem, inst) {
     e.preventDefault();
@@ -4601,8 +5064,8 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian5.TFile)) {
+        new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -4621,10 +5084,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       button.classList.add("active");
       button.setAttribute("title", `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
       await this.loadTasks();
-      new import_obsidian3.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
+      new import_obsidian5.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian3.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async setRoutineTaskWithDetails(task, button, scheduledTime, routineType, details) {
@@ -4632,8 +5095,8 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian5.TFile)) {
+        new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -4709,10 +5172,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       }
       button.setAttribute("title", tooltipText);
       await this.loadTasks();
-      new import_obsidian3.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian3.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async deleteInstanceWithConfirm(inst) {
@@ -4773,17 +5236,17 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         if (samePathInstances.length === 0 && inst.task.file) {
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path);
           await this.app.vault.delete(inst.task.file);
-          new import_obsidian3.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian5.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         } else {
-          new import_obsidian3.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian5.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         }
       } else {
-        new import_obsidian3.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian5.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
       }
       this.renderTaskList();
     } catch (error) {
       console.error("Failed to delete instance:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async resetTaskToIdle(inst) {
@@ -4793,10 +5256,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       inst.stopTime = void 0;
       this.saveInstanceState(inst);
       this.renderTaskList();
-      new import_obsidian3.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to reset task:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectSettingsModal(inst, tooltip) {
@@ -4868,7 +5331,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       }
       const projects = [];
       for (const file of projectFolder.children) {
-        if (file instanceof import_obsidian3.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian5.TFile && file.extension === "md") {
           projects.push(file.basename);
         }
       }
@@ -4883,8 +5346,8 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${inst.task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian5.TFile)) {
+        new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -4902,14 +5365,14 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       inst.task.projectTitle = projectName || void 0;
       this.renderTaskList();
       const message = projectName ? `\u300C${inst.task.title}\u300D\u3092${projectName}\u306B\u95A2\u9023\u4ED8\u3051\u307E\u3057\u305F` : `\u300C${inst.task.title}\u300D\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u95A2\u9023\u4ED8\u3051\u3092\u89E3\u9664\u3057\u307E\u3057\u305F`;
-      new import_obsidian3.Notice(message);
+      new import_obsidian5.Notice(message);
     } catch (error) {
       console.error("Failed to update project:", error);
-      new import_obsidian3.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   moveIdleTasksToCurrentTime() {
-    new import_obsidian3.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian5.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   async showAddTaskModal() {
     const modal = document.createElement("div");
@@ -4951,7 +5414,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       e.preventDefault();
       const taskName = nameInput.value.trim();
       if (!taskName) {
-        new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       await this.createNewTask(taskName, estimatedMinutes);
@@ -4980,10 +5443,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         await this.loadTasks();
         this.renderTaskList();
       }, 100);
-      new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to create task:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showTaskMoveDatePicker(inst, button) {
@@ -5020,17 +5483,17 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   async moveTaskToDate(inst, dateStr) {
     try {
       const file = this.app.vault.getAbstractFileByPath(inst.task.path);
-      if (file instanceof import_obsidian3.TFile) {
+      if (file instanceof import_obsidian5.TFile) {
         await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
           frontmatter.target_date = dateStr;
           return frontmatter;
         });
       }
-      new import_obsidian3.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
       await this.loadTasks();
     } catch (error) {
       console.error("Failed to move task:", error);
-      new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectModal(inst) {
@@ -5055,7 +5518,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       try {
         projectFiles = await this.getProjectFiles();
       } catch (error) {
-        new import_obsidian3.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+        new import_obsidian5.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
         modal.remove();
         return;
       }
@@ -5139,7 +5602,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
       document.body.appendChild(modal);
     } catch (error) {
       console.error("Failed to show project modal:", error);
-      new import_obsidian3.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async getProjectFiles() {
@@ -5164,8 +5627,8 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   }
   async setProjectForTask(task, projectPath) {
     try {
-      if (!task.file || !(task.file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+      if (!task.file || !(task.file instanceof import_obsidian5.TFile)) {
+        new import_obsidian5.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
         return;
       }
       await this.app.fileManager.processFrontMatter(
@@ -5194,10 +5657,10 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
         task.projectPath = null;
         task.projectTitle = null;
       }
-      new import_obsidian3.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
+      new import_obsidian5.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set project:", error);
-      new import_obsidian3.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian5.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   updateProjectDisplay(inst) {
@@ -5255,15 +5718,15 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   async openProjectInSplit(projectPath) {
     try {
       const file = this.app.vault.getAbstractFileByPath(projectPath);
-      if (file instanceof import_obsidian3.TFile) {
+      if (file instanceof import_obsidian5.TFile) {
         const leaf = this.app.workspace.getLeaf("split");
         await leaf.openFile(file);
       } else {
-        new import_obsidian3.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
+        new import_obsidian5.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
       }
     } catch (error) {
       console.error("Failed to open project:", error);
-      new import_obsidian3.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+      new import_obsidian5.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
     }
   }
   async hasExecutionHistory(taskPath) {
@@ -5332,7 +5795,7 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
 
 // src/main.ts
 var VIEW_TYPE_TASKCHUTE = "taskchute-view";
-var TaskChuteSettingTab = class extends import_obsidian4.PluginSettingTab {
+var TaskChuteSettingTab = class extends import_obsidian6.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -5340,15 +5803,15 @@ var TaskChuteSettingTab = class extends import_obsidian4.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian4.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian6.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
+    new import_obsidian6.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder).setValue(this.plugin.settings.taskFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.taskFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian4.Notice(validation.error);
+          new import_obsidian6.Notice(validation.error);
           text.setValue(this.plugin.settings.taskFolderPath || "");
         }
       });
@@ -5363,56 +5826,56 @@ var TaskChuteSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian6.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder).setValue(this.plugin.settings.projectFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.projectFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian4.Notice(validation.error);
+          new import_obsidian6.Notice(validation.error);
           text.setValue(this.plugin.settings.projectFolderPath || "");
         }
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian6.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.logData).setValue(this.plugin.settings.logDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.logDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian4.Notice(validation.error);
+          new import_obsidian6.Notice(validation.error);
           text.setValue(this.plugin.settings.logDataPath || "");
         }
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian6.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.reviewData).setValue(this.plugin.settings.reviewDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.reviewDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian4.Notice(validation.error);
+          new import_obsidian6.Notice(validation.error);
           text.setValue(this.plugin.settings.reviewDataPath || "");
         }
       });
     });
-    new import_obsidian4.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
+    new import_obsidian6.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
+    new import_obsidian6.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableSound).onChange(async (value) => {
         this.plugin.settings.enableSound = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian6.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableFireworks).onChange(async (value) => {
         this.plugin.settings.enableFireworks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian6.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableConfetti).onChange(async (value) => {
         this.plugin.settings.enableConfetti = value;
         await this.plugin.saveSettings();
@@ -5420,7 +5883,7 @@ var TaskChuteSettingTab = class extends import_obsidian4.PluginSettingTab {
     );
   }
 };
-var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
+var TaskChutePlusPlugin = class extends import_obsidian6.Plugin {
   // Simple logger/notification wrapper
   _log(level, ...args) {
     var _a;
@@ -5431,7 +5894,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
   }
   _notify(message, timeout) {
     try {
-      new import_obsidian4.Notice(message, timeout);
+      new import_obsidian6.Notice(message, timeout);
     } catch (_) {
       this._log("warn", "[Notice]", message);
     }
@@ -5514,7 +5977,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
           await view.duplicateInstance(view.selectedTaskInstance);
           view.clearTaskSelection();
         } else {
-          new import_obsidian4.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian6.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5527,7 +5990,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
         if (view && view.selectedTaskInstance) {
           view.deleteSelectedTask();
         } else {
-          new import_obsidian4.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian6.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5540,10 +6003,10 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
           if (view.selectedTaskInstance.state !== "idle") {
             view.resetTaskToIdle(view.selectedTaskInstance);
           } else {
-            new import_obsidian4.Notice("\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
+            new import_obsidian6.Notice("\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
           }
         } else {
-          new import_obsidian4.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian6.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5562,7 +6025,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
         if (view) {
           view.showTodayTasks();
         } else {
-          new import_obsidian4.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian6.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5574,7 +6037,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
         if (view) {
           view.reorganizeIdleTasks();
         } else {
-          new import_obsidian4.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian6.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5592,7 +6055,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
         await this.pathManager.ensureFolderExists(path);
       } catch (error) {
         try {
-          new import_obsidian4.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+          new import_obsidian6.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
         } catch (_) {
         }
       }
@@ -5697,7 +6160,7 @@ var TaskChutePlusPlugin = class extends import_obsidian4.Plugin {
         } catch (error) {
         }
       } else {
-        new import_obsidian4.Notice(validation.error);
+        new import_obsidian6.Notice(validation.error);
         input.value = this.settings[settingKey] || "";
       }
     });

@@ -92,6 +92,23 @@ export interface HeatmapData {
   };
 }
 
+// New heatmap structures (aligned with main.js LogView)
+export interface HeatmapDayStats {
+  totalTasks: number;
+  completedTasks: number;
+  procrastinatedTasks: number;
+  completionRate: number; // 0..1
+}
+
+export interface HeatmapYearData {
+  year: number;
+  days: Record<string, HeatmapDayStats>;
+  metadata?: {
+    version: string;
+    lastUpdated?: string;
+  };
+}
+
 export interface NavigationState {
   selectedSection: 'routine' | 'review' | 'log' | 'project' | null;
   isOpen: boolean;

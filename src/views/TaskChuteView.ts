@@ -1,4 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
+import { LogView } from './LogView';
+import { HeatmapService } from '../services/HeatmapService';
 import { 
   TaskData, 
   TaskInstance, 
@@ -1820,6 +1822,17 @@ export class TaskChuteView extends ItemView {
       // Save running task state (remove this task from running tasks)
       await this.saveRunningTasksState();
       
+      // Update yearly heatmap stats (start date basis)
+      try {
+        const start = inst.startTime || new Date();
+        const yyyy = start.getFullYear();
+        const mm = String(start.getMonth() + 1).padStart(2, '0');
+        const dd = String(start.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+        const heatmap = new HeatmapService(this.plugin as any);
+        await heatmap.updateDailyStats(dateStr);
+      } catch (_) {}
+      
       // CRITICAL: Recalculate task orders to maintain execution time order
       // This ensures completed tasks are sorted by startTime immediately
       this.initializeTaskOrders();
@@ -2514,7 +2527,33 @@ export class TaskChuteView extends ItemView {
 
 
   private handleNavigationItemClick(section: 'routine' | 'review' | 'log' | 'project'): void {
+    if (section === 'log') {
+      this.openLogModal();
+      this.closeNavigation();
+      return;
+    }
     new Notice(`${section} 機能は実装中です`);
+  }
+
+  private openLogModal(): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'taskchute-log-modal-overlay';
+    const content = overlay.createEl('div', { cls: 'taskchute-log-modal-content' });
+    const closeBtn = content.createEl('button', { cls: 'log-modal-close', text: '×', attr: { title: '閉じる' } });
+    closeBtn.addEventListener('click', () => {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    });
+
+    const logView = new LogView(this.plugin as any, content);
+    logView.render();
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
+    });
+
+    document.body.appendChild(overlay);
   }
 
   private handleKeyboardShortcut(e: KeyboardEvent): void {
