@@ -1,6 +1,7 @@
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
+// Use Node's built-in modules list to avoid JSON import assertions incompatibility
+import { builtinModules as nodeBuiltinModules } from "module";
 
 const banner =
 `/*
@@ -30,8 +31,8 @@ const context = await esbuild.context({
 		"@codemirror/view",
 		"@lezer/common",
 		"@lezer/highlight",
-		"@lezer/lr",
-		...builtins
+    "@lezer/lr",
+    ...nodeBuiltinModules
 	],
 	format: "cjs",
 	target: "es2018",

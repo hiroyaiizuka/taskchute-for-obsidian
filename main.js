@@ -4213,22 +4213,45 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
     });
     Object.keys(slotGroups).forEach((slot) => {
       const instances = slotGroups[slot];
-      instances.sort((a, b) => {
-        const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
-        const stateCompare = statePriority[a.state] - statePriority[b.state];
-        if (stateCompare !== 0) return stateCompare;
-        if (a.state === "done" && b.state === "done") {
-          if (a.startTime && b.startTime) {
-            return a.startTime.getTime() - b.startTime.getTime();
-          }
-        }
-        if (a.order !== void 0 && b.order !== void 0) {
-          return a.order - b.order;
-        }
-        return 0;
+      const done = instances.filter((i) => i.state === "done");
+      const running = instances.filter((i) => i.state === "running" || i.state === "paused");
+      const idle = instances.filter((i) => i.state === "idle");
+      let currentOrderBase = 0;
+      done.sort((a, b) => {
+        const ta = a.startTime ? a.startTime.getTime() : Infinity;
+        const tb = b.startTime ? b.startTime.getTime() : Infinity;
+        return ta - tb;
       });
-      instances.forEach((inst, index) => {
-        inst.order = index;
+      done.forEach((inst, idx) => {
+        inst.order = (idx + 1) * 100;
+      });
+      currentOrderBase = done.length * 100;
+      const existingRunningOrders = running.filter((i) => i.order !== void 0 && i.order !== null).map((i) => i.order);
+      const maxExistingOrder = existingRunningOrders.length > 0 ? Math.max(...existingRunningOrders) : currentOrderBase;
+      let nextOrder = Math.max(currentOrderBase, maxExistingOrder) + 100;
+      running.filter((i) => i.order === void 0 || i.order === null).forEach((inst) => {
+        inst.order = nextOrder;
+        nextOrder += 100;
+      });
+      const savedIdle = idle.filter((i) => i.order !== void 0 && i.order !== null);
+      const unsavedIdle = idle.filter((i) => i.order === void 0 || i.order === null);
+      const existingOrdersInSlot = instances.filter((i) => i.order !== void 0 && i.order !== null).map((i) => i.order);
+      const idleBase = existingOrdersInSlot.length > 0 ? Math.max(...existingOrdersInSlot) : nextOrder - 100;
+      unsavedIdle.sort((a, b) => {
+        var _a, _b;
+        const ta = (_a = a == null ? void 0 : a.task) == null ? void 0 : _a.scheduledTime;
+        const tb = (_b = b == null ? void 0 : b.task) == null ? void 0 : _b.scheduledTime;
+        if (!ta && !tb) return 0;
+        if (!ta) return 1;
+        if (!tb) return -1;
+        const [ha, ma] = ta.split(":").map((n) => parseInt(n, 10));
+        const [hb, mb] = tb.split(":").map((n) => parseInt(n, 10));
+        return ha * 60 + ma - (hb * 60 + mb);
+      });
+      let idleOrder = idleBase + 100;
+      unsavedIdle.forEach((inst) => {
+        inst.order = idleOrder;
+        idleOrder += 100;
       });
     });
     this.saveTaskOrders();
@@ -4264,20 +4287,34 @@ var TaskChuteView = class extends import_obsidian3.ItemView {
   }
   sortByOrder(instances) {
     return instances.sort((a, b) => {
-      var _a, _b;
-      const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
-      const stateCompare = statePriority[a.state] - statePriority[b.state];
-      if (stateCompare !== 0) {
-        return stateCompare;
+      var _a, _b, _c, _d;
+      const statePriority = { done: 0, running: 1, paused: 1, idle: 2 };
+      const sa = (_a = statePriority[a.state]) != null ? _a : 3;
+      const sb = (_b = statePriority[b.state]) != null ? _b : 3;
+      if (sa !== sb) return sa - sb;
+      const hasOrderA = a.order !== void 0 && a.order !== null;
+      const hasOrderB = b.order !== void 0 && b.order !== null;
+      if (hasOrderA && hasOrderB) {
+        if (a.order !== b.order) return a.order - b.order;
+      } else if (hasOrderA && !hasOrderB) {
+        return -1;
+      } else if (!hasOrderA && hasOrderB) {
+        return 1;
       }
       if (a.state === "done" && b.state === "done") {
-        if (a.startTime && b.startTime) {
-          return a.startTime.getTime() - b.startTime.getTime();
-        }
+        const ta = a.startTime ? a.startTime.getTime() : Infinity;
+        const tb = b.startTime ? b.startTime.getTime() : Infinity;
+        if (ta !== tb) return ta - tb;
+        return 0;
       }
-      const aOrder = (_a = a.order) != null ? _a : 999999;
-      const bOrder = (_b = b.order) != null ? _b : 999999;
-      return aOrder - bOrder;
+      const tA = (_c = a == null ? void 0 : a.task) == null ? void 0 : _c.scheduledTime;
+      const tB = (_d = b == null ? void 0 : b.task) == null ? void 0 : _d.scheduledTime;
+      if (!tA && !tB) return 0;
+      if (!tA) return 1;
+      if (!tB) return -1;
+      const [ha, ma] = tA.split(":").map((n) => parseInt(n, 10));
+      const [hb, mb] = tB.split(":").map((n) => parseInt(n, 10));
+      return ha * 60 + ma - (hb * 60 + mb);
     });
   }
   moveTaskToSlot(inst, newSlot, position) {

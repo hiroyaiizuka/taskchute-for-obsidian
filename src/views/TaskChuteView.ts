@@ -2197,16 +2197,16 @@ export class TaskChuteView extends ItemView {
     if (this.useOrderBasedSort) {
       // Load saved orders
       const savedOrders = this.loadSavedOrders();
-      
-      // Apply saved orders to instances
+
+      // Apply saved orders to instances (do not clear others yet)
       this.taskInstances.forEach(inst => {
         const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || 'none'}`;
         if (savedOrders[key] !== undefined) {
           inst.order = savedOrders[key];
         }
       });
-      
-      // Initialize orders for tasks without saved order
+
+      // Initialize orders ONLY for tasks without order
       this.initializeTaskOrders();
     }
   }
@@ -2214,7 +2214,7 @@ export class TaskChuteView extends ItemView {
   private initializeTaskOrders(): void {
     // Group tasks by slot
     const slotGroups: Record<string, TaskInstance[]> = {};
-    
+
     this.taskInstances.forEach(inst => {
       const slot = inst.slotKey || 'none';
       if (!slotGroups[slot]) {
@@ -2222,40 +2222,76 @@ export class TaskChuteView extends ItemView {
       }
       slotGroups[slot].push(inst);
     });
-    
-    // Sort each slot group and assign order numbers
+
+    // Assign order numbers per slot
     Object.keys(slotGroups).forEach(slot => {
       const instances = slotGroups[slot];
-      
-      // Sort by state priority first, then by existing order or startTime
-      instances.sort((a, b) => {
-        // State priority: idle/running -> done
-        const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
-        const stateCompare = statePriority[a.state] - statePriority[b.state];
-        if (stateCompare !== 0) return stateCompare;
-        
-        // For done tasks, sort by startTime
-        if (a.state === 'done' && b.state === 'done') {
-          if (a.startTime && b.startTime) {
-            return a.startTime.getTime() - b.startTime.getTime();
-          }
-        }
-        
-        // Use existing order if available
-        if (a.order !== undefined && b.order !== undefined) {
-          return a.order - b.order;
-        }
-        
-        return 0;
+
+      // Split by state
+      const done = instances.filter(i => i.state === 'done');
+      const running = instances.filter(i => i.state === 'running' || i.state === 'paused');
+      const idle = instances.filter(i => i.state === 'idle');
+
+      let currentOrderBase = 0;
+
+      // 1) Done: always order by startTime (ascending)
+      done.sort((a, b) => {
+        const ta = a.startTime ? a.startTime.getTime() : Infinity;
+        const tb = b.startTime ? b.startTime.getTime() : Infinity;
+        return ta - tb;
       });
-      
-      // Assign order numbers
-      instances.forEach((inst, index) => {
-        inst.order = index;
+      done.forEach((inst, idx) => {
+        inst.order = (idx + 1) * 100;
+      });
+      currentOrderBase = done.length * 100;
+
+      // 2) Running: preserve any existing order, assign if missing after done
+      const existingRunningOrders = running
+        .filter(i => i.order !== undefined && i.order !== null)
+        .map(i => i.order as number);
+      const maxExistingOrder = existingRunningOrders.length > 0
+        ? Math.max(...existingRunningOrders)
+        : currentOrderBase;
+
+      let nextOrder = Math.max(currentOrderBase, maxExistingOrder) + 100;
+      running
+        .filter(i => i.order === undefined || i.order === null)
+        .forEach(inst => {
+          inst.order = nextOrder;
+          nextOrder += 100;
+        });
+
+      // 3) Idle: keep saved order if present; otherwise assign by scheduledTime (HH:MM)
+      const savedIdle = idle.filter(i => i.order !== undefined && i.order !== null);
+      const unsavedIdle = idle.filter(i => i.order === undefined || i.order === null);
+
+      // Compute base for new idle orders (after any existing order in this slot)
+      const existingOrdersInSlot = instances
+        .filter(i => i.order !== undefined && i.order !== null)
+        .map(i => i.order as number);
+      const idleBase = existingOrdersInSlot.length > 0 ? Math.max(...existingOrdersInSlot) : nextOrder - 100;
+
+      // Sort unsaved idle by scheduledTime ascending (missing goes last)
+      unsavedIdle.sort((a, b) => {
+        const ta = a?.task?.scheduledTime;
+        const tb = b?.task?.scheduledTime;
+        if (!ta && !tb) return 0;
+        if (!ta) return 1;
+        if (!tb) return -1;
+        const [ha, ma] = ta.split(':').map(n => parseInt(n, 10));
+        const [hb, mb] = tb.split(':').map(n => parseInt(n, 10));
+        return (ha * 60 + ma) - (hb * 60 + mb);
+      });
+
+      // Assign orders to unsaved idle starting after existing ones
+      let idleOrder = idleBase + 100;
+      unsavedIdle.forEach(inst => {
+        inst.order = idleOrder;
+        idleOrder += 100;
       });
     });
-    
-    // Save the orders
+
+    // Save new/updated orders only
     this.saveTaskOrders();
   }
 
@@ -2296,25 +2332,41 @@ export class TaskChuteView extends ItemView {
 
   private sortByOrder(instances: TaskInstance[]): TaskInstance[] {
     return instances.sort((a, b) => {
-      // State priority: idle/running/paused -> done
-      const statePriority = { idle: 0, running: 0, paused: 0, done: 1 };
-      const stateCompare = statePriority[a.state] - statePriority[b.state];
-      
-      if (stateCompare !== 0) {
-        return stateCompare;
+      // 1) State priority: done (top) -> running/paused -> idle
+      const statePriority: Record<string, number> = { done: 0, running: 1, paused: 1, idle: 2 };
+      const sa = statePriority[a.state] ?? 3;
+      const sb = statePriority[b.state] ?? 3;
+      if (sa !== sb) return sa - sb;
+
+      // 2) Order comparison
+      const hasOrderA = a.order !== undefined && a.order !== null;
+      const hasOrderB = b.order !== undefined && b.order !== null;
+      if (hasOrderA && hasOrderB) {
+        if (a.order! !== b.order!) return (a.order! - b.order!);
+        // If equal, fall through to time-based tiebreaker
+      } else if (hasOrderA && !hasOrderB) {
+        return -1; // With order comes first
+      } else if (!hasOrderA && hasOrderB) {
+        return 1; // With order comes first
       }
-      
-      // For done tasks, sort by startTime
+
+      // 3) Fallback: time-based
       if (a.state === 'done' && b.state === 'done') {
-        if (a.startTime && b.startTime) {
-          return a.startTime.getTime() - b.startTime.getTime();
-        }
+        const ta = a.startTime ? a.startTime.getTime() : Infinity;
+        const tb = b.startTime ? b.startTime.getTime() : Infinity;
+        if (ta !== tb) return ta - tb;
+        return 0;
       }
-      
-      // Sort by order number
-      const aOrder = a.order ?? 999999;
-      const bOrder = b.order ?? 999999;
-      return aOrder - bOrder;
+
+      // For running/idle/paused: use scheduledTime (HH:MM)
+      const tA = (a as any)?.task?.scheduledTime as string | undefined;
+      const tB = (b as any)?.task?.scheduledTime as string | undefined;
+      if (!tA && !tB) return 0;
+      if (!tA) return 1;
+      if (!tB) return -1;
+      const [ha, ma] = tA.split(':').map(n => parseInt(n, 10));
+      const [hb, mb] = tB.split(':').map(n => parseInt(n, 10));
+      return (ha * 60 + ma) - (hb * 60 + mb);
     });
   }
 
