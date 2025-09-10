@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
 import { LogView } from './LogView';
+import { ReviewService } from '../services/ReviewService';
 import { HeatmapService } from '../services/HeatmapService';
 import { 
   TaskData, 
@@ -2526,13 +2527,36 @@ export class TaskChuteView extends ItemView {
   // ===========================================
 
 
-  private handleNavigationItemClick(section: 'routine' | 'review' | 'log' | 'project'): void {
+  private async handleNavigationItemClick(section: 'routine' | 'review' | 'log' | 'project'): Promise<void> {
     if (section === 'log') {
       this.openLogModal();
       this.closeNavigation();
       return;
     }
+    if (section === 'review') {
+      await this.showReviewSection();
+      this.closeNavigation();
+      return;
+    }
     new Notice(`${section} 機能は実装中です`);
+  }
+
+  // Show Daily Review in right split
+  private async showReviewSection(): Promise<void> {
+    try {
+      // Determine date string; clamp future to today
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const selectedStr = this.getCurrentDateString();
+      const reviewDate = new Date(selectedStr);
+      const dateStr = reviewDate > new Date(todayStr) ? todayStr : selectedStr;
+
+      const review = new ReviewService(this.plugin);
+      const file = await review.ensureReviewFile(dateStr);
+      await review.openInSplit(file, this.leaf);
+    } catch (error: any) {
+      new Notice('レビューの表示に失敗しました: ' + (error?.message || error));
+    }
   }
 
   private openLogModal(): void {
