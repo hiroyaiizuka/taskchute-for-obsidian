@@ -8,4 +8,3 @@
 import './hybrid-bridge';
 
 // エクスポートは不要（既存のmain.jsがメインプラグインとして動作）
-console.log('[TaskChute] Hybrid mode initialized');

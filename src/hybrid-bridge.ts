@@ -42,7 +42,6 @@ import { DEFAULT_SETTINGS } from './settings';
   version: '1.0.0-hybrid'
 };
 
-console.log('[TaskChute] TypeScript modules loaded (hybrid mode)');
 
 export {
   PathManager,

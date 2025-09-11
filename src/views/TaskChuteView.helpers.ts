@@ -144,16 +144,11 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
     projectTitle = extractProjectTitle(metadata.project);
   } else if (metadata?.project) {
     projectTitle = extractProjectTitle(metadata.project);
-    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
     if (projectTitle) {
-      // Try to find the project file in the vault
       const allFiles = this.app.vault.getMarkdownFiles();
       const projectFile = allFiles.find(f => f.basename === projectTitle);
       if (projectFile) {
         projectPath = projectFile.path;
-        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
-      } else {
-        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
       }
     }
   }
@@ -209,16 +204,11 @@ async function createNonRoutineTask(this: any, file: any, content: string, metad
     projectTitle = extractProjectTitle(metadata.project);
   } else if (metadata?.project) {
     projectTitle = extractProjectTitle(metadata.project);
-    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
     if (projectTitle) {
-      // Try to find the project file in the vault
       const allFiles = this.app.vault.getMarkdownFiles();
       const projectFile = allFiles.find(f => f.basename === projectTitle);
       if (projectFile) {
         projectPath = projectFile.path;
-        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
-      } else {
-        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
       }
     }
   }
@@ -270,16 +260,11 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
     projectTitle = extractProjectTitle(metadata.project);
   } else if (metadata?.project) {
     projectTitle = extractProjectTitle(metadata.project);
-    console.log(`[TaskChute Debug] Extracted project title: "${projectTitle}" from "${metadata.project}"`);
     if (projectTitle) {
-      // Try to find the project file in the vault
       const allFiles = this.app.vault.getMarkdownFiles();
       const projectFile = allFiles.find(f => f.basename === projectTitle);
       if (projectFile) {
         projectPath = projectFile.path;
-        console.log(`[TaskChute Debug] Found project file at: ${projectPath}`);
-      } else {
-        console.log(`[TaskChute Debug] Project file not found for: ${projectTitle}`);
       }
     }
   }
@@ -452,8 +437,6 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
     d.path === file.path
   );
   
-  console.log(`[TaskChute Debug] shouldShowNonRoutineTask: file=${file.path}, dateString=${dateString}, isDeleted=${isDeleted}, deletedInstances=`, deletedInstances);
-  
   if (isDeleted) {
     return false;  // Don't show deleted tasks
   }
@@ -462,7 +445,6 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
   if (metadata?.target_date) {
     // If target_date is set, show only on that specific date
     const shouldShow = metadata.target_date === dateString;
-    console.log(`[TaskChute Debug] target_date is set: ${metadata.target_date}, dateString: ${dateString}, shouldShow: ${shouldShow}`);
     return shouldShow;
   }
 
@@ -482,14 +464,12 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
     const day = fileCreationDate.getDate().toString().padStart(2, "0");
     const fileCreationDateString = `${year}-${month}-${day}`;
     
-    console.log(`[TaskChute Debug] No target_date, checking file creation date: ${fileCreationDateString}, today: ${dateString}`);
     
     // Show only on creation date
     if (dateString === fileCreationDateString) {
       return true;
     }
   } catch (error) {
-    console.log(`[TaskChute Debug] Error checking file stats:`, error);
     // Don't show on error (file might be deleted)
     return false;
   }
