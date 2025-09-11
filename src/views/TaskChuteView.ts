@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { TASKCHUTE_FULL_CSS } from '../styles/full-css';
 import { loadTasksRefactored } from './TaskChuteView.helpers';
+import { ProjectNoteSyncManager } from '../managers/ProjectNoteSyncManager';
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -997,8 +998,6 @@ export class TaskChuteView extends ItemView {
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
     const existingComment = await this.getExistingTaskComment(inst);
-    // デバッグ：取得したコメントデータを確認
-    console.log("既存コメントデータ:", existingComment);
     const modal = document.createElement("div");
     modal.className = "taskchute-comment-modal";
     const modalContent = modal.createEl("div", {
@@ -1289,24 +1288,47 @@ export class TaskChuteView extends ItemView {
       const existingIndex = todayTasks.findIndex(
         (entry: any) => entry.instanceId === inst.instanceId
       );
+      const existingTaskData = existingIndex >= 0 ? { ...todayTasks[existingIndex] } : null;
 
-      // コメントデータの構造を仕様に合わせる
+      // コメントデータの構造を仕様に合わせる（JSON安全な最小構造）
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const toHMS = (d?: Date) => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : ''
+      const durationSec = (inst.startTime && inst.stopTime)
+        ? Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000)
+        : 0
+
       const commentData = {
-        ...inst,
-        executionComment: data.comment,
-        focusLevel: data.focus,
-        energyLevel: data.energy,
-        timestamp: new Date().toISOString()
-      };
+        instanceId: inst.instanceId,
+        taskPath: inst.task?.path || '',
+        taskName: inst.task?.name || '',
+        startTime: toHMS(inst.startTime),
+        stopTime: toHMS(inst.stopTime),
+        duration: durationSec,
+        executionComment: (data.comment || '').trim(),
+        focusLevel: data.focus || 0,
+        energyLevel: data.energy || 0,
+        isCompleted: inst.state === 'done',
+        project_path: inst.task?.projectPath || null,
+        project: inst.task?.projectTitle ? `[[${inst.task.projectTitle}]]` : null,
+        timestamp: new Date().toISOString(),
+      } as any;
 
       if (existingIndex >= 0) {
         // 既存エントリを更新
         todayTasks[existingIndex] = {
           ...todayTasks[existingIndex],
+          // 変化しうるフィールドのみ更新
           executionComment: commentData.executionComment,
           focusLevel: commentData.focusLevel,
           energyLevel: commentData.energyLevel,
-          timestamp: commentData.timestamp
+          startTime: commentData.startTime || todayTasks[existingIndex].startTime,
+          stopTime: commentData.stopTime || todayTasks[existingIndex].stopTime,
+          duration: durationSec || todayTasks[existingIndex].duration,
+          isCompleted: commentData.isCompleted,
+          project_path: commentData.project_path ?? todayTasks[existingIndex].project_path,
+          project: commentData.project ?? todayTasks[existingIndex].project,
+          lastCommentUpdate: new Date().toISOString(),
+          timestamp: commentData.timestamp,
         };
       } else {
         // 新規エントリを追加
@@ -1319,11 +1341,45 @@ export class TaskChuteView extends ItemView {
       } else {
         await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
       }
+
+      // プロジェクトノートへの同期（コメント本文が変更された場合のみ）
+      const completionData = {
+        executionComment: (data.comment || '').trim(),
+        focusLevel: data.focus,
+        energyLevel: data.energy,
+      } as any
+
+      if (
+        completionData.executionComment &&
+        (inst.task.projectPath || inst.task.projectTitle) &&
+        this.hasCommentChanged(existingTaskData, completionData)
+      ) {
+        await this.syncCommentToProjectNote(inst, completionData)
+      }
       
       new Notice("コメントを保存しました");
     } catch (error) {
       console.error("Failed to save comment:", error);
       new Notice("コメントの保存に失敗しました");
+    }
+  }
+
+  // コメント本文の変更検出
+  private hasCommentChanged(oldData: any, newData: { executionComment?: string } | null | undefined): boolean {
+    const oldComment = (oldData?.executionComment ?? '') as string
+    const newComment = (newData?.executionComment ?? '') as string
+    return oldComment !== newComment
+  }
+
+  // プロジェクトノートにコメントを同期
+  private async syncCommentToProjectNote(inst: TaskInstance, completionData: { executionComment: string }): Promise<void> {
+    try {
+      const syncManager = new ProjectNoteSyncManager(this.app, this.plugin.pathManager)
+      const projectPath = await syncManager.getProjectNotePath(inst)
+      if (!projectPath) return
+      await syncManager.updateProjectNote(projectPath, inst, completionData)
+    } catch (error: any) {
+      new Notice(`プロジェクトノートの更新に失敗しました: ${error.message || error}`)
     }
   }
 
@@ -1894,8 +1950,6 @@ export class TaskChuteView extends ItemView {
       const dataPath = `${logDataPath}/running-task.json`;
       
       await this.app.vault.adapter.write(dataPath, JSON.stringify(dataToSave, null, 2));
-      
-      console.log("[TaskChute DEBUG] Running tasks saved:", dataToSave);
     } catch (e) {
       console.error("[TaskChute] 実行中タスクの保存に失敗:", e);
     }
@@ -1908,7 +1962,6 @@ export class TaskChuteView extends ItemView {
       const dataFile = this.app.vault.getAbstractFileByPath(dataPath);
       
       if (!dataFile || !(dataFile instanceof TFile)) {
-        console.log("[TaskChute DEBUG] No running-task.json found");
         return;
       }
 
@@ -1916,13 +1969,11 @@ export class TaskChuteView extends ItemView {
       const runningTasksData = JSON.parse(content);
 
       if (!Array.isArray(runningTasksData)) {
-        console.log("[TaskChute DEBUG] Invalid running tasks data format");
         return;
       }
 
       // 現在の日付文字列を取得
       const currentDateString = this.getCurrentDateString();
-      console.log("[TaskChute DEBUG] Current date for restore:", currentDateString);
 
       // 削除済みタスクリストを取得
       const deletedInstances = this.getDeletedInstances(currentDateString);
@@ -1932,16 +1983,13 @@ export class TaskChuteView extends ItemView {
 
       let restored = false;
       for (const runningData of runningTasksData) {
-        console.log("[TaskChute DEBUG] Processing running data:", runningData);
         
         if (runningData.date !== currentDateString) {
-          console.log("[TaskChute DEBUG] Skipping different date:", runningData.date);
           continue;
         }
 
         // 削除済みタスクはスキップ
         if (runningData.taskPath && deletedTasks.includes(runningData.taskPath)) {
-          console.log("[TaskChute DEBUG] Skipping deleted task:", runningData.taskPath);
           continue;
         }
 
@@ -1953,24 +2001,19 @@ export class TaskChuteView extends ItemView {
             (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
         );
 
-        console.log("[TaskChute DEBUG] Found matching instance:", !!runningInstance);
-
         if (runningInstance) {
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
           this.currentInstance = runningInstance;
           restored = true;
-          console.log("[TaskChute DEBUG] Restored running task:", runningInstance.task.name);
-        } else {
-          console.log("[TaskChute DEBUG] No matching instance found for:", runningData.taskPath);
         }
+        // else: no matching instance, skip silently
       }
 
       if (restored) {
         this.startGlobalTimer(); // タイマー管理を再開
         this.renderTaskList(); // UIを更新
-        console.log("[TaskChute DEBUG] Running task restoration completed");
       }
     } catch (e) {
       console.error("[TaskChute] 実行中タスクの復元に失敗:", e);
@@ -1998,9 +2041,7 @@ export class TaskChuteView extends ItemView {
   }
 
   private async saveTaskLog(inst: TaskInstance): Promise<void> {
-    // Implementation for saving task log
-    // This would interact with the log system
-    console.log("Saving task log for:", inst.task.name);
+    // Implementation for saving task log (placeholder)
   }
 
   // ===========================================
@@ -2477,8 +2518,7 @@ export class TaskChuteView extends ItemView {
     const currentHour = now.getHours();
     const currentSlot = `${currentHour.toString().padStart(2, "0")}:00`;
     
-    // Implementation would go here
-    console.log("Checking boundary tasks for", currentSlot);
+    // Implementation would go here (debug log removed)
   }
 
   private updateTotalTasksCount(): void {
@@ -3727,13 +3767,11 @@ export class TaskChuteView extends ItemView {
   
 
   private async handleFileRename(file: TFile, oldPath: string): Promise<void> {
-    // Handle file rename logic
-    console.log("File renamed:", oldPath, "->", file.path);
+    // Handle file rename logic (debug log removed)
   }
 
   private moveInstanceToSlot(fromSlot: string, fromIdx: number, toSlot: string, toIdx: number): void {
-    // Handle moving task instances between slots
-    console.log(`Moving task from ${fromSlot}:${fromIdx} to ${toSlot}:${toIdx}`);
+    // Handle moving task instances between slots (debug log removed)
   }
 
   // State management methods for deletion/hiding
