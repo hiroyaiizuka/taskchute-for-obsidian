@@ -975,33 +975,91 @@ export class TaskChuteView extends ItemView {
   // ===========================================
 
   private async duplicateAndStartInstance(inst: TaskInstance): Promise<void> {
-    await this.duplicateInstance(inst);
+    // Spec: 完了タスクの再生 → 複製して即スタート
+    const newInst = await this.duplicateInstance(inst, /*returnOnly*/ true);
+    if (!newInst) return;
+    // 描画更新（複製を反映）
+    this.renderTaskList();
+    // 即開始
+    await this.startInstance(newInst);
+    // 最終描画
+    this.renderTaskList();
   }
   
-  private async duplicateInstance(inst: TaskInstance): Promise<void> {
+  private async duplicateInstance(inst: TaskInstance, returnOnly: boolean = false): Promise<TaskInstance | void> {
     try {
-      // 新しいインスタンスを作成
+      // 新しいインスタンスを作成（元の参照を壊さないよう個別構築）
+      const dateStr = this.getCurrentDateString();
+      const currentSlot = getCurrentTimeSlot(new Date());
       const newInstance: TaskInstance = {
-        ...inst,
-        instanceId: this.generateInstanceId(inst.task.path),
+        task: inst.task,
+        instanceId: this.generateInstanceId(inst.task, dateStr),
         state: "idle",
+        slotKey: currentSlot,
+        originalSlotKey: inst.slotKey,
         startTime: undefined,
         stopTime: undefined,
       };
+      // 並び順: 元の直下に入るよう order を調整
+      this.calculateDuplicateTaskOrder(newInstance, inst);
       
       // インスタンスリストに追加
       this.taskInstances.push(newInstance);
       
       // 状態を保存
       this.saveInstanceState(newInstance);
+
+      // 当日複製メタデータを保存（復元に使用）
+      const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
+      const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
+      // Avoid duplicates of duplicates
+      if (!duplicated.some((d: any) => d.instanceId === newInstance.instanceId)) {
+        duplicated.push({
+          instanceId: newInstance.instanceId,
+          originalPath: inst.task.path,
+          slotKey: newInstance.slotKey,
+          originalSlotKey: inst.slotKey,
+          timestamp: Date.now(),
+        });
+        try { localStorage.setItem(duplicationKey, JSON.stringify(duplicated)); } catch (_) {}
+      }
       
       // UIを更新
       this.renderTaskList();
       
       new Notice(`「${inst.task.title}」を複製しました`);
+
+      return returnOnly ? newInstance : undefined;
     } catch (error) {
       console.error("Failed to duplicate instance:", error);
       new Notice("タスクの複製に失敗しました");
+    }
+  }
+
+  // 元直下に挿入されるよう order を計算
+  private calculateDuplicateTaskOrder(newInst: TaskInstance, originalInst: TaskInstance): void {
+    try {
+      const slot = originalInst.slotKey || 'none';
+      // まず既存の order を整える（欠損のあるものに番号付け）
+      this.initializeTaskOrders();
+
+      const sameSlot = this.taskInstances
+        .filter(i => (i.slotKey || 'none') === slot && i !== newInst);
+      // order 昇順に
+      sameSlot.sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+
+      // original の直後の order を探す
+      const idx = sameSlot.indexOf(originalInst);
+      const prevOrder = originalInst.order ?? (idx >= 0 ? idx * 100 : 0);
+      const nextOrder = (idx >= 0 && idx < sameSlot.length - 1)
+        ? (sameSlot[idx + 1].order ?? (prevOrder + 200))
+        : (prevOrder + 200);
+      // 中間値を採用
+      const mid = Math.floor((prevOrder + nextOrder) / 2);
+      newInst.order = (isFinite(mid) && mid > prevOrder) ? mid : (prevOrder + 100);
+    } catch (_) {
+      // フォールバック
+      newInst.order = (originalInst.order ?? 0) + 100;
     }
   }
 
@@ -1829,6 +1887,16 @@ export class TaskChuteView extends ItemView {
 
   async startInstance(inst: TaskInstance): Promise<void> {
     try {
+      // 未来日の保護: 表示日が今日より未来なら開始不可
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const viewDate = new Date(this.currentDate);
+      viewDate.setHours(0,0,0,0);
+      if (viewDate.getTime() > today.getTime()) {
+        new Notice("未来のタスクは実行できません。", 2000);
+        return;
+      }
+
       // Stop current instance if any
       if (this.currentInstance && this.currentInstance.state === "running") {
         await this.stopInstance(this.currentInstance);
@@ -1838,6 +1906,22 @@ export class TaskChuteView extends ItemView {
       inst.state = "running";
       inst.startTime = new Date();
       this.currentInstance = inst;
+
+      // 非ルーチンで表示日≠今日の時は target_date を今日に移動
+      try {
+        if (!inst.task.isRoutine && viewDate.getTime() !== today.getTime()) {
+          const file = this.app.vault.getAbstractFileByPath(inst.task.path);
+          if (file instanceof TFile) {
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            const d = String(today.getDate()).padStart(2, '0');
+            await this.app.fileManager.processFrontMatter(file, (fm) => {
+              fm.target_date = `${y}-${m}-${d}`;
+              return fm;
+            });
+          }
+        }
+      } catch (_) {}
 
       // Save state
       this.saveInstanceState(inst);
@@ -2002,13 +2086,18 @@ export class TaskChuteView extends ItemView {
           continue;
         }
 
-        // 既存のインスタンスを検索
+        // 既存のインスタンスを検索（instanceId優先）
         let runningInstance = this.taskInstances.find(
-          (inst) =>
-            inst.task.path === runningData.taskPath &&
-            inst.state === "idle" &&
-            (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+          (inst) => inst.instanceId === runningData.instanceId
         );
+        if (!runningInstance) {
+          runningInstance = this.taskInstances.find(
+            (inst) =>
+              inst.task.path === runningData.taskPath &&
+              inst.state === "idle" &&
+              (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+          );
+        }
 
         if (runningInstance) {
           runningInstance.state = "running";
@@ -2016,8 +2105,23 @@ export class TaskChuteView extends ItemView {
           runningInstance.stopTime = null;
           this.currentInstance = runningInstance;
           restored = true;
+        } else {
+          // 見つからない場合は再作成（spec: 復元の堅牢性）
+          const taskData = this.tasks.find((t) => t.path === runningData.taskPath);
+          if (taskData) {
+            const recreated: TaskInstance = {
+              task: taskData,
+              instanceId: runningData.instanceId || this.generateInstanceId(taskData, currentDateString),
+              state: 'running',
+              slotKey: runningData.slotKey || getCurrentTimeSlot(new Date()),
+              startTime: new Date(runningData.startTime),
+              stopTime: null,
+            };
+            this.taskInstances.push(recreated);
+            this.currentInstance = recreated;
+            restored = true;
+          }
         }
-        // else: no matching instance, skip silently
       }
 
       if (restored) {
@@ -2050,7 +2154,70 @@ export class TaskChuteView extends ItemView {
   }
 
   private async saveTaskLog(inst: TaskInstance): Promise<void> {
-    // Implementation for saving task log (placeholder)
+    try {
+      if (!inst.startTime || !inst.stopTime) return;
+      // 記録日は開始日基準
+      const start = new Date(inst.startTime);
+      const yyyy = start.getFullYear();
+      const mm = String(start.getMonth() + 1).padStart(2, '0');
+      const dd = String(start.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      const toHMS = (d: Date) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const monthKey = `${yyyy}-${mm}`;
+      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+
+      // 既存読み込み or 初期化
+      let file = this.app.vault.getAbstractFileByPath(logPath) as TFile | null;
+      let json: any = { taskExecutions: {}, dailySummary: {} };
+      if (file && file instanceof TFile) {
+        try {
+          const raw = await this.app.vault.read(file);
+          json = raw ? JSON.parse(raw) : json;
+        } catch (_) {}
+      } else {
+        await this.plugin.pathManager.ensureFolderExists(this.plugin.pathManager.getLogDataPath());
+        await this.app.vault.create(logPath, JSON.stringify(json, null, 2));
+        file = this.app.vault.getAbstractFileByPath(logPath) as TFile;
+      }
+
+      if (!json.taskExecutions) json.taskExecutions = {};
+      if (!json.dailySummary) json.dailySummary = {};
+      if (!json.taskExecutions[dateStr]) json.taskExecutions[dateStr] = [];
+
+      // 既存の同一 instanceId があれば置換、なければ追記
+      const exec = {
+        taskTitle: inst.task.title || inst.task.name,
+        taskPath: inst.task.path,
+        instanceId: inst.instanceId,
+        slotKey: inst.slotKey,
+        startTime: toHMS(inst.startTime),
+        stopTime: toHMS(inst.stopTime),
+        durationSec: Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000),
+      };
+      const arr: any[] = json.taskExecutions[dateStr];
+      const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
+      if (idx >= 0) arr[idx] = exec; else arr.push(exec);
+
+      // 日次サマリーの更新（最小限）
+      const minutes = Math.floor(exec.durationSec / 60);
+      const prev = json.dailySummary[dateStr] || { totalMinutes: 0, totalTasks: 0, completedTasks: 0 };
+      // 冪等にするため再集計
+      const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+      json.dailySummary[dateStr] = {
+        totalMinutes,
+        totalTasks: arr.length,
+        completedTasks: arr.length,
+        procrastinatedTasks: prev.procrastinatedTasks || 0,
+        completionRate: arr.length > 0 ? 1 : 0,
+      };
+
+      await this.app.vault.modify(file as TFile, JSON.stringify(json, null, 2));
+    } catch (e) {
+      console.error('[TaskChute] saveTaskLog failed:', e);
+    }
   }
 
   // ===========================================
@@ -3129,12 +3296,38 @@ export class TaskChuteView extends ItemView {
       // 削除状態を保存
       const dateStr = this.getCurrentDateString();
       const deletedInstances = this.getDeletedInstances(dateStr);
-      deletedInstances.push({
-        instanceId: inst.instanceId,
-        path: inst.task.path,
-        deletionType: inst.task.isRoutine ? "today" : "permanent",
-        deletedAt: new Date().toISOString(),
-      });
+      const isDup = this.isDuplicatedTask(inst);
+      if (isDup) {
+        // 複製インスタンスは instance 単位で削除（元は残す）
+        deletedInstances.push({
+          instanceId: inst.instanceId,
+          path: inst.task.path,
+          deletionType: 'temporary',
+          timestamp: Date.now(),
+        } as any);
+        // 複製メタデータからも除去
+        const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
+        const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
+        const filtered = duplicated.filter((d: any) => d.instanceId !== inst.instanceId);
+        try { localStorage.setItem(duplicationKey, JSON.stringify(filtered)); } catch (_) {}
+      } else {
+        if (!inst.task.isRoutine) {
+          // 非ルーチン: パス単位（instanceIdを付けない）で当日非表示
+          deletedInstances.push({
+            path: inst.task.path,
+            deletionType: 'permanent',
+            timestamp: Date.now(),
+          } as any);
+        } else {
+          // ルーチン: instance 単位（今日のみ非表示）
+          deletedInstances.push({
+            instanceId: inst.instanceId,
+            path: inst.task.path,
+            deletionType: 'temporary',
+            timestamp: Date.now(),
+          } as any);
+        }
+      }
       this.saveDeletedInstances(dateStr, deletedInstances);
       
       // 非ルーチンタスクの場合、同じパスの他のインスタンスがなければファイルも削除

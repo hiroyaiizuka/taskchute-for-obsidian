@@ -78,6 +78,9 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       }
     }
     
+    // Add duplicated (unexecuted) instances saved in localStorage for the day
+    await addDuplicatedInstances.call(this, dateString);
+
     this.renderTaskList();
   } catch (error) {
     console.error("Failed to load tasks:", error);
@@ -237,12 +240,8 @@ async function createNonRoutineTask(this: any, file: any, content: string, metad
     date: dateString,
   };
 
-  // Check if deleted - check by path only for non-routine tasks
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  const isDeleted = deletedInstances.some((d: any) => 
-    d.path === file.path
-  );
+  // Check if deleted for today (path-level only). Do NOT hide due to duplicate-instance deletion.
+  const isDeleted = isInstanceDeleted.call(this, '', file.path, dateString);
 
   if (!isDeleted) {
     this.taskInstances.push(instance);
@@ -292,18 +291,21 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
   // Create idle instance for routine task
   const instance = {
     task: taskData,
-    instanceId: this.generateInstanceId(taskData.path),
+    instanceId: this.generateInstanceId(taskData, dateString),
     state: 'idle',
     slotKey: getScheduledSlotKey(metadata?.開始時刻) || 'none',
     date: dateString,
   };
 
-  // Check if hidden for today
+  // Check if hidden for today (instance-scoped entries should NOT hide other instances)
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
-  const isHidden = hiddenRoutines.some((h: any) => 
-    (typeof h === 'string' ? h === file.path : h.path === file.path)
-  );
+  const isHidden = hiddenRoutines.some((h: any) => {
+    if (typeof h === 'string') return h === file.path; // legacy path-only
+    if (h && (h.instanceId === null || h.instanceId === undefined)) return h.path === file.path; // path-level hide only when instanceId is null/undefined
+    // if instanceId is present, it hides only that duplicate instance, not the base
+    return false;
+  });
 
   // Check if deleted
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
@@ -424,9 +426,16 @@ function isInstanceDeleted(this: any, instanceId: string, path: string, dateStri
 function isInstanceHidden(this: any, instanceId: string, path: string, dateString: string): boolean {
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
-  return hiddenRoutines.some((h: any) => 
-    (typeof h === 'string' ? h === path : (h.instanceId === instanceId || h.path === path))
-  );
+  return hiddenRoutines.some((h: any) => {
+    if (typeof h === 'string') return h === path; // legacy path-only
+    if (h && h.instanceId !== undefined && h.instanceId !== null) {
+      // instance-scoped: only hide matching duplicate instance
+      return h.instanceId === instanceId;
+    }
+    // path-scoped when instanceId is null/undefined
+    if (h && h.path) return h.path === path;
+    return false;
+  });
 }
 
 async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dateString: string): Promise<boolean> {
@@ -475,4 +484,72 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
   }
   
   return false;
+}
+
+async function addDuplicatedInstances(this: any, dateString: string): Promise<void> {
+  try {
+    const duplicationKey = `taskchute-duplicated-instances-${dateString}`;
+    const records = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
+    if (!Array.isArray(records) || records.length === 0) return;
+
+    for (const rec of records) {
+      const { instanceId, originalPath, slotKey } = rec || {};
+      if (!instanceId || !originalPath) continue;
+      // Skip if already present (e.g., completed from log)
+      const exists = this.taskInstances.some((i: any) => i.instanceId === instanceId);
+      if (exists) continue;
+
+      // Try to get taskData for path
+      let taskData = this.tasks.find((t: any) => t.path === originalPath);
+      if (!taskData) {
+        const file = this.app.vault.getAbstractFileByPath(originalPath);
+        const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        if (file) {
+          taskData = {
+            file,
+            frontmatter: metadata || {},
+            path: originalPath,
+            name: file.basename,
+            title: file.basename,
+            project: metadata?.project,
+            projectPath: metadata?.project_path,
+            projectTitle: extractProjectTitle(metadata?.project),
+            isRoutine: metadata?.isRoutine === true || false,
+            scheduledTime: metadata?.開始時刻,
+          };
+          this.tasks.push(taskData);
+        } else {
+          // Virtual fallback
+          const base = originalPath.split('/').pop()?.replace(/\.md$/, '') || originalPath;
+          taskData = {
+            file: null,
+            frontmatter: {},
+            path: originalPath,
+            name: base,
+            title: base,
+            isRoutine: false,
+            isVirtual: true,
+          };
+          this.tasks.push(taskData);
+        }
+      }
+
+      const instance = {
+        task: taskData,
+        instanceId,
+        state: 'idle',
+        slotKey: slotKey || 'none',
+        date: dateString,
+      };
+
+      // Check deleted/hidden flags before adding
+      const isDeleted = isInstanceDeleted.call(this, instance.instanceId, taskData.path, dateString);
+      const isHidden = isInstanceHidden.call(this, instance.instanceId, taskData.path, dateString);
+      if (!isDeleted && !isHidden) {
+        this.taskInstances.push(instance);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to restore duplicated instances:', e);
+  }
 }

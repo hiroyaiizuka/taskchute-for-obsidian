@@ -2905,6 +2905,7 @@ async function loadTasksRefactored() {
         }
       }
     }
+    await addDuplicatedInstances.call(this, dateString);
     this.renderTaskList();
   } catch (error) {
     console.error("Failed to load tasks:", error);
@@ -3035,11 +3036,7 @@ async function createNonRoutineTask(file, content, metadata, dateString) {
     slotKey: getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none",
     date: dateString
   };
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  const isDeleted = deletedInstances.some(
-    (d) => d.path === file.path
-  );
+  const isDeleted = isInstanceDeleted.call(this, "", file.path, dateString);
   if (!isDeleted) {
     this.taskInstances.push(instance);
   }
@@ -3080,16 +3077,18 @@ async function createRoutineTask(file, content, metadata, dateString) {
   this.tasks.push(taskData);
   const instance = {
     task: taskData,
-    instanceId: this.generateInstanceId(taskData.path),
+    instanceId: this.generateInstanceId(taskData, dateString),
     state: "idle",
     slotKey: getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none",
     date: dateString
   };
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
-  const isHidden = hiddenRoutines.some(
-    (h) => typeof h === "string" ? h === file.path : h.path === file.path
-  );
+  const isHidden = hiddenRoutines.some((h) => {
+    if (typeof h === "string") return h === file.path;
+    if (h && (h.instanceId === null || h.instanceId === void 0)) return h.path === file.path;
+    return false;
+  });
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
   const isDeleted = deletedInstances.some(
@@ -3177,9 +3176,14 @@ function isInstanceDeleted(instanceId, path, dateString) {
 function isInstanceHidden(instanceId, path, dateString) {
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
-  return hiddenRoutines.some(
-    (h) => typeof h === "string" ? h === path : h.instanceId === instanceId || h.path === path
-  );
+  return hiddenRoutines.some((h) => {
+    if (typeof h === "string") return h === path;
+    if (h && h.instanceId !== void 0 && h.instanceId !== null) {
+      return h.instanceId === instanceId;
+    }
+    if (h && h.path) return h.path === path;
+    return false;
+  });
 }
 async function shouldShowNonRoutineTask(file, metadata, dateString) {
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
@@ -3211,6 +3215,66 @@ async function shouldShowNonRoutineTask(file, metadata, dateString) {
     return false;
   }
   return false;
+}
+async function addDuplicatedInstances(dateString) {
+  var _a, _b;
+  try {
+    const duplicationKey = `taskchute-duplicated-instances-${dateString}`;
+    const records = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
+    if (!Array.isArray(records) || records.length === 0) return;
+    for (const rec of records) {
+      const { instanceId, originalPath, slotKey } = rec || {};
+      if (!instanceId || !originalPath) continue;
+      const exists = this.taskInstances.some((i) => i.instanceId === instanceId);
+      if (exists) continue;
+      let taskData = this.tasks.find((t) => t.path === originalPath);
+      if (!taskData) {
+        const file = this.app.vault.getAbstractFileByPath(originalPath);
+        const metadata = file ? (_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter : void 0;
+        if (file) {
+          taskData = {
+            file,
+            frontmatter: metadata || {},
+            path: originalPath,
+            name: file.basename,
+            title: file.basename,
+            project: metadata == null ? void 0 : metadata.project,
+            projectPath: metadata == null ? void 0 : metadata.project_path,
+            projectTitle: extractProjectTitle(metadata == null ? void 0 : metadata.project),
+            isRoutine: (metadata == null ? void 0 : metadata.isRoutine) === true || false,
+            scheduledTime: metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B
+          };
+          this.tasks.push(taskData);
+        } else {
+          const base = ((_b = originalPath.split("/").pop()) == null ? void 0 : _b.replace(/\.md$/, "")) || originalPath;
+          taskData = {
+            file: null,
+            frontmatter: {},
+            path: originalPath,
+            name: base,
+            title: base,
+            isRoutine: false,
+            isVirtual: true
+          };
+          this.tasks.push(taskData);
+        }
+      }
+      const instance = {
+        task: taskData,
+        instanceId,
+        state: "idle",
+        slotKey: slotKey || "none",
+        date: dateString
+      };
+      const isDeleted = isInstanceDeleted.call(this, instance.instanceId, taskData.path, dateString);
+      const isHidden = isInstanceHidden.call(this, instance.instanceId, taskData.path, dateString);
+      if (!isDeleted && !isHidden) {
+        this.taskInstances.push(instance);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to restore duplicated instances:", e);
+  }
 }
 
 // src/managers/ProjectNoteSyncManager.ts
@@ -4033,24 +4097,73 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   // Missing Method Placeholders
   // ===========================================
   async duplicateAndStartInstance(inst) {
-    await this.duplicateInstance(inst);
+    const newInst = await this.duplicateInstance(
+      inst,
+      /*returnOnly*/
+      true
+    );
+    if (!newInst) return;
+    this.renderTaskList();
+    await this.startInstance(newInst);
+    this.renderTaskList();
   }
-  async duplicateInstance(inst) {
+  async duplicateInstance(inst, returnOnly = false) {
     try {
+      const dateStr = this.getCurrentDateString();
+      const currentSlot = getCurrentTimeSlot(/* @__PURE__ */ new Date());
       const newInstance = {
-        ...inst,
-        instanceId: this.generateInstanceId(inst.task.path),
+        task: inst.task,
+        instanceId: this.generateInstanceId(inst.task, dateStr),
         state: "idle",
+        slotKey: currentSlot,
+        originalSlotKey: inst.slotKey,
         startTime: void 0,
         stopTime: void 0
       };
+      this.calculateDuplicateTaskOrder(newInstance, inst);
       this.taskInstances.push(newInstance);
       this.saveInstanceState(newInstance);
+      const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
+      const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
+      if (!duplicated.some((d) => d.instanceId === newInstance.instanceId)) {
+        duplicated.push({
+          instanceId: newInstance.instanceId,
+          originalPath: inst.task.path,
+          slotKey: newInstance.slotKey,
+          originalSlotKey: inst.slotKey,
+          timestamp: Date.now()
+        });
+        try {
+          localStorage.setItem(duplicationKey, JSON.stringify(duplicated));
+        } catch (_) {
+        }
+      }
       this.renderTaskList();
       new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
+      return returnOnly ? newInstance : void 0;
     } catch (error) {
       console.error("Failed to duplicate instance:", error);
       new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+    }
+  }
+  // 元直下に挿入されるよう order を計算
+  calculateDuplicateTaskOrder(newInst, originalInst) {
+    var _a, _b, _c;
+    try {
+      const slot = originalInst.slotKey || "none";
+      this.initializeTaskOrders();
+      const sameSlot = this.taskInstances.filter((i) => (i.slotKey || "none") === slot && i !== newInst);
+      sameSlot.sort((a, b) => {
+        var _a2, _b2;
+        return ((_a2 = a.order) != null ? _a2 : 0) - ((_b2 = b.order) != null ? _b2 : 0);
+      });
+      const idx = sameSlot.indexOf(originalInst);
+      const prevOrder = (_a = originalInst.order) != null ? _a : idx >= 0 ? idx * 100 : 0;
+      const nextOrder = idx >= 0 && idx < sameSlot.length - 1 ? (_b = sameSlot[idx + 1].order) != null ? _b : prevOrder + 200 : prevOrder + 200;
+      const mid = Math.floor((prevOrder + nextOrder) / 2);
+      newInst.order = isFinite(mid) && mid > prevOrder ? mid : prevOrder + 100;
+    } catch (_) {
+      newInst.order = ((_c = originalInst.order) != null ? _c : 0) + 100;
     }
   }
   async showTaskCompletionModal(inst) {
@@ -4689,12 +4802,35 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   // ===========================================
   async startInstance(inst) {
     try {
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const viewDate = new Date(this.currentDate);
+      viewDate.setHours(0, 0, 0, 0);
+      if (viewDate.getTime() > today.getTime()) {
+        new import_obsidian7.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        return;
+      }
       if (this.currentInstance && this.currentInstance.state === "running") {
         await this.stopInstance(this.currentInstance);
       }
       inst.state = "running";
       inst.startTime = /* @__PURE__ */ new Date();
       this.currentInstance = inst;
+      try {
+        if (!inst.task.isRoutine && viewDate.getTime() !== today.getTime()) {
+          const file = this.app.vault.getAbstractFileByPath(inst.task.path);
+          if (file instanceof import_obsidian7.TFile) {
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, "0");
+            const d = String(today.getDate()).padStart(2, "0");
+            await this.app.fileManager.processFrontMatter(file, (fm) => {
+              fm.target_date = `${y}-${m}-${d}`;
+              return fm;
+            });
+          }
+        }
+      } catch (_) {
+      }
       this.saveInstanceState(inst);
       await this.saveRunningTasksState();
       this.renderTaskList();
@@ -4807,14 +4943,34 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           continue;
         }
         let runningInstance = this.taskInstances.find(
-          (inst) => inst.task.path === runningData.taskPath && inst.state === "idle" && (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+          (inst) => inst.instanceId === runningData.instanceId
         );
+        if (!runningInstance) {
+          runningInstance = this.taskInstances.find(
+            (inst) => inst.task.path === runningData.taskPath && inst.state === "idle" && (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+          );
+        }
         if (runningInstance) {
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
           this.currentInstance = runningInstance;
           restored = true;
+        } else {
+          const taskData = this.tasks.find((t) => t.path === runningData.taskPath);
+          if (taskData) {
+            const recreated = {
+              task: taskData,
+              instanceId: runningData.instanceId || this.generateInstanceId(taskData, currentDateString),
+              state: "running",
+              slotKey: runningData.slotKey || getCurrentTimeSlot(/* @__PURE__ */ new Date()),
+              startTime: new Date(runningData.startTime),
+              stopTime: null
+            };
+            this.taskInstances.push(recreated);
+            this.currentInstance = recreated;
+            restored = true;
+          }
         }
       }
       if (restored) {
@@ -4845,6 +5001,60 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
   }
   async saveTaskLog(inst) {
+    try {
+      if (!inst.startTime || !inst.stopTime) return;
+      const start = new Date(inst.startTime);
+      const yyyy = start.getFullYear();
+      const mm = String(start.getMonth() + 1).padStart(2, "0");
+      const dd = String(start.getDate()).padStart(2, "0");
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const toHMS = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const monthKey = `${yyyy}-${mm}`;
+      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+      let file = this.app.vault.getAbstractFileByPath(logPath);
+      let json = { taskExecutions: {}, dailySummary: {} };
+      if (file && file instanceof import_obsidian7.TFile) {
+        try {
+          const raw = await this.app.vault.read(file);
+          json = raw ? JSON.parse(raw) : json;
+        } catch (_) {
+        }
+      } else {
+        await this.plugin.pathManager.ensureFolderExists(this.plugin.pathManager.getLogDataPath());
+        await this.app.vault.create(logPath, JSON.stringify(json, null, 2));
+        file = this.app.vault.getAbstractFileByPath(logPath);
+      }
+      if (!json.taskExecutions) json.taskExecutions = {};
+      if (!json.dailySummary) json.dailySummary = {};
+      if (!json.taskExecutions[dateStr]) json.taskExecutions[dateStr] = [];
+      const exec = {
+        taskTitle: inst.task.title || inst.task.name,
+        taskPath: inst.task.path,
+        instanceId: inst.instanceId,
+        slotKey: inst.slotKey,
+        startTime: toHMS(inst.startTime),
+        stopTime: toHMS(inst.stopTime),
+        durationSec: Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3)
+      };
+      const arr = json.taskExecutions[dateStr];
+      const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
+      if (idx >= 0) arr[idx] = exec;
+      else arr.push(exec);
+      const minutes = Math.floor(exec.durationSec / 60);
+      const prev = json.dailySummary[dateStr] || { totalMinutes: 0, totalTasks: 0, completedTasks: 0 };
+      const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+      json.dailySummary[dateStr] = {
+        totalMinutes,
+        totalTasks: arr.length,
+        completedTasks: arr.length,
+        procrastinatedTasks: prev.procrastinatedTasks || 0,
+        completionRate: arr.length > 0 ? 1 : 0
+      };
+      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
+    } catch (e) {
+      console.error("[TaskChute] saveTaskLog failed:", e);
+    }
   }
   // ===========================================
   // Timer Management Methods
@@ -5645,12 +5855,37 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       }
       const dateStr = this.getCurrentDateString();
       const deletedInstances = this.getDeletedInstances(dateStr);
-      deletedInstances.push({
-        instanceId: inst.instanceId,
-        path: inst.task.path,
-        deletionType: inst.task.isRoutine ? "today" : "permanent",
-        deletedAt: (/* @__PURE__ */ new Date()).toISOString()
-      });
+      const isDup = this.isDuplicatedTask(inst);
+      if (isDup) {
+        deletedInstances.push({
+          instanceId: inst.instanceId,
+          path: inst.task.path,
+          deletionType: "temporary",
+          timestamp: Date.now()
+        });
+        const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
+        const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
+        const filtered = duplicated.filter((d) => d.instanceId !== inst.instanceId);
+        try {
+          localStorage.setItem(duplicationKey, JSON.stringify(filtered));
+        } catch (_) {
+        }
+      } else {
+        if (!inst.task.isRoutine) {
+          deletedInstances.push({
+            path: inst.task.path,
+            deletionType: "permanent",
+            timestamp: Date.now()
+          });
+        } else {
+          deletedInstances.push({
+            instanceId: inst.instanceId,
+            path: inst.task.path,
+            deletionType: "temporary",
+            timestamp: Date.now()
+          });
+        }
+      }
       this.saveDeletedInstances(dateStr, deletedInstances);
       if (!inst.task.isRoutine) {
         const samePathInstances = this.taskInstances.filter(
