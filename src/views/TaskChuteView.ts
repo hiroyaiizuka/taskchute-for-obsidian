@@ -1902,6 +1902,17 @@ export class TaskChuteView extends ItemView {
         await this.stopInstance(this.currentInstance);
       }
 
+      // Move the instance to the current time slot before starting
+      // Spec: startInstance should relocate the instance into the current slot
+      // so that running tasks always appear under "now" (e.g. 0:00-8:00 at 00:30)
+      try {
+        const currentSlot = getCurrentTimeSlot(new Date());
+        if (inst.slotKey !== currentSlot) {
+          if (!inst.originalSlotKey) inst.originalSlotKey = inst.slotKey;
+          inst.slotKey = currentSlot;
+        }
+      } catch (_) { /* fail-safe: keep original slot on error */ }
+
       // Start the new instance
       inst.state = "running";
       inst.startTime = new Date();
@@ -2033,6 +2044,7 @@ export class TaskChuteView extends ItemView {
           taskPath: inst.task.path,
           startTime: inst.startTime ? inst.startTime.toISOString() : new Date().toISOString(),
           slotKey: inst.slotKey,
+          originalSlotKey: inst.originalSlotKey,
           instanceId: inst.instanceId,
           taskDescription: inst.task.description || "",
           isRoutine: inst.task.isRoutine === true
@@ -2103,6 +2115,9 @@ export class TaskChuteView extends ItemView {
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
+          if (!runningInstance.originalSlotKey && runningData.originalSlotKey) {
+            runningInstance.originalSlotKey = runningData.originalSlotKey;
+          }
           this.currentInstance = runningInstance;
           restored = true;
         } else {
@@ -2114,6 +2129,7 @@ export class TaskChuteView extends ItemView {
               instanceId: runningData.instanceId || this.generateInstanceId(taskData, currentDateString),
               state: 'running',
               slotKey: runningData.slotKey || getCurrentTimeSlot(new Date()),
+              originalSlotKey: runningData.originalSlotKey,
               startTime: new Date(runningData.startTime),
               stopTime: null,
             };

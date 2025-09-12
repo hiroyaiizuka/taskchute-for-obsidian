@@ -4813,6 +4813,14 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       if (this.currentInstance && this.currentInstance.state === "running") {
         await this.stopInstance(this.currentInstance);
       }
+      try {
+        const currentSlot = getCurrentTimeSlot(/* @__PURE__ */ new Date());
+        if (inst.slotKey !== currentSlot) {
+          if (!inst.originalSlotKey) inst.originalSlotKey = inst.slotKey;
+          inst.slotKey = currentSlot;
+        }
+      } catch (_) {
+      }
       inst.state = "running";
       inst.startTime = /* @__PURE__ */ new Date();
       this.currentInstance = inst;
@@ -4906,6 +4914,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           taskPath: inst.task.path,
           startTime: inst.startTime ? inst.startTime.toISOString() : (/* @__PURE__ */ new Date()).toISOString(),
           slotKey: inst.slotKey,
+          originalSlotKey: inst.originalSlotKey,
           instanceId: inst.instanceId,
           taskDescription: inst.task.description || "",
           isRoutine: inst.task.isRoutine === true
@@ -4954,6 +4963,9 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
+          if (!runningInstance.originalSlotKey && runningData.originalSlotKey) {
+            runningInstance.originalSlotKey = runningData.originalSlotKey;
+          }
           this.currentInstance = runningInstance;
           restored = true;
         } else {
@@ -4964,6 +4976,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
               instanceId: runningData.instanceId || this.generateInstanceId(taskData, currentDateString),
               state: "running",
               slotKey: runningData.slotKey || getCurrentTimeSlot(/* @__PURE__ */ new Date()),
+              originalSlotKey: runningData.originalSlotKey,
               startTime: new Date(runningData.startTime),
               stopTime: null
             };
