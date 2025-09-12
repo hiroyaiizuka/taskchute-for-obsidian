@@ -2874,16 +2874,15 @@ async function loadTasksRefactored() {
     const processedTaskNames = /* @__PURE__ */ new Set();
     const processedFilePaths = /* @__PURE__ */ new Set();
     for (const exec of todayExecutions) {
-      if (!processedTaskNames.has(exec.taskTitle)) {
-        processedTaskNames.add(exec.taskTitle);
-        const taskFile = taskFiles.find((f) => f.basename === exec.taskTitle);
-        if (taskFile) {
-          processedFilePaths.add(taskFile.path);
-        }
-        const taskExecutions = todayExecutions.filter(
-          (e) => e.taskTitle === exec.taskTitle
-        );
-        await createTaskFromExecutions.call(this, taskExecutions, taskFile, dateString);
+      if (processedTaskNames.has(exec.taskTitle)) continue;
+      processedTaskNames.add(exec.taskTitle);
+      const taskFile = taskFiles.find((f) => f.basename === exec.taskTitle);
+      const taskExecutions = todayExecutions.filter(
+        (e) => e.taskTitle === exec.taskTitle
+      );
+      const hadVisible = await createTaskFromExecutions.call(this, taskExecutions, taskFile, dateString);
+      if (hadVisible && taskFile) {
+        processedFilePaths.add(taskFile.path);
       }
     }
     for (const file of taskFiles) {
@@ -2981,7 +2980,7 @@ async function createTaskFromExecutions(executions, file, dateString) {
     scheduledTime: metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B,
     isVirtual: !file
   };
-  this.tasks.push(taskData);
+  let created = 0;
   for (const exec of executions) {
     const instance = {
       task: taskData,
@@ -2997,8 +2996,13 @@ async function createTaskFromExecutions(executions, file, dateString) {
     const isHidden = isInstanceHidden.call(this, instance.instanceId, taskData.path, dateString);
     if (!isDeleted && !isHidden) {
       this.taskInstances.push(instance);
+      created++;
     }
   }
+  if (created > 0) {
+    this.tasks.push(taskData);
+  }
+  return created > 0;
 }
 async function createNonRoutineTask(file, content, metadata, dateString) {
   let projectPath = null;
@@ -3188,9 +3192,12 @@ function isInstanceHidden(instanceId, path, dateString) {
 async function shouldShowNonRoutineTask(file, metadata, dateString) {
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  const isDeleted = deletedInstances.some(
-    (d) => d.path === file.path
-  );
+  const isDeleted = deletedInstances.some((d) => {
+    if (!d || d.path !== file.path) return false;
+    const isPathScoped = d.instanceId === void 0 || d.instanceId === null;
+    const isPermanent = d.deletionType === "permanent";
+    return isPathScoped || isPermanent;
+  });
   if (isDeleted) {
     return false;
   }
@@ -5069,6 +5076,51 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       console.error("[TaskChute] saveTaskLog failed:", e);
     }
   }
+  /**
+   * Remove an execution log entry for the given instance on the current view date
+   * and recalculate the daily summary. This is used when a completed task is
+   * reverted back to idle ("未実行に戻す").
+   */
+  async removeTaskLogForInstanceOnCurrentDate(instanceId) {
+    var _a;
+    try {
+      if (!instanceId) return;
+      const y = this.currentDate.getFullYear();
+      const m = String(this.currentDate.getMonth() + 1).padStart(2, "0");
+      const d = String(this.currentDate.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const monthKey = `${y}-${m}`;
+      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+      const file = this.app.vault.getAbstractFileByPath(logPath);
+      if (!file || !(file instanceof import_obsidian7.TFile)) return;
+      const raw = await this.app.vault.read(file);
+      if (!raw) return;
+      let json = {};
+      try {
+        json = JSON.parse(raw);
+      } catch (_) {
+        return;
+      }
+      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateStr])) return;
+      const arr = json.taskExecutions[dateStr];
+      const filtered = arr.filter((e) => e.instanceId !== instanceId);
+      if (filtered.length === arr.length) return;
+      json.taskExecutions[dateStr] = filtered;
+      if (!json.dailySummary) json.dailySummary = {};
+      const totalMinutes = filtered.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+      json.dailySummary[dateStr] = {
+        totalMinutes,
+        totalTasks: filtered.length,
+        completedTasks: filtered.length,
+        procrastinatedTasks: ((_a = json.dailySummary[dateStr]) == null ? void 0 : _a.procrastinatedTasks) || 0,
+        completionRate: filtered.length > 0 ? 1 : 0
+      };
+      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
+    } catch (e) {
+      console.error("[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:", e);
+    }
+  }
   // ===========================================
   // Timer Management Methods
   // ===========================================
@@ -5549,6 +5601,9 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
   }
   async deleteNonRoutineTask(inst) {
+    if (inst.instanceId) {
+      await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId);
+    }
     await this.deleteInstance(inst);
   }
   async deleteRoutineTask(inst) {
@@ -5925,6 +5980,9 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       inst.state = "idle";
       inst.startTime = void 0;
       inst.stopTime = void 0;
+      if (inst.instanceId) {
+        await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
+      }
       this.saveInstanceState(inst);
       this.renderTaskList();
       new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);

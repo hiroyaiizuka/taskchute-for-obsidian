@@ -2236,6 +2236,58 @@ export class TaskChuteView extends ItemView {
     }
   }
 
+  /**
+   * Remove an execution log entry for the given instance on the current view date
+   * and recalculate the daily summary. This is used when a completed task is
+   * reverted back to idle ("未実行に戻す").
+   */
+  private async removeTaskLogForInstanceOnCurrentDate(instanceId: string): Promise<void> {
+    try {
+      if (!instanceId) return;
+
+      const y = this.currentDate.getFullYear();
+      const m = String(this.currentDate.getMonth() + 1).padStart(2, '0');
+      const d = String(this.currentDate.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const monthKey = `${y}-${m}`;
+      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+
+      const file = this.app.vault.getAbstractFileByPath(logPath);
+      if (!file || !(file instanceof TFile)) return; // nothing to do
+
+      const raw = await this.app.vault.read(file);
+      if (!raw) return;
+      let json: any = {};
+      try { json = JSON.parse(raw); } catch (_) { return; }
+
+      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateStr])) return;
+
+      // Filter out the matching execution by instanceId (date-scoped)
+      const arr: any[] = json.taskExecutions[dateStr];
+      const filtered = arr.filter((e: any) => e.instanceId !== instanceId);
+      if (filtered.length === arr.length) return; // nothing removed
+
+      json.taskExecutions[dateStr] = filtered;
+
+      // Recompute daily summary similar to saveTaskLog
+      if (!json.dailySummary) json.dailySummary = {};
+      const totalMinutes = filtered.reduce((s, e) => s + Math.floor(((e.durationSec || 0) / 60)), 0);
+      json.dailySummary[dateStr] = {
+        totalMinutes,
+        totalTasks: filtered.length,
+        completedTasks: filtered.length,
+        procrastinatedTasks: (json.dailySummary[dateStr]?.procrastinatedTasks) || 0,
+        completionRate: filtered.length > 0 ? 1 : 0,
+      };
+
+      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
+    } catch (e) {
+      console.error('[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:', e);
+    }
+  }
+
   // ===========================================
   // Timer Management Methods
   // ===========================================
@@ -2882,7 +2934,12 @@ export class TaskChuteView extends ItemView {
   }
 
   private async deleteNonRoutineTask(inst: TaskInstance): Promise<void> {
-    // 非ルーチンタスクの削除はdeleteInstanceメソッドに統一
+    // 非ルーチンタスクの削除
+    // 1) 実行ログの整合性: インスタンス単位の実行履歴を削除（存在すれば）
+    if (inst.instanceId) {
+      await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId);
+    }
+    // 2) インスタンス削除
     await this.deleteInstance(inst);
   }
 
@@ -3379,6 +3436,12 @@ export class TaskChuteView extends ItemView {
       inst.startTime = undefined;
       inst.stopTime = undefined;
       
+      // もし以前に完了してログへ書かれていた場合、当日の実行ログを削除
+      // （再起動後に "done" として復活するのを防止）
+      if (inst.instanceId) {
+        await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
+      }
+
       // 状態を保存
       this.saveInstanceState(inst);
       

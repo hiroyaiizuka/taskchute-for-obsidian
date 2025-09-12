@@ -24,33 +24,34 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       (file: any) => file.extension === "md"
     );
 
-    // Track processed task names to avoid duplicates
+    // Track processed task names to avoid duplicate execution grouping
     const processedTaskNames = new Set<string>();
+    // Only mark a file as processed if at least one visible instance was materialized
     const processedFilePaths = new Set<string>();
 
     // First, process tasks from execution history
     for (const exec of todayExecutions) {
-      if (!processedTaskNames.has(exec.taskTitle)) {
-        processedTaskNames.add(exec.taskTitle);
-        
-        // Find the task file
-        const taskFile = taskFiles.find((f: any) => f.basename === exec.taskTitle);
-        if (taskFile) {
-          processedFilePaths.add(taskFile.path);
-        }
-        
-        // Get all executions for this task
-        const taskExecutions = todayExecutions.filter(
-          (e: any) => e.taskTitle === exec.taskTitle
-        );
-        
-        // Create task from execution
-        await createTaskFromExecutions.call(this, taskExecutions, taskFile, dateString);
+      if (processedTaskNames.has(exec.taskTitle)) continue;
+      processedTaskNames.add(exec.taskTitle);
+
+      // Find the task file (may be undefined if deleted)
+      const taskFile = taskFiles.find((f: any) => f.basename === exec.taskTitle);
+
+      // Group all executions for this title
+      const taskExecutions = todayExecutions.filter(
+        (e: any) => e.taskTitle === exec.taskTitle
+      );
+
+      // Create from executions; only mark file as processed if something was actually rendered
+      const hadVisible = await createTaskFromExecutions.call(this, taskExecutions, taskFile, dateString);
+      if (hadVisible && taskFile) {
+        processedFilePaths.add(taskFile.path);
       }
     }
 
     // Then, process tasks that haven't been executed today (routine and non-routine)
     for (const file of taskFiles) {
+      // Skip only if first phase actually materialized something for this path
       if (processedFilePaths.has(file.path)) continue;
       
       const content = await this.app.vault.read(file);
@@ -75,7 +76,7 @@ export async function loadTasksRefactored(this: any): Promise<void> {
         if (shouldShow) {
           await createNonRoutineTask.call(this, file, content, metadata, dateString);
         }
-      }
+    }
     }
     
     // Add duplicated (unexecuted) instances saved in localStorage for the day
@@ -134,7 +135,8 @@ function calculateSlotKeyFromTime(timeStr: string): string {
   return "none";
 }
 
-async function createTaskFromExecutions(this: any, executions: any[], file: any, dateString: string): Promise<void> {
+// Returns true if at least one visible instance was created
+async function createTaskFromExecutions(this: any, executions: any[], file: any, dateString: string): Promise<boolean> {
   const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
   
   // Extract project info
@@ -171,8 +173,7 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
     isVirtual: !file,
   };
 
-  this.tasks.push(taskData);
-
+  let created = 0;
   // Create instances for each execution
   for (const exec of executions) {
     const instance = {
@@ -192,8 +193,16 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
     
     if (!isDeleted && !isHidden) {
       this.taskInstances.push(instance);
+      created++;
     }
   }
+
+  // Only register task data if at least one instance is visible
+  if (created > 0) {
+    this.tasks.push(taskData);
+  }
+
+  return created > 0;
 }
 
 async function createNonRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
@@ -442,9 +451,16 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
   // First check if task is deleted
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  const isDeleted = deletedInstances.some((d: any) => 
-    d.path === file.path
-  );
+  // Path-level deletion hides the whole task only when the record is truly path-scoped
+  // (no instanceId present). Instance-scoped deletions (e.g., duplicate instance) must
+  // NOT hide the base file.
+  const isDeleted = deletedInstances.some((d: any) => {
+    if (!d || d.path !== file.path) return false;
+    // Treat as path-level only if instanceId is null/undefined and/or deletionType === 'permanent'
+    const isPathScoped = d.instanceId === undefined || d.instanceId === null;
+    const isPermanent = d.deletionType === 'permanent';
+    return isPathScoped || isPermanent;
+  });
   
   if (isDeleted) {
     return false;  // Don't show deleted tasks
