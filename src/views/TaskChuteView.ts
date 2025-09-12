@@ -215,6 +215,8 @@ export class TaskChuteView extends ItemView {
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
       await this.restoreRunningTaskState();
+      // Re-apply boundary move when returning to today
+      this.checkBoundaryTasks();
     });
     
     rightBtn.addEventListener("click", async () => {
@@ -222,6 +224,8 @@ export class TaskChuteView extends ItemView {
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
       await this.restoreRunningTaskState();
+      // Re-apply boundary move when returning to today
+      this.checkBoundaryTasks();
     });
     
     // Calendar button functionality
@@ -389,6 +393,8 @@ export class TaskChuteView extends ItemView {
         this.updateDateLabel(dateLabel);
         await this.loadTasks();
         await this.restoreRunningTaskState();
+        // Re-apply boundary move if the selected day is today
+        this.checkBoundaryTasks();
         input.remove();
       });
       

@@ -3479,12 +3479,14 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
       await this.restoreRunningTaskState();
+      this.checkBoundaryTasks();
     });
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
       await this.loadTasks();
       await this.restoreRunningTaskState();
+      this.checkBoundaryTasks();
     });
     this.setupCalendarButton(calendarBtn, dateLabel);
     topBarContainer.createEl("div", {
@@ -3609,6 +3611,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         this.updateDateLabel(dateLabel);
         await this.loadTasks();
         await this.restoreRunningTaskState();
+        this.checkBoundaryTasks();
         input.remove();
       });
       input.addEventListener("blur", () => input.remove());
