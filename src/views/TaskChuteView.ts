@@ -1,4 +1,5 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
+import { calculateNextBoundary, getCurrentTimeSlot, TimeBoundary } from '../utils/time';
 import { LogView } from './LogView';
 import { ReviewService } from '../services/ReviewService';
 import { HeatmapService } from '../services/HeatmapService';
@@ -114,6 +115,8 @@ export class TaskChuteView extends ItemView {
 
     await this.setupUI(container);
     await this.loadTasks();
+    // Apply boundary check immediately on open (today only)
+    this.checkBoundaryTasks();
     
     // Restore any running tasks from persistence
     await this.restoreRunningTaskState();
@@ -2501,24 +2504,60 @@ export class TaskChuteView extends ItemView {
   private scheduleBoundaryCheck(): void {
     // Schedule boundary check for idle-task-auto-move feature
     const now = new Date();
-    const nextHour = new Date(now);
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
-    
-    const msUntilNextHour = nextHour.getTime() - now.getTime();
-    
+    const boundaries: TimeBoundary[] = [
+      { hour: 0, minute: 0 },
+      { hour: 8, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 0 },
+    ];
+
+    const next = calculateNextBoundary(now, boundaries);
+    // Run 1s after boundary to avoid edge jitter
+    const delay = Math.max(0, next.getTime() - now.getTime() + 1000);
+
     this.boundaryCheckTimeout = setTimeout(() => {
       this.checkBoundaryTasks();
       this.scheduleBoundaryCheck(); // Reschedule
-    }, msUntilNextHour);
+    }, delay);
   }
 
   private checkBoundaryTasks(): void {
-    // Move idle tasks that have passed their scheduled time
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentSlot = `${currentHour.toString().padStart(2, "0")}:00`;
-    
-    // Implementation would go here (debug log removed)
+    try {
+      // Only act on today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const viewDate = new Date(this.currentDate);
+      viewDate.setHours(0, 0, 0, 0);
+      if (viewDate.getTime() !== today.getTime()) return;
+
+      // Current slot based on now
+      const currentSlot = getCurrentTimeSlot(new Date());
+      const slots = this.getTimeSlotKeys();
+      const currentIndex = slots.indexOf(currentSlot);
+      if (currentIndex < 0) return; // safety
+
+      let moved = false;
+      this.taskInstances.forEach((inst) => {
+        if (inst.state !== 'idle') return;
+        const slot = inst.slotKey || 'none';
+        if (slot === 'none') return;
+        const idx = slots.indexOf(slot);
+        if (idx >= 0 && idx < currentIndex) {
+          // Past slot → move into current slot
+          inst.slotKey = currentSlot;
+          moved = true;
+        }
+      });
+
+      if (moved) {
+        // Recompute orders per spec and rerender
+        this.initializeTaskOrders();
+        this.renderTaskList();
+      }
+    } catch (e) {
+      // Fail-safe: don't crash view on timer
+      console.error('[TaskChute] boundary move failed:', e);
+    }
   }
 
   private updateTotalTasksCount(): void {

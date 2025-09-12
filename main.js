@@ -202,6 +202,32 @@ var RoutineAliasManager = class {
 // src/views/TaskChuteView.ts
 var import_obsidian7 = require("obsidian");
 
+// src/utils/time.ts
+function calculateNextBoundary(now, boundaries) {
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  for (const boundary of boundaries) {
+    if (boundary.hour > currentHour || boundary.hour === currentHour && boundary.minute > currentMinute) {
+      const next = new Date(now);
+      next.setHours(boundary.hour, boundary.minute, 0, 0);
+      return next;
+    }
+  }
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(boundaries[0].hour, boundaries[0].minute, 0, 0);
+  return tomorrow;
+}
+function getCurrentTimeSlot(date = /* @__PURE__ */ new Date()) {
+  const hour = date.getHours();
+  const minute = date.getMinutes();
+  const timeInMinutes = hour * 60 + minute;
+  if (timeInMinutes >= 0 && timeInMinutes < 8 * 60) return "0:00-8:00";
+  if (timeInMinutes >= 8 * 60 && timeInMinutes < 12 * 60) return "8:00-12:00";
+  if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) return "12:00-16:00";
+  return "16:00-0:00";
+}
+
 // src/views/LogView.ts
 var import_obsidian4 = require("obsidian");
 
@@ -3385,6 +3411,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     this.scheduleBoundaryCheck();
     await this.setupUI(container);
     await this.loadTasks();
+    this.checkBoundaryTasks();
     await this.restoreRunningTaskState();
     this.applyStyles();
     this.setupResizeObserver();
@@ -5153,18 +5180,48 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   }
   scheduleBoundaryCheck() {
     const now = /* @__PURE__ */ new Date();
-    const nextHour = new Date(now);
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
-    const msUntilNextHour = nextHour.getTime() - now.getTime();
+    const boundaries = [
+      { hour: 0, minute: 0 },
+      { hour: 8, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 0 }
+    ];
+    const next = calculateNextBoundary(now, boundaries);
+    const delay = Math.max(0, next.getTime() - now.getTime() + 1e3);
     this.boundaryCheckTimeout = setTimeout(() => {
       this.checkBoundaryTasks();
       this.scheduleBoundaryCheck();
-    }, msUntilNextHour);
+    }, delay);
   }
   checkBoundaryTasks() {
-    const now = /* @__PURE__ */ new Date();
-    const currentHour = now.getHours();
-    const currentSlot = `${currentHour.toString().padStart(2, "0")}:00`;
+    try {
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const viewDate = new Date(this.currentDate);
+      viewDate.setHours(0, 0, 0, 0);
+      if (viewDate.getTime() !== today.getTime()) return;
+      const currentSlot = getCurrentTimeSlot(/* @__PURE__ */ new Date());
+      const slots = this.getTimeSlotKeys();
+      const currentIndex = slots.indexOf(currentSlot);
+      if (currentIndex < 0) return;
+      let moved = false;
+      this.taskInstances.forEach((inst) => {
+        if (inst.state !== "idle") return;
+        const slot = inst.slotKey || "none";
+        if (slot === "none") return;
+        const idx = slots.indexOf(slot);
+        if (idx >= 0 && idx < currentIndex) {
+          inst.slotKey = currentSlot;
+          moved = true;
+        }
+      });
+      if (moved) {
+        this.initializeTaskOrders();
+        this.renderTaskList();
+      }
+    } catch (e) {
+      console.error("[TaskChute] boundary move failed:", e);
+    }
   }
   updateTotalTasksCount() {
     const completedTasks = this.taskInstances.filter((inst) => inst.state === "done");
