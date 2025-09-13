@@ -3548,15 +3548,13 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     leftBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
-      await this.loadTasks();
-      await this.restoreRunningTaskState();
+      await this.reloadTasksAndRestore();
       this.checkBoundaryTasks();
     });
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
-      await this.loadTasks();
-      await this.restoreRunningTaskState();
+      await this.reloadTasksAndRestore();
       this.checkBoundaryTasks();
     });
     this.setupCalendarButton(calendarBtn, dateLabel);
@@ -3588,6 +3586,12 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         new import_obsidian7.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
       }
     });
+  }
+  // Utility: reload tasks and immediately restore running-state from persistence
+  async reloadTasksAndRestore() {
+    await this.loadTasks();
+    await this.restoreRunningTaskState();
+    this.renderTaskList();
   }
   createNavigationUI(contentContainer) {
     this.navigationOverlay = contentContainer.createEl("div", {
@@ -3680,8 +3684,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         const [yy, mm, dd] = input.value.split("-").map(Number);
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
-        await this.loadTasks();
-        await this.restoreRunningTaskState();
+        await this.reloadTasksAndRestore();
         this.checkBoundaryTasks();
         input.remove();
       });
@@ -4694,7 +4697,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         task.scheduledTime = null;
         button.classList.remove("active");
         button.setAttribute("title", "\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A");
-        await this.loadTasks();
+        await this.reloadTasksAndRestore();
         new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
       } else {
         this.showRoutineEditModal(task, button);
@@ -5278,7 +5281,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     if (dateLabel) {
       this.updateDateLabel(dateLabel);
     }
-    this.loadTasks().then(() => {
+    this.reloadTasksAndRestore().then(() => {
       new import_obsidian7.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
     });
   }
@@ -5796,7 +5799,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       task.scheduledTime = scheduledTime;
       button.classList.add("active");
       button.setAttribute("title", `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
-      await this.loadTasks();
+      await this.reloadTasksAndRestore();
       new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -5884,7 +5887,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           break;
       }
       button.setAttribute("title", tooltipText);
-      await this.loadTasks();
+      await this.reloadTasksAndRestore();
       new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -6182,8 +6185,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       ].join("\n");
       await this.app.vault.create(filePath, frontmatter);
       setTimeout(async () => {
-        await this.loadTasks();
-        this.renderTaskList();
+        await this.reloadTasksAndRestore();
       }, 100);
       new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
     } catch (error) {
@@ -6232,7 +6234,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         });
       }
       new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
-      await this.loadTasks();
+      await this.reloadTasksAndRestore();
     } catch (error) {
       console.error("Failed to move task:", error);
       new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");

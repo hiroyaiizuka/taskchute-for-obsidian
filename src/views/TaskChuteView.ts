@@ -213,8 +213,7 @@ export class TaskChuteView extends ItemView {
     leftBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
-      await this.loadTasks();
-      await this.restoreRunningTaskState();
+      await this.reloadTasksAndRestore();
       // Re-apply boundary move when returning to today
       this.checkBoundaryTasks();
     });
@@ -222,8 +221,7 @@ export class TaskChuteView extends ItemView {
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
-      await this.loadTasks();
-      await this.restoreRunningTaskState();
+      await this.reloadTasksAndRestore();
       // Re-apply boundary move when returning to today
       this.checkBoundaryTasks();
     });
@@ -265,6 +263,14 @@ export class TaskChuteView extends ItemView {
         new Notice("ターミナルを開けませんでした: " + error.message);
       }
     });
+  }
+
+  // Utility: reload tasks and immediately restore running-state from persistence
+  private async reloadTasksAndRestore(): Promise<void> {
+    await this.loadTasks();
+    await this.restoreRunningTaskState();
+    // Re-render to reflect restored running instances
+    this.renderTaskList();
   }
 
   private createNavigationUI(contentContainer: HTMLElement): void {
@@ -391,8 +397,7 @@ export class TaskChuteView extends ItemView {
         const [yy, mm, dd] = input.value.split("-").map(Number);
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
-        await this.loadTasks();
-        await this.restoreRunningTaskState();
+        await this.reloadTasksAndRestore();
         // Re-apply boundary move if the selected day is today
         this.checkBoundaryTasks();
         input.remove();
@@ -1737,8 +1742,8 @@ export class TaskChuteView extends ItemView {
         button.classList.remove("active");
         button.setAttribute("title", "ルーチンタスクに設定");
         
-        // タスク情報を再取得し、UIを最新化
-        await this.loadTasks();
+        // タスク情報を再取得し、実行中タスクの表示も復元
+        await this.reloadTasksAndRestore();
         new Notice(`「${task.title}」をルーチンタスクから解除しました`);
       } else {
         // ルーチンタスクに設定（時刻入力ポップアップを表示）
@@ -2489,8 +2494,8 @@ export class TaskChuteView extends ItemView {
       this.updateDateLabel(dateLabel);
     }
     
-    // タスクリストを更新
-    this.loadTasks().then(() => {
+    // タスクリストを再読み込みし、実行中タスクも復元
+    this.reloadTasksAndRestore().then(() => {
       new Notice(`今日のタスクを表示しました`);
     });
   }
@@ -3196,8 +3201,8 @@ export class TaskChuteView extends ItemView {
       button.classList.add("active");
       button.setAttribute("title", `ルーチンタスク（${scheduledTime}開始予定）`);
       
-      // タスク情報を再取得し、UIを最新化
-      await this.loadTasks();
+      // タスク情報を再取得し、実行中タスクの表示も復元
+      await this.reloadTasksAndRestore();
       new Notice(`「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -3320,8 +3325,8 @@ export class TaskChuteView extends ItemView {
       
       button.setAttribute("title", tooltipText);
       
-      // タスク情報を再取得し、UIを最新化
-      await this.loadTasks();
+      // タスク情報を再取得し、実行中タスクの表示も復元
+      await this.reloadTasksAndRestore();
       new Notice(`「${task.title}」をルーチンタスクに設定しました`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -3723,10 +3728,9 @@ export class TaskChuteView extends ItemView {
       // ファイルを作成
       await this.app.vault.create(filePath, frontmatter);
       
-      // 少し待ってからタスクリストを更新（ファイルシステムの同期を待つ）
+      // 少し待ってからタスクリストを再読み込み＋実行中復元（ファイルシステムの同期を待つ）
       setTimeout(async () => {
-        await this.loadTasks();
-        this.renderTaskList();
+        await this.reloadTasksAndRestore();
       }, 100);
       
       new Notice(`タスク「${taskName}」を作成しました`);
@@ -3789,7 +3793,7 @@ export class TaskChuteView extends ItemView {
       }
       
       new Notice(`タスク「${inst.task.title}」を${dateStr}に移動しました`);
-      await this.loadTasks();
+      await this.reloadTasksAndRestore();
     } catch (error) {
       console.error("Failed to move task:", error);
       new Notice("タスクの移動に失敗しました");
