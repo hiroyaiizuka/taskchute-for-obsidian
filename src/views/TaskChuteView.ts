@@ -629,6 +629,10 @@ export class TaskChuteView extends ItemView {
     if (inst.task.path) {
       taskItem.setAttribute("data-task-path", inst.task.path);
     }
+    // Tag each row with instance id to support multiple running instances
+    if (inst.instanceId) {
+      taskItem.setAttribute("data-instance-id", inst.instanceId);
+    }
     taskItem.setAttribute("data-slot", slot || "none");
 
     // Check if future task
@@ -1897,10 +1901,7 @@ export class TaskChuteView extends ItemView {
         return;
       }
 
-      // Stop current instance if any
-      if (this.currentInstance && this.currentInstance.state === "running") {
-        await this.stopInstance(this.currentInstance);
-      }
+      // Allow concurrent running tasks: do NOT auto-stop previously running ones
 
       // Move the instance to the current time slot before starting
       // Spec: startInstance should relocate the instance into the current slot
@@ -1943,10 +1944,8 @@ export class TaskChuteView extends ItemView {
       // Update UI
       this.renderTaskList();
       
-      // Start global timer if not running
-      if (!this.globalTimerInterval) {
-        this.startGlobalTimer();
-      }
+      // Start/ensure global timer is running
+      if (!this.globalTimerInterval) this.startGlobalTimer();
 
       new Notice(`開始: ${inst.task.name}`);
     } catch (error) {
@@ -2098,23 +2097,38 @@ export class TaskChuteView extends ItemView {
           continue;
         }
 
-        // 既存のインスタンスを検索（instanceId優先）
+        // 既存のインスタンスを検索
+        // 1) instanceId 完全一致を最優先
         let runningInstance = this.taskInstances.find(
           (inst) => inst.instanceId === runningData.instanceId
         );
+        // 2) 見つからなければ path 一致かつ idle のものを検索（slot は後で移動）
         if (!runningInstance) {
           runningInstance = this.taskInstances.find(
-            (inst) =>
-              inst.task.path === runningData.taskPath &&
-              inst.state === "idle" &&
-              (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+            (inst) => inst.task.path === runningData.taskPath && inst.state === "idle"
           );
         }
 
         if (runningInstance) {
+          // slotKey を保存データに合わせて移動（なければ現在スロット）
+          try {
+            const desiredSlot = runningData.slotKey || getCurrentTimeSlot(new Date());
+            if (runningInstance.slotKey !== desiredSlot) {
+              if (!runningInstance.originalSlotKey) {
+                runningInstance.originalSlotKey = runningInstance.slotKey;
+              }
+              runningInstance.slotKey = desiredSlot;
+            }
+          } catch (_) {}
+
+          // 状態と時刻を復元
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
+          if (runningData.instanceId && runningInstance.instanceId !== runningData.instanceId) {
+            // 継続性のため instanceId を採用
+            runningInstance.instanceId = runningData.instanceId;
+          }
           if (!runningInstance.originalSlotKey && runningData.originalSlotKey) {
             runningInstance.originalSlotKey = runningData.originalSlotKey;
           }
@@ -2311,7 +2325,9 @@ export class TaskChuteView extends ItemView {
     }
 
     runningInstances.forEach(inst => {
-      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer-display`) as HTMLElement;
+      // Use instance id to uniquely target the correct row (path may repeat)
+      const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
+      const timerEl = this.taskList.querySelector(selector) as HTMLElement;
       if (timerEl) {
         this.updateTimerDisplay(timerEl, inst);
       }
@@ -3444,6 +3460,8 @@ export class TaskChuteView extends ItemView {
 
       // 状態を保存
       this.saveInstanceState(inst);
+      // 永続化された実行中タスクからも除外しておく（再起動で勝手に復活しないように）
+      await this.saveRunningTasksState();
       
       // UIを更新
       this.renderTaskList();

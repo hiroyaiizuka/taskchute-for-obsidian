@@ -3854,6 +3854,9 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     if (inst.task.path) {
       taskItem.setAttribute("data-task-path", inst.task.path);
     }
+    if (inst.instanceId) {
+      taskItem.setAttribute("data-instance-id", inst.instanceId);
+    }
     taskItem.setAttribute("data-slot", slot || "none");
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
@@ -4817,9 +4820,6 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         new import_obsidian7.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
-      if (this.currentInstance && this.currentInstance.state === "running") {
-        await this.stopInstance(this.currentInstance);
-      }
       try {
         const currentSlot = getCurrentTimeSlot(/* @__PURE__ */ new Date());
         if (inst.slotKey !== currentSlot) {
@@ -4849,9 +4849,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       this.saveInstanceState(inst);
       await this.saveRunningTasksState();
       this.renderTaskList();
-      if (!this.globalTimerInterval) {
-        this.startGlobalTimer();
-      }
+      if (!this.globalTimerInterval) this.startGlobalTimer();
       new import_obsidian7.Notice(`\u958B\u59CB: ${inst.task.name}`);
     } catch (error) {
       console.error("Failed to start instance:", error);
@@ -4963,13 +4961,26 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         );
         if (!runningInstance) {
           runningInstance = this.taskInstances.find(
-            (inst) => inst.task.path === runningData.taskPath && inst.state === "idle" && (runningData.slotKey ? inst.slotKey === runningData.slotKey : true)
+            (inst) => inst.task.path === runningData.taskPath && inst.state === "idle"
           );
         }
         if (runningInstance) {
+          try {
+            const desiredSlot = runningData.slotKey || getCurrentTimeSlot(/* @__PURE__ */ new Date());
+            if (runningInstance.slotKey !== desiredSlot) {
+              if (!runningInstance.originalSlotKey) {
+                runningInstance.originalSlotKey = runningInstance.slotKey;
+              }
+              runningInstance.slotKey = desiredSlot;
+            }
+          } catch (_) {
+          }
           runningInstance.state = "running";
           runningInstance.startTime = new Date(runningData.startTime);
           runningInstance.stopTime = null;
+          if (runningData.instanceId && runningInstance.instanceId !== runningData.instanceId) {
+            runningInstance.instanceId = runningData.instanceId;
+          }
           if (!runningInstance.originalSlotKey && runningData.originalSlotKey) {
             runningInstance.originalSlotKey = runningData.originalSlotKey;
           }
@@ -5139,7 +5150,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       return;
     }
     runningInstances.forEach((inst) => {
-      const timerEl = this.taskList.querySelector(`[data-task-path="${inst.task.path}"] .task-timer-display`);
+      const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
+      const timerEl = this.taskList.querySelector(selector);
       if (timerEl) {
         this.updateTimerDisplay(timerEl, inst);
       }
@@ -5984,6 +5996,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
       }
       this.saveInstanceState(inst);
+      await this.saveRunningTasksState();
       this.renderTaskList();
       new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
     } catch (error) {
