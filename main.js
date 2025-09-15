@@ -925,7 +925,9 @@ async function loadTasksRefactored() {
     for (const exec of todayExecutions) {
       if (processedTaskNames.has(exec.taskTitle)) continue;
       processedTaskNames.add(exec.taskTitle);
-      const taskFile = taskFiles.find((f) => f.basename === exec.taskTitle);
+      const taskFile = taskFiles.find(
+        (f) => exec.taskPath && f.path === exec.taskPath || f.basename === exec.taskTitle
+      );
       const taskExecutions = todayExecutions.filter(
         (e) => e.taskTitle === exec.taskTitle
       );
@@ -998,7 +1000,7 @@ function calculateSlotKeyFromTime(timeStr) {
   return "none";
 }
 async function createTaskFromExecutions(executions, file, dateString) {
-  var _a;
+  var _a, _b;
   const metadata = file ? (_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter : null;
   let projectPath = null;
   let projectTitle = null;
@@ -1015,12 +1017,15 @@ async function createTaskFromExecutions(executions, file, dateString) {
       }
     }
   }
+  const first = executions[0] || {};
+  const derivedName = (file == null ? void 0 : file.basename) || typeof first.taskTitle === "string" && first.taskTitle || typeof first.taskPath === "string" && ((_b = first.taskPath.split("/").pop()) == null ? void 0 : _b.replace(/\.md$/, "")) || "Unknown Task";
+  const derivedPath = (file == null ? void 0 : file.path) || typeof first.taskPath === "string" && first.taskPath || `TaskChute/Task/${derivedName}.md`;
   const taskData = {
     file: file || null,
     frontmatter: metadata || {},
-    path: (file == null ? void 0 : file.path) || `TaskChute/Task/${executions[0].taskTitle}.md`,
-    name: executions[0].taskTitle,
-    title: executions[0].taskTitle,
+    path: derivedPath,
+    name: derivedName,
+    title: derivedName,
     project: metadata == null ? void 0 : metadata.project,
     projectPath,
     projectTitle,
@@ -4230,11 +4235,22 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         }
       } else {
         if (!inst.task.isRoutine) {
-          deletedInstances.push({
-            path: inst.task.path,
-            deletionType: "permanent",
-            timestamp: Date.now()
-          });
+          const p = inst.task.path;
+          const isValidPath = typeof p === "string" && p.length > 0 && !/\/undefined\.md$/.test(p);
+          if (isValidPath) {
+            deletedInstances.push({
+              path: p,
+              deletionType: "permanent",
+              timestamp: Date.now()
+            });
+          } else {
+            deletedInstances.push({
+              instanceId: inst.instanceId,
+              path: p || "",
+              deletionType: "temporary",
+              timestamp: Date.now()
+            });
+          }
         } else {
           deletedInstances.push({
             instanceId: inst.instanceId,
@@ -4761,7 +4777,18 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
     try {
       const data = localStorage.getItem(key);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      const sanitized = (Array.isArray(parsed) ? parsed : []).filter((x) => !!x && typeof x === "object").filter((x) => {
+        if (x.deletionType === "permanent" && (!x.path || /\/undefined\.md$/.test(String(x.path)))) {
+          return false;
+        }
+        return true;
+      });
+      try {
+        localStorage.setItem(key, JSON.stringify(sanitized));
+      } catch (_) {
+      }
+      return sanitized;
     } catch (e) {
       return [];
     }
@@ -4769,7 +4796,12 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   saveDeletedInstances(dateStr, instances) {
     const key = `taskchute-deleted-instances-${dateStr}`;
     try {
-      localStorage.setItem(key, JSON.stringify(instances));
+      const sanitized = (instances || []).filter((x) => {
+        if (!x || typeof x !== "object") return false;
+        if (x.deletionType === "permanent" && (!x.path || /\/undefined\.md$/.test(String(x.path)))) return false;
+        return true;
+      });
+      localStorage.setItem(key, JSON.stringify(sanitized));
     } catch (e) {
       console.error("Failed to save deleted instances:", e);
     }
@@ -4779,7 +4811,21 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
     try {
       const data = localStorage.getItem(key);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      const sanitized = (Array.isArray(parsed) ? parsed : []).filter((x) => !!x).filter((x) => {
+        if (typeof x === "string") {
+          return !/\/undefined\.md$/.test(x);
+        }
+        if (x && typeof x === "object" && x.path) {
+          return !/\/undefined\.md$/.test(String(x.path));
+        }
+        return true;
+      });
+      try {
+        localStorage.setItem(key, JSON.stringify(sanitized));
+      } catch (_) {
+      }
+      return sanitized;
     } catch (e) {
       return [];
     }
@@ -4787,7 +4833,13 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   saveHiddenRoutines(dateStr, routines) {
     const key = `taskchute-hidden-routines-${dateStr}`;
     try {
-      localStorage.setItem(key, JSON.stringify(routines));
+      const sanitized = (routines || []).filter((x) => {
+        if (!x) return false;
+        if (typeof x === "string") return !/\/undefined\.md$/.test(x);
+        if (x.path) return !/\/undefined\.md$/.test(String(x.path));
+        return true;
+      });
+      localStorage.setItem(key, JSON.stringify(sanitized));
     } catch (e) {
       console.error("Failed to save hidden routines:", e);
     }
