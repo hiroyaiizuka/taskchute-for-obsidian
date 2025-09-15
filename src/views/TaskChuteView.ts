@@ -14,8 +14,11 @@ import {
   AutocompleteInstance 
 } from '../types';
 import { TASKCHUTE_FULL_CSS } from '../styles/full-css';
+import { TimerService } from '../services/TimerService';
 import { loadTasksRefactored } from './TaskChuteView.helpers';
 import { ProjectNoteSyncManager } from '../managers/ProjectNoteSyncManager';
+import { RunningTasksService } from '../services/RunningTasksService';
+import { ExecutionLogService } from '../services/ExecutionLogService';
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -31,7 +34,10 @@ export class TaskChuteView extends ItemView {
   private taskInstances: TaskInstance[] = [];
   private currentInstance: TaskInstance | null = null;
   private globalTimerInterval: NodeJS.Timeout | null = null;
+  private timerService: TimerService | null = null;
   private logView: any = null;
+  private runningTasksService: RunningTasksService;
+  private executionLogService: ExecutionLogService;
   
   // Date Navigation
   private currentDate: Date;
@@ -88,6 +94,10 @@ export class TaskChuteView extends ItemView {
     
     // Initialize navigation state
     this.navigationState = new NavigationStateManager();
+
+    // Services
+    this.runningTasksService = new RunningTasksService(this.plugin as any);
+    this.executionLogService = new ExecutionLogService(this.plugin as any);
   }
 
   getViewType(): string {
@@ -122,6 +132,9 @@ export class TaskChuteView extends ItemView {
     await this.restoreRunningTaskState();
     
     this.applyStyles();
+    // Styles are now provided via styles.css (no dynamic CSS injection)
+    // Initialize timer service (ticks update timer displays)
+    this.ensureTimerService();
     this.setupResizeObserver();
     this.initializeNavigationEventListeners();
     this.setupEventListeners();
@@ -1993,11 +2006,15 @@ export class TaskChuteView extends ItemView {
       // Save state
       this.saveInstanceState(inst);
       
-      // Save to log
-      await this.saveTaskLog(inst);
+      // Save to log via service
+      const duration = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000);
+      await this.executionLogService.saveTaskLog(inst, duration);
       
       // Save running task state (remove this task from running tasks)
       await this.saveRunningTasksState();
+
+      // Restart/stop timer service depending on current running tasks
+      this.timerService?.restart();
       
       // Update yearly heatmap stats (start date basis)
       try {
@@ -2043,34 +2060,8 @@ export class TaskChuteView extends ItemView {
 
   async saveRunningTasksState(): Promise<void> {
     try {
-      const runningInstances = this.taskInstances.filter(
-        (inst) => inst.state === "running"
-      );
-
-      const dataToSave = runningInstances.map((inst) => {
-        const today = inst.startTime ? new Date(inst.startTime) : new Date();
-        const y = today.getFullYear();
-        const m = (today.getMonth() + 1).toString().padStart(2, "0");
-        const d = today.getDate().toString().padStart(2, "0");
-        const dateString = `${y}-${m}-${d}`;
-
-        return {
-          date: dateString,
-          taskTitle: inst.task.name,
-          taskPath: inst.task.path,
-          startTime: inst.startTime ? inst.startTime.toISOString() : new Date().toISOString(),
-          slotKey: inst.slotKey,
-          originalSlotKey: inst.originalSlotKey,
-          instanceId: inst.instanceId,
-          taskDescription: inst.task.description || "",
-          isRoutine: inst.task.isRoutine === true
-        };
-      });
-
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const dataPath = `${logDataPath}/running-task.json`;
-      
-      await this.app.vault.adapter.write(dataPath, JSON.stringify(dataToSave, null, 2));
+      const runningInstances = this.taskInstances.filter((inst) => inst.state === 'running');
+      await this.runningTasksService.save(runningInstances);
     } catch (e) {
       console.error("[TaskChute] 実行中タスクの保存に失敗:", e);
     }
@@ -2078,23 +2069,11 @@ export class TaskChuteView extends ItemView {
 
   async restoreRunningTaskState(): Promise<void> {
     try {
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const dataPath = `${logDataPath}/running-task.json`;
-      const dataFile = this.app.vault.getAbstractFileByPath(dataPath);
-      
-      if (!dataFile || !(dataFile instanceof TFile)) {
-        return;
-      }
-
-      const content = await this.app.vault.read(dataFile);
-      const runningTasksData = JSON.parse(content);
-
-      if (!Array.isArray(runningTasksData)) {
-        return;
-      }
-
       // 現在の日付文字列を取得
       const currentDateString = this.getCurrentDateString();
+      // サービスから当日分のレコードを取得
+      const runningTasksData = await this.runningTasksService.loadForDate(currentDateString);
+      if (!Array.isArray(runningTasksData) || runningTasksData.length === 0) return;
 
       // 削除済みタスクリストを取得
       const deletedInstances = this.getDeletedInstances(currentDateString);
@@ -2103,7 +2082,7 @@ export class TaskChuteView extends ItemView {
         .map((inst) => inst.path);
 
       let restored = false;
-      for (const runningData of runningTasksData) {
+      for (const runningData of runningTasksData as any[]) {
         
         if (runningData.date !== currentDateString) {
           continue;
@@ -2200,72 +2179,7 @@ export class TaskChuteView extends ItemView {
     }
   }
 
-  private async saveTaskLog(inst: TaskInstance): Promise<void> {
-    try {
-      if (!inst.startTime || !inst.stopTime) return;
-      // 記録日は開始日基準
-      const start = new Date(inst.startTime);
-      const yyyy = start.getFullYear();
-      const mm = String(start.getMonth() + 1).padStart(2, '0');
-      const dd = String(start.getDate()).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-
-      const toHMS = (d: Date) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
-
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const monthKey = `${yyyy}-${mm}`;
-      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-
-      // 既存読み込み or 初期化
-      let file = this.app.vault.getAbstractFileByPath(logPath) as TFile | null;
-      let json: any = { taskExecutions: {}, dailySummary: {} };
-      if (file && file instanceof TFile) {
-        try {
-          const raw = await this.app.vault.read(file);
-          json = raw ? JSON.parse(raw) : json;
-        } catch (_) {}
-      } else {
-        await this.plugin.pathManager.ensureFolderExists(this.plugin.pathManager.getLogDataPath());
-        await this.app.vault.create(logPath, JSON.stringify(json, null, 2));
-        file = this.app.vault.getAbstractFileByPath(logPath) as TFile;
-      }
-
-      if (!json.taskExecutions) json.taskExecutions = {};
-      if (!json.dailySummary) json.dailySummary = {};
-      if (!json.taskExecutions[dateStr]) json.taskExecutions[dateStr] = [];
-
-      // 既存の同一 instanceId があれば置換、なければ追記
-      const exec = {
-        taskTitle: inst.task.title || inst.task.name,
-        taskPath: inst.task.path,
-        instanceId: inst.instanceId,
-        slotKey: inst.slotKey,
-        startTime: toHMS(inst.startTime),
-        stopTime: toHMS(inst.stopTime),
-        durationSec: Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000),
-      };
-      const arr: any[] = json.taskExecutions[dateStr];
-      const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
-      if (idx >= 0) arr[idx] = exec; else arr.push(exec);
-
-      // 日次サマリーの更新（最小限）
-      const minutes = Math.floor(exec.durationSec / 60);
-      const prev = json.dailySummary[dateStr] || { totalMinutes: 0, totalTasks: 0, completedTasks: 0 };
-      // 冪等にするため再集計
-      const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
-      json.dailySummary[dateStr] = {
-        totalMinutes,
-        totalTasks: arr.length,
-        completedTasks: arr.length,
-        procrastinatedTasks: prev.procrastinatedTasks || 0,
-        completionRate: arr.length > 0 ? 1 : 0,
-      };
-
-      await this.app.vault.modify(file as TFile, JSON.stringify(json, null, 2));
-    } catch (e) {
-      console.error('[TaskChute] saveTaskLog failed:', e);
-    }
-  }
+  // saveTaskLog moved to ExecutionLogService
 
   /**
    * Remove an execution log entry for the given instance on the current view date
@@ -2275,45 +2189,8 @@ export class TaskChuteView extends ItemView {
   private async removeTaskLogForInstanceOnCurrentDate(instanceId: string): Promise<void> {
     try {
       if (!instanceId) return;
-
-      const y = this.currentDate.getFullYear();
-      const m = String(this.currentDate.getMonth() + 1).padStart(2, '0');
-      const d = String(this.currentDate.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${d}`;
-
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const monthKey = `${y}-${m}`;
-      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-
-      const file = this.app.vault.getAbstractFileByPath(logPath);
-      if (!file || !(file instanceof TFile)) return; // nothing to do
-
-      const raw = await this.app.vault.read(file);
-      if (!raw) return;
-      let json: any = {};
-      try { json = JSON.parse(raw); } catch (_) { return; }
-
-      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateStr])) return;
-
-      // Filter out the matching execution by instanceId (date-scoped)
-      const arr: any[] = json.taskExecutions[dateStr];
-      const filtered = arr.filter((e: any) => e.instanceId !== instanceId);
-      if (filtered.length === arr.length) return; // nothing removed
-
-      json.taskExecutions[dateStr] = filtered;
-
-      // Recompute daily summary similar to saveTaskLog
-      if (!json.dailySummary) json.dailySummary = {};
-      const totalMinutes = filtered.reduce((s, e) => s + Math.floor(((e.durationSec || 0) / 60)), 0);
-      json.dailySummary[dateStr] = {
-        totalMinutes,
-        totalTasks: filtered.length,
-        completedTasks: filtered.length,
-        procrastinatedTasks: (json.dailySummary[dateStr]?.procrastinatedTasks) || 0,
-        completionRate: filtered.length > 0 ? 1 : 0,
-      };
-
-      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
+      const dateStr = this.getCurrentDateString();
+      await this.executionLogService.removeTaskLogForInstanceOnDate(instanceId, dateStr);
     } catch (e) {
       console.error('[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:', e);
     }
@@ -2324,31 +2201,17 @@ export class TaskChuteView extends ItemView {
   // ===========================================
 
   private startGlobalTimer(): void {
-    if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval);
-    }
-
-    this.globalTimerInterval = setInterval(() => {
-      this.updateAllTimers();
-    }, 1000);
+    // Backward-compat API: now uses TimerService
+    this.ensureTimerService();
+    this.timerService?.start();
   }
 
   private updateAllTimers(): void {
-    const runningInstances = this.taskInstances.filter(inst => inst.state === "running");
-    
-    if (runningInstances.length === 0) {
-      this.stopGlobalTimer();
-      return;
-    }
-
-    runningInstances.forEach(inst => {
-      // Use instance id to uniquely target the correct row (path may repeat)
-      const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
-      const timerEl = this.taskList.querySelector(selector) as HTMLElement;
-      if (timerEl) {
-        this.updateTimerDisplay(timerEl, inst);
-      }
-    });
+    // Kept for compatibility: delegate to TimerService one-shot tick
+    this.ensureTimerService();
+    const running = this.taskInstances.filter(inst => inst.state === 'running');
+    if (running.length === 0) { this.stopGlobalTimer(); return; }
+    running.forEach(inst => this.onTimerTick(inst));
   }
 
   // ===========================================
@@ -2467,8 +2330,9 @@ export class TaskChuteView extends ItemView {
       try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
     }
 
-    // Persist to monthly log
-    await this.saveTaskLog(inst);
+    // Persist to monthly log via service
+    const durationSec = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000);
+    await this.executionLogService.saveTaskLog(inst, durationSec);
     // Re-render
     this.renderTaskList();
     new Notice(`「${inst.task.title || inst.task.name}」の時刻を更新しました`);
@@ -2530,10 +2394,7 @@ export class TaskChuteView extends ItemView {
   }
 
   private stopGlobalTimer(): void {
-    if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval);
-      this.globalTimerInterval = null;
-    }
+    this.timerService?.stop();
   }
 
   // ===========================================
@@ -2559,6 +2420,27 @@ export class TaskChuteView extends ItemView {
         await this.handleFileRename(file, oldPath);
       })
     );
+  }
+
+  // ===========================================
+  // TimerService integration
+  // ===========================================
+
+  private ensureTimerService(): void {
+    if (this.timerService) return;
+    this.timerService = new TimerService({
+      getRunningInstances: () => this.taskInstances.filter(inst => inst.state === 'running'),
+      onTick: (inst) => this.onTimerTick(inst),
+      intervalMs: 1000,
+    });
+  }
+
+  private onTimerTick(inst: TaskInstance): void {
+    const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
+    const timerEl = this.taskList.querySelector(selector) as HTMLElement;
+    if (timerEl) {
+      this.updateTimerDisplay(timerEl, inst);
+    }
   }
 
   private setupPlayStopButton(button: HTMLElement, inst: TaskInstance): void {
@@ -3017,6 +2899,7 @@ export class TaskChuteView extends ItemView {
   }
 
   private cleanupTimers(): void {
+    // Legacy interval cleanup (no-op after TimerService)
     if (this.globalTimerInterval) {
       clearInterval(this.globalTimerInterval);
       this.globalTimerInterval = null;
@@ -3038,6 +2921,9 @@ export class TaskChuteView extends ItemView {
     const style = document.createElement("style");
     style.textContent = TASKCHUTE_FULL_CSS;
     document.head.appendChild(style);
+    // TimerService dispose
+    this.timerService?.dispose();
+    this.timerService = null;
   }
 
   // ===========================================
