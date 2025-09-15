@@ -34,8 +34,10 @@ export async function loadTasksRefactored(this: any): Promise<void> {
       if (processedTaskNames.has(exec.taskTitle)) continue;
       processedTaskNames.add(exec.taskTitle);
 
-      // Find the task file (may be undefined if deleted)
-      const taskFile = taskFiles.find((f: any) => f.basename === exec.taskTitle);
+      // Find the task file (prefer exact path, fallback to basename)
+      const taskFile = taskFiles.find((f: any) =>
+        (exec.taskPath && f.path === exec.taskPath) || f.basename === exec.taskTitle
+      );
 
       // Group all executions for this title
       const taskExecutions = todayExecutions.filter(
@@ -158,12 +160,22 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
     }
   }
   
+  // Derive stable identifiers
+  const first = executions[0] || {};
+  const derivedName = (file?.basename) 
+    || (typeof first.taskTitle === 'string' && first.taskTitle) 
+    || (typeof first.taskPath === 'string' && first.taskPath.split('/').pop()?.replace(/\.md$/, '')) 
+    || 'Unknown Task';
+  const derivedPath = (file?.path)
+    || (typeof first.taskPath === 'string' && first.taskPath)
+    || `TaskChute/Task/${derivedName}.md`;
+
   const taskData = {
     file: file || null,
     frontmatter: metadata || {},
-    path: file?.path || `TaskChute/Task/${executions[0].taskTitle}.md`,
-    name: executions[0].taskTitle,
-    title: executions[0].taskTitle,
+    path: derivedPath,
+    name: derivedName,
+    title: derivedName,
     project: metadata?.project,
     projectPath: projectPath,
     projectTitle: projectTitle,

@@ -3509,12 +3509,23 @@ export class TaskChuteView extends ItemView {
         try { localStorage.setItem(duplicationKey, JSON.stringify(filtered)); } catch (_) {}
       } else {
         if (!inst.task.isRoutine) {
-          // 非ルーチン: パス単位（instanceIdを付けない）で当日非表示
-          deletedInstances.push({
-            path: inst.task.path,
-            deletionType: 'permanent',
-            timestamp: Date.now(),
-          } as any);
+          // 非ルーチン: 通常はパス単位（permanent）。ただしパスが不明/不正なら instance 単位にフォールバック
+          const p = inst.task.path;
+          const isValidPath = typeof p === 'string' && p.length > 0 && !/\/undefined\.md$/.test(p);
+          if (isValidPath) {
+            deletedInstances.push({
+              path: p,
+              deletionType: 'permanent',
+              timestamp: Date.now(),
+            } as any);
+          } else {
+            deletedInstances.push({
+              instanceId: inst.instanceId,
+              path: p || '',
+              deletionType: 'temporary',
+              timestamp: Date.now(),
+            } as any);
+          }
         } else {
           // ルーチン: instance 単位（今日のみ非表示）
           deletedInstances.push({
@@ -4223,7 +4234,20 @@ export class TaskChuteView extends ItemView {
     try {
       const data = localStorage.getItem(key);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      // Sanitize invalid records (e.g., path ".../undefined.md" or permanent without path)
+      const sanitized = (Array.isArray(parsed) ? parsed : [])
+        .filter((x: any) => !!x && typeof x === 'object')
+        .filter((x: any) => {
+          // drop permanent records with invalid path
+          if (x.deletionType === 'permanent' && (!x.path || /\/undefined\.md$/.test(String(x.path)))) {
+            return false;
+          }
+          return true;
+        });
+      // If we removed anything, persist the cleaned array to avoid recurring issues
+      try { localStorage.setItem(key, JSON.stringify(sanitized)); } catch (_) {}
+      return sanitized as DeletedInstance[];
     } catch (e) {
       return [];
     }
@@ -4232,7 +4256,13 @@ export class TaskChuteView extends ItemView {
   private saveDeletedInstances(dateStr: string, instances: DeletedInstance[]): void {
     const key = `taskchute-deleted-instances-${dateStr}`;
     try {
-      localStorage.setItem(key, JSON.stringify(instances));
+      // Apply the same sanitization on write
+      const sanitized = (instances || []).filter((x: any) => {
+        if (!x || typeof x !== 'object') return false;
+        if (x.deletionType === 'permanent' && (!x.path || /\/undefined\.md$/.test(String(x.path)))) return false;
+        return true;
+      });
+      localStorage.setItem(key, JSON.stringify(sanitized));
     } catch (e) {
       console.error("Failed to save deleted instances:", e);
     }
@@ -4243,7 +4273,20 @@ export class TaskChuteView extends ItemView {
     try {
       const data = localStorage.getItem(key);
       if (!data) return [];
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      const sanitized = (Array.isArray(parsed) ? parsed : [])
+        .filter((x: any) => !!x)
+        .filter((x: any) => {
+          if (typeof x === 'string') {
+            return !/\/undefined\.md$/.test(x);
+          }
+          if (x && typeof x === 'object' && x.path) {
+            return !/\/undefined\.md$/.test(String(x.path));
+          }
+          return true;
+        });
+      try { localStorage.setItem(key, JSON.stringify(sanitized)); } catch (_) {}
+      return sanitized as HiddenRoutine[];
     } catch (e) {
       return [];
     }
@@ -4252,7 +4295,13 @@ export class TaskChuteView extends ItemView {
   private saveHiddenRoutines(dateStr: string, routines: HiddenRoutine[]): void {
     const key = `taskchute-hidden-routines-${dateStr}`;
     try {
-      localStorage.setItem(key, JSON.stringify(routines));
+      const sanitized = (routines || []).filter((x: any) => {
+        if (!x) return false;
+        if (typeof x === 'string') return !/\/undefined\.md$/.test(x);
+        if (x.path) return !/\/undefined\.md$/.test(String(x.path));
+        return true;
+      });
+      localStorage.setItem(key, JSON.stringify(sanitized));
     } catch (e) {
       console.error("Failed to save hidden routines:", e);
     }
@@ -4261,6 +4310,7 @@ export class TaskChuteView extends ItemView {
   private isInstanceDeleted(instanceId: string, taskPath: string, dateStr: string): boolean {
     const deletedInstances = this.getDeletedInstances(dateStr);
     return deletedInstances.some((del) => {
+      // Instance-level deletion
       if (instanceId && del.instanceId === instanceId) return true;
       if (del.deletionType === "permanent" && del.path === taskPath) return true;
       return false;
