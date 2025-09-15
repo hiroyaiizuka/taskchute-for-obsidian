@@ -45,6 +45,7 @@ export class TaskChuteView extends ItemView {
   private taskList: HTMLElement;
   private navigationPanel: HTMLElement;
   private navigationOverlay: HTMLElement;
+  private navigationContent: HTMLElement;
   
   // State Management
   private useOrderBasedSort: boolean;
@@ -298,6 +299,11 @@ export class TaskChuteView extends ItemView {
     // Navigation menu
     const navMenu = this.navigationPanel.createEl("nav", {
       cls: "navigation-nav",
+    });
+
+    // Content area under the menu
+    this.navigationContent = this.navigationPanel.createEl('div', {
+      cls: 'navigation-content',
     });
 
     // Navigation items
@@ -1511,11 +1517,9 @@ export class TaskChuteView extends ItemView {
     
     // オプション追加
     const options = [
-      { value: "daily", text: "毎日" },
-      { value: "weekdays", text: "平日のみ" },
-      { value: "weekends", text: "週末のみ" },
-      { value: "weekly", text: "週次（曜日指定）" },
-      { value: "monthly", text: "月次（第X週のX曜日）" },
+      { value: "daily", text: "日ごと" },
+      { value: "weekly", text: "週ごと（曜日指定）" },
+      { value: "monthly", text: "月ごと（曜日指定）" },
     ];
     
     options.forEach(opt => {
@@ -1528,10 +1532,10 @@ export class TaskChuteView extends ItemView {
       }
     });
     
-    // 現在のルーチンタイプまたはデフォルト
-    if (!task.routine_type) {
-      typeSelect.value = "daily";
-    }
+    // 現在のルーチンタイプまたはデフォルト（未指定は日ごと+間隔1）
+    typeSelect.value = (task.routine_type === 'weekly' || task.routine_type === 'monthly')
+      ? task.routine_type
+      : 'daily';
     
     // 開始時刻入力
     const timeGroup = form.createEl("div", { cls: "form-group" });
@@ -1541,12 +1545,30 @@ export class TaskChuteView extends ItemView {
       cls: "form-input",
       value: task.scheduledTime || "09:00",
     }) as HTMLInputElement;
+
+    // 間隔入力（共通）
+    const intervalGroup = form.createEl("div", { cls: "form-group" });
+    intervalGroup.createEl("label", { text: "間隔:", cls: "form-label" });
+    const intervalInput = intervalGroup.createEl("input", {
+      type: "number",
+      cls: "form-input",
+      attr: { min: "1", step: "1" },
+      value: String(task.routine_interval ?? 1),
+    }) as HTMLInputElement;
+
+    // 有効トグル
+    const enabledGroup = form.createEl("div", { cls: "form-group" });
+    const enabledLabel = enabledGroup.createEl("label", { text: "有効:", cls: "form-label" });
+    const enabledToggle = enabledGroup.createEl("input", {
+      type: "checkbox",
+    }) as HTMLInputElement;
+    enabledToggle.checked = task.routine_enabled !== false; // default true
     
     // 週次設定グループ（初期非表示）
     const weeklyGroup = form.createEl("div", { 
-      cls: "form-group",
-      style: "display: none;"
+      cls: "form-group"
     });
+    weeklyGroup.style.display = 'none';
     weeklyGroup.createEl("label", { text: "曜日を選択:", cls: "form-label" });
     const weekdayContainer = weeklyGroup.createEl("div", { cls: "weekday-checkboxes" });
     
@@ -1571,19 +1593,27 @@ export class TaskChuteView extends ItemView {
       }) as HTMLInputElement;
       weekdayCheckboxes.push(checkbox);
       
-      // 既存の設定を反映
-      if (task.weekdays && Array.isArray(task.weekdays)) {
+      // 既存の設定を反映（単一選択を優先）
+      if (typeof task.weekday === 'number') {
+        checkbox.checked = task.weekday === day.value;
+      } else if (task.weekdays && Array.isArray(task.weekdays)) {
         checkbox.checked = task.weekdays.includes(day.value);
       }
       
       label.createEl("span", { text: day.label });
+      // 単一選択にする
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          weekdayCheckboxes.forEach(cb => { if (cb !== checkbox) cb.checked = false; });
+        }
+      });
     });
     
     // 月次設定グループ（初期非表示）
     const monthlyGroup = form.createEl("div", { 
-      cls: "form-group",
-      style: "display: none;"
+      cls: "form-group"
     });
+    monthlyGroup.style.display = 'none';
     monthlyGroup.createEl("label", { text: "月次設定:", cls: "form-label" });
     
     const monthlyContainer = monthlyGroup.createEl("div", { 
@@ -1606,6 +1636,9 @@ export class TaskChuteView extends ItemView {
         option.selected = true;
       }
     }
+    // 最終週
+    const lastOpt = weekSelect.createEl("option", { value: 'last', text: '最終' });
+    if (task.monthly_week === 'last') lastOpt.selected = true as any;
     
     monthlyContainer.createEl("span", { text: "週の" });
     const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
@@ -1640,9 +1673,9 @@ export class TaskChuteView extends ItemView {
     });
     
     // 初期表示設定
-    if (task.routine_type === "weekly") {
+    if (typeSelect.value === "weekly") {
       weeklyGroup.style.display = "block";
-    } else if (task.routine_type === "monthly") {
+    } else if (typeSelect.value === "monthly") {
       monthlyGroup.style.display = "block";
     }
     
@@ -1690,6 +1723,8 @@ export class TaskChuteView extends ItemView {
       e.preventDefault();
       const scheduledTime = timeInput.value;
       const routineType = typeSelect.value;
+      const interval = Math.max(1, parseInt(intervalInput.value || '1', 10) || 1);
+      const enabled = !!enabledToggle.checked;
       
       if (!scheduledTime) {
         new Notice("開始時刻を入力してください");
@@ -1719,11 +1754,13 @@ export class TaskChuteView extends ItemView {
             ? weekdayCheckboxes.filter(cb => cb.checked).map(cb => parseInt(cb.value))
             : undefined,
           monthly_week: routineType === "monthly" 
-            ? parseInt(weekSelect.value)
+            ? (weekSelect.value === 'last' ? 'last' as any : parseInt(weekSelect.value))
             : undefined,
           monthly_weekday: routineType === "monthly"
             ? parseInt(monthlyWeekdaySelect.value)
             : undefined,
+          interval,
+          enabled,
         }
       );
       
@@ -1737,19 +1774,30 @@ export class TaskChuteView extends ItemView {
 
   private async toggleRoutine(task: any, button: HTMLElement): Promise<void> {
     try {
-      // タスク名からファイルを探す
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
-      
-      if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${task.title}.md」が見つかりません`);
-        return;
-      }
-      
       if (task.isRoutine) {
+        // 解除時のみ即ファイルにアクセス
+        const file = (task.path && this.app.vault.getAbstractFileByPath(task.path)) || null;
+        if (!file || !(file instanceof TFile)) {
+          // Fallback: タスクフォルダ直下
+          const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+          const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+          const fb = this.app.vault.getAbstractFileByPath(fallbackPath);
+          if (!fb || !(fb instanceof TFile)) {
+            new Notice(`タスクファイル「${task.title}.md」が見つかりません`);
+            return;
+          }
+          await this.app.fileManager.processFrontMatter(fb, (frontmatter) => {
+            const y = this.currentDate.getFullYear();
+            const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
+            const d = this.currentDate.getDate().toString().padStart(2, "0");
+            frontmatter.routine_end = `${y}-${m}-${d}`;
+            frontmatter.isRoutine = false;
+            delete frontmatter.開始時刻;
+            return frontmatter;
+          });
+        } else {
         // ルーチンタスクを解除
-        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+          await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
           const y = this.currentDate.getFullYear();
           const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
           const d = this.currentDate.getDate().toString().padStart(2, "0");
@@ -1758,6 +1806,7 @@ export class TaskChuteView extends ItemView {
           delete frontmatter.開始時刻;
           return frontmatter;
         });
+        }
         
         // 状態リセット
         task.isRoutine = false;
@@ -1772,8 +1821,10 @@ export class TaskChuteView extends ItemView {
         // ルーチンタスクに設定（時刻入力ポップアップを表示）
         this.showRoutineEditModal(task, button);
       }
-    } catch (error) {
-      new Notice("ルーチンタスクの設定に失敗しました");
+    } catch (error: any) {
+      console.error('[TaskChute] toggleRoutine failed:', error);
+      const msg = (error && (error.message || String(error))) || '';
+      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
 
@@ -2945,7 +2996,127 @@ export class TaskChuteView extends ItemView {
       this.closeNavigation();
       return;
     }
+    if (section === 'routine') {
+      await this.renderRoutineList();
+      this.openNavigation();
+      return;
+    }
     new Notice(`${section} 機能は実装中です`);
+  }
+
+  // Render routine list with enabled toggle
+  private async renderRoutineList(): Promise<void> {
+    if (!this.navigationContent) return;
+    this.navigationContent.empty();
+
+    const header = this.navigationContent.createEl('div', { cls: 'routine-list-header' });
+    header.createEl('h3', { text: 'ルーチン一覧' });
+    const hint = this.navigationContent.createEl('div', { cls: 'routine-list-hint' });
+    hint.textContent = 'ここでは有効/無効を切り替えできます。設定の詳細は各タスクの設定から編集してください。';
+
+    const list = this.navigationContent.createEl('div', { cls: 'routine-list' });
+
+    // Collect all markdown files under task folder
+    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+    const all = this.app.vault.getMarkdownFiles();
+    const files = all.filter((f: TFile) => f.path.startsWith(taskFolderPath + '/'));
+
+    // Sort by basename for stable view
+    files.sort((a, b) => a.basename.localeCompare(b.basename, 'ja'));
+
+    let count = 0;
+    for (const file of files) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!fm || fm.isRoutine !== true) continue;
+      count++;
+      const row = this.createRoutineRow(file, fm);
+      list.appendChild(row);
+    }
+
+    if (count === 0) {
+      const none = this.navigationContent.createEl('div', { cls: 'routine-empty' });
+      none.textContent = 'ルーチンが見つかりません';
+    }
+  }
+
+  private createRoutineRow(file: TFile, fm: any): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'routine-row';
+
+    const title = row.createEl('div', { cls: 'routine-title', text: file.basename });
+
+    const typeBadge = row.createEl('span', { cls: 'routine-type-badge' });
+    const type = (fm.routine_type || 'daily') as string;
+    const interval = Math.max(1, Number(fm.routine_interval || 1));
+    typeBadge.textContent = this.getRoutineTypeLabel(type, interval, fm);
+
+    const toggleWrap = row.createEl('label', { cls: 'routine-enabled-toggle' });
+    const toggle = toggleWrap.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
+    toggle.checked = fm.routine_enabled !== false;
+    toggle.title = '有効/無効';
+    toggle.addEventListener('change', async (e) => {
+      await this.updateRoutineEnabled(file, toggle.checked);
+      // 反映のためリロード
+      await this.reloadTasksAndRestore();
+      // 行の表示も更新
+      const newFm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      typeBadge.textContent = this.getRoutineTypeLabel(newFm.routine_type || 'daily', Math.max(1, Number(newFm.routine_interval || 1)), newFm);
+    });
+
+    // Edit button → opens existing modal
+    const editBtn = row.createEl('button', { cls: 'routine-edit-btn', text: '編集' });
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Build minimal task adapter for modal
+      const task = {
+        title: file.basename,
+        isRoutine: true,
+        scheduledTime: fm.開始時刻,
+        routine_type: fm.routine_type || 'daily',
+        routine_interval: fm.routine_interval || 1,
+        routine_enabled: fm.routine_enabled !== false,
+        weekday: fm.routine_weekday ?? fm.weekday,
+        weekdays: fm.weekdays,
+        monthly_week: (fm.routine_week !== undefined ? (fm.routine_week === 'last' ? 'last' : Number(fm.routine_week) - 1) : fm.monthly_week),
+        monthly_weekday: fm.routine_weekday ?? fm.monthly_weekday,
+      } as any;
+      this.showRoutineEditModal(task, editBtn);
+    });
+
+    return row;
+  }
+
+  private getRoutineTypeLabel(type: string, interval: number, fm: any): string {
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    switch (type) {
+      case 'daily':
+        return `${interval}日ごと`;
+      case 'weekly': {
+        const wd = (fm.routine_weekday ?? fm.weekday ?? (Array.isArray(fm.weekdays) ? fm.weekdays[0] : undefined));
+        const dayLabel = typeof wd === 'number' ? dayNames[wd] + '曜' : '曜日未指定';
+        return `${interval}週ごと ${dayLabel}`;
+      }
+      case 'monthly': {
+        const w = (fm.routine_week ?? (typeof fm.monthly_week === 'number' ? fm.monthly_week + 1 : (fm.monthly_week === 'last' ? 'last' : undefined)));
+        const wd = (fm.routine_weekday ?? fm.monthly_weekday);
+        const weekLabel = w === 'last' ? '最終' : `第${w}`;
+        const dayLabel = typeof wd === 'number' ? dayNames[wd] + '曜' : '';
+        return `${interval}ヶ月ごと ${weekLabel}${dayLabel}`.trim();
+      }
+      case 'weekdays':
+        return '平日のみ';
+      case 'weekends':
+        return '週末のみ';
+      default:
+        return type;
+    }
+  }
+
+  private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      frontmatter.routine_enabled = enabled;
+      return frontmatter;
+    });
   }
 
   // Show Daily Review in right split
@@ -3276,9 +3447,14 @@ export class TaskChuteView extends ItemView {
 
   private async setRoutineTask(task: any, button: HTMLElement, scheduledTime: string): Promise<void> {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
+      // Prefer existing path to avoid folder mismatch
+      const primaryPath = task.path || '';
+      let file = primaryPath ? this.app.vault.getAbstractFileByPath(primaryPath) : null;
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+        const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+        file = this.app.vault.getAbstractFileByPath(fallbackPath);
+      }
       
       if (!file || !(file instanceof TFile)) {
         new Notice(`タスクファイル「${task.title}.md」が見つかりません`);
@@ -3307,9 +3483,10 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore();
       new Notice(`「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to set routine task:", error);
-      new Notice("ルーチンタスクの設定に失敗しました");
+      const msg = (error && (error.message || String(error))) || '';
+      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
 
@@ -3320,14 +3497,21 @@ export class TaskChuteView extends ItemView {
     routineType: string,
     details: {
       weekdays?: number[];
-      monthly_week?: number;
+      monthly_week?: number | 'last';
       monthly_weekday?: number;
+      interval?: number;
+      enabled?: boolean;
     }
   ): Promise<void> {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
+      // Prefer existing path to avoid folder mismatch
+      const primaryPath = task.path || '';
+      let file = primaryPath ? this.app.vault.getAbstractFileByPath(primaryPath) : null;
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+        const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+        file = this.app.vault.getAbstractFileByPath(fallbackPath);
+      }
       
       if (!file || !(file instanceof TFile)) {
         new Notice(`タスクファイル「${task.title}.md」が見つかりません`);
@@ -3339,6 +3523,8 @@ export class TaskChuteView extends ItemView {
         frontmatter.isRoutine = true;
         frontmatter.開始時刻 = scheduledTime;
         frontmatter.routine_type = routineType;
+        frontmatter.routine_enabled = details.enabled !== false; // default true
+        frontmatter.routine_interval = Math.max(1, details.interval || 1);
         
         // 現在の日付を設定
         const y = this.currentDate.getFullYear();
@@ -3346,37 +3532,40 @@ export class TaskChuteView extends ItemView {
         const d = this.currentDate.getDate().toString().padStart(2, "0");
         frontmatter.routine_start = `${y}-${m}-${d}`;
         
-        // 既存のルーチン設定をクリア
+        // 既存のルーチン設定をクリア（legacy含む）
         delete frontmatter.routine_end;
         delete frontmatter.weekday;
         delete frontmatter.weekdays;
         delete frontmatter.monthly_week;
         delete frontmatter.monthly_weekday;
+        delete frontmatter.routine_week;
+        delete frontmatter.routine_weekday;
         
         // タイプに応じて設定を追加
         switch (routineType) {
           case "daily":
+            // interval のみ反映済み
+            break;
           case "weekdays":
           case "weekends":
-            // これらのタイプは追加設定不要
+            // 互換タイプ（intervalは使わないが保存しておく）
             break;
             
           case "weekly":
             if (details.weekdays && details.weekdays.length > 0) {
-              if (details.weekdays.length === 1) {
-                // 単一曜日の場合
-                frontmatter.weekday = details.weekdays[0];
-              } else {
-                // 複数曜日の場合
-                frontmatter.weekdays = details.weekdays;
-              }
+              // 単一選択のみ保存（将来拡張はRoutineServiceがweekdaySetを読む）
+              const chosen = details.weekdays[0];
+              frontmatter.routine_weekday = chosen;
             }
             break;
             
           case "monthly":
             if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
-              frontmatter.monthly_week = details.monthly_week;
-              frontmatter.monthly_weekday = details.monthly_weekday;
+              const w = details.monthly_week === 'last'
+                ? 'last'
+                : (typeof details.monthly_week === 'number' ? details.monthly_week + 1 : undefined);
+              if (w !== undefined) frontmatter.routine_week = w as any; // 1..5 or 'last'
+              frontmatter.routine_weekday = details.monthly_weekday;
             }
             break;
         }
@@ -3388,10 +3577,13 @@ export class TaskChuteView extends ItemView {
       task.isRoutine = true;
       task.scheduledTime = scheduledTime;
       task.routine_type = routineType;
+      task.routine_interval = Math.max(1, details.interval || 1);
+      task.routine_enabled = details.enabled !== false;
       
       // タイプに応じて詳細情報も更新
       if (routineType === "weekly" && details.weekdays) {
-        task.weekdays = details.weekdays;
+        task.weekday = details.weekdays[0];
+        task.weekdays = details.weekdays; // 互換
       } else if (routineType === "monthly") {
         task.monthly_week = details.monthly_week;
         task.monthly_weekday = details.monthly_weekday;
@@ -3403,7 +3595,7 @@ export class TaskChuteView extends ItemView {
       let tooltipText = `ルーチンタスク（${scheduledTime}開始予定）`;
       switch (routineType) {
         case "daily":
-          tooltipText += " - 毎日";
+          tooltipText += ` - ${task.routine_interval || 1}日ごと`;
           break;
         case "weekdays":
           tooltipText += " - 平日のみ";
@@ -3414,14 +3606,15 @@ export class TaskChuteView extends ItemView {
         case "weekly":
           if (details.weekdays) {
             const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
-            const days = details.weekdays.map(d => dayNames[d]).join(",");
-            tooltipText += ` - 毎週${days}`;
+            const day = dayNames[details.weekdays[0]];
+            tooltipText += ` - ${task.routine_interval || 1}週ごと ${day}曜`;
           }
           break;
         case "monthly":
           if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
             const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
-            tooltipText += ` - 第${details.monthly_week + 1}${dayNames[details.monthly_weekday]}曜日`;
+            const weekLabel = details.monthly_week === 'last' ? '最終' : `第${(details.monthly_week as number) + 1}`;
+            tooltipText += ` - ${task.routine_interval || 1}ヶ月ごと ${weekLabel}${dayNames[details.monthly_weekday]}曜日`;
           }
           break;
       }
@@ -3431,9 +3624,10 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore();
       new Notice(`「${task.title}」をルーチンタスクに設定しました`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to set routine task:", error);
-      new Notice("ルーチンタスクの設定に失敗しました");
+      const msg = (error && (error.message || String(error))) || '';
+      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
 

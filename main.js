@@ -7,6 +7,9 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -20,6 +23,9 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
 
 // src/main.ts
 var main_exports = {};
@@ -903,6 +909,169 @@ var TimerService = class {
   }
 };
 
+// src/services/RoutineService.ts
+var _RoutineService_static, isDailyDue_fn, isWeeklyDue_fn, isMonthlyDue_fn, toPositiveInt_fn, toWeekday_fn, isValidWeekday_fn, toDateStrOrUndef_fn, parseDate_fn, compareDate_fn, daysDiff_fn, weekStart_fn;
+var RoutineService = class {
+  /** Parse frontmatter into a normalized RoutineRule. */
+  static parseFrontmatter(fm) {
+    var _a, _b;
+    if (!fm || typeof fm !== "object") return null;
+    const isRoutine = fm.isRoutine === true;
+    if (!isRoutine) return null;
+    const typeRaw = fm.routine_type || fm.routineType || "daily";
+    const type = typeRaw === "daily" || typeRaw === "weekly" || typeRaw === "monthly" ? typeRaw : (
+      // Backward-compat: treat weekends/weekdays/custom as weekly variants
+      "weekly"
+    );
+    const enabled = fm.routine_enabled === false ? false : true;
+    const interval = __privateMethod(this, _RoutineService_static, toPositiveInt_fn).call(this, fm.routine_interval, 1);
+    const rule = {
+      type,
+      interval,
+      start: __privateMethod(this, _RoutineService_static, toDateStrOrUndef_fn).call(this, fm.routine_start),
+      end: __privateMethod(this, _RoutineService_static, toDateStrOrUndef_fn).call(this, fm.routine_end),
+      enabled
+    };
+    if (type === "weekly") {
+      const weekday = __privateMethod(this, _RoutineService_static, toWeekday_fn).call(this, (_a = fm.routine_weekday) != null ? _a : fm.weekday);
+      const weekdays = Array.isArray(fm.weekdays) ? fm.weekdays.filter((d) => __privateMethod(this, _RoutineService_static, isValidWeekday_fn).call(this, d)).map((d) => Number(d)) : void 0;
+      const legacyType = fm.routine_type;
+      const legacySet = legacyType === "weekdays" ? [1, 2, 3, 4, 5] : legacyType === "weekends" ? [0, 6] : void 0;
+      if (weekday !== void 0) rule.weekday = weekday;
+      if (weekdays && weekdays.length > 0) rule.weekdaySet = weekdays;
+      if (legacySet) rule.weekdaySet = legacySet;
+    }
+    if (type === "monthly") {
+      let week;
+      if (fm.routine_week !== void 0) {
+        week = fm.routine_week === "last" ? "last" : __privateMethod(this, _RoutineService_static, toPositiveInt_fn).call(this, fm.routine_week, void 0);
+      } else if (fm.monthly_week !== void 0) {
+        if (fm.monthly_week === "last") {
+          week = "last";
+        } else {
+          const zeroBased = __privateMethod(this, _RoutineService_static, toPositiveInt_fn).call(this, fm.monthly_week, void 0);
+          week = zeroBased !== void 0 ? zeroBased + 1 : void 0;
+        }
+      }
+      const weekday = __privateMethod(this, _RoutineService_static, toWeekday_fn).call(this, (_b = fm.routine_weekday) != null ? _b : fm.monthly_weekday);
+      if (week !== void 0) rule.week = week;
+      if (weekday !== void 0) rule.monthWeekday = weekday;
+    }
+    return rule;
+  }
+  /** Determine if a routine is due on the given date (YYYY-MM-DD). */
+  static isDue(dateStr, rule, movedTargetDate) {
+    if (!rule) return false;
+    if (!rule.enabled) return false;
+    if (movedTargetDate) {
+      return movedTargetDate === dateStr;
+    }
+    const date = __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, dateStr);
+    if (!date) return false;
+    if (rule.start) {
+      const s = __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, rule.start);
+      if (s && __privateMethod(this, _RoutineService_static, compareDate_fn).call(this, date, s) < 0) return false;
+    }
+    if (rule.end) {
+      const e = __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, rule.end);
+      if (e && __privateMethod(this, _RoutineService_static, compareDate_fn).call(this, date, e) > 0) return false;
+    }
+    switch (rule.type) {
+      case "daily":
+        return __privateMethod(this, _RoutineService_static, isDailyDue_fn).call(this, date, rule);
+      case "weekly":
+        return __privateMethod(this, _RoutineService_static, isWeeklyDue_fn).call(this, date, rule);
+      case "monthly":
+        return __privateMethod(this, _RoutineService_static, isMonthlyDue_fn).call(this, date, rule);
+      default:
+        return false;
+    }
+  }
+};
+_RoutineService_static = new WeakSet();
+isDailyDue_fn = function(date, rule) {
+  const interval = Math.max(1, rule.interval || 1);
+  if (!rule.start) return interval === 1;
+  const s = __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, rule.start);
+  const diff = __privateMethod(this, _RoutineService_static, daysDiff_fn).call(this, s, date);
+  return diff >= 0 && diff % interval === 0;
+};
+isWeeklyDue_fn = function(date, rule) {
+  const weekdaySet = rule.weekdaySet;
+  if (weekdaySet && Array.isArray(weekdaySet) && weekdaySet.length > 0) {
+    return weekdaySet.includes(date.getDay());
+  }
+  const weekday = rule.weekday;
+  if (weekday === void 0) return false;
+  const interval = Math.max(1, rule.interval || 1);
+  const start = rule.start ? __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, rule.start) : void 0;
+  const anchor = start ? __privateMethod(this, _RoutineService_static, weekStart_fn).call(this, start) : __privateMethod(this, _RoutineService_static, weekStart_fn).call(this, new Date(1970, 0, 4));
+  const currentWeekStart = __privateMethod(this, _RoutineService_static, weekStart_fn).call(this, date);
+  const wdiff = Math.floor((currentWeekStart.getTime() - anchor.getTime()) / (7 * 24 * 60 * 60 * 1e3));
+  return wdiff >= 0 && wdiff % interval === 0 && date.getDay() === weekday;
+};
+isMonthlyDue_fn = function(date, rule) {
+  const week = rule.week;
+  const weekday = rule.monthWeekday;
+  if (week === void 0 || weekday === void 0) return false;
+  const interval = Math.max(1, rule.interval || 1);
+  if (rule.start) {
+    const s = __privateMethod(this, _RoutineService_static, parseDate_fn).call(this, rule.start);
+    const mdiff = (date.getFullYear() - s.getFullYear()) * 12 + (date.getMonth() - s.getMonth());
+    if (mdiff < 0 || mdiff % interval !== 0) return false;
+  }
+  if (week === "last") {
+    const nextWeek = new Date(date);
+    nextWeek.setDate(date.getDate() + 7);
+    const isLast = nextWeek.getMonth() !== date.getMonth();
+    return isLast && date.getDay() === weekday;
+  }
+  const occurrence = Math.floor((date.getDate() - 1) / 7) + 1;
+  return occurrence === week && date.getDay() === weekday;
+};
+toPositiveInt_fn = function(value, fallback) {
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  return fallback != null ? fallback : 1;
+};
+toWeekday_fn = function(value) {
+  const n = Number(value);
+  return __privateMethod(this, _RoutineService_static, isValidWeekday_fn).call(this, n) ? n : void 0;
+};
+isValidWeekday_fn = function(n) {
+  return Number.isFinite(n) && n >= 0 && n <= 6;
+};
+toDateStrOrUndef_fn = function(v) {
+  if (!v || typeof v !== "string") return void 0;
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : void 0;
+};
+parseDate_fn = function(dateStr) {
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const [y, mo, d] = dateStr.split("-").map(Number);
+  return new Date(y, mo - 1, d);
+};
+compareDate_fn = function(a, b) {
+  const aKey = a.getFullYear() * 1e4 + (a.getMonth() + 1) * 100 + a.getDate();
+  const bKey = b.getFullYear() * 1e4 + (b.getMonth() + 1) * 100 + b.getDate();
+  return aKey === bKey ? 0 : aKey < bKey ? -1 : 1;
+};
+daysDiff_fn = function(a, b) {
+  const msPerDay = 24 * 60 * 60 * 1e3;
+  const utcA = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const utcB = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.floor((utcB - utcA) / msPerDay);
+};
+weekStart_fn = function(date) {
+  const d = new Date(date);
+  const dow = d.getDay();
+  d.setDate(d.getDate() - dow);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+__privateAdd(RoutineService, _RoutineService_static);
+var RoutineService_default = RoutineService;
+
 // src/views/TaskChuteView.helpers.ts
 async function loadTasksRefactored() {
   var _a;
@@ -1100,6 +1269,9 @@ async function createNonRoutineTask(file, content, metadata, dateString) {
   }
 }
 async function createRoutineTask(file, content, metadata, dateString) {
+  var _a, _b, _c, _d, _e, _f;
+  const rule = RoutineService_default.parseFrontmatter(metadata);
+  if (!rule || rule.enabled === false) return;
   let projectPath = null;
   let projectTitle = null;
   if (metadata == null ? void 0 : metadata.project_path) {
@@ -1125,12 +1297,18 @@ async function createRoutineTask(file, content, metadata, dateString) {
     projectPath,
     projectTitle,
     isRoutine: true,
-    routineType: (metadata == null ? void 0 : metadata.routine_type) || "daily",
+    routineType: rule.type,
+    routine_type: rule.type,
+    routine_interval: rule.interval,
+    routine_enabled: rule.enabled,
+    routine_start: metadata == null ? void 0 : metadata.routine_start,
+    routine_end: metadata == null ? void 0 : metadata.routine_end,
     scheduledTime: metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B,
-    weekday: metadata == null ? void 0 : metadata.weekday,
+    // Backward compat fields used elsewhere in UI
+    weekday: (_b = (_a = metadata == null ? void 0 : metadata.weekday) != null ? _a : metadata == null ? void 0 : metadata.routine_weekday) != null ? _b : rule.weekday,
     weekdays: metadata == null ? void 0 : metadata.weekdays,
-    monthlyWeek: metadata == null ? void 0 : metadata.monthly_week,
-    monthlyWeekday: metadata == null ? void 0 : metadata.monthly_weekday
+    monthlyWeek: (_d = (_c = metadata == null ? void 0 : metadata.monthly_week) != null ? _c : metadata == null ? void 0 : metadata.routine_week) != null ? _d : rule.week,
+    monthlyWeekday: (_f = (_e = metadata == null ? void 0 : metadata.monthly_weekday) != null ? _e : metadata == null ? void 0 : metadata.routine_weekday) != null ? _f : rule.monthWeekday
   };
   this.tasks.push(taskData);
   const instance = {
@@ -1148,47 +1326,9 @@ async function createRoutineTask(file, content, metadata, dateString) {
 }
 function shouldShowRoutineTask(metadata, date, dateString) {
   if (!metadata) return false;
-  const hasMovedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start;
-  if (hasMovedTargetDate) {
-    return dateString === metadata.target_date;
-  }
-  const routineType = metadata.routine_type || "daily";
-  const dayOfWeek = date.getDay();
-  switch (routineType) {
-    case "daily":
-      return true;
-    case "weekdays":
-      return dayOfWeek >= 1 && dayOfWeek <= 5;
-    // Monday to Friday
-    case "weekends":
-      return dayOfWeek === 0 || dayOfWeek === 6;
-    // Saturday and Sunday
-    case "weekly":
-    case "custom":
-      if (metadata.weekday !== void 0) {
-        return dayOfWeek === metadata.weekday;
-      }
-      if (metadata.weekdays && Array.isArray(metadata.weekdays)) {
-        return metadata.weekdays.includes(dayOfWeek);
-      }
-      return false;
-    case "monthly":
-      if (metadata.monthly_week !== void 0 && metadata.monthly_weekday !== void 0) {
-        if (dayOfWeek !== metadata.monthly_weekday) {
-          return false;
-        }
-        if (metadata.monthly_week === "last") {
-          const nextWeek = new Date(date);
-          nextWeek.setDate(date.getDate() + 7);
-          return nextWeek.getMonth() !== date.getMonth();
-        }
-        const weekOfMonth = Math.floor((date.getDate() - 1) / 7) + 1;
-        return weekOfMonth === metadata.monthly_week;
-      }
-      return false;
-    default:
-      return true;
-  }
+  const movedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start ? metadata.target_date : void 0;
+  const rule = RoutineService_default.parseFrontmatter(metadata);
+  return RoutineService_default.isDue(dateString, rule, movedTargetDate);
 }
 function extractProjectTitle(projectField) {
   if (!projectField) return void 0;
@@ -1279,6 +1419,8 @@ async function addDuplicatedInstances(dateString) {
       if (!taskData) {
         const file = this.app.vault.getAbstractFileByPath(originalPath);
         const metadata = file ? (_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter : void 0;
+        const rule = metadata ? RoutineService_default.parseFrontmatter(metadata) : null;
+        if (rule && rule.enabled === false) continue;
         if (file) {
           taskData = {
             file,
@@ -1797,6 +1939,9 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
     });
     const navMenu = this.navigationPanel.createEl("nav", {
       cls: "navigation-nav"
+    });
+    this.navigationContent = this.navigationPanel.createEl("div", {
+      cls: "navigation-content"
     });
     const navigationItems = [
       { key: "routine", label: "\u30EB\u30FC\u30C1\u30F3", icon: "\u{1F504}" },
@@ -2691,6 +2836,7 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
     }
   }
   showRoutineEditModal(task, button) {
+    var _a;
     const modal = document.createElement("div");
     modal.className = "task-modal-overlay";
     const modalContent = modal.createEl("div", { cls: "task-modal-content" });
@@ -2708,11 +2854,9 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       cls: "form-input"
     });
     const options = [
-      { value: "daily", text: "\u6BCE\u65E5" },
-      { value: "weekdays", text: "\u5E73\u65E5\u306E\u307F" },
-      { value: "weekends", text: "\u9031\u672B\u306E\u307F" },
-      { value: "weekly", text: "\u9031\u6B21\uFF08\u66DC\u65E5\u6307\u5B9A\uFF09" },
-      { value: "monthly", text: "\u6708\u6B21\uFF08\u7B2CX\u9031\u306EX\u66DC\u65E5\uFF09" }
+      { value: "daily", text: "\u65E5\u3054\u3068" },
+      { value: "weekly", text: "\u9031\u3054\u3068\uFF08\u66DC\u65E5\u6307\u5B9A\uFF09" },
+      { value: "monthly", text: "\u6708\u3054\u3068\uFF08\u66DC\u65E5\u6307\u5B9A\uFF09" }
     ];
     options.forEach((opt) => {
       const option = typeSelect.createEl("option", {
@@ -2723,9 +2867,7 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         option.selected = true;
       }
     });
-    if (!task.routine_type) {
-      typeSelect.value = "daily";
-    }
+    typeSelect.value = task.routine_type === "weekly" || task.routine_type === "monthly" ? task.routine_type : "daily";
     const timeGroup = form.createEl("div", { cls: "form-group" });
     timeGroup.createEl("label", { text: "\u958B\u59CB\u4E88\u5B9A\u6642\u523B:", cls: "form-label" });
     const timeInput = timeGroup.createEl("input", {
@@ -2733,10 +2875,24 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       cls: "form-input",
       value: task.scheduledTime || "09:00"
     });
-    const weeklyGroup = form.createEl("div", {
-      cls: "form-group",
-      style: "display: none;"
+    const intervalGroup = form.createEl("div", { cls: "form-group" });
+    intervalGroup.createEl("label", { text: "\u9593\u9694:", cls: "form-label" });
+    const intervalInput = intervalGroup.createEl("input", {
+      type: "number",
+      cls: "form-input",
+      attr: { min: "1", step: "1" },
+      value: String((_a = task.routine_interval) != null ? _a : 1)
     });
+    const enabledGroup = form.createEl("div", { cls: "form-group" });
+    const enabledLabel = enabledGroup.createEl("label", { text: "\u6709\u52B9:", cls: "form-label" });
+    const enabledToggle = enabledGroup.createEl("input", {
+      type: "checkbox"
+    });
+    enabledToggle.checked = task.routine_enabled !== false;
+    const weeklyGroup = form.createEl("div", {
+      cls: "form-group"
+    });
+    weeklyGroup.style.display = "none";
     weeklyGroup.createEl("label", { text: "\u66DC\u65E5\u3092\u9078\u629E:", cls: "form-label" });
     const weekdayContainer = weeklyGroup.createEl("div", { cls: "weekday-checkboxes" });
     const weekdays = [
@@ -2758,15 +2914,24 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         value: day.value.toString()
       });
       weekdayCheckboxes.push(checkbox);
-      if (task.weekdays && Array.isArray(task.weekdays)) {
+      if (typeof task.weekday === "number") {
+        checkbox.checked = task.weekday === day.value;
+      } else if (task.weekdays && Array.isArray(task.weekdays)) {
         checkbox.checked = task.weekdays.includes(day.value);
       }
       label.createEl("span", { text: day.label });
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          weekdayCheckboxes.forEach((cb) => {
+            if (cb !== checkbox) cb.checked = false;
+          });
+        }
+      });
     });
     const monthlyGroup = form.createEl("div", {
-      cls: "form-group",
-      style: "display: none;"
+      cls: "form-group"
     });
+    monthlyGroup.style.display = "none";
     monthlyGroup.createEl("label", { text: "\u6708\u6B21\u8A2D\u5B9A:", cls: "form-label" });
     const monthlyContainer = monthlyGroup.createEl("div", {
       cls: "monthly-settings",
@@ -2786,6 +2951,8 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         option.selected = true;
       }
     }
+    const lastOpt = weekSelect.createEl("option", { value: "last", text: "\u6700\u7D42" });
+    if (task.monthly_week === "last") lastOpt.selected = true;
     monthlyContainer.createEl("span", { text: "\u9031\u306E" });
     const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
       cls: "form-input",
@@ -2810,9 +2977,9 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         monthlyGroup.style.display = "block";
       }
     });
-    if (task.routine_type === "weekly") {
+    if (typeSelect.value === "weekly") {
       weeklyGroup.style.display = "block";
-    } else if (task.routine_type === "monthly") {
+    } else if (typeSelect.value === "monthly") {
       monthlyGroup.style.display = "block";
     }
     const buttonGroup = form.createEl("div", { cls: "form-button-group" });
@@ -2852,6 +3019,8 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       e.preventDefault();
       const scheduledTime = timeInput.value;
       const routineType = typeSelect.value;
+      const interval = Math.max(1, parseInt(intervalInput.value || "1", 10) || 1);
+      const enabled = !!enabledToggle.checked;
       if (!scheduledTime) {
         new import_obsidian9.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
@@ -2870,8 +3039,10 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         routineType,
         {
           weekdays: routineType === "weekly" ? weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => parseInt(cb.value)) : void 0,
-          monthly_week: routineType === "monthly" ? parseInt(weekSelect.value) : void 0,
-          monthly_weekday: routineType === "monthly" ? parseInt(monthlyWeekdaySelect.value) : void 0
+          monthly_week: routineType === "monthly" ? weekSelect.value === "last" ? "last" : parseInt(weekSelect.value) : void 0,
+          monthly_weekday: routineType === "monthly" ? parseInt(monthlyWeekdaySelect.value) : void 0,
+          interval,
+          enabled
         }
       );
       document.body.removeChild(modal);
@@ -2881,23 +3052,36 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   }
   async toggleRoutine(task, button) {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian9.TFile)) {
-        new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
-        return;
-      }
       if (task.isRoutine) {
-        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-          const y = this.currentDate.getFullYear();
-          const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
-          const d = this.currentDate.getDate().toString().padStart(2, "0");
-          frontmatter.routine_end = `${y}-${m}-${d}`;
-          frontmatter.isRoutine = false;
-          delete frontmatter.\u958B\u59CB\u6642\u523B;
-          return frontmatter;
-        });
+        const file = task.path && this.app.vault.getAbstractFileByPath(task.path) || null;
+        if (!file || !(file instanceof import_obsidian9.TFile)) {
+          const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+          const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+          const fb = this.app.vault.getAbstractFileByPath(fallbackPath);
+          if (!fb || !(fb instanceof import_obsidian9.TFile)) {
+            new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+            return;
+          }
+          await this.app.fileManager.processFrontMatter(fb, (frontmatter) => {
+            const y = this.currentDate.getFullYear();
+            const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
+            const d = this.currentDate.getDate().toString().padStart(2, "0");
+            frontmatter.routine_end = `${y}-${m}-${d}`;
+            frontmatter.isRoutine = false;
+            delete frontmatter.\u958B\u59CB\u6642\u523B;
+            return frontmatter;
+          });
+        } else {
+          await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+            const y = this.currentDate.getFullYear();
+            const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
+            const d = this.currentDate.getDate().toString().padStart(2, "0");
+            frontmatter.routine_end = `${y}-${m}-${d}`;
+            frontmatter.isRoutine = false;
+            delete frontmatter.\u958B\u59CB\u6642\u523B;
+            return frontmatter;
+          });
+        }
         task.isRoutine = false;
         task.scheduledTime = null;
         button.classList.remove("active");
@@ -2908,7 +3092,9 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         this.showRoutineEditModal(task, button);
       }
     } catch (error) {
-      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      console.error("[TaskChute] toggleRoutine failed:", error);
+      const msg = error && (error.message || String(error)) || "";
+      new import_obsidian9.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   showTaskSettingsTooltip(inst, button) {
@@ -3810,7 +3996,110 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       this.closeNavigation();
       return;
     }
+    if (section === "routine") {
+      await this.renderRoutineList();
+      this.openNavigation();
+      return;
+    }
     new import_obsidian9.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
+  }
+  // Render routine list with enabled toggle
+  async renderRoutineList() {
+    var _a;
+    if (!this.navigationContent) return;
+    this.navigationContent.empty();
+    const header = this.navigationContent.createEl("div", { cls: "routine-list-header" });
+    header.createEl("h3", { text: "\u30EB\u30FC\u30C1\u30F3\u4E00\u89A7" });
+    const hint = this.navigationContent.createEl("div", { cls: "routine-list-hint" });
+    hint.textContent = "\u3053\u3053\u3067\u306F\u6709\u52B9/\u7121\u52B9\u3092\u5207\u308A\u66FF\u3048\u3067\u304D\u307E\u3059\u3002\u8A2D\u5B9A\u306E\u8A73\u7D30\u306F\u5404\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u304B\u3089\u7DE8\u96C6\u3057\u3066\u304F\u3060\u3055\u3044\u3002";
+    const list = this.navigationContent.createEl("div", { cls: "routine-list" });
+    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+    const all = this.app.vault.getMarkdownFiles();
+    const files = all.filter((f) => f.path.startsWith(taskFolderPath + "/"));
+    files.sort((a, b) => a.basename.localeCompare(b.basename, "ja"));
+    let count = 0;
+    for (const file of files) {
+      const fm = (_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter;
+      if (!fm || fm.isRoutine !== true) continue;
+      count++;
+      const row = this.createRoutineRow(file, fm);
+      list.appendChild(row);
+    }
+    if (count === 0) {
+      const none = this.navigationContent.createEl("div", { cls: "routine-empty" });
+      none.textContent = "\u30EB\u30FC\u30C1\u30F3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093";
+    }
+  }
+  createRoutineRow(file, fm) {
+    const row = document.createElement("div");
+    row.className = "routine-row";
+    const title = row.createEl("div", { cls: "routine-title", text: file.basename });
+    const typeBadge = row.createEl("span", { cls: "routine-type-badge" });
+    const type = fm.routine_type || "daily";
+    const interval = Math.max(1, Number(fm.routine_interval || 1));
+    typeBadge.textContent = this.getRoutineTypeLabel(type, interval, fm);
+    const toggleWrap = row.createEl("label", { cls: "routine-enabled-toggle" });
+    const toggle = toggleWrap.createEl("input", { type: "checkbox" });
+    toggle.checked = fm.routine_enabled !== false;
+    toggle.title = "\u6709\u52B9/\u7121\u52B9";
+    toggle.addEventListener("change", async (e) => {
+      var _a;
+      await this.updateRoutineEnabled(file, toggle.checked);
+      await this.reloadTasksAndRestore();
+      const newFm = ((_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter) || {};
+      typeBadge.textContent = this.getRoutineTypeLabel(newFm.routine_type || "daily", Math.max(1, Number(newFm.routine_interval || 1)), newFm);
+    });
+    const editBtn = row.createEl("button", { cls: "routine-edit-btn", text: "\u7DE8\u96C6" });
+    editBtn.addEventListener("click", (e) => {
+      var _a, _b;
+      e.stopPropagation();
+      const task = {
+        title: file.basename,
+        isRoutine: true,
+        scheduledTime: fm.\u958B\u59CB\u6642\u523B,
+        routine_type: fm.routine_type || "daily",
+        routine_interval: fm.routine_interval || 1,
+        routine_enabled: fm.routine_enabled !== false,
+        weekday: (_a = fm.routine_weekday) != null ? _a : fm.weekday,
+        weekdays: fm.weekdays,
+        monthly_week: fm.routine_week !== void 0 ? fm.routine_week === "last" ? "last" : Number(fm.routine_week) - 1 : fm.monthly_week,
+        monthly_weekday: (_b = fm.routine_weekday) != null ? _b : fm.monthly_weekday
+      };
+      this.showRoutineEditModal(task, editBtn);
+    });
+    return row;
+  }
+  getRoutineTypeLabel(type, interval, fm) {
+    var _a, _b, _c, _d;
+    const dayNames = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
+    switch (type) {
+      case "daily":
+        return `${interval}\u65E5\u3054\u3068`;
+      case "weekly": {
+        const wd = (_b = (_a = fm.routine_weekday) != null ? _a : fm.weekday) != null ? _b : Array.isArray(fm.weekdays) ? fm.weekdays[0] : void 0;
+        const dayLabel = typeof wd === "number" ? dayNames[wd] + "\u66DC" : "\u66DC\u65E5\u672A\u6307\u5B9A";
+        return `${interval}\u9031\u3054\u3068 ${dayLabel}`;
+      }
+      case "monthly": {
+        const w = (_c = fm.routine_week) != null ? _c : typeof fm.monthly_week === "number" ? fm.monthly_week + 1 : fm.monthly_week === "last" ? "last" : void 0;
+        const wd = (_d = fm.routine_weekday) != null ? _d : fm.monthly_weekday;
+        const weekLabel = w === "last" ? "\u6700\u7D42" : `\u7B2C${w}`;
+        const dayLabel = typeof wd === "number" ? dayNames[wd] + "\u66DC" : "";
+        return `${interval}\u30F6\u6708\u3054\u3068 ${weekLabel}${dayLabel}`.trim();
+      }
+      case "weekdays":
+        return "\u5E73\u65E5\u306E\u307F";
+      case "weekends":
+        return "\u9031\u672B\u306E\u307F";
+      default:
+        return type;
+    }
+  }
+  async updateRoutineEnabled(file, enabled) {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      frontmatter.routine_enabled = enabled;
+      return frontmatter;
+    });
   }
   // Show Daily Review in right split
   async showReviewSection() {
@@ -4057,9 +4346,13 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   }
   async setRoutineTask(task, button, scheduledTime) {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
+      const primaryPath = task.path || "";
+      let file = primaryPath ? this.app.vault.getAbstractFileByPath(primaryPath) : null;
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+        const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+        file = this.app.vault.getAbstractFileByPath(fallbackPath);
+      }
       if (!file || !(file instanceof import_obsidian9.TFile)) {
         new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
@@ -4083,14 +4376,19 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       new import_obsidian9.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      const msg = error && (error.message || String(error)) || "";
+      new import_obsidian9.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   async setRoutineTaskWithDetails(task, button, scheduledTime, routineType, details) {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${task.title}.md`;
-      const file = this.app.vault.getAbstractFileByPath(filePath);
+      const primaryPath = task.path || "";
+      let file = primaryPath ? this.app.vault.getAbstractFileByPath(primaryPath) : null;
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+        const fallbackPath = `${taskFolderPath}/${task.title}.md`;
+        file = this.app.vault.getAbstractFileByPath(fallbackPath);
+      }
       if (!file || !(file instanceof import_obsidian9.TFile)) {
         new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
@@ -4099,6 +4397,8 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         frontmatter.isRoutine = true;
         frontmatter.\u958B\u59CB\u6642\u523B = scheduledTime;
         frontmatter.routine_type = routineType;
+        frontmatter.routine_enabled = details.enabled !== false;
+        frontmatter.routine_interval = Math.max(1, details.interval || 1);
         const y = this.currentDate.getFullYear();
         const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0");
         const d = this.currentDate.getDate().toString().padStart(2, "0");
@@ -4108,24 +4408,25 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         delete frontmatter.weekdays;
         delete frontmatter.monthly_week;
         delete frontmatter.monthly_weekday;
+        delete frontmatter.routine_week;
+        delete frontmatter.routine_weekday;
         switch (routineType) {
           case "daily":
+            break;
           case "weekdays":
           case "weekends":
             break;
           case "weekly":
             if (details.weekdays && details.weekdays.length > 0) {
-              if (details.weekdays.length === 1) {
-                frontmatter.weekday = details.weekdays[0];
-              } else {
-                frontmatter.weekdays = details.weekdays;
-              }
+              const chosen = details.weekdays[0];
+              frontmatter.routine_weekday = chosen;
             }
             break;
           case "monthly":
             if (details.monthly_week !== void 0 && details.monthly_weekday !== void 0) {
-              frontmatter.monthly_week = details.monthly_week;
-              frontmatter.monthly_weekday = details.monthly_weekday;
+              const w = details.monthly_week === "last" ? "last" : typeof details.monthly_week === "number" ? details.monthly_week + 1 : void 0;
+              if (w !== void 0) frontmatter.routine_week = w;
+              frontmatter.routine_weekday = details.monthly_weekday;
             }
             break;
         }
@@ -4134,7 +4435,10 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       task.isRoutine = true;
       task.scheduledTime = scheduledTime;
       task.routine_type = routineType;
+      task.routine_interval = Math.max(1, details.interval || 1);
+      task.routine_enabled = details.enabled !== false;
       if (routineType === "weekly" && details.weekdays) {
+        task.weekday = details.weekdays[0];
         task.weekdays = details.weekdays;
       } else if (routineType === "monthly") {
         task.monthly_week = details.monthly_week;
@@ -4144,7 +4448,7 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       let tooltipText = `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`;
       switch (routineType) {
         case "daily":
-          tooltipText += " - \u6BCE\u65E5";
+          tooltipText += ` - ${task.routine_interval || 1}\u65E5\u3054\u3068`;
           break;
         case "weekdays":
           tooltipText += " - \u5E73\u65E5\u306E\u307F";
@@ -4155,14 +4459,15 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
         case "weekly":
           if (details.weekdays) {
             const dayNames = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
-            const days = details.weekdays.map((d) => dayNames[d]).join(",");
-            tooltipText += ` - \u6BCE\u9031${days}`;
+            const day = dayNames[details.weekdays[0]];
+            tooltipText += ` - ${task.routine_interval || 1}\u9031\u3054\u3068 ${day}\u66DC`;
           }
           break;
         case "monthly":
           if (details.monthly_week !== void 0 && details.monthly_weekday !== void 0) {
             const dayNames = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
-            tooltipText += ` - \u7B2C${details.monthly_week + 1}${dayNames[details.monthly_weekday]}\u66DC\u65E5`;
+            const weekLabel = details.monthly_week === "last" ? "\u6700\u7D42" : `\u7B2C${details.monthly_week + 1}`;
+            tooltipText += ` - ${task.routine_interval || 1}\u30F6\u6708\u3054\u3068 ${weekLabel}${dayNames[details.monthly_weekday]}\u66DC\u65E5`;
           }
           break;
       }
@@ -4171,7 +4476,8 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       new import_obsidian9.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      const msg = error && (error.message || String(error)) || "";
+      new import_obsidian9.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   async deleteInstanceWithConfirm(inst) {

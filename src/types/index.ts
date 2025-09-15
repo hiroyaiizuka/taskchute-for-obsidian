@@ -26,7 +26,13 @@ export interface TaskData {
   routine_type?: 'daily' | 'weekly' | 'monthly' | 'weekdays' | 'weekends';
   routine_start?: string;
   routine_end?: string;
-  routine_week?: string;
+  // New normalized routine fields
+  routine_interval?: number; // >=1, default 1
+  routine_enabled?: boolean; // default true
+  // Weekly: single weekday for now (0=Sun)
+  routine_weekday?: number;
+  // Monthly: week index (1..5 or 'last') + weekday
+  routine_week?: number | 'last';
   routine_day?: string;
   flexible_schedule?: boolean;
   [key: string]: any;
@@ -126,4 +132,20 @@ export interface TaskNameValidator {
 export interface AutocompleteInstance {
   cleanup?: () => void;
   [key: string]: any;
+}
+
+// Routine rule (normalized) used by RoutineService
+export type RoutineType = 'daily' | 'weekly' | 'monthly';
+
+export interface RoutineRule {
+  type: RoutineType;
+  interval: number; // >= 1
+  start?: string; // YYYY-MM-DD
+  end?: string; // YYYY-MM-DD
+  enabled: boolean; // default true
+  // weekly
+  weekday?: number; // 0..6
+  // monthly
+  week?: number | 'last'; // 1..5 | 'last'
+  monthWeekday?: number; // 0..6
 }

@@ -1,4 +1,5 @@
 // Refactored loadTasks implementation with proper filtering
+import RoutineService from '../services/RoutineService';
 
 export async function loadTasksRefactored(this: any): Promise<void> {
   this.tasks = [];
@@ -270,6 +271,8 @@ async function createNonRoutineTask(this: any, file: any, content: string, metad
 }
 
 async function createRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
+  const rule = RoutineService.parseFrontmatter(metadata);
+  if (!rule || rule.enabled === false) return;
   // Extract project info
   let projectPath = null;
   let projectTitle = null;
@@ -299,12 +302,18 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
     projectPath: projectPath,
     projectTitle: projectTitle,
     isRoutine: true,
-    routineType: metadata?.routine_type || 'daily',
+    routineType: rule.type,
+    routine_type: rule.type,
+    routine_interval: rule.interval,
+    routine_enabled: rule.enabled,
+    routine_start: metadata?.routine_start,
+    routine_end: metadata?.routine_end,
     scheduledTime: metadata?.開始時刻,
-    weekday: metadata?.weekday,
+    // Backward compat fields used elsewhere in UI
+    weekday: metadata?.weekday ?? metadata?.routine_weekday ?? (rule as any).weekday,
     weekdays: metadata?.weekdays,
-    monthlyWeek: metadata?.monthly_week,
-    monthlyWeekday: metadata?.monthly_weekday,
+    monthlyWeek: metadata?.monthly_week ?? metadata?.routine_week ?? (rule as any).week,
+    monthlyWeekday: metadata?.monthly_weekday ?? metadata?.routine_weekday ?? (rule as any).monthWeekday,
   };
 
   this.tasks.push(taskData);
@@ -328,64 +337,11 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
 
 function shouldShowRoutineTask(this: any, metadata: any, date: Date, dateString: string): boolean {
   if (!metadata) return false;
-  
-  // Check if this routine task has been moved to a different date
-  // If target_date exists and differs from routine_start, it's a moved routine task
-  const hasMovedTargetDate = metadata.target_date && 
-    metadata.target_date !== metadata.routine_start;
-  
-  if (hasMovedTargetDate) {
-    // Show only on the target date
-    return dateString === metadata.target_date;
-  }
-  
-  const routineType = metadata.routine_type || 'daily';
-  const dayOfWeek = date.getDay(); // 0 = Sunday
-  
-  switch (routineType) {
-    case 'daily':
-      return true;
-      
-    case 'weekdays':
-      return dayOfWeek >= 1 && dayOfWeek <= 5; // Monday to Friday
-      
-    case 'weekends':
-      return dayOfWeek === 0 || dayOfWeek === 6; // Saturday and Sunday
-      
-    case 'weekly':
-    case 'custom':  // custom is treated same as weekly
-      if (metadata.weekday !== undefined) {
-        return dayOfWeek === metadata.weekday;
-      }
-      if (metadata.weekdays && Array.isArray(metadata.weekdays)) {
-        return metadata.weekdays.includes(dayOfWeek);
-      }
-      return false;
-      
-    case 'monthly':
-      if (metadata.monthly_week !== undefined && metadata.monthly_weekday !== undefined) {
-        // 指定された曜日と一致しない場合は表示しない
-        if (dayOfWeek !== metadata.monthly_weekday) {
-          return false;
-        }
-        
-        // "last"週の処理
-        if (metadata.monthly_week === 'last') {
-          // 次週の同じ曜日が翌月なら、今週が最終週
-          const nextWeek = new Date(date);
-          nextWeek.setDate(date.getDate() + 7);
-          return nextWeek.getMonth() !== date.getMonth();
-        }
-        
-        // その月で何回目の該当曜日かを計算（1ベース）
-        const weekOfMonth = Math.floor((date.getDate() - 1) / 7) + 1;
-        return weekOfMonth === metadata.monthly_week;
-      }
-      return false;
-      
-    default:
-      return true;
-  }
+  const movedTargetDate = (metadata.target_date && metadata.target_date !== metadata.routine_start)
+    ? metadata.target_date
+    : undefined;
+  const rule = RoutineService.parseFrontmatter(metadata);
+  return RoutineService.isDue(dateString, rule, movedTargetDate);
 }
 
 function extractProjectTitle(projectField: string | undefined): string | undefined {
@@ -514,6 +470,9 @@ async function addDuplicatedInstances(this: any, dateString: string): Promise<vo
       if (!taskData) {
         const file = this.app.vault.getAbstractFileByPath(originalPath);
         const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+        // Skip if routine is disabled
+        const rule = metadata ? RoutineService.parseFrontmatter(metadata) : null;
+        if (rule && rule.enabled === false) continue;
         if (file) {
           taskData = {
             file,
