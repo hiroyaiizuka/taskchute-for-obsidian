@@ -102,6 +102,8 @@ export class TaskNameAutocomplete {
     this.inputElement.addEventListener('blur', () => {
       // Delay hide to allow click on suggestions
       setTimeout(() => {
+        // If focus moved into suggestions element, keep visible
+        if (this.suggestionsElement && this.suggestionsElement.contains(document.activeElement)) return;
         this.hideSuggestions();
       }, 200);
     });
@@ -136,6 +138,10 @@ export class TaskNameAutocomplete {
           break;
       }
     });
+
+    // Window events to hide repositioned UI
+    window.addEventListener('resize', () => this.hideSuggestions());
+    window.addEventListener('scroll', () => this.hideSuggestions(), true);
   }
 
   private setupFileEventListeners(): void {
@@ -201,44 +207,43 @@ export class TaskNameAutocomplete {
     }
     
     // Create or update suggestions element
-    if (!this.suggestionsElement) {
-      this.suggestionsElement = document.createElement('div');
-      this.suggestionsElement.className = 'task-autocomplete-suggestions';
-      this.containerElement.appendChild(this.suggestionsElement);
+    if (this.suggestionsElement) {
+      this.suggestionsElement.remove();
     }
+    this.suggestionsElement = document.createElement('div');
+    this.suggestionsElement.className = 'taskchute-autocomplete-suggestions';
     
     // Clear and populate suggestions
-    this.suggestionsElement.empty();
-    
     matches.forEach((match, index) => {
-      const item = this.suggestionsElement!.createEl('div', {
-        cls: 'suggestion-item',
-        text: prefix + match
-      });
-      
-      if (index === this.selectedIndex) {
-        item.addClass('selected');
-      }
-      
-      item.onclick = () => {
-        this.inputElement.value = prefix + match;
-        this.hideSuggestions();
-        this.inputElement.focus();
-        
-        // Trigger input event
-        const event = new Event('input', { bubbles: true });
-        this.inputElement.dispatchEvent(event);
-      };
-    });
+      const item = document.createElement('div')
+      item.className = 'suggestion-item'
+      item.textContent = prefix + match
+
+      item.addEventListener('mouseenter', () => {
+        this.selectedIndex = index
+        this.updateSelection(this.suggestionsElement!.querySelectorAll('.suggestion-item'))
+      })
+
+      item.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        this.applySuggestionFromText(prefix + match)
+      })
+
+      this.suggestionsElement!.appendChild(item)
+    })
     
     // Position suggestions
     const rect = this.inputElement.getBoundingClientRect();
-    this.suggestionsElement.style.top = `${rect.bottom}px`;
+    this.suggestionsElement.style.top = `${rect.bottom + 2}px`;
     this.suggestionsElement.style.left = `${rect.left}px`;
     this.suggestionsElement.style.width = `${rect.width}px`;
-    
+
+    // Append to body so absolute coordinates match viewport
+    document.body.appendChild(this.suggestionsElement)
+
     this.isVisible = true;
-  }
+    }
 
   private hideSuggestions(): void {
     if (this.suggestionsElement) {
@@ -272,9 +277,9 @@ export class TaskNameAutocomplete {
   private updateSelection(items: NodeListOf<Element>): void {
     items.forEach((item, index) => {
       if (index === this.selectedIndex) {
-        item.addClass('selected');
+        item.classList.add('suggestion-item-selected')
       } else {
-        item.removeClass('selected');
+        item.classList.remove('suggestion-item-selected')
       }
     });
   }
@@ -286,13 +291,24 @@ export class TaskNameAutocomplete {
     const selectedItem = items[this.selectedIndex] as HTMLElement;
     
     if (selectedItem) {
-      this.inputElement.value = selectedItem.textContent || '';
-      this.hideSuggestions();
-      
-      // Trigger input event
-      const event = new Event('input', { bubbles: true });
-      this.inputElement.dispatchEvent(event);
+      const text = selectedItem.textContent || ''
+      this.applySuggestionFromText(text)
     }
+  }
+
+  private applySuggestionFromText(text: string): void {
+    this.inputElement.value = text
+    this.hideSuggestions()
+    // Trigger input and change events to align with spec
+    this.inputElement.dispatchEvent(new Event('input', { bubbles: true }))
+    this.inputElement.dispatchEvent(new Event('change', { bubbles: true }))
+    // Custom event to notify selection
+    this.inputElement.dispatchEvent(new CustomEvent('autocomplete-selected', {
+      detail: { taskName: text },
+      bubbles: true,
+    }))
+    // Keep focus on input
+    this.inputElement.focus()
   }
 
   destroy(): void {

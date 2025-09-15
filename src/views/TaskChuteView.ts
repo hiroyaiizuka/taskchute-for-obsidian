@@ -18,6 +18,8 @@ import { loadTasksRefactored } from './TaskChuteView.helpers';
 import { ProjectNoteSyncManager } from '../managers/ProjectNoteSyncManager';
 import { RunningTasksService } from '../services/RunningTasksService';
 import { ExecutionLogService } from '../services/ExecutionLogService';
+import { TaskCreationService } from '../services/TaskCreationService';
+import { TaskNameAutocomplete } from '../ui/TaskNameAutocomplete';
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -37,6 +39,7 @@ export class TaskChuteView extends ItemView {
   private logView: any = null;
   private runningTasksService: RunningTasksService;
   private executionLogService: ExecutionLogService;
+  private taskCreationService: TaskCreationService;
   
   // Date Navigation
   private currentDate: Date;
@@ -98,6 +101,7 @@ export class TaskChuteView extends ItemView {
     // Services
     this.runningTasksService = new RunningTasksService(this.plugin as any);
     this.executionLogService = new ExecutionLogService(this.plugin as any);
+    this.taskCreationService = new TaskCreationService(this.plugin as any);
   }
 
   getViewType(): string {
@@ -3973,6 +3977,21 @@ export class TaskChuteView extends ItemView {
       placeholder: "タスク名を入力",
     }) as HTMLInputElement;
     
+    // Integrate TaskNameAutocomplete (UI-only; no inheritance here)
+    try {
+      const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this)
+      await autocomplete.initialize()
+      // Register for cleanup on view close
+      this.autocompleteInstances.push({ cleanup: () => { if (typeof (autocomplete as any).destroy === 'function') { (autocomplete as any).destroy() } } })
+      // When modal closes, proactively destroy
+      const cleanupAuto = () => { if (typeof (autocomplete as any).destroy === 'function') { (autocomplete as any).destroy() } }
+      // Attach temporary cleanup; will be called below on button clicks
+      (modal as any)._cleanupAutocomplete = cleanupAuto
+    } catch (e) {
+      // Failsafe: do not block modal if autocomplete fails
+      console.error('[TaskChute] autocomplete init failed:', e)
+    }
+    
     // 見積時間は固定値30分を使用（UIには表示しない）
     const estimatedMinutes = 30;
     
@@ -3990,12 +4009,12 @@ export class TaskChuteView extends ItemView {
     });
     
     // イベントリスナー
-    closeButton.addEventListener("click", () => {
-      document.body.removeChild(modal);
-    });
-    cancelButton.addEventListener("click", () => {
-      document.body.removeChild(modal);
-    });
+    const closeModal = () => {
+      try { (modal as any)._cleanupAutocomplete?.() } catch (_) {}
+      document.body.removeChild(modal)
+    }
+    closeButton.addEventListener("click", closeModal)
+    cancelButton.addEventListener("click", closeModal)
     
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -4008,7 +4027,7 @@ export class TaskChuteView extends ItemView {
       
       // タスクを作成（見積時間は30分固定）
       await this.createNewTask(taskName, estimatedMinutes);
-      document.body.removeChild(modal);
+      closeModal();
     });
     
     // モーダルを表示
@@ -4018,33 +4037,16 @@ export class TaskChuteView extends ItemView {
   
   private async createNewTask(taskName: string, estimatedMinutes: number): Promise<void> {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-      const filePath = `${taskFolderPath}/${taskName}.md`;
-      
       // 現在表示中の日付を取得
       const dateStr = this.getCurrentDateString();
-      
-      // フロントマターを作成（非ルーチンタスクはtarget_dateのみ）
-      const frontmatter = [
-        "---",
-        `target_date: "${dateStr}"`,
-        "---",
-        "",
-        `#task`,
-        "",
-        `# ${taskName}`,
-        ""
-      ].join("\n");
-      
-      // ファイルを作成
-      await this.app.vault.create(filePath, frontmatter);
-      
+
+      // Delegate to service for unique naming and creation
+      await this.taskCreationService.createTaskFile(taskName, dateStr)
+
       // 少し待ってからタスクリストを再読み込み＋実行中復元（ファイルシステムの同期を待つ）
       setTimeout(async () => {
         await this.reloadTasksAndRestore();
       }, 100);
-      
-      new Notice(`タスク「${taskName}」を作成しました`);
     } catch (error) {
       console.error("Failed to create task:", error);
       new Notice("タスクの作成に失敗しました");
