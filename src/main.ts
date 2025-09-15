@@ -289,13 +289,7 @@ export default class TaskChutePlusPlugin extends Plugin {
       name: "選択されたタスクを複製",
       // ホットキーはデフォルトで設定しない
       callback: async () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          await view.duplicateInstance(view.selectedTaskInstance);
-          view.clearTaskSelection();
-        } else {
-          new Notice("タスクが選択されていません");
-        }
+        await this.triggerDuplicateSelectedTask();
       },
     });
 
@@ -303,30 +297,16 @@ export default class TaskChutePlusPlugin extends Plugin {
       id: "delete-selected-task",
       name: "選択されたタスクを削除",
       // ホットキーはデフォルトで設定しない
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          view.deleteSelectedTask();
-        } else {
-          new Notice("タスクが選択されていません");
-        }
+      callback: async () => {
+        await this.triggerDeleteSelectedTask();
       },
     });
 
     this.addCommand({
       id: "reset-selected-task",
       name: "選択されたタスクを未実行に戻す",
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          if (view.selectedTaskInstance.state !== "idle") {
-            view.resetTaskToIdle(view.selectedTaskInstance);
-          } else {
-            new Notice("既に未実行状態です");
-          }
-        } else {
-          new Notice("タスクが選択されていません");
-        }
+      callback: async () => {
+        await this.triggerResetSelectedTask();
       },
     });
 
@@ -341,13 +321,8 @@ export default class TaskChutePlusPlugin extends Plugin {
           key: "t",
         },
       ],
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view) {
-          view.showTodayTasks();
-        } else {
-          new Notice("TaskChuteビューが開かれていません");
-        }
+      callback: async () => {
+        await this.triggerShowTodayTasks();
       },
     });
 
@@ -394,10 +369,95 @@ export default class TaskChutePlusPlugin extends Plugin {
 
   getTaskChuteView(): TaskChuteView | null {
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)[0];
-    if (leaf && leaf.view instanceof TaskChuteView) {
-      return leaf.view;
-    }
+    if (!leaf || !leaf.view) return null;
+    // Avoid instanceof to prevent identity issues across reloads/bundles
+    try {
+      const view: any = leaf.view;
+      if (typeof view.getViewType === 'function' && view.getViewType() === VIEW_TYPE_TASKCHUTE) {
+        return view as TaskChuteView;
+      }
+    } catch (_) {}
     return null;
+  }
+
+  // Ensure we have a fresh (current code) view instance.
+  // If missing or missing required methods, detach and reopen.
+  private async getOrCreateTaskChuteView(requiredMethods: string[] = []): Promise<TaskChuteView | null> {
+    let view = this.getTaskChuteView();
+    const hasAll = (v: any) => requiredMethods.every((m) => typeof v?.[m] === 'function');
+
+    if (view && hasAll(view)) return view;
+
+    // Recreate view to avoid stale (pre-refactor) instances lingering across reloads
+    try {
+      this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASKCHUTE);
+    } catch (_) {}
+
+    await this.activateTaskChuteView();
+
+    // Wait a tick to ensure view is constructed
+    await new Promise((r) => setTimeout(r, 50));
+
+    view = this.getTaskChuteView();
+    if (view && hasAll(view)) return view;
+    return view; // return whatever we have; caller can still fallback
+  }
+
+  // Command bridges with back-compat/fallbacks
+  private async triggerShowTodayTasks(): Promise<void> {
+    const view = await this.getOrCreateTaskChuteView(["showTodayTasks"]);
+    if (view && typeof (view as any).showTodayTasks === 'function') {
+      (view as any).showTodayTasks();
+      return;
+    }
+    // Last resort: open view and rely on its default state
+    await this.activateTaskChuteView();
+  }
+
+  private async triggerDuplicateSelectedTask(): Promise<void> {
+    const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask", "duplicateInstance"]);
+    if (!view) { new Notice("TaskChuteビューが開かれていません"); return; }
+    const v: any = view as any;
+    if (typeof v.duplicateSelectedTask === 'function') {
+      await v.duplicateSelectedTask();
+      return;
+    }
+    if (view.selectedTaskInstance && typeof v.duplicateInstance === 'function') {
+      await v.duplicateInstance(view.selectedTaskInstance);
+    } else {
+      new Notice("タスクが選択されていません");
+    }
+  }
+
+  private async triggerDeleteSelectedTask(): Promise<void> {
+    const view = await this.getOrCreateTaskChuteView(["deleteSelectedTask"]);
+    if (!view) { new Notice("TaskChuteビューが開かれていません"); return; }
+    const v: any = view as any;
+    if (typeof v.deleteSelectedTask === 'function') {
+      v.deleteSelectedTask();
+      return;
+    }
+    // Fallback (very old view): try direct method name if it existed
+    if (view.selectedTaskInstance && typeof (v.deleteTask) === 'function') {
+      v.deleteTask(view.selectedTaskInstance);
+    } else {
+      new Notice("タスクが選択されていません");
+    }
+  }
+
+  private async triggerResetSelectedTask(): Promise<void> {
+    const view = await this.getOrCreateTaskChuteView(["resetSelectedTask", "resetTaskToIdle"]);
+    if (!view) { new Notice("TaskChuteビューが開かれていません"); return; }
+    const v: any = view as any;
+    if (typeof v.resetSelectedTask === 'function') {
+      await v.resetSelectedTask();
+      return;
+    }
+    if (view.selectedTaskInstance && typeof v.resetTaskToIdle === 'function') {
+      await v.resetTaskToIdle(view.selectedTaskInstance);
+    } else {
+      new Notice("タスクが選択されていません");
+    }
   }
 
   async activateTaskChuteView(): Promise<void> {

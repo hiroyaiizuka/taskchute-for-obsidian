@@ -1022,12 +1022,12 @@ export class TaskChuteView extends ItemView {
     try {
       // 新しいインスタンスを作成（元の参照を壊さないよう個別構築）
       const dateStr = this.getCurrentDateString();
-      const currentSlot = getCurrentTimeSlot(new Date());
       const newInstance: TaskInstance = {
         task: inst.task,
         instanceId: this.generateInstanceId(inst.task, dateStr),
         state: "idle",
-        slotKey: currentSlot,
+        // 重要: 複製は元タスクのスロットの直下に入れる
+        slotKey: inst.slotKey,
         originalSlotKey: inst.slotKey,
         startTime: undefined,
         stopTime: undefined,
@@ -2402,7 +2402,7 @@ export class TaskChuteView extends ItemView {
   private setupEventListeners(): void {
     // Keyboard shortcut listener
     this.registerDomEvent(document, "keydown", (e) => {
-      this.handleKeyboardShortcut(e);
+      this.handleKeyboardShortcut(e as KeyboardEvent);
     });
 
     // Click listener for clearing selection
@@ -2462,6 +2462,13 @@ export class TaskChuteView extends ItemView {
 
     // Drag and drop
     this.setupTaskItemDragDrop(taskItem, inst);
+
+    // Row click selects the task for keyboard actions (avoid buttons/inputs)
+    taskItem.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('button, a, input, textarea, .drag-handle, [contenteditable="true"]')) return;
+      this.selectTaskForKeyboard(inst, taskItem);
+    });
   }
 
   private setupTaskItemDragDrop(taskItem: HTMLElement, inst: TaskInstance): void {
@@ -2512,9 +2519,10 @@ export class TaskChuteView extends ItemView {
   // Command Methods (for external commands)
   // ===========================================
 
-  duplicateSelectedTask(): void {
+  async duplicateSelectedTask(): Promise<void> {
     if (this.selectedTaskInstance) {
-      this.duplicateTask(this.selectedTaskInstance);
+      await this.duplicateInstance(this.selectedTaskInstance);
+      this.clearTaskSelection();
     } else {
       new Notice("タスクが選択されていません");
     }
@@ -2533,9 +2541,10 @@ export class TaskChuteView extends ItemView {
     }
   }
 
-  resetSelectedTask(): void {
+  async resetSelectedTask(): Promise<void> {
     if (this.selectedTaskInstance) {
-      this.resetTask(this.selectedTaskInstance);
+      await this.resetTaskToIdle(this.selectedTaskInstance);
+      this.clearTaskSelection();
     } else {
       new Notice("タスクが選択されていません");
     }
@@ -2978,8 +2987,45 @@ export class TaskChuteView extends ItemView {
     document.body.appendChild(overlay);
   }
 
-  private handleKeyboardShortcut(e: KeyboardEvent): void {
-    // Implement keyboard shortcuts
+  private async handleKeyboardShortcut(e: KeyboardEvent): Promise<void> {
+    // Ignore when typing in inputs / editable fields
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active !== document.body && (
+        active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+      return;
+    }
+
+    // Ignore when any modal/overlay is open
+    if (document.querySelector('.modal') || document.querySelector('.task-modal-overlay')) return;
+
+    if (!this.selectedTaskInstance) return;
+
+    switch ((e.key || '').toLowerCase()) {
+      case 'c':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          await this.duplicateInstance(this.selectedTaskInstance);
+          this.clearTaskSelection();
+        }
+        break;
+      case 'd':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          this.deleteSelectedTask();
+        }
+        break;
+      case 'u':
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (this.selectedTaskInstance.state !== 'idle') {
+            await this.resetTaskToIdle(this.selectedTaskInstance);
+            this.clearTaskSelection();
+          } else {
+            new Notice('このタスクは既に未実行状態です');
+          }
+        }
+        break;
+    }
   }
 
   private selectTaskForKeyboard(inst: TaskInstance, taskItem: HTMLElement): void {

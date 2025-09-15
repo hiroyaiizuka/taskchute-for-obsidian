@@ -2323,12 +2323,12 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   async duplicateInstance(inst, returnOnly = false) {
     try {
       const dateStr = this.getCurrentDateString();
-      const currentSlot = getCurrentTimeSlot(/* @__PURE__ */ new Date());
       const newInstance = {
         task: inst.task,
         instanceId: this.generateInstanceId(inst.task, dateStr),
         state: "idle",
-        slotKey: currentSlot,
+        // 重要: 複製は元タスクのスロットの直下に入れる
+        slotKey: inst.slotKey,
         originalSlotKey: inst.slotKey,
         startTime: void 0,
         stopTime: void 0
@@ -3446,6 +3446,11 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       this.showTaskContextMenu(e, inst);
     });
     this.setupTaskItemDragDrop(taskItem, inst);
+    taskItem.addEventListener("click", (e) => {
+      const target = e.target;
+      if (target.closest('button, a, input, textarea, .drag-handle, [contenteditable="true"]')) return;
+      this.selectTaskForKeyboard(inst, taskItem);
+    });
   }
   setupTaskItemDragDrop(taskItem, inst) {
     taskItem.addEventListener("dragover", (e) => {
@@ -3486,9 +3491,10 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
   // ===========================================
   // Command Methods (for external commands)
   // ===========================================
-  duplicateSelectedTask() {
+  async duplicateSelectedTask() {
     if (this.selectedTaskInstance) {
-      this.duplicateTask(this.selectedTaskInstance);
+      await this.duplicateInstance(this.selectedTaskInstance);
+      this.clearTaskSelection();
     } else {
       new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
@@ -3504,9 +3510,10 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
       new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
-  resetSelectedTask() {
+  async resetSelectedTask() {
     if (this.selectedTaskInstance) {
-      this.resetTask(this.selectedTaskInstance);
+      await this.resetTaskToIdle(this.selectedTaskInstance);
+      this.clearTaskSelection();
     } else {
       new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
@@ -3832,7 +3839,39 @@ var TaskChuteView = class extends import_obsidian9.ItemView {
     });
     document.body.appendChild(overlay);
   }
-  handleKeyboardShortcut(e) {
+  async handleKeyboardShortcut(e) {
+    const active = document.activeElement;
+    if (active && active !== document.body && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) {
+      return;
+    }
+    if (document.querySelector(".modal") || document.querySelector(".task-modal-overlay")) return;
+    if (!this.selectedTaskInstance) return;
+    switch ((e.key || "").toLowerCase()) {
+      case "c":
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          await this.duplicateInstance(this.selectedTaskInstance);
+          this.clearTaskSelection();
+        }
+        break;
+      case "d":
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          this.deleteSelectedTask();
+        }
+        break;
+      case "u":
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (this.selectedTaskInstance.state !== "idle") {
+            await this.resetTaskToIdle(this.selectedTaskInstance);
+            this.clearTaskSelection();
+          } else {
+            new import_obsidian9.Notice("\u3053\u306E\u30BF\u30B9\u30AF\u306F\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
+          }
+        }
+        break;
+    }
   }
   selectTaskForKeyboard(inst, taskItem) {
     this.selectedTaskInstance = inst;
@@ -4950,42 +4989,22 @@ var TaskChutePlusPlugin = class extends import_obsidian10.Plugin {
       name: "\u9078\u629E\u3055\u308C\u305F\u30BF\u30B9\u30AF\u3092\u8907\u88FD",
       // ホットキーはデフォルトで設定しない
       callback: async () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          await view.duplicateInstance(view.selectedTaskInstance);
-          view.clearTaskSelection();
-        } else {
-          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
-        }
+        await this.triggerDuplicateSelectedTask();
       }
     });
     this.addCommand({
       id: "delete-selected-task",
       name: "\u9078\u629E\u3055\u308C\u305F\u30BF\u30B9\u30AF\u3092\u524A\u9664",
       // ホットキーはデフォルトで設定しない
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          view.deleteSelectedTask();
-        } else {
-          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
-        }
+      callback: async () => {
+        await this.triggerDeleteSelectedTask();
       }
     });
     this.addCommand({
       id: "reset-selected-task",
       name: "\u9078\u629E\u3055\u308C\u305F\u30BF\u30B9\u30AF\u3092\u672A\u5B9F\u884C\u306B\u623B\u3059",
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view && view.selectedTaskInstance) {
-          if (view.selectedTaskInstance.state !== "idle") {
-            view.resetTaskToIdle(view.selectedTaskInstance);
-          } else {
-            new import_obsidian10.Notice("\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
-          }
-        } else {
-          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
-        }
+      callback: async () => {
+        await this.triggerResetSelectedTask();
       }
     });
     this.addCommand({
@@ -4998,13 +5017,8 @@ var TaskChutePlusPlugin = class extends import_obsidian10.Plugin {
           key: "t"
         }
       ],
-      callback: () => {
-        const view = this.getTaskChuteView();
-        if (view) {
-          view.showTodayTasks();
-        } else {
-          new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
-        }
+      callback: async () => {
+        await this.triggerShowTodayTasks();
       }
     });
     this.addCommand({
@@ -5044,10 +5058,91 @@ var TaskChutePlusPlugin = class extends import_obsidian10.Plugin {
   }
   getTaskChuteView() {
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)[0];
-    if (leaf && leaf.view instanceof TaskChuteView) {
-      return leaf.view;
+    if (!leaf || !leaf.view) return null;
+    try {
+      const view = leaf.view;
+      if (typeof view.getViewType === "function" && view.getViewType() === VIEW_TYPE_TASKCHUTE) {
+        return view;
+      }
+    } catch (_) {
     }
     return null;
+  }
+  // Ensure we have a fresh (current code) view instance.
+  // If missing or missing required methods, detach and reopen.
+  async getOrCreateTaskChuteView(requiredMethods = []) {
+    let view = this.getTaskChuteView();
+    const hasAll = (v) => requiredMethods.every((m) => typeof (v == null ? void 0 : v[m]) === "function");
+    if (view && hasAll(view)) return view;
+    try {
+      this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASKCHUTE);
+    } catch (_) {
+    }
+    await this.activateTaskChuteView();
+    await new Promise((r) => setTimeout(r, 50));
+    view = this.getTaskChuteView();
+    if (view && hasAll(view)) return view;
+    return view;
+  }
+  // Command bridges with back-compat/fallbacks
+  async triggerShowTodayTasks() {
+    const view = await this.getOrCreateTaskChuteView(["showTodayTasks"]);
+    if (view && typeof view.showTodayTasks === "function") {
+      view.showTodayTasks();
+      return;
+    }
+    await this.activateTaskChuteView();
+  }
+  async triggerDuplicateSelectedTask() {
+    const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask", "duplicateInstance"]);
+    if (!view) {
+      new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      return;
+    }
+    const v = view;
+    if (typeof v.duplicateSelectedTask === "function") {
+      await v.duplicateSelectedTask();
+      return;
+    }
+    if (view.selectedTaskInstance && typeof v.duplicateInstance === "function") {
+      await v.duplicateInstance(view.selectedTaskInstance);
+    } else {
+      new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    }
+  }
+  async triggerDeleteSelectedTask() {
+    const view = await this.getOrCreateTaskChuteView(["deleteSelectedTask"]);
+    if (!view) {
+      new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      return;
+    }
+    const v = view;
+    if (typeof v.deleteSelectedTask === "function") {
+      v.deleteSelectedTask();
+      return;
+    }
+    if (view.selectedTaskInstance && typeof v.deleteTask === "function") {
+      v.deleteTask(view.selectedTaskInstance);
+    } else {
+      new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    }
+  }
+  async triggerResetSelectedTask() {
+    const view = await this.getOrCreateTaskChuteView(["resetSelectedTask", "resetTaskToIdle"]);
+    if (!view) {
+      new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      return;
+    }
+    const v = view;
+    if (typeof v.resetSelectedTask === "function") {
+      await v.resetSelectedTask();
+      return;
+    }
+    if (view.selectedTaskInstance && typeof v.resetTaskToIdle === "function") {
+      await v.resetTaskToIdle(view.selectedTaskInstance);
+    } else {
+      new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    }
   }
   async activateTaskChuteView() {
     const { workspace } = this.app;
