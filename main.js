@@ -227,6 +227,14 @@ function getCurrentTimeSlot(date = /* @__PURE__ */ new Date()) {
   if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) return "12:00-16:00";
   return "16:00-0:00";
 }
+function getSlotFromTime(timeStr) {
+  const [hour, minute] = String(timeStr).split(":").map(Number);
+  const timeInMinutes = hour * 60 + minute;
+  if (timeInMinutes >= 0 && timeInMinutes < 8 * 60) return "0:00-8:00";
+  if (timeInMinutes >= 8 * 60 && timeInMinutes < 12 * 60) return "8:00-12:00";
+  if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) return "12:00-16:00";
+  return "16:00-0:00";
+}
 
 // src/views/LogView.ts
 var import_obsidian4 = require("obsidian");
@@ -1543,6 +1551,10 @@ var TASKCHUTE_FULL_CSS = `
     display: flex;
     justify-content: center;
     align-items: center;
+}
+.task-time-range.editable {
+    cursor: pointer;
+    text-decoration: none;
 }
 .task-duration,
 .task-timer-display {
@@ -4005,8 +4017,18 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }) : "";
     if (inst.state === "running" && inst.startTime) {
       timeRangeEl.textContent = `${formatTime(inst.startTime)} \u2192`;
+      timeRangeEl.classList.add("editable");
+      timeRangeEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showTimeEditModal(inst);
+      });
     } else if (inst.state === "done" && inst.startTime && inst.stopTime) {
       timeRangeEl.textContent = `${formatTime(inst.startTime)} \u2192 ${formatTime(inst.stopTime)}`;
+      timeRangeEl.classList.add("editable");
+      timeRangeEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showTimeEditModal(inst);
+      });
     } else {
       timeRangeEl.textContent = "";
     }
@@ -5146,6 +5168,148 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         this.updateTimerDisplay(timerEl, inst);
       }
     });
+  }
+  // ===========================================
+  // Time Edit Modal (開始/終了時刻の編集)
+  // ===========================================
+  showTimeEditModal(inst) {
+    if (!(inst.startTime && (inst.state === "running" || inst.state === "done"))) return;
+    const modal = document.createElement("div");
+    modal.className = "task-modal-overlay";
+    const modalContent = modal.createEl("div", { cls: "task-modal-content" });
+    const header = modalContent.createEl("div", { cls: "modal-header" });
+    header.createEl("h3", { text: `\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u7DE8\u96C6` });
+    const closeBtn = header.createEl("button", { cls: "modal-close-button", text: "\xD7" });
+    closeBtn.addEventListener("click", () => modal.remove());
+    const form = modalContent.createEl("form", { cls: "task-form" });
+    const startGroup = form.createEl("div", { cls: "form-group" });
+    startGroup.createEl("label", { text: "\u958B\u59CB\u6642\u523B:", cls: "form-label" });
+    const pad = (n) => String(n).padStart(2, "0");
+    const toHM = (d) => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : "";
+    const startInput = startGroup.createEl("input", {
+      type: "time",
+      cls: "form-input",
+      value: toHM(inst.startTime)
+    });
+    const startClear = startGroup.createEl("button", { type: "button", cls: "form-button secondary", text: "\u30AF\u30EA\u30A2", attr: { style: "margin-left: 8px; padding: 4px 12px; font-size: 12px;" } });
+    startClear.addEventListener("click", () => {
+      startInput.value = "";
+    });
+    let stopInput = null;
+    if (inst.state === "done" && inst.stopTime) {
+      const stopGroup = form.createEl("div", { cls: "form-group" });
+      stopGroup.createEl("label", { text: "\u7D42\u4E86\u6642\u523B:", cls: "form-label" });
+      stopInput = stopGroup.createEl("input", {
+        type: "time",
+        cls: "form-input",
+        value: toHM(inst.stopTime)
+      });
+      const stopClear = stopGroup.createEl("button", { type: "button", cls: "form-button secondary", text: "\u30AF\u30EA\u30A2", attr: { style: "margin-left: 8px; padding: 4px 12px; font-size: 12px;" } });
+      stopClear.addEventListener("click", () => {
+        if (stopInput) stopInput.value = "";
+      });
+    }
+    const desc = form.createEl("div", { cls: "form-group" }).createEl("p", { cls: "form-description", attr: { style: "margin-top: 12px; font-size: 12px; color: var(--text-muted);" } });
+    if (inst.state === "running") {
+      desc.textContent = "\u958B\u59CB\u6642\u523B\u3092\u524A\u9664\u3059\u308B\u3068\u3001\u30BF\u30B9\u30AF\u306F\u672A\u5B9F\u884C\u72B6\u614B\u306B\u623B\u308A\u307E\u3059\u3002";
+    } else {
+      desc.textContent = "\u7D42\u4E86\u6642\u523B\u306E\u307F\u524A\u9664\uFF1A\u5B9F\u884C\u4E2D\u306B\u623B\u308A\u307E\u3059\n\u4E21\u65B9\u524A\u9664\uFF1A\u672A\u5B9F\u884C\u306B\u623B\u308A\u307E\u3059";
+    }
+    const buttons = form.createEl("div", { cls: "form-button-group" });
+    const cancelBtn = buttons.createEl("button", { type: "button", cls: "form-button cancel", text: "\u30AD\u30E3\u30F3\u30BB\u30EB" });
+    const saveBtn = buttons.createEl("button", { type: "submit", cls: "form-button create", text: "\u4FDD\u5B58" });
+    cancelBtn.addEventListener("click", () => modal.remove());
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newStart = (startInput.value || "").trim();
+      const newStop = stopInput ? (stopInput.value || "").trim() : "";
+      if (inst.state === "running") {
+        if (!newStart) {
+          await this.resetTaskToIdle(inst);
+          modal.remove();
+          return;
+        }
+        await this.updateRunningInstanceStartTime(inst, newStart);
+      } else if (inst.state === "done") {
+        if (!newStart && !newStop) {
+          await this.resetTaskToIdle(inst);
+          modal.remove();
+          return;
+        } else if (newStart && !newStop) {
+          await this.transitionToRunningWithStart(inst, newStart);
+          modal.remove();
+          return;
+        } else if (newStart && newStop) {
+          if (newStart >= newStop) {
+            new import_obsidian7.Notice("\u958B\u59CB\u6642\u523B\u306F\u7D42\u4E86\u6642\u523B\u3088\u308A\u524D\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+            return;
+          }
+          await this.updateInstanceTimes(inst, newStart, newStop);
+        } else {
+          new import_obsidian7.Notice("\u958B\u59CB\u6642\u523B\u306F\u5FC5\u9808\u3067\u3059");
+          return;
+        }
+      }
+      modal.remove();
+    });
+    document.body.appendChild(modal);
+    startInput.focus();
+  }
+  async updateInstanceTimes(inst, startStr, stopStr) {
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10));
+    const [eh, em] = stopStr.split(":").map((n) => parseInt(n, 10));
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+    inst.stopTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), eh, em, 0, 0);
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try {
+        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
+      } catch (_) {
+      }
+    }
+    await this.saveTaskLog(inst);
+    this.renderTaskList();
+    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+  }
+  async updateRunningInstanceStartTime(inst, startStr) {
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10));
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try {
+        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
+      } catch (_) {
+      }
+    }
+    await this.saveRunningTasksState();
+    this.renderTaskList();
+    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u958B\u59CB\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+  }
+  async transitionToRunningWithStart(inst, startStr) {
+    if (inst.state !== "done") return;
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10));
+    if (inst.instanceId) {
+      await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
+    }
+    inst.state = "running";
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+    inst.stopTime = void 0;
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try {
+        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
+      } catch (_) {
+      }
+    }
+    await this.saveRunningTasksState();
+    this.renderTaskList();
+    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u3092\u5B9F\u884C\u4E2D\u306B\u623B\u3057\u307E\u3057\u305F`);
   }
   updateTimerDisplay(timerEl, inst) {
     if (!inst.startTime) return;

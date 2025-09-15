@@ -691,6 +691,10 @@ export const TASKCHUTE_FULL_CSS = `
     justify-content: center;
     align-items: center;
 }
+.task-time-range.editable {
+    cursor: pointer;
+    text-decoration: none;
+}
 .task-duration,
 .task-timer-display {
     font-size: 12px;

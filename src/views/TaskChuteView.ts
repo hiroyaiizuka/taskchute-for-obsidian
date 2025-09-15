@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
-import { calculateNextBoundary, getCurrentTimeSlot, TimeBoundary } from '../utils/time';
+import { calculateNextBoundary, getCurrentTimeSlot, getSlotFromTime, TimeBoundary } from '../utils/time';
 import { LogView } from './LogView';
 import { ReviewService } from '../services/ReviewService';
 import { HeatmapService } from '../services/HeatmapService';
@@ -869,8 +869,20 @@ export class TaskChuteView extends ItemView {
 
     if (inst.state === "running" && inst.startTime) {
       timeRangeEl.textContent = `${formatTime(inst.startTime)} →`;
+      // 編集可能にする
+      timeRangeEl.classList.add('editable');
+      timeRangeEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showTimeEditModal(inst);
+      });
     } else if (inst.state === "done" && inst.startTime && inst.stopTime) {
       timeRangeEl.textContent = `${formatTime(inst.startTime)} → ${formatTime(inst.stopTime)}`;
+      // 編集可能にする
+      timeRangeEl.classList.add('editable');
+      timeRangeEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.showTimeEditModal(inst);
+      });
     } else {
       timeRangeEl.textContent = "";
     }
@@ -2337,6 +2349,171 @@ export class TaskChuteView extends ItemView {
         this.updateTimerDisplay(timerEl, inst);
       }
     });
+  }
+
+  // ===========================================
+  // Time Edit Modal (開始/終了時刻の編集)
+  // ===========================================
+
+  private showTimeEditModal(inst: TaskInstance): void {
+    // Safety: only for running/done with a start time
+    if (!(inst.startTime && (inst.state === 'running' || inst.state === 'done'))) return;
+
+    const modal = document.createElement('div');
+    modal.className = 'task-modal-overlay';
+    const modalContent = modal.createEl('div', { cls: 'task-modal-content' });
+
+    // Header
+    const header = modalContent.createEl('div', { cls: 'modal-header' });
+    header.createEl('h3', { text: `「${inst.task.title || inst.task.name}」の時刻を編集` });
+    const closeBtn = header.createEl('button', { cls: 'modal-close-button', text: '×' });
+    closeBtn.addEventListener('click', () => modal.remove());
+
+    const form = modalContent.createEl('form', { cls: 'task-form' });
+
+    // Start time
+    const startGroup = form.createEl('div', { cls: 'form-group' });
+    startGroup.createEl('label', { text: '開始時刻:', cls: 'form-label' });
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const toHM = (d?: Date) => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '';
+    const startInput = startGroup.createEl('input', {
+      type: 'time',
+      cls: 'form-input',
+      value: toHM(inst.startTime),
+    }) as HTMLInputElement;
+    const startClear = startGroup.createEl('button', { type: 'button', cls: 'form-button secondary', text: 'クリア', attr: { style: 'margin-left: 8px; padding: 4px 12px; font-size: 12px;' } });
+    startClear.addEventListener('click', () => { startInput.value = ''; });
+
+    // Stop time (only for done)
+    let stopInput: HTMLInputElement | null = null;
+    if (inst.state === 'done' && inst.stopTime) {
+      const stopGroup = form.createEl('div', { cls: 'form-group' });
+      stopGroup.createEl('label', { text: '終了時刻:', cls: 'form-label' });
+      stopInput = stopGroup.createEl('input', {
+        type: 'time',
+        cls: 'form-input',
+        value: toHM(inst.stopTime),
+      }) as HTMLInputElement;
+      const stopClear = stopGroup.createEl('button', { type: 'button', cls: 'form-button secondary', text: 'クリア', attr: { style: 'margin-left: 8px; padding: 4px 12px; font-size: 12px;' } });
+      stopClear.addEventListener('click', () => { if (stopInput) stopInput.value = ''; });
+    }
+
+    // Description
+    const desc = form.createEl('div', { cls: 'form-group' }).createEl('p', { cls: 'form-description', attr: { style: 'margin-top: 12px; font-size: 12px; color: var(--text-muted);' } });
+    if (inst.state === 'running') {
+      desc.textContent = '開始時刻を削除すると、タスクは未実行状態に戻ります。';
+    } else {
+      desc.textContent = '終了時刻のみ削除：実行中に戻ります\n両方削除：未実行に戻ります';
+    }
+
+    // Buttons
+    const buttons = form.createEl('div', { cls: 'form-button-group' });
+    const cancelBtn = buttons.createEl('button', { type: 'button', cls: 'form-button cancel', text: 'キャンセル' });
+    const saveBtn = buttons.createEl('button', { type: 'submit', cls: 'form-button create', text: '保存' });
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newStart = (startInput.value || '').trim();
+      const newStop = stopInput ? (stopInput.value || '').trim() : '';
+
+      if (inst.state === 'running') {
+        if (!newStart) {
+          await this.resetTaskToIdle(inst);
+          modal.remove();
+          return;
+        }
+        await this.updateRunningInstanceStartTime(inst, newStart);
+      } else if (inst.state === 'done') {
+        if (!newStart && !newStop) {
+          await this.resetTaskToIdle(inst);
+          modal.remove();
+          return;
+        } else if (newStart && !newStop) {
+          await this.transitionToRunningWithStart(inst, newStart);
+          modal.remove();
+          return;
+        } else if (newStart && newStop) {
+          if (newStart >= newStop) {
+            new Notice('開始時刻は終了時刻より前である必要があります');
+            return;
+          }
+          await this.updateInstanceTimes(inst, newStart, newStop);
+        } else {
+          new Notice('開始時刻は必須です');
+          return;
+        }
+      }
+
+      modal.remove();
+    });
+
+    document.body.appendChild(modal);
+    (startInput as HTMLInputElement).focus();
+  }
+
+  private async updateInstanceTimes(inst: TaskInstance, startStr: string, stopStr: string): Promise<void> {
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10));
+    const [eh, em] = stopStr.split(':').map((n) => parseInt(n, 10));
+
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+    inst.stopTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), eh, em, 0, 0);
+
+    // Update slotKey based on new start time
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+    }
+
+    // Persist to monthly log
+    await this.saveTaskLog(inst);
+    // Re-render
+    this.renderTaskList();
+    new Notice(`「${inst.task.title || inst.task.name}」の時刻を更新しました`);
+  }
+
+  private async updateRunningInstanceStartTime(inst: TaskInstance, startStr: string): Promise<void> {
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10));
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+    }
+
+    await this.saveRunningTasksState();
+    this.renderTaskList();
+    new Notice(`「${inst.task.title || inst.task.name}」の開始時刻を更新しました`);
+  }
+
+  private async transitionToRunningWithStart(inst: TaskInstance, startStr: string): Promise<void> {
+    // Re-open as running with a specified start time on the same date
+    if (inst.state !== 'done') return;
+    const base = inst.startTime || new Date(this.currentDate);
+    const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10));
+
+    // Remove existing completed log for this instance on current date
+    if (inst.instanceId) {
+      await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
+    }
+
+    inst.state = 'running';
+    inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0);
+    inst.stopTime = undefined;
+
+    const newSlot = getSlotFromTime(startStr);
+    if (inst.slotKey !== newSlot) {
+      inst.slotKey = newSlot;
+      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+    }
+
+    await this.saveRunningTasksState();
+    this.renderTaskList();
+    new Notice(`「${inst.task.title || inst.task.name}」を実行中に戻しました`);
   }
 
   private updateTimerDisplay(timerEl: HTMLElement, inst: TaskInstance): void {
