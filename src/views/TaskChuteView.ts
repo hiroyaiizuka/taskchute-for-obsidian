@@ -13,7 +13,6 @@ import {
   TaskNameValidator,
   AutocompleteInstance 
 } from '../types';
-import { TASKCHUTE_FULL_CSS } from '../styles/full-css';
 import { TimerService } from '../services/TimerService';
 import { loadTasksRefactored } from './TaskChuteView.helpers';
 import { ProjectNoteSyncManager } from '../managers/ProjectNoteSyncManager';
@@ -131,7 +130,6 @@ export class TaskChuteView extends ItemView {
     // Restore any running tasks from persistence
     await this.restoreRunningTaskState();
     
-    this.applyStyles();
     // Styles are now provided via styles.css (no dynamic CSS injection)
     // Initialize timer service (ticks update timer displays)
     this.ensureTimerService();
@@ -2914,17 +2912,13 @@ export class TaskChuteView extends ItemView {
       clearTimeout(this.renderDebounceTimer);
       this.renderDebounceTimer = null;
     }
-  }
 
-  private applyStyles(): void {
-    // Create and inject dynamic styles
-    const style = document.createElement("style");
-    style.textContent = TASKCHUTE_FULL_CSS;
-    document.head.appendChild(style);
     // TimerService dispose
     this.timerService?.dispose();
     this.timerService = null;
   }
+
+  // Styles are provided by styles.css; dynamic CSS injection removed
 
   // ===========================================
   // Placeholder Methods (to be implemented)

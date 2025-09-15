@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => TaskChutePlusPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/managers/PathManager.ts
 var import_obsidian = require("obsidian");
@@ -200,7 +200,7 @@ var RoutineAliasManager = class {
 };
 
 // src/views/TaskChuteView.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/utils/time.ts
 function calculateNextBoundary(now, boundaries) {
@@ -859,2012 +859,49 @@ var ReviewService = class {
   }
 };
 
-// src/styles/full-css.ts
-var TASKCHUTE_FULL_CSS = `
-.taskchute-container {
-    height: 100%;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Log Modal Styles */
-.taskchute-log-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.taskchute-log-modal-content {
-    background: var(--background-primary);
-    border-radius: 8px;
-    width: 90%;
-    max-width: 1200px;
-    height: 80%;
-    max-height: 800px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-}
-
-.log-modal-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: none;
-    border: none;
-    font-size: 24px;
-    cursor: pointer;
-    color: var(--text-muted);
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-}
-
-.log-modal-close:hover {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
-}
-
-.taskchute-log-header {
-    padding: 20px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.log-title {
-    margin: 0;
-    font-size: 24px;
-}
-
-.log-controls {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
-
-.year-selector {
-    padding: 5px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    font-size: 14px;
-}
-
-.refresh-button {
-    padding: 5px 12px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.refresh-button:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--text-accent);
-}
-
-.heatmap-container {
-    flex: 1;
-    padding: 20px;
-    overflow: auto;
-}
-
-.heatmap-grid {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-}
-
-.heatmap-placeholder {
-    color: var(--text-muted);
-    font-size: 16px;
-}
-
-/* Heatmap Grid Styles */
-.heatmap-grid-container {
-    padding: 20px;
-}
-
-.heatmap-months {
-    position: relative;
-    height: 20px;
-    margin-bottom: 8px;
-    margin-left: 43px;
-}
-
-.month-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    position: absolute;
-    top: 0;
-    text-align: left;
-}
-
-.heatmap-weekdays-container {
-    display: flex;
-    gap: 10px;
-}
-
-.heatmap-weekdays {
-    display: grid;
-    grid-template-rows: repeat(7, 1fr);
-    gap: 2px;
-    width: 20px;
-}
-
-.weekday-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    height: 11px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-right: 4px;
-}
-
-.heatmap-grid {
-    display: grid;
-    grid-template-rows: repeat(7, 11px);
-    gap: 2px;
-    grid-auto-flow: column;
-    width: fit-content;
-}
-
-.heatmap-cell {
-    width: 11px;
-    height: 11px;
-    background: var(--background-modifier-border);
-    border-radius: 2px;
-    cursor: pointer;
-    position: relative;
-}
-
-.heatmap-cell.empty {
-    background: transparent;
-    cursor: default;
-}
-
-.heatmap-cell[data-level="0"] {
-    background: #ebedf0;
-}
-
-.heatmap-cell[data-level="1"] {
-    background: #DEF95D;
-}
-
-.heatmap-cell[data-level="2"] {
-    background: #B5EE4F;
-}
-
-.heatmap-cell[data-level="3"] {
-    background: #82D523;
-}
-
-.heatmap-cell[data-level="4"] {
-    background: #54A923;
-}
-
-@keyframes pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.7);
+// src/services/TimerService.ts
+var TimerService = class {
+  constructor(opts) {
+    this.interval = null;
+    var _a;
+    this.getRunningInstances = opts.getRunningInstances;
+    this.onTick = opts.onTick;
+    this.intervalMs = (_a = opts.intervalMs) != null ? _a : 1e3;
+  }
+  start() {
+    if (this.interval) return;
+    this.interval = setInterval(() => this.tick(), this.intervalMs);
+  }
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
     }
-    70% {
-        box-shadow: 0 0 0 10px rgba(118, 75, 162, 0);
+  }
+  restart() {
+    this.stop();
+    this.start();
+  }
+  dispose() {
+    this.stop();
+  }
+  isRunning() {
+    return !!this.interval;
+  }
+  tick() {
+    const running = this.getRunningInstances() || [];
+    if (running.length === 0) {
+      this.stop();
+      return;
     }
-    100% {
-        box-shadow: 0 0 0 0 rgba(118, 75, 162, 0);
+    for (const inst of running) {
+      try {
+        this.onTick(inst);
+      } catch (_) {
+      }
     }
-}
-
-.heatmap-cell:hover {
-    outline: 1px solid var(--text-normal);
-    outline-offset: -1px;
-}
-
-.heatmap-cell.month-start {
-    margin-left: 4px;
-}
-
-.heatmap-legend {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-top: 10px;
-    margin-left: 30px;
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-.legend-scale {
-    display: flex;
-    gap: 2px;
-}
-
-.legend-cell {
-    width: 11px;
-    height: 11px;
-    border-radius: 2px;
-}
-
-/* Loading styles */
-.heatmap-loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-    color: var(--text-muted);
-    font-size: 14px;
-}
-
-/* Error styles */
-.heatmap-error {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    color: var(--text-error);
-    font-size: 14px;
-    background: var(--background-modifier-error);
-    border-radius: 4px;
-    margin-bottom: 20px;
-}
-
-.legend-cell[data-level="0"] {
-    background: #ebedf0;
-}
-
-.legend-cell[data-level="1"] {
-    background: #DEF95D;
-}
-
-.legend-cell[data-level="2"] {
-    background: #B5EE4F;
-}
-
-.legend-cell[data-level="3"] {
-    background: #82D523;
-}
-
-.legend-cell[data-level="4"] {
-    background: #54A923;
-}
-
-/* Heatmap Tooltip */
-.heatmap-tooltip {
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 8px;
-    font-size: 12px;
-    white-space: pre-line;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    pointer-events: none;
-}
-
-/* TASK-012: \u30BF\u30B9\u30AF\u540D\u81EA\u52D5\u88DC\u5B8C\u306E\u30B9\u30BF\u30A4\u30EB */
-.task-name-suggestions {
-    position: absolute;
-    z-index: 1000;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    max-height: 200px;
-    overflow-y: auto;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    margin-top: 2px;
-}
-
-.suggestion-item {
-    padding: 8px 12px;
-    cursor: pointer;
-    transition: background-color 0.1s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.suggestion-item:hover,
-.suggestion-item-selected {
-    background-color: var(--background-modifier-hover);
-}
-
-.suggestion-item-selected {
-    background-color: var(--background-modifier-hover);
-    font-weight: 500;
-}
-
-/* Main Container Layout */
-.main-container {
-    display: flex;
-    position: relative;
-    flex: 1;
-    min-height: 0;
-}
-
-/* Top Bar Container */
-.top-bar-container {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
-    height: 30px; /* Fixed height matching date navigation */
-}
-
-/* Header Divider */
-.header-divider {
-    width: 1px;
-    height: 20px;
-    background-color: var(--background-modifier-border);
-    margin: 5px 0;
-}
-
-/* Header Action Section */
-.header-action-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Drawer Toggle Button */
-.drawer-toggle {
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 0 10px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s ease;
-    height: 100%;
-    display: flex;
-    align-items: center;
-}
-
-.drawer-toggle:hover {
-    background: var(--background-modifier-hover);
-}
-
-/* Navigation Overlay */
-.navigation-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.3);
-    z-index: 999;
-    transition: opacity 0.3s ease;
-}
-
-.navigation-overlay-hidden {
-    opacity: 0;
-    pointer-events: none;
-}
-
-.navigation-overlay-visible {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-/* Navigation Panel */
-.navigation-panel {
-    position: fixed;
-    left: 0;
-    top: 0;
-    height: 100%;
-    width: 250px;
-    background: var(--background-primary);
-    border-right: 1px solid var(--background-modifier-border);
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
-    z-index: 1000;
-    transition: transform 0.3s ease;
-    overflow-y: auto;
-}
-
-.navigation-panel-hidden {
-    transform: translateX(-100%);
-}
-
-.navigation-panel-visible {
-    transform: translateX(0);
-}
-
-/* Navigation Header - removed close button */
-.navigation-header {
-    display: none;
-}
-
-/* Navigation Items */
-.navigation-nav {
-    padding: 20px 0;
-}
-
-.navigation-nav-item {
-    display: flex;
-    align-items: center;
-    padding: 10px 15px;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-.navigation-nav-item:hover {
-    background: var(--background-modifier-hover);
-}
-
-.navigation-nav-item.active {
-    background: var(--background-modifier-active);
-    font-weight: 500;
-}
-
-.navigation-nav-icon {
-    margin-right: 10px;
-    font-size: 16px;
-}
-
-.navigation-nav-label {
-    font-size: 13px;
-}
-.task-list-container {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-}
-
-.button-container {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    margin: 15px 0;
-}
-
-.task-button {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    min-width: 70px;
-}
-
-.task-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.task-button.start {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.task-button.start:hover:not(:disabled) {
-    background: var(--interactive-accent-hover);
-}
-
-.task-button.stop {
-    background: #e74c3c;
-    color: white;
-}
-
-.task-button.stop:hover {
-    background: #c0392b;
-}
-
-.task-button.reset {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.task-button.reset:hover {
-    background: var(--background-modifier-border-hover);
-}
-
-.future-task-button {
-    background-color: var(--background-modifier-border) !important;
-    color: var(--text-muted) !important;
-    cursor: not-allowed !important;
-}
-
-
-.task-list-container {
-    margin-top: 10px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
-
-.task-list-container h5 {
-    margin: 0 0 10px 0;
-    color: var(--text-muted);
-}
-
-.task-list {
-    flex: 1 1 auto;
-    height: 100%;
-    min-height: 0;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    padding-bottom: 50px;
-    display: flex;
-    flex-direction: column;
-    overflow: auto;
-}
-
-.task-item {
-    padding: 8px 12px;
-    cursor: default;
-    border-bottom: 1px solid var(--background-modifier-border);
-    transition: background-color 0.2s ease;
-}
-
-.task-item:last-child {
-    border-bottom: none;
-}
-
-.task-item:hover {
-    background: var(--background-secondary);
-}
-
-.task-item.selected {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.task-item.keyboard-selected {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    box-shadow: 0 0 0 2px var(--interactive-accent-hover);
-}
-
-.task-item.completed {
-    cursor: default;
-}
-
-/* \u5B8C\u4E86\u6E08\u307F\u30BF\u30B9\u30AF\u306E\u30C9\u30E9\u30C3\u30B0\u30CF\u30F3\u30C9\u30EB\u306F\u8868\u793A\u3059\u308B\u304C\u7121\u52B9\u5316 */
-.drag-handle.disabled {
-    cursor: default;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-}
-
-.task-item:hover .drag-handle.disabled {
-    opacity: 0.3;
-}
-
-.task-item {
-    display: grid;
-    grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
-    gap: 8px;
-    align-items: center;
-    padding: 2px 10px 2px 15px;
-    margin: 2px 0;
-}
-
-/* \u30C9\u30E9\u30C3\u30B0\u30CF\u30F3\u30C9\u30EB\u306E\u30B9\u30BF\u30A4\u30EB */
-.drag-handle {
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: var(--text-muted);
-    opacity: 0;
-    transition: opacity 0.2s ease, background-color 0.2s ease;
-    border-radius: 4px;
-}
-
-.task-item:hover .drag-handle {
-    opacity: 0.6;
-}
-
-.drag-handle:hover {
-    opacity: 1 !important;
-    color: var(--text-normal);
-    background-color: var(--background-modifier-hover);
-}
-
-.drag-handle:active {
-    cursor: grabbing;
-}
-
-.drag-handle svg {
-    width: 10px;
-    height: 16px;
-}
-
-.task-item.dragging {
-    opacity: 0.5;
-    background: var(--background-modifier-hover);
-    transform: scale(0.98);
-    transition: all 0.2s ease;
-}
-
-.task-item.dragover {
-    border-top: 2px solid var(--interactive-accent);
-    margin-top: -2px;
-}
-
-.task-item.dragover-invalid {
-    border-top: 2px solid var(--text-error);
-    margin-top: -2px;
-    opacity: 0.7;
-    cursor: not-allowed;
-    background-color: rgba(255, 0, 0, 0.05);
-    position: relative;
-}
-
-.task-item.dragover-invalid::after {
-    content: "\u274C \u3053\u3053\u306B\u306F\u914D\u7F6E\u3067\u304D\u307E\u305B\u3093";
-    position: absolute;
-    top: -25px;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: var(--text-error);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    white-space: nowrap;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.task-name {
-    cursor: pointer;
-    font-weight: 500;
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-right: -4px; /* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3068\u306E\u9593\u9694\u3092\u72ED\u3081\u308B */
-}
-
-.task-time-range {
-    font-size: 12px;
-    color: var(--text-muted);
-    font-family: monospace;
-    white-space: nowrap;
-    text-align: center;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-.task-time-range.editable {
-    cursor: pointer;
-    text-decoration: none;
-}
-.task-duration,
-.task-timer-display {
-    font-size: 12px;
-    color: var(--text-muted);
-    text-align: center;
-    font-family: monospace;
-}
-
-.task-timer-display {
-    color: var(--interactive-accent);
-    font-weight: bold;
-}
-
-.time-slot-header {
-    background: var(--background-secondary);
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 6px 12px;
-    margin: 8px 0 4px 0;
-    border-radius: 4px;
-    border-left: 3px solid var(--interactive-accent);
-}
-
-.time-slot-header.other {
-    border-left-color: var(--background-modifier-border);
-}
-
-.time-slot-header.dragover {
-    background: var(--background-modifier-hover);
-    border-left-width: 5px;
-    transition: all 0.2s ease;
-}
-
-.routine-button {
-    background: none;
-    border: none;
-    font-size: 14px;
-    cursor: pointer;
-    padding: 2px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    opacity: 0.4;
-    width: 100%;
-    text-align: center;
-}
-
-.routine-button:hover {
-    opacity: 1;
-    background: var(--background-modifier-border);
-}
-
-.routine-button.active {
-    opacity: 1;
-    color: var(--interactive-accent);
-}
-
-/* \u30B3\u30E1\u30F3\u30C8\u30DC\u30BF\u30F3\u30B9\u30BF\u30A4\u30EB */
-.comment-button {
-    font-size: 15px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 2px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    opacity: 0;
-    width: 100%;
-    text-align: center;
-    visibility: visible; /* \u30C7\u30D5\u30A9\u30EB\u30C8\u306F\u8868\u793A */
-}
-
-.task-item:hover .comment-button:not(.disabled) {
-    opacity: 0.6;
-}
-
-.comment-button:not(.disabled):hover {
-    opacity: 1 !important;
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-/* \u30B3\u30E1\u30F3\u30C8\u30DC\u30BF\u30F3\u306E\u7121\u52B9\u5316\u30B9\u30BF\u30A4\u30EB - \u30B9\u30DA\u30FC\u30B9\u306F\u7DAD\u6301\u3057\u3066\u975E\u8868\u793A */
-.comment-button.disabled {
-    visibility: hidden;
-}
-
-/* \u65E2\u5B58\u30B3\u30E1\u30F3\u30C8\u304C\u3042\u308B\u5834\u5408\u306F\u8868\u793A\u3059\u308B\u304C\u3001\u30AF\u30EA\u30C3\u30AF\u4E0D\u53EF */
-.comment-button.disabled.active {
-    visibility: visible;
-    opacity: 0.6;
-    pointer-events: none;
-    cursor: not-allowed;
-}
-
-.comment-button.active {
-    opacity: 0.6;
-    color: var(--interactive-accent);
-}
-
-.task-item:hover .comment-button.active {
-    opacity: 1;
-}
-
-/* \u5B8C\u4E86\u6E08\u307F\u3067\u30B3\u30E1\u30F3\u30C8\u672A\u8A18\u5165\u306E\u30BF\u30B9\u30AF - \u901A\u5E38\u6642\u975E\u8868\u793A\u3001\u30DB\u30D0\u30FC\u6642\u8868\u793A\uFF08\u7A7A\u9593\u306F\u4FDD\u6301\uFF09 */
-.comment-button.no-comment {
-    opacity: 0;
-    visibility: hidden;
-}
-
-.task-item:hover .comment-button.no-comment {
-    opacity: 0.6;
-    visibility: visible;
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8868\u793A\u30B3\u30F3\u30DD\u30FC\u30CD\u30F3\u30C8\u5168\u4F53 */
-.taskchute-project-display {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    justify-content: flex-start;
-    margin-right: 32px; /* \u6642\u9593\u3068\u306E\u9593\u9694\u3092\u5E83\u3052\u308B */
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30DC\u30BF\u30F3\uFF08\u30D5\u30A9\u30EB\u30C0\u30A2\u30A4\u30B3\u30F3 + \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D\uFF09 */
-.taskchute-project-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    color: var(--text-normal);
-    font-size: 13px;
-    max-width: 100%;
-}
-
-.taskchute-project-button:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--interactive-accent);
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u672A\u8A2D\u5B9A\u306E\u5834\u5408 */
-.taskchute-project-button.empty {
-    color: var(--text-muted);
-    border-style: dashed;
-}
-
-/* \u30D5\u30A9\u30EB\u30C0\u30A2\u30A4\u30B3\u30F3 */
-.taskchute-project-icon {
-    font-size: 14px;
-    flex-shrink: 0;
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D */
-.taskchute-project-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* External Link\u30A2\u30A4\u30B3\u30F3 */
-.taskchute-external-link {
-    font-size: 14px;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    color: var(--text-muted);
-}
-
-.taskchute-external-link:hover {
-    background: var(--background-modifier-hover);
-    color: var(--interactive-accent);
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u672A\u8A2D\u5B9A\u6642\u306E\u30D7\u30EC\u30FC\u30B9\u30DB\u30EB\u30C0\u30FC */
-.taskchute-project-placeholder {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    opacity: 0;
-    border: 1px dashed var(--background-modifier-border);
-    color: var(--text-muted);
-    font-size: 13px;
-    min-width: 100px;
-}
-
-.taskchute-project-placeholder::before {
-    content: "\u{1F4C1} \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u8A2D\u5B9A";
-    font-size: 13px;
-}
-
-.task-item:hover .taskchute-project-placeholder {
-    opacity: 0.6;
-}
-
-/* \u30DB\u30D0\u30FC\u6642\u306E\u660E\u308B\u304F\u306A\u308B\u52B9\u679C\u3092\u524A\u9664 */
-.taskchute-project-placeholder:hover {
-    /* opacity: 1 !important; \u524A\u9664 */
-    /* background: var(--background-modifier-hover); \u524A\u9664 */
-    /* border-color: var(--interactive-accent); \u524A\u9664 */
-    /* color: var(--text-normal); \u524A\u9664 */
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30DC\u30BF\u30F3\u30B9\u30BF\u30A4\u30EB */
-.project-button,
-.project-placeholder {
-    margin-left: 15px;
-    margin-right: 4px;
-    font-size: 14px;
-    border: none;
-    background: none;
-    padding: 2px 6px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    min-width: 26px; /* \u4E00\u5B9A\u306E\u5E45\u3092\u78BA\u4FDD */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.project-button {
-    cursor: pointer;
-    color: var(--text-muted);
-    opacity: 0.7;
-}
-
-.project-button:hover {
-    opacity: 1;
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.project-placeholder {
-    /* \u900F\u660E\u3067\u30B9\u30DA\u30FC\u30B9\u306E\u307F\u78BA\u4FDD */
-    opacity: 0;
-    pointer-events: none;
-}
-
-.task-list-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-    gap: 8px;
-}
-
-.header-left-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.header-left-section h5 {
-    margin: 0;
-    color: var(--text-muted);
-}
-
-.header-right-section {
-    display: flex;
-    align-items: center;
-}
-
-/* Grayed out effect for task list */
-.task-list-container.grayed-out {
-    opacity: 0.6;
-    pointer-events: none;
-}
-
-.add-task-button {
-    margin-left: 0;
-    margin-right: 15px;
-}
-
-.add-task-button.repositioned {
-    margin-left: 0;
-    margin-right: 0;
-}
-
-.robot-terminal-button {
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 4px 8px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s ease;
-    margin-right: 15px;
-}
-
-.robot-terminal-button:hover {
-    background: var(--background-modifier-hover);
-}
-
-/* \u30E2\u30FC\u30C0\u30EB\u30B9\u30BF\u30A4\u30EB */
-.task-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.task-modal-content {
-    background: var(--background-primary);
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    width: 90%;
-    max-width: 500px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 20px 0 20px;
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.modal-header h3 {
-    margin: 0;
-    color: var(--text-normal);
-}
-
-.modal-close-button {
-    background: none;
-    border: none;
-    font-size: 24px;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-}
-
-.modal-close-button:hover {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.task-form {
-    padding: 20px;
-}
-
-.form-group {
-    margin-bottom: 15px;
-}
-
-.form-label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
-    color: var(--text-normal);
-}
-
-.form-input,
-.form-textarea {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-family: inherit;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-/* \u30BB\u30EC\u30AF\u30C8\u30DC\u30C3\u30AF\u30B9\u306E\u9AD8\u3055\u8ABF\u6574 */
-select.form-input {
-    min-height: 36px;
-    line-height: 1.5;
-    padding: 8px 12px;
-}
-
-.form-input:focus,
-.form-textarea:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
-.form-textarea {
-    min-height: 80px;
-    resize: vertical;
-}
-
-.form-button-group {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    margin-top: 20px;
-}
-
-.form-button {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    min-width: 80px;
-}
-
-.form-button.cancel {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.form-button.cancel:hover {
-    background: var(--background-modifier-border-hover);
-}
-
-.form-button.create {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.form-button.create:hover {
-    background: var(--interactive-accent-hover);
-}
-
-.form-description {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.4;
-}
-
-.task-name.wikilink {
-    color: var(--link-color);
-    text-decoration: none;
-    cursor: pointer;
-    font-weight: 500;
-    border-radius: 3px;
-    padding: 2px 4px;
-    transition: background 0.15s;
-}
-.task-name.wikilink:hover {
-    background: var(--background-modifier-hover);
-    color: var(--link-color-hover);
-}
-.play-stop-button {
-    font-size: 18px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    transition: color 0.2s;
-    color: #3498db;
-    padding: 2px;
-    border-radius: 4px;
-    width: 100%;
-    text-align: center;
-}
-.play-stop-button.stop {
-    color: #e74c3c;
-    font-weight: bold;
-    background: var(--background-modifier-border);
-}
-.task-item.selected {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    font-weight: bold;
-}
-.delete-task-button {
-    margin-left: 8px;
-    font-size: 15px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: #e74c3c;
-    padding: 2px 6px;
-    border-radius: 4px;
-    transition: background 0.2s;
-}
-.delete-task-button:hover {
-    background: var(--background-modifier-border);
-}
-
-/* \u8A2D\u5B9A\u30DC\u30BF\u30F3\u30B9\u30BF\u30A4\u30EB */
-.settings-task-button {
-    font-size: 15px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 2px;
-    margin-right: 10px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    opacity: 0.6;
-    width: 100%;
-    text-align: center;
-}
-
-.settings-task-button:hover {
-    opacity: 1;
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-/* \u30C4\u30FC\u30EB\u30C1\u30C3\u30D7\u30B9\u30BF\u30A4\u30EB */
-.task-settings-tooltip {
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    padding: 4px 0;
-    min-width: 140px;
-    font-size: 13px;
-    z-index: 1000;
-}
-
-.tooltip-header {
-    display: flex;
-    justify-content: flex-end;
-    padding: 4px 8px 0 8px;
-    margin-bottom: 4px;
-}
-
-.tooltip-close-button {
-    background: none;
-    border: none;
-    font-size: 16px;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 3px;
-    transition: all 0.2s ease;
-}
-
-.tooltip-close-button:hover {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.tooltip-item {
-    padding: 8px 12px;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.tooltip-item:hover {
-    background: var(--background-secondary);
-}
-
-.tooltip-item.delete-item:hover {
-    background: rgba(231, 76, 60, 0.1);
-}
-
-.tooltip-item.project-item {
-    color: var(--text-normal);
-}
-
-.tooltip-item.project-item:hover {
-    background: var(--background-secondary);
-}
-
-.tooltip-item.disabled {
-    opacity: 0.5;
-    color: var(--text-muted);
-    cursor: not-allowed;
-}
-
-.tooltip-item.disabled:hover {
-    background: none;
-}
-
-.date-nav-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 8px;
-    gap: 2px;
-    height: 36px;
-}
-
-.date-nav-container.compact {
-    flex: 1; /* Take remaining space in top-bar-container */
-    margin-bottom: 0; /* Remove bottom margin */
-    gap: 1px;
-    height: 100%; /* Match parent height */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.date-nav-arrow {
-    background: none;
-    border: none;
-    font-size: 28px;
-    color: #888;
-    cursor: pointer;
-    padding: 0 8px;
-    transition: color 0.2s;
-}
-
-.date-nav-container.compact .date-nav-arrow {
-    font-size: 20px;
-    padding: 0 4px;
-}
-
-.date-nav-arrow:hover {
-    color: #1976d2;
-}
-
-.date-nav-label {
-    font-size: 15px;
-    font-weight: bold;
-    color: #1976d2;
-    min-width: 90px;
-    text-align: center;
-    letter-spacing: 0.5px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 28px;
-    margin-right: 3px;
-}
-
-.date-nav-container.compact .date-nav-label {
-    font-size: 15px;
-    min-width: 90px;
-    letter-spacing: 0.5px;
-    height: 24px;
-}
-.calendar-btn {
-    background: none;
-    border: none;
-    font-size: 16px;
-    padding: 2px 2px;
-    margin: 0 1px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 24px;
-    width: 24px;
-    border-radius: 6px;
-    transition: background 0.2s;
-}
-.calendar-btn:hover {
-    background: var(--background-modifier-border);
-}
-.date-wikilink {
-    color: #1976d2 !important;
-    font-weight: bold;
-    text-decoration: none;
-    display: inline-block;
-    text-align: center;
-    min-width: 60px;
-    padding: 0 1px;
-}
-
-/* \u5B8C\u4E86\u6F14\u51FA\u30B9\u30BF\u30A4\u30EB */
-
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-
-
-@keyframes bounceIn {
-    0% {
-        transform: scale(0.3);
-        opacity: 0;
-    }
-    50% {
-        transform: scale(1.05);
-    }
-    70% {
-        transform: scale(0.9);
-    }
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
-}
-
-
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-}
-
-
-
-.fireworks-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-}
-
-.firework {
-    position: absolute;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    animation: fireworkExplosion 2s ease-out forwards;
-}
-
-@keyframes fireworkExplosion {
-    0% {
-        transform: scale(0);
-        opacity: 1;
-    }
-    50% {
-        transform: scale(1);
-        opacity: 1;
-    }
-    100% {
-        transform: scale(0);
-        opacity: 0;
-    }
-}
-
-
-
-
-/* \u82B1\u706B\u306E\u8FFD\u52A0\u30A8\u30D5\u30A7\u30AF\u30C8 */
-.firework::before,
-.firework::after {
-    content: '';
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    background: inherit;
-    animation: fireworkSparkle 2s ease-out forwards;
-}
-
-.firework::before {
-    animation-delay: 0.1s;
-}
-
-.firework::after {
-    animation-delay: 0.2s;
-}
-
-@keyframes fireworkSparkle {
-    0% {
-        transform: scale(0) rotate(0deg);
-        opacity: 1;
-    }
-    100% {
-        transform: scale(2) rotate(360deg);
-        opacity: 0;
-    }
-}
-
-/* \u30D1\u30FC\u30C6\u30A3\u30AF\u30EB\u52B9\u679C */
-.particle {
-    position: absolute;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    animation: particleExplosion 1.5s ease-out forwards;
-}
-
-@keyframes particleExplosion {
-    0% {
-        transform: scale(0) translateX(0);
-        opacity: 1;
-    }
-    50% {
-        transform: scale(1) translateX(50px);
-        opacity: 1;
-    }
-    100% {
-        transform: scale(0) translateX(100px);
-        opacity: 0;
-    }
-}
-
-/* \u8FFD\u52A0\u306E\u6F14\u51FA\u52B9\u679C */
-
-
-@keyframes glowPulse {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 0.8; }
-}
-
-/* \u7D71\u8A08\u8868\u793A\u30B9\u30BF\u30A4\u30EB */
-
-
-.stat-item {
-    text-align: center;
-    background: rgba(255, 255, 255, 0.1);
-    padding: 15px;
-    border-radius: 10px;
-    backdrop-filter: blur(10px);
-}
-
-.stat-number {
-    display: block;
-    font-size: 24px;
-    font-weight: bold;
-    color: white;
-    margin-bottom: 5px;
-}
-
-.stat-label {
-    display: block;
-    font-size: 14px;
-    color: rgba(255, 255, 255, 0.8);
-}
-
-/* \u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8 */
-.confetti-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    overflow: hidden;
-}
-
-.confetti {
-    position: absolute;
-    top: -10px;
-    border-radius: 2px;
-    animation: confettiFall 3s linear forwards;
-}
-
-@keyframes confettiFall {
-    0% {
-        transform: translateY(-10px) rotate(0deg);
-        opacity: 1;
-    }
-    100% {
-        transform: translateY(100vh) rotate(720deg);
-        opacity: 0;
-    }
-}
-
-/* \u8FFD\u52A0\u306E\u6F14\u51FA\u52B9\u679C */
-
-
-@keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
-
-/* \u30C1\u30A7\u30C3\u30AF\u30DC\u30C3\u30AF\u30B9\u30B9\u30BF\u30A4\u30EB */
-.form-checkbox {
-    margin-left: 10px;
-    width: 16px;
-    height: 16px;
-    accent-color: var(--interactive-accent);
-}
-
-.form-checkbox:checked {
-    background-color: var(--interactive-accent);
-    border-color: var(--interactive-accent);
-}
-
-/* \u30E9\u30B8\u30AA\u30DC\u30BF\u30F3\u30B0\u30EB\u30FC\u30D7\u30B9\u30BF\u30A4\u30EB */
-.radio-group {
-    display: flex;
-    gap: 20px;
-    margin-top: 8px;
-}
-
-.radio-group input[type="radio"] {
-    margin-right: 8px;
-    accent-color: var(--interactive-accent);
-}
-
-.radio-group label {
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--text-normal);
-}
-
-/* \u30BB\u30EC\u30AF\u30C8\u30DC\u30C3\u30AF\u30B9\u30B9\u30BF\u30A4\u30EB */
-.form-input[type="time"],
-.form-input[type="select"] {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-family: inherit;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-.form-input[type="time"]:focus,
-.form-input[type="select"]:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
-/* \u30BF\u30B9\u30AF\u5B8C\u4E86\u30B3\u30E1\u30F3\u30C8\u30E2\u30FC\u30C0\u30EB\u306E\u30B9\u30BF\u30A4\u30EB */
-.completion-modal {
-    max-width: 500px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-
-.completion-form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.completion-time-info {
-    background: var(--background-secondary);
-    padding: 12px;
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-}
-
-.completion-time-info p {
-    margin: 4px 0;
-    font-size: 14px;
-    color: var(--text-normal);
-}
-
-.completion-rating-section {
-    background: var(--background-secondary);
-    padding: 16px;
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-}
-
-.completion-rating-section h4 {
-    margin: 0 0 16px 0;
-    font-size: 16px;
-    color: var(--text-normal);
-}
-
-.rating-group {
-    margin-bottom: 16px;
-}
-
-.rating-label {
-    display: block;
-    margin-bottom: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-normal);
-}
-
-.star-rating {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 8px;
-}
-
-.star-rating .star {
-    font-size: 20px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    user-select: none;
-    opacity: 0.3;
-}
-
-.star-rating .star:hover {
-    transform: scale(1.2);
-}
-
-.energy-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-family: inherit;
-    font-size: 14px;
-    box-sizing: border-box;
-}
-
-.energy-select:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
-.completion-comment {
-    width: 100%;
-    min-height: 100px;
-    padding: 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-family: inherit;
-    font-size: 14px;
-    resize: vertical;
-    box-sizing: border-box;
-}
-
-/* \u5165\u529B\u6642\u306E\u30C6\u30AD\u30B9\u30C8\u8272\u3092\u660E\u308B\u304F\u3059\u308B */
-.completion-comment:not(:placeholder-shown) {
-    color: rgba(255, 255, 255, 0.9);
-}
-
-.completion-comment:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
-.completion-comment::placeholder {
-    color: var(--text-faint);
-    opacity: 0.6;
-    font-style: italic;
-}
-
-.tag-selection {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-}
-
-.tag-option {
-    padding: 6px 12px;
-    background: var(--background-modifier-border);
-    color: var(--text-muted);
-    border-radius: 16px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.2s ease;
-    user-select: none;
-}
-
-.tag-option:hover {
-    background: var(--background-modifier-border-hover);
-    color: var(--text-normal);
-}
-
-.tag-option.selected {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.form-button-group {
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-    margin-top: 8px;
-}
-
-.form-button {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    min-width: 80px;
-}
-
-.form-button.primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.form-button.primary:hover {
-    background: var(--interactive-accent-hover);
-}
-
-.form-button.secondary {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
-}
-
-.form-button.secondary:hover {
-    background: var(--background-modifier-border-hover);
-}
-
-/* \u30EC\u30B9\u30DD\u30F3\u30B7\u30D6\u5BFE\u5FDC - \u30B3\u30F3\u30C6\u30CA\u30D9\u30FC\u30B9\u306E\u8ABF\u6574 */
-/* \u4E2D\u9593\u306E\u5E45\uFF08800px\u4EE5\u4E0B\u76F8\u5F53\uFF09 */
-.taskchute-narrow .task-item {
-    /* \u30B0\u30EA\u30C3\u30C9\u30EC\u30A4\u30A2\u30A6\u30C8\u3092\u8ABF\u6574 - \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3068\u6642\u9593\u3092\u7E2E\u5C0F */
-    grid-template-columns: 20px 40px minmax(150px, 1fr) 120px 80px 40px 30px 30px 30px;
-    gap: 4px;
-}
-
-.taskchute-narrow .task-name {
-    min-width: 150px;
-}
-
-.taskchute-narrow .taskchute-project-display {
-    max-width: 120px;
-    margin-right: 4px;
-}
-
-.taskchute-narrow .taskchute-project-name {
-    max-width: 100px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.taskchute-narrow .task-time-range {
-    font-size: 11px;
-}
-
-.taskchute-narrow .routine-button,
-.taskchute-narrow .comment-button {
-    font-size: 13px;
-}
-
-/* \u3055\u3089\u306B\u72ED\u3044\u5E45\uFF08600px\u4EE5\u4E0B\u76F8\u5F53\uFF09 */
-.taskchute-very-narrow .task-item {
-    /* \u30BF\u30B9\u30AF\u540D\u3092\u6700\u512A\u5148\u306B\u3057\u3001\u5FC5\u8981\u306A\u30DC\u30BF\u30F3\u306E\u307F\u8868\u793A */
-    grid-template-columns: 20px 40px 1fr 30px 30px;
-    gap: 2px;
-}
-
-/* \u8868\u793A\u3059\u308B\u8981\u7D20\u3092\u9650\u5B9A */
-.taskchute-very-narrow .task-item > *:nth-child(n+6) {
-    display: none;
-}
-
-/* \u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3001\u6642\u9593\u8868\u793A\u3001\u5B9F\u884C\u6642\u9593\u3092\u975E\u8868\u793A */
-.taskchute-very-narrow .taskchute-project-display,
-.taskchute-very-narrow .task-time-range,
-.taskchute-very-narrow .task-duration {
-    display: none;
-}
-
-/* \u65E5\u8DE8\u304E\u30BF\u30B9\u30AF\u306E\u30B9\u30BF\u30A4\u30EB */
-.task-duration.cross-day {
-    color: var(--text-accent);
-    font-weight: 500;
-    position: relative;
-}
-
-.task-duration.cross-day::after {
-    content: "\u{1F319}";
-    font-size: 0.8em;
-    margin-left: 4px;
-    opacity: 0.7;
-}
-
-/* \u30BF\u30B9\u30AF\u540D\u3092\u6700\u5927\u9650\u8868\u793A */
-.taskchute-very-narrow .task-name {
-    min-width: 80px;
-}
-
-/* \u30EB\u30FC\u30C1\u30F3\u30DC\u30BF\u30F3\u3068\u8A2D\u5B9A\u30DC\u30BF\u30F3\u306E\u307F\u8868\u793A */
-.taskchute-very-narrow .task-item > *:nth-child(7),  /* \u30EB\u30FC\u30C1\u30F3\u30DC\u30BF\u30F3 */
-.taskchute-very-narrow .task-item > *:nth-child(9) {  /* \u8A2D\u5B9A\u30DC\u30BF\u30F3 */
-    display: flex;
-}
-
-/* \u30EB\u30FC\u30C1\u30F3\u8A2D\u5B9A\u30E2\u30FC\u30C0\u30EB\u306E\u65B0\u3057\u3044\u30B9\u30BF\u30A4\u30EB */
-.checkbox-group {
-    display: flex;
-    gap: 20px;
-    margin-bottom: 10px;
-}
-
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-}
-
-.checkbox-label input[type="checkbox"] {
-    cursor: pointer;
-    margin: 0;
-}
-
-.weekday-checkboxes {
-    display: flex;
-    gap: 15px;
-    flex-wrap: wrap;
-    padding: 10px 0;
-}
-
-.weekday-checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    cursor: pointer;
-    user-select: none;
-    padding: 5px 10px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    transition: all 0.2s ease;
-}
-
-.weekday-checkbox-label:hover {
-    background-color: var(--background-modifier-hover);
-}
-
-.weekday-checkbox-label input[type="checkbox"] {
-    cursor: pointer;
-    margin: 0;
-}
-
-.weekday-checkbox-label input[type="checkbox"]:checked + span {
-    font-weight: bold;
-    color: var(--text-accent);
-}
-
-/* \u66DC\u65E5\u9078\u629E\u30B0\u30EB\u30FC\u30D7\u5168\u4F53\u306E\u30B9\u30BF\u30A4\u30EB */
-#edit-weekday-group {
-    transition: all 0.3s ease;
-    overflow: hidden;
-}
-
-#edit-weekday-group[style*="display: none"] {
-    max-height: 0;
-    opacity: 0;
-}
-
-#edit-weekday-group[style*="display: block"] {
-    max-height: 200px;
-    opacity: 1;
-}
-
-/* \u30BF\u30B9\u30AF\u540D\u691C\u8A3C\u30B9\u30BF\u30A4\u30EB */
-.form-input.error {
-    border-color: #e74c3c;
-    background-color: #fee;
-}
-
-.task-name-warning {
-    color: #e74c3c;
-    font-size: 12px;
-    margin-top: 4px;
-    padding: 4px 8px;
-    background-color: #fee;
-    border-radius: 4px;
-}
-
-.task-name-warning.hidden {
-    display: none;
-}
-
-.task-name-warning.highlight {
-    animation: flash 0.3s ease-in-out;
-}
-
-@keyframes flash {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
-.form-button.disabled {
-    background-color: #ccc;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-/* Phase 1: \u6700\u4E0B\u90E8\u3078\u306E\u30C9\u30ED\u30C3\u30D7\u30A4\u30F3\u30B8\u30B1\u30FC\u30BF\u30FC */
-.task-item.dragover-bottom {
-    border-bottom: 2px solid var(--interactive-accent);
-    margin-bottom: -2px;
-}
-
-.task-list.dragover-bottom::after {
-    content: '';
-    display: block;
-    height: 2px;
-    background-color: var(--interactive-accent);
-    margin-top: 4px;
-}
-`;
+  }
+};
 
 // src/views/TaskChuteView.helpers.ts
 async function loadTasksRefactored() {
@@ -3418,6 +1455,157 @@ ${formattedComment}`,
   }
 };
 
+// src/services/RunningTasksService.ts
+var import_obsidian7 = require("obsidian");
+var RunningTasksService = class {
+  constructor(plugin) {
+    this.plugin = plugin;
+  }
+  async save(runningInstances) {
+    const records = runningInstances.map((inst) => {
+      const base = inst.startTime ? new Date(inst.startTime) : /* @__PURE__ */ new Date();
+      const y = base.getFullYear();
+      const m = String(base.getMonth() + 1).padStart(2, "0");
+      const d = String(base.getDate()).padStart(2, "0");
+      const dateString = `${y}-${m}-${d}`;
+      return {
+        date: dateString,
+        taskTitle: inst.task.name,
+        taskPath: inst.task.path,
+        startTime: (inst.startTime ? inst.startTime : /* @__PURE__ */ new Date()).toISOString(),
+        slotKey: inst.slotKey,
+        originalSlotKey: inst.originalSlotKey,
+        instanceId: inst.instanceId,
+        taskDescription: inst.task.description || "",
+        isRoutine: inst.task.isRoutine === true
+      };
+    });
+    const logDataPath = this.plugin.pathManager.getLogDataPath();
+    const dataPath = `${logDataPath}/running-task.json`;
+    await this.plugin.app.vault.adapter.write(
+      dataPath,
+      JSON.stringify(records, null, 2)
+    );
+  }
+  async loadForDate(dateString) {
+    try {
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const dataPath = `${logDataPath}/running-task.json`;
+      const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
+      if (!file || !(file instanceof import_obsidian7.TFile)) return [];
+      const raw = await this.plugin.app.vault.read(file);
+      const json = JSON.parse(raw);
+      if (!Array.isArray(json)) return [];
+      return json.filter((r) => r.date === dateString);
+    } catch (_) {
+      return [];
+    }
+  }
+};
+
+// src/services/ExecutionLogService.ts
+var import_obsidian8 = require("obsidian");
+var ExecutionLogService = class {
+  constructor(plugin) {
+    this.plugin = plugin;
+  }
+  toHMS(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  getMonthKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  }
+  getDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  async saveTaskLog(inst, durationSec) {
+    var _a;
+    if (!inst.startTime || !inst.stopTime) return;
+    const start = new Date(inst.startTime);
+    const monthKey = this.getMonthKey(start);
+    const dateKey = this.getDateKey(start);
+    const logDataPath = this.plugin.pathManager.getLogDataPath();
+    const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+    let file = this.plugin.app.vault.getAbstractFileByPath(logPath);
+    let json = { taskExecutions: {}, dailySummary: {} };
+    if (file && file instanceof import_obsidian8.TFile) {
+      try {
+        const raw = await this.plugin.app.vault.read(file);
+        json = raw ? JSON.parse(raw) : json;
+      } catch (_) {
+      }
+    } else {
+      await this.plugin.pathManager.ensureFolderExists(logDataPath);
+      await this.plugin.app.vault.create(logPath, JSON.stringify(json, null, 2));
+      file = this.plugin.app.vault.getAbstractFileByPath(logPath);
+    }
+    if (!json.taskExecutions) json.taskExecutions = {};
+    if (!json.dailySummary) json.dailySummary = {};
+    if (!json.taskExecutions[dateKey]) json.taskExecutions[dateKey] = [];
+    const exec = {
+      taskTitle: inst.task.title || inst.task.name,
+      taskPath: inst.task.path,
+      instanceId: inst.instanceId,
+      slotKey: inst.slotKey,
+      startTime: this.toHMS(start),
+      stopTime: this.toHMS(inst.stopTime),
+      durationSec
+    };
+    const arr = json.taskExecutions[dateKey];
+    const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
+    if (idx >= 0) arr[idx] = exec;
+    else arr.push(exec);
+    const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+    json.dailySummary[dateKey] = {
+      totalMinutes,
+      totalTasks: arr.length,
+      completedTasks: arr.length,
+      procrastinatedTasks: ((_a = json.dailySummary[dateKey]) == null ? void 0 : _a.procrastinatedTasks) || 0,
+      completionRate: arr.length > 0 ? 1 : 0
+    };
+    await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
+  }
+  async removeTaskLogForInstanceOnDate(instanceId, dateKey) {
+    var _a;
+    try {
+      const [y, m] = dateKey.split("-");
+      const monthKey = `${y}-${m}`;
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+      const file = this.plugin.app.vault.getAbstractFileByPath(logPath);
+      if (!file || !(file instanceof import_obsidian8.TFile)) return;
+      const raw = await this.plugin.app.vault.read(file);
+      if (!raw) return;
+      let json = {};
+      try {
+        json = JSON.parse(raw);
+      } catch (_) {
+        return;
+      }
+      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateKey])) return;
+      const filtered = json.taskExecutions[dateKey].filter((e) => e.instanceId !== instanceId);
+      json.taskExecutions[dateKey] = filtered;
+      const totalMinutes = filtered.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+      if (!json.dailySummary) json.dailySummary = {};
+      json.dailySummary[dateKey] = {
+        totalMinutes,
+        totalTasks: filtered.length,
+        completedTasks: filtered.length,
+        procrastinatedTasks: ((_a = json.dailySummary[dateKey]) == null ? void 0 : _a.procrastinatedTasks) || 0,
+        completionRate: filtered.length > 0 ? 1 : 0
+      };
+      await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
+    } catch (_) {
+    }
+  }
+};
+
 // src/views/TaskChuteView.ts
 var NavigationStateManager = class {
   constructor() {
@@ -3425,13 +1613,14 @@ var NavigationStateManager = class {
     this.isOpen = false;
   }
 };
-var TaskChuteView = class extends import_obsidian7.ItemView {
+var TaskChuteView = class extends import_obsidian9.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.tasks = [];
     this.taskInstances = [];
     this.currentInstance = null;
     this.globalTimerInterval = null;
+    this.timerService = null;
     this.logView = null;
     this.selectedTaskInstance = null;
     this.autocompleteInstances = [];
@@ -3462,6 +1651,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     );
     this.useOrderBasedSort = localStorage.getItem("taskchute-use-order-sort") !== "false";
     this.navigationState = new NavigationStateManager();
+    this.runningTasksService = new RunningTasksService(this.plugin);
+    this.executionLogService = new ExecutionLogService(this.plugin);
   }
   getViewType() {
     return "taskchute-view";
@@ -3483,7 +1674,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     await this.loadTasks();
     this.checkBoundaryTasks();
     await this.restoreRunningTaskState();
-    this.applyStyles();
+    this.ensureTimerService();
     this.setupResizeObserver();
     this.initializeNavigationEventListeners();
     this.setupEventListeners();
@@ -3582,7 +1773,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           "terminal:open-terminal.integrated.root"
         );
       } catch (error) {
-        new import_obsidian7.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
+        new import_obsidian9.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
       }
     });
   }
@@ -3937,7 +2128,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     playButton.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (isFutureTask) {
-        new import_obsidian7.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        new import_obsidian9.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
       if (inst.state === "running") {
@@ -3960,7 +2151,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       try {
         await this.app.workspace.openLinkText(inst.task.path, "", false);
       } catch (error) {
-        new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+        new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
       }
     });
   }
@@ -4161,11 +2352,11 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         }
       }
       this.renderTaskList();
-      new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
       return returnOnly ? newInstance : void 0;
     } catch (error) {
       console.error("Failed to duplicate instance:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   // 元直下に挿入されるよう order を計算
@@ -4374,7 +2565,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
-      if (!logFile || !(logFile instanceof import_obsidian7.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian9.TFile)) {
         return null;
       }
       const logContent = await this.app.vault.read(logFile);
@@ -4405,7 +2596,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const dateString = `${year}-${month}-${day}`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
       let monthlyLog = { taskExecutions: {} };
-      if (logFile && logFile instanceof import_obsidian7.TFile) {
+      if (logFile && logFile instanceof import_obsidian9.TFile) {
         const logContent = await this.app.vault.read(logFile);
         monthlyLog = JSON.parse(logContent);
       }
@@ -4457,7 +2648,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       } else {
         todayTasks.push(commentData);
       }
-      if (logFile && logFile instanceof import_obsidian7.TFile) {
+      if (logFile && logFile instanceof import_obsidian9.TFile) {
         await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
       } else {
         await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
@@ -4470,10 +2661,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       if (completionData.executionComment && (inst.task.projectPath || inst.task.projectTitle) && this.hasCommentChanged(existingTaskData, completionData)) {
         await this.syncCommentToProjectNote(inst, completionData);
       }
-      new import_obsidian7.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
     } catch (error) {
       console.error("Failed to save comment:", error);
-      new import_obsidian7.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   // コメント本文の変更検出
@@ -4491,7 +2682,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       if (!projectPath) return;
       await syncManager.updateProjectNote(projectPath, inst, completionData);
     } catch (error) {
-      new import_obsidian7.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30CE\u30FC\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error.message || error}`);
+      new import_obsidian9.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30CE\u30FC\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error.message || error}`);
     }
   }
   showRoutineEditModal(task, button) {
@@ -4657,13 +2848,13 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const scheduledTime = timeInput.value;
       const routineType = typeSelect.value;
       if (!scheduledTime) {
-        new import_obsidian7.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian9.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       if (routineType === "weekly") {
         const selectedWeekdays = weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => parseInt(cb.value));
         if (selectedWeekdays.length === 0) {
-          new import_obsidian7.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
+          new import_obsidian9.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
           return;
         }
       }
@@ -4688,8 +2879,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian9.TFile)) {
+        new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       if (task.isRoutine) {
@@ -4707,12 +2898,12 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         button.classList.remove("active");
         button.setAttribute("title", "\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A");
         await this.reloadTasksAndRestore();
-        new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
+        new import_obsidian9.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
       } else {
         this.showRoutineEditModal(task, button);
       }
     } catch (error) {
-      new import_obsidian7.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   showTaskSettingsTooltip(inst, button) {
@@ -4829,7 +3020,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const viewDate = new Date(this.currentDate);
       viewDate.setHours(0, 0, 0, 0);
       if (viewDate.getTime() > today.getTime()) {
-        new import_obsidian7.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        new import_obsidian9.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
       try {
@@ -4846,7 +3037,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       try {
         if (!inst.task.isRoutine && viewDate.getTime() !== today.getTime()) {
           const file = this.app.vault.getAbstractFileByPath(inst.task.path);
-          if (file instanceof import_obsidian7.TFile) {
+          if (file instanceof import_obsidian9.TFile) {
             const y = today.getFullYear();
             const m = String(today.getMonth() + 1).padStart(2, "0");
             const d = String(today.getDate()).padStart(2, "0");
@@ -4862,13 +3053,14 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       await this.saveRunningTasksState();
       this.renderTaskList();
       if (!this.globalTimerInterval) this.startGlobalTimer();
-      new import_obsidian7.Notice(`\u958B\u59CB: ${inst.task.name}`);
+      new import_obsidian9.Notice(`\u958B\u59CB: ${inst.task.name}`);
     } catch (error) {
       console.error("Failed to start instance:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async stopInstance(inst) {
+    var _a;
     try {
       if (inst.state !== "running") {
         return;
@@ -4876,15 +3068,17 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       inst.state = "done";
       inst.stopTime = /* @__PURE__ */ new Date();
       if (inst.startTime) {
-        const duration = this.calculateCrossDayDuration(inst.startTime, inst.stopTime);
-        inst.actualMinutes = Math.floor(duration / (1e3 * 60));
+        const duration2 = this.calculateCrossDayDuration(inst.startTime, inst.stopTime);
+        inst.actualMinutes = Math.floor(duration2 / (1e3 * 60));
       }
       if (this.currentInstance === inst) {
         this.currentInstance = null;
       }
       this.saveInstanceState(inst);
-      await this.saveTaskLog(inst);
+      const duration = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3);
+      await this.executionLogService.saveTaskLog(inst, duration);
       await this.saveRunningTasksState();
+      (_a = this.timerService) == null ? void 0 : _a.restart();
       try {
         const start = inst.startTime || /* @__PURE__ */ new Date();
         const yyyy = start.getFullYear();
@@ -4897,10 +3091,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       }
       this.initializeTaskOrders();
       this.renderTaskList();
-      new import_obsidian7.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
+      new import_obsidian9.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
     } catch (error) {
       console.error("Failed to stop instance:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   calculateCrossDayDuration(startTime, stopTime) {
@@ -4916,48 +3110,17 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   // ===========================================
   async saveRunningTasksState() {
     try {
-      const runningInstances = this.taskInstances.filter(
-        (inst) => inst.state === "running"
-      );
-      const dataToSave = runningInstances.map((inst) => {
-        const today = inst.startTime ? new Date(inst.startTime) : /* @__PURE__ */ new Date();
-        const y = today.getFullYear();
-        const m = (today.getMonth() + 1).toString().padStart(2, "0");
-        const d = today.getDate().toString().padStart(2, "0");
-        const dateString = `${y}-${m}-${d}`;
-        return {
-          date: dateString,
-          taskTitle: inst.task.name,
-          taskPath: inst.task.path,
-          startTime: inst.startTime ? inst.startTime.toISOString() : (/* @__PURE__ */ new Date()).toISOString(),
-          slotKey: inst.slotKey,
-          originalSlotKey: inst.originalSlotKey,
-          instanceId: inst.instanceId,
-          taskDescription: inst.task.description || "",
-          isRoutine: inst.task.isRoutine === true
-        };
-      });
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const dataPath = `${logDataPath}/running-task.json`;
-      await this.app.vault.adapter.write(dataPath, JSON.stringify(dataToSave, null, 2));
+      const runningInstances = this.taskInstances.filter((inst) => inst.state === "running");
+      await this.runningTasksService.save(runningInstances);
     } catch (e) {
       console.error("[TaskChute] \u5B9F\u884C\u4E2D\u30BF\u30B9\u30AF\u306E\u4FDD\u5B58\u306B\u5931\u6557:", e);
     }
   }
   async restoreRunningTaskState() {
     try {
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const dataPath = `${logDataPath}/running-task.json`;
-      const dataFile = this.app.vault.getAbstractFileByPath(dataPath);
-      if (!dataFile || !(dataFile instanceof import_obsidian7.TFile)) {
-        return;
-      }
-      const content = await this.app.vault.read(dataFile);
-      const runningTasksData = JSON.parse(content);
-      if (!Array.isArray(runningTasksData)) {
-        return;
-      }
       const currentDateString = this.getCurrentDateString();
+      const runningTasksData = await this.runningTasksService.loadForDate(currentDateString);
+      if (!Array.isArray(runningTasksData) || runningTasksData.length === 0) return;
       const deletedInstances = this.getDeletedInstances(currentDateString);
       const deletedTasks = deletedInstances.filter((inst) => inst.deletionType === "permanent").map((inst) => inst.path);
       let restored = false;
@@ -5043,103 +3206,17 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       console.error("Failed to save instance state:", error);
     }
   }
-  async saveTaskLog(inst) {
-    try {
-      if (!inst.startTime || !inst.stopTime) return;
-      const start = new Date(inst.startTime);
-      const yyyy = start.getFullYear();
-      const mm = String(start.getMonth() + 1).padStart(2, "0");
-      const dd = String(start.getDate()).padStart(2, "0");
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-      const toHMS = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const monthKey = `${yyyy}-${mm}`;
-      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-      let file = this.app.vault.getAbstractFileByPath(logPath);
-      let json = { taskExecutions: {}, dailySummary: {} };
-      if (file && file instanceof import_obsidian7.TFile) {
-        try {
-          const raw = await this.app.vault.read(file);
-          json = raw ? JSON.parse(raw) : json;
-        } catch (_) {
-        }
-      } else {
-        await this.plugin.pathManager.ensureFolderExists(this.plugin.pathManager.getLogDataPath());
-        await this.app.vault.create(logPath, JSON.stringify(json, null, 2));
-        file = this.app.vault.getAbstractFileByPath(logPath);
-      }
-      if (!json.taskExecutions) json.taskExecutions = {};
-      if (!json.dailySummary) json.dailySummary = {};
-      if (!json.taskExecutions[dateStr]) json.taskExecutions[dateStr] = [];
-      const exec = {
-        taskTitle: inst.task.title || inst.task.name,
-        taskPath: inst.task.path,
-        instanceId: inst.instanceId,
-        slotKey: inst.slotKey,
-        startTime: toHMS(inst.startTime),
-        stopTime: toHMS(inst.stopTime),
-        durationSec: Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3)
-      };
-      const arr = json.taskExecutions[dateStr];
-      const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
-      if (idx >= 0) arr[idx] = exec;
-      else arr.push(exec);
-      const minutes = Math.floor(exec.durationSec / 60);
-      const prev = json.dailySummary[dateStr] || { totalMinutes: 0, totalTasks: 0, completedTasks: 0 };
-      const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
-      json.dailySummary[dateStr] = {
-        totalMinutes,
-        totalTasks: arr.length,
-        completedTasks: arr.length,
-        procrastinatedTasks: prev.procrastinatedTasks || 0,
-        completionRate: arr.length > 0 ? 1 : 0
-      };
-      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
-    } catch (e) {
-      console.error("[TaskChute] saveTaskLog failed:", e);
-    }
-  }
+  // saveTaskLog moved to ExecutionLogService
   /**
    * Remove an execution log entry for the given instance on the current view date
    * and recalculate the daily summary. This is used when a completed task is
    * reverted back to idle ("未実行に戻す").
    */
   async removeTaskLogForInstanceOnCurrentDate(instanceId) {
-    var _a;
     try {
       if (!instanceId) return;
-      const y = this.currentDate.getFullYear();
-      const m = String(this.currentDate.getMonth() + 1).padStart(2, "0");
-      const d = String(this.currentDate.getDate()).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const monthKey = `${y}-${m}`;
-      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-      const file = this.app.vault.getAbstractFileByPath(logPath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) return;
-      const raw = await this.app.vault.read(file);
-      if (!raw) return;
-      let json = {};
-      try {
-        json = JSON.parse(raw);
-      } catch (_) {
-        return;
-      }
-      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateStr])) return;
-      const arr = json.taskExecutions[dateStr];
-      const filtered = arr.filter((e) => e.instanceId !== instanceId);
-      if (filtered.length === arr.length) return;
-      json.taskExecutions[dateStr] = filtered;
-      if (!json.dailySummary) json.dailySummary = {};
-      const totalMinutes = filtered.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
-      json.dailySummary[dateStr] = {
-        totalMinutes,
-        totalTasks: filtered.length,
-        completedTasks: filtered.length,
-        procrastinatedTasks: ((_a = json.dailySummary[dateStr]) == null ? void 0 : _a.procrastinatedTasks) || 0,
-        completionRate: filtered.length > 0 ? 1 : 0
-      };
-      await this.app.vault.modify(file, JSON.stringify(json, null, 2));
+      const dateStr = this.getCurrentDateString();
+      await this.executionLogService.removeTaskLogForInstanceOnDate(instanceId, dateStr);
     } catch (e) {
       console.error("[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:", e);
     }
@@ -5148,26 +3225,18 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   // Timer Management Methods
   // ===========================================
   startGlobalTimer() {
-    if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval);
-    }
-    this.globalTimerInterval = setInterval(() => {
-      this.updateAllTimers();
-    }, 1e3);
+    var _a;
+    this.ensureTimerService();
+    (_a = this.timerService) == null ? void 0 : _a.start();
   }
   updateAllTimers() {
-    const runningInstances = this.taskInstances.filter((inst) => inst.state === "running");
-    if (runningInstances.length === 0) {
+    this.ensureTimerService();
+    const running = this.taskInstances.filter((inst) => inst.state === "running");
+    if (running.length === 0) {
       this.stopGlobalTimer();
       return;
     }
-    runningInstances.forEach((inst) => {
-      const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
-      const timerEl = this.taskList.querySelector(selector);
-      if (timerEl) {
-        this.updateTimerDisplay(timerEl, inst);
-      }
-    });
+    running.forEach((inst) => this.onTimerTick(inst));
   }
   // ===========================================
   // Time Edit Modal (開始/終了時刻の編集)
@@ -5241,12 +3310,12 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           return;
         } else if (newStart && newStop) {
           if (newStart >= newStop) {
-            new import_obsidian7.Notice("\u958B\u59CB\u6642\u523B\u306F\u7D42\u4E86\u6642\u523B\u3088\u308A\u524D\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+            new import_obsidian9.Notice("\u958B\u59CB\u6642\u523B\u306F\u7D42\u4E86\u6642\u523B\u3088\u308A\u524D\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
             return;
           }
           await this.updateInstanceTimes(inst, newStart, newStop);
         } else {
-          new import_obsidian7.Notice("\u958B\u59CB\u6642\u523B\u306F\u5FC5\u9808\u3067\u3059");
+          new import_obsidian9.Notice("\u958B\u59CB\u6642\u523B\u306F\u5FC5\u9808\u3067\u3059");
           return;
         }
       }
@@ -5269,9 +3338,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       } catch (_) {
       }
     }
-    await this.saveTaskLog(inst);
+    const durationSec = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3);
+    await this.executionLogService.saveTaskLog(inst, durationSec);
     this.renderTaskList();
-    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+    new import_obsidian9.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
   }
   async updateRunningInstanceStartTime(inst, startStr) {
     const base = inst.startTime || new Date(this.currentDate);
@@ -5287,7 +3357,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
-    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u958B\u59CB\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+    new import_obsidian9.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u958B\u59CB\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
   }
   async transitionToRunningWithStart(inst, startStr) {
     if (inst.state !== "done") return;
@@ -5309,7 +3379,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
-    new import_obsidian7.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u3092\u5B9F\u884C\u4E2D\u306B\u623B\u3057\u307E\u3057\u305F`);
+    new import_obsidian9.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u3092\u5B9F\u884C\u4E2D\u306B\u623B\u3057\u307E\u3057\u305F`);
   }
   updateTimerDisplay(timerEl, inst) {
     if (!inst.startTime) return;
@@ -5321,10 +3391,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     timerEl.textContent = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
   stopGlobalTimer() {
-    if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval);
-      this.globalTimerInterval = null;
-    }
+    var _a;
+    (_a = this.timerService) == null ? void 0 : _a.stop();
   }
   // ===========================================
   // Event Handler Methods
@@ -5343,6 +3411,24 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         await this.handleFileRename(file, oldPath);
       })
     );
+  }
+  // ===========================================
+  // TimerService integration
+  // ===========================================
+  ensureTimerService() {
+    if (this.timerService) return;
+    this.timerService = new TimerService({
+      getRunningInstances: () => this.taskInstances.filter((inst) => inst.state === "running"),
+      onTick: (inst) => this.onTimerTick(inst),
+      intervalMs: 1e3
+    });
+  }
+  onTimerTick(inst) {
+    const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`;
+    const timerEl = this.taskList.querySelector(selector);
+    if (timerEl) {
+      this.updateTimerDisplay(timerEl, inst);
+    }
   }
   setupPlayStopButton(button, inst) {
     button.addEventListener("click", async (e) => {
@@ -5404,7 +3490,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     if (this.selectedTaskInstance) {
       this.duplicateTask(this.selectedTaskInstance);
     } else {
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   deleteSelectedTask() {
@@ -5415,14 +3501,14 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         }
       });
     } else {
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   resetSelectedTask() {
     if (this.selectedTaskInstance) {
       this.resetTask(this.selectedTaskInstance);
     } else {
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   showTodayTasks() {
@@ -5433,12 +3519,12 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       this.updateDateLabel(dateLabel);
     }
     this.reloadTasksAndRestore().then(() => {
-      new import_obsidian7.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
     });
   }
   reorganizeIdleTasks() {
     this.moveIdleTasksToCurrentTime();
-    new import_obsidian7.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
+    new import_obsidian9.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
   }
   // ===========================================
   // Utility Methods
@@ -5681,6 +3767,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
   }
   cleanupTimers() {
+    var _a;
     if (this.globalTimerInterval) {
       clearInterval(this.globalTimerInterval);
       this.globalTimerInterval = null;
@@ -5693,12 +3780,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       clearTimeout(this.renderDebounceTimer);
       this.renderDebounceTimer = null;
     }
+    (_a = this.timerService) == null ? void 0 : _a.dispose();
+    this.timerService = null;
   }
-  applyStyles() {
-    const style = document.createElement("style");
-    style.textContent = TASKCHUTE_FULL_CSS;
-    document.head.appendChild(style);
-  }
+  // Styles are provided by styles.css; dynamic CSS injection removed
   // ===========================================
   // Placeholder Methods (to be implemented)
   // ===========================================
@@ -5713,7 +3798,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       this.closeNavigation();
       return;
     }
-    new import_obsidian7.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
+    new import_obsidian9.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
   }
   // Show Daily Review in right split
   async showReviewSection() {
@@ -5727,7 +3812,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const file = await review.ensureReviewFile(dateStr);
       await review.openInSplit(file, this.leaf);
     } catch (error) {
-      new import_obsidian7.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
+      new import_obsidian9.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
     }
   }
   openLogModal() {
@@ -5818,7 +3903,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const monthString = `${year}-${month}`;
       const logPath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logPath);
-      if (!logFile || !(logFile instanceof import_obsidian7.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian9.TFile)) {
         return 0;
       }
       const content = await this.app.vault.read(logFile);
@@ -5842,7 +3927,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
     }
   }
   showTaskContextMenu(e, inst) {
-    new import_obsidian7.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian9.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   handleDragOver(e, taskItem, inst) {
     e.preventDefault();
@@ -5931,8 +4016,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian9.TFile)) {
+        new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -5951,10 +4036,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       button.classList.add("active");
       button.setAttribute("title", `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
       await this.reloadTasksAndRestore();
-      new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
+      new import_obsidian9.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian7.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async setRoutineTaskWithDetails(task, button, scheduledTime, routineType, details) {
@@ -5962,8 +4047,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian9.TFile)) {
+        new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -6039,10 +4124,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       }
       button.setAttribute("title", tooltipText);
       await this.reloadTasksAndRestore();
-      new import_obsidian7.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
-      new import_obsidian7.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async deleteInstanceWithConfirm(inst) {
@@ -6128,17 +4213,17 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         if (samePathInstances.length === 0 && inst.task.file) {
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path);
           await this.app.vault.delete(inst.task.file);
-          new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian9.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         } else {
-          new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian9.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         }
       } else {
-        new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian9.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
       }
       this.renderTaskList();
     } catch (error) {
       console.error("Failed to delete instance:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async resetTaskToIdle(inst) {
@@ -6152,10 +4237,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       this.saveInstanceState(inst);
       await this.saveRunningTasksState();
       this.renderTaskList();
-      new import_obsidian7.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to reset task:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectSettingsModal(inst, tooltip) {
@@ -6227,7 +4312,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       }
       const projects = [];
       for (const file of projectFolder.children) {
-        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
           projects.push(file.basename);
         }
       }
@@ -6242,8 +4327,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${inst.task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian9.TFile)) {
+        new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -6261,14 +4346,14 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       inst.task.projectTitle = projectName || void 0;
       this.renderTaskList();
       const message = projectName ? `\u300C${inst.task.title}\u300D\u3092${projectName}\u306B\u95A2\u9023\u4ED8\u3051\u307E\u3057\u305F` : `\u300C${inst.task.title}\u300D\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u95A2\u9023\u4ED8\u3051\u3092\u89E3\u9664\u3057\u307E\u3057\u305F`;
-      new import_obsidian7.Notice(message);
+      new import_obsidian9.Notice(message);
     } catch (error) {
       console.error("Failed to update project:", error);
-      new import_obsidian7.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   moveIdleTasksToCurrentTime() {
-    new import_obsidian7.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian9.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   async showAddTaskModal() {
     const modal = document.createElement("div");
@@ -6310,7 +4395,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       e.preventDefault();
       const taskName = nameInput.value.trim();
       if (!taskName) {
-        new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       await this.createNewTask(taskName, estimatedMinutes);
@@ -6338,10 +4423,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       setTimeout(async () => {
         await this.reloadTasksAndRestore();
       }, 100);
-      new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to create task:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showTaskMoveDatePicker(inst, button) {
@@ -6378,17 +4463,17 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   async moveTaskToDate(inst, dateStr) {
     try {
       const file = this.app.vault.getAbstractFileByPath(inst.task.path);
-      if (file instanceof import_obsidian7.TFile) {
+      if (file instanceof import_obsidian9.TFile) {
         await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
           frontmatter.target_date = dateStr;
           return frontmatter;
         });
       }
-      new import_obsidian7.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
       await this.reloadTasksAndRestore();
     } catch (error) {
       console.error("Failed to move task:", error);
-      new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectModal(inst) {
@@ -6413,7 +4498,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       try {
         projectFiles = await this.getProjectFiles();
       } catch (error) {
-        new import_obsidian7.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+        new import_obsidian9.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
         modal.remove();
         return;
       }
@@ -6497,7 +4582,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       document.body.appendChild(modal);
     } catch (error) {
       console.error("Failed to show project modal:", error);
-      new import_obsidian7.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async getProjectFiles() {
@@ -6522,8 +4607,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   }
   async setProjectForTask(task, projectPath) {
     try {
-      if (!task.file || !(task.file instanceof import_obsidian7.TFile)) {
-        new import_obsidian7.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+      if (!task.file || !(task.file instanceof import_obsidian9.TFile)) {
+        new import_obsidian9.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
         return;
       }
       await this.app.fileManager.processFrontMatter(
@@ -6552,10 +4637,10 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         task.projectPath = null;
         task.projectTitle = null;
       }
-      new import_obsidian7.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
+      new import_obsidian9.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set project:", error);
-      new import_obsidian7.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian9.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   updateProjectDisplay(inst) {
@@ -6613,15 +4698,15 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
   async openProjectInSplit(projectPath) {
     try {
       const file = this.app.vault.getAbstractFileByPath(projectPath);
-      if (file instanceof import_obsidian7.TFile) {
+      if (file instanceof import_obsidian9.TFile) {
         const leaf = this.app.workspace.getLeaf("split");
         await leaf.openFile(file);
       } else {
-        new import_obsidian7.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
+        new import_obsidian9.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
       }
     } catch (error) {
       console.error("Failed to open project:", error);
-      new import_obsidian7.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+      new import_obsidian9.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
     }
   }
   async hasExecutionHistory(taskPath) {
@@ -6688,7 +4773,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
 
 // src/main.ts
 var VIEW_TYPE_TASKCHUTE = "taskchute-view";
-var TaskChuteSettingTab = class extends import_obsidian8.PluginSettingTab {
+var TaskChuteSettingTab = class extends import_obsidian10.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -6696,15 +4781,15 @@ var TaskChuteSettingTab = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian10.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
+    new import_obsidian10.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder).setValue(this.plugin.settings.taskFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.taskFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian8.Notice(validation.error);
+          new import_obsidian10.Notice(validation.error);
           text.setValue(this.plugin.settings.taskFolderPath || "");
         }
       });
@@ -6719,56 +4804,56 @@ var TaskChuteSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian10.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder).setValue(this.plugin.settings.projectFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.projectFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian8.Notice(validation.error);
+          new import_obsidian10.Notice(validation.error);
           text.setValue(this.plugin.settings.projectFolderPath || "");
         }
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian10.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.logData).setValue(this.plugin.settings.logDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.logDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian8.Notice(validation.error);
+          new import_obsidian10.Notice(validation.error);
           text.setValue(this.plugin.settings.logDataPath || "");
         }
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian10.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.reviewData).setValue(this.plugin.settings.reviewDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.reviewDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian8.Notice(validation.error);
+          new import_obsidian10.Notice(validation.error);
           text.setValue(this.plugin.settings.reviewDataPath || "");
         }
       });
     });
-    new import_obsidian8.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
+    new import_obsidian10.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableSound).onChange(async (value) => {
         this.plugin.settings.enableSound = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableFireworks).onChange(async (value) => {
         this.plugin.settings.enableFireworks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableConfetti).onChange(async (value) => {
         this.plugin.settings.enableConfetti = value;
         await this.plugin.saveSettings();
@@ -6776,7 +4861,7 @@ var TaskChuteSettingTab = class extends import_obsidian8.PluginSettingTab {
     );
   }
 };
-var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
+var TaskChutePlusPlugin = class extends import_obsidian10.Plugin {
   // Simple logger/notification wrapper
   _log(level, ...args) {
     var _a;
@@ -6787,7 +4872,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
   }
   _notify(message, timeout) {
     try {
-      new import_obsidian8.Notice(message, timeout);
+      new import_obsidian10.Notice(message, timeout);
     } catch (_) {
       this._log("warn", "[Notice]", message);
     }
@@ -6870,7 +4955,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
           await view.duplicateInstance(view.selectedTaskInstance);
           view.clearTaskSelection();
         } else {
-          new import_obsidian8.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6883,7 +4968,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
         if (view && view.selectedTaskInstance) {
           view.deleteSelectedTask();
         } else {
-          new import_obsidian8.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6896,10 +4981,10 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
           if (view.selectedTaskInstance.state !== "idle") {
             view.resetTaskToIdle(view.selectedTaskInstance);
           } else {
-            new import_obsidian8.Notice("\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
+            new import_obsidian10.Notice("\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
           }
         } else {
-          new import_obsidian8.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian10.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6918,7 +5003,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
         if (view) {
           view.showTodayTasks();
         } else {
-          new import_obsidian8.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6930,7 +5015,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
         if (view) {
           view.reorganizeIdleTasks();
         } else {
-          new import_obsidian8.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian10.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6948,7 +5033,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
         await this.pathManager.ensureFolderExists(path);
       } catch (error) {
         try {
-          new import_obsidian8.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+          new import_obsidian10.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
         } catch (_) {
         }
       }
@@ -7053,7 +5138,7 @@ var TaskChutePlusPlugin = class extends import_obsidian8.Plugin {
         } catch (error) {
         }
       } else {
-        new import_obsidian8.Notice(validation.error);
+        new import_obsidian10.Notice(validation.error);
         input.value = this.settings[settingKey] || "";
       }
     });
