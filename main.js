@@ -2892,7 +2892,7 @@ async function loadTasksRefactored() {
       if (!content.includes("#task") && !(metadata == null ? void 0 : metadata.estimatedMinutes)) {
         continue;
       }
-      const isRoutine = (metadata == null ? void 0 : metadata.isRoutine) === true || content.includes("#routine");
+      const isRoutine = (metadata == null ? void 0 : metadata.isRoutine) === true;
       if (isRoutine) {
         if (shouldShowRoutineTask.call(this, metadata, this.currentDate, dateString)) {
           await createRoutineTask.call(this, file, content, metadata, dateString);
@@ -3086,18 +3086,8 @@ async function createRoutineTask(file, content, metadata, dateString) {
     slotKey: getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none",
     date: dateString
   };
-  const hiddenKey = `taskchute-hidden-routines-${dateString}`;
-  const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
-  const isHidden = hiddenRoutines.some((h) => {
-    if (typeof h === "string") return h === file.path;
-    if (h && (h.instanceId === null || h.instanceId === void 0)) return h.path === file.path;
-    return false;
-  });
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  const isDeleted = deletedInstances.some(
-    (d) => d.path === file.path && (!d.instanceId || d.instanceId === instance.instanceId)
-  );
+  const isHidden = isInstanceHidden.call(this, instance.instanceId, file.path, dateString);
+  const isDeleted = isInstanceDeleted.call(this, instance.instanceId, file.path, dateString);
   if (!isHidden && !isDeleted) {
     this.taskInstances.push(instance);
   }
@@ -3173,31 +3163,28 @@ function getScheduledSlotKey(scheduledTime) {
 function isInstanceDeleted(instanceId, path, dateString) {
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  return deletedInstances.some(
-    (d) => d.instanceId === instanceId || d.path === path && !d.instanceId
-  );
+  return deletedInstances.some((d) => {
+    if (!d) return false;
+    if (instanceId && d.instanceId === instanceId) return true;
+    if (d.deletionType === "permanent" && d.path === path) return true;
+    return false;
+  });
 }
 function isInstanceHidden(instanceId, path, dateString) {
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
   return hiddenRoutines.some((h) => {
+    if (!h) return false;
     if (typeof h === "string") return h === path;
-    if (h && h.instanceId !== void 0 && h.instanceId !== null) {
-      return h.instanceId === instanceId;
-    }
-    if (h && h.path) return h.path === path;
+    if (h.instanceId !== void 0 && h.instanceId !== null) return h.instanceId === instanceId;
+    if (h.path) return h.path === path;
     return false;
   });
 }
 async function shouldShowNonRoutineTask(file, metadata, dateString) {
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  const isDeleted = deletedInstances.some((d) => {
-    if (!d || d.path !== file.path) return false;
-    const isPathScoped = d.instanceId === void 0 || d.instanceId === null;
-    const isPermanent = d.deletionType === "permanent";
-    return isPathScoped || isPermanent;
-  });
+  const isDeleted = deletedInstances.some((d) => d && d.deletionType === "permanent" && d.path === file.path);
   if (isDeleted) {
     return false;
   }
@@ -3711,7 +3698,7 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         path: file.path,
         name: file.basename,
         project: frontmatter == null ? void 0 : frontmatter.project,
-        isRoutine: (frontmatter == null ? void 0 : frontmatter.isRoutine) || content.includes("#routine"),
+        isRoutine: (frontmatter == null ? void 0 : frontmatter.isRoutine) === true,
         routine_type: frontmatter == null ? void 0 : frontmatter.routine_type,
         routine_start: frontmatter == null ? void 0 : frontmatter.routine_start,
         routine_end: frontmatter == null ? void 0 : frontmatter.routine_end,
@@ -6098,7 +6085,6 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         if (projectName) {
           frontmatter.project = `[[${projectName}]]`;
-          frontmatter.project_path = `TaskChute/Project/${projectName}.md`;
         } else {
           delete frontmatter.project;
           delete frontmatter.project_path;
@@ -6106,7 +6092,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
         return frontmatter;
       });
       inst.task.project = projectName || void 0;
-      inst.task.projectPath = projectName ? `TaskChute/Project/${projectName}.md` : void 0;
+      const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
+      inst.task.projectPath = projectName ? `${projectFolderPath}/${projectName}.md` : void 0;
       inst.task.projectTitle = projectName || void 0;
       this.renderTaskList();
       const message = projectName ? `\u300C${inst.task.title}\u300D\u3092${projectName}\u306B\u95A2\u9023\u4ED8\u3051\u307E\u3057\u305F` : `\u300C${inst.task.title}\u300D\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u95A2\u9023\u4ED8\u3051\u3092\u89E3\u9664\u3057\u307E\u3057\u305F`;
@@ -6381,8 +6368,8 @@ var TaskChuteView = class extends import_obsidian7.ItemView {
           if (projectPath) {
             const projectFile = this.app.vault.getAbstractFileByPath(projectPath);
             if (projectFile) {
-              frontmatter.project = projectFile.basename;
-              frontmatter.project_path = projectPath;
+              frontmatter.project = `[[${projectFile.basename}]]`;
+              delete frontmatter.project_path;
             }
           } else {
             delete frontmatter.project;

@@ -432,7 +432,7 @@ export class TaskChuteView extends ItemView {
         path: file.path,
         name: file.basename,
         project: frontmatter?.project,
-        isRoutine: frontmatter?.isRoutine || content.includes("#routine"),
+        isRoutine: frontmatter?.isRoutine === true,
         routine_type: frontmatter?.routine_type,
         routine_start: frontmatter?.routine_start,
         routine_end: frontmatter?.routine_end,
@@ -3603,10 +3603,11 @@ export class TaskChuteView extends ItemView {
       // プロジェクトを更新
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         if (projectName) {
+          // Save as wikilink only (no project_path)
           frontmatter.project = `[[${projectName}]]`;
-          frontmatter.project_path = `TaskChute/Project/${projectName}.md`;
         } else {
           delete frontmatter.project;
+          // Do not write project_path in any case
           delete frontmatter.project_path;
         }
         return frontmatter;
@@ -3614,7 +3615,9 @@ export class TaskChuteView extends ItemView {
       
       // タスクオブジェクトを更新
       inst.task.project = projectName || undefined;
-      inst.task.projectPath = projectName ? `TaskChute/Project/${projectName}.md` : undefined;
+      // Compute path using settings (PathManager)
+      const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
+      inst.task.projectPath = projectName ? `${projectFolderPath}/${projectName}.md` : undefined;
       inst.task.projectTitle = projectName || undefined;
       
       // UIを更新
@@ -3983,18 +3986,16 @@ export class TaskChuteView extends ItemView {
         task.file,
         (frontmatter) => {
           if (projectPath) {
-            // If project is selected
+            // Persist as wikilink only; do not write project_path
             const projectFile = this.app.vault.getAbstractFileByPath(projectPath);
             if (projectFile) {
-              // Save as plain text instead of link format to match existing format
-              frontmatter.project = projectFile.basename;
-              // Also save the path for faster lookup
-              frontmatter.project_path = projectPath;
+              frontmatter.project = `[[${projectFile.basename}]]`;
+              delete frontmatter.project_path;
             }
           } else {
-            // If no project is selected
+            // Clear project fields
             delete frontmatter.project;
-            delete frontmatter.project_path; // For backward compatibility
+            delete frontmatter.project_path; // legacy cleanup
           }
           return frontmatter;
         },

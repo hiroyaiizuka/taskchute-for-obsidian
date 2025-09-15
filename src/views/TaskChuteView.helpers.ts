@@ -62,8 +62,8 @@ export async function loadTasksRefactored(this: any): Promise<void> {
         continue;
       }
       
-      // Check if it's a routine task
-      const isRoutine = metadata?.isRoutine === true || content.includes("#routine");
+      // Check if it's a routine task (isRoutine only; no fallbacks)
+      const isRoutine = metadata?.isRoutine === true;
       
       if (isRoutine) {
         // Process routine task
@@ -306,23 +306,9 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
     date: dateString,
   };
 
-  // Check if hidden for today (instance-scoped entries should NOT hide other instances)
-  const hiddenKey = `taskchute-hidden-routines-${dateString}`;
-  const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
-  const isHidden = hiddenRoutines.some((h: any) => {
-    if (typeof h === 'string') return h === file.path; // legacy path-only
-    if (h && (h.instanceId === null || h.instanceId === undefined)) return h.path === file.path; // path-level hide only when instanceId is null/undefined
-    // if instanceId is present, it hides only that duplicate instance, not the base
-    return false;
-  });
-
-  // Check if deleted
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  const isDeleted = deletedInstances.some((d: any) => 
-    d.path === file.path && (!d.instanceId || d.instanceId === instance.instanceId)
-  );
-
+  // Check hidden/deleted status using helpers (instance-aware)
+  const isHidden = isInstanceHidden.call(this, instance.instanceId, file.path, dateString);
+  const isDeleted = isInstanceDeleted.call(this, instance.instanceId, file.path, dateString);
   if (!isHidden && !isDeleted) {
     this.taskInstances.push(instance);
   }
@@ -427,40 +413,36 @@ function getScheduledSlotKey(scheduledTime: string | undefined): string | undefi
 function isInstanceDeleted(this: any, instanceId: string, path: string, dateString: string): boolean {
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  return deletedInstances.some((d: any) => 
-    (d.instanceId === instanceId) || (d.path === path && !d.instanceId)
-  );
+  return deletedInstances.some((d: any) => {
+    if (!d) return false;
+    // Instance-scoped deletion: hides only the matching duplicate instance
+    if (instanceId && d.instanceId === instanceId) return true;
+    // Path-scoped deletion: hide the base only when explicitly permanent
+    if (d.deletionType === 'permanent' && d.path === path) return true;
+    return false;
+  });
 }
 
 function isInstanceHidden(this: any, instanceId: string, path: string, dateString: string): boolean {
   const hiddenKey = `taskchute-hidden-routines-${dateString}`;
   const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
   return hiddenRoutines.some((h: any) => {
-    if (typeof h === 'string') return h === path; // legacy path-only
-    if (h && h.instanceId !== undefined && h.instanceId !== null) {
-      // instance-scoped: only hide matching duplicate instance
-      return h.instanceId === instanceId;
-    }
-    // path-scoped when instanceId is null/undefined
-    if (h && h.path) return h.path === path;
+    if (!h) return false;
+    // Legacy string: path-level hide
+    if (typeof h === 'string') return h === path;
+    // Instance-scoped: hide only matching duplicate instance
+    if (h.instanceId !== undefined && h.instanceId !== null) return h.instanceId === instanceId;
+    // Path-scoped when instanceId is null/undefined
+    if (h.path) return h.path === path;
     return false;
   });
 }
 
 async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dateString: string): Promise<boolean> {
-  // First check if task is deleted
+  // First check if task is deleted (only permanent path-level deletions hide the base)
   const deletedKey = `taskchute-deleted-instances-${dateString}`;
   const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  // Path-level deletion hides the whole task only when the record is truly path-scoped
-  // (no instanceId present). Instance-scoped deletions (e.g., duplicate instance) must
-  // NOT hide the base file.
-  const isDeleted = deletedInstances.some((d: any) => {
-    if (!d || d.path !== file.path) return false;
-    // Treat as path-level only if instanceId is null/undefined and/or deletionType === 'permanent'
-    const isPathScoped = d.instanceId === undefined || d.instanceId === null;
-    const isPermanent = d.deletionType === 'permanent';
-    return isPathScoped || isPermanent;
-  });
+  const isDeleted = deletedInstances.some((d: any) => d && d.deletionType === 'permanent' && d.path === file.path);
   
   if (isDeleted) {
     return false;  // Don't show deleted tasks
