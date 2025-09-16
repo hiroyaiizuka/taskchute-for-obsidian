@@ -10,7 +10,6 @@ export interface TaskChuteSettings {
   enableConfetti: boolean;
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
-  migratedLocalState?: boolean;
 }
 
 export interface TaskData {

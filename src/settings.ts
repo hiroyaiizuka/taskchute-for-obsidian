@@ -11,5 +11,4 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   enableConfetti: false,
   useOrderBasedSort: true,
   slotKeys: {},
-  migratedLocalState: false,
 };

@@ -33,7 +33,7 @@ __export(main_exports, {
   default: () => TaskChutePlusPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/managers/PathManager.ts
 var import_obsidian = require("obsidian");
@@ -108,7 +108,9 @@ var DEFAULT_SETTINGS = {
   reviewDataPath: PathManager.DEFAULT_PATHS.reviewData,
   enableSound: false,
   enableFireworks: false,
-  enableConfetti: false
+  enableConfetti: false,
+  useOrderBasedSort: true,
+  slotKeys: {}
 };
 
 // src/managers/RoutineAliasManager.ts
@@ -1228,6 +1230,7 @@ async function createTaskFromExecutions(executions, file, dateString) {
   return created > 0;
 }
 async function createNonRoutineTask(file, content, metadata, dateString) {
+  var _a, _b, _c;
   let projectPath = null;
   let projectTitle = null;
   if (metadata == null ? void 0 : metadata.project_path) {
@@ -1256,11 +1259,13 @@ async function createNonRoutineTask(file, content, metadata, dateString) {
     scheduledTime: metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B
   };
   this.tasks.push(taskData);
+  const storedSlot = (_c = (_b = (_a = this.plugin) == null ? void 0 : _a.settings) == null ? void 0 : _b.slotKeys) == null ? void 0 : _c[file.path];
+  const slotKey = storedSlot || getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none";
   const instance = {
     task: taskData,
     instanceId: this.generateInstanceId(taskData.path),
     state: "idle",
-    slotKey: getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none",
+    slotKey,
     date: dateString
   };
   const isDeleted = isInstanceDeleted.call(this, "", file.path, dateString);
@@ -1355,30 +1360,22 @@ function getScheduledSlotKey(scheduledTime) {
   return void 0;
 }
 function isInstanceDeleted(instanceId, path, dateString) {
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  return deletedInstances.some((d) => {
-    if (!d) return false;
-    if (instanceId && d.instanceId === instanceId) return true;
-    if (d.deletionType === "permanent" && d.path === path) return true;
-    return false;
-  });
+  if (typeof this.isInstanceDeleted === "function") {
+    return this.isInstanceDeleted(instanceId, path, dateString);
+  }
+  return false;
 }
 function isInstanceHidden(instanceId, path, dateString) {
-  const hiddenKey = `taskchute-hidden-routines-${dateString}`;
-  const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
-  return hiddenRoutines.some((h) => {
-    if (!h) return false;
-    if (typeof h === "string") return h === path;
-    if (h.instanceId !== void 0 && h.instanceId !== null) return h.instanceId === instanceId;
-    if (h.path) return h.path === path;
-    return false;
-  });
+  if (typeof this.isInstanceHidden === "function") {
+    return this.isInstanceHidden(instanceId, path, dateString);
+  }
+  return false;
 }
 async function shouldShowNonRoutineTask(file, metadata, dateString) {
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || "[]");
-  const isDeleted = deletedInstances.some((d) => d && d.deletionType === "permanent" && d.path === file.path);
+  const deletedInstances = typeof this.getDeletedInstances === "function" ? this.getDeletedInstances(dateString) : [];
+  const isDeleted = deletedInstances.some(
+    (d) => d && d.deletionType === "permanent" && d.path === file.path
+  );
   if (isDeleted) {
     return false;
   }
@@ -1407,9 +1404,12 @@ async function shouldShowNonRoutineTask(file, metadata, dateString) {
 async function addDuplicatedInstances(dateString) {
   var _a, _b;
   try {
-    const duplicationKey = `taskchute-duplicated-instances-${dateString}`;
-    const records = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
-    if (!Array.isArray(records) || records.length === 0) return;
+    const snapshot = typeof this.getDayStateSnapshot === "function" ? this.getDayStateSnapshot(dateString) : null;
+    const dayState = snapshot || (typeof this.getDayState === "function" ? await this.getDayState(dateString) : null);
+    if (!dayState || !Array.isArray(dayState.duplicatedInstances) || dayState.duplicatedInstances.length === 0) {
+      return;
+    }
+    const records = dayState.duplicatedInstances;
     for (const rec of records) {
       const { instanceId, originalPath, slotKey } = rec || {};
       if (!instanceId || !originalPath) continue;
@@ -2063,10 +2063,14 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     this.logView = null;
     this.selectedTaskInstance = null;
     this.autocompleteInstances = [];
+    this.dayStateCache = /* @__PURE__ */ new Map();
+    this.currentDayState = null;
+    this.currentDayStateKey = null;
     // Boundary Check (idle-task-auto-move feature)
     this.boundaryCheckTimeout = null;
     // Debounce Timer
     this.renderDebounceTimer = null;
+    // Debug helper flag
     // Task Name Validator
     this.TaskNameValidator = {
       INVALID_CHARS_PATTERN: /[:|\/\\#^]/g,
@@ -2088,7 +2092,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       today.getMonth(),
       today.getDate()
     );
-    this.useOrderBasedSort = localStorage.getItem("taskchute-use-order-sort") !== "false";
+    this.useOrderBasedSort = this.plugin.settings.useOrderBasedSort !== false;
     this.navigationState = new NavigationStateManager();
     this.runningTasksService = new RunningTasksService(this.plugin);
     this.executionLogService = new ExecutionLogService(this.plugin);
@@ -2178,14 +2182,12 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     leftBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
-      await this.reloadTasksAndRestore();
-      this.checkBoundaryTasks();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     });
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
-      await this.reloadTasksAndRestore();
-      this.checkBoundaryTasks();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     });
     this.setupCalendarButton(calendarBtn, dateLabel);
     topBarContainer.createEl("div", {
@@ -2218,10 +2220,14 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     });
   }
   // Utility: reload tasks and immediately restore running-state from persistence
-  async reloadTasksAndRestore() {
+  async reloadTasksAndRestore(options = {}) {
     await this.loadTasks();
     await this.restoreRunningTaskState();
     this.renderTaskList();
+    if (options.runBoundaryCheck) {
+      await this.checkBoundaryTasks();
+    }
+    this.scheduleBoundaryCheck();
   }
   createNavigationUI(contentContainer) {
     this.navigationOverlay = contentContainer.createEl("div", {
@@ -2279,6 +2285,87 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     const d = this.currentDate.getDate().toString().padStart(2, "0");
     return `${y}-${m}-${d}`;
   }
+  parseDateString(dateStr) {
+    const [y, m, d] = dateStr.split("-").map((value) => parseInt(value, 10));
+    return new Date(y, (m || 1) - 1, d || 1);
+  }
+  async ensureDayStateForDate(dateStr) {
+    const cached = this.dayStateCache.get(dateStr);
+    if (cached) {
+      if (dateStr === this.getCurrentDateString()) {
+        this.currentDayState = cached;
+        this.currentDayStateKey = dateStr;
+      }
+      return cached;
+    }
+    const date = this.parseDateString(dateStr);
+    const loaded = await this.plugin.dayStateService.loadDay(date);
+    this.dayStateCache.set(dateStr, loaded);
+    if (dateStr === this.getCurrentDateString()) {
+      this.currentDayState = loaded;
+      this.currentDayStateKey = dateStr;
+    }
+    return loaded;
+  }
+  async getDayState(dateStr) {
+    return this.ensureDayStateForDate(dateStr);
+  }
+  getDayStateSnapshot(dateStr) {
+    var _a;
+    return (_a = this.dayStateCache.get(dateStr)) != null ? _a : null;
+  }
+  async ensureDayStateForCurrentDate() {
+    const dateStr = this.getCurrentDateString();
+    return this.ensureDayStateForDate(dateStr);
+  }
+  getCurrentDayState() {
+    const dateStr = this.getCurrentDateString();
+    let state = this.dayStateCache.get(dateStr);
+    if (!state) {
+      state = {
+        hiddenRoutines: [],
+        deletedInstances: [],
+        duplicatedInstances: [],
+        orders: {}
+      };
+      this.dayStateCache.set(dateStr, state);
+    }
+    this.currentDayState = state;
+    this.currentDayStateKey = dateStr;
+    return state;
+  }
+  async persistDayState(dateStr) {
+    const state = this.dayStateCache.get(dateStr);
+    if (!state) return;
+    const date = this.parseDateString(dateStr);
+    await this.plugin.dayStateService.saveDay(date, state);
+  }
+  getOrderKey(inst) {
+    var _a, _b;
+    const slot = inst.slotKey || "none";
+    const dayState = this.getCurrentDayState();
+    const isDuplicate = dayState.duplicatedInstances.some(
+      (dup) => (dup == null ? void 0 : dup.instanceId) && dup.instanceId === inst.instanceId
+    );
+    if (isDuplicate || !((_a = inst.task) == null ? void 0 : _a.path)) {
+      return inst.instanceId ? `${inst.instanceId}::${slot}` : null;
+    }
+    if ((_b = inst.task) == null ? void 0 : _b.path) {
+      return `${inst.task.path}::${slot}`;
+    }
+    return inst.instanceId ? `${inst.instanceId}::${slot}` : null;
+  }
+  normalizeState(state) {
+    if (state === "done") return "done";
+    if (state === "running" || state === "paused") return "running";
+    return "idle";
+  }
+  getStatePriority(state) {
+    const normalized = this.normalizeState(state);
+    if (normalized === "done") return 0;
+    if (normalized === "running") return 1;
+    return 2;
+  }
   setupCalendarButton(calendarBtn, dateLabel) {
     calendarBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -2317,8 +2404,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         const [yy, mm, dd] = input.value.split("-").map(Number);
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
-        await this.reloadTasksAndRestore();
-        this.checkBoundaryTasks();
+        await this.reloadTasksAndRestore({ runBoundaryCheck: true });
         input.remove();
       });
       input.addEventListener("blur", () => input.remove());
@@ -2328,6 +2414,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   // Task Loading and Rendering Methods
   // ===========================================
   async loadTasks() {
+    await this.ensureDayStateForCurrentDate();
     await loadTasksRefactored.call(this);
   }
   async processTaskFile(file) {
@@ -2405,7 +2492,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     return `${task.path}_${dateStr}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   getTaskSlotKey(task) {
-    const storedSlot = localStorage.getItem(`taskchute-slotkey-${task.path}`);
+    var _a;
+    const storedSlot = (_a = this.plugin.settings.slotKeys) == null ? void 0 : _a[task.path];
     if (storedSlot) {
       return storedSlot;
     }
@@ -2765,6 +2853,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   async duplicateInstance(inst, returnOnly = false) {
     try {
+      await this.ensureDayStateForCurrentDate();
       const dateStr = this.getCurrentDateString();
       const newInstance = {
         task: inst.task,
@@ -2779,20 +2868,16 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       this.calculateDuplicateTaskOrder(newInstance, inst);
       this.taskInstances.push(newInstance);
       this.saveInstanceState(newInstance);
-      const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-      const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
-      if (!duplicated.some((d) => d.instanceId === newInstance.instanceId)) {
-        duplicated.push({
+      const dayState = this.getCurrentDayState();
+      if (!dayState.duplicatedInstances.some((d) => d.instanceId === newInstance.instanceId)) {
+        dayState.duplicatedInstances.push({
           instanceId: newInstance.instanceId,
           originalPath: inst.task.path,
           slotKey: newInstance.slotKey,
           originalSlotKey: inst.slotKey,
           timestamp: Date.now()
         });
-        try {
-          localStorage.setItem(duplicationKey, JSON.stringify(duplicated));
-        } catch (_) {
-        }
+        await this.persistDayState(dateStr);
       }
       this.renderTaskList();
       new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
@@ -2804,23 +2889,76 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   // 元直下に挿入されるよう order を計算
   calculateDuplicateTaskOrder(newInst, originalInst) {
-    var _a, _b, _c;
+    var _a;
     try {
       const slot = originalInst.slotKey || "none";
-      this.initializeTaskOrders();
-      const sameSlot = this.taskInstances.filter((i) => (i.slotKey || "none") === slot && i !== newInst);
-      sameSlot.sort((a, b) => {
-        var _a2, _b2;
-        return ((_a2 = a.order) != null ? _a2 : 0) - ((_b2 = b.order) != null ? _b2 : 0);
+      const normalizedState = this.normalizeState(originalInst.state);
+      const sameState = this.taskInstances.filter(
+        (inst) => inst !== newInst && (inst.slotKey || "none") === slot && this.normalizeState(inst.state) === normalizedState
+      );
+      const sortedSameState = [...sameState].sort((a, b) => {
+        var _a2, _b;
+        return ((_a2 = a.order) != null ? _a2 : 0) - ((_b = b.order) != null ? _b : 0);
       });
-      const idx = sameSlot.indexOf(originalInst);
-      const prevOrder = (_a = originalInst.order) != null ? _a : idx >= 0 ? idx * 100 : 0;
-      const nextOrder = idx >= 0 && idx < sameSlot.length - 1 ? (_b = sameSlot[idx + 1].order) != null ? _b : prevOrder + 200 : prevOrder + 200;
-      const mid = Math.floor((prevOrder + nextOrder) / 2);
-      newInst.order = isFinite(mid) && mid > prevOrder ? mid : prevOrder + 100;
+      const originalIndex = sortedSameState.indexOf(originalInst);
+      const insertIndex = originalIndex >= 0 ? originalIndex + 1 : sortedSameState.length;
+      newInst.slotKey = slot;
+      newInst.order = this.calculateSimpleOrder(insertIndex, sameState);
     } catch (_) {
-      newInst.order = ((_c = originalInst.order) != null ? _c : 0) + 100;
+      newInst.order = ((_a = originalInst.order) != null ? _a : 0) + 100;
     }
+  }
+  normalizeOrdersForDrag(instances) {
+    if (!instances || instances.length === 0) {
+      return;
+    }
+    const sorted = [...instances].sort((a, b) => {
+      var _a, _b;
+      const orderA = Number.isFinite(a.order) ? a.order : Number.MAX_SAFE_INTEGER;
+      const orderB = Number.isFinite(b.order) ? b.order : Number.MAX_SAFE_INTEGER;
+      if (orderA === orderB) {
+        return (((_a = a.task) == null ? void 0 : _a.title) || "").localeCompare(((_b = b.task) == null ? void 0 : _b.title) || "");
+      }
+      return orderA - orderB;
+    });
+    let cursor = 100;
+    sorted.forEach((inst) => {
+      inst.order = cursor;
+      cursor += 100;
+    });
+  }
+  calculateSimpleOrder(targetIndex, sameTasks) {
+    var _a, _b;
+    if (!sameTasks || sameTasks.length === 0) {
+      return 100;
+    }
+    const working = [...sameTasks];
+    const needsSeed = working.some((inst) => !Number.isFinite(inst.order));
+    if (needsSeed) {
+      this.normalizeOrdersForDrag(working);
+    }
+    const sorted = working.sort((a, b) => a.order - b.order);
+    const clampedIndex = Math.min(Math.max(targetIndex, 0), sorted.length);
+    if (clampedIndex <= 0) {
+      const firstOrder = sorted[0].order;
+      const result = Number.isFinite(firstOrder) ? firstOrder - 100 : 100;
+      return result;
+    }
+    if (clampedIndex >= sorted.length) {
+      const lastOrder = sorted[sorted.length - 1].order;
+      const result = Number.isFinite(lastOrder) ? lastOrder + 100 : (sorted.length + 1) * 100;
+      return result;
+    }
+    const prevOrder = sorted[clampedIndex - 1].order;
+    const nextOrder = sorted[clampedIndex].order;
+    if (!Number.isFinite(prevOrder) || !Number.isFinite(nextOrder) || nextOrder - prevOrder <= 1) {
+      this.normalizeOrdersForDrag(working);
+      working.sort((a, b) => a.order - b.order);
+      const normalizedPrev = (_a = working[clampedIndex - 1]) == null ? void 0 : _a.order;
+      const normalizedNext = (_b = working[clampedIndex]) == null ? void 0 : _b.order;
+      return Math.floor(((normalizedPrev != null ? normalizedPrev : 0) + (normalizedNext != null ? normalizedNext : (normalizedPrev != null ? normalizedPrev : 0) + 100)) / 2);
+    }
+    return Math.floor((prevOrder + nextOrder) / 2);
   }
   async showTaskCompletionModal(inst) {
     const existingComment = await this.getExistingTaskComment(inst);
@@ -3573,7 +3711,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         await heatmap.updateDailyStats(dateStr);
       } catch (_) {
       }
-      this.initializeTaskOrders();
+      this.sortTaskInstancesByTimeOrder();
+      await this.saveTaskOrders();
       this.renderTaskList();
       new import_obsidian11.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
     } catch (error) {
@@ -3817,9 +3956,9 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try {
-        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
-      } catch (_) {
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
       }
     }
     const durationSec = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3);
@@ -3834,9 +3973,9 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try {
-        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
-      } catch (_) {
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
       }
     }
     await this.saveRunningTasksState();
@@ -3856,9 +3995,9 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try {
-        localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot);
-      } catch (_) {
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
       }
     }
     await this.saveRunningTasksState();
@@ -4009,7 +4148,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     if (dateLabel) {
       this.updateDateLabel(dateLabel);
     }
-    this.reloadTasksAndRestore().then(() => {
+    this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
       new import_obsidian11.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
     });
   }
@@ -4026,97 +4165,156 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   sortTaskInstancesByTimeOrder() {
     if (this.useOrderBasedSort) {
       const savedOrders = this.loadSavedOrders();
-      this.taskInstances.forEach((inst) => {
-        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || "none"}`;
-        if (savedOrders[key] !== void 0) {
-          inst.order = savedOrders[key];
-        }
-      });
-      this.initializeTaskOrders();
+      this.applySavedOrders(savedOrders);
+      this.ensureOrdersAcrossSlots(savedOrders, { forceDone: true, persist: false });
     }
   }
-  initializeTaskOrders() {
-    const slotGroups = {};
+  applySavedOrders(savedOrders) {
     this.taskInstances.forEach((inst) => {
-      const slot = inst.slotKey || "none";
-      if (!slotGroups[slot]) {
-        slotGroups[slot] = [];
+      const key = this.getOrderKey(inst);
+      if (!key) return;
+      const saved = savedOrders[key];
+      if (typeof saved === "number" && Number.isFinite(saved)) {
+        inst.order = saved;
       }
-      slotGroups[slot].push(inst);
     });
-    Object.keys(slotGroups).forEach((slot) => {
-      const instances = slotGroups[slot];
-      const done = instances.filter((i) => i.state === "done");
-      const running = instances.filter((i) => i.state === "running" || i.state === "paused");
-      const idle = instances.filter((i) => i.state === "idle");
-      let currentOrderBase = 0;
-      done.sort((a, b) => {
+  }
+  ensureOrdersAcrossSlots(savedOrders, options = {}) {
+    const slots = /* @__PURE__ */ new Set(["none", ...this.getTimeSlotKeys()]);
+    slots.forEach((slot) => this.ensureOrdersForSlot(slot, savedOrders, options));
+    if (options.persist) {
+      void this.saveTaskOrders();
+    }
+  }
+  ensureOrdersForSlot(slotKey, savedOrders, options = {}) {
+    const instances = this.taskInstances.filter((inst) => (inst.slotKey || "none") === slotKey);
+    if (instances.length === 0) return;
+    const done = instances.filter((inst) => inst.state === "done");
+    const running = instances.filter((inst) => inst.state === "running" || inst.state === "paused");
+    const idle = instances.filter((inst) => inst.state === "idle");
+    let maxOrder = 0;
+    const assignSequential = (items, startOrder, step = 100) => {
+      let cursor = startOrder;
+      items.forEach((inst) => {
+        inst.order = cursor;
+        cursor += step;
+        maxOrder = Math.max(maxOrder, cursor - step);
+      });
+      return cursor;
+    };
+    const shouldRecomputeDone = options.forceDone || done.some((inst) => inst.order === void 0 || inst.order === null);
+    if (shouldRecomputeDone) {
+      const sortedDone = [...done].sort((a, b) => {
         const ta = a.startTime ? a.startTime.getTime() : Infinity;
         const tb = b.startTime ? b.startTime.getTime() : Infinity;
         return ta - tb;
       });
-      done.forEach((inst, idx) => {
-        inst.order = (idx + 1) * 100;
+      assignSequential(sortedDone, 100);
+    } else {
+      done.forEach((inst) => {
+        if (typeof inst.order === "number") {
+          maxOrder = Math.max(maxOrder, inst.order);
+        }
       });
-      currentOrderBase = done.length * 100;
-      const existingRunningOrders = running.filter((i) => i.order !== void 0 && i.order !== null).map((i) => i.order);
-      const maxExistingOrder = existingRunningOrders.length > 0 ? Math.max(...existingRunningOrders) : currentOrderBase;
-      let nextOrder = Math.max(currentOrderBase, maxExistingOrder) + 100;
-      running.filter((i) => i.order === void 0 || i.order === null).forEach((inst) => {
-        inst.order = nextOrder;
-        nextOrder += 100;
+    }
+    running.forEach((inst) => {
+      if (typeof inst.order === "number") {
+        maxOrder = Math.max(maxOrder, inst.order);
+      }
+    });
+    const runningMissing = running.filter((inst) => inst.order === void 0 || inst.order === null);
+    if (runningMissing.length > 0) {
+      runningMissing.sort((a, b) => {
+        var _a, _b, _c, _d;
+        return ((_b = (_a = a.startTime) == null ? void 0 : _a.getTime()) != null ? _b : 0) - ((_d = (_c = b.startTime) == null ? void 0 : _c.getTime()) != null ? _d : 0);
       });
-      const savedIdle = idle.filter((i) => i.order !== void 0 && i.order !== null);
-      const unsavedIdle = idle.filter((i) => i.order === void 0 || i.order === null);
-      const existingOrdersInSlot = instances.filter((i) => i.order !== void 0 && i.order !== null).map((i) => i.order);
-      const idleBase = existingOrdersInSlot.length > 0 ? Math.max(...existingOrdersInSlot) : nextOrder - 100;
-      unsavedIdle.sort((a, b) => {
-        var _a, _b;
+      assignSequential(runningMissing, maxOrder + 100);
+    }
+    idle.forEach((inst) => {
+      if (typeof inst.order === "number") {
+        maxOrder = Math.max(maxOrder, inst.order);
+      }
+    });
+    const idleMissing = idle.filter((inst) => inst.order === void 0 || inst.order === null);
+    if (idleMissing.length > 0) {
+      idleMissing.sort((a, b) => {
+        var _a, _b, _c, _d;
         const ta = (_a = a == null ? void 0 : a.task) == null ? void 0 : _a.scheduledTime;
         const tb = (_b = b == null ? void 0 : b.task) == null ? void 0 : _b.scheduledTime;
-        if (!ta && !tb) return 0;
+        if (!ta && !tb) return (((_c = a.task) == null ? void 0 : _c.title) || "").localeCompare(((_d = b.task) == null ? void 0 : _d.title) || "");
         if (!ta) return 1;
         if (!tb) return -1;
         const [ha, ma] = ta.split(":").map((n) => parseInt(n, 10));
         const [hb, mb] = tb.split(":").map((n) => parseInt(n, 10));
         return ha * 60 + ma - (hb * 60 + mb);
       });
-      let idleOrder = idleBase + 100;
-      unsavedIdle.forEach((inst) => {
-        inst.order = idleOrder;
-        idleOrder += 100;
-      });
-    });
-    this.saveTaskOrders();
+      assignSequential(idleMissing, maxOrder + 100);
+    }
   }
-  saveTaskOrders() {
+  async saveTaskOrders() {
+    await this.ensureDayStateForCurrentDate();
     const dateStr = this.getCurrentDateString();
-    const orderKey = `taskchute-orders-${dateStr}`;
+    const dayState = this.getCurrentDayState();
     const orders = {};
     this.taskInstances.forEach((inst) => {
-      if (inst.order !== void 0) {
-        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || "none"}`;
-        orders[key] = inst.order;
-      }
+      if (inst.order === void 0 || inst.order === null) return;
+      const key = this.getOrderKey(inst);
+      if (!key) return;
+      orders[key] = inst.order;
     });
-    try {
-      localStorage.setItem(orderKey, JSON.stringify(orders));
-    } catch (error) {
-      console.error("Failed to save task orders:", error);
+    if (Array.isArray(dayState.duplicatedInstances) && dayState.duplicatedInstances.length > 0) {
+      dayState.duplicatedInstances = dayState.duplicatedInstances.map((dup) => {
+        var _a;
+        if (!dup || !dup.instanceId) return dup;
+        const inst = this.taskInstances.find((i) => i.instanceId === dup.instanceId);
+        if (!inst) return dup;
+        return {
+          ...dup,
+          slotKey: inst.slotKey,
+          originalSlotKey: (_a = inst.originalSlotKey) != null ? _a : dup.originalSlotKey
+        };
+      });
     }
+    dayState.orders = orders;
+    await this.persistDayState(dateStr);
   }
   loadSavedOrders() {
     const dateStr = this.getCurrentDateString();
-    const orderKey = `taskchute-orders-${dateStr}`;
-    try {
-      const saved = localStorage.getItem(orderKey);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (error) {
-      console.error("Failed to load saved orders:", error);
+    const state = this.dayStateCache.get(dateStr);
+    if (!state || !state.orders) {
+      return {};
     }
-    return {};
+    const raw = state.orders;
+    const normalized = {};
+    let mutated = false;
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        normalized[key] = value;
+        continue;
+      }
+      if (value && typeof value === "object") {
+        const order = Number(value.order);
+        if (!Number.isFinite(order)) continue;
+        const slot = value.slot || "none";
+        const normalizedKey = key.includes("::") ? key : `${key}::${slot}`;
+        normalized[normalizedKey] = order;
+        mutated = true;
+      }
+    }
+    if (mutated || Object.values(raw).some((v) => typeof v !== "number")) {
+      state.orders = normalized;
+      this.dayStateCache.set(dateStr, state);
+      void this.persistDayState(dateStr);
+    }
+    return normalized;
+  }
+  getSavedOrderForSlot(inst, slotKey, savedOrders) {
+    const originalSlot = inst.slotKey;
+    inst.slotKey = slotKey;
+    const key = this.getOrderKey(inst);
+    inst.slotKey = originalSlot;
+    if (!key) return void 0;
+    return savedOrders[key];
   }
   sortByOrder(instances) {
     return instances.sort((a, b) => {
@@ -4150,22 +4348,24 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       return ha * 60 + ma - (hb * 60 + mb);
     });
   }
-  moveTaskToSlot(inst, newSlot, position) {
-    const oldSlot = inst.slotKey;
-    inst.slotKey = newSlot;
-    const slotTasks = this.taskInstances.filter(
-      (t) => t.slotKey === newSlot && t !== inst
-    );
-    this.sortByOrder(slotTasks);
-    if (position !== void 0 && position >= 0) {
-      slotTasks.splice(position, 0, inst);
-    } else {
-      slotTasks.push(inst);
-    }
-    slotTasks.forEach((task, idx) => {
-      task.order = idx;
+  async moveTaskToSlot(inst, newSlot, stateInsertIndex) {
+    await this.ensureDayStateForCurrentDate();
+    const targetSlot = newSlot || "none";
+    const normalizedState = this.normalizeState(inst.state);
+    const sameStateTasks = this.taskInstances.filter(
+      (t) => t !== inst && (t.slotKey || "none") === targetSlot && this.normalizeState(t.state) === normalizedState
+    ).sort((a, b) => {
+      var _a, _b;
+      return ((_a = a.order) != null ? _a : 0) - ((_b = b.order) != null ? _b : 0);
     });
-    this.saveTaskOrders();
+    const insertIndex = stateInsertIndex !== void 0 ? Math.max(0, Math.min(stateInsertIndex, sameStateTasks.length)) : sameStateTasks.length;
+    const referenceTasks = [...sameStateTasks];
+    inst.slotKey = targetSlot;
+    this.persistSlotAssignment(inst);
+    const newOrder = this.calculateSimpleOrder(insertIndex, referenceTasks);
+    inst.order = newOrder;
+    await this.saveTaskOrders();
+    this.sortTaskInstancesByTimeOrder();
     this.renderTaskList();
   }
   applyResponsiveClasses() {
@@ -4200,6 +4400,9 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     }
   }
   scheduleBoundaryCheck() {
+    if (this.boundaryCheckTimeout) {
+      clearTimeout(this.boundaryCheckTimeout);
+    }
     const now = /* @__PURE__ */ new Date();
     const boundaries = [
       { hour: 0, minute: 0 },
@@ -4214,7 +4417,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       this.scheduleBoundaryCheck();
     }, delay);
   }
-  checkBoundaryTasks() {
+  async checkBoundaryTasks() {
     try {
       const today = /* @__PURE__ */ new Date();
       today.setHours(0, 0, 0, 0);
@@ -4233,11 +4436,13 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         const idx = slots.indexOf(slot);
         if (idx >= 0 && idx < currentIndex) {
           inst.slotKey = currentSlot;
+          this.persistSlotAssignment(inst);
           moved = true;
         }
       });
       if (moved) {
-        this.initializeTaskOrders();
+        this.sortTaskInstancesByTimeOrder();
+        await this.saveTaskOrders();
         this.renderTaskList();
       }
     } catch (e) {
@@ -4338,7 +4543,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     toggle.addEventListener("change", async (e) => {
       var _a;
       await this.updateRoutineEnabled(file, toggle.checked);
-      await this.reloadTasksAndRestore();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       const newFm = ((_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter) || {};
       typeBadge.textContent = this.getRoutineTypeLabel(newFm.routine_type || "daily", Math.max(1, Number(newFm.routine_interval || 1)), newFm);
     });
@@ -4485,11 +4690,12 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   async deleteRoutineTask(inst) {
     const dateStr = this.getCurrentDateString();
-    const hiddenKey = `taskchute-hidden-routines-${dateStr}`;
-    const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || "[]");
+    await this.ensureDayStateForCurrentDate();
+    const dayState = this.getCurrentDayState();
     const isDuplicated = this.isDuplicatedTask(inst);
-    const alreadyHidden = hiddenRoutines.some((h) => {
+    const alreadyHidden = dayState.hiddenRoutines.some((h) => {
       if (isDuplicated) {
+        if (typeof h === "string") return false;
         return h.instanceId === inst.instanceId;
       }
       if (typeof h === "string") {
@@ -4498,18 +4704,11 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       return h.path === inst.task.path && !h.instanceId;
     });
     if (!alreadyHidden) {
-      if (isDuplicated) {
-        hiddenRoutines.push({
-          path: inst.task.path,
-          instanceId: inst.instanceId
-        });
-      } else {
-        hiddenRoutines.push({
-          path: inst.task.path,
-          instanceId: null
-        });
-      }
-      localStorage.setItem(hiddenKey, JSON.stringify(hiddenRoutines));
+      dayState.hiddenRoutines.push({
+        path: inst.task.path,
+        instanceId: isDuplicated ? inst.instanceId : null
+      });
+      await this.persistDayState(dateStr);
     }
     if (inst.instanceId) {
       await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId);
@@ -4517,10 +4716,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     await this.deleteInstance(inst);
   }
   isDuplicatedTask(inst) {
-    const dateStr = this.getCurrentDateString();
-    const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-    const duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
-    return duplicatedInstances.some((d) => d.instanceId === inst.instanceId);
+    const dayState = this.getCurrentDayState();
+    return dayState.duplicatedInstances.some((d) => d.instanceId === inst.instanceId);
   }
   async deleteTaskLogsByInstanceId(taskPath, instanceId) {
     try {
@@ -4578,7 +4775,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   handleDrop(e, taskItem, targetInst) {
     var _a;
     const data = (_a = e.dataTransfer) == null ? void 0 : _a.getData("text/plain");
-    if (!data) return;
+    if (!data) {
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
     const [sourceSlot, sourceIdx] = data.split("::");
     const targetSlot = targetInst.slotKey || "none";
     const sourceInst = this.taskInstances.find((inst) => {
@@ -4588,7 +4788,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const idx = sortedSlotInstances.indexOf(inst);
       return instSlot === sourceSlot && idx === parseInt(sourceIdx);
     });
-    if (!sourceInst || sourceInst.state === "done") return;
+    if (!sourceInst || sourceInst.state === "done") {
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
     const rect = taskItem.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const isBottomHalf = y > rect.height / 2;
@@ -4596,15 +4799,50 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       (t) => (t.slotKey || "none") === targetSlot
     );
     const sortedTargetTasks = this.sortByOrder(targetSlotTasks);
+    const targetWithoutSource = sortedTargetTasks.filter((t) => t !== sourceInst);
     const targetIndex = sortedTargetTasks.indexOf(targetInst);
     let newPosition = isBottomHalf ? targetIndex + 1 : targetIndex;
+    const sourcePriority = this.getStatePriority(sourceInst.state);
+    let minAllowed = 0;
+    for (const task of sortedTargetTasks) {
+      if (this.getStatePriority(task.state) < sourcePriority) {
+        minAllowed++;
+      }
+    }
+    let boundaryAfter = sortedTargetTasks.length;
+    for (let i = 0; i < sortedTargetTasks.length; i++) {
+      if (this.getStatePriority(sortedTargetTasks[i].state) > sourcePriority) {
+        boundaryAfter = i;
+        break;
+      }
+    }
+    if (newPosition < minAllowed) {
+      new import_obsidian11.Notice("\u5B8C\u4E86\u6E08\u307F\u30FB\u5B9F\u884C\u4E2D\u30BF\u30B9\u30AF\u3088\u308A\u4E0A\u306B\u306F\u914D\u7F6E\u3067\u304D\u307E\u305B\u3093");
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
+    if (newPosition > boundaryAfter) {
+      newPosition = boundaryAfter;
+    }
     if (sourceSlot === targetSlot) {
       const sourceIndex = sortedTargetTasks.indexOf(sourceInst);
       if (sourceIndex < newPosition) {
         newPosition--;
       }
     }
-    this.moveTaskToSlot(sourceInst, targetSlot, newPosition);
+    const clampedPosition = Math.max(0, Math.min(newPosition, targetWithoutSource.length));
+    let stateInsertIndex = 0;
+    const normalizedSourceState = this.normalizeState(sourceInst.state);
+    for (let i = 0; i < clampedPosition; i++) {
+      const candidate = targetWithoutSource[i];
+      if (this.normalizeState(candidate.state) === normalizedSourceState) {
+        stateInsertIndex++;
+      }
+    }
+    void this.moveTaskToSlot(sourceInst, targetSlot, stateInsertIndex).catch((error) => {
+      console.error("[TaskChute]", "moveTaskToSlot failed", error);
+    });
+    this.clearDragoverClasses(taskItem);
   }
   handleSlotDrop(e, slot) {
     var _a;
@@ -4619,7 +4857,13 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       return instSlot === sourceSlot && idx === parseInt(sourceIdx);
     });
     if (!sourceInst || sourceInst.state === "done") return;
-    this.moveTaskToSlot(sourceInst, slot);
+    const normalizedSlot = slot || "none";
+    const normalizedState = this.normalizeState(sourceInst.state);
+    const sameStateTasks = this.taskInstances.filter(
+      (t) => t !== sourceInst && (t.slotKey || "none") === normalizedSlot && this.normalizeState(t.state) === normalizedState
+    );
+    const insertIndex = sameStateTasks.length;
+    void this.moveTaskToSlot(sourceInst, slot, insertIndex);
   }
   toggleNavigation() {
     this.navigationState.isOpen = !this.navigationState.isOpen;
@@ -4665,7 +4909,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       task.scheduledTime = scheduledTime;
       button.classList.add("active");
       button.setAttribute("title", `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
-      await this.reloadTasksAndRestore();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new import_obsidian11.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -4765,7 +5009,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
           break;
       }
       button.setAttribute("title", tooltipText);
-      await this.reloadTasksAndRestore();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new import_obsidian11.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
@@ -4811,11 +5055,13 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   async deleteInstance(inst) {
     try {
+      await this.ensureDayStateForCurrentDate();
       const index = this.taskInstances.indexOf(inst);
       if (index > -1) {
         this.taskInstances.splice(index, 1);
       }
       const dateStr = this.getCurrentDateString();
+      const dayState = this.getCurrentDayState();
       const deletedInstances = this.getDeletedInstances(dateStr);
       const isDup = this.isDuplicatedTask(inst);
       if (isDup) {
@@ -4825,13 +5071,9 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
           deletionType: "temporary",
           timestamp: Date.now()
         });
-        const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-        const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || "[]");
-        const filtered = duplicated.filter((d) => d.instanceId !== inst.instanceId);
-        try {
-          localStorage.setItem(duplicationKey, JSON.stringify(filtered));
-        } catch (_) {
-        }
+        dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
+          (dup) => dup.instanceId !== inst.instanceId
+        );
       } else {
         if (!inst.task.isRoutine) {
           const p = inst.task.path;
@@ -4860,6 +5102,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         }
       }
       this.saveDeletedInstances(dateStr, deletedInstances);
+      await this.persistDayState(dateStr);
       if (!inst.task.isRoutine) {
         const samePathInstances = this.taskInstances.filter(
           (i) => i.task.path === inst.task.path
@@ -5082,13 +5325,51 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   async createNewTask(taskName, estimatedMinutes) {
     try {
       const dateStr = this.getCurrentDateString();
-      await this.taskCreationService.createTaskFile(taskName, dateStr);
-      setTimeout(async () => {
-        await this.reloadTasksAndRestore();
-      }, 100);
+      const file = await this.taskCreationService.createTaskFile(taskName, dateStr);
+      await this.waitForFrontmatter(file);
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     } catch (error) {
       console.error("Failed to create task:", error);
       new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+    }
+  }
+  async waitForFrontmatter(file, timeoutMs = 4e3) {
+    const start = Date.now();
+    const path = file.path;
+    const hasFrontmatter = () => {
+      const cache = this.app.metadataCache.getFileCache(file);
+      return Boolean(cache == null ? void 0 : cache.frontmatter);
+    };
+    if (hasFrontmatter()) {
+      return;
+    }
+    while (Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      if (hasFrontmatter()) {
+        return;
+      }
+    }
+  }
+  persistSlotAssignment(inst) {
+    var _a;
+    if ((_a = inst.task) == null ? void 0 : _a.path) {
+      if (!this.plugin.settings.slotKeys) {
+        this.plugin.settings.slotKeys = {};
+      }
+      this.plugin.settings.slotKeys[inst.task.path] = inst.slotKey || "none";
+      void this.plugin.saveSettings();
+    }
+    if (inst.instanceId) {
+      const dayState = this.getCurrentDayState();
+      const key = this.getOrderKey(inst);
+      if (key && dayState.orders && dayState.orders[key] != null) {
+      }
+      if (Array.isArray(dayState.duplicatedInstances)) {
+        const dup = dayState.duplicatedInstances.find((d) => d.instanceId === inst.instanceId);
+        if (dup) {
+          dup.slotKey = inst.slotKey;
+        }
+      }
     }
   }
   async showTaskMoveDatePicker(inst, button) {
@@ -5380,76 +5661,34 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   // State management methods for deletion/hiding
   getDeletedInstances(dateStr) {
-    const key = `taskchute-deleted-instances-${dateStr}`;
-    try {
-      const data = localStorage.getItem(key);
-      if (!data) return [];
-      const parsed = JSON.parse(data);
-      const sanitized = (Array.isArray(parsed) ? parsed : []).filter((x) => !!x && typeof x === "object").filter((x) => {
-        if (x.deletionType === "permanent" && (!x.path || /\/undefined\.md$/.test(String(x.path)))) {
-          return false;
-        }
-        return true;
-      });
-      try {
-        localStorage.setItem(key, JSON.stringify(sanitized));
-      } catch (_) {
-      }
-      return sanitized;
-    } catch (e) {
-      return [];
-    }
+    const state = this.dayStateCache.get(dateStr);
+    return state ? state.deletedInstances : [];
   }
   saveDeletedInstances(dateStr, instances) {
-    const key = `taskchute-deleted-instances-${dateStr}`;
-    try {
-      const sanitized = (instances || []).filter((x) => {
-        if (!x || typeof x !== "object") return false;
-        if (x.deletionType === "permanent" && (!x.path || /\/undefined\.md$/.test(String(x.path)))) return false;
-        return true;
-      });
-      localStorage.setItem(key, JSON.stringify(sanitized));
-    } catch (e) {
-      console.error("Failed to save deleted instances:", e);
-    }
+    const state = this.dayStateCache.get(dateStr) || {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      orders: {}
+    };
+    state.deletedInstances = instances.filter((x) => !!x);
+    this.dayStateCache.set(dateStr, state);
+    void this.persistDayState(dateStr);
   }
   getHiddenRoutines(dateStr) {
-    const key = `taskchute-hidden-routines-${dateStr}`;
-    try {
-      const data = localStorage.getItem(key);
-      if (!data) return [];
-      const parsed = JSON.parse(data);
-      const sanitized = (Array.isArray(parsed) ? parsed : []).filter((x) => !!x).filter((x) => {
-        if (typeof x === "string") {
-          return !/\/undefined\.md$/.test(x);
-        }
-        if (x && typeof x === "object" && x.path) {
-          return !/\/undefined\.md$/.test(String(x.path));
-        }
-        return true;
-      });
-      try {
-        localStorage.setItem(key, JSON.stringify(sanitized));
-      } catch (_) {
-      }
-      return sanitized;
-    } catch (e) {
-      return [];
-    }
+    const state = this.dayStateCache.get(dateStr);
+    return state ? state.hiddenRoutines : [];
   }
   saveHiddenRoutines(dateStr, routines) {
-    const key = `taskchute-hidden-routines-${dateStr}`;
-    try {
-      const sanitized = (routines || []).filter((x) => {
-        if (!x) return false;
-        if (typeof x === "string") return !/\/undefined\.md$/.test(x);
-        if (x.path) return !/\/undefined\.md$/.test(String(x.path));
-        return true;
-      });
-      localStorage.setItem(key, JSON.stringify(sanitized));
-    } catch (e) {
-      console.error("Failed to save hidden routines:", e);
-    }
+    const state = this.dayStateCache.get(dateStr) || {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      orders: {}
+    };
+    state.hiddenRoutines = (routines || []).filter((x) => !!x);
+    this.dayStateCache.set(dateStr, state);
+    void this.persistDayState(dateStr);
   }
   isInstanceDeleted(instanceId, taskPath, dateStr) {
     const deletedInstances = this.getDeletedInstances(dateStr);
@@ -5469,9 +5708,257 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
 };
 
+// src/services/DayStateService.ts
+var import_obsidian12 = require("obsidian");
+var DAY_STATE_VERSION = "1.0";
+function cloneDayState(state) {
+  return JSON.parse(JSON.stringify(state));
+}
+function cloneMonthlyState(state) {
+  return JSON.parse(JSON.stringify(state));
+}
+function createEmptyDayState() {
+  return {
+    hiddenRoutines: [],
+    deletedInstances: [],
+    duplicatedInstances: [],
+    orders: {}
+  };
+}
+var DayStateService = class {
+  constructor(plugin) {
+    this.cache = /* @__PURE__ */ new Map();
+    this.plugin = plugin;
+  }
+  getMonthKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  }
+  getDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  getStatePath(monthKey) {
+    const base = this.plugin.pathManager.getLogDataPath();
+    return `${base}/${monthKey}-state.json`;
+  }
+  ensureMetadata(state) {
+    if (!state.metadata) {
+      state.metadata = { version: DAY_STATE_VERSION, lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
+      return;
+    }
+    if (!state.metadata.version) {
+      state.metadata.version = DAY_STATE_VERSION;
+    }
+    if (!state.metadata.lastUpdated) {
+      state.metadata.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+    }
+  }
+  normalizeMonthlyState(state) {
+    const normalized = {
+      days: {},
+      metadata: {
+        version: DAY_STATE_VERSION,
+        lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    };
+    if (state && typeof state === "object") {
+      if (state.days && typeof state.days === "object") {
+        for (const [key, value] of Object.entries(state.days)) {
+          normalized.days[key] = this.normalizeDayState(value);
+        }
+      }
+      if (state.metadata) {
+        normalized.metadata.version = state.metadata.version || DAY_STATE_VERSION;
+        normalized.metadata.lastUpdated = state.metadata.lastUpdated || (/* @__PURE__ */ new Date()).toISOString();
+      }
+    }
+    return normalized;
+  }
+  normalizeDayState(value) {
+    const day = createEmptyDayState();
+    if (!value || typeof value !== "object") {
+      return day;
+    }
+    if (Array.isArray(value.hiddenRoutines)) {
+      day.hiddenRoutines = value.hiddenRoutines.filter(Boolean);
+    }
+    if (Array.isArray(value.deletedInstances)) {
+      day.deletedInstances = value.deletedInstances.filter(Boolean);
+    }
+    if (Array.isArray(value.duplicatedInstances)) {
+      day.duplicatedInstances = value.duplicatedInstances.filter(Boolean);
+    }
+    if (value.orders && typeof value.orders === "object") {
+      const entries = Object.entries(value.orders).filter(
+        ([key, val]) => typeof key === "string" && typeof val === "number"
+      );
+      day.orders = Object.fromEntries(entries);
+    }
+    return day;
+  }
+  async loadMonth(monthKey) {
+    if (this.cache.has(monthKey)) {
+      return this.cache.get(monthKey);
+    }
+    const path = this.getStatePath(monthKey);
+    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+    let monthly;
+    if (existing && existing instanceof import_obsidian12.TFile) {
+      try {
+        const raw = await this.plugin.app.vault.read(existing);
+        const parsed = raw ? JSON.parse(raw) : {};
+        monthly = this.normalizeMonthlyState(parsed);
+      } catch (error) {
+        console.error("[TaskChute] Failed to parse day state file:", error);
+        monthly = this.normalizeMonthlyState({});
+      }
+    } else {
+      monthly = this.normalizeMonthlyState({});
+      await this.plugin.pathManager.ensureFolderExists(
+        this.plugin.pathManager.getLogDataPath()
+      );
+      await this.plugin.app.vault.create(path, JSON.stringify(monthly, null, 2));
+    }
+    this.ensureMetadata(monthly);
+    this.cache.set(monthKey, monthly);
+    return monthly;
+  }
+  async writeMonth(monthKey, month) {
+    const path = this.getStatePath(monthKey);
+    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+    const payload = JSON.stringify(month, null, 2);
+    if (file && file instanceof import_obsidian12.TFile) {
+      await this.plugin.app.vault.modify(file, payload);
+    } else {
+      await this.plugin.pathManager.ensureFolderExists(
+        this.plugin.pathManager.getLogDataPath()
+      );
+      await this.plugin.app.vault.create(path, payload);
+    }
+    this.cache.set(monthKey, month);
+  }
+  areDayStatesEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  async loadDay(date) {
+    const monthKey = this.getMonthKey(date);
+    const dateKey = this.getDateKey(date);
+    const month = await this.loadMonth(monthKey);
+    if (!month.days[dateKey]) {
+      month.days[dateKey] = createEmptyDayState();
+      month.metadata.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+      await this.writeMonth(monthKey, month);
+    }
+    return cloneDayState(month.days[dateKey]);
+  }
+  async saveDay(date, state) {
+    var _a;
+    const monthKey = this.getMonthKey(date);
+    const dateKey = this.getDateKey(date);
+    const month = await this.loadMonth(monthKey);
+    const existing = (_a = month.days[dateKey]) != null ? _a : createEmptyDayState();
+    if (this.areDayStatesEqual(existing, state)) {
+      return;
+    }
+    month.days[dateKey] = cloneDayState(state);
+    month.metadata.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+    await this.writeMonth(monthKey, month);
+  }
+  async updateDay(date, mutator) {
+    var _a;
+    const monthKey = this.getMonthKey(date);
+    const dateKey = this.getDateKey(date);
+    const month = await this.loadMonth(monthKey);
+    const current = (_a = month.days[dateKey]) != null ? _a : createEmptyDayState();
+    const working = cloneDayState(current);
+    const result = mutator(working) || working;
+    if (!this.areDayStatesEqual(current, result)) {
+      month.days[dateKey] = cloneDayState(result);
+      month.metadata.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+      await this.writeMonth(monthKey, month);
+    }
+    return cloneDayState(month.days[dateKey]);
+  }
+  async mergeDayState(date, partial) {
+    await this.updateDay(date, (state) => {
+      var _a;
+      if (partial.hiddenRoutines) {
+        const existing = new Map(
+          state.hiddenRoutines.map((item) => {
+            var _a2;
+            if (typeof item === "string") {
+              return [item, item];
+            }
+            const key = `${item.path || ""}::${(_a2 = item.instanceId) != null ? _a2 : ""}`;
+            return [key, item];
+          })
+        );
+        for (const item of partial.hiddenRoutines) {
+          if (typeof item === "string") {
+            existing.set(item, item);
+          } else if (item) {
+            const key = `${item.path || ""}::${(_a = item.instanceId) != null ? _a : ""}`;
+            existing.set(key, item);
+          }
+        }
+        state.hiddenRoutines = Array.from(existing.values());
+      }
+      if (partial.deletedInstances) {
+        const existing = new Map(
+          state.deletedInstances.map((item) => {
+            const key = `${item.deletionType || ""}::${item.path || ""}::${item.instanceId || ""}`;
+            return [key, item];
+          })
+        );
+        for (const item of partial.deletedInstances) {
+          if (!item) continue;
+          const key = `${item.deletionType || ""}::${item.path || ""}::${item.instanceId || ""}`;
+          existing.set(key, item);
+        }
+        state.deletedInstances = Array.from(existing.values());
+      }
+      if (partial.duplicatedInstances) {
+        const existing = new Map(
+          state.duplicatedInstances.map((item) => [item.instanceId, item])
+        );
+        for (const item of partial.duplicatedInstances) {
+          if (!item || !item.instanceId) continue;
+          existing.set(item.instanceId, item);
+        }
+        state.duplicatedInstances = Array.from(existing.values());
+      }
+      if (partial.orders) {
+        state.orders = {
+          ...state.orders,
+          ...partial.orders
+        };
+      }
+      return state;
+    });
+  }
+  async clearCache() {
+    this.cache.clear();
+  }
+  cloneDayState(state) {
+    return cloneDayState(state);
+  }
+  cloneMonthlyState(state) {
+    return cloneMonthlyState(state);
+  }
+  getDateFromKey(dateKey) {
+    const [y, m, d] = dateKey.split("-").map((value) => parseInt(value, 10));
+    return new Date(y, m - 1, d);
+  }
+};
+var DayStateService_default = DayStateService;
+
 // src/main.ts
 var VIEW_TYPE_TASKCHUTE = "taskchute-view";
-var TaskChuteSettingTab = class extends import_obsidian12.PluginSettingTab {
+var TaskChuteSettingTab = class extends import_obsidian13.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -5479,15 +5966,15 @@ var TaskChuteSettingTab = class extends import_obsidian12.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian12.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
-    new import_obsidian12.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian13.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
+    new import_obsidian13.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder).setValue(this.plugin.settings.taskFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.taskFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian12.Notice(validation.error);
+          new import_obsidian13.Notice(validation.error);
           text.setValue(this.plugin.settings.taskFolderPath || "");
         }
       });
@@ -5502,56 +5989,56 @@ var TaskChuteSettingTab = class extends import_obsidian12.PluginSettingTab {
         }
       });
     });
-    new import_obsidian12.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian13.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder).setValue(this.plugin.settings.projectFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.projectFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian12.Notice(validation.error);
+          new import_obsidian13.Notice(validation.error);
           text.setValue(this.plugin.settings.projectFolderPath || "");
         }
       });
     });
-    new import_obsidian12.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian13.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.logData).setValue(this.plugin.settings.logDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.logDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian12.Notice(validation.error);
+          new import_obsidian13.Notice(validation.error);
           text.setValue(this.plugin.settings.logDataPath || "");
         }
       });
     });
-    new import_obsidian12.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian13.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.reviewData).setValue(this.plugin.settings.reviewDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.reviewDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian12.Notice(validation.error);
+          new import_obsidian13.Notice(validation.error);
           text.setValue(this.plugin.settings.reviewDataPath || "");
         }
       });
     });
-    new import_obsidian12.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
-    new import_obsidian12.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
+    new import_obsidian13.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
+    new import_obsidian13.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableSound).onChange(async (value) => {
         this.plugin.settings.enableSound = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian12.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian13.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableFireworks).onChange(async (value) => {
         this.plugin.settings.enableFireworks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian12.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian13.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableConfetti).onChange(async (value) => {
         this.plugin.settings.enableConfetti = value;
         await this.plugin.saveSettings();
@@ -5559,7 +6046,7 @@ var TaskChuteSettingTab = class extends import_obsidian12.PluginSettingTab {
     );
   }
 };
-var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
+var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
   // Simple logger/notification wrapper
   _log(level, ...args) {
     var _a;
@@ -5570,7 +6057,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
   }
   _notify(message, timeout) {
     try {
-      new import_obsidian12.Notice(message, timeout);
+      new import_obsidian13.Notice(message, timeout);
     } catch (_) {
       this._log("warn", "[Notice]", message);
     }
@@ -5578,7 +6065,12 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
   async onload() {
     const loaded = await this.loadData() || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    if (!this.settings.slotKeys) this.settings.slotKeys = {};
+    if (typeof this.settings.useOrderBasedSort !== "boolean") {
+      this.settings.useOrderBasedSort = true;
+    }
     this.pathManager = new PathManager(this);
+    this.dayStateService = new DayStateService_default(this);
     this.routineAliasManager = new RoutineAliasManager(this);
     await this.routineAliasManager.loadAliases();
     await this.ensureRequiredFolders();
@@ -5688,7 +6180,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
         if (view) {
           view.reorganizeIdleTasks();
         } else {
-          new import_obsidian12.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -5706,7 +6198,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
         await this.pathManager.ensureFolderExists(path);
       } catch (error) {
         try {
-          new import_obsidian12.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+          new import_obsidian13.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
         } catch (_) {
         }
       }
@@ -5755,7 +6247,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
   async triggerDuplicateSelectedTask() {
     const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask", "duplicateInstance"]);
     if (!view) {
-      new import_obsidian12.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -5766,13 +6258,13 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
     if (view.selectedTaskInstance && typeof v.duplicateInstance === "function") {
       await v.duplicateInstance(view.selectedTaskInstance);
     } else {
-      new import_obsidian12.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async triggerDeleteSelectedTask() {
     const view = await this.getOrCreateTaskChuteView(["deleteSelectedTask"]);
     if (!view) {
-      new import_obsidian12.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -5783,13 +6275,13 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
     if (view.selectedTaskInstance && typeof v.deleteTask === "function") {
       v.deleteTask(view.selectedTaskInstance);
     } else {
-      new import_obsidian12.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async triggerResetSelectedTask() {
     const view = await this.getOrCreateTaskChuteView(["resetSelectedTask", "resetTaskToIdle"]);
     if (!view) {
-      new import_obsidian12.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -5800,7 +6292,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
     if (view.selectedTaskInstance && typeof v.resetTaskToIdle === "function") {
       await v.resetTaskToIdle(view.selectedTaskInstance);
     } else {
-      new import_obsidian12.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async activateTaskChuteView() {
@@ -5892,7 +6384,7 @@ var TaskChutePlusPlugin = class extends import_obsidian12.Plugin {
         } catch (error) {
         }
       } else {
-        new import_obsidian12.Notice(validation.error);
+        new import_obsidian13.Notice(validation.error);
         input.value = this.settings[settingKey] || "";
       }
     });

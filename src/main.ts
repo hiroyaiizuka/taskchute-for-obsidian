@@ -210,11 +210,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     await this.ensureRequiredFolders();
 
     // Migrate legacy localStorage data if necessary
-    if (!this.settings.migratedLocalState) {
-      await this.migrateLocalStorageToDayState();
-      this.settings.migratedLocalState = true;
-      await this.saveSettings();
-    }
+    // Local storage migration removed (fresh DayState storage is default)
 
     // Add settings tab if available
     try {
@@ -238,116 +234,6 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.registerCommands();
   }
 
-  private async migrateLocalStorageToDayState(): Promise<void> {
-    if (typeof localStorage === 'undefined') {
-      return;
-    }
-
-    const keys = Object.keys(localStorage);
-    const dayAggregates = new Map<string, Partial<DayState>>();
-
-    const ensureAggregate = (dateKey: string): Partial<DayState> => {
-      if (!dayAggregates.has(dateKey)) {
-        dayAggregates.set(dateKey, {});
-      }
-      return dayAggregates.get(dateKey)!;
-    };
-
-    const orderPattern = /^taskchute-orders-(\d{4}-\d{2}-\d{2})$/;
-    const hiddenPattern = /^taskchute-hidden-routines-(\d{4}-\d{2}-\d{2})$/;
-    const deletedPattern = /^taskchute-deleted-instances-(\d{4}-\d{2}-\d{2})$/;
-    const duplicatedPattern = /^taskchute-duplicated-instances-(\d{4}-\d{2}-\d{2})$/;
-
-    for (const key of keys) {
-      const orderMatch = key.match(orderPattern);
-      if (orderMatch) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key) || '{}');
-          if (data && typeof data === 'object') {
-            const aggregate = ensureAggregate(orderMatch[1]);
-            aggregate.orders = Object.assign({}, aggregate.orders || {}, data);
-          }
-        } catch (error) {
-          console.warn('[TaskChute] Failed to migrate order data:', error);
-        }
-        continue;
-      }
-
-      const hiddenMatch = key.match(hiddenPattern);
-      if (hiddenMatch) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key) || '[]');
-          if (Array.isArray(data)) {
-            const aggregate = ensureAggregate(hiddenMatch[1]);
-            aggregate.hiddenRoutines = Array.isArray(aggregate.hiddenRoutines)
-              ? [...aggregate.hiddenRoutines, ...data]
-              : data;
-          }
-        } catch (error) {
-          console.warn('[TaskChute] Failed to migrate hidden routines:', error);
-        }
-        continue;
-      }
-
-      const deletedMatch = key.match(deletedPattern);
-      if (deletedMatch) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key) || '[]');
-          if (Array.isArray(data)) {
-            const aggregate = ensureAggregate(deletedMatch[1]);
-            aggregate.deletedInstances = Array.isArray(aggregate.deletedInstances)
-              ? [...aggregate.deletedInstances, ...data]
-              : data;
-          }
-        } catch (error) {
-          console.warn('[TaskChute] Failed to migrate deleted instances:', error);
-        }
-        continue;
-      }
-
-      const duplicatedMatch = key.match(duplicatedPattern);
-      if (duplicatedMatch) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key) || '[]');
-          if (Array.isArray(data)) {
-            const aggregate = ensureAggregate(duplicatedMatch[1]);
-            aggregate.duplicatedInstances = Array.isArray(aggregate.duplicatedInstances)
-              ? [...aggregate.duplicatedInstances, ...data]
-              : data;
-          }
-        } catch (error) {
-          console.warn('[TaskChute] Failed to migrate duplicated instances:', error);
-        }
-        continue;
-      }
-
-      if (key === 'taskchute-use-order-sort') {
-        try {
-          this.settings.useOrderBasedSort = localStorage.getItem(key) !== 'false';
-        } catch (_) {
-          this.settings.useOrderBasedSort = true;
-        }
-        continue;
-      }
-
-      if (key.startsWith('taskchute-slotkey-')) {
-        const taskPath = key.substring('taskchute-slotkey-'.length);
-        const slot = localStorage.getItem(key);
-        if (taskPath && slot) {
-          this.settings.slotKeys[taskPath] = slot;
-        }
-      }
-    }
-
-    for (const [dateKey, aggregate] of dayAggregates.entries()) {
-      try {
-        const date = this.dayStateService.getDateFromKey(dateKey);
-        await this.dayStateService.mergeDayState(date, aggregate);
-      } catch (error) {
-        console.warn('[TaskChute] Failed to merge migrated state:', error);
-      }
-    }
-  }
 
   async onunload(): Promise<void> {
     // Clear timer intervals
