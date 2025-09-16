@@ -9,4 +9,7 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   enableSound: false,
   enableFireworks: false,
   enableConfetti: false,
+  useOrderBasedSort: true,
+  slotKeys: {},
+  migratedLocalState: false,
 };

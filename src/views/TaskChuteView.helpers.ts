@@ -82,7 +82,7 @@ export async function loadTasksRefactored(this: any): Promise<void> {
     }
     }
     
-    // Add duplicated (unexecuted) instances saved in localStorage for the day
+    // Add duplicated (unexecuted) instances recorded in day state for the day
     await addDuplicatedInstances.call(this, dateString);
 
     this.renderTaskList();
@@ -254,11 +254,13 @@ async function createNonRoutineTask(this: any, file: any, content: string, metad
   this.tasks.push(taskData);
 
   // Create idle instance for non-routine task
+  const storedSlot = this.plugin?.settings?.slotKeys?.[file.path];
+  const slotKey = storedSlot || getScheduledSlotKey(metadata?.開始時刻) || 'none';
   const instance = {
     task: taskData,
     instanceId: this.generateInstanceId(taskData.path),
     state: 'idle',
-    slotKey: getScheduledSlotKey(metadata?.開始時刻) || 'none',
+    slotKey,
     date: dateString,
   };
 
@@ -268,6 +270,7 @@ async function createNonRoutineTask(this: any, file: any, content: string, metad
   if (!isDeleted) {
     this.taskInstances.push(instance);
   }
+
 }
 
 async function createRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
@@ -379,38 +382,27 @@ function getScheduledSlotKey(scheduledTime: string | undefined): string | undefi
 }
 
 function isInstanceDeleted(this: any, instanceId: string, path: string, dateString: string): boolean {
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  return deletedInstances.some((d: any) => {
-    if (!d) return false;
-    // Instance-scoped deletion: hides only the matching duplicate instance
-    if (instanceId && d.instanceId === instanceId) return true;
-    // Path-scoped deletion: hide the base only when explicitly permanent
-    if (d.deletionType === 'permanent' && d.path === path) return true;
-    return false;
-  });
+  if (typeof this.isInstanceDeleted === 'function') {
+    return this.isInstanceDeleted(instanceId, path, dateString);
+  }
+  return false;
 }
 
 function isInstanceHidden(this: any, instanceId: string, path: string, dateString: string): boolean {
-  const hiddenKey = `taskchute-hidden-routines-${dateString}`;
-  const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
-  return hiddenRoutines.some((h: any) => {
-    if (!h) return false;
-    // Legacy string: path-level hide
-    if (typeof h === 'string') return h === path;
-    // Instance-scoped: hide only matching duplicate instance
-    if (h.instanceId !== undefined && h.instanceId !== null) return h.instanceId === instanceId;
-    // Path-scoped when instanceId is null/undefined
-    if (h.path) return h.path === path;
-    return false;
-  });
+  if (typeof this.isInstanceHidden === 'function') {
+    return this.isInstanceHidden(instanceId, path, dateString);
+  }
+  return false;
 }
 
 async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dateString: string): Promise<boolean> {
   // First check if task is deleted (only permanent path-level deletions hide the base)
-  const deletedKey = `taskchute-deleted-instances-${dateString}`;
-  const deletedInstances = JSON.parse(localStorage.getItem(deletedKey) || '[]');
-  const isDeleted = deletedInstances.some((d: any) => d && d.deletionType === 'permanent' && d.path === file.path);
+  const deletedInstances = typeof this.getDeletedInstances === 'function'
+    ? this.getDeletedInstances(dateString)
+    : [];
+  const isDeleted = deletedInstances.some(
+    (d: any) => d && d.deletionType === 'permanent' && d.path === file.path,
+  );
   
   if (isDeleted) {
     return false;  // Don't show deleted tasks
@@ -454,9 +446,17 @@ async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dat
 
 async function addDuplicatedInstances(this: any, dateString: string): Promise<void> {
   try {
-    const duplicationKey = `taskchute-duplicated-instances-${dateString}`;
-    const records = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
-    if (!Array.isArray(records) || records.length === 0) return;
+    const snapshot = typeof this.getDayStateSnapshot === 'function'
+      ? this.getDayStateSnapshot(dateString)
+      : null;
+    const dayState = snapshot || (typeof this.getDayState === 'function'
+      ? await this.getDayState(dateString)
+      : null);
+    if (!dayState || !Array.isArray(dayState.duplicatedInstances) || dayState.duplicatedInstances.length === 0) {
+      return;
+    }
+
+    const records = dayState.duplicatedInstances;
 
     for (const rec of records) {
       const { instanceId, originalPath, slotKey } = rec || {};

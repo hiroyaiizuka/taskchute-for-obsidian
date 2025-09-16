@@ -7,11 +7,12 @@ import {
   Setting
 } from 'obsidian';
 
-import { TaskChuteSettings } from './types';
+import { TaskChuteSettings, DayState } from './types';
 import { DEFAULT_SETTINGS } from './settings';
 import { PathManager } from './managers/PathManager';
 import { RoutineAliasManager } from './managers/RoutineAliasManager';
 import { TaskChuteView } from './views/TaskChuteView';
+import DayStateService from './services/DayStateService';
 
 const VIEW_TYPE_TASKCHUTE = "taskchute-view";
 
@@ -168,6 +169,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   settings!: TaskChuteSettings;
   pathManager!: PathManager;
   routineAliasManager!: RoutineAliasManager;
+  dayStateService!: DayStateService;
   globalTimerInterval?: NodeJS.Timer | null;
 
   // Simple logger/notification wrapper
@@ -189,9 +191,16 @@ export default class TaskChutePlusPlugin extends Plugin {
     // Load settings with defaults
     const loaded = (await this.loadData()) || {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    if (!this.settings.slotKeys) this.settings.slotKeys = {};
+    if (typeof this.settings.useOrderBasedSort !== 'boolean') {
+      this.settings.useOrderBasedSort = true;
+    }
 
     // Initialize PathManager
     this.pathManager = new PathManager(this);
+
+    // Initialize DayStateService
+    this.dayStateService = new DayStateService(this);
 
     // Initialize RoutineAliasManager
     this.routineAliasManager = new RoutineAliasManager(this);
@@ -199,6 +208,13 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Create required folders on first startup
     await this.ensureRequiredFolders();
+
+    // Migrate legacy localStorage data if necessary
+    if (!this.settings.migratedLocalState) {
+      await this.migrateLocalStorageToDayState();
+      this.settings.migratedLocalState = true;
+      await this.saveSettings();
+    }
 
     // Add settings tab if available
     try {
@@ -220,6 +236,117 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Register commands
     this.registerCommands();
+  }
+
+  private async migrateLocalStorageToDayState(): Promise<void> {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+
+    const keys = Object.keys(localStorage);
+    const dayAggregates = new Map<string, Partial<DayState>>();
+
+    const ensureAggregate = (dateKey: string): Partial<DayState> => {
+      if (!dayAggregates.has(dateKey)) {
+        dayAggregates.set(dateKey, {});
+      }
+      return dayAggregates.get(dateKey)!;
+    };
+
+    const orderPattern = /^taskchute-orders-(\d{4}-\d{2}-\d{2})$/;
+    const hiddenPattern = /^taskchute-hidden-routines-(\d{4}-\d{2}-\d{2})$/;
+    const deletedPattern = /^taskchute-deleted-instances-(\d{4}-\d{2}-\d{2})$/;
+    const duplicatedPattern = /^taskchute-duplicated-instances-(\d{4}-\d{2}-\d{2})$/;
+
+    for (const key of keys) {
+      const orderMatch = key.match(orderPattern);
+      if (orderMatch) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '{}');
+          if (data && typeof data === 'object') {
+            const aggregate = ensureAggregate(orderMatch[1]);
+            aggregate.orders = Object.assign({}, aggregate.orders || {}, data);
+          }
+        } catch (error) {
+          console.warn('[TaskChute] Failed to migrate order data:', error);
+        }
+        continue;
+      }
+
+      const hiddenMatch = key.match(hiddenPattern);
+      if (hiddenMatch) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(data)) {
+            const aggregate = ensureAggregate(hiddenMatch[1]);
+            aggregate.hiddenRoutines = Array.isArray(aggregate.hiddenRoutines)
+              ? [...aggregate.hiddenRoutines, ...data]
+              : data;
+          }
+        } catch (error) {
+          console.warn('[TaskChute] Failed to migrate hidden routines:', error);
+        }
+        continue;
+      }
+
+      const deletedMatch = key.match(deletedPattern);
+      if (deletedMatch) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(data)) {
+            const aggregate = ensureAggregate(deletedMatch[1]);
+            aggregate.deletedInstances = Array.isArray(aggregate.deletedInstances)
+              ? [...aggregate.deletedInstances, ...data]
+              : data;
+          }
+        } catch (error) {
+          console.warn('[TaskChute] Failed to migrate deleted instances:', error);
+        }
+        continue;
+      }
+
+      const duplicatedMatch = key.match(duplicatedPattern);
+      if (duplicatedMatch) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(data)) {
+            const aggregate = ensureAggregate(duplicatedMatch[1]);
+            aggregate.duplicatedInstances = Array.isArray(aggregate.duplicatedInstances)
+              ? [...aggregate.duplicatedInstances, ...data]
+              : data;
+          }
+        } catch (error) {
+          console.warn('[TaskChute] Failed to migrate duplicated instances:', error);
+        }
+        continue;
+      }
+
+      if (key === 'taskchute-use-order-sort') {
+        try {
+          this.settings.useOrderBasedSort = localStorage.getItem(key) !== 'false';
+        } catch (_) {
+          this.settings.useOrderBasedSort = true;
+        }
+        continue;
+      }
+
+      if (key.startsWith('taskchute-slotkey-')) {
+        const taskPath = key.substring('taskchute-slotkey-'.length);
+        const slot = localStorage.getItem(key);
+        if (taskPath && slot) {
+          this.settings.slotKeys[taskPath] = slot;
+        }
+      }
+    }
+
+    for (const [dateKey, aggregate] of dayAggregates.entries()) {
+      try {
+        const date = this.dayStateService.getDateFromKey(dateKey);
+        await this.dayStateService.mergeDayState(date, aggregate);
+      } catch (error) {
+        console.warn('[TaskChute] Failed to merge migrated state:', error);
+      }
+    }
   }
 
   async onunload(): Promise<void> {

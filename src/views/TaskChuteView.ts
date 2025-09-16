@@ -11,7 +11,9 @@ import {
   DuplicatedInstance, 
   NavigationState, 
   TaskNameValidator,
-  AutocompleteInstance 
+  AutocompleteInstance,
+  DayState,
+  TaskChutePluginLike,
 } from '../types';
 import { TimerService } from '../services/TimerService';
 import { loadTasksRefactored } from './TaskChuteView.helpers';
@@ -30,7 +32,7 @@ class NavigationStateManager implements NavigationState {
 
 export class TaskChuteView extends ItemView {
   // Core Properties
-  private plugin: any;
+  private plugin: TaskChutePluginLike;
   private tasks: TaskData[] = [];
   private taskInstances: TaskInstance[] = [];
   private currentInstance: TaskInstance | null = null;
@@ -55,6 +57,9 @@ export class TaskChuteView extends ItemView {
   private navigationState: NavigationStateManager;
   private selectedTaskInstance: TaskInstance | null = null;
   private autocompleteInstances: AutocompleteInstance[] = [];
+  private dayStateCache: Map<string, DayState> = new Map();
+  private currentDayState: DayState | null = null;
+  private currentDayStateKey: string | null = null;
   
   // Boundary Check (idle-task-auto-move feature)
   private boundaryCheckTimeout: NodeJS.Timeout | null = null;
@@ -62,6 +67,7 @@ export class TaskChuteView extends ItemView {
   // Debounce Timer
   private renderDebounceTimer: NodeJS.Timeout | null = null;
 
+  // Debug helper flag
   // Task Name Validator
   private TaskNameValidator: TaskNameValidator = {
     INVALID_CHARS_PATTERN: /[:|\/\\#^]/g,
@@ -79,7 +85,7 @@ export class TaskChuteView extends ItemView {
     }
   };
 
-  constructor(leaf: WorkspaceLeaf, plugin: any) {
+  constructor(leaf: WorkspaceLeaf, plugin: TaskChutePluginLike) {
     super(leaf);
     this.plugin = plugin;
     
@@ -92,8 +98,7 @@ export class TaskChuteView extends ItemView {
     );
     
     // Initialize sort preference
-    this.useOrderBasedSort = 
-      localStorage.getItem("taskchute-use-order-sort") !== "false";
+    this.useOrderBasedSort = this.plugin.settings.useOrderBasedSort !== false;
     
     // Initialize navigation state
     this.navigationState = new NavigationStateManager();
@@ -229,17 +234,13 @@ export class TaskChuteView extends ItemView {
     leftBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() - 1);
       this.updateDateLabel(dateLabel);
-      await this.reloadTasksAndRestore();
-      // Re-apply boundary move when returning to today
-      this.checkBoundaryTasks();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     });
     
     rightBtn.addEventListener("click", async () => {
       this.currentDate.setDate(this.currentDate.getDate() + 1);
       this.updateDateLabel(dateLabel);
-      await this.reloadTasksAndRestore();
-      // Re-apply boundary move when returning to today
-      this.checkBoundaryTasks();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     });
     
     // Calendar button functionality
@@ -282,11 +283,15 @@ export class TaskChuteView extends ItemView {
   }
 
   // Utility: reload tasks and immediately restore running-state from persistence
-  private async reloadTasksAndRestore(): Promise<void> {
+  private async reloadTasksAndRestore(options: { runBoundaryCheck?: boolean } = {}): Promise<void> {
     await this.loadTasks();
     await this.restoreRunningTaskState();
     // Re-render to reflect restored running instances
     this.renderTaskList();
+    if (options.runBoundaryCheck) {
+      await this.checkBoundaryTasks();
+    }
+    this.scheduleBoundaryCheck();
   }
 
   private createNavigationUI(contentContainer: HTMLElement): void {
@@ -367,6 +372,95 @@ export class TaskChuteView extends ItemView {
     return `${y}-${m}-${d}`;
   }
 
+  private parseDateString(dateStr: string): Date {
+    const [y, m, d] = dateStr.split('-').map((value) => parseInt(value, 10));
+    return new Date(y, (m || 1) - 1, d || 1);
+  }
+
+  private async ensureDayStateForDate(dateStr: string): Promise<DayState> {
+    const cached = this.dayStateCache.get(dateStr);
+    if (cached) {
+      if (dateStr === this.getCurrentDateString()) {
+        this.currentDayState = cached;
+        this.currentDayStateKey = dateStr;
+      }
+      return cached;
+    }
+    const date = this.parseDateString(dateStr);
+    const loaded = await this.plugin.dayStateService.loadDay(date);
+    this.dayStateCache.set(dateStr, loaded);
+    if (dateStr === this.getCurrentDateString()) {
+      this.currentDayState = loaded;
+      this.currentDayStateKey = dateStr;
+    }
+    return loaded;
+  }
+
+  async getDayState(dateStr: string): Promise<DayState> {
+    return this.ensureDayStateForDate(dateStr);
+  }
+
+  getDayStateSnapshot(dateStr: string): DayState | null {
+    return this.dayStateCache.get(dateStr) ?? null;
+  }
+
+  private async ensureDayStateForCurrentDate(): Promise<DayState> {
+    const dateStr = this.getCurrentDateString();
+    return this.ensureDayStateForDate(dateStr);
+  }
+
+  private getCurrentDayState(): DayState {
+    const dateStr = this.getCurrentDateString();
+    let state = this.dayStateCache.get(dateStr);
+    if (!state) {
+      state = {
+        hiddenRoutines: [],
+        deletedInstances: [],
+        duplicatedInstances: [],
+        orders: {},
+      };
+      this.dayStateCache.set(dateStr, state);
+    }
+    this.currentDayState = state;
+    this.currentDayStateKey = dateStr;
+    return state;
+  }
+
+  private async persistDayState(dateStr: string): Promise<void> {
+    const state = this.dayStateCache.get(dateStr);
+    if (!state) return;
+    const date = this.parseDateString(dateStr);
+    await this.plugin.dayStateService.saveDay(date, state);
+  }
+
+  private getOrderKey(inst: TaskInstance): string | null {
+    const slot = inst.slotKey || 'none';
+    const dayState = this.getCurrentDayState();
+    const isDuplicate = dayState.duplicatedInstances.some(
+      (dup) => dup?.instanceId && dup.instanceId === inst.instanceId,
+    );
+    if (isDuplicate || !inst.task?.path) {
+      return inst.instanceId ? `${inst.instanceId}::${slot}` : null;
+    }
+    if (inst.task?.path) {
+      return `${inst.task.path}::${slot}`;
+    }
+    return inst.instanceId ? `${inst.instanceId}::${slot}` : null;
+  }
+
+  private normalizeState(state: TaskInstance['state']): 'done' | 'running' | 'idle' {
+    if (state === 'done') return 'done';
+    if (state === 'running' || state === 'paused') return 'running';
+    return 'idle';
+  }
+
+  private getStatePriority(state: TaskInstance['state']): number {
+    const normalized = this.normalizeState(state);
+    if (normalized === 'done') return 0;
+    if (normalized === 'running') return 1;
+    return 2;
+  }
+
   private setupCalendarButton(calendarBtn: HTMLElement, dateLabel: HTMLElement): void {
     calendarBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -418,9 +512,7 @@ export class TaskChuteView extends ItemView {
         const [yy, mm, dd] = input.value.split("-").map(Number);
         this.currentDate = new Date(yy, mm - 1, dd);
         this.updateDateLabel(dateLabel);
-        await this.reloadTasksAndRestore();
-        // Re-apply boundary move if the selected day is today
-        this.checkBoundaryTasks();
+        await this.reloadTasksAndRestore({ runBoundaryCheck: true });
         input.remove();
       });
       
@@ -434,6 +526,7 @@ export class TaskChuteView extends ItemView {
 
   async loadTasks(): Promise<void> {
     // Use the refactored implementation
+    await this.ensureDayStateForCurrentDate();
     await loadTasksRefactored.call(this);
   }
 
@@ -532,13 +625,10 @@ export class TaskChuteView extends ItemView {
   }
 
   private getTaskSlotKey(task: TaskData): string {
-    // Get slot key from localStorage or frontmatter
-    const storedSlot = localStorage.getItem(`taskchute-slotkey-${task.path}`);
+    const storedSlot = this.plugin.settings.slotKeys?.[task.path];
     if (storedSlot) {
       return storedSlot;
     }
-
-    // Default to "none" (no time specified)
     return "none";
   }
 
@@ -1030,6 +1120,7 @@ export class TaskChuteView extends ItemView {
   
   private async duplicateInstance(inst: TaskInstance, returnOnly: boolean = false): Promise<TaskInstance | void> {
     try {
+      await this.ensureDayStateForCurrentDate();
       // 新しいインスタンスを作成（元の参照を壊さないよう個別構築）
       const dateStr = this.getCurrentDateString();
       const newInstance: TaskInstance = {
@@ -1047,28 +1138,26 @@ export class TaskChuteView extends ItemView {
       
       // インスタンスリストに追加
       this.taskInstances.push(newInstance);
-      
+
       // 状態を保存
       this.saveInstanceState(newInstance);
 
       // 当日複製メタデータを保存（復元に使用）
-      const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-      const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
-      // Avoid duplicates of duplicates
-      if (!duplicated.some((d: any) => d.instanceId === newInstance.instanceId)) {
-        duplicated.push({
+      const dayState = this.getCurrentDayState();
+      if (!dayState.duplicatedInstances.some((d) => d.instanceId === newInstance.instanceId)) {
+        dayState.duplicatedInstances.push({
           instanceId: newInstance.instanceId,
           originalPath: inst.task.path,
           slotKey: newInstance.slotKey,
           originalSlotKey: inst.slotKey,
           timestamp: Date.now(),
         });
-        try { localStorage.setItem(duplicationKey, JSON.stringify(duplicated)); } catch (_) {}
+        await this.persistDayState(dateStr);
       }
-      
+
       // UIを更新
       this.renderTaskList();
-      
+
       new Notice(`「${inst.task.title}」を複製しました`);
 
       return returnOnly ? newInstance : undefined;
@@ -1082,27 +1171,89 @@ export class TaskChuteView extends ItemView {
   private calculateDuplicateTaskOrder(newInst: TaskInstance, originalInst: TaskInstance): void {
     try {
       const slot = originalInst.slotKey || 'none';
-      // まず既存の order を整える（欠損のあるものに番号付け）
-      this.initializeTaskOrders();
+      const normalizedState = this.normalizeState(originalInst.state);
 
-      const sameSlot = this.taskInstances
-        .filter(i => (i.slotKey || 'none') === slot && i !== newInst);
-      // order 昇順に
-      sameSlot.sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
+      const sameState = this.taskInstances
+        .filter((inst) =>
+          inst !== newInst &&
+          (inst.slotKey || 'none') === slot &&
+          this.normalizeState(inst.state) === normalizedState,
+        );
 
-      // original の直後の order を探す
-      const idx = sameSlot.indexOf(originalInst);
-      const prevOrder = originalInst.order ?? (idx >= 0 ? idx * 100 : 0);
-      const nextOrder = (idx >= 0 && idx < sameSlot.length - 1)
-        ? (sameSlot[idx + 1].order ?? (prevOrder + 200))
-        : (prevOrder + 200);
-      // 中間値を採用
-      const mid = Math.floor((prevOrder + nextOrder) / 2);
-      newInst.order = (isFinite(mid) && mid > prevOrder) ? mid : (prevOrder + 100);
+      const sortedSameState = [...sameState].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const originalIndex = sortedSameState.indexOf(originalInst);
+      const insertIndex = originalIndex >= 0 ? originalIndex + 1 : sortedSameState.length;
+
+      newInst.slotKey = slot;
+      newInst.order = this.calculateSimpleOrder(insertIndex, sameState);
     } catch (_) {
       // フォールバック
       newInst.order = (originalInst.order ?? 0) + 100;
     }
+  }
+
+  private normalizeOrdersForDrag(instances: TaskInstance[]): void {
+    if (!instances || instances.length === 0) {
+      return;
+    }
+
+    const sorted = [...instances].sort((a, b) => {
+      const orderA = Number.isFinite(a.order) ? (a.order as number) : Number.MAX_SAFE_INTEGER;
+      const orderB = Number.isFinite(b.order) ? (b.order as number) : Number.MAX_SAFE_INTEGER;
+      if (orderA === orderB) {
+        return (a.task?.title || '').localeCompare(b.task?.title || '');
+      }
+      return orderA - orderB;
+    });
+
+    let cursor = 100;
+    sorted.forEach((inst) => {
+      inst.order = cursor;
+      cursor += 100;
+    });
+
+  }
+
+  private calculateSimpleOrder(targetIndex: number, sameTasks: TaskInstance[]): number {
+    if (!sameTasks || sameTasks.length === 0) {
+      return 100;
+    }
+
+    const working = [...sameTasks];
+
+    // Ensure every task has a finite order before calculation
+    const needsSeed = working.some((inst) => !Number.isFinite(inst.order as number));
+    if (needsSeed) {
+      this.normalizeOrdersForDrag(working);
+    }
+
+    const sorted = working.sort((a, b) => (a.order as number) - (b.order as number));
+    const clampedIndex = Math.min(Math.max(targetIndex, 0), sorted.length);
+
+    if (clampedIndex <= 0) {
+      const firstOrder = sorted[0].order as number;
+      const result = Number.isFinite(firstOrder) ? firstOrder - 100 : 100;
+      return result;
+    }
+
+    if (clampedIndex >= sorted.length) {
+      const lastOrder = sorted[sorted.length - 1].order as number;
+      const result = Number.isFinite(lastOrder) ? lastOrder + 100 : (sorted.length + 1) * 100;
+      return result;
+    }
+
+    const prevOrder = sorted[clampedIndex - 1].order as number;
+    const nextOrder = sorted[clampedIndex].order as number;
+
+    if (!Number.isFinite(prevOrder) || !Number.isFinite(nextOrder) || nextOrder - prevOrder <= 1) {
+      this.normalizeOrdersForDrag(working);
+      working.sort((a, b) => (a.order as number) - (b.order as number));
+      const normalizedPrev = working[clampedIndex - 1]?.order as number;
+      const normalizedNext = working[clampedIndex]?.order as number;
+      return Math.floor(((normalizedPrev ?? 0) + (normalizedNext ?? (normalizedPrev ?? 0) + 100)) / 2);
+    }
+
+    return Math.floor((prevOrder + nextOrder) / 2);
   }
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
@@ -2082,7 +2233,8 @@ export class TaskChuteView extends ItemView {
       
       // CRITICAL: Recalculate task orders to maintain execution time order
       // This ensures completed tasks are sorted by startTime immediately
-      this.initializeTaskOrders();
+      this.sortTaskInstancesByTimeOrder();
+      await this.saveTaskOrders();
       
       // Update UI
       this.renderTaskList();
@@ -2380,7 +2532,10 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
+      }
     }
 
     // Persist to monthly log via service
@@ -2399,7 +2554,10 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
+      }
     }
 
     await this.saveRunningTasksState();
@@ -2425,7 +2583,10 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      try { localStorage.setItem(`taskchute-slotkey-${inst.task.path}`, newSlot); } catch (_) {}
+      if (inst.task.path) {
+        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
+        void this.plugin.saveSettings();
+      }
     }
 
     await this.saveRunningTasksState();
@@ -2616,7 +2777,7 @@ export class TaskChuteView extends ItemView {
     }
     
     // タスクリストを再読み込みし、実行中タスクも復元
-    this.reloadTasksAndRestore().then(() => {
+    this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
       new Notice(`今日のタスクを表示しました`);
     });
   }
@@ -2638,137 +2799,188 @@ export class TaskChuteView extends ItemView {
     if (this.useOrderBasedSort) {
       // Load saved orders
       const savedOrders = this.loadSavedOrders();
-
-      // Apply saved orders to instances (do not clear others yet)
-      this.taskInstances.forEach(inst => {
-        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || 'none'}`;
-        if (savedOrders[key] !== undefined) {
-          inst.order = savedOrders[key];
-        }
-      });
-
-      // Initialize orders ONLY for tasks without order
-      this.initializeTaskOrders();
+      this.applySavedOrders(savedOrders);
+      this.ensureOrdersAcrossSlots(savedOrders, { forceDone: true, persist: false });
     }
   }
 
-  private initializeTaskOrders(): void {
-    // Group tasks by slot
-    const slotGroups: Record<string, TaskInstance[]> = {};
-
-    this.taskInstances.forEach(inst => {
-      const slot = inst.slotKey || 'none';
-      if (!slotGroups[slot]) {
-        slotGroups[slot] = [];
+  private applySavedOrders(savedOrders: Record<string, number>): void {
+    this.taskInstances.forEach((inst) => {
+      const key = this.getOrderKey(inst);
+      if (!key) return;
+      const saved = savedOrders[key];
+      if (typeof saved === 'number' && Number.isFinite(saved)) {
+        inst.order = saved;
       }
-      slotGroups[slot].push(inst);
     });
+  }
 
-    // Assign order numbers per slot
-    Object.keys(slotGroups).forEach(slot => {
-      const instances = slotGroups[slot];
+  private ensureOrdersAcrossSlots(
+    savedOrders: Record<string, number>,
+    options: { forceDone?: boolean; persist?: boolean } = {},
+  ): void {
+    const slots = new Set<string>(['none', ...this.getTimeSlotKeys()]);
+    slots.forEach((slot) => this.ensureOrdersForSlot(slot, savedOrders, options));
 
-      // Split by state
-      const done = instances.filter(i => i.state === 'done');
-      const running = instances.filter(i => i.state === 'running' || i.state === 'paused');
-      const idle = instances.filter(i => i.state === 'idle');
+    if (options.persist) {
+      void this.saveTaskOrders();
+    }
+  }
 
-      let currentOrderBase = 0;
+  private ensureOrdersForSlot(
+    slotKey: string,
+    savedOrders: Record<string, number>,
+    options: { forceDone?: boolean } = {},
+  ): void {
+    const instances = this.taskInstances.filter((inst) => (inst.slotKey || 'none') === slotKey);
+    if (instances.length === 0) return;
 
-      // 1) Done: always order by startTime (ascending)
-      done.sort((a, b) => {
+    const done = instances.filter((inst) => inst.state === 'done');
+    const running = instances.filter((inst) => inst.state === 'running' || inst.state === 'paused');
+    const idle = instances.filter((inst) => inst.state === 'idle');
+
+    let maxOrder = 0;
+
+    const assignSequential = (items: TaskInstance[], startOrder: number, step = 100) => {
+      let cursor = startOrder;
+      items.forEach((inst) => {
+        inst.order = cursor;
+        cursor += step;
+        maxOrder = Math.max(maxOrder, cursor - step);
+      });
+      return cursor;
+    };
+
+    // Done tasks: always recompute by startTime when forceDone, otherwise fill gaps
+    const shouldRecomputeDone = options.forceDone || done.some((inst) => inst.order === undefined || inst.order === null);
+    if (shouldRecomputeDone) {
+      const sortedDone = [...done].sort((a, b) => {
         const ta = a.startTime ? a.startTime.getTime() : Infinity;
         const tb = b.startTime ? b.startTime.getTime() : Infinity;
         return ta - tb;
       });
-      done.forEach((inst, idx) => {
-        inst.order = (idx + 1) * 100;
+      assignSequential(sortedDone, 100);
+    } else {
+      done.forEach((inst) => {
+        if (typeof inst.order === 'number') {
+          maxOrder = Math.max(maxOrder, inst.order);
+        }
       });
-      currentOrderBase = done.length * 100;
+    }
 
-      // 2) Running: preserve any existing order, assign if missing after done
-      const existingRunningOrders = running
-        .filter(i => i.order !== undefined && i.order !== null)
-        .map(i => i.order as number);
-      const maxExistingOrder = existingRunningOrders.length > 0
-        ? Math.max(...existingRunningOrders)
-        : currentOrderBase;
-
-      let nextOrder = Math.max(currentOrderBase, maxExistingOrder) + 100;
-      running
-        .filter(i => i.order === undefined || i.order === null)
-        .forEach(inst => {
-          inst.order = nextOrder;
-          nextOrder += 100;
-        });
-
-      // 3) Idle: keep saved order if present; otherwise assign by scheduledTime (HH:MM)
-      const savedIdle = idle.filter(i => i.order !== undefined && i.order !== null);
-      const unsavedIdle = idle.filter(i => i.order === undefined || i.order === null);
-
-      // Compute base for new idle orders (after any existing order in this slot)
-      const existingOrdersInSlot = instances
-        .filter(i => i.order !== undefined && i.order !== null)
-        .map(i => i.order as number);
-      const idleBase = existingOrdersInSlot.length > 0 ? Math.max(...existingOrdersInSlot) : nextOrder - 100;
-
-      // Sort unsaved idle by scheduledTime ascending (missing goes last)
-      unsavedIdle.sort((a, b) => {
-        const ta = a?.task?.scheduledTime;
-        const tb = b?.task?.scheduledTime;
-        if (!ta && !tb) return 0;
-        if (!ta) return 1;
-        if (!tb) return -1;
-        const [ha, ma] = ta.split(':').map(n => parseInt(n, 10));
-        const [hb, mb] = tb.split(':').map(n => parseInt(n, 10));
-        return (ha * 60 + ma) - (hb * 60 + mb);
-      });
-
-      // Assign orders to unsaved idle starting after existing ones
-      let idleOrder = idleBase + 100;
-      unsavedIdle.forEach(inst => {
-        inst.order = idleOrder;
-        idleOrder += 100;
-      });
-    });
-
-    // Save new/updated orders only
-    this.saveTaskOrders();
-  }
-
-  private saveTaskOrders(): void {
-    const dateStr = this.getCurrentDateString();
-    const orderKey = `taskchute-orders-${dateStr}`;
-    
-    const orders: Record<string, number> = {};
-    this.taskInstances.forEach(inst => {
-      if (inst.order !== undefined) {
-        const key = `${inst.task.path || inst.instanceId}::${inst.slotKey || 'none'}`;
-        orders[key] = inst.order;
+    // Running tasks: keep saved order, assign to missing ones after maxOrder
+    running.forEach((inst) => {
+      if (typeof inst.order === 'number') {
+        maxOrder = Math.max(maxOrder, inst.order);
       }
     });
-    
-    try {
-      localStorage.setItem(orderKey, JSON.stringify(orders));
-    } catch (error) {
-      console.error('Failed to save task orders:', error);
+
+    const runningMissing = running.filter((inst) => inst.order === undefined || inst.order === null);
+    if (runningMissing.length > 0) {
+      runningMissing.sort((a, b) => (a.startTime?.getTime() ?? 0) - (b.startTime?.getTime() ?? 0));
+      assignSequential(runningMissing, maxOrder + 100);
     }
+
+    // Idle tasks: apply saved order where available; assign the rest by scheduled time after current max
+    idle.forEach((inst) => {
+      if (typeof inst.order === 'number') {
+        maxOrder = Math.max(maxOrder, inst.order);
+      }
+    });
+
+    const idleMissing = idle.filter((inst) => inst.order === undefined || inst.order === null);
+    if (idleMissing.length > 0) {
+      idleMissing.sort((a, b) => {
+        const ta = a?.task?.scheduledTime;
+        const tb = b?.task?.scheduledTime;
+        if (!ta && !tb) return (a.task?.title || '').localeCompare(b.task?.title || '');
+        if (!ta) return 1;
+        if (!tb) return -1;
+        const [ha, ma] = ta.split(':').map((n) => parseInt(n, 10));
+        const [hb, mb] = tb.split(':').map((n) => parseInt(n, 10));
+        return ha * 60 + ma - (hb * 60 + mb);
+      });
+      assignSequential(idleMissing, maxOrder + 100);
+    }
+  }
+
+  private async saveTaskOrders(): Promise<void> {
+    await this.ensureDayStateForCurrentDate();
+    const dateStr = this.getCurrentDateString();
+    const dayState = this.getCurrentDayState();
+
+    const orders: Record<string, number> = {};
+    this.taskInstances.forEach((inst) => {
+      if (inst.order === undefined || inst.order === null) return;
+      const key = this.getOrderKey(inst);
+      if (!key) return;
+      orders[key] = inst.order as number;
+    });
+
+    if (Array.isArray(dayState.duplicatedInstances) && dayState.duplicatedInstances.length > 0) {
+      dayState.duplicatedInstances = dayState.duplicatedInstances.map((dup) => {
+        if (!dup || !dup.instanceId) return dup;
+        const inst = this.taskInstances.find((i) => i.instanceId === dup.instanceId);
+        if (!inst) return dup;
+        return {
+          ...dup,
+          slotKey: inst.slotKey,
+          originalSlotKey: inst.originalSlotKey ?? dup.originalSlotKey,
+        };
+      });
+    }
+
+    dayState.orders = orders;
+    await this.persistDayState(dateStr);
   }
 
   private loadSavedOrders(): Record<string, number> {
     const dateStr = this.getCurrentDateString();
-    const orderKey = `taskchute-orders-${dateStr}`;
-    
-    try {
-      const saved = localStorage.getItem(orderKey);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (error) {
-      console.error('Failed to load saved orders:', error);
+    const state = this.dayStateCache.get(dateStr);
+    if (!state || !state.orders) {
+      return {};
     }
-    
-    return {};
+
+    const raw = state.orders;
+    const normalized: Record<string, number> = {};
+    let mutated = false;
+
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        normalized[key] = value;
+        continue;
+      }
+
+      if (value && typeof value === 'object') {
+        const order = Number((value as any).order);
+        if (!Number.isFinite(order)) continue;
+        const slot = (value as any).slot || 'none';
+        const normalizedKey = key.includes('::') ? key : `${key}::${slot}`;
+        normalized[normalizedKey] = order;
+        mutated = true;
+      }
+    }
+
+    if (mutated || Object.values(raw).some((v) => typeof v !== 'number')) {
+      state.orders = normalized;
+      this.dayStateCache.set(dateStr, state);
+      void this.persistDayState(dateStr);
+    }
+
+    return normalized;
+  }
+
+  private getSavedOrderForSlot(
+    inst: TaskInstance,
+    slotKey: string,
+    savedOrders: Record<string, number>,
+  ): number | undefined {
+    const originalSlot = inst.slotKey;
+    inst.slotKey = slotKey;
+    const key = this.getOrderKey(inst);
+    inst.slotKey = originalSlot;
+    if (!key) return undefined;
+    return savedOrders[key];
   }
 
   private sortByOrder(instances: TaskInstance[]): TaskInstance[] {
@@ -2811,35 +3023,33 @@ export class TaskChuteView extends ItemView {
     });
   }
 
-  private moveTaskToSlot(inst: TaskInstance, newSlot: string, position?: number): void {
-    // Update slot
-    const oldSlot = inst.slotKey;
-    inst.slotKey = newSlot;
-    
-    // Get all tasks in the target slot (excluding the moving task)
-    const slotTasks = this.taskInstances.filter(
-      t => t.slotKey === newSlot && t !== inst
-    );
-    
-    // Sort existing tasks by their current order
-    this.sortByOrder(slotTasks);
-    
-    // Insert the task at the specified position
-    if (position !== undefined && position >= 0) {
-      // Insert at specific position
-      slotTasks.splice(position, 0, inst);
-    } else {
-      // Add to the end
-      slotTasks.push(inst);
-    }
-    
-    // Reassign order numbers for all tasks in the slot
-    slotTasks.forEach((task, idx) => {
-      task.order = idx;
-    });
-    
-    // Save changes
-    this.saveTaskOrders();
+  private async moveTaskToSlot(inst: TaskInstance, newSlot: string, stateInsertIndex?: number): Promise<void> {
+    await this.ensureDayStateForCurrentDate();
+
+    const targetSlot = newSlot || 'none';
+    const normalizedState = this.normalizeState(inst.state);
+
+    const sameStateTasks = this.taskInstances
+      .filter(
+        (t) =>
+          t !== inst &&
+          (t.slotKey || 'none') === targetSlot &&
+          this.normalizeState(t.state) === normalizedState,
+      )
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const insertIndex = stateInsertIndex !== undefined
+      ? Math.max(0, Math.min(stateInsertIndex, sameStateTasks.length))
+      : sameStateTasks.length;
+
+    const referenceTasks = [...sameStateTasks];
+    inst.slotKey = targetSlot;
+    this.persistSlotAssignment(inst);
+    const newOrder = this.calculateSimpleOrder(insertIndex, referenceTasks);
+    inst.order = newOrder;
+
+    await this.saveTaskOrders();
+    this.sortTaskInstancesByTimeOrder();
     this.renderTaskList();
   }
 
@@ -2886,6 +3096,9 @@ export class TaskChuteView extends ItemView {
 
   private scheduleBoundaryCheck(): void {
     // Schedule boundary check for idle-task-auto-move feature
+    if (this.boundaryCheckTimeout) {
+      clearTimeout(this.boundaryCheckTimeout);
+    }
     const now = new Date();
     const boundaries: TimeBoundary[] = [
       { hour: 0, minute: 0 },
@@ -2904,7 +3117,7 @@ export class TaskChuteView extends ItemView {
     }, delay);
   }
 
-  private checkBoundaryTasks(): void {
+  private async checkBoundaryTasks(): Promise<void> {
     try {
       // Only act on today
       const today = new Date();
@@ -2928,13 +3141,15 @@ export class TaskChuteView extends ItemView {
         if (idx >= 0 && idx < currentIndex) {
           // Past slot → move into current slot
           inst.slotKey = currentSlot;
+          this.persistSlotAssignment(inst);
           moved = true;
         }
       });
 
       if (moved) {
         // Recompute orders per spec and rerender
-        this.initializeTaskOrders();
+        this.sortTaskInstancesByTimeOrder();
+        await this.saveTaskOrders();
         this.renderTaskList();
       }
     } catch (e) {
@@ -3061,7 +3276,7 @@ export class TaskChuteView extends ItemView {
     toggle.addEventListener('change', async (e) => {
       await this.updateRoutineEnabled(file, toggle.checked);
       // 反映のためリロード
-      await this.reloadTasksAndRestore();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       // 行の表示も更新
       const newFm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
       typeBadge.textContent = this.getRoutineTypeLabel(newFm.routine_type || 'daily', Math.max(1, Number(newFm.routine_interval || 1)), newFm);
@@ -3246,37 +3461,31 @@ export class TaskChuteView extends ItemView {
     // ルーチンタスクの削除もdeleteInstanceメソッドに統一
     // ただし、hidden routinesに追加する処理が必要
     const dateStr = this.getCurrentDateString();
-    const hiddenKey = `taskchute-hidden-routines-${dateStr}`;
-    const hiddenRoutines = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
-    
+    await this.ensureDayStateForCurrentDate();
+    const dayState = this.getCurrentDayState();
+
     // 複製タスクかチェック
     const isDuplicated = this.isDuplicatedTask(inst);
-    
-    const alreadyHidden = hiddenRoutines.some((h: any) => {
+
+    const alreadyHidden = dayState.hiddenRoutines.some((h: HiddenRoutine | string) => {
       if (isDuplicated) {
-        return h.instanceId === inst.instanceId;
+        if (typeof h === 'string') return false;
+        return (h as HiddenRoutine).instanceId === inst.instanceId;
       }
       if (typeof h === 'string') {
         return h === inst.task.path;
       }
       return h.path === inst.task.path && !h.instanceId;
     });
-    
+
     if (!alreadyHidden) {
-      if (isDuplicated) {
-        hiddenRoutines.push({
-          path: inst.task.path,
-          instanceId: inst.instanceId
-        });
-      } else {
-        hiddenRoutines.push({
-          path: inst.task.path,
-          instanceId: null
-        });
-      }
-      localStorage.setItem(hiddenKey, JSON.stringify(hiddenRoutines));
+      dayState.hiddenRoutines.push({
+        path: inst.task.path,
+        instanceId: isDuplicated ? inst.instanceId : null,
+      });
+      await this.persistDayState(dateStr);
     }
-    
+
     // 実行履歴から削除
     if (inst.instanceId) {
       await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId);
@@ -3287,10 +3496,8 @@ export class TaskChuteView extends ItemView {
   }
 
   private isDuplicatedTask(inst: TaskInstance): boolean {
-    const dateStr = this.getCurrentDateString();
-    const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-    const duplicatedInstances = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
-    return duplicatedInstances.some((d: any) => d.instanceId === inst.instanceId);
+    const dayState = this.getCurrentDayState();
+    return dayState.duplicatedInstances.some((d) => d.instanceId === inst.instanceId);
   }
 
   private async deleteTaskLogsByInstanceId(taskPath: string, instanceId: string): Promise<number> {
@@ -3365,11 +3572,14 @@ export class TaskChuteView extends ItemView {
 
   private handleDrop(e: DragEvent, taskItem: HTMLElement, targetInst: TaskInstance): void {
     const data = e.dataTransfer?.getData("text/plain");
-    if (!data) return;
-    
+    if (!data) {
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
+
     const [sourceSlot, sourceIdx] = data.split("::");
     const targetSlot = targetInst.slotKey || "none";
-    
+
     // Find the source instance
     const sourceInst = this.taskInstances.find(inst => {
       const instSlot = inst.slotKey || "none";
@@ -3379,8 +3589,11 @@ export class TaskChuteView extends ItemView {
       return instSlot === sourceSlot && idx === parseInt(sourceIdx);
     });
     
-    if (!sourceInst || sourceInst.state === "done") return;
-    
+    if (!sourceInst || sourceInst.state === "done") {
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
+
     // Calculate drop position
     const rect = taskItem.getBoundingClientRect();
     const y = e.clientY - rect.top;
@@ -3391,11 +3604,38 @@ export class TaskChuteView extends ItemView {
       t => (t.slotKey || "none") === targetSlot
     );
     const sortedTargetTasks = this.sortByOrder(targetSlotTasks);
-    
+    const targetWithoutSource = sortedTargetTasks.filter((t) => t !== sourceInst);
+
     // Find target position
     const targetIndex = sortedTargetTasks.indexOf(targetInst);
     let newPosition = isBottomHalf ? targetIndex + 1 : targetIndex;
-    
+
+    const sourcePriority = this.getStatePriority(sourceInst.state);
+    let minAllowed = 0;
+    for (const task of sortedTargetTasks) {
+      if (this.getStatePriority(task.state) < sourcePriority) {
+        minAllowed++;
+      }
+    }
+
+    let boundaryAfter = sortedTargetTasks.length;
+    for (let i = 0; i < sortedTargetTasks.length; i++) {
+      if (this.getStatePriority(sortedTargetTasks[i].state) > sourcePriority) {
+        boundaryAfter = i;
+        break;
+      }
+    }
+
+    if (newPosition < minAllowed) {
+      new Notice("完了済み・実行中タスクより上には配置できません");
+      this.clearDragoverClasses(taskItem);
+      return;
+    }
+
+    if (newPosition > boundaryAfter) {
+      newPosition = boundaryAfter;
+    }
+
     // If moving within the same slot, adjust position
     if (sourceSlot === targetSlot) {
       const sourceIndex = sortedTargetTasks.indexOf(sourceInst);
@@ -3404,8 +3644,20 @@ export class TaskChuteView extends ItemView {
       }
     }
     
-    // Move the task
-    this.moveTaskToSlot(sourceInst, targetSlot, newPosition);
+    const clampedPosition = Math.max(0, Math.min(newPosition, targetWithoutSource.length));
+    let stateInsertIndex = 0;
+    const normalizedSourceState = this.normalizeState(sourceInst.state);
+    for (let i = 0; i < clampedPosition; i++) {
+      const candidate = targetWithoutSource[i];
+      if (this.normalizeState(candidate.state) === normalizedSourceState) {
+        stateInsertIndex++;
+      }
+    }
+
+    void this.moveTaskToSlot(sourceInst, targetSlot, stateInsertIndex).catch((error) => {
+      console.error('[TaskChute]', 'moveTaskToSlot failed', error);
+    });
+    this.clearDragoverClasses(taskItem);
   }
 
   private handleSlotDrop(e: DragEvent, slot: string): void {
@@ -3424,9 +3676,15 @@ export class TaskChuteView extends ItemView {
     });
     
     if (!sourceInst || sourceInst.state === "done") return;
-    
+
     // Move to the end of the target slot
-    this.moveTaskToSlot(sourceInst, slot);
+    const normalizedSlot = slot || 'none';
+    const normalizedState = this.normalizeState(sourceInst.state);
+    const sameStateTasks = this.taskInstances.filter(
+      (t) => t !== sourceInst && (t.slotKey || 'none') === normalizedSlot && this.normalizeState(t.state) === normalizedState,
+    );
+    const insertIndex = sameStateTasks.length;
+    void this.moveTaskToSlot(sourceInst, slot, insertIndex);
   }
 
   private toggleNavigation(): void {
@@ -3485,7 +3743,7 @@ export class TaskChuteView extends ItemView {
       button.setAttribute("title", `ルーチンタスク（${scheduledTime}開始予定）`);
       
       // タスク情報を再取得し、実行中タスクの表示も復元
-      await this.reloadTasksAndRestore();
+        await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new Notice(`「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`);
     } catch (error: any) {
       console.error("Failed to set routine task:", error);
@@ -3626,7 +3884,7 @@ export class TaskChuteView extends ItemView {
       button.setAttribute("title", tooltipText);
       
       // タスク情報を再取得し、実行中タスクの表示も復元
-      await this.reloadTasksAndRestore();
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new Notice(`「${task.title}」をルーチンタスクに設定しました`);
     } catch (error: any) {
       console.error("Failed to set routine task:", error);
@@ -3682,6 +3940,7 @@ export class TaskChuteView extends ItemView {
   
   private async deleteInstance(inst: TaskInstance): Promise<void> {
     try {
+      await this.ensureDayStateForCurrentDate();
       // インスタンスをリストから削除
       const index = this.taskInstances.indexOf(inst);
       if (index > -1) {
@@ -3690,6 +3949,7 @@ export class TaskChuteView extends ItemView {
       
       // 削除状態を保存
       const dateStr = this.getCurrentDateString();
+      const dayState = this.getCurrentDayState();
       const deletedInstances = this.getDeletedInstances(dateStr);
       const isDup = this.isDuplicatedTask(inst);
       if (isDup) {
@@ -3701,10 +3961,9 @@ export class TaskChuteView extends ItemView {
           timestamp: Date.now(),
         } as any);
         // 複製メタデータからも除去
-        const duplicationKey = `taskchute-duplicated-instances-${dateStr}`;
-        const duplicated = JSON.parse(localStorage.getItem(duplicationKey) || '[]');
-        const filtered = duplicated.filter((d: any) => d.instanceId !== inst.instanceId);
-        try { localStorage.setItem(duplicationKey, JSON.stringify(filtered)); } catch (_) {}
+        dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
+          (dup) => dup.instanceId !== inst.instanceId,
+        );
       } else {
         if (!inst.task.isRoutine) {
           // 非ルーチン: 通常はパス単位（permanent）。ただしパスが不明/不正なら instance 単位にフォールバック
@@ -3735,7 +3994,8 @@ export class TaskChuteView extends ItemView {
         }
       }
       this.saveDeletedInstances(dateStr, deletedInstances);
-      
+      await this.persistDayState(dateStr);
+
       // 非ルーチンタスクの場合、同じパスの他のインスタンスがなければファイルも削除
       if (!inst.task.isRoutine) {
         const samePathInstances = this.taskInstances.filter(
@@ -4041,18 +4301,60 @@ export class TaskChuteView extends ItemView {
       const dateStr = this.getCurrentDateString();
 
       // Delegate to service for unique naming and creation
-      await this.taskCreationService.createTaskFile(taskName, dateStr)
-
-      // 少し待ってからタスクリストを再読み込み＋実行中復元（ファイルシステムの同期を待つ）
-      setTimeout(async () => {
-        await this.reloadTasksAndRestore();
-      }, 100);
+      const file = await this.taskCreationService.createTaskFile(taskName, dateStr)
+      await this.waitForFrontmatter(file);
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     } catch (error) {
       console.error("Failed to create task:", error);
       new Notice("タスクの作成に失敗しました");
     }
   }
-  
+
+  private async waitForFrontmatter(file: TFile, timeoutMs = 4000): Promise<void> {
+    const start = Date.now();
+    const path = file.path;
+    const hasFrontmatter = () => {
+      const cache = this.app.metadataCache.getFileCache(file);
+      return Boolean(cache?.frontmatter);
+    };
+
+    if (hasFrontmatter()) {
+      return;
+    }
+
+    while (Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      if (hasFrontmatter()) {
+        return;
+      }
+    }
+  }
+
+  private persistSlotAssignment(inst: TaskInstance): void {
+    if (inst.task?.path) {
+      if (!this.plugin.settings.slotKeys) {
+        this.plugin.settings.slotKeys = {};
+      }
+      this.plugin.settings.slotKeys[inst.task.path] = inst.slotKey || 'none';
+      void this.plugin.saveSettings();
+    }
+
+    if (inst.instanceId) {
+      const dayState = this.getCurrentDayState();
+      const key = this.getOrderKey(inst);
+      if (key && dayState.orders && dayState.orders[key] != null) {
+        // keep existing order; noop
+      }
+      // Persist duplicated metadata slot for today
+      if (Array.isArray(dayState.duplicatedInstances)) {
+        const dup = dayState.duplicatedInstances.find((d) => d.instanceId === inst.instanceId);
+        if (dup) {
+          dup.slotKey = inst.slotKey;
+        }
+      }
+    }
+  }
+
   private async showTaskMoveDatePicker(inst: TaskInstance, button: HTMLElement): Promise<void> {
     // 日付選択モーダルを表示
     const modal = document.createElement("div");
@@ -4426,81 +4728,37 @@ export class TaskChuteView extends ItemView {
 
   // State management methods for deletion/hiding
   private getDeletedInstances(dateStr: string): DeletedInstance[] {
-    const key = `taskchute-deleted-instances-${dateStr}`;
-    try {
-      const data = localStorage.getItem(key);
-      if (!data) return [];
-      const parsed = JSON.parse(data);
-      // Sanitize invalid records (e.g., path ".../undefined.md" or permanent without path)
-      const sanitized = (Array.isArray(parsed) ? parsed : [])
-        .filter((x: any) => !!x && typeof x === 'object')
-        .filter((x: any) => {
-          // drop permanent records with invalid path
-          if (x.deletionType === 'permanent' && (!x.path || /\/undefined\.md$/.test(String(x.path)))) {
-            return false;
-          }
-          return true;
-        });
-      // If we removed anything, persist the cleaned array to avoid recurring issues
-      try { localStorage.setItem(key, JSON.stringify(sanitized)); } catch (_) {}
-      return sanitized as DeletedInstance[];
-    } catch (e) {
-      return [];
-    }
+    const state = this.dayStateCache.get(dateStr);
+    return state ? state.deletedInstances : [];
   }
 
   private saveDeletedInstances(dateStr: string, instances: DeletedInstance[]): void {
-    const key = `taskchute-deleted-instances-${dateStr}`;
-    try {
-      // Apply the same sanitization on write
-      const sanitized = (instances || []).filter((x: any) => {
-        if (!x || typeof x !== 'object') return false;
-        if (x.deletionType === 'permanent' && (!x.path || /\/undefined\.md$/.test(String(x.path)))) return false;
-        return true;
-      });
-      localStorage.setItem(key, JSON.stringify(sanitized));
-    } catch (e) {
-      console.error("Failed to save deleted instances:", e);
-    }
+    const state = this.dayStateCache.get(dateStr) || {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      orders: {},
+    };
+    state.deletedInstances = instances.filter((x) => !!x);
+    this.dayStateCache.set(dateStr, state);
+    void this.persistDayState(dateStr);
   }
 
   private getHiddenRoutines(dateStr: string): HiddenRoutine[] {
-    const key = `taskchute-hidden-routines-${dateStr}`;
-    try {
-      const data = localStorage.getItem(key);
-      if (!data) return [];
-      const parsed = JSON.parse(data);
-      const sanitized = (Array.isArray(parsed) ? parsed : [])
-        .filter((x: any) => !!x)
-        .filter((x: any) => {
-          if (typeof x === 'string') {
-            return !/\/undefined\.md$/.test(x);
-          }
-          if (x && typeof x === 'object' && x.path) {
-            return !/\/undefined\.md$/.test(String(x.path));
-          }
-          return true;
-        });
-      try { localStorage.setItem(key, JSON.stringify(sanitized)); } catch (_) {}
-      return sanitized as HiddenRoutine[];
-    } catch (e) {
-      return [];
-    }
+    const state = this.dayStateCache.get(dateStr);
+    return state ? (state.hiddenRoutines as HiddenRoutine[]) : [];
   }
 
   private saveHiddenRoutines(dateStr: string, routines: HiddenRoutine[]): void {
-    const key = `taskchute-hidden-routines-${dateStr}`;
-    try {
-      const sanitized = (routines || []).filter((x: any) => {
-        if (!x) return false;
-        if (typeof x === 'string') return !/\/undefined\.md$/.test(x);
-        if (x.path) return !/\/undefined\.md$/.test(String(x.path));
-        return true;
-      });
-      localStorage.setItem(key, JSON.stringify(sanitized));
-    } catch (e) {
-      console.error("Failed to save hidden routines:", e);
-    }
+    const state = this.dayStateCache.get(dateStr) || {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      orders: {},
+    };
+    state.hiddenRoutines = (routines || []).filter((x) => !!x);
+    this.dayStateCache.set(dateStr, state);
+    void this.persistDayState(dateStr);
   }
 
   private isInstanceDeleted(instanceId: string, taskPath: string, dateStr: string): boolean {

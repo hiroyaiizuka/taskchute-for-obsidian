@@ -1,4 +1,4 @@
-import { TFile } from 'obsidian';
+import { TFile, App } from 'obsidian';
 
 export interface TaskChuteSettings {
   taskFolderPath: string;
@@ -8,6 +8,9 @@ export interface TaskChuteSettings {
   enableSound: boolean;
   enableFireworks: boolean;
   enableConfetti: boolean;
+  useOrderBasedSort: boolean;
+  slotKeys: Record<string, string>;
+  migratedLocalState?: boolean;
 }
 
 export interface TaskData {
@@ -75,6 +78,58 @@ export interface DuplicatedInstance {
   instanceId: string;
   originalPath: string;
   timestamp?: number;
+}
+
+export interface DayState {
+  hiddenRoutines: HiddenRoutine[];
+  deletedInstances: DeletedInstance[];
+  duplicatedInstances: Array<
+    DuplicatedInstance & {
+      slotKey?: string;
+      originalSlotKey?: string;
+    }
+  >;
+  orders: Record<string, number>;
+}
+
+export interface MonthlyDayStateFile {
+  days: Record<string, DayState>;
+  metadata: {
+    version: string;
+    lastUpdated: string;
+  };
+}
+
+export interface PathManagerLike {
+  getTaskFolderPath(): string;
+  getProjectFolderPath(): string;
+  getLogDataPath(): string;
+  ensureFolderExists(path: string): Promise<void>;
+}
+
+export interface DayStateServiceAPI {
+  loadDay(date: Date): Promise<DayState>;
+  saveDay(date: Date, state: DayState): Promise<void>;
+  mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>;
+  clearCache(): Promise<void>;
+  getDateFromKey(dateKey: string): Date;
+}
+
+export interface RoutineAliasManagerLike {
+  getAllPossibleNames?(title: string): string[];
+  loadAliases(): Promise<void>;
+}
+
+export interface TaskChutePluginLike {
+  app: App;
+  settings: TaskChuteSettings;
+  saveSettings(): Promise<void>;
+  pathManager: PathManagerLike;
+  routineAliasManager: RoutineAliasManagerLike;
+  dayStateService: DayStateServiceAPI;
+  _log?(level?: string, ...args: any[]): void;
+  _notify?(message: string, timeout?: number): void;
+  [key: string]: unknown;
 }
 
 export interface RunningTask {
