@@ -3,152 +3,208 @@
 // - Hourly average focus/energy chart
 // - Comment list table
 export function buildDefaultReviewTemplate(logDataPath: string): string {
-  const LOG_LINE = `const LOG_DATA_PATH = ${JSON.stringify(logDataPath)}`;
-  const lines: string[] = [];
-  lines.push('---');
-  lines.push('satisfaction: ');
-  lines.push('---');
-  lines.push('');
-  lines.push('### 集中・元気度の推移');
-  lines.push('```dataviewjs');
-  lines.push('// プラグイン設定から受け取ったログデータパス（ビルド時に埋め込み）');
-  lines.push(LOG_LINE);
-  lines.push('');
-  lines.push('// ファイル名から日付を取得');
-  lines.push('// ファイル名: "Daily - YYYY-MM-DD"');
-  lines.push('const fileName = dv.current().file.name');
-  lines.push('');
-  lines.push('// シンプルに日付パターンだけを探す');
-  lines.push('const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)');
-  lines.push('');
-  lines.push('if (!dateMatch) {');
-  lines.push("  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)");
-  lines.push('  return');
-  lines.push('}');
-  lines.push('');
-  lines.push('const currentDate = dateMatch[0] // YYYY-MM-DD');
-  lines.push("const [year, month] = currentDate.split('-')");
-  lines.push("const monthString = year + '-' + month");
-  lines.push('');
-  lines.push('// ログファイルパス');
-  lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'");
-  lines.push('');
-  lines.push('try {');
-  lines.push('  const logFile = dv.app.vault.getAbstractFileByPath(logPath)');
-  lines.push('  const content = logFile ? await dv.app.vault.read(logFile) : null');
-  lines.push("  if (!content) throw new Error('Log file not found')");
-  lines.push('');
-  lines.push('  const monthlyLog = JSON.parse(content)');
-  lines.push('  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []');
-  lines.push('');
-  lines.push('  // 時間帯別にデータを集計');
-  lines.push('  const hourlyData = new Array(24).fill(null).map(() => ({ focus: [], energy: [] }))');
-  lines.push('');
-  lines.push('  dayTasks.forEach(task => {');
-  lines.push('    if (task.startTime && (task.focusLevel > 0 || task.energyLevel > 0)) {');
-  lines.push("      // startTimeは\"HH:MM:SS\"形式");
-  lines.push("      const hourStr = task.startTime.split(':')[0]");
-  lines.push('      const hour = parseInt(hourStr, 10)');
-  lines.push('      if (hour >= 0 && hour < 24) {');
-  lines.push('        if (task.focusLevel > 0) hourlyData[hour].focus.push(task.focusLevel)');
-  lines.push('        if (task.energyLevel > 0) hourlyData[hour].energy.push(task.energyLevel)');
-  lines.push('      }');
-  lines.push('    }');
-  lines.push('  })');
-  lines.push('');
-  lines.push('  const focusData = hourlyData.map(h => h.focus.length > 0');
-  lines.push('    ? Math.round(h.focus.reduce((a,b) => a+b) / h.focus.length * 10) / 10');
-  lines.push('    : null)');
-  lines.push('');
-  lines.push('  const energyData = hourlyData.map(h => h.energy.length > 0');
-  lines.push('    ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length * 10) / 10');
-  lines.push('    : null)');
-  lines.push('');
-  lines.push('  // Chartsプラグインなどで解釈されるchartブロックを生成');
-  lines.push("  const chartBlock = [");
-  lines.push("    '````chart',");
-  lines.push("    'type: bar',");
-  lines.push("    'labels: [0時, 1時, 2時, 3時, 4時, 5時, 6時, 7時, 8時, 9時, 10時, 11時, 12時, 13時, 14時, 15時, 16時, 17時, 18時, 19時, 20時, 21時, 22時, 23時]',");
-  lines.push("    'series:',");
-  lines.push("    '  - title: 集中度',");
-  lines.push("    '    data: [' + focusData.map(v => v !== null ? v : 0).join(', ') + ']',");
-  lines.push("    '  - title: 元気度',");
-  lines.push("    '    data: [' + energyData.map(v => v !== null ? v : 0).join(', ') + ']',");
-  lines.push("    'tension: 0',");
-  lines.push("    'width: 80%',");
-  lines.push("    'labelColors: false',");
-  lines.push("    'fill: false',");
-  lines.push("    'beginAtZero: false',");
-  lines.push("    '````',");
-  lines.push("  ].join('\\n');");
-  lines.push('  dv.paragraph(chartBlock)');
-  lines.push('} catch (e) {');
-  lines.push("  dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')");
-  lines.push('}');
-  lines.push('');
-  lines.push('```');
-  lines.push('');
-  lines.push('### コメント一覧');
-  lines.push('');
-  lines.push('```dataviewjs');
-  lines.push('// プラグイン設定から受け取ったログデータパス（ビルド時に埋め込み）');
-  lines.push(LOG_LINE);
-  lines.push('');
-  lines.push('// ファイル名から日付を取得');
-  lines.push('// ファイル名: "Daily - YYYY-MM-DD"');
-  lines.push('const fileName = dv.current().file.name');
-  lines.push('const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)');
-  lines.push('if (!dateMatch) {');
-  lines.push("  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)");
-  lines.push('  return');
-  lines.push('}');
-  lines.push('');
-  lines.push('const currentDate = dateMatch[0] // YYYY-MM-DD');
-  lines.push("const [year, month] = currentDate.split('-')");
-  lines.push("const monthString = year + '-' + month");
-  lines.push('');
-  lines.push('// ログファイルパス');
-  lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'");
-  lines.push('');
-  lines.push('try {');
-  lines.push('  const logFile = dv.app.vault.getAbstractFileByPath(logPath)');
-  lines.push('  const content = logFile ? await dv.app.vault.read(logFile) : null');
-  lines.push("  if (!content) throw new Error('Log file not found')");
-  lines.push('');
-  lines.push('  const monthlyLog = JSON.parse(content)');
-  lines.push('  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []');
-  lines.push('');
-  lines.push('  // コメントがある、もしくはレーティングがあるタスクのみ');
-  lines.push('  const tasksWithComments = dayTasks');
-  lines.push('    .filter(task => task.executionComment || task.focusLevel > 0 || task.energyLevel > 0)');
-  lines.push('    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))');
-  lines.push('');
-  lines.push('  if (tasksWithComments.length > 0) {');
-  lines.push("    const headers = ['タスク名', '実行時間', '所要時間', '集中度', '元気度', 'コメント']");
-  lines.push('    const tableData = tasksWithComments.map(task => {');
-  lines.push("      const startTimeParts = task.startTime.split(':')");
-  lines.push("      const stopTimeParts = task.stopTime.split(':')");
-  lines.push("      const startTimeStr = startTimeParts[0] + ':' + startTimeParts[1]");
-  lines.push("      const stopTimeStr = stopTimeParts[0] + ':' + stopTimeParts[1]");
-  lines.push('      const durationMinutes = Math.round(task.duration / 60)');
-  lines.push('      return [');
-  lines.push('        task.taskName,');
-  lines.push("        startTimeStr + ' - ' + stopTimeStr,");
-  lines.push("        durationMinutes + '分',");
-  lines.push("        task.focusLevel > 0 ? '⭐'.repeat(task.focusLevel) : '-',");
-  lines.push("        task.energyLevel > 0 ? '⭐'.repeat(task.energyLevel) : '-',");
-  lines.push("        task.executionComment || '-'");
-  lines.push('      ]');
-  lines.push('    })');
-  lines.push('    dv.table(headers, tableData)');
-  lines.push('  } else {');
-  lines.push("    dv.paragraph('📝 コメント付きのタスクはありません。')");
-  lines.push('  }');
-  lines.push('} catch (e) {');
-  lines.push("  dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')");
-  lines.push('}');
-  lines.push('');
-  lines.push('```');
-  lines.push('');
-  return lines.join('\n');
+  const LOG_LINE = `const LOG_DATA_PATH = ${JSON.stringify(logDataPath)}`
+  const lines: string[] = []
+  lines.push("---")
+  lines.push("satisfaction: ")
+  lines.push("---")
+  lines.push("")
+  lines.push("### 集中・元気度の推移")
+  lines.push("```dataviewjs")
+  lines.push(
+    "// プラグイン設定から受け取ったログデータパス（ビルド時に埋め込み）",
+  )
+  lines.push(LOG_LINE)
+  lines.push("")
+  lines.push("// ファイル名から日付を取得")
+  lines.push('// ファイル名: "Daily - YYYY-MM-DD"')
+  lines.push("const fileName = dv.current().file.name")
+  lines.push("")
+  lines.push("// シンプルに日付パターンだけを探す")
+  lines.push("const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)")
+  lines.push("")
+  lines.push("if (!dateMatch) {")
+  lines.push(
+    "  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)",
+  )
+  lines.push("  return")
+  lines.push("}")
+  lines.push("")
+  lines.push("const currentDate = dateMatch[0] // YYYY-MM-DD")
+  lines.push("const [year, month] = currentDate.split('-')")
+  lines.push("const monthString = year + '-' + month")
+  lines.push("")
+  lines.push("// ログファイルパス")
+  lines.push(
+    "const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'",
+  )
+  lines.push("")
+  lines.push("try {")
+  lines.push("  const logFile = dv.app.vault.getAbstractFileByPath(logPath)")
+  lines.push(
+    "  const content = logFile ? await dv.app.vault.read(logFile) : null",
+  )
+  lines.push("  if (!content) throw new Error('Log file not found')")
+  lines.push("")
+  lines.push("  const monthlyLog = JSON.parse(content)")
+  lines.push(
+    "  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []",
+  )
+  lines.push("")
+  lines.push("  // 時間帯別にデータを集計")
+  lines.push(
+    "  const hourlyData = new Array(24).fill(null).map(() => ({ focus: [], energy: [] }))",
+  )
+  lines.push("")
+  lines.push("  dayTasks.forEach(task => {")
+  lines.push(
+    "    if (task.startTime && (task.focusLevel > 0 || task.energyLevel > 0)) {",
+  )
+  lines.push('      // startTimeは"HH:MM:SS"形式')
+  lines.push("      const hourStr = task.startTime.split(':')[0]")
+  lines.push("      const hour = parseInt(hourStr, 10)")
+  lines.push("      if (hour >= 0 && hour < 24) {")
+  lines.push(
+    "        if (task.focusLevel > 0) hourlyData[hour].focus.push(task.focusLevel)",
+  )
+  lines.push(
+    "        if (task.energyLevel > 0) hourlyData[hour].energy.push(task.energyLevel)",
+  )
+  lines.push("      }")
+  lines.push("    }")
+  lines.push("  })")
+  lines.push("")
+  lines.push("  const focusData = hourlyData.map(h => h.focus.length > 0")
+  lines.push(
+    "    ? Math.round(h.focus.reduce((a,b) => a+b) / h.focus.length * 10) / 10",
+  )
+  lines.push("    : null)")
+  lines.push("")
+  lines.push("  const energyData = hourlyData.map(h => h.energy.length > 0")
+  lines.push(
+    "    ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length * 10) / 10",
+  )
+  lines.push("    : null)")
+  lines.push("")
+  lines.push("  // Chartsプラグインなどで解釈されるchartブロックを生成")
+  lines.push("  const chartBlock = [")
+  lines.push("    '````chart',")
+  lines.push("    'type: bar',")
+  lines.push(
+    "    'labels: [0時, 1時, 2時, 3時, 4時, 5時, 6時, 7時, 8時, 9時, 10時, 11時, 12時, 13時, 14時, 15時, 16時, 17時, 18時, 19時, 20時, 21時, 22時, 23時]',",
+  )
+  lines.push("    'series:',")
+  lines.push("    '  - title: 集中度',")
+  lines.push(
+    "    '    data: [' + focusData.map(v => v !== null ? v : 0).join(', ') + ']',",
+  )
+  lines.push("    '  - title: 元気度',")
+  lines.push(
+    "    '    data: [' + energyData.map(v => v !== null ? v : 0).join(', ') + ']',",
+  )
+  lines.push("    'tension: 0',")
+  lines.push("    'width: 80%',")
+  lines.push("    'labelColors: false',")
+  lines.push("    'fill: false',")
+  lines.push("    'beginAtZero: false',")
+  lines.push("    '````',")
+  lines.push("  ].join('\\n');")
+  lines.push("  dv.paragraph(chartBlock)")
+  lines.push("} catch (e) {")
+  lines.push(
+    "  dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')",
+  )
+  lines.push("}")
+  lines.push("")
+  lines.push("```")
+  lines.push("")
+  lines.push("### コメント一覧")
+  lines.push("")
+  lines.push("```dataviewjs")
+  lines.push(
+    "// プラグイン設定から受け取ったログデータパス（ビルド時に埋め込み）",
+  )
+  lines.push(LOG_LINE)
+  lines.push("")
+  lines.push("// ファイル名から日付を取得")
+  lines.push('// ファイル名: "Daily - YYYY-MM-DD"')
+  lines.push("const fileName = dv.current().file.name")
+  lines.push("const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)")
+  lines.push("if (!dateMatch) {")
+  lines.push(
+    "  dv.paragraph('❌ ファイル名から日付を取得できませんでした。ファイル名: ' + fileName)",
+  )
+  lines.push("  return")
+  lines.push("}")
+  lines.push("")
+  lines.push("const currentDate = dateMatch[0] // YYYY-MM-DD")
+  lines.push("const [year, month] = currentDate.split('-')")
+  lines.push("const monthString = year + '-' + month")
+  lines.push("")
+  lines.push("// ログファイルパス")
+  lines.push(
+    "const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'",
+  )
+  lines.push("")
+  lines.push("try {")
+  lines.push("  const logFile = dv.app.vault.getAbstractFileByPath(logPath)")
+  lines.push(
+    "  const content = logFile ? await dv.app.vault.read(logFile) : null",
+  )
+  lines.push("  if (!content) throw new Error('Log file not found')")
+  lines.push("")
+  lines.push("  const monthlyLog = JSON.parse(content)")
+  lines.push(
+    "  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []",
+  )
+  lines.push("")
+  lines.push("  // コメントがある、もしくはレーティングがあるタスクのみ")
+  lines.push("  const tasksWithComments = dayTasks")
+  lines.push(
+    "    .filter(task => task.executionComment || task.focusLevel > 0 || task.energyLevel > 0)",
+  )
+  lines.push(
+    "    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))",
+  )
+  lines.push("")
+  lines.push("  if (tasksWithComments.length > 0) {")
+  lines.push(
+    "    const headers = ['タスク名', '実行時間', '所要時間', '集中度', '元気度', 'コメント']",
+  )
+  lines.push("    const tableData = tasksWithComments.map(task => {")
+  lines.push("      const startTimeParts = task.startTime.split(':')")
+  lines.push("      const stopTimeParts = task.stopTime.split(':')")
+  lines.push(
+    "      const startTimeStr = startTimeParts[0] + ':' + startTimeParts[1]",
+  )
+  lines.push(
+    "      const stopTimeStr = stopTimeParts[0] + ':' + stopTimeParts[1]",
+  )
+  lines.push("      const durationMinutes = Math.round(task.duration / 60)")
+  lines.push("      return [")
+  lines.push("        task.taskTitle,")
+  lines.push("        startTimeStr + ' - ' + stopTimeStr,")
+  lines.push("        durationMinutes + '分',")
+  lines.push(
+    "        task.focusLevel > 0 ? '⭐'.repeat(task.focusLevel) : '-',",
+  )
+  lines.push(
+    "        task.energyLevel > 0 ? '⭐'.repeat(task.energyLevel) : '-',",
+  )
+  lines.push("        task.executionComment || '-'")
+  lines.push("      ]")
+  lines.push("    })")
+  lines.push("    dv.table(headers, tableData)")
+  lines.push("  } else {")
+  lines.push("    dv.paragraph('📝 コメント付きのタスクはありません。')")
+  lines.push("  }")
+  lines.push("} catch (e) {")
+  lines.push(
+    "  dv.paragraph('❌ データが読み込めませんでした。TaskChuteのログファイルが存在するか確認してください。')",
+  )
+  lines.push("}")
+  lines.push("")
+  lines.push("```")
+  lines.push("")
+  return lines.join("\n")
 }
