@@ -688,7 +688,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("");
   lines.push("### \u96C6\u4E2D\u30FB\u5143\u6C17\u5EA6\u306E\u63A8\u79FB");
   lines.push("```dataviewjs");
-  lines.push("// \u30D7\u30E9\u30B0\u30A4\u30F3\u8A2D\u5B9A\u304B\u3089\u53D7\u3051\u53D6\u3063\u305F\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9\uFF08\u30D3\u30EB\u30C9\u6642\u306B\u57CB\u3081\u8FBC\u307F\uFF09");
+  lines.push(
+    "// \u30D7\u30E9\u30B0\u30A4\u30F3\u8A2D\u5B9A\u304B\u3089\u53D7\u3051\u53D6\u3063\u305F\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9\uFF08\u30D3\u30EB\u30C9\u6642\u306B\u57CB\u3081\u8FBC\u307F\uFF09"
+  );
   lines.push(LOG_LINE);
   lines.push("");
   lines.push("// \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97");
@@ -699,7 +701,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)");
   lines.push("");
   lines.push("if (!dateMatch) {");
-  lines.push("  dv.paragraph('\u274C \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u540D: ' + fileName)");
+  lines.push(
+    "  dv.paragraph('\u274C \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u540D: ' + fileName)"
+  );
   lines.push("  return");
   lines.push("}");
   lines.push("");
@@ -708,49 +712,73 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("const monthString = year + '-' + month");
   lines.push("");
   lines.push("// \u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9");
-  lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'");
+  lines.push(
+    "const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'"
+  );
   lines.push("");
   lines.push("try {");
   lines.push("  const logFile = dv.app.vault.getAbstractFileByPath(logPath)");
-  lines.push("  const content = logFile ? await dv.app.vault.read(logFile) : null");
+  lines.push(
+    "  const content = logFile ? await dv.app.vault.read(logFile) : null"
+  );
   lines.push("  if (!content) throw new Error('Log file not found')");
   lines.push("");
   lines.push("  const monthlyLog = JSON.parse(content)");
-  lines.push("  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []");
+  lines.push(
+    "  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []"
+  );
   lines.push("");
   lines.push("  // \u6642\u9593\u5E2F\u5225\u306B\u30C7\u30FC\u30BF\u3092\u96C6\u8A08");
-  lines.push("  const hourlyData = new Array(24).fill(null).map(() => ({ focus: [], energy: [] }))");
+  lines.push(
+    "  const hourlyData = new Array(24).fill(null).map(() => ({ focus: [], energy: [] }))"
+  );
   lines.push("");
   lines.push("  dayTasks.forEach(task => {");
-  lines.push("    if (task.startTime && (task.focusLevel > 0 || task.energyLevel > 0)) {");
+  lines.push(
+    "    if (task.startTime && (task.focusLevel > 0 || task.energyLevel > 0)) {"
+  );
   lines.push('      // startTime\u306F"HH:MM:SS"\u5F62\u5F0F');
   lines.push("      const hourStr = task.startTime.split(':')[0]");
   lines.push("      const hour = parseInt(hourStr, 10)");
   lines.push("      if (hour >= 0 && hour < 24) {");
-  lines.push("        if (task.focusLevel > 0) hourlyData[hour].focus.push(task.focusLevel)");
-  lines.push("        if (task.energyLevel > 0) hourlyData[hour].energy.push(task.energyLevel)");
+  lines.push(
+    "        if (task.focusLevel > 0) hourlyData[hour].focus.push(task.focusLevel)"
+  );
+  lines.push(
+    "        if (task.energyLevel > 0) hourlyData[hour].energy.push(task.energyLevel)"
+  );
   lines.push("      }");
   lines.push("    }");
   lines.push("  })");
   lines.push("");
   lines.push("  const focusData = hourlyData.map(h => h.focus.length > 0");
-  lines.push("    ? Math.round(h.focus.reduce((a,b) => a+b) / h.focus.length * 10) / 10");
+  lines.push(
+    "    ? Math.round(h.focus.reduce((a,b) => a+b) / h.focus.length * 10) / 10"
+  );
   lines.push("    : null)");
   lines.push("");
   lines.push("  const energyData = hourlyData.map(h => h.energy.length > 0");
-  lines.push("    ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length * 10) / 10");
+  lines.push(
+    "    ? Math.round(h.energy.reduce((a,b) => a+b) / h.energy.length * 10) / 10"
+  );
   lines.push("    : null)");
   lines.push("");
   lines.push("  // Charts\u30D7\u30E9\u30B0\u30A4\u30F3\u306A\u3069\u3067\u89E3\u91C8\u3055\u308C\u308Bchart\u30D6\u30ED\u30C3\u30AF\u3092\u751F\u6210");
   lines.push("  const chartBlock = [");
   lines.push("    '````chart',");
   lines.push("    'type: bar',");
-  lines.push("    'labels: [0\u6642, 1\u6642, 2\u6642, 3\u6642, 4\u6642, 5\u6642, 6\u6642, 7\u6642, 8\u6642, 9\u6642, 10\u6642, 11\u6642, 12\u6642, 13\u6642, 14\u6642, 15\u6642, 16\u6642, 17\u6642, 18\u6642, 19\u6642, 20\u6642, 21\u6642, 22\u6642, 23\u6642]',");
+  lines.push(
+    "    'labels: [0\u6642, 1\u6642, 2\u6642, 3\u6642, 4\u6642, 5\u6642, 6\u6642, 7\u6642, 8\u6642, 9\u6642, 10\u6642, 11\u6642, 12\u6642, 13\u6642, 14\u6642, 15\u6642, 16\u6642, 17\u6642, 18\u6642, 19\u6642, 20\u6642, 21\u6642, 22\u6642, 23\u6642]',"
+  );
   lines.push("    'series:',");
   lines.push("    '  - title: \u96C6\u4E2D\u5EA6',");
-  lines.push("    '    data: [' + focusData.map(v => v !== null ? v : 0).join(', ') + ']',");
+  lines.push(
+    "    '    data: [' + focusData.map(v => v !== null ? v : 0).join(', ') + ']',"
+  );
   lines.push("    '  - title: \u5143\u6C17\u5EA6',");
-  lines.push("    '    data: [' + energyData.map(v => v !== null ? v : 0).join(', ') + ']',");
+  lines.push(
+    "    '    data: [' + energyData.map(v => v !== null ? v : 0).join(', ') + ']',"
+  );
   lines.push("    'tension: 0',");
   lines.push("    'width: 80%',");
   lines.push("    'labelColors: false',");
@@ -760,7 +788,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("  ].join('\\n');");
   lines.push("  dv.paragraph(chartBlock)");
   lines.push("} catch (e) {");
-  lines.push("  dv.paragraph('\u274C \u30C7\u30FC\u30BF\u304C\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002TaskChute\u306E\u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u304C\u5B58\u5728\u3059\u308B\u304B\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002')");
+  lines.push(
+    "  dv.paragraph('\u274C \u30C7\u30FC\u30BF\u304C\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002TaskChute\u306E\u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u304C\u5B58\u5728\u3059\u308B\u304B\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002')"
+  );
   lines.push("}");
   lines.push("");
   lines.push("```");
@@ -768,7 +798,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("### \u30B3\u30E1\u30F3\u30C8\u4E00\u89A7");
   lines.push("");
   lines.push("```dataviewjs");
-  lines.push("// \u30D7\u30E9\u30B0\u30A4\u30F3\u8A2D\u5B9A\u304B\u3089\u53D7\u3051\u53D6\u3063\u305F\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9\uFF08\u30D3\u30EB\u30C9\u6642\u306B\u57CB\u3081\u8FBC\u307F\uFF09");
+  lines.push(
+    "// \u30D7\u30E9\u30B0\u30A4\u30F3\u8A2D\u5B9A\u304B\u3089\u53D7\u3051\u53D6\u3063\u305F\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9\uFF08\u30D3\u30EB\u30C9\u6642\u306B\u57CB\u3081\u8FBC\u307F\uFF09"
+  );
   lines.push(LOG_LINE);
   lines.push("");
   lines.push("// \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97");
@@ -776,7 +808,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("const fileName = dv.current().file.name");
   lines.push("const dateMatch = fileName.match(/\\d{4}-\\d{2}-\\d{2}/)");
   lines.push("if (!dateMatch) {");
-  lines.push("  dv.paragraph('\u274C \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u540D: ' + fileName)");
+  lines.push(
+    "  dv.paragraph('\u274C \u30D5\u30A1\u30A4\u30EB\u540D\u304B\u3089\u65E5\u4ED8\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u540D: ' + fileName)"
+  );
   lines.push("  return");
   lines.push("}");
   lines.push("");
@@ -785,35 +819,55 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("const monthString = year + '-' + month");
   lines.push("");
   lines.push("// \u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9");
-  lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'");
+  lines.push(
+    "const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'"
+  );
   lines.push("");
   lines.push("try {");
   lines.push("  const logFile = dv.app.vault.getAbstractFileByPath(logPath)");
-  lines.push("  const content = logFile ? await dv.app.vault.read(logFile) : null");
+  lines.push(
+    "  const content = logFile ? await dv.app.vault.read(logFile) : null"
+  );
   lines.push("  if (!content) throw new Error('Log file not found')");
   lines.push("");
   lines.push("  const monthlyLog = JSON.parse(content)");
-  lines.push("  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []");
+  lines.push(
+    "  const dayTasks = monthlyLog.taskExecutions?.[currentDate] || []"
+  );
   lines.push("");
   lines.push("  // \u30B3\u30E1\u30F3\u30C8\u304C\u3042\u308B\u3001\u3082\u3057\u304F\u306F\u30EC\u30FC\u30C6\u30A3\u30F3\u30B0\u304C\u3042\u308B\u30BF\u30B9\u30AF\u306E\u307F");
   lines.push("  const tasksWithComments = dayTasks");
-  lines.push("    .filter(task => task.executionComment || task.focusLevel > 0 || task.energyLevel > 0)");
-  lines.push("    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))");
+  lines.push(
+    "    .filter(task => task.executionComment || task.focusLevel > 0 || task.energyLevel > 0)"
+  );
+  lines.push(
+    "    .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))"
+  );
   lines.push("");
   lines.push("  if (tasksWithComments.length > 0) {");
-  lines.push("    const headers = ['\u30BF\u30B9\u30AF\u540D', '\u5B9F\u884C\u6642\u9593', '\u6240\u8981\u6642\u9593', '\u96C6\u4E2D\u5EA6', '\u5143\u6C17\u5EA6', '\u30B3\u30E1\u30F3\u30C8']");
+  lines.push(
+    "    const headers = ['\u30BF\u30B9\u30AF\u540D', '\u5B9F\u884C\u6642\u9593', '\u6240\u8981\u6642\u9593', '\u96C6\u4E2D\u5EA6', '\u5143\u6C17\u5EA6', '\u30B3\u30E1\u30F3\u30C8']"
+  );
   lines.push("    const tableData = tasksWithComments.map(task => {");
   lines.push("      const startTimeParts = task.startTime.split(':')");
   lines.push("      const stopTimeParts = task.stopTime.split(':')");
-  lines.push("      const startTimeStr = startTimeParts[0] + ':' + startTimeParts[1]");
-  lines.push("      const stopTimeStr = stopTimeParts[0] + ':' + stopTimeParts[1]");
+  lines.push(
+    "      const startTimeStr = startTimeParts[0] + ':' + startTimeParts[1]"
+  );
+  lines.push(
+    "      const stopTimeStr = stopTimeParts[0] + ':' + stopTimeParts[1]"
+  );
   lines.push("      const durationMinutes = Math.round(task.duration / 60)");
   lines.push("      return [");
-  lines.push("        task.taskName,");
+  lines.push("        task.taskTitle,");
   lines.push("        startTimeStr + ' - ' + stopTimeStr,");
   lines.push("        durationMinutes + '\u5206',");
-  lines.push("        task.focusLevel > 0 ? '\u2B50'.repeat(task.focusLevel) : '-',");
-  lines.push("        task.energyLevel > 0 ? '\u2B50'.repeat(task.energyLevel) : '-',");
+  lines.push(
+    "        task.focusLevel > 0 ? '\u2B50'.repeat(task.focusLevel) : '-',"
+  );
+  lines.push(
+    "        task.energyLevel > 0 ? '\u2B50'.repeat(task.energyLevel) : '-',"
+  );
   lines.push("        task.executionComment || '-'");
   lines.push("      ]");
   lines.push("    })");
@@ -822,7 +876,9 @@ function buildDefaultReviewTemplate(logDataPath) {
   lines.push("    dv.paragraph('\u{1F4DD} \u30B3\u30E1\u30F3\u30C8\u4ED8\u304D\u306E\u30BF\u30B9\u30AF\u306F\u3042\u308A\u307E\u305B\u3093\u3002')");
   lines.push("  }");
   lines.push("} catch (e) {");
-  lines.push("  dv.paragraph('\u274C \u30C7\u30FC\u30BF\u304C\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002TaskChute\u306E\u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u304C\u5B58\u5728\u3059\u308B\u304B\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002')");
+  lines.push(
+    "  dv.paragraph('\u274C \u30C7\u30FC\u30BF\u304C\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002TaskChute\u306E\u30ED\u30B0\u30D5\u30A1\u30A4\u30EB\u304C\u5B58\u5728\u3059\u308B\u304B\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002')"
+  );
   lines.push("}");
   lines.push("");
   lines.push("```");
@@ -6051,6 +6107,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
   _log(level, ...args) {
     var _a;
     try {
+      ;
       (_a = console[level || "log"]) == null ? void 0 : _a.call(console, ...args);
     } catch (_) {
     }
@@ -6161,7 +6218,6 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     this.addCommand({
       id: "show-today-tasks",
       name: "\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A",
-      description: "Show today's tasks",
       hotkeys: [
         {
           modifiers: ["Alt"],
@@ -6239,13 +6295,17 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
   async triggerShowTodayTasks() {
     const view = await this.getOrCreateTaskChuteView(["showTodayTasks"]);
     if (view && typeof view.showTodayTasks === "function") {
+      ;
       view.showTodayTasks();
       return;
     }
     await this.activateTaskChuteView();
   }
   async triggerDuplicateSelectedTask() {
-    const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask", "duplicateInstance"]);
+    const view = await this.getOrCreateTaskChuteView([
+      "duplicateSelectedTask",
+      "duplicateInstance"
+    ]);
     if (!view) {
       new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
@@ -6279,7 +6339,10 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     }
   }
   async triggerResetSelectedTask() {
-    const view = await this.getOrCreateTaskChuteView(["resetSelectedTask", "resetTaskToIdle"]);
+    const view = await this.getOrCreateTaskChuteView([
+      "resetSelectedTask",
+      "resetTaskToIdle"
+    ]);
     if (!view) {
       new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
@@ -6344,8 +6407,16 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     const effectsSection = form.createEl("div", { cls: "settings-section" });
     effectsSection.createEl("h4", { text: "\u8996\u899A\u52B9\u679C\u8A2D\u5B9A" });
     this.createToggleSetting(effectsSection, "\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316", "enableSound");
-    this.createToggleSetting(effectsSection, "\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316", "enableFireworks");
-    this.createToggleSetting(effectsSection, "\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316", "enableConfetti");
+    this.createToggleSetting(
+      effectsSection,
+      "\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316",
+      "enableFireworks"
+    );
+    this.createToggleSetting(
+      effectsSection,
+      "\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316",
+      "enableConfetti"
+    );
     closeButton.addEventListener("click", () => {
       document.body.removeChild(modal);
     });
@@ -6369,17 +6440,26 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
       const value = input.value.trim();
       const validation = this.pathManager.validatePath(value);
       if (validation.valid || value === "") {
+        ;
         this.settings[settingKey] = value;
         await this.saveSettings();
         try {
           if (settingKey === "taskFolderPath") {
-            await this.pathManager.ensureFolderExists(this.pathManager.getTaskFolderPath());
+            await this.pathManager.ensureFolderExists(
+              this.pathManager.getTaskFolderPath()
+            );
           } else if (settingKey === "projectFolderPath") {
-            await this.pathManager.ensureFolderExists(this.pathManager.getProjectFolderPath());
+            await this.pathManager.ensureFolderExists(
+              this.pathManager.getProjectFolderPath()
+            );
           } else if (settingKey === "logDataPath") {
-            await this.pathManager.ensureFolderExists(this.pathManager.getLogDataPath());
+            await this.pathManager.ensureFolderExists(
+              this.pathManager.getLogDataPath()
+            );
           } else if (settingKey === "reviewDataPath") {
-            await this.pathManager.ensureFolderExists(this.pathManager.getReviewDataPath());
+            await this.pathManager.ensureFolderExists(
+              this.pathManager.getReviewDataPath()
+            );
           }
         } catch (error) {
         }
@@ -6390,7 +6470,9 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     });
   }
   createToggleSetting(container, label, settingKey) {
-    const group = container.createEl("div", { cls: "form-group checkbox-group" });
+    const group = container.createEl("div", {
+      cls: "form-group checkbox-group"
+    });
     const checkbox = group.createEl("input", {
       type: "checkbox",
       cls: "form-checkbox"
@@ -6398,6 +6480,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     group.createEl("label", { text: label, cls: "form-label" });
     checkbox.checked = this.settings[settingKey];
     checkbox.addEventListener("change", async () => {
+      ;
       this.settings[settingKey] = checkbox.checked;
       await this.saveSettings();
     });
