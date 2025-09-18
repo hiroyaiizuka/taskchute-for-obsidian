@@ -5429,35 +5429,67 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     }
   }
   async showTaskMoveDatePicker(inst, button) {
-    const modal = document.createElement("div");
-    modal.className = "task-modal-overlay";
-    const modalContent = modal.createEl("div", { cls: "task-modal-content" });
-    modalContent.createEl("h3", { text: "\u30BF\u30B9\u30AF\u3092\u79FB\u52D5" });
-    const dateInput = modalContent.createEl("input", {
-      type: "date",
-      value: this.getCurrentDateString()
-    });
-    const buttonContainer = modalContent.createEl("div", {
-      cls: "modal-button-container"
-    });
-    const cancelButton = buttonContainer.createEl("button", {
-      text: "\u30AD\u30E3\u30F3\u30BB\u30EB"
-    });
-    const moveButton = buttonContainer.createEl("button", {
-      text: "\u79FB\u52D5",
-      cls: "mod-cta"
-    });
-    cancelButton.addEventListener("click", () => {
-      modal.remove();
-    });
-    moveButton.addEventListener("click", async () => {
-      const newDate = dateInput.value;
+    const oldInput = document.getElementById("task-move-date-input");
+    if (oldInput) oldInput.remove();
+    const input = document.createElement("input");
+    input.type = "date";
+    input.id = "task-move-date-input";
+    input.classList.add("taskchute-input-absolute");
+    input.value = this.getCurrentDateString();
+    const buttonRect = button.getBoundingClientRect();
+    const windowHeight = window.innerHeight;
+    const windowWidth = window.innerWidth;
+    const calendarHeight = 350;
+    const calendarWidth = 300;
+    input.style.position = "fixed";
+    input.style.opacity = "0.01";
+    input.style.pointerEvents = "auto";
+    let leftPosition = buttonRect.left - 50;
+    if (leftPosition + calendarWidth > windowWidth) {
+      leftPosition = windowWidth - calendarWidth - 20;
+    }
+    if (leftPosition < 20) {
+      leftPosition = 20;
+    }
+    let topPosition = buttonRect.top;
+    if (topPosition + calendarHeight > windowHeight) {
+      topPosition = buttonRect.top - calendarHeight;
+      if (topPosition < 20) {
+        topPosition = (windowHeight - calendarHeight) / 2;
+      }
+    }
+    input.style.left = `${leftPosition}px`;
+    input.style.top = `${topPosition}px`;
+    input.style.zIndex = "10001";
+    input.addEventListener("change", async () => {
+      const newDate = input.value;
       if (newDate) {
         await this.moveTaskToDate(inst, newDate);
-        modal.remove();
+        input.remove();
       }
     });
-    document.body.appendChild(modal);
+    input.addEventListener("blur", () => {
+      setTimeout(() => input.remove(), 200);
+    });
+    document.body.appendChild(input);
+    setTimeout(() => {
+      try {
+        input.focus();
+        input.click();
+        if (input.showPicker && typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          const mouseEvent = new MouseEvent("mousedown", {
+            view: window,
+            bubbles: true,
+            cancelable: true
+          });
+          input.dispatchEvent(mouseEvent);
+        }
+      } catch (e) {
+        console.error("Failed to show date picker:", e);
+      }
+    }, 10);
   }
   async moveTaskToDate(inst, dateStr) {
     try {

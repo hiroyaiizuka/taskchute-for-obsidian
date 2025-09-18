@@ -4356,44 +4356,92 @@ export class TaskChuteView extends ItemView {
   }
 
   private async showTaskMoveDatePicker(inst: TaskInstance, button: HTMLElement): Promise<void> {
-    // 日付選択モーダルを表示
-    const modal = document.createElement("div");
-    modal.className = "task-modal-overlay";
-    const modalContent = modal.createEl("div", { cls: "task-modal-content" });
-    
-    modalContent.createEl("h3", { text: "タスクを移動" });
-    
-    const dateInput = modalContent.createEl("input", {
-      type: "date",
-      value: this.getCurrentDateString(),
-    }) as HTMLInputElement;
-    
-    const buttonContainer = modalContent.createEl("div", {
-      cls: "modal-button-container",
-    });
-    
-    const cancelButton = buttonContainer.createEl("button", {
-      text: "キャンセル",
-    });
-    
-    const moveButton = buttonContainer.createEl("button", {
-      text: "移動",
-      cls: "mod-cta",
-    });
-    
-    cancelButton.addEventListener("click", () => {
-      modal.remove();
-    });
-    
-    moveButton.addEventListener("click", async () => {
-      const newDate = dateInput.value;
+    // Remove existing input if any
+    const oldInput = document.getElementById("task-move-date-input");
+    if (oldInput) oldInput.remove();
+
+    // Create date input directly (like calendar button implementation)
+    const input = document.createElement("input") as HTMLInputElement;
+    input.type = "date";
+    input.id = "task-move-date-input";
+    input.classList.add("taskchute-input-absolute");
+    input.value = this.getCurrentDateString();
+
+    // Position the input near the button (slightly to the left)
+    const buttonRect = button.getBoundingClientRect();
+    const windowHeight = window.innerHeight;
+    const windowWidth = window.innerWidth;
+    const calendarHeight = 350; // Estimated calendar picker height
+    const calendarWidth = 300; // Estimated calendar picker width
+
+    input.style.position = "fixed";
+    input.style.opacity = "0.01"; // Nearly invisible but clickable
+    input.style.pointerEvents = "auto";
+
+    // Calculate horizontal position (slightly left of button)
+    let leftPosition = buttonRect.left - 50;
+    if (leftPosition + calendarWidth > windowWidth) {
+      // If it would overflow right, align to right edge
+      leftPosition = windowWidth - calendarWidth - 20;
+    }
+    if (leftPosition < 20) {
+      // If it would overflow left, align to left edge
+      leftPosition = 20;
+    }
+
+    // Calculate vertical position
+    let topPosition = buttonRect.top;
+    if (topPosition + calendarHeight > windowHeight) {
+      // If it would overflow bottom, show above the button
+      topPosition = buttonRect.top - calendarHeight;
+      if (topPosition < 20) {
+        // If still overflows, center it vertically
+        topPosition = (windowHeight - calendarHeight) / 2;
+      }
+    }
+
+    input.style.left = `${leftPosition}px`;
+    input.style.top = `${topPosition}px`;
+    input.style.zIndex = "10001";
+
+    // Handle date change
+    input.addEventListener("change", async () => {
+      const newDate = input.value;
       if (newDate) {
         await this.moveTaskToDate(inst, newDate);
-        modal.remove();
+        input.remove();
       }
     });
-    
-    document.body.appendChild(modal);
+
+    // Remove on blur
+    input.addEventListener("blur", () => {
+      setTimeout(() => input.remove(), 200);
+    });
+
+    document.body.appendChild(input);
+
+    // Auto-open the date picker with showPicker API
+    setTimeout(() => {
+      try {
+        input.focus();
+        input.click();
+
+        // Use showPicker if available (modern browsers)
+        if (input.showPicker && typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          // Fallback for browsers without showPicker
+          const mouseEvent = new MouseEvent("mousedown", {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+          });
+          input.dispatchEvent(mouseEvent);
+        }
+      } catch (e) {
+        console.error("Failed to show date picker:", e);
+      }
+    }, 10);
   }
   
   private async moveTaskToDate(inst: TaskInstance, dateStr: string): Promise<void> {
