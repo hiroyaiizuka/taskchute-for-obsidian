@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
 import { calculateNextBoundary, getCurrentTimeSlot, getSlotFromTime, TimeBoundary } from '../utils/time';
 import { LogView } from './LogView';
+import RoutineManagerModal from '../ui/RoutineManagerModal';
 import { ReviewService } from '../services/ReviewService';
 import { HeatmapService } from '../services/HeatmapService';
 import { 
@@ -3216,8 +3217,15 @@ export class TaskChuteView extends ItemView {
       return;
     }
     if (section === 'routine') {
-      await this.renderRoutineList();
-      this.openNavigation();
+      try {
+        new RoutineManagerModal(this.app, this.plugin as any).open();
+      } catch (error) {
+        console.error('[TaskChute] Failed to open RoutineManagerModal:', error);
+        // フォールバック: 既存のリスト表示
+        await this.renderRoutineList();
+        this.openNavigation();
+      }
+      this.closeNavigation();
       return;
     }
     new Notice(`${section} 機能は実装中です`);

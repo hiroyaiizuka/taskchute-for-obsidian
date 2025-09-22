@@ -33,7 +33,7 @@ __export(main_exports, {
   default: () => TaskChutePlusPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian13 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 
 // src/managers/PathManager.ts
 var import_obsidian = require("obsidian");
@@ -208,7 +208,7 @@ var RoutineAliasManager = class {
 };
 
 // src/views/TaskChuteView.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/utils/time.ts
 function calculateNextBoundary(now, boundaries) {
@@ -675,8 +675,409 @@ var LogView = class {
   }
 };
 
-// src/services/ReviewService.ts
+// src/ui/RoutineManagerModal.ts
+var import_obsidian6 = require("obsidian");
+
+// src/ui/RoutineEditModal.ts
 var import_obsidian5 = require("obsidian");
+var RoutineEditModal = class extends import_obsidian5.Modal {
+  constructor(app, plugin, file, onSaved) {
+    super(app);
+    this.plugin = plugin;
+    this.file = file;
+    this.onSaved = onSaved;
+  }
+  onOpen() {
+    var _a, _b, _c, _d;
+    const { contentEl } = this;
+    contentEl.empty();
+    try {
+      this.modalEl.setAttr("style", "width:600px;");
+    } catch (_) {
+    }
+    const fm = ((_a = this.app.metadataCache.getFileCache(this.file)) == null ? void 0 : _a.frontmatter) || {};
+    const dayNames = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
+    contentEl.createEl("h4", { text: `\u300C${this.file.basename}\u300D\u306E\u30EB\u30FC\u30C1\u30F3\u8A2D\u5B9A` });
+    const form = contentEl.createEl("div", { cls: "routine-form" });
+    const typeGroup = form.createEl("div", { cls: "form-group" });
+    typeGroup.createEl("label", { text: "\u30BF\u30A4\u30D7:" });
+    const typeSelect = typeGroup.createEl("select");
+    ;
+    [
+      ["daily", "\u65E5\u3054\u3068"],
+      ["weekly", "\u9031\u3054\u3068\uFF08\u66DC\u65E5\uFF09"],
+      ["monthly", "\u6708\u3054\u3068\uFF08\u7B2Cn x\u66DC\u65E5\uFF09"]
+    ].forEach(([v, t]) => typeSelect.add(new Option(t, v)));
+    typeSelect.value = fm.routine_type || "daily";
+    const timeGroup = form.createEl("div", { cls: "form-group" });
+    timeGroup.createEl("label", { text: "\u958B\u59CB\u4E88\u5B9A\u6642\u523B:" });
+    const timeInput = timeGroup.createEl("input", { type: "time" });
+    timeInput.value = fm["\u958B\u59CB\u6642\u523B"] || "";
+    const intervalGroup = form.createEl("div", { cls: "form-group" });
+    intervalGroup.createEl("label", { text: "\u9593\u9694:" });
+    const intervalInput = intervalGroup.createEl("input", { type: "number", attr: { min: "1", step: "1" } });
+    intervalInput.value = String(Math.max(1, Number(fm.routine_interval || 1)));
+    const enabledGroup = form.createEl("div", { cls: "form-group" });
+    const enabledLabel = enabledGroup.createEl("label", { text: "\u6709\u52B9:" });
+    const enabledToggle = enabledGroup.createEl("input", { type: "checkbox" });
+    enabledToggle.checked = fm.routine_enabled !== false;
+    enabledLabel.setAttr("style", "margin-right: 6px;");
+    const datesGroup = form.createEl("div", { cls: "form-group" });
+    datesGroup.createEl("label", { text: "\u958B\u59CB\u65E5:" });
+    const startInput = datesGroup.createEl("input", { type: "date" });
+    startInput.value = fm.routine_start || "";
+    datesGroup.createEl("label", { text: "\u7D42\u4E86\u65E5:", attr: { style: "margin-left:8px;" } });
+    const endInput = datesGroup.createEl("input", { type: "date" });
+    endInput.value = fm.routine_end || "";
+    const weeklyGroup = form.createEl("div", { cls: "form-group", attr: { "data-kind": "weekly" } });
+    weeklyGroup.createEl("div", { text: "\u66DC\u65E5\uFF08\u8907\u6570\u9078\u629E\u53EF\uFF09:" });
+    const weekdayCbs = [];
+    for (let i = 0; i < 7; i++) {
+      const label = weeklyGroup.createEl("label", { attr: { style: "margin-right:8px;" } });
+      const cb = label.createEl("input", { type: "checkbox", attr: { value: String(i) } });
+      label.appendText(" " + dayNames[i]);
+      weekdayCbs.push(cb);
+    }
+    if (typeSelect.value === "weekly") {
+      const set = Array.isArray(fm.weekdays) ? fm.weekdays : null;
+      if (set) set.forEach((n) => {
+        if (weekdayCbs[n]) weekdayCbs[n].checked = true;
+      });
+      else {
+        const single = (_b = fm.routine_weekday) != null ? _b : fm.weekday;
+        if (typeof single === "number" && weekdayCbs[single]) weekdayCbs[single].checked = true;
+      }
+    }
+    const monthlyGroup = form.createEl("div", { cls: "form-group", attr: { "data-kind": "monthly" } });
+    monthlyGroup.createEl("label", { text: "\u7B2C:" });
+    const weekSelect = monthlyGroup.createEl("select");
+    ;
+    ["1", "2", "3", "4", "5", "last"].forEach((v) => weekSelect.add(new Option(v === "last" ? "\u6700\u7D42" : `\u7B2C${v}`, v)));
+    monthlyGroup.createEl("label", { text: " \u306E " });
+    const monthWeekdaySelect = monthlyGroup.createEl("select");
+    for (let i = 0; i < 7; i++) monthWeekdaySelect.add(new Option(dayNames[i] + "\u66DC", String(i)));
+    if (typeSelect.value === "monthly") {
+      const w = (_c = fm.routine_week) != null ? _c : typeof fm.monthly_week === "number" ? fm.monthly_week + 1 : fm.monthly_week;
+      weekSelect.value = w === "last" ? "last" : String(w || "1");
+      const wd = (_d = fm.routine_weekday) != null ? _d : fm.monthly_weekday;
+      monthWeekdaySelect.value = String(typeof wd === "number" ? wd : 1);
+    }
+    const updateVisibility = () => {
+      weeklyGroup.toggleClass("is-hidden", typeSelect.value !== "weekly");
+      monthlyGroup.toggleClass("is-hidden", typeSelect.value !== "monthly");
+    };
+    updateVisibility();
+    typeSelect.addEventListener("change", updateVisibility);
+    const btns = contentEl.createEl("div", { cls: "routine-editor__buttons" });
+    const saveBtn = btns.createEl("button", { text: "\u4FDD\u5B58" });
+    const cancelBtn = btns.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB" });
+    saveBtn.setAttr("style", "margin-right:8px;");
+    saveBtn.addEventListener("click", async () => {
+      var _a2;
+      const errors = [];
+      const routineType = typeSelect.value;
+      const interval = Math.max(1, Number(intervalInput.value || 1));
+      if (!Number.isFinite(interval) || interval < 1) errors.push("\u9593\u9694\u306F1\u4EE5\u4E0A\u306E\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+      const start = (startInput.value || "").trim();
+      const end = (endInput.value || "").trim();
+      const isDate = (s) => !s || /^\d{4}-\d{2}-\d{2}$/.test(s);
+      if (!isDate(start)) errors.push("\u958B\u59CB\u65E5\u306F YYYY-MM-DD \u5F62\u5F0F\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+      if (!isDate(end)) errors.push("\u7D42\u4E86\u65E5\u306F YYYY-MM-DD \u5F62\u5F0F\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+      if (start && end && start > end) errors.push("\u7D42\u4E86\u65E5\u306F\u958B\u59CB\u65E5\u4EE5\u964D\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+      let weeklyDays;
+      let monthlyWeek;
+      let monthlyWeekday;
+      if (routineType === "weekly") {
+        weeklyDays = weekdayCbs.filter((cb) => cb.checked).map((cb) => parseInt(cb.value, 10));
+        if (!weeklyDays || weeklyDays.length === 0) errors.push("\u66DC\u65E5\u30921\u3064\u4EE5\u4E0A\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
+      } else if (routineType === "monthly") {
+        monthlyWeek = weekSelect.value === "last" ? "last" : parseInt(weekSelect.value, 10);
+        monthlyWeekday = parseInt(monthWeekdaySelect.value, 10);
+        if (!monthlyWeek || !Number.isFinite(monthlyWeekday)) errors.push("\u300C\u7B2Cn + \u66DC\u65E5\u300D\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
+      }
+      if (errors.length > 0) {
+        new import_obsidian5.Notice(errors[0]);
+        return;
+      }
+      await this.app.fileManager.processFrontMatter(this.file, (frontmatter) => {
+        frontmatter.routine_type = routineType;
+        frontmatter.routine_interval = interval;
+        frontmatter.routine_enabled = enabledToggle.checked;
+        const t = (timeInput.value || "").trim();
+        if (t) frontmatter["\u958B\u59CB\u6642\u523B"] = t;
+        else delete frontmatter["\u958B\u59CB\u6642\u523B"];
+        if (start) frontmatter.routine_start = start;
+        else delete frontmatter.routine_start;
+        if (end) frontmatter.routine_end = end;
+        else delete frontmatter.routine_end;
+        delete frontmatter.routine_week;
+        delete frontmatter.routine_weekday;
+        delete frontmatter.weekday;
+        delete frontmatter.weekdays;
+        delete frontmatter.monthly_week;
+        delete frontmatter.monthly_weekday;
+        if (routineType === "weekly") {
+          if (weeklyDays && weeklyDays.length === 1) {
+            frontmatter.routine_weekday = weeklyDays[0];
+          } else if (weeklyDays && weeklyDays.length > 1) {
+            frontmatter.weekdays = weeklyDays;
+          }
+        } else if (routineType === "monthly") {
+          if (monthlyWeek) frontmatter.routine_week = monthlyWeek;
+          if (Number.isFinite(monthlyWeekday)) frontmatter.routine_weekday = monthlyWeekday;
+        }
+        return frontmatter;
+      });
+      try {
+        (_a2 = this.onSaved) == null ? void 0 : _a2.call(this);
+      } catch (_) {
+      }
+      try {
+        const leaves = this.app.workspace.getLeavesOfType("taskchute-view");
+        const view = leaves && leaves[0] && leaves[0].view || null;
+        if (view && typeof view.reloadTasksAndRestore === "function") {
+          view.reloadTasksAndRestore({ runBoundaryCheck: true });
+        }
+      } catch (_) {
+      }
+      new import_obsidian5.Notice("\u4FDD\u5B58\u3057\u307E\u3057\u305F", 1500);
+      this.close();
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+  }
+};
+
+// src/ui/RoutineManagerModal.ts
+var RoutineManagerModal = class extends import_obsidian6.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.rows = [];
+    this.filtered = [];
+    this.plugin = plugin;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("routine-manager");
+    try {
+      this.modalEl.setAttr("style", "width:90vw; max-width: 1400px; height:80vh;");
+    } catch (_) {
+    }
+    const header = contentEl.createEl("div", { cls: "routine-manager__header" });
+    header.createEl("h3", { text: "\u30EB\u30FC\u30C1\u30F3\u7BA1\u7406" });
+    const controls = header.createEl("div", { cls: "routine-manager__controls" });
+    this.searchInput = controls.createEl("input", { type: "search", attr: { placeholder: "\u691C\u7D22\uFF08\u30BF\u30A4\u30C8\u30EB/\u30D1\u30B9\uFF09" } });
+    this.searchInput.addEventListener("input", () => this.applyFilters());
+    const body = contentEl.createEl("div", { cls: "routine-manager__body" });
+    body.setAttr("style", "max-height:70vh;");
+    const left = body.createEl("div", { cls: "routine-manager__list" });
+    left.setAttr("style", "overflow:auto; border:1px solid var(--background-modifier-border); border-radius:6px;");
+    const table = left.createEl("div", { cls: "routine-table" });
+    const thead = table.createEl("div", { cls: "routine-table__head" });
+    const headRow = thead.createEl("div", { cls: "routine-table__row routine-table__row--head" });
+    headRow.setAttr("style", "display:grid; grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr; gap:8px; padding:6px 8px; border-bottom:1px solid var(--background-modifier-border); position:sticky; top:0; background:var(--background-primary); z-index:1;");
+    ;
+    [
+      "\u30BF\u30A4\u30C8\u30EB",
+      "\u30BF\u30A4\u30D7",
+      "\u9593\u9694",
+      "\u66DC\u65E5",
+      "\u9031",
+      "\u958B\u59CB\u65E5",
+      "\u7D42\u4E86\u65E5",
+      "\u6709\u52B9",
+      "\u64CD\u4F5C"
+    ].forEach((label) => headRow.createEl("div", { cls: "routine-table__cell", text: label }));
+    this.tableBody = table.createEl("div", { cls: "routine-table__body" });
+    this.loadRows();
+    this.applyFilters();
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+  loadRows() {
+    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+    const files = this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(taskFolderPath + "/")).sort((a, b) => a.basename.localeCompare(b.basename, "ja"));
+    this.rows = files.map((file) => {
+      var _a;
+      const fm = (_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter;
+      return (fm == null ? void 0 : fm.isRoutine) === true ? { file, fm } : null;
+    }).filter((x) => !!x);
+  }
+  applyFilters() {
+    var _a;
+    const q = (((_a = this.searchInput) == null ? void 0 : _a.value) || "").toLowerCase();
+    this.filtered = this.rows.filter(({ file, fm }) => {
+      if (q) {
+        const hay = (file.basename + " " + file.path).toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    this.renderTable();
+  }
+  renderTable() {
+    this.tableBody.empty();
+    const dayNames = ["\u65E5", "\u6708", "\u706B", "\u6C34", "\u6728", "\u91D1", "\u571F"];
+    if (this.filtered.length === 0) {
+      const emptyRow = this.tableBody.createEl("div", { cls: "routine-empty", text: "\u30EB\u30FC\u30C1\u30F3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093" });
+      emptyRow.setAttr("style", "padding: 8px; color: var(--text-muted);");
+      return;
+    }
+    this.filtered.forEach(({ file, fm }, idx) => {
+      var _a, _b, _c;
+      const rowEl = this.tableBody.createEl("div", { cls: "routine-table__row" });
+      const baseRowStyle = "display:grid; grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr; gap:8px; padding:6px 8px; border-bottom:1px solid var(--background-modifier-border); align-items:center;";
+      rowEl.setAttr("style", baseRowStyle);
+      const titleCell = rowEl.createEl("div", { cls: "routine-table__cell" });
+      const link = titleCell.createEl("a", { text: file.basename, attr: { href: "#" } });
+      link.setAttr("style", "font-size:0.92em; line-height:1.2;");
+      link.addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          await this.app.workspace.getLeaf(true).openFile(file);
+          this.close();
+        } catch (err) {
+          new import_obsidian6.Notice("\u30CE\u30FC\u30C8\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+        }
+      });
+      const type = fm.routine_type || "daily";
+      rowEl.createEl("div", { cls: "routine-table__cell", text: this.typeLabel(type) });
+      rowEl.createEl("div", { cls: "routine-table__cell", text: String(Math.max(1, Number(fm.routine_interval || 1))) });
+      let weekdayText = "";
+      if (type === "weekly") {
+        if (Array.isArray(fm.weekdays) && fm.weekdays.length > 0) {
+          weekdayText = fm.weekdays.map((n) => dayNames[n] + "\u66DC").join(", ");
+        } else if (typeof fm.routine_weekday === "number" || typeof fm.weekday === "number") {
+          const wd = (_a = fm.routine_weekday) != null ? _a : fm.weekday;
+          weekdayText = dayNames[wd] + "\u66DC";
+        } else {
+          weekdayText = "-";
+        }
+      } else if (type === "monthly") {
+        const wd = (_b = fm.routine_weekday) != null ? _b : fm.monthly_weekday;
+        weekdayText = typeof wd === "number" ? dayNames[wd] + "\u66DC" : "-";
+      } else {
+        weekdayText = "-";
+      }
+      rowEl.createEl("div", { cls: "routine-table__cell", text: weekdayText });
+      let weekText = "-";
+      if (type === "monthly") {
+        const w = (_c = fm.routine_week) != null ? _c : typeof fm.monthly_week === "number" ? fm.monthly_week + 1 : fm.monthly_week;
+        weekText = w === "last" ? "\u6700\u7D42" : w ? `\u7B2C${w}` : "-";
+      }
+      rowEl.createEl("div", { cls: "routine-table__cell", text: String(weekText) });
+      rowEl.createEl("div", { cls: "routine-table__cell", text: fm.routine_start || "-" });
+      rowEl.createEl("div", { cls: "routine-table__cell", text: fm.routine_end || "-" });
+      const enabledCell = rowEl.createEl("div", { cls: "routine-table__cell" });
+      const isEnabled = fm.routine_enabled !== false;
+      const indicator = enabledCell.createEl("button", { text: isEnabled ? "\u2713" : "\xD7", attr: { title: "\u30AF\u30EA\u30C3\u30AF\u3067\u6709\u52B9/\u7121\u52B9\u5207\u66FF" } });
+      indicator.setAttr("style", "width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--background-modifier-border);border-radius:6px;background:transparent;cursor:pointer;");
+      indicator.addEventListener("click", async (e) => {
+        var _a2, _b2;
+        e.preventDefault();
+        e.stopPropagation();
+        const current = ((_b2 = (_a2 = this.filtered.find((r) => r.file.path === file.path)) == null ? void 0 : _a2.fm) == null ? void 0 : _b2.routine_enabled) !== false;
+        const newVal = !current;
+        indicator.textContent = newVal ? "\u2713" : "\xD7";
+        const idxRows = this.rows.findIndex((r) => r.file.path === file.path);
+        if (idxRows >= 0) this.rows[idxRows].fm = { ...this.rows[idxRows].fm, routine_enabled: newVal };
+        const idxFiltered = this.filtered.findIndex((r) => r.file.path === file.path);
+        if (idxFiltered >= 0) this.filtered[idxFiltered].fm = { ...this.filtered[idxFiltered].fm, routine_enabled: newVal };
+        this.renderTable();
+        await this.updateRoutineEnabled(file, newVal);
+        setTimeout(() => this.refreshRow(file, newVal), 200);
+        this.refreshActiveView();
+      });
+      const actions = rowEl.createEl("div", { cls: "routine-table__cell" });
+      const editBtn = actions.createEl("button", { text: "\u7DE8\u96C6" });
+      const delBtn = actions.createEl("button", { text: "\u{1F5D1}\uFE0F", attr: { title: "\u30EB\u30FC\u30C1\u30F3\u3092\u5916\u3059" } });
+      editBtn.setAttr("style", "margin-right:6px;");
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const { file: f } = this.filtered[idx];
+        new RoutineEditModal(this.app, this.plugin, f, () => {
+          this.refreshRow(f);
+        }).open();
+      });
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const ok = confirm(`\u300C${file.basename}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u304B\u3089\u5916\u3057\u307E\u3059\u304B\uFF1F`);
+        if (!ok) return;
+        await this.removeRoutine(file);
+        await this.reloadAll();
+      });
+    });
+  }
+  typeLabel(type) {
+    switch (type) {
+      case "daily":
+        return "\u65E5\u3054\u3068";
+      case "weekly":
+        return "\u9031\u3054\u3068";
+      case "monthly":
+        return "\u6708\u3054\u3068";
+      default:
+        return type;
+    }
+  }
+  async updateRoutineEnabled(file, enabled) {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      frontmatter.routine_enabled = enabled;
+      return frontmatter;
+    });
+    new import_obsidian6.Notice(enabled ? "\u6709\u52B9\u5316\u3057\u307E\u3057\u305F" : "\u7121\u52B9\u5316\u3057\u307E\u3057\u305F", 1200);
+  }
+  async removeRoutine(file) {
+    const today = /* @__PURE__ */ new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      frontmatter.isRoutine = false;
+      frontmatter.routine_end = `${y}-${m}-${d}`;
+      delete frontmatter["\u958B\u59CB\u6642\u523B"];
+      return frontmatter;
+    });
+    new import_obsidian6.Notice("\u30EB\u30FC\u30C1\u30F3\u3092\u5916\u3057\u307E\u3057\u305F", 1200);
+    this.refreshActiveView();
+  }
+  async refreshRow(file, expectedEnabled) {
+    var _a;
+    const fresh = ((_a = this.app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter) || null;
+    if (!fresh) return;
+    const apply = (fmOld) => {
+      const enabledFromFresh = fresh.routine_enabled !== false;
+      const enabled = typeof expectedEnabled === "boolean" ? expectedEnabled : enabledFromFresh;
+      return { ...fresh, routine_enabled: enabled };
+    };
+    const idx = this.rows.findIndex((r) => r.file.path === file.path);
+    if (idx >= 0) this.rows[idx].fm = apply(this.rows[idx].fm);
+    const fidx = this.filtered.findIndex((r) => r.file.path === file.path);
+    if (fidx >= 0) this.filtered[fidx].fm = apply(this.filtered[fidx].fm);
+    this.renderTable();
+  }
+  async reloadAll() {
+    this.loadRows();
+    this.applyFilters();
+    this.refreshActiveView();
+  }
+  refreshActiveView() {
+    try {
+      const leaves = this.app.workspace.getLeavesOfType("taskchute-view");
+      const view = leaves && leaves[0] && leaves[0].view || null;
+      if (view && typeof view.reloadTasksAndRestore === "function") {
+        view.reloadTasksAndRestore({ runBoundaryCheck: true });
+      }
+    } catch (_) {
+    }
+  }
+};
+var RoutineManagerModal_default = RoutineManagerModal;
+
+// src/services/ReviewService.ts
+var import_obsidian7 = require("obsidian");
 
 // src/utils/reviewTemplate.ts
 function buildDefaultReviewTemplate(logDataPath) {
@@ -904,7 +1305,7 @@ var ReviewService = class {
     await this.plugin.pathManager.ensureFolderExists(reviewFolder);
     const reviewPath = this.getReviewFilePath(dateStr);
     const existing = this.plugin.app.vault.getAbstractFileByPath(reviewPath);
-    if (existing && existing instanceof import_obsidian5.TFile) return existing;
+    if (existing && existing instanceof import_obsidian7.TFile) return existing;
     const logDataPath = this.plugin.pathManager.getLogDataPath();
     const content = buildDefaultReviewTemplate(logDataPath);
     const file = await this.plugin.app.vault.create(reviewPath, content);
@@ -917,7 +1318,7 @@ var ReviewService = class {
       await rightLeaf.openFile(file);
       this.plugin.app.workspace.setActiveLeaf(leftLeaf);
     } catch (error) {
-      new import_obsidian5.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
+      new import_obsidian7.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
       throw error;
     }
   }
@@ -1524,7 +1925,7 @@ async function addDuplicatedInstances(dateString) {
 }
 
 // src/managers/ProjectNoteSyncManager.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var ProjectNoteSyncManager = class {
   constructor(app, pathManager) {
     this.app = app;
@@ -1632,7 +2033,7 @@ ${formattedComment}`,
   // プロジェクトノートを更新
   async updateProjectNote(projectPath, inst, completionData) {
     const file = this.app.vault.getAbstractFileByPath(projectPath);
-    if (!file || !(file instanceof import_obsidian6.TFile)) {
+    if (!file || !(file instanceof import_obsidian8.TFile)) {
       throw new Error(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30CE\u30FC\u30C8\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
     }
     let content = await this.app.vault.read(file);
@@ -1659,7 +2060,7 @@ ${formattedComment}`,
 };
 
 // src/services/RunningTasksService.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 var RunningTasksService = class {
   constructor(plugin) {
     this.plugin = plugin;
@@ -1695,7 +2096,7 @@ var RunningTasksService = class {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const dataPath = `${logDataPath}/running-task.json`;
       const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
-      if (!file || !(file instanceof import_obsidian7.TFile)) return [];
+      if (!file || !(file instanceof import_obsidian9.TFile)) return [];
       const raw = await this.plugin.app.vault.read(file);
       const json = JSON.parse(raw);
       if (!Array.isArray(json)) return [];
@@ -1707,7 +2108,7 @@ var RunningTasksService = class {
 };
 
 // src/services/ExecutionLogService.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var ExecutionLogService = class {
   constructor(plugin) {
     this.plugin = plugin;
@@ -1737,7 +2138,7 @@ var ExecutionLogService = class {
     const logPath = `${logDataPath}/${monthKey}-tasks.json`;
     let file = this.plugin.app.vault.getAbstractFileByPath(logPath);
     let json = { taskExecutions: {}, dailySummary: {} };
-    if (file && file instanceof import_obsidian8.TFile) {
+    if (file && file instanceof import_obsidian10.TFile) {
       try {
         const raw = await this.plugin.app.vault.read(file);
         json = raw ? JSON.parse(raw) : json;
@@ -1782,7 +2183,7 @@ var ExecutionLogService = class {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const logPath = `${logDataPath}/${monthKey}-tasks.json`;
       const file = this.plugin.app.vault.getAbstractFileByPath(logPath);
-      if (!file || !(file instanceof import_obsidian8.TFile)) return;
+      if (!file || !(file instanceof import_obsidian10.TFile)) return;
       const raw = await this.plugin.app.vault.read(file);
       if (!raw) return;
       let json = {};
@@ -1810,7 +2211,7 @@ var ExecutionLogService = class {
 };
 
 // src/services/TaskCreationService.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var TaskCreationService = class {
   constructor(plugin) {
     this.plugin = plugin;
@@ -1853,13 +2254,13 @@ var TaskCreationService = class {
       ""
     ].join("\n");
     const file = await this.plugin.app.vault.create(filePath, content);
-    new import_obsidian9.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
+    new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u300C${taskName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F`);
     return file;
   }
 };
 
 // src/ui/TaskNameAutocomplete.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var TaskNameAutocomplete = class {
   constructor(plugin, inputElement, containerElement, view) {
     this.taskNames = [];
@@ -1883,14 +2284,14 @@ var TaskNameAutocomplete = class {
   async loadTaskNames() {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
     const taskFolder = this.plugin.app.vault.getAbstractFileByPath(taskFolderPath);
-    if (!(taskFolder instanceof import_obsidian10.TFolder)) return;
+    if (!(taskFolder instanceof import_obsidian12.TFolder)) return;
     const taskNames = /* @__PURE__ */ new Set();
     const processFolder = (folder) => {
       for (const child of folder.children) {
-        if (child instanceof import_obsidian10.TFile && child.extension === "md") {
+        if (child instanceof import_obsidian12.TFile && child.extension === "md") {
           const name = child.basename;
           taskNames.add(name);
-        } else if (child instanceof import_obsidian10.TFolder) {
+        } else if (child instanceof import_obsidian12.TFolder) {
           processFolder(child);
         }
       }
@@ -1901,14 +2302,14 @@ var TaskNameAutocomplete = class {
   async loadProjectNames() {
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
     const projectFolder = this.plugin.app.vault.getAbstractFileByPath(projectFolderPath);
-    if (!(projectFolder instanceof import_obsidian10.TFolder)) return;
+    if (!(projectFolder instanceof import_obsidian12.TFolder)) return;
     const projectNames = /* @__PURE__ */ new Set();
     const processFolder = (folder) => {
       for (const child of folder.children) {
-        if (child instanceof import_obsidian10.TFile && child.extension === "md") {
+        if (child instanceof import_obsidian12.TFile && child.extension === "md") {
           const name = child.basename;
           projectNames.add(name);
-        } else if (child instanceof import_obsidian10.TFolder) {
+        } else if (child instanceof import_obsidian12.TFolder) {
           processFolder(child);
         }
       }
@@ -1969,21 +2370,21 @@ var TaskNameAutocomplete = class {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
     const fileCreated = this.plugin.app.vault.on("create", (file) => {
-      if (file instanceof import_obsidian10.TFile && file.path.startsWith(taskFolderPath)) {
+      if (file instanceof import_obsidian12.TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
-      } else if (file instanceof import_obsidian10.TFile && file.path.startsWith(projectFolderPath)) {
+      } else if (file instanceof import_obsidian12.TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
     const fileDeleted = this.plugin.app.vault.on("delete", (file) => {
-      if (file instanceof import_obsidian10.TFile && file.path.startsWith(taskFolderPath)) {
+      if (file instanceof import_obsidian12.TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
-      } else if (file instanceof import_obsidian10.TFile && file.path.startsWith(projectFolderPath)) {
+      } else if (file instanceof import_obsidian12.TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
     const fileRenamed = this.plugin.app.vault.on("rename", (file) => {
-      if (file instanceof import_obsidian10.TFile && (file.path.startsWith(taskFolderPath) || file.path.startsWith(projectFolderPath))) {
+      if (file instanceof import_obsidian12.TFile && (file.path.startsWith(taskFolderPath) || file.path.startsWith(projectFolderPath))) {
         this.loadTaskNames();
         this.loadProjectNames();
       }
@@ -2108,7 +2509,7 @@ var NavigationStateManager = class {
     this.isOpen = false;
   }
 };
-var TaskChuteView = class extends import_obsidian11.ItemView {
+var TaskChuteView = class extends import_obsidian13.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.tasks = [];
@@ -2271,7 +2672,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
           "terminal:open-terminal.integrated.root"
         );
       } catch (error) {
-        new import_obsidian11.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
+        new import_obsidian13.Notice("\u30BF\u30FC\u30DF\u30CA\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F: " + error.message);
       }
     });
   }
@@ -2715,7 +3116,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     playButton.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (isFutureTask) {
-        new import_obsidian11.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        new import_obsidian13.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
       if (inst.state === "running") {
@@ -2738,7 +3139,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       try {
         await this.app.workspace.openLinkText(inst.task.path, "", false);
       } catch (error) {
-        new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+        new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
       }
     });
   }
@@ -2936,11 +3337,11 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         await this.persistDayState(dateStr);
       }
       this.renderTaskList();
-      new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u300C${inst.task.title}\u300D\u3092\u8907\u88FD\u3057\u307E\u3057\u305F`);
       return returnOnly ? newInstance : void 0;
     } catch (error) {
       console.error("Failed to duplicate instance:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   // 元直下に挿入されるよう order を計算
@@ -3202,7 +3603,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const logFilePath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
-      if (!logFile || !(logFile instanceof import_obsidian11.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian13.TFile)) {
         return null;
       }
       const logContent = await this.app.vault.read(logFile);
@@ -3233,7 +3634,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const dateString = `${year}-${month}-${day}`;
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
       let monthlyLog = { taskExecutions: {} };
-      if (logFile && logFile instanceof import_obsidian11.TFile) {
+      if (logFile && logFile instanceof import_obsidian13.TFile) {
         const logContent = await this.app.vault.read(logFile);
         monthlyLog = JSON.parse(logContent);
       }
@@ -3285,7 +3686,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       } else {
         todayTasks.push(commentData);
       }
-      if (logFile && logFile instanceof import_obsidian11.TFile) {
+      if (logFile && logFile instanceof import_obsidian13.TFile) {
         await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
       } else {
         await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
@@ -3298,10 +3699,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       if (completionData.executionComment && (inst.task.projectPath || inst.task.projectTitle) && this.hasCommentChanged(existingTaskData, completionData)) {
         await this.syncCommentToProjectNote(inst, completionData);
       }
-      new import_obsidian11.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30B3\u30E1\u30F3\u30C8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F");
     } catch (error) {
       console.error("Failed to save comment:", error);
-      new import_obsidian11.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30B3\u30E1\u30F3\u30C8\u306E\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   // コメント本文の変更検出
@@ -3319,7 +3720,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       if (!projectPath) return;
       await syncManager.updateProjectNote(projectPath, inst, completionData);
     } catch (error) {
-      new import_obsidian11.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30CE\u30FC\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error.message || error}`);
+      new import_obsidian13.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30CE\u30FC\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error.message || error}`);
     }
   }
   showRoutineEditModal(task, button) {
@@ -3509,13 +3910,13 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const interval = Math.max(1, parseInt(intervalInput.value || "1", 10) || 1);
       const enabled = !!enabledToggle.checked;
       if (!scheduledTime) {
-        new import_obsidian11.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian13.Notice("\u958B\u59CB\u6642\u523B\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       if (routineType === "weekly") {
         const selectedWeekdays = weekdayCheckboxes.filter((cb) => cb.checked).map((cb) => parseInt(cb.value));
         if (selectedWeekdays.length === 0) {
-          new import_obsidian11.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
+          new import_obsidian13.Notice("\u66DC\u65E5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044");
           return;
         }
       }
@@ -3541,12 +3942,12 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     try {
       if (task.isRoutine) {
         const file = task.path && this.app.vault.getAbstractFileByPath(task.path) || null;
-        if (!file || !(file instanceof import_obsidian11.TFile)) {
+        if (!file || !(file instanceof import_obsidian13.TFile)) {
           const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
           const fallbackPath = `${taskFolderPath}/${task.title}.md`;
           const fb = this.app.vault.getAbstractFileByPath(fallbackPath);
-          if (!fb || !(fb instanceof import_obsidian11.TFile)) {
-            new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+          if (!fb || !(fb instanceof import_obsidian13.TFile)) {
+            new import_obsidian13.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
             return;
           }
           await this.app.fileManager.processFrontMatter(fb, (frontmatter) => {
@@ -3574,14 +3975,14 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         button.classList.remove("active");
         button.setAttribute("title", "\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A");
         await this.reloadTasksAndRestore();
-        new import_obsidian11.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
+        new import_obsidian13.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u304B\u3089\u89E3\u9664\u3057\u307E\u3057\u305F`);
       } else {
         this.showRoutineEditModal(task, button);
       }
     } catch (error) {
       console.error("[TaskChute] toggleRoutine failed:", error);
       const msg = error && (error.message || String(error)) || "";
-      new import_obsidian11.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
+      new import_obsidian13.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   showTaskSettingsTooltip(inst, button) {
@@ -3698,7 +4099,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const viewDate = new Date(this.currentDate);
       viewDate.setHours(0, 0, 0, 0);
       if (viewDate.getTime() > today.getTime()) {
-        new import_obsidian11.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
+        new import_obsidian13.Notice("\u672A\u6765\u306E\u30BF\u30B9\u30AF\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002", 2e3);
         return;
       }
       try {
@@ -3715,7 +4116,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       try {
         if (!inst.task.isRoutine && viewDate.getTime() !== today.getTime()) {
           const file = this.app.vault.getAbstractFileByPath(inst.task.path);
-          if (file instanceof import_obsidian11.TFile) {
+          if (file instanceof import_obsidian13.TFile) {
             const y = today.getFullYear();
             const m = String(today.getMonth() + 1).padStart(2, "0");
             const d = String(today.getDate()).padStart(2, "0");
@@ -3731,10 +4132,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       await this.saveRunningTasksState();
       this.renderTaskList();
       if (!this.globalTimerInterval) this.startGlobalTimer();
-      new import_obsidian11.Notice(`\u958B\u59CB: ${inst.task.name}`);
+      new import_obsidian13.Notice(`\u958B\u59CB: ${inst.task.name}`);
     } catch (error) {
       console.error("Failed to start instance:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u958B\u59CB\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async stopInstance(inst) {
@@ -3770,10 +4171,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       this.sortTaskInstancesByTimeOrder();
       await this.saveTaskOrders();
       this.renderTaskList();
-      new import_obsidian11.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
+      new import_obsidian13.Notice(`\u5B8C\u4E86: ${inst.task.name} (${inst.actualMinutes || 0}\u5206)`);
     } catch (error) {
       console.error("Failed to stop instance:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u505C\u6B62\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   calculateCrossDayDuration(startTime, stopTime) {
@@ -3989,12 +4390,12 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
           return;
         } else if (newStart && newStop) {
           if (newStart >= newStop) {
-            new import_obsidian11.Notice("\u958B\u59CB\u6642\u523B\u306F\u7D42\u4E86\u6642\u523B\u3088\u308A\u524D\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+            new import_obsidian13.Notice("\u958B\u59CB\u6642\u523B\u306F\u7D42\u4E86\u6642\u523B\u3088\u308A\u524D\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
             return;
           }
           await this.updateInstanceTimes(inst, newStart, newStop);
         } else {
-          new import_obsidian11.Notice("\u958B\u59CB\u6642\u523B\u306F\u5FC5\u9808\u3067\u3059");
+          new import_obsidian13.Notice("\u958B\u59CB\u6642\u523B\u306F\u5FC5\u9808\u3067\u3059");
           return;
         }
       }
@@ -4020,7 +4421,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     const durationSec = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3);
     await this.executionLogService.saveTaskLog(inst, durationSec);
     this.renderTaskList();
-    new import_obsidian11.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+    new import_obsidian13.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
   }
   async updateRunningInstanceStartTime(inst, startStr) {
     const base = inst.startTime || new Date(this.currentDate);
@@ -4036,7 +4437,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
-    new import_obsidian11.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u958B\u59CB\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+    new import_obsidian13.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u306E\u958B\u59CB\u6642\u523B\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F`);
   }
   async transitionToRunningWithStart(inst, startStr) {
     if (inst.state !== "done") return;
@@ -4058,7 +4459,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
-    new import_obsidian11.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u3092\u5B9F\u884C\u4E2D\u306B\u623B\u3057\u307E\u3057\u305F`);
+    new import_obsidian13.Notice(`\u300C${inst.task.title || inst.task.name}\u300D\u3092\u5B9F\u884C\u4E2D\u306B\u623B\u3057\u307E\u3057\u305F`);
   }
   updateTimerDisplay(timerEl, inst) {
     if (!inst.startTime) return;
@@ -4175,7 +4576,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       await this.duplicateInstance(this.selectedTaskInstance);
       this.clearTaskSelection();
     } else {
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   deleteSelectedTask() {
@@ -4186,7 +4587,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         }
       });
     } else {
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async resetSelectedTask() {
@@ -4194,7 +4595,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       await this.resetTaskToIdle(this.selectedTaskInstance);
       this.clearTaskSelection();
     } else {
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   showTodayTasks() {
@@ -4205,12 +4606,12 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       this.updateDateLabel(dateLabel);
     }
     this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
-      new import_obsidian11.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u4ECA\u65E5\u306E\u30BF\u30B9\u30AF\u3092\u8868\u793A\u3057\u307E\u3057\u305F`);
     });
   }
   reorganizeIdleTasks() {
     this.moveIdleTasksToCurrentTime();
-    new import_obsidian11.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
+    new import_obsidian13.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u3092\u6574\u7406\u3057\u307E\u3057\u305F");
   }
   // ===========================================
   // Utility Methods
@@ -4551,11 +4952,17 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       return;
     }
     if (section === "routine") {
-      await this.renderRoutineList();
-      this.openNavigation();
+      try {
+        new RoutineManagerModal_default(this.app, this.plugin).open();
+      } catch (error) {
+        console.error("[TaskChute] Failed to open RoutineManagerModal:", error);
+        await this.renderRoutineList();
+        this.openNavigation();
+      }
+      this.closeNavigation();
       return;
     }
-    new import_obsidian11.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
+    new import_obsidian13.Notice(`${section} \u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059`);
   }
   // Render routine list with enabled toggle
   async renderRoutineList() {
@@ -4667,7 +5074,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const file = await review.ensureReviewFile(dateStr);
       await review.openInSplit(file, this.leaf);
     } catch (error) {
-      new import_obsidian11.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
+      new import_obsidian13.Notice("\u30EC\u30D3\u30E5\u30FC\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: " + ((error == null ? void 0 : error.message) || error));
     }
   }
   openLogModal() {
@@ -4715,7 +5122,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
             await this.resetTaskToIdle(this.selectedTaskInstance);
             this.clearTaskSelection();
           } else {
-            new import_obsidian11.Notice("\u3053\u306E\u30BF\u30B9\u30AF\u306F\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
+            new import_obsidian13.Notice("\u3053\u306E\u30BF\u30B9\u30AF\u306F\u65E2\u306B\u672A\u5B9F\u884C\u72B6\u614B\u3067\u3059");
           }
         }
         break;
@@ -4782,7 +5189,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const monthString = `${year}-${month}`;
       const logPath = `${logDataPath}/${monthString}-tasks.json`;
       const logFile = this.app.vault.getAbstractFileByPath(logPath);
-      if (!logFile || !(logFile instanceof import_obsidian11.TFile)) {
+      if (!logFile || !(logFile instanceof import_obsidian13.TFile)) {
         return 0;
       }
       const content = await this.app.vault.read(logFile);
@@ -4806,7 +5213,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
     }
   }
   showTaskContextMenu(e, inst) {
-    new import_obsidian11.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian13.Notice("\u30B3\u30F3\u30C6\u30AD\u30B9\u30C8\u30E1\u30CB\u30E5\u30FC\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   handleDragOver(e, taskItem, inst) {
     e.preventDefault();
@@ -4873,7 +5280,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       }
     }
     if (newPosition < minAllowed) {
-      new import_obsidian11.Notice("\u5B8C\u4E86\u6E08\u307F\u30FB\u5B9F\u884C\u4E2D\u30BF\u30B9\u30AF\u3088\u308A\u4E0A\u306B\u306F\u914D\u7F6E\u3067\u304D\u307E\u305B\u3093");
+      new import_obsidian13.Notice("\u5B8C\u4E86\u6E08\u307F\u30FB\u5B9F\u884C\u4E2D\u30BF\u30B9\u30AF\u3088\u308A\u4E0A\u306B\u306F\u914D\u7F6E\u3067\u304D\u307E\u305B\u3093");
       this.clearDragoverClasses(taskItem);
       return;
     }
@@ -4946,8 +5353,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         const fallbackPath = `${taskFolderPath}/${task.title}.md`;
         file = this.app.vault.getAbstractFileByPath(fallbackPath);
       }
-      if (!file || !(file instanceof import_obsidian11.TFile)) {
-        new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian13.TFile)) {
+        new import_obsidian13.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -4966,11 +5373,11 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       button.classList.add("active");
       button.setAttribute("title", `\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
-      new import_obsidian11.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
+      new import_obsidian13.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F\uFF08${scheduledTime}\u958B\u59CB\u4E88\u5B9A\uFF09`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
       const msg = error && (error.message || String(error)) || "";
-      new import_obsidian11.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
+      new import_obsidian13.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   async setRoutineTaskWithDetails(task, button, scheduledTime, routineType, details) {
@@ -4982,8 +5389,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         const fallbackPath = `${taskFolderPath}/${task.title}.md`;
         file = this.app.vault.getAbstractFileByPath(fallbackPath);
       }
-      if (!file || !(file instanceof import_obsidian11.TFile)) {
-        new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian13.TFile)) {
+        new import_obsidian13.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -5066,11 +5473,11 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       }
       button.setAttribute("title", tooltipText);
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
-      new import_obsidian11.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u300C${task.title}\u300D\u3092\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306B\u8A2D\u5B9A\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set routine task:", error);
       const msg = error && (error.message || String(error)) || "";
-      new import_obsidian11.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
+      new import_obsidian13.Notice(`\u30EB\u30FC\u30C1\u30F3\u30BF\u30B9\u30AF\u306E\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${msg}`);
     }
   }
   async deleteInstanceWithConfirm(inst) {
@@ -5166,17 +5573,17 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         if (samePathInstances.length === 0 && inst.task.file) {
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path);
           await this.app.vault.delete(inst.task.file);
-          new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian13.Notice(`\u300C${inst.task.title}\u300D\u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         } else {
-          new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+          new import_obsidian13.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
         }
       } else {
-        new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian13.Notice(`\u300C${inst.task.title}\u300D\u3092\u672C\u65E5\u306E\u30EA\u30B9\u30C8\u304B\u3089\u524A\u9664\u3057\u307E\u3057\u305F\u3002`);
       }
       this.renderTaskList();
     } catch (error) {
       console.error("Failed to delete instance:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async resetTaskToIdle(inst) {
@@ -5190,10 +5597,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       this.saveInstanceState(inst);
       await this.saveRunningTasksState();
       this.renderTaskList();
-      new import_obsidian11.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u300C${inst.task.title}\u300D\u3092\u30A2\u30A4\u30C9\u30EB\u72B6\u614B\u306B\u623B\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to reset task:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u30EA\u30BB\u30C3\u30C8\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectSettingsModal(inst, tooltip) {
@@ -5265,7 +5672,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       }
       const projects = [];
       for (const file of projectFolder.children) {
-        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian13.TFile && file.extension === "md") {
           projects.push(file.basename);
         }
       }
@@ -5280,8 +5687,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
       const filePath = `${taskFolderPath}/${inst.task.title}.md`;
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!file || !(file instanceof import_obsidian11.TFile)) {
-        new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
+      if (!file || !(file instanceof import_obsidian13.TFile)) {
+        new import_obsidian13.Notice(`\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u300C${inst.task.title}.md\u300D\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`);
         return;
       }
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -5299,14 +5706,14 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       inst.task.projectTitle = projectName || void 0;
       this.renderTaskList();
       const message = projectName ? `\u300C${inst.task.title}\u300D\u3092${projectName}\u306B\u95A2\u9023\u4ED8\u3051\u307E\u3057\u305F` : `\u300C${inst.task.title}\u300D\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u95A2\u9023\u4ED8\u3051\u3092\u89E3\u9664\u3057\u307E\u3057\u305F`;
-      new import_obsidian11.Notice(message);
+      new import_obsidian13.Notice(message);
     } catch (error) {
       console.error("Failed to update project:", error);
-      new import_obsidian11.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306E\u66F4\u65B0\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   moveIdleTasksToCurrentTime() {
-    new import_obsidian11.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
+    new import_obsidian13.Notice("\u30A2\u30A4\u30C9\u30EB\u30BF\u30B9\u30AF\u79FB\u52D5\u6A5F\u80FD\u306F\u5B9F\u88C5\u4E2D\u3067\u3059");
   }
   async showAddTaskModal() {
     const modal = document.createElement("div");
@@ -5369,7 +5776,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       e.preventDefault();
       const taskName = nameInput.value.trim();
       if (!taskName) {
-        new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+        new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
       await this.createNewTask(taskName, estimatedMinutes);
@@ -5386,7 +5793,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
     } catch (error) {
       console.error("Failed to create task:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async waitForFrontmatter(file, timeoutMs = 4e3) {
@@ -5494,17 +5901,17 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   async moveTaskToDate(inst, dateStr) {
     try {
       const file = this.app.vault.getAbstractFileByPath(inst.task.path);
-      if (file instanceof import_obsidian11.TFile) {
+      if (file instanceof import_obsidian13.TFile) {
         await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
           frontmatter.target_date = dateStr;
           return frontmatter;
         });
       }
-      new import_obsidian11.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u30BF\u30B9\u30AF\u300C${inst.task.title}\u300D\u3092${dateStr}\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F`);
       await this.reloadTasksAndRestore();
     } catch (error) {
       console.error("Failed to move task:", error);
-      new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async showProjectModal(inst) {
@@ -5529,7 +5936,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       try {
         projectFiles = await this.getProjectFiles();
       } catch (error) {
-        new import_obsidian11.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+        new import_obsidian13.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30EA\u30B9\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
         modal.remove();
         return;
       }
@@ -5613,7 +6020,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
       document.body.appendChild(modal);
     } catch (error) {
       console.error("Failed to show project modal:", error);
-      new import_obsidian11.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u9078\u629E\u753B\u9762\u306E\u8868\u793A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async getProjectFiles() {
@@ -5638,8 +6045,8 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   }
   async setProjectForTask(task, projectPath) {
     try {
-      if (!task.file || !(task.file instanceof import_obsidian11.TFile)) {
-        new import_obsidian11.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
+      if (!task.file || !(task.file instanceof import_obsidian13.TFile)) {
+        new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093");
         return;
       }
       await this.app.fileManager.processFrontMatter(
@@ -5668,10 +6075,10 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
         task.projectPath = null;
         task.projectTitle = null;
       }
-      new import_obsidian11.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
+      new import_obsidian13.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F`);
     } catch (error) {
       console.error("Failed to set project:", error);
-      new import_obsidian11.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      new import_obsidian13.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u8A2D\u5B9A\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   updateProjectDisplay(inst) {
@@ -5729,15 +6136,15 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
   async openProjectInSplit(projectPath) {
     try {
       const file = this.app.vault.getAbstractFileByPath(projectPath);
-      if (file instanceof import_obsidian11.TFile) {
+      if (file instanceof import_obsidian13.TFile) {
         const leaf = this.app.workspace.getLeaf("split");
         await leaf.openFile(file);
       } else {
-        new import_obsidian11.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
+        new import_obsidian13.Notice(`\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093: ${projectPath}`);
       }
     } catch (error) {
       console.error("Failed to open project:", error);
-      new import_obsidian11.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
+      new import_obsidian13.Notice("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F");
     }
   }
   async hasExecutionHistory(taskPath) {
@@ -5797,7 +6204,7 @@ var TaskChuteView = class extends import_obsidian11.ItemView {
 };
 
 // src/services/DayStateService.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 var DAY_STATE_VERSION = "1.0";
 function cloneDayState(state) {
   return JSON.parse(JSON.stringify(state));
@@ -5895,7 +6302,7 @@ var DayStateService = class {
     const path = this.getStatePath(monthKey);
     const existing = this.plugin.app.vault.getAbstractFileByPath(path);
     let monthly;
-    if (existing && existing instanceof import_obsidian12.TFile) {
+    if (existing && existing instanceof import_obsidian14.TFile) {
       try {
         const raw = await this.plugin.app.vault.read(existing);
         const parsed = raw ? JSON.parse(raw) : {};
@@ -5919,7 +6326,7 @@ var DayStateService = class {
     const path = this.getStatePath(monthKey);
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
     const payload = JSON.stringify(month, null, 2);
-    if (file && file instanceof import_obsidian12.TFile) {
+    if (file && file instanceof import_obsidian14.TFile) {
       await this.plugin.app.vault.modify(file, payload);
     } else {
       await this.plugin.pathManager.ensureFolderExists(
@@ -6046,7 +6453,7 @@ var DayStateService_default = DayStateService;
 
 // src/main.ts
 var VIEW_TYPE_TASKCHUTE = "taskchute-view";
-var TaskChuteSettingTab = class extends import_obsidian13.PluginSettingTab {
+var TaskChuteSettingTab = class extends import_obsidian15.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -6054,15 +6461,15 @@ var TaskChuteSettingTab = class extends import_obsidian13.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian13.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
-    new import_obsidian13.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian15.Setting(containerEl).setName("\u30D1\u30B9\u8A2D\u5B9A").setHeading();
+    new import_obsidian15.Setting(containerEl).setName("\u30BF\u30B9\u30AF\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30BF\u30B9\u30AF\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.taskFolder).setValue(this.plugin.settings.taskFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.taskFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian13.Notice(validation.error);
+          new import_obsidian15.Notice(validation.error);
           text.setValue(this.plugin.settings.taskFolderPath || "");
         }
       });
@@ -6077,56 +6484,56 @@ var TaskChuteSettingTab = class extends import_obsidian13.PluginSettingTab {
         }
       });
     });
-    new import_obsidian13.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian15.Setting(containerEl).setName("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc("\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.projectFolder).setValue(this.plugin.settings.projectFolderPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.projectFolderPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian13.Notice(validation.error);
+          new import_obsidian15.Notice(validation.error);
           text.setValue(this.plugin.settings.projectFolderPath || "");
         }
       });
     });
-    new import_obsidian13.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian15.Setting(containerEl).setName("\u30ED\u30B0\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30ED\u30B0\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.logData).setValue(this.plugin.settings.logDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.logDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian13.Notice(validation.error);
+          new import_obsidian15.Notice(validation.error);
           text.setValue(this.plugin.settings.logDataPath || "");
         }
       });
     });
-    new import_obsidian13.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
+    new import_obsidian15.Setting(containerEl).setName("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u30D1\u30B9").setDesc("\u30EC\u30D3\u30E5\u30FC\u30C7\u30FC\u30BF\u3092\u4FDD\u5B58\u3059\u308B\u30D5\u30A9\u30EB\u30C0\u306E\u30D1\u30B9").addText((text) => {
       text.setPlaceholder(PathManager.DEFAULT_PATHS.reviewData).setValue(this.plugin.settings.reviewDataPath || "").onChange(async (value) => {
         const validation = this.plugin.pathManager.validatePath(value);
         if (validation.valid || value === "") {
           this.plugin.settings.reviewDataPath = value;
           await this.plugin.saveSettings();
         } else {
-          new import_obsidian13.Notice(validation.error);
+          new import_obsidian15.Notice(validation.error);
           text.setValue(this.plugin.settings.reviewDataPath || "");
         }
       });
     });
-    new import_obsidian13.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
-    new import_obsidian13.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
+    new import_obsidian15.Setting(containerEl).setName("\u8996\u899A\u52B9\u679C\u8A2D\u5B9A").setHeading();
+    new import_obsidian15.Setting(containerEl).setName("\u52B9\u679C\u97F3\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u52B9\u679C\u97F3\u3092\u518D\u751F\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableSound).onChange(async (value) => {
         this.plugin.settings.enableSound = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian13.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian15.Setting(containerEl).setName("\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u82B1\u706B\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableFireworks).onChange(async (value) => {
         this.plugin.settings.enableFireworks = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian13.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
+    new import_obsidian15.Setting(containerEl).setName("\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u6709\u52B9\u5316").setDesc("\u30BF\u30B9\u30AF\u5B8C\u4E86\u6642\u306B\u7D19\u5439\u96EA\u30A8\u30D5\u30A7\u30AF\u30C8\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.enableConfetti).onChange(async (value) => {
         this.plugin.settings.enableConfetti = value;
         await this.plugin.saveSettings();
@@ -6134,7 +6541,7 @@ var TaskChuteSettingTab = class extends import_obsidian13.PluginSettingTab {
     );
   }
 };
-var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
+var TaskChutePlusPlugin = class extends import_obsidian15.Plugin {
   // Simple logger/notification wrapper
   _log(level, ...args) {
     var _a;
@@ -6146,7 +6553,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
   }
   _notify(message, timeout) {
     try {
-      new import_obsidian13.Notice(message, timeout);
+      new import_obsidian15.Notice(message, timeout);
     } catch (_) {
       this._log("warn", "[Notice]", message);
     }
@@ -6268,7 +6675,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
         if (view) {
           view.reorganizeIdleTasks();
         } else {
-          new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+          new import_obsidian15.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
         }
       }
     });
@@ -6286,7 +6693,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
         await this.pathManager.ensureFolderExists(path);
       } catch (error) {
         try {
-          new import_obsidian13.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
+          new import_obsidian15.Notice(`${label}\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F`);
         } catch (_) {
         }
       }
@@ -6339,7 +6746,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
       "duplicateInstance"
     ]);
     if (!view) {
-      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -6350,13 +6757,13 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     if (view.selectedTaskInstance && typeof v.duplicateInstance === "function") {
       await v.duplicateInstance(view.selectedTaskInstance);
     } else {
-      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async triggerDeleteSelectedTask() {
     const view = await this.getOrCreateTaskChuteView(["deleteSelectedTask"]);
     if (!view) {
-      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -6367,7 +6774,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     if (view.selectedTaskInstance && typeof v.deleteTask === "function") {
       v.deleteTask(view.selectedTaskInstance);
     } else {
-      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async triggerResetSelectedTask() {
@@ -6376,7 +6783,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
       "resetTaskToIdle"
     ]);
     if (!view) {
-      new import_obsidian13.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("TaskChute\u30D3\u30E5\u30FC\u304C\u958B\u304B\u308C\u3066\u3044\u307E\u305B\u3093");
       return;
     }
     const v = view;
@@ -6387,7 +6794,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
     if (view.selectedTaskInstance && typeof v.resetTaskToIdle === "function") {
       await v.resetTaskToIdle(view.selectedTaskInstance);
     } else {
-      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      new import_obsidian15.Notice("\u30BF\u30B9\u30AF\u304C\u9078\u629E\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
   }
   async activateTaskChuteView() {
@@ -6496,7 +6903,7 @@ var TaskChutePlusPlugin = class extends import_obsidian13.Plugin {
         } catch (error) {
         }
       } else {
-        new import_obsidian13.Notice(validation.error);
+        new import_obsidian15.Notice(validation.error);
         input.value = this.settings[settingKey] || "";
       }
     });
