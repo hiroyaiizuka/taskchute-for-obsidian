@@ -328,13 +328,19 @@ var HeatmapService = class {
   }
   calculateDailyStats(dayTasks) {
     const map = /* @__PURE__ */ new Map();
+    const toKey = (e) => (e == null ? void 0 : e.taskPath) && typeof e.taskPath === "string" && e.taskPath || (e == null ? void 0 : e.taskName) && typeof e.taskName === "string" && e.taskName || (e == null ? void 0 : e.taskTitle) && typeof e.taskTitle === "string" && e.taskTitle || (e == null ? void 0 : e.instanceId) && typeof e.instanceId === "string" && e.instanceId || JSON.stringify(e);
+    const isCompleted = (e) => {
+      if (typeof (e == null ? void 0 : e.isCompleted) === "boolean") return e.isCompleted;
+      if ((e == null ? void 0 : e.stopTime) && typeof e.stopTime === "string" && e.stopTime.trim().length > 0) return true;
+      if (typeof (e == null ? void 0 : e.durationSec) === "number" && e.durationSec > 0) return true;
+      if (typeof (e == null ? void 0 : e.duration) === "number" && e.duration > 0) return true;
+      return true;
+    };
     for (const task of dayTasks) {
       if (!task || typeof task !== "object") continue;
-      const name = task.taskName;
-      if (!name || typeof name !== "string") continue;
-      const isCompleted = !!task.isCompleted;
-      if (!map.has(name)) map.set(name, false);
-      if (isCompleted) map.set(name, true);
+      const key = toKey(task);
+      if (!map.has(key)) map.set(key, false);
+      if (isCompleted(task)) map.set(key, true);
     }
     const totalTasks = map.size;
     const completedTasks = Array.from(map.values()).filter(Boolean).length;
@@ -2129,7 +2135,6 @@ var ExecutionLogService = class {
     return `${y}-${m}-${d}`;
   }
   async saveTaskLog(inst, durationSec) {
-    var _a;
     if (!inst.startTime || !inst.stopTime) return;
     const start = new Date(inst.startTime);
     const monthKey = this.getMonthKey(start);
@@ -2165,18 +2170,35 @@ var ExecutionLogService = class {
     const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
     if (idx >= 0) arr[idx] = exec;
     else arr.push(exec);
-    const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+    const totalMinutes = arr.reduce((s, e) => s + Math.floor((e.durationSec || e.duration || 0) / 60), 0);
+    const toKey = (e) => e.taskPath && typeof e.taskPath === "string" && e.taskPath || e.taskName && typeof e.taskName === "string" && e.taskName || e.taskTitle && typeof e.taskTitle === "string" && e.taskTitle || e.instanceId && typeof e.instanceId === "string" && e.instanceId || JSON.stringify(e);
+    const isCompleted = (e) => {
+      if (typeof e.isCompleted === "boolean") return e.isCompleted;
+      if (e.stopTime && typeof e.stopTime === "string" && e.stopTime.trim().length > 0) return true;
+      if (typeof e.durationSec === "number" && e.durationSec > 0) return true;
+      if (typeof e.duration === "number" && e.duration > 0) return true;
+      return true;
+    };
+    const completedSet = /* @__PURE__ */ new Set();
+    for (const e of arr) {
+      if (isCompleted(e)) completedSet.add(toKey(e));
+    }
+    const completedTasks = completedSet.size;
+    const prev = json.dailySummary[dateKey] || {};
+    const totalTasks = typeof prev.totalTasks === "number" ? prev.totalTasks : Math.max(completedTasks, 0);
+    const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
+    const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
     json.dailySummary[dateKey] = {
+      ...prev,
       totalMinutes,
-      totalTasks: arr.length,
-      completedTasks: arr.length,
-      procrastinatedTasks: ((_a = json.dailySummary[dateKey]) == null ? void 0 : _a.procrastinatedTasks) || 0,
-      completionRate: arr.length > 0 ? 1 : 0
+      totalTasks,
+      completedTasks,
+      procrastinatedTasks,
+      completionRate
     };
     await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
   }
   async removeTaskLogForInstanceOnDate(instanceId, dateKey) {
-    var _a;
     try {
       const [y, m] = dateKey.split("-");
       const monthKey = `${y}-${m}`;
@@ -2195,14 +2217,32 @@ var ExecutionLogService = class {
       if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateKey])) return;
       const filtered = json.taskExecutions[dateKey].filter((e) => e.instanceId !== instanceId);
       json.taskExecutions[dateKey] = filtered;
-      const totalMinutes = filtered.reduce((s, e) => s + Math.floor((e.durationSec || 0) / 60), 0);
+      const totalMinutes = filtered.reduce((s, e) => s + Math.floor((e.durationSec || e.duration || 0) / 60), 0);
       if (!json.dailySummary) json.dailySummary = {};
+      const toKey = (e) => e.taskPath && typeof e.taskPath === "string" && e.taskPath || e.taskName && typeof e.taskName === "string" && e.taskName || e.taskTitle && typeof e.taskTitle === "string" && e.taskTitle || e.instanceId && typeof e.instanceId === "string" && e.instanceId || JSON.stringify(e);
+      const isCompleted = (e) => {
+        if (typeof e.isCompleted === "boolean") return e.isCompleted;
+        if (e.stopTime && typeof e.stopTime === "string" && e.stopTime.trim().length > 0) return true;
+        if (typeof e.durationSec === "number" && e.durationSec > 0) return true;
+        if (typeof e.duration === "number" && e.duration > 0) return true;
+        return true;
+      };
+      const completedSet = /* @__PURE__ */ new Set();
+      for (const e of filtered) {
+        if (isCompleted(e)) completedSet.add(toKey(e));
+      }
+      const completedTasks = completedSet.size;
+      const prev = json.dailySummary[dateKey] || {};
+      const totalTasks = typeof prev.totalTasks === "number" ? prev.totalTasks : Math.max(completedTasks, 0);
+      const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
+      const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
       json.dailySummary[dateKey] = {
+        ...prev,
         totalMinutes,
-        totalTasks: filtered.length,
-        completedTasks: filtered.length,
-        procrastinatedTasks: ((_a = json.dailySummary[dateKey]) == null ? void 0 : _a.procrastinatedTasks) || 0,
-        completionRate: filtered.length > 0 ? 1 : 0
+        totalTasks,
+        completedTasks,
+        procrastinatedTasks,
+        completionRate
       };
       await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
     } catch (_) {
@@ -4907,7 +4947,64 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     }
   }
   updateTotalTasksCount() {
-    const completedTasks = this.taskInstances.filter((inst) => inst.state === "done");
+    (async () => {
+      try {
+        const total = this.taskInstances.length;
+        const dateStr = this.getCurrentDateString();
+        const [year, month] = dateStr.split("-");
+        const monthString = `${year}-${month}`;
+        const logDataPath = this.plugin.pathManager.getLogDataPath();
+        const logPath = `${logDataPath}/${monthString}-tasks.json`;
+        const file = this.app.vault.getAbstractFileByPath(logPath);
+        let json = { taskExecutions: {}, dailySummary: {} };
+        if (file && file instanceof import_obsidian13.TFile) {
+          try {
+            const raw = await this.app.vault.read(file);
+            json = raw ? JSON.parse(raw) : json;
+          } catch (_) {
+          }
+        } else {
+          await this.plugin.pathManager.ensureFolderExists(logDataPath);
+        }
+        if (!json.dailySummary) json.dailySummary = {};
+        const prev = json.dailySummary[dateStr] || {};
+        if (typeof prev.totalTasks === "number" && prev.totalTasks === total) {
+          return;
+        }
+        const dayExec = json.taskExecutions && Array.isArray(json.taskExecutions[dateStr]) ? json.taskExecutions[dateStr] : [];
+        const toKey = (e) => (e == null ? void 0 : e.taskPath) && typeof e.taskPath === "string" && e.taskPath || (e == null ? void 0 : e.taskName) && typeof e.taskName === "string" && e.taskName || (e == null ? void 0 : e.taskTitle) && typeof e.taskTitle === "string" && e.taskTitle || (e == null ? void 0 : e.instanceId) && typeof e.instanceId === "string" && e.instanceId || JSON.stringify(e);
+        const isCompleted = (e) => {
+          if (typeof (e == null ? void 0 : e.isCompleted) === "boolean") return e.isCompleted;
+          if ((e == null ? void 0 : e.stopTime) && typeof e.stopTime === "string" && e.stopTime.trim().length > 0) return true;
+          if (typeof (e == null ? void 0 : e.durationSec) === "number" && e.durationSec > 0) return true;
+          if (typeof (e == null ? void 0 : e.duration) === "number" && e.duration > 0) return true;
+          return true;
+        };
+        const completedSet = /* @__PURE__ */ new Set();
+        for (const e of dayExec) {
+          if (isCompleted(e)) completedSet.add(toKey(e));
+        }
+        const completedTasks = completedSet.size;
+        const totalMinutes = prev.totalMinutes || dayExec.reduce((s, e) => s + Math.floor((e.durationSec || e.duration || 0) / 60), 0);
+        const procrastinatedTasks = Math.max(0, total - completedTasks);
+        const completionRate = total > 0 ? completedTasks / total : 0;
+        json.dailySummary[dateStr] = {
+          ...prev,
+          totalMinutes,
+          totalTasks: total,
+          completedTasks,
+          procrastinatedTasks,
+          completionRate
+        };
+        const payload = JSON.stringify(json, null, 2);
+        if (file && file instanceof import_obsidian13.TFile) {
+          await this.app.vault.modify(file, payload);
+        } else {
+          await this.app.vault.create(logPath, payload);
+        }
+      } catch (e) {
+      }
+    })();
   }
   cleanupAutocompleteInstances() {
     if (this.autocompleteInstances) {

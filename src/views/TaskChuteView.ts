@@ -3160,9 +3160,76 @@ export class TaskChuteView extends ItemView {
   }
 
   private updateTotalTasksCount(): void {
-    // Update task count for heatmap
-    const completedTasks = this.taskInstances.filter(inst => inst.state === "done");
-    // Implementation would save this to the appropriate data structure
+    // Persist the number of visible task instances into monthly dailySummary.totalTasks
+    (async () => {
+      try {
+        const total = this.taskInstances.length;
+        const dateStr = this.getCurrentDateString();
+        const [year, month] = dateStr.split('-');
+        const monthString = `${year}-${month}`;
+        const logDataPath = this.plugin.pathManager.getLogDataPath();
+        const logPath = `${logDataPath}/${monthString}-tasks.json`;
+
+        const file = this.app.vault.getAbstractFileByPath(logPath);
+        let json: any = { taskExecutions: {}, dailySummary: {} };
+        if (file && file instanceof TFile) {
+          try {
+            const raw = await this.app.vault.read(file);
+            json = raw ? JSON.parse(raw) : json;
+          } catch (_) {}
+        } else {
+          await this.plugin.pathManager.ensureFolderExists(logDataPath);
+        }
+
+        if (!json.dailySummary) json.dailySummary = {};
+        const prev = json.dailySummary[dateStr] || {};
+        if (typeof prev.totalTasks === 'number' && prev.totalTasks === total) {
+          return; // no change
+        }
+
+        // Recompute derived fields conservatively
+        const dayExec = (json.taskExecutions && Array.isArray(json.taskExecutions[dateStr]))
+          ? json.taskExecutions[dateStr]
+          : [];
+        const toKey = (e: any) => (e?.taskPath && typeof e.taskPath === 'string' && e.taskPath)
+          || (e?.taskName && typeof e.taskName === 'string' && e.taskName)
+          || (e?.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
+          || (e?.instanceId && typeof e.instanceId === 'string' && e.instanceId)
+          || JSON.stringify(e);
+        const isCompleted = (e: any) => {
+          if (typeof e?.isCompleted === 'boolean') return e.isCompleted;
+          if (e?.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true;
+          if (typeof e?.durationSec === 'number' && e.durationSec > 0) return true;
+          if (typeof e?.duration === 'number' && e.duration > 0) return true;
+          return true; // entries in executions are typically completed
+        };
+        const completedSet = new Set<string>();
+        for (const e of dayExec) { if (isCompleted(e)) completedSet.add(toKey(e)); }
+        const completedTasks = completedSet.size;
+
+        const totalMinutes = prev.totalMinutes || dayExec.reduce((s: number, e: any) => s + Math.floor(((e.durationSec || e.duration || 0) / 60)), 0);
+        const procrastinatedTasks = Math.max(0, total - completedTasks);
+        const completionRate = total > 0 ? completedTasks / total : 0;
+
+        json.dailySummary[dateStr] = {
+          ...prev,
+          totalMinutes,
+          totalTasks: total,
+          completedTasks,
+          procrastinatedTasks,
+          completionRate,
+        };
+
+        const payload = JSON.stringify(json, null, 2);
+        if (file && file instanceof TFile) {
+          await this.app.vault.modify(file, payload);
+        } else {
+          await this.app.vault.create(logPath, payload);
+        }
+      } catch (e) {
+        // Fail-safe: do not block UI
+      }
+    })();
   }
 
   private cleanupAutocompleteInstances(): void {

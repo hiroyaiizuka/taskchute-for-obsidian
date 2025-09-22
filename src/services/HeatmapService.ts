@@ -108,13 +108,24 @@ export class HeatmapService {
 
   calculateDailyStats(dayTasks: any[]): HeatmapDayStats {
     const map = new Map<string, boolean>()
+    const toKey = (e: any) => (e?.taskPath && typeof e.taskPath === 'string' && e.taskPath)
+      || (e?.taskName && typeof e.taskName === 'string' && e.taskName)
+      || (e?.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
+      || (e?.instanceId && typeof e.instanceId === 'string' && e.instanceId)
+      || JSON.stringify(e)
+    const isCompleted = (e: any) => {
+      if (typeof e?.isCompleted === 'boolean') return e.isCompleted
+      if (e?.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true
+      if (typeof e?.durationSec === 'number' && e.durationSec > 0) return true
+      if (typeof e?.duration === 'number' && e.duration > 0) return true
+      return true
+    }
+
     for (const task of dayTasks) {
       if (!task || typeof task !== 'object') continue
-      const name = task.taskName
-      if (!name || typeof name !== 'string') continue
-      const isCompleted = !!task.isCompleted
-      if (!map.has(name)) map.set(name, false)
-      if (isCompleted) map.set(name, true)
+      const key = toKey(task)
+      if (!map.has(key)) map.set(key, false)
+      if (isCompleted(task)) map.set(key, true)
     }
 
     const totalTasks = map.size
@@ -183,4 +194,3 @@ export class HeatmapService {
     }
   }
 }
-
