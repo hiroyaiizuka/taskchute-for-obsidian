@@ -1737,7 +1737,7 @@ async function createNonRoutineTask(file, content, metadata, dateString) {
   }
 }
 async function createRoutineTask(file, content, metadata, dateString) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   const rule = RoutineService_default.parseFrontmatter(metadata);
   if (!rule || rule.enabled === false) return;
   let projectPath = null;
@@ -1779,11 +1779,13 @@ async function createRoutineTask(file, content, metadata, dateString) {
     monthlyWeekday: (_f = (_e = metadata == null ? void 0 : metadata.monthly_weekday) != null ? _e : metadata == null ? void 0 : metadata.routine_weekday) != null ? _f : rule.monthWeekday
   };
   this.tasks.push(taskData);
+  const storedSlot = (_i = (_h = (_g = this.plugin) == null ? void 0 : _g.settings) == null ? void 0 : _h.slotKeys) == null ? void 0 : _i[file.path];
+  const slotKey = storedSlot || getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none";
   const instance = {
     task: taskData,
     instanceId: this.generateInstanceId(taskData, dateString),
     state: "idle",
-    slotKey: getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none",
+    slotKey,
     date: dateString
   };
   const isHidden = isInstanceHidden.call(this, instance.instanceId, file.path, dateString);
