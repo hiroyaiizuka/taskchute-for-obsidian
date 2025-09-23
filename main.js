@@ -2523,6 +2523,18 @@ var TaskNameAutocomplete = class {
     }
   }
   applySuggestionFromText(text) {
+    var _a;
+    if (this.view) {
+      const validator = typeof this.view.getTaskNameValidator === "function" ? this.view.getTaskNameValidator() : (_a = this.view.TaskNameValidator) != null ? _a : null;
+      if (validator && typeof validator.validate === "function") {
+        const validation = validator.validate(text);
+        if (!validation.isValid) {
+          const message = typeof validator.getErrorMessage === "function" ? validator.getErrorMessage(validation.invalidChars) : "\u3053\u306E\u30BF\u30B9\u30AF\u540D\u306B\u306F\u4F7F\u7528\u3067\u304D\u306A\u3044\u6587\u5B57\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059";
+          new import_obsidian12.Notice(message);
+          return;
+        }
+      }
+    }
     this.inputElement.value = text;
     this.hideSuggestions();
     this.inputElement.dispatchEvent(new Event("input", { bubbles: true }));
@@ -2532,6 +2544,12 @@ var TaskNameAutocomplete = class {
       bubbles: true
     }));
     this.inputElement.focus();
+  }
+  isSuggestionsVisible() {
+    return this.isVisible;
+  }
+  hasActiveSelection() {
+    return this.selectedIndex >= 0;
   }
   destroy() {
     if (this.debounceTimer) {
@@ -2596,6 +2614,9 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     this.runningTasksService = new RunningTasksService(this.plugin);
     this.executionLogService = new ExecutionLogService(this.plugin);
     this.taskCreationService = new TaskCreationService(this.plugin);
+  }
+  getTaskNameValidator() {
+    return this.TaskNameValidator;
   }
   getViewType() {
     return "taskchute-view";
@@ -5832,20 +5853,22 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
       cls: "form-input",
       placeholder: "\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B"
     });
+    const warningMessage = nameGroup.createEl("div", {
+      cls: "task-name-warning hidden",
+      attr: { role: "alert", "aria-live": "polite" }
+    });
+    let autocomplete = null;
+    let cleanupAutocomplete = null;
     try {
-      const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this);
+      autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this);
       await autocomplete.initialize();
-      this.autocompleteInstances.push({ cleanup: () => {
-        if (typeof autocomplete.destroy === "function") {
-          autocomplete.destroy();
-        }
-      } });
-      const cleanupAuto = () => {
-        if (typeof autocomplete.destroy === "function") {
+      const cleanup = () => {
+        if (typeof (autocomplete == null ? void 0 : autocomplete.destroy) === "function") {
           autocomplete.destroy();
         }
       };
-      modal._cleanupAutocomplete = cleanupAuto;
+      cleanupAutocomplete = cleanup;
+      this.autocompleteInstances.push({ cleanup });
     } catch (e) {
       console.error("[TaskChute] autocomplete init failed:", e);
     }
@@ -5861,16 +5884,36 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
       cls: "form-button create",
       text: "\u4FDD\u5B58"
     });
+    const validationControls = this.setupTaskNameValidation(nameInput, saveButton, warningMessage);
     const closeModal = () => {
-      var _a;
-      try {
-        (_a = modal._cleanupAutocomplete) == null ? void 0 : _a.call(modal);
-      } catch (_) {
+      cleanupAutocomplete == null ? void 0 : cleanupAutocomplete();
+      validationControls.dispose();
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal);
       }
-      document.body.removeChild(modal);
     };
     closeButton.addEventListener("click", closeModal);
     cancelButton.addEventListener("click", closeModal);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+    nameInput.addEventListener("autocomplete-selected", () => {
+      validationControls.runValidation();
+    });
+    nameInput.addEventListener("keydown", (event) => {
+      var _a, _b;
+      if (event.key !== "Enter") return;
+      if (((_a = autocomplete == null ? void 0 : autocomplete.isSuggestionsVisible) == null ? void 0 : _a.call(autocomplete)) && ((_b = autocomplete.hasActiveSelection) == null ? void 0 : _b.call(autocomplete))) {
+        return;
+      }
+      const validation = this.getTaskNameValidator().validate(nameInput.value);
+      if (!validation.isValid) {
+        event.preventDefault();
+        this.highlightWarning(warningMessage);
+      }
+    });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const taskName = nameInput.value.trim();
@@ -5878,8 +5921,18 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
         new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
         return;
       }
-      await this.createNewTask(taskName, estimatedMinutes);
-      closeModal();
+      if (!this.validateTaskNameBeforeSubmit(nameInput)) {
+        this.highlightWarning(warningMessage);
+        validationControls.runValidation();
+        return;
+      }
+      const created = await this.createNewTask(taskName, estimatedMinutes);
+      if (created) {
+        closeModal();
+      } else {
+        this.highlightWarning(warningMessage);
+        validationControls.runValidation();
+      }
     });
     document.body.appendChild(modal);
     nameInput.focus();
@@ -5890,10 +5943,66 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
       const file = await this.taskCreationService.createTaskFile(taskName, dateStr);
       await this.waitForFrontmatter(file);
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
+      return true;
     } catch (error) {
       console.error("Failed to create task:", error);
-      new import_obsidian13.Notice("\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
+      let errorMessage = "\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F";
+      const validation = this.getTaskNameValidator().validate(taskName);
+      if (error instanceof Error && error.message.includes("Invalid characters") || !validation.isValid) {
+        errorMessage = "\u30BF\u30B9\u30AF\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F: \u30D5\u30A1\u30A4\u30EB\u540D\u306B\u4F7F\u7528\u3067\u304D\u306A\u3044\u6587\u5B57\u304C\u542B\u307E\u308C\u3066\u3044\u307E\u3059";
+      }
+      new import_obsidian13.Notice(errorMessage);
+      return false;
     }
+  }
+  setupTaskNameValidation(inputElement, submitButton, warningElement) {
+    let validationTimer = null;
+    const runValidation = () => {
+      const validation = this.getTaskNameValidator().validate(inputElement.value);
+      this.updateValidationUI(inputElement, submitButton, warningElement, validation);
+    };
+    const handleInput = () => {
+      if (validationTimer !== null) {
+        window.clearTimeout(validationTimer);
+      }
+      validationTimer = window.setTimeout(runValidation, 50);
+    };
+    inputElement.addEventListener("input", handleInput);
+    inputElement.addEventListener("change", runValidation);
+    runValidation();
+    return {
+      runValidation,
+      dispose: () => {
+        if (validationTimer !== null) {
+          window.clearTimeout(validationTimer);
+        }
+        inputElement.removeEventListener("input", handleInput);
+        inputElement.removeEventListener("change", runValidation);
+      }
+    };
+  }
+  updateValidationUI(input, button, warning, validation) {
+    if (validation.isValid) {
+      input.classList.remove("error");
+      button.disabled = false;
+      button.classList.remove("disabled");
+      warning.classList.add("hidden");
+      warning.textContent = "";
+    } else {
+      input.classList.add("error");
+      button.disabled = true;
+      button.classList.add("disabled");
+      warning.classList.remove("hidden");
+      warning.textContent = this.TaskNameValidator.getErrorMessage(validation.invalidChars);
+    }
+  }
+  highlightWarning(warningElement) {
+    warningElement.classList.add("highlight");
+    window.setTimeout(() => warningElement.classList.remove("highlight"), 300);
+  }
+  validateTaskNameBeforeSubmit(nameInput) {
+    const validation = this.getTaskNameValidator().validate(nameInput.value);
+    return validation.isValid;
   }
   async waitForFrontmatter(file, timeoutMs = 4e3) {
     const start = Date.now();

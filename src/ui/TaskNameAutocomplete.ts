@@ -1,4 +1,4 @@
-import { TFile, TFolder } from 'obsidian';
+import { Notice, TFile, TFolder } from 'obsidian';
 
 interface Plugin {
   app: any;
@@ -289,7 +289,7 @@ export class TaskNameAutocomplete {
     
     const items = this.suggestionsElement.querySelectorAll('.suggestion-item');
     const selectedItem = items[this.selectedIndex] as HTMLElement;
-    
+
     if (selectedItem) {
       const text = selectedItem.textContent || ''
       this.applySuggestionFromText(text)
@@ -297,6 +297,25 @@ export class TaskNameAutocomplete {
   }
 
   private applySuggestionFromText(text: string): void {
+    if (this.view) {
+      const validator: any =
+        typeof this.view.getTaskNameValidator === 'function'
+          ? this.view.getTaskNameValidator()
+          : (this.view.TaskNameValidator ?? null);
+
+      if (validator && typeof validator.validate === 'function') {
+        const validation = validator.validate(text);
+        if (!validation.isValid) {
+          const message =
+            typeof validator.getErrorMessage === 'function'
+              ? validator.getErrorMessage(validation.invalidChars)
+              : 'このタスク名には使用できない文字が含まれています';
+          new Notice(message);
+          return;
+        }
+      }
+    }
+
     this.inputElement.value = text
     this.hideSuggestions()
     // Trigger input and change events to align with spec
@@ -309,6 +328,14 @@ export class TaskNameAutocomplete {
     }))
     // Keep focus on input
     this.inputElement.focus()
+  }
+
+  public isSuggestionsVisible(): boolean {
+    return this.isVisible;
+  }
+
+  public hasActiveSelection(): boolean {
+    return this.selectedIndex >= 0;
   }
 
   destroy(): void {

@@ -86,6 +86,10 @@ export class TaskChuteView extends ItemView {
     }
   };
 
+  public getTaskNameValidator(): TaskNameValidator {
+    return this.TaskNameValidator;
+  }
+
   constructor(leaf: WorkspaceLeaf, plugin: TaskChutePluginLike) {
     super(leaf);
     this.plugin = plugin;
@@ -4285,25 +4289,20 @@ export class TaskChuteView extends ItemView {
   }
   
   private async showAddTaskModal(): Promise<void> {
-    // モーダルコンテナ
     const modal = document.createElement("div");
     modal.className = "task-modal-overlay";
     const modalContent = modal.createEl("div", { cls: "task-modal-content" });
-    
-    // モーダルヘッダー
+
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" });
     modalHeader.createEl("h3", { text: "新しいタスクを追加" });
-    
-    // 閉じるボタン
+
     const closeButton = modalHeader.createEl("button", {
       cls: "modal-close-button",
       text: "×",
     });
-    
-    // フォーム
+
     const form = modalContent.createEl("form", { cls: "task-form" });
-    
-    // タスク名入力
+
     const nameGroup = form.createEl("div", { cls: "form-group" });
     nameGroup.createEl("label", { text: "タスク名:", cls: "form-label" });
     const nameInput = nameGroup.createEl("input", {
@@ -4311,78 +4310,197 @@ export class TaskChuteView extends ItemView {
       cls: "form-input",
       placeholder: "タスク名を入力",
     }) as HTMLInputElement;
-    
-    // Integrate TaskNameAutocomplete (UI-only; no inheritance here)
+
+    const warningMessage = nameGroup.createEl("div", {
+      cls: "task-name-warning hidden",
+      attr: { role: "alert", "aria-live": "polite" },
+    });
+
+    let autocomplete: TaskNameAutocomplete | null = null;
+    let cleanupAutocomplete: (() => void) | null = null;
+
     try {
-      const autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this)
-      await autocomplete.initialize()
-      // Register for cleanup on view close
-      this.autocompleteInstances.push({ cleanup: () => { if (typeof (autocomplete as any).destroy === 'function') { (autocomplete as any).destroy() } } })
-      // When modal closes, proactively destroy
-      const cleanupAuto = () => { if (typeof (autocomplete as any).destroy === 'function') { (autocomplete as any).destroy() } }
-      // Attach temporary cleanup; will be called below on button clicks
-      (modal as any)._cleanupAutocomplete = cleanupAuto
+      autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this);
+      await autocomplete.initialize();
+      const cleanup = () => {
+        if (typeof (autocomplete as any)?.destroy === "function") {
+          (autocomplete as any).destroy();
+        }
+      };
+      cleanupAutocomplete = cleanup;
+      this.autocompleteInstances.push({ cleanup });
     } catch (e) {
-      // Failsafe: do not block modal if autocomplete fails
-      console.error('[TaskChute] autocomplete init failed:', e)
+      console.error('[TaskChute] autocomplete init failed:', e);
     }
-    
-    // 見積時間は固定値30分を使用（UIには表示しない）
+
     const estimatedMinutes = 30;
-    
-    // ボタンエリア
+
     const buttonGroup = form.createEl("div", { cls: "form-button-group" });
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "form-button cancel",
       text: "キャンセル",
-    });
+    }) as HTMLButtonElement;
     const saveButton = buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
       text: "保存",
-    });
-    
-    // イベントリスナー
+    }) as HTMLButtonElement;
+
+    const validationControls = this.setupTaskNameValidation(nameInput, saveButton, warningMessage);
+
     const closeModal = () => {
-      try { (modal as any)._cleanupAutocomplete?.() } catch (_) {}
-      document.body.removeChild(modal)
-    }
-    closeButton.addEventListener("click", closeModal)
-    cancelButton.addEventListener("click", closeModal)
-    
+      cleanupAutocomplete?.();
+      validationControls.dispose();
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal);
+      }
+    };
+
+    closeButton.addEventListener("click", closeModal);
+    cancelButton.addEventListener("click", closeModal);
+
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+
+    nameInput.addEventListener("autocomplete-selected", () => {
+      validationControls.runValidation();
+    });
+
+    nameInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+
+      if (autocomplete?.isSuggestionsVisible?.() && autocomplete.hasActiveSelection?.()) {
+        return;
+      }
+
+      const validation = this.getTaskNameValidator().validate(nameInput.value);
+      if (!validation.isValid) {
+        event.preventDefault();
+        this.highlightWarning(warningMessage);
+      }
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const taskName = nameInput.value.trim();
-      
+
       if (!taskName) {
         new Notice("タスク名を入力してください");
         return;
       }
-      
-      // タスクを作成（見積時間は30分固定）
-      await this.createNewTask(taskName, estimatedMinutes);
-      closeModal();
+
+      if (!this.validateTaskNameBeforeSubmit(nameInput)) {
+        this.highlightWarning(warningMessage);
+        validationControls.runValidation();
+        return;
+      }
+
+      const created = await this.createNewTask(taskName, estimatedMinutes);
+      if (created) {
+        closeModal();
+      } else {
+        this.highlightWarning(warningMessage);
+        validationControls.runValidation();
+      }
     });
-    
-    // モーダルを表示
+
     document.body.appendChild(modal);
     nameInput.focus();
   }
   
-  private async createNewTask(taskName: string, estimatedMinutes: number): Promise<void> {
+  private async createNewTask(taskName: string, estimatedMinutes: number): Promise<boolean> {
     try {
-      // 現在表示中の日付を取得
       const dateStr = this.getCurrentDateString();
-
-      // Delegate to service for unique naming and creation
-      const file = await this.taskCreationService.createTaskFile(taskName, dateStr)
+      const file = await this.taskCreationService.createTaskFile(taskName, dateStr);
       await this.waitForFrontmatter(file);
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
+      return true;
     } catch (error) {
       console.error("Failed to create task:", error);
-      new Notice("タスクの作成に失敗しました");
+
+      let errorMessage = "タスクの作成に失敗しました";
+      const validation = this.getTaskNameValidator().validate(taskName);
+      if (
+        (error instanceof Error && error.message.includes("Invalid characters")) ||
+        !validation.isValid
+      ) {
+        errorMessage = "タスクの作成に失敗しました: ファイル名に使用できない文字が含まれています";
+      }
+
+      new Notice(errorMessage);
+      return false;
     }
+  }
+
+  private setupTaskNameValidation(
+    inputElement: HTMLInputElement,
+    submitButton: HTMLButtonElement,
+    warningElement: HTMLElement,
+  ): { runValidation: () => void; dispose: () => void } {
+    let validationTimer: number | null = null;
+
+    const runValidation = () => {
+      const validation = this.getTaskNameValidator().validate(inputElement.value);
+      this.updateValidationUI(inputElement, submitButton, warningElement, validation);
+    };
+
+    const handleInput = () => {
+      if (validationTimer !== null) {
+        window.clearTimeout(validationTimer);
+      }
+      validationTimer = window.setTimeout(runValidation, 50);
+    };
+
+    inputElement.addEventListener("input", handleInput);
+    inputElement.addEventListener("change", runValidation);
+
+    runValidation();
+
+    return {
+      runValidation,
+      dispose: () => {
+        if (validationTimer !== null) {
+          window.clearTimeout(validationTimer);
+        }
+        inputElement.removeEventListener("input", handleInput);
+        inputElement.removeEventListener("change", runValidation);
+      },
+    };
+  }
+
+  private updateValidationUI(
+    input: HTMLInputElement,
+    button: HTMLButtonElement,
+    warning: HTMLElement,
+    validation: ReturnType<TaskNameValidator["validate"]>,
+  ): void {
+    if (validation.isValid) {
+      input.classList.remove("error");
+      button.disabled = false;
+      button.classList.remove("disabled");
+      warning.classList.add("hidden");
+      warning.textContent = "";
+    } else {
+      input.classList.add("error");
+      button.disabled = true;
+      button.classList.add("disabled");
+      warning.classList.remove("hidden");
+      warning.textContent = this.TaskNameValidator.getErrorMessage(validation.invalidChars);
+    }
+  }
+
+  private highlightWarning(warningElement: HTMLElement): void {
+    warningElement.classList.add("highlight");
+    window.setTimeout(() => warningElement.classList.remove("highlight"), 300);
+  }
+
+  private validateTaskNameBeforeSubmit(nameInput: HTMLInputElement): boolean {
+    const validation = this.getTaskNameValidator().validate(nameInput.value);
+    return validation.isValid;
   }
 
   private async waitForFrontmatter(file: TFile, timeoutMs = 4000): Promise<void> {
