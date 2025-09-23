@@ -422,6 +422,7 @@ export class TaskChuteView extends ItemView {
         hiddenRoutines: [],
         deletedInstances: [],
         duplicatedInstances: [],
+        slotOverrides: {},
         orders: {},
       };
       this.dayStateCache.set(dateStr, state);
@@ -630,11 +631,23 @@ export class TaskChuteView extends ItemView {
   }
 
   private getTaskSlotKey(task: TaskData): string {
+    if (task.isRoutine) {
+      const dayState = this.getCurrentDayState();
+      const override = dayState.slotOverrides?.[task.path];
+      if (override) {
+        return override;
+      }
+      if (task.scheduledTime) {
+        return getSlotFromTime(task.scheduledTime);
+      }
+      return 'none';
+    }
+
     const storedSlot = this.plugin.settings.slotKeys?.[task.path];
     if (storedSlot) {
       return storedSlot;
     }
-    return "none";
+    return 'none';
   }
 
   private loadInstanceState(instance: TaskInstance, dateStr: string): void {
@@ -2537,10 +2550,7 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
 
     // Persist to monthly log via service
@@ -2559,10 +2569,7 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
 
     await this.saveRunningTasksState();
@@ -2588,10 +2595,7 @@ export class TaskChuteView extends ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
 
     await this.saveRunningTasksState();
@@ -4524,16 +4528,34 @@ export class TaskChuteView extends ItemView {
   }
 
   private persistSlotAssignment(inst: TaskInstance): void {
-    if (inst.task?.path) {
-      if (!this.plugin.settings.slotKeys) {
-        this.plugin.settings.slotKeys = {};
+    const dayState = this.getCurrentDayState();
+    const taskPath = inst.task?.path;
+    const isRoutine = inst.task?.isRoutine === true;
+
+    if (taskPath) {
+      if (isRoutine) {
+        if (!dayState.slotOverrides) {
+          dayState.slotOverrides = {};
+        }
+        const resolvedSlot = inst.slotKey || 'none';
+        const defaultSlot = inst.task?.scheduledTime
+          ? getSlotFromTime(inst.task.scheduledTime)
+          : 'none';
+        if (resolvedSlot === defaultSlot) {
+          delete dayState.slotOverrides[taskPath];
+        } else {
+          dayState.slotOverrides[taskPath] = resolvedSlot;
+        }
+      } else {
+        if (!this.plugin.settings.slotKeys) {
+          this.plugin.settings.slotKeys = {};
+        }
+        this.plugin.settings.slotKeys[taskPath] = inst.slotKey || 'none';
+        void this.plugin.saveSettings();
       }
-      this.plugin.settings.slotKeys[inst.task.path] = inst.slotKey || 'none';
-      void this.plugin.saveSettings();
     }
 
     if (inst.instanceId) {
-      const dayState = this.getCurrentDayState();
       const key = this.getOrderKey(inst);
       if (key && dayState.orders && dayState.orders[key] != null) {
         // keep existing order; noop
@@ -4978,6 +5000,7 @@ export class TaskChuteView extends ItemView {
       hiddenRoutines: [],
       deletedInstances: [],
       duplicatedInstances: [],
+      slotOverrides: {},
       orders: {},
     };
     state.deletedInstances = instances.filter((x) => !!x);
@@ -4995,6 +5018,7 @@ export class TaskChuteView extends ItemView {
       hiddenRoutines: [],
       deletedInstances: [],
       duplicatedInstances: [],
+      slotOverrides: {},
       orders: {},
     };
     state.hiddenRoutines = (routines || []).filter((x) => !!x);

@@ -88,6 +88,7 @@ export interface DayState {
       originalSlotKey?: string;
     }
   >;
+  slotOverrides: Record<string, string>;
   orders: Record<string, number>;
 }
 

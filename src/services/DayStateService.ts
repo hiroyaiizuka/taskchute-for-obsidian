@@ -17,6 +17,7 @@ function createEmptyDayState(): DayState {
     hiddenRoutines: [],
     deletedInstances: [],
     duplicatedInstances: [],
+    slotOverrides: {},
     orders: {},
   };
 }
@@ -100,6 +101,12 @@ export class DayStateService {
     }
     if (Array.isArray(value.duplicatedInstances)) {
       day.duplicatedInstances = value.duplicatedInstances.filter(Boolean);
+    }
+    if (value.slotOverrides && typeof value.slotOverrides === 'object') {
+      const entries = Object.entries(value.slotOverrides).filter(
+        ([key, val]) => typeof key === 'string' && typeof val === 'string',
+      );
+      day.slotOverrides = Object.fromEntries(entries);
     }
     if (value.orders && typeof value.orders === 'object') {
       const entries = Object.entries(value.orders).filter(
@@ -263,6 +270,13 @@ export class DayStateService {
         state.orders = {
           ...state.orders,
           ...partial.orders,
+        };
+      }
+
+      if (partial.slotOverrides) {
+        state.slotOverrides = {
+          ...state.slotOverrides,
+          ...partial.slotOverrides,
         };
       }
 

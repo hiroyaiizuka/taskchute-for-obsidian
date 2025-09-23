@@ -1737,7 +1737,7 @@ async function createNonRoutineTask(file, content, metadata, dateString) {
   }
 }
 async function createRoutineTask(file, content, metadata, dateString) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g;
   const rule = RoutineService_default.parseFrontmatter(metadata);
   if (!rule || rule.enabled === false) return;
   let projectPath = null;
@@ -1779,7 +1779,11 @@ async function createRoutineTask(file, content, metadata, dateString) {
     monthlyWeekday: (_f = (_e = metadata == null ? void 0 : metadata.monthly_weekday) != null ? _e : metadata == null ? void 0 : metadata.routine_weekday) != null ? _f : rule.monthWeekday
   };
   this.tasks.push(taskData);
-  const storedSlot = (_i = (_h = (_g = this.plugin) == null ? void 0 : _g.settings) == null ? void 0 : _h.slotKeys) == null ? void 0 : _i[file.path];
+  if (typeof this.ensureDayStateForCurrentDate === "function") {
+    await this.ensureDayStateForCurrentDate();
+  }
+  const dayState = typeof this.getCurrentDayState === "function" ? this.getCurrentDayState() : null;
+  const storedSlot = (_g = dayState == null ? void 0 : dayState.slotOverrides) == null ? void 0 : _g[file.path];
   const slotKey = storedSlot || getScheduledSlotKey(metadata == null ? void 0 : metadata.\u958B\u59CB\u6642\u523B) || "none";
   const instance = {
     task: taskData,
@@ -2846,6 +2850,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
         hiddenRoutines: [],
         deletedInstances: [],
         duplicatedInstances: [],
+        slotOverrides: {},
         orders: {}
       };
       this.dayStateCache.set(dateStr, state);
@@ -3012,8 +3017,19 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     return `${task.path}_${dateStr}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   getTaskSlotKey(task) {
-    var _a;
-    const storedSlot = (_a = this.plugin.settings.slotKeys) == null ? void 0 : _a[task.path];
+    var _a, _b;
+    if (task.isRoutine) {
+      const dayState = this.getCurrentDayState();
+      const override = (_a = dayState.slotOverrides) == null ? void 0 : _a[task.path];
+      if (override) {
+        return override;
+      }
+      if (task.scheduledTime) {
+        return getSlotFromTime(task.scheduledTime);
+      }
+      return "none";
+    }
+    const storedSlot = (_b = this.plugin.settings.slotKeys) == null ? void 0 : _b[task.path];
     if (storedSlot) {
       return storedSlot;
     }
@@ -4476,10 +4492,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
     const durationSec = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1e3);
     await this.executionLogService.saveTaskLog(inst, durationSec);
@@ -4493,10 +4506,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
@@ -4515,10 +4525,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     const newSlot = getSlotFromTime(startStr);
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot;
-      if (inst.task.path) {
-        this.plugin.settings.slotKeys[inst.task.path] = newSlot;
-        void this.plugin.saveSettings();
-      }
+      this.persistSlotAssignment(inst);
     }
     await this.saveRunningTasksState();
     this.renderTaskList();
@@ -6022,16 +6029,31 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
     }
   }
   persistSlotAssignment(inst) {
-    var _a;
-    if ((_a = inst.task) == null ? void 0 : _a.path) {
-      if (!this.plugin.settings.slotKeys) {
-        this.plugin.settings.slotKeys = {};
+    var _a, _b, _c;
+    const dayState = this.getCurrentDayState();
+    const taskPath = (_a = inst.task) == null ? void 0 : _a.path;
+    const isRoutine = ((_b = inst.task) == null ? void 0 : _b.isRoutine) === true;
+    if (taskPath) {
+      if (isRoutine) {
+        if (!dayState.slotOverrides) {
+          dayState.slotOverrides = {};
+        }
+        const resolvedSlot = inst.slotKey || "none";
+        const defaultSlot = ((_c = inst.task) == null ? void 0 : _c.scheduledTime) ? getSlotFromTime(inst.task.scheduledTime) : "none";
+        if (resolvedSlot === defaultSlot) {
+          delete dayState.slotOverrides[taskPath];
+        } else {
+          dayState.slotOverrides[taskPath] = resolvedSlot;
+        }
+      } else {
+        if (!this.plugin.settings.slotKeys) {
+          this.plugin.settings.slotKeys = {};
+        }
+        this.plugin.settings.slotKeys[taskPath] = inst.slotKey || "none";
+        void this.plugin.saveSettings();
       }
-      this.plugin.settings.slotKeys[inst.task.path] = inst.slotKey || "none";
-      void this.plugin.saveSettings();
     }
     if (inst.instanceId) {
-      const dayState = this.getCurrentDayState();
       const key = this.getOrderKey(inst);
       if (key && dayState.orders && dayState.orders[key] != null) {
       }
@@ -6372,6 +6394,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
       hiddenRoutines: [],
       deletedInstances: [],
       duplicatedInstances: [],
+      slotOverrides: {},
       orders: {}
     };
     state.deletedInstances = instances.filter((x) => !!x);
@@ -6387,6 +6410,7 @@ var TaskChuteView = class extends import_obsidian13.ItemView {
       hiddenRoutines: [],
       deletedInstances: [],
       duplicatedInstances: [],
+      slotOverrides: {},
       orders: {}
     };
     state.hiddenRoutines = (routines || []).filter((x) => !!x);
@@ -6425,6 +6449,7 @@ function createEmptyDayState() {
     hiddenRoutines: [],
     deletedInstances: [],
     duplicatedInstances: [],
+    slotOverrides: {},
     orders: {}
   };
 }
@@ -6494,6 +6519,12 @@ var DayStateService = class {
     }
     if (Array.isArray(value.duplicatedInstances)) {
       day.duplicatedInstances = value.duplicatedInstances.filter(Boolean);
+    }
+    if (value.slotOverrides && typeof value.slotOverrides === "object") {
+      const entries = Object.entries(value.slotOverrides).filter(
+        ([key, val]) => typeof key === "string" && typeof val === "string"
+      );
+      day.slotOverrides = Object.fromEntries(entries);
     }
     if (value.orders && typeof value.orders === "object") {
       const entries = Object.entries(value.orders).filter(
@@ -6638,6 +6669,12 @@ var DayStateService = class {
         state.orders = {
           ...state.orders,
           ...partial.orders
+        };
+      }
+      if (partial.slotOverrides) {
+        state.slotOverrides = {
+          ...state.slotOverrides,
+          ...partial.slotOverrides
         };
       }
       return state;

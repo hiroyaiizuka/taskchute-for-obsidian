@@ -322,7 +322,13 @@ async function createRoutineTask(this: any, file: any, content: string, metadata
   this.tasks.push(taskData);
 
   // Create idle instance for routine task
-  const storedSlot = this.plugin?.settings?.slotKeys?.[file.path];
+  if (typeof this.ensureDayStateForCurrentDate === 'function') {
+    await this.ensureDayStateForCurrentDate();
+  }
+  const dayState = typeof this.getCurrentDayState === 'function'
+    ? this.getCurrentDayState()
+    : null;
+  const storedSlot = dayState?.slotOverrides?.[file.path];
   const slotKey = storedSlot || getScheduledSlotKey(metadata?.開始時刻) || 'none';
   const instance = {
     task: taskData,
