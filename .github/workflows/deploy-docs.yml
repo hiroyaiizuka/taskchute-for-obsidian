@@ -34,4 +34,6 @@ jobs:
         working-directory: taskchute-docs
         env:
           GIT_USER: ${{ github.actor }}
+          GIT_PASS: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
