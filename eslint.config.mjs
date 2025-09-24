@@ -58,7 +58,7 @@ export default [
       "node_modules/**",
       ".obsidian/**",
       ".husky/**",
-      "my-docs/**",
+      "taskchute-docs/**",
       "tmp/**",
     ],
   },
