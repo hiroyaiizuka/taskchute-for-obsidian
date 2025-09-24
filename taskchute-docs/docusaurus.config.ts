@@ -92,7 +92,7 @@ const config: Config = {
           position: "right",
         },
         {
-          href: "https://github.com/taskchute-plus/taskchute-plus",
+          href: "https://hiroyaiizuka.github.io/taskchute-for-obsidian/",
           label: "GitHub",
           position: "right",
         },
@@ -123,11 +123,7 @@ const config: Config = {
           items: [
             {
               label: "GitHub Issues",
-              href: "https://github.com/taskchute-plus/taskchute-plus/issues",
-            },
-            {
-              label: "Discussions",
-              href: "https://github.com/taskchute-plus/taskchute-plus/discussions",
+              href: "https://github.com/hiroyaiizuka/taskchute-for-obsidian/issues",
             },
           ],
         },
@@ -136,7 +132,7 @@ const config: Config = {
           items: [
             {
               label: "GitHub",
-              href: "https://github.com/taskchute-plus/taskchute-plus",
+              href: "https://github.com/hiroyaiizuka/taskchute-for-obsidian",
             },
             {
               label: "Obsidian Plugin Store",
@@ -145,7 +141,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} TaskChute Plus. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} TaskChute Plus.`,
     },
     prism: {
       theme: prismThemes.github,
