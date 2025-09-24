@@ -1,13 +1,13 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
-import type * as Preset from '@docusaurus/preset-classic';
+import { themes as prismThemes } from "prism-react-renderer"
+import type { Config } from "@docusaurus/types"
+import type * as Preset from "@docusaurus/preset-classic"
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'TaskChute Plus',
-  tagline: 'Time-based task management for Obsidian',
-  favicon: 'img/favicon.ico',
+  title: "TaskChute Plus",
+  tagline: "Time-based task management for Obsidian",
+  favicon: "img/favicon.ico",
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -15,55 +15,57 @@ const config: Config = {
   },
 
   // Set the production url of your site here
-  url: 'https://taskchute-plus-docs.example.com',
+  url: "https://hiroyaiizuka.github.io",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/',
+  baseUrl: "/taskchute-for-obsidian/",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'taskchute-plus', // Usually your GitHub org/user name.
-  projectName: 'taskchute-plus', // Usually your repo name.
+  organizationName: "hiroyaiizuka", // GitHubユーザー名
+  projectName: "taskchute-for-obsidian",
+  deploymentBranch: "gh-pages",
+  trailingSlash: true,
 
-  onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenLinks: "throw",
+  onBrokenMarkdownLinks: "warn",
 
   // Internationalization configuration
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en', 'ja'],
+    defaultLocale: "en",
+    locales: ["en", "ja"],
     localeConfigs: {
       en: {
-        label: 'English',
-        direction: 'ltr',
-        htmlLang: 'en-US',
-        calendar: 'gregory',
-        path: 'en',
+        label: "English",
+        direction: "ltr",
+        htmlLang: "en-US",
+        calendar: "gregory",
+        path: "en",
       },
       ja: {
-        label: '日本語',
-        direction: 'ltr',
-        htmlLang: 'ja-JP',
-        calendar: 'gregory',
-        path: 'ja',
+        label: "日本語",
+        direction: "ltr",
+        htmlLang: "ja-JP",
+        calendar: "gregory",
+        path: "ja",
       },
     },
   },
 
   presets: [
     [
-      'classic',
+      "classic",
       {
         docs: {
-          sidebarPath: './sidebars.ts',
+          sidebarPath: "./sidebars.ts",
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/taskchute-plus/taskchute-plus/tree/main/taskchute-docs/',
+            "https://github.com/taskchute-plus/taskchute-plus/tree/main/taskchute-docs/",
           editLocalizedFiles: true,
         },
         blog: false, // Disable blog functionality
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: "./src/css/custom.css",
         },
       } satisfies Preset.Options,
     ],
@@ -71,74 +73,74 @@ const config: Config = {
 
   themeConfig: {
     // Replace with your project's social card
-    image: 'img/docusaurus-social-card.jpg',
+    image: "img/taskchute-social-card.png",
     navbar: {
-      title: 'TaskChute Plus',
+      title: "TaskChute Plus",
       logo: {
-        alt: 'TaskChute Plus Logo',
-        src: 'img/logo.svg',
+        alt: "TaskChute Plus Logo",
+        src: "img/logo.svg",
       },
       items: [
         {
-          type: 'docSidebar',
-          sidebarId: 'docsSidebar',
-          position: 'left',
-          label: 'Documentation',
+          type: "docSidebar",
+          sidebarId: "docsSidebar",
+          position: "left",
+          label: "Documentation",
         },
         {
-          type: 'localeDropdown',
-          position: 'right',
+          type: "localeDropdown",
+          position: "right",
         },
         {
-          href: 'https://github.com/taskchute-plus/taskchute-plus',
-          label: 'GitHub',
-          position: 'right',
+          href: "https://github.com/taskchute-plus/taskchute-plus",
+          label: "GitHub",
+          position: "right",
         },
       ],
     },
     footer: {
-      style: 'dark',
+      style: "dark",
       links: [
         {
-          title: 'Documentation',
+          title: "Documentation",
           items: [
             {
-              label: 'Getting Started',
-              to: '/docs/getting-started/installation',
+              label: "Getting Started",
+              to: "/docs/getting-started/installation",
             },
             {
-              label: 'Features',
-              to: '/docs/features/task-management',
+              label: "Features",
+              to: "/docs/features/task-management",
             },
             {
-              label: 'Configuration',
-              to: '/docs/configuration/settings',
+              label: "Configuration",
+              to: "/docs/configuration/settings",
             },
           ],
         },
         {
-          title: 'Community',
+          title: "Community",
           items: [
             {
-              label: 'GitHub Issues',
-              href: 'https://github.com/taskchute-plus/taskchute-plus/issues',
+              label: "GitHub Issues",
+              href: "https://github.com/taskchute-plus/taskchute-plus/issues",
             },
             {
-              label: 'Discussions',
-              href: 'https://github.com/taskchute-plus/taskchute-plus/discussions',
+              label: "Discussions",
+              href: "https://github.com/taskchute-plus/taskchute-plus/discussions",
             },
           ],
         },
         {
-          title: 'More',
+          title: "More",
           items: [
             {
-              label: 'GitHub',
-              href: 'https://github.com/taskchute-plus/taskchute-plus',
+              label: "GitHub",
+              href: "https://github.com/taskchute-plus/taskchute-plus",
             },
             {
-              label: 'Obsidian Plugin Store',
-              href: 'https://obsidian.md/plugins',
+              label: "Obsidian Plugin Store",
+              href: "https://obsidian.md/plugins",
             },
           ],
         },
@@ -150,6 +152,6 @@ const config: Config = {
       darkTheme: prismThemes.dracula,
     },
   } satisfies Preset.ThemeConfig,
-};
+}
 
-export default config;
+export default config
