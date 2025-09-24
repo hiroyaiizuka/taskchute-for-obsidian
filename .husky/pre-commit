@@ -1,0 +1,6 @@
+PATH="/Users/hiroyaiizuka/.local/share/mise/installs/node/24.8.0/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+npm run lint
+
+npm test

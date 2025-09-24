@@ -164,6 +164,17 @@ const createMockElement = (tag = 'div') => {
   return element
 }
 
+class Modal {
+  constructor(app) {
+    this.app = app
+    this.titleEl = createMockElement('h1')
+    this.contentEl = createMockElement('div')
+    this.open = jest.fn()
+    this.close = jest.fn()
+    this.setTitle = jest.fn()
+  }
+}
+
 const mockLeaf = {
   containerEl: {
     children: [
@@ -236,6 +247,7 @@ module.exports = {
   WorkspaceLeaf,
   TFile,
   TFolder,
+  Modal,
   Notice,
   PluginSettingTab,
   Setting,
