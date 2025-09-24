@@ -79,6 +79,8 @@ const config: Config = {
       logo: {
         alt: "TaskChute Plus Logo",
         src: "img/logo.svg",
+        href: "https://hiroyaiizuka.github.io/taskchute-for-obsidian/docs/",
+        target: "_self",
       },
       items: [
         {
@@ -92,7 +94,7 @@ const config: Config = {
           position: "right",
         },
         {
-          href: "https://hiroyaiizuka.github.io/taskchute-for-obsidian/",
+          href: "https://github.com/hiroyaiizuka/taskchute-for-obsidian",
           label: "GitHub",
           position: "right",
         },
