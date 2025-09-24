@@ -626,9 +626,6 @@ export class TaskChuteView extends ItemView {
         continue;
       }
 
-      // Load instance state from localStorage
-      this.loadInstanceState(instance, dateStr);
-      
       this.taskInstances.push(instance);
     }
   }
@@ -683,28 +680,6 @@ export class TaskChuteView extends ItemView {
       return storedSlot;
     }
     return 'none';
-  }
-
-  private loadInstanceState(instance: TaskInstance, dateStr: string): void {
-    // Load state from app local storage
-    const stateKey = `taskchute-instance-state-${instance.instanceId}`;
-    const savedState = this.app.loadLocalStorage(stateKey) as string | null;
-    
-    if (savedState) {
-      try {
-        const parsed = JSON.parse(savedState);
-        instance.state = parsed.state || 'idle';
-        instance.startTime = parsed.startTime ? new Date(parsed.startTime) : undefined;
-        instance.stopTime = parsed.stopTime ? new Date(parsed.stopTime) : undefined;
-        instance.pausedDuration = parsed.pausedDuration || 0;
-        instance.actualMinutes = parsed.actualMinutes;
-        instance.comment = parsed.comment;
-        instance.focusLevel = parsed.focusLevel;
-        instance.energyLevel = parsed.energyLevel;
-      } catch (error) {
-        console.error("Failed to parse instance state:", error);
-      }
-    }
   }
 
   // ===========================================
@@ -1192,9 +1167,6 @@ export class TaskChuteView extends ItemView {
       
       // インスタンスリストに追加
       this.taskInstances.push(newInstance);
-
-      // 状態を保存
-      this.saveInstanceState(newInstance);
 
       // 当日複製メタデータを保存（復元に使用）
       const dayState = this.getCurrentDayState();
@@ -2195,9 +2167,6 @@ export class TaskChuteView extends ItemView {
         }
       } catch {}
 
-      // Save state
-      this.saveInstanceState(inst);
-      
       // Save running task state for persistence
       await this.saveRunningTasksState();
       
@@ -2233,9 +2202,6 @@ export class TaskChuteView extends ItemView {
         this.currentInstance = null;
       }
 
-      // Save state
-      this.saveInstanceState(inst);
-      
       // Save to log via service
       const duration = Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000);
       await this.executionLogService.saveTaskLog(inst, duration);
@@ -2387,26 +2353,6 @@ export class TaskChuteView extends ItemView {
       }
     } catch (e) {
       console.error("[TaskChute] 実行中タスクの復元に失敗:", e);
-    }
-  }
-
-  private saveInstanceState(inst: TaskInstance): void {
-    const stateKey = `taskchute-instance-state-${inst.instanceId}`;
-    const state = {
-      state: inst.state,
-      startTime: inst.startTime?.toISOString(),
-      stopTime: inst.stopTime?.toISOString(),
-      pausedDuration: inst.pausedDuration,
-      actualMinutes: inst.actualMinutes,
-      comment: inst.comment,
-      focusLevel: inst.focusLevel,
-      energyLevel: inst.energyLevel,
-    };
-
-    try {
-    this.app.saveLocalStorage(stateKey, JSON.stringify(state));
-    } catch (error) {
-      console.error("Failed to save instance state:", error);
     }
   }
 
@@ -4130,8 +4076,6 @@ export class TaskChuteView extends ItemView {
         await this.removeTaskLogForInstanceOnCurrentDate(inst.instanceId);
       }
 
-      // 状態を保存
-      this.saveInstanceState(inst);
       // 永続化された実行中タスクからも除外しておく（再起動で勝手に復活しないように）
       await this.saveRunningTasksState();
       
