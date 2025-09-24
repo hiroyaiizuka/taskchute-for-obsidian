@@ -1,10 +1,11 @@
 import { TFile, WorkspaceLeaf, Notice } from 'obsidian';
+import type { TaskChutePluginLike } from '../types';
 import { buildDefaultReviewTemplate } from '../utils/reviewTemplate';
 
 export class ReviewService {
-  private plugin: any;
+  private readonly plugin: TaskChutePluginLike;
 
-  constructor(plugin: any) {
+  constructor(plugin: TaskChutePluginLike) {
     this.plugin = plugin;
   }
 
@@ -29,25 +30,33 @@ export class ReviewService {
 
     const logDataPath = this.plugin.pathManager.getLogDataPath();
     const content = buildDefaultReviewTemplate(logDataPath);
-    const file = await this.plugin.app.vault.create(reviewPath, content);
-    return file as TFile;
+    const created = await this.plugin.app.vault.create(reviewPath, content);
+    if (!(created instanceof TFile)) {
+      throw new Error(`Failed to create review file at ${reviewPath}`);
+    }
+    return created;
   }
 
   async openInSplit(file: TFile, leftLeaf: WorkspaceLeaf): Promise<void> {
     try {
-      const ws: any = this.plugin.app.workspace as any;
-      const rightLeaf: WorkspaceLeaf =
-        typeof ws.splitActiveLeaf === 'function'
-          ? ws.splitActiveLeaf('vertical')
-          : (this.plugin.app.workspace.getLeaf('split') as WorkspaceLeaf);
+      const { workspace } = this.plugin.app;
+      const splitFunction = (workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null }).splitActiveLeaf;
+      const rightLeaf =
+        typeof splitFunction === 'function'
+          ? splitFunction.call(workspace, 'vertical')
+          : workspace.getLeaf('split');
+
+      if (!rightLeaf) {
+        throw new Error('Could not open review file in split view');
+      }
 
       await rightLeaf.openFile(file);
       // Return focus to the left TaskChute view
-      this.plugin.app.workspace.setActiveLeaf(leftLeaf);
-    } catch (error: any) {
-      new Notice('レビューの表示に失敗しました: ' + (error?.message || error));
-      throw error;
+      workspace.setActiveLeaf(leftLeaf);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`レビューの表示に失敗しました: ${message}`);
+      throw error instanceof Error ? error : new Error(message);
     }
   }
 }
-

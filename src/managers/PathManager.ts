@@ -71,8 +71,11 @@ export class PathManager {
     if (!folder) {
       try {
         await this.plugin.app.vault.createFolder(path);
-      } catch (error: any) {
-        if (error.message && error.message.includes("Folder already exists")) {
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Folder already exists")
+        ) {
           return;
         }
         throw error;

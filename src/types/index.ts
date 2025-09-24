@@ -13,8 +13,8 @@ export interface TaskChuteSettings {
 }
 
 export interface TaskData {
-  file: TFile;
-  frontmatter: any;
+  file: TFile | null;
+  frontmatter: Record<string, unknown>;
   path: string;
   name: string;
   startTime?: string;
@@ -37,7 +37,7 @@ export interface TaskData {
   routine_week?: number | 'last';
   routine_day?: string;
   flexible_schedule?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface TaskInstance {
@@ -104,6 +104,7 @@ export interface PathManagerLike {
   getTaskFolderPath(): string;
   getProjectFolderPath(): string;
   getLogDataPath(): string;
+  getReviewDataPath(): string;
   ensureFolderExists(path: string): Promise<void>;
 }
 
@@ -127,7 +128,7 @@ export interface TaskChutePluginLike {
   pathManager: PathManagerLike;
   routineAliasManager: RoutineAliasManagerLike;
   dayStateService: DayStateServiceAPI;
-  _log?(level?: string, ...args: any[]): void;
+  _log?(level?: string, ...args: unknown[]): void;
   _notify?(message: string, timeout?: number): void;
   [key: string]: unknown;
 }
@@ -142,11 +143,7 @@ export interface RunningTask {
   actualMinutes?: number;
 }
 
-export interface LogEntry {
-  [date: string]: {
-    [taskName: string]: any;
-  };
-}
+export type LogEntry = Record<string, Record<string, unknown>>;
 
 export interface HeatmapData {
   [date: string]: {
@@ -186,11 +183,29 @@ export interface TaskNameValidator {
 
 export interface AutocompleteInstance {
   cleanup?: () => void;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Routine rule (normalized) used by RoutineService
 export type RoutineType = 'daily' | 'weekly' | 'monthly';
+
+export type RoutineWeek = number | 'last';
+
+export interface RoutineFrontmatter extends Record<string, unknown> {
+  isRoutine?: boolean;
+  routine_type?: RoutineType;
+  routine_interval?: number;
+  routine_enabled?: boolean;
+  routine_start?: string;
+  routine_end?: string;
+  routine_week?: RoutineWeek;
+  routine_weekday?: number;
+  weekdays?: number[];
+  weekday?: number;
+  monthly_week?: RoutineWeek;
+  monthly_weekday?: number;
+  '開始時刻'?: string;
+}
 
 export interface RoutineRule {
   type: RoutineType;
@@ -200,6 +215,7 @@ export interface RoutineRule {
   enabled: boolean; // default true
   // weekly
   weekday?: number; // 0..6
+  weekdaySet?: number[];
   // monthly
   week?: number | 'last'; // 1..5 | 'last'
   monthWeekday?: number; // 0..6

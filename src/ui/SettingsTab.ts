@@ -1,8 +1,8 @@
-import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Notice } from 'obsidian';
 import { PathManager } from '../managers/PathManager';
 import { TaskChuteSettings } from '../types';
 
-interface PluginWithSettings {
+interface PluginWithSettings extends Plugin {
   app: App;
   settings: TaskChuteSettings;
   pathManager: PathManager;
@@ -13,7 +13,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   plugin: PluginWithSettings;
 
   constructor(app: App, plugin: PluginWithSettings) {
-    super(app, plugin as any);
+    super(app, plugin);
     this.plugin = plugin;
   }
 
@@ -47,7 +47,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             await this.plugin.pathManager.ensureFolderExists(
               this.plugin.pathManager.getTaskFolderPath()
             );
-          } catch (error) {
+          } catch {
             // Silently handle folder creation errors
           }
         });
@@ -77,7 +77,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             await this.plugin.pathManager.ensureFolderExists(
               this.plugin.pathManager.getProjectFolderPath()
             );
-          } catch (error) {
+          } catch {
             // Silently handle folder creation errors
           }
         });
@@ -107,7 +107,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             await this.plugin.pathManager.ensureFolderExists(
               this.plugin.pathManager.getLogDataPath()
             );
-          } catch (error) {
+          } catch {
             // Silently handle folder creation errors
           }
         });
@@ -137,7 +137,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             await this.plugin.pathManager.ensureFolderExists(
               this.plugin.pathManager.getReviewDataPath()
             );
-          } catch (error) {
+          } catch {
             // Silently handle folder creation errors
           }
         });

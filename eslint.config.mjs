@@ -1,8 +1,26 @@
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import obsidianmd from "eslint-plugin-obsidianmd";
 import tseslint from "typescript-eslint";
 
 const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
+
+const require = createRequire(import.meta.url);
+
+if (typeof globalThis.structuredClone !== "function") {
+  let candidate;
+  try {
+    ({ structuredClone: candidate } = require("node:util"));
+  } catch (error) {
+    candidate = undefined;
+  }
+
+  if (typeof candidate !== "function") {
+    candidate = (value) => JSON.parse(JSON.stringify(value));
+  }
+
+  globalThis.structuredClone = candidate;
+}
 
 const sharedGlobals = {
   console: "readonly",

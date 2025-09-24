@@ -1,9 +1,86 @@
 import { TFile } from 'obsidian';
-import TaskChutePlugin from '../main';
+import type { TaskChutePluginLike } from '../types';
 import { TaskInstance } from '../types';
 
+
+interface TaskExecutionEntry {
+  taskTitle?: string;
+  taskName?: string;
+  taskPath?: string;
+  instanceId?: string;
+  slotKey?: string;
+  startTime?: string;
+  stopTime?: string;
+  durationSec?: number;
+  duration?: number;
+  isCompleted?: boolean;
+  [key: string]: unknown;
+}
+
+interface DailySummaryEntry {
+  totalMinutes?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+  procrastinatedTasks?: number;
+  completionRate?: number;
+  [key: string]: unknown;
+}
+
+interface TaskLogFile {
+  taskExecutions: Record<string, TaskExecutionEntry[]>;
+  dailySummary: Record<string, DailySummaryEntry>;
+  totalTasks?: number;
+  [key: string]: unknown;
+}
+
+const EMPTY_LOG_FILE: TaskLogFile = {
+  taskExecutions: {},
+  dailySummary: {},
+};
+
+function parseLogFile(raw: string | null | undefined): TaskLogFile {
+  if (!raw) {
+    return { ...EMPTY_LOG_FILE };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<TaskLogFile>;
+    return {
+      taskExecutions: parsed.taskExecutions ?? {},
+      dailySummary: parsed.dailySummary ?? {},
+      ...parsed,
+    };
+  } catch (error) {
+    console.warn('[ExecutionLogService] Failed to parse log file', error);
+    return { ...EMPTY_LOG_FILE };
+  }
+}
+
+function toExecutionKey(entry: TaskExecutionEntry): string {
+  if (entry.taskPath && typeof entry.taskPath === 'string') return entry.taskPath;
+  if (entry.taskName && typeof entry.taskName === 'string') return entry.taskName;
+  if (entry.taskTitle && typeof entry.taskTitle === 'string') return entry.taskTitle;
+  if (entry.instanceId && typeof entry.instanceId === 'string') return entry.instanceId;
+  return JSON.stringify(entry);
+}
+
+function isEntryCompleted(entry: TaskExecutionEntry): boolean {
+  if (typeof entry.isCompleted === 'boolean') return entry.isCompleted;
+  if (entry.stopTime && typeof entry.stopTime === 'string' && entry.stopTime.trim().length > 0) return true;
+  if (typeof entry.durationSec === 'number' && entry.durationSec > 0) return true;
+  if (typeof entry.duration === 'number' && entry.duration > 0) return true;
+  return true;
+}
+
+function minutesFromEntries(entries: TaskExecutionEntry[]): number {
+  return entries.reduce((sum, entry) => {
+    const duration = entry.durationSec ?? entry.duration ?? 0;
+    return sum + Math.floor(duration / 60);
+  }, 0);
+}
+
 export class ExecutionLogService {
-  constructor(private plugin: TaskChutePlugin) {}
+  constructor(private plugin: TaskChutePluginLike) {}
 
   private toHMS(d: Date): string {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -32,24 +109,29 @@ export class ExecutionLogService {
     const logPath = `${logDataPath}/${monthKey}-tasks.json`;
 
     // Load
-    let file = this.plugin.app.vault.getAbstractFileByPath(logPath) as TFile | null;
-    let json: any = { taskExecutions: {}, dailySummary: {} };
+    const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
+    let file = abstract instanceof TFile ? abstract : null;
+    let json: TaskLogFile = { ...EMPTY_LOG_FILE };
     if (file && file instanceof TFile) {
       try {
         const raw = await this.plugin.app.vault.read(file);
-        json = raw ? JSON.parse(raw) : json;
-      } catch (_) {}
+        json = parseLogFile(raw);
+      } catch (error) {
+        console.warn("[ExecutionLogService] Failed to read log file", error);
+        json = { ...EMPTY_LOG_FILE };
+      }
     } else {
       await this.plugin.pathManager.ensureFolderExists(logDataPath);
       await this.plugin.app.vault.create(logPath, JSON.stringify(json, null, 2));
-      file = this.plugin.app.vault.getAbstractFileByPath(logPath) as TFile;
+      const created = this.plugin.app.vault.getAbstractFileByPath(logPath);
+      file = created instanceof TFile ? created : null;
     }
 
-    if (!json.taskExecutions) json.taskExecutions = {};
-    if (!json.dailySummary) json.dailySummary = {};
-    if (!json.taskExecutions[dateKey]) json.taskExecutions[dateKey] = [];
+    if (!json.taskExecutions[dateKey]) {
+      json.taskExecutions[dateKey] = [];
+    }
 
-    const exec = {
+    const exec: TaskExecutionEntry = {
       taskTitle: inst.task.title || inst.task.name,
       taskPath: inst.task.path,
       instanceId: inst.instanceId,
@@ -59,28 +141,18 @@ export class ExecutionLogService {
       durationSec,
     };
 
-    const arr: any[] = json.taskExecutions[dateKey];
+    const arr: TaskExecutionEntry[] = json.taskExecutions[dateKey];
     const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
     if (idx >= 0) arr[idx] = exec; else arr.push(exec);
 
     // Recompute daily summary (do NOT equate totalTasks with completed)
-    const totalMinutes = arr.reduce((s, e) => s + Math.floor(((e.durationSec || e.duration || 0) / 60)), 0);
+    const totalMinutes = minutesFromEntries(arr);
     // completed = unique tasks completed on the day
-    const toKey = (e: any) => (e.taskPath && typeof e.taskPath === 'string' && e.taskPath)
-      || (e.taskName && typeof e.taskName === 'string' && e.taskName)
-      || (e.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
-      || (e.instanceId && typeof e.instanceId === 'string' && e.instanceId)
-      || JSON.stringify(e);
-    const isCompleted = (e: any) => {
-      if (typeof e.isCompleted === 'boolean') return e.isCompleted;
-      if (e.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true;
-      if (typeof e.durationSec === 'number' && e.durationSec > 0) return true;
-      if (typeof e.duration === 'number' && e.duration > 0) return true;
-      return true; // entries here are produced at stop time; treat as completed by default
-    };
     const completedSet = new Set<string>();
-    for (const e of arr) {
-      if (isCompleted(e)) completedSet.add(toKey(e));
+    for (const entry of arr) {
+      if (isEntryCompleted(entry)) {
+        completedSet.add(toExecutionKey(entry));
+      }
     }
     const completedTasks = completedSet.size;
     const prev = json.dailySummary[dateKey] || {};
@@ -97,7 +169,10 @@ export class ExecutionLogService {
       completionRate,
     };
 
-    await this.plugin.app.vault.modify(file as TFile, JSON.stringify(json, null, 2));
+    if (!file) {
+      return;
+    }
+    await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
   }
 
   async removeTaskLogForInstanceOnDate(instanceId: string, dateKey: string): Promise<void> {
@@ -107,39 +182,28 @@ export class ExecutionLogService {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const logPath = `${logDataPath}/${monthKey}-tasks.json`;
 
-      const file = this.plugin.app.vault.getAbstractFileByPath(logPath);
-      if (!file || !(file instanceof TFile)) return;
+      const maybeFile = this.plugin.app.vault.getAbstractFileByPath(logPath);
+      if (!maybeFile || !(maybeFile instanceof TFile)) return;
 
-      const raw = await this.plugin.app.vault.read(file);
+      const raw = await this.plugin.app.vault.read(maybeFile);
       if (!raw) return;
-      let json: any = {};
-      try { json = JSON.parse(raw); } catch (_) { return; }
-      if (!json.taskExecutions || !Array.isArray(json.taskExecutions[dateKey])) return;
 
-      const filtered = json.taskExecutions[dateKey].filter((e: any) => e.instanceId !== instanceId);
+      const json = parseLogFile(raw);
+      const dayEntries = json.taskExecutions[dateKey];
+      if (!Array.isArray(dayEntries)) return;
+
+      const filtered = dayEntries.filter((entry) => entry.instanceId !== instanceId);
       json.taskExecutions[dateKey] = filtered;
 
-      // Recompute summary with corrected logic
-      const totalMinutes = filtered.reduce((s: number, e: any) => s + Math.floor(((e.durationSec || e.duration || 0) / 60)), 0);
-      if (!json.dailySummary) json.dailySummary = {};
-      const toKey = (e: any) => (e.taskPath && typeof e.taskPath === 'string' && e.taskPath)
-        || (e.taskName && typeof e.taskName === 'string' && e.taskName)
-        || (e.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
-        || (e.instanceId && typeof e.instanceId === 'string' && e.instanceId)
-        || JSON.stringify(e);
-      const isCompleted = (e: any) => {
-        if (typeof e.isCompleted === 'boolean') return e.isCompleted;
-        if (e.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true;
-        if (typeof e.durationSec === 'number' && e.durationSec > 0) return true;
-        if (typeof e.duration === 'number' && e.duration > 0) return true;
-        return true;
-      };
+      const totalMinutes = minutesFromEntries(filtered);
       const completedSet = new Set<string>();
-      for (const e of filtered) {
-        if (isCompleted(e)) completedSet.add(toKey(e));
+      for (const entry of filtered) {
+        if (isEntryCompleted(entry)) {
+          completedSet.add(toExecutionKey(entry));
+        }
       }
       const completedTasks = completedSet.size;
-      const prev = json.dailySummary[dateKey] || {};
+      const prev = json.dailySummary[dateKey] ?? {};
       const totalTasks = typeof prev.totalTasks === 'number' ? prev.totalTasks : Math.max(completedTasks, 0);
       const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
       const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
@@ -153,9 +217,9 @@ export class ExecutionLogService {
         completionRate,
       };
 
-      await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
-    } catch (_) {
-      // noop
+      await this.plugin.app.vault.modify(maybeFile, JSON.stringify(json, null, 2));
+    } catch (error) {
+      console.warn('[ExecutionLogService] Failed to remove task log entry', error);
     }
   }
 }

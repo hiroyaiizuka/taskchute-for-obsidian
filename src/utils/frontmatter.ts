@@ -5,9 +5,9 @@
 
 /** Safely normalize a frontmatter argument to a plain object. */
 export function ensureFrontmatterObject(
-  frontmatter: unknown
-): Record<string, any> {
-  return frontmatter && typeof frontmatter === 'object' 
-    ? frontmatter as Record<string, any>
+  frontmatter: unknown,
+): Record<string, unknown> {
+  return frontmatter && typeof frontmatter === 'object'
+    ? (frontmatter as Record<string, unknown>)
     : {};
 }

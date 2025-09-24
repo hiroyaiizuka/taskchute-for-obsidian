@@ -1,18 +1,83 @@
-import { App, Modal, Notice, TFile } from 'obsidian';
-import { TaskChutePluginLike } from '../types';
+import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+
+import {
+  RoutineFrontmatter,
+  RoutineType,
+  RoutineWeek,
+  TaskChutePluginLike,
+} from '../types';
 import RoutineEditModal from './RoutineEditModal';
 
-type RoutineRow = {
+interface RoutineRow {
   file: TFile;
-  fm: any;
-};
+  fm: RoutineFrontmatter;
+}
+
+interface TaskChuteViewLike {
+  reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
+}
+
+const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+
+class RoutineConfirmModal extends Modal {
+  private readonly message: string;
+  private resolver: ((result: boolean) => void) | null = null;
+
+  constructor(app: App, message: string) {
+    super(app);
+    this.message = message;
+  }
+
+  openAndWait(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.resolver = resolve;
+      this.open();
+    });
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass('routine-confirm');
+
+    contentEl.createEl('h3', { text: '確認' });
+    contentEl.createEl('p', { text: this.message });
+
+    const buttonRow = contentEl.createEl('div', { cls: 'routine-confirm__buttons' });
+    const confirmBtn = buttonRow.createEl('button', { text: '削除', cls: 'routine-confirm__button mod-danger' });
+    const cancelBtn = buttonRow.createEl('button', { text: 'キャンセル', cls: 'routine-confirm__button' });
+
+    confirmBtn.addEventListener('click', () => {
+      this.closeWith(true);
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      this.closeWith(false);
+    });
+  }
+
+  onClose(): void {
+    if (!this.resolver) return;
+    const resolve = this.resolver;
+    this.resolver = null;
+    resolve(false);
+  }
+
+  private closeWith(result: boolean): void {
+    if (this.resolver) {
+      const resolve = this.resolver;
+      this.resolver = null;
+      resolve(result);
+    }
+    this.close();
+  }
+}
 
 export class RoutineManagerModal extends Modal {
-  private plugin: TaskChutePluginLike;
+  private readonly plugin: TaskChutePluginLike;
   private rows: RoutineRow[] = [];
   private filtered: RoutineRow[] = [];
   private searchInput!: HTMLInputElement;
-  // filters were simplified: only text search
   private tableBody!: HTMLElement;
 
   constructor(app: App, plugin: TaskChutePluginLike) {
@@ -24,32 +89,24 @@ export class RoutineManagerModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('routine-manager');
-    // widen modal
-    try {
-      (this.modalEl as HTMLElement).setAttr('style', 'width:90vw; max-width: 1400px; height:80vh;');
-    } catch (_) {}
+    this.modalEl?.classList.add('routine-manager-modal');
 
-    // Header
     const header = contentEl.createEl('div', { cls: 'routine-manager__header' });
     header.createEl('h3', { text: 'ルーチン管理' });
 
     const controls = header.createEl('div', { cls: 'routine-manager__controls' });
-    this.searchInput = controls.createEl('input', { type: 'search', attr: { placeholder: '検索（タイトル/パス）' } }) as HTMLInputElement;
+    this.searchInput = controls.createEl('input', {
+      type: 'search',
+      attr: { placeholder: '検索（タイトル / パス）' },
+    }) as HTMLInputElement;
     this.searchInput.addEventListener('input', () => this.applyFilters());
-    // simplified: type/status filters removed from UI
 
-    // Body (2 columns)
     const body = contentEl.createEl('div', { cls: 'routine-manager__body' });
-    body.setAttr('style', 'max-height:70vh;');
-    const left = body.createEl('div', { cls: 'routine-manager__list' });
-    left.setAttr('style', 'overflow:auto; border:1px solid var(--background-modifier-border); border-radius:6px;');
+    const tableWrapper = body.createEl('div', { cls: 'routine-table__wrapper' });
 
-    // Table
-    const table = left.createEl('div', { cls: 'routine-table' });
-    const thead = table.createEl('div', { cls: 'routine-table__head' });
-    const headRow = thead.createEl('div', { cls: 'routine-table__row routine-table__row--head' });
-    headRow.setAttr('style', 'display:grid; grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr; gap:8px; padding:6px 8px; border-bottom:1px solid var(--background-modifier-border); position:sticky; top:0; background:var(--background-primary); z-index:1;');
-    ;[
+    const table = tableWrapper.createEl('div', { cls: 'routine-table' });
+    const headRow = table.createEl('div', { cls: 'routine-table__row routine-table__row--head' });
+    [
       'タイトル',
       'タイプ',
       '間隔',
@@ -63,178 +120,236 @@ export class RoutineManagerModal extends Modal {
 
     this.tableBody = table.createEl('div', { cls: 'routine-table__body' });
 
-    // Load data and render
     this.loadRows();
     this.applyFilters();
   }
 
   onClose(): void {
-    const { contentEl } = this;
-    contentEl.empty();
+    this.contentEl.empty();
   }
 
   private loadRows(): void {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
     const files = this.app.vault
       .getMarkdownFiles()
-      .filter((f) => f.path.startsWith(taskFolderPath + '/'))
+      .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
       .sort((a, b) => a.basename.localeCompare(b.basename, 'ja'));
 
     this.rows = files
       .map((file) => {
-        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-        return fm?.isRoutine === true ? { file, fm } : null;
+        const frontmatter = this.toRoutineFrontmatter(
+          this.app.metadataCache.getFileCache(file)?.frontmatter,
+        );
+        return frontmatter?.isRoutine === true ? { file, fm: frontmatter } : null;
       })
-      .filter((x): x is RoutineRow => !!x);
+      .filter((row): row is RoutineRow => row !== null);
   }
 
   private applyFilters(): void {
-    const q = (this.searchInput?.value || '').toLowerCase();
-
-    this.filtered = this.rows.filter(({ file, fm }) => {
-      if (q) {
-        const hay = (file.basename + ' ' + file.path).toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
+    const query = (this.searchInput?.value || '').toLowerCase();
+    this.filtered = this.rows.filter(({ file }) => {
+      if (!query) return true;
+      const haystack = `${file.basename} ${file.path}`.toLowerCase();
+      return haystack.includes(query);
     });
-
     this.renderTable();
   }
 
   private renderTable(): void {
     this.tableBody.empty();
-    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
     if (this.filtered.length === 0) {
-      const emptyRow = this.tableBody.createEl('div', { cls: 'routine-empty', text: 'ルーチンが見つかりません' });
-      emptyRow.setAttr('style', 'padding: 8px; color: var(--text-muted);');
+      this.tableBody.createEl('div', {
+        cls: 'routine-empty',
+        text: 'ルーチンが見つかりません',
+      });
       return;
     }
 
-    this.filtered.forEach(({ file, fm }, idx) => {
-      const rowEl = this.tableBody.createEl('div', { cls: 'routine-table__row' });
-      const baseRowStyle = 'display:grid; grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr; gap:8px; padding:6px 8px; border-bottom:1px solid var(--background-modifier-border); align-items:center;';
-      rowEl.setAttr('style', baseRowStyle);
-
-      // Title as wikilink-style clickable
-      const titleCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
-      const link = titleCell.createEl('a', { text: file.basename, attr: { href: '#' } });
-      link.setAttr('style', 'font-size:0.92em; line-height:1.2;');
-      link.addEventListener('click', async (e) => {
-        e.preventDefault();
-        try {
-          // open target note
-          await this.app.workspace.getLeaf(true).openFile(file);
-          this.close();
-        } catch (err) {
-          new Notice('ノートを開けませんでした');
-        }
-      });
-
-      // Type
-      const type = (fm.routine_type || 'daily') as string;
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: this.typeLabel(type) });
-
-      // Interval
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: String(Math.max(1, Number(fm.routine_interval || 1))) });
-
-      // Weekday (weekly/monthly)
-      let weekdayText = '';
-      if (type === 'weekly') {
-        if (Array.isArray((fm as any).weekdays) && (fm as any).weekdays.length > 0) {
-          weekdayText = (fm as any).weekdays.map((n: number) => dayNames[n] + '曜').join(', ');
-        } else if (typeof fm.routine_weekday === 'number' || typeof fm.weekday === 'number') {
-          const wd = (fm.routine_weekday ?? fm.weekday) as number;
-          weekdayText = dayNames[wd] + '曜';
-        } else {
-          weekdayText = '-';
-        }
-      } else if (type === 'monthly') {
-        const wd = (fm.routine_weekday ?? fm.monthly_weekday) as number | undefined;
-        weekdayText = typeof wd === 'number' ? dayNames[wd] + '曜' : '-';
-      } else {
-        weekdayText = '-';
-      }
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: weekdayText });
-
-      // Week (monthly only)
-      let weekText = '-';
-      if (type === 'monthly') {
-        const w = fm.routine_week ?? (typeof fm.monthly_week === 'number' ? fm.monthly_week + 1 : fm.monthly_week);
-        weekText = w === 'last' ? '最終' : (w ? `第${w}` : '-');
-      }
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: String(weekText) });
-
-      // Start / End
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: fm.routine_start || '-' });
-      rowEl.createEl('div', { cls: 'routine-table__cell', text: fm.routine_end || '-' });
-
-      // Enabled indicator (check / cross)
-      const enabledCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
-      const isEnabled = fm.routine_enabled !== false;
-      const indicator = enabledCell.createEl('button', { text: isEnabled ? '✓' : '×', attr: { title: 'クリックで有効/無効切替' } }) as HTMLButtonElement;
-      indicator.setAttr('style', 'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--background-modifier-border);border-radius:6px;background:transparent;cursor:pointer;');
-      indicator.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const current = (this.filtered.find((r) => r.file.path === file.path)?.fm?.routine_enabled !== false);
-        const newVal = !current;
-        // optimistic visual update
-        indicator.textContent = newVal ? '✓' : '×';
-        // update caches
-        const idxRows = this.rows.findIndex((r) => r.file.path === file.path);
-        if (idxRows >= 0) this.rows[idxRows].fm = { ...this.rows[idxRows].fm, routine_enabled: newVal };
-        const idxFiltered = this.filtered.findIndex((r) => r.file.path === file.path);
-        if (idxFiltered >= 0) this.filtered[idxFiltered].fm = { ...this.filtered[idxFiltered].fm, routine_enabled: newVal };
-        // re-render quickly
-        this.renderTable();
-        // persist
-        await this.updateRoutineEnabled(file, newVal);
-        // delayed sync from metadata
-        setTimeout(() => this.refreshRow(file, newVal), 200);
-        this.refreshActiveView();
-      });
-
-      // Actions
-      const actions = rowEl.createEl('div', { cls: 'routine-table__cell' });
-      const editBtn = actions.createEl('button', { text: '編集' });
-      const delBtn = actions.createEl('button', { text: '🗑️', attr: { title: 'ルーチンを外す' } });
-      editBtn.setAttr('style', 'margin-right:6px;');
-
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const { file: f } = this.filtered[idx];
-        new RoutineEditModal(this.app, this.plugin, f, () => {
-          // callback after save
-          this.refreshRow(f);
-        }).open();
-      });
-
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const ok = confirm(`「${file.basename}」をルーチンから外しますか？`);
-        if (!ok) return;
-        await this.removeRoutine(file);
-        await this.reloadAll();
-      });
-
-      // no row select behavior
+    this.filtered.forEach((row, index) => {
+      this.tableBody.appendChild(this.renderRow(row, index));
     });
   }
 
+  private renderRow(row: RoutineRow, index: number): HTMLElement {
+    const { file, fm } = row;
+    const rowEl = document.createElement('div');
+    rowEl.classList.add('routine-table__row');
 
-  private typeLabel(type: string): string {
+    const titleCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
+    const link = titleCell.createEl('a', {
+      text: file.basename,
+      attr: { href: '#' },
+      cls: 'routine-table__link',
+    });
+    link.addEventListener('click', async (evt) => {
+      evt.preventDefault();
+      await this.openRoutineFile(file);
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: this.typeLabel(fm.routine_type),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: String(Math.max(1, Number(fm.routine_interval ?? 1))),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: this.weekdayLabel(fm),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: this.weekLabel(fm),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: fm.routine_start || '-',
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
+      text: fm.routine_end || '-',
+    });
+
+    const enabledCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
+    const isEnabled = fm.routine_enabled !== false;
+    const toggle = enabledCell.createEl('button', {
+      text: isEnabled ? '✓' : '×',
+      cls: 'routine-table__toggle',
+      attr: { title: 'クリックで有効/無効を切り替え' },
+    }) as HTMLButtonElement;
+
+    toggle.addEventListener('click', async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const newValue = !this.getRowEnabled(file.path);
+      this.updateCachedEnabledState(file.path, newValue);
+      this.renderTable();
+      await this.updateRoutineEnabled(file, newValue);
+      window.setTimeout(() => void this.refreshRow(file, newValue), 200);
+      this.refreshActiveView();
+    });
+
+    const actionsCell = rowEl.createEl('div', { cls: 'routine-table__cell routine-table__cell--actions' });
+    const editBtn = actionsCell.createEl('button', {
+      text: '編集',
+      cls: 'routine-table__action-button',
+    });
+    const deleteBtn = actionsCell.createEl('button', {
+      text: '🗑️',
+      cls: 'routine-table__action-button routine-table__action-button--danger',
+      attr: { title: 'ルーチンを外す' },
+    });
+
+    editBtn.addEventListener('click', () => {
+      const { file: currentFile } = this.filtered[index];
+      new RoutineEditModal(this.app, this.plugin, currentFile, () => {
+        void this.refreshRow(currentFile);
+      }).open();
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      const message = `「${file.basename}」をルーチンから外しますか？`;
+      const confirmed = await new RoutineConfirmModal(this.app, message).openAndWait();
+      if (!confirmed) return;
+      await this.removeRoutine(file);
+      await this.reloadAll();
+    });
+
+    return rowEl;
+  }
+
+  private getRowEnabled(path: string): boolean {
+    return this.rows.find((row) => row.file.path === path)?.fm.routine_enabled !== false;
+  }
+
+  private updateCachedEnabledState(path: string, enabled: boolean): void {
+    this.rows = this.rows.map((row) =>
+      row.file.path === path ? { ...row, fm: { ...row.fm, routine_enabled: enabled } } : row,
+    );
+    this.filtered = this.filtered.map((row) =>
+      row.file.path === path ? { ...row, fm: { ...row.fm, routine_enabled: enabled } } : row,
+    );
+  }
+
+  private typeLabel(type: RoutineType | undefined): string {
     switch (type) {
-      case 'daily': return '日ごと';
-      case 'weekly': return '週ごと';
-      case 'monthly': return '月ごと';
-      default: return type;
+      case 'daily':
+        return '日ごと';
+      case 'weekly':
+        return '週ごと';
+      case 'monthly':
+        return '月ごと';
+      default:
+        return type ?? '-';
     }
   }
 
+  private weekdayLabel(fm: RoutineFrontmatter): string {
+    if (fm.routine_type === 'weekly') {
+      if (Array.isArray(fm.weekdays) && fm.weekdays.length > 0) {
+        return fm.weekdays
+          .filter((day) => Number.isInteger(day))
+          .map((day) => DAY_NAMES[Number(day)] + '曜')
+          .join(', ');
+      }
+      if (typeof fm.routine_weekday === 'number') {
+        return `${DAY_NAMES[fm.routine_weekday]}曜`;
+      }
+      if (typeof fm.weekday === 'number') {
+        return `${DAY_NAMES[fm.weekday]}曜`;
+      }
+    }
+
+    if (fm.routine_type === 'monthly') {
+      const weekday = this.getMonthlyWeekday(fm);
+      if (typeof weekday === 'number') {
+        return `${DAY_NAMES[weekday]}曜`;
+      }
+    }
+
+    return '-';
+  }
+
+  private weekLabel(fm: RoutineFrontmatter): string {
+    if (fm.routine_type !== 'monthly') return '-';
+    const week = this.getMonthlyWeek(fm);
+    if (week === 'last') return '最終';
+    if (typeof week === 'number') return `第${week}`;
+    return '-';
+  }
+
+  private getMonthlyWeek(fm: RoutineFrontmatter): RoutineWeek | undefined {
+    if (fm.routine_week === 'last' || typeof fm.routine_week === 'number') {
+      return fm.routine_week;
+    }
+    if (fm.monthly_week === 'last') {
+      return 'last';
+    }
+    if (typeof fm.monthly_week === 'number') {
+      return (fm.monthly_week + 1) as RoutineWeek;
+    }
+    return undefined;
+  }
+
+  private getMonthlyWeekday(fm: RoutineFrontmatter): number | undefined {
+    if (typeof fm.routine_weekday === 'number') {
+      return fm.routine_weekday;
+    }
+    if (typeof fm.monthly_weekday === 'number') {
+      return fm.monthly_weekday;
+    }
+    return undefined;
+  }
+
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
-    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.routine_enabled = enabled;
       return frontmatter;
     });
@@ -243,12 +358,12 @@ export class RoutineManagerModal extends Modal {
 
   private async removeRoutine(file: TFile): Promise<void> {
     const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const d = String(today.getDate()).padStart(2, '0');
-    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
-      frontmatter.routine_end = `${y}-${m}-${d}`;
+      frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
       delete frontmatter['開始時刻'];
       return frontmatter;
     });
@@ -257,18 +372,19 @@ export class RoutineManagerModal extends Modal {
   }
 
   private async refreshRow(file: TFile, expectedEnabled?: boolean): Promise<void> {
-    // Update cached fm from metadataCache, but if cache lags keep optimistic value
-    const fresh = this.app.metadataCache.getFileCache(file)?.frontmatter || null;
+    const fresh = this.getRoutineFrontmatter(file);
     if (!fresh) return;
-    const apply = (fmOld: any) => {
-      const enabledFromFresh = fresh.routine_enabled !== false;
-      const enabled = (typeof expectedEnabled === 'boolean') ? expectedEnabled : enabledFromFresh;
-      return { ...fresh, routine_enabled: enabled };
-    };
-    const idx = this.rows.findIndex((r) => r.file.path === file.path);
-    if (idx >= 0) this.rows[idx].fm = apply(this.rows[idx].fm);
-    const fidx = this.filtered.findIndex((r) => r.file.path === file.path);
-    if (fidx >= 0) this.filtered[fidx].fm = apply(this.filtered[fidx].fm);
+
+    const enabledFromFresh = fresh.routine_enabled !== false;
+    const enabled = typeof expectedEnabled === 'boolean' ? expectedEnabled : enabledFromFresh;
+    const merged: RoutineFrontmatter = { ...fresh, routine_enabled: enabled };
+
+    this.rows = this.rows.map((row) =>
+      row.file.path === file.path ? { ...row, fm: merged } : row,
+    );
+    this.filtered = this.filtered.map((row) =>
+      row.file.path === file.path ? { ...row, fm: merged } : row,
+    );
     this.renderTable();
   }
 
@@ -278,14 +394,32 @@ export class RoutineManagerModal extends Modal {
     this.refreshActiveView();
   }
 
+  private async openRoutineFile(file: TFile): Promise<void> {
+    const leaf = this.app.workspace.getLeaf(true);
+    await leaf.openFile(file);
+  }
+
+  private toRoutineFrontmatter(value: unknown): RoutineFrontmatter | null {
+    if (!value || typeof value !== 'object') return null;
+    return value as RoutineFrontmatter;
+  }
+
+  private getRoutineFrontmatter(file: TFile): RoutineFrontmatter | null {
+    const cache = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return this.toRoutineFrontmatter(cache);
+  }
+
   private refreshActiveView(): void {
-    try {
-      const leaves = this.app.workspace.getLeavesOfType('taskchute-view');
-      const view = (leaves && leaves[0] && (leaves[0] as any).view) || null;
-      if (view && typeof (view as any).reloadTasksAndRestore === 'function') {
-        (view as any).reloadTasksAndRestore({ runBoundaryCheck: true });
+    const leaves = this.app.workspace.getLeavesOfType('taskchute-view');
+    const leaf = leaves[0] as WorkspaceLeaf | undefined;
+    const view = leaf?.view as TaskChuteViewLike | undefined;
+    if (view?.reloadTasksAndRestore) {
+      try {
+        void Promise.resolve(view.reloadTasksAndRestore({ runBoundaryCheck: true }));
+      } catch (error) {
+        console.error('RoutineManagerModal view refresh failed', error);
       }
-    } catch (_) {}
+    }
   }
 }
 

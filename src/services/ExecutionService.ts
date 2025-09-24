@@ -1,5 +1,19 @@
 import { TFile } from 'obsidian';
-import TaskChutePlugin from '../main';
+import type { TaskChutePluginLike } from '../types';
+
+interface RawExecutionEntry {
+  taskTitle?: string;
+  taskName?: string;
+  taskPath?: string;
+  startTime?: string;
+  stopTime?: string;
+  slotKey?: string;
+  instanceId?: string;
+}
+
+interface MonthlyLogFile {
+  taskExecutions?: Record<string, RawExecutionEntry[]>;
+}
 
 export interface TaskExecution {
   taskTitle: string;
@@ -11,7 +25,7 @@ export interface TaskExecution {
 }
 
 export class ExecutionService {
-  constructor(private plugin: TaskChutePlugin) {}
+  constructor(private plugin: TaskChutePluginLike) {}
 
   /**
    * Load today's task executions from log file
@@ -29,12 +43,12 @@ export class ExecutionService {
       }
 
       const content = await this.app.vault.read(logFile);
-      const monthlyLog = JSON.parse(content);
+      const monthlyLog = JSON.parse(content) as MonthlyLogFile;
       
       // Get executions for the specific date
-      const dayExecutions = monthlyLog.taskExecutions?.[dateString] || [];
-      
-      return dayExecutions.map((exec: any) => ({
+      const dayExecutions = monthlyLog.taskExecutions?.[dateString] ?? [];
+
+      return dayExecutions.map((exec: RawExecutionEntry) => ({
         taskTitle: exec.taskTitle || exec.taskName,
         taskPath: exec.taskPath || '',
         startTime: exec.startTime,

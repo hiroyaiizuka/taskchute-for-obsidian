@@ -51,8 +51,7 @@ export class TimerService {
       return;
     }
     for (const inst of running) {
-      try { this.onTick(inst); } catch (_) { /* noop */ }
+      try { this.onTick(inst); } catch { /* noop */ }
     }
   }
 }
-

@@ -1,7 +1,9 @@
-import { Notice, TFile, TFolder } from 'obsidian';
+import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian';
+import type { TaskNameValidator } from '../types';
+import type { TaskChuteView } from '../views/TaskChuteView';
 
 interface Plugin {
-  app: any;
+  app: App;
   pathManager: {
     getTaskFolderPath(): string;
     getProjectFolderPath(): string;
@@ -16,12 +18,12 @@ export class TaskNameAutocomplete {
   private projectNames: string[] = [];
   private selectedIndex: number = -1;
   private suggestionsElement: HTMLElement | null = null;
-  private debounceTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private isVisible: boolean = false;
-  private fileEventRefs: any[] = [];
-  private view: any;
+  private fileEventRefs: EventRef[] = [];
+  private view?: TaskChuteView;
 
-  constructor(plugin: Plugin, inputElement: HTMLInputElement, containerElement: HTMLElement, view?: any) {
+  constructor(plugin: Plugin, inputElement: HTMLInputElement, containerElement: HTMLElement, view?: TaskChuteView) {
     this.plugin = plugin;
     this.inputElement = inputElement;
     this.containerElement = containerElement;
@@ -149,23 +151,23 @@ export class TaskNameAutocomplete {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
     
-    const fileCreated = this.plugin.app.vault.on('create', (file: any) => {
+    const fileCreated = this.plugin.app.vault.on('create', (file: TAbstractFile) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
       } else if (file instanceof TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
-    
-    const fileDeleted = this.plugin.app.vault.on('delete', (file: any) => {
+
+    const fileDeleted = this.plugin.app.vault.on('delete', (file: TAbstractFile) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
       } else if (file instanceof TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
-    
-    const fileRenamed = this.plugin.app.vault.on('rename', (file: any) => {
+
+    const fileRenamed = this.plugin.app.vault.on('rename', (file: TAbstractFile) => {
       if (file instanceof TFile && 
           (file.path.startsWith(taskFolderPath) || file.path.startsWith(projectFolderPath))) {
         this.loadTaskNames();
@@ -298,7 +300,7 @@ export class TaskNameAutocomplete {
 
   private applySuggestionFromText(text: string): void {
     if (this.view) {
-      const validator: any =
+      const validator: TaskNameValidator | null =
         typeof this.view.getTaskNameValidator === 'function'
           ? this.view.getTaskNameValidator()
           : (this.view.TaskNameValidator ?? null);

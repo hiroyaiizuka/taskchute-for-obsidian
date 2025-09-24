@@ -7,7 +7,7 @@ import { RoutineRule } from '../types';
  */
 export class RoutineService {
   /** Parse frontmatter into a normalized RoutineRule. */
-  static parseFrontmatter(fm: Record<string, any> | undefined): RoutineRule | null {
+  static parseFrontmatter(fm: Record<string, unknown> | undefined): RoutineRule | null {
     if (!fm || typeof fm !== 'object') return null;
     const isRoutine = fm.isRoutine === true;
     if (!isRoutine) return null;
@@ -34,7 +34,9 @@ export class RoutineService {
       const weekday = this.#toWeekday(fm.routine_weekday ?? fm.weekday);
       // Support legacy multi-weekday
       const weekdays: number[] | undefined = Array.isArray(fm.weekdays)
-        ? fm.weekdays.filter((d: any) => this.#isValidWeekday(d)).map((d: any) => Number(d))
+        ? fm.weekdays
+            .map((candidate) => this.#toWeekday(candidate))
+            .filter((value): value is number => value !== undefined)
         : undefined;
 
       // Special legacy types
@@ -43,9 +45,9 @@ export class RoutineService {
         : legacyType === 'weekends' ? [0, 6]
         : undefined;
 
-      if (weekday !== undefined) (rule as any).weekday = weekday;
-      if (weekdays && weekdays.length > 0) (rule as any).weekdaySet = weekdays;
-      if (legacySet) (rule as any).weekdaySet = legacySet;
+      if (weekday !== undefined) rule.weekday = weekday;
+      if (weekdays && weekdays.length > 0) rule.weekdaySet = weekdays;
+      if (legacySet) rule.weekdaySet = legacySet;
     }
 
     // Monthly: normalized `routine_week` + `routine_weekday`. Fallback to legacy monthly_* keys.
@@ -64,8 +66,8 @@ export class RoutineService {
         }
       }
       const weekday = this.#toWeekday(fm.routine_weekday ?? fm.monthly_weekday);
-      if (week !== undefined) (rule as any).week = week;
-      if (weekday !== undefined) (rule as any).monthWeekday = weekday;
+      if (week !== undefined) rule.week = week;
+      if (weekday !== undefined) rule.monthWeekday = weekday;
     }
 
     return rule;
@@ -118,11 +120,11 @@ export class RoutineService {
 
   static #isWeeklyDue(date: Date, rule: RoutineRule): boolean {
     // Backward-compat: weekdaySet (multi-day weekly) – ignore interval beyond 1 for now
-    const weekdaySet: number[] | undefined = (rule as any).weekdaySet;
+    const { weekdaySet } = rule;
     if (weekdaySet && Array.isArray(weekdaySet) && weekdaySet.length > 0) {
       return weekdaySet.includes(date.getDay());
     }
-    const weekday = (rule as any).weekday as number | undefined;
+    const { weekday } = rule;
     if (weekday === undefined) return false;
     const interval = Math.max(1, rule.interval || 1);
     const start = rule.start ? this.#parseDate(rule.start)! : undefined;
@@ -135,8 +137,8 @@ export class RoutineService {
   }
 
   static #isMonthlyDue(date: Date, rule: RoutineRule): boolean {
-    const week = (rule as any).week as number | 'last' | undefined;
-    const weekday = (rule as any).monthWeekday as number | undefined;
+    const week = rule.week;
+    const weekday = rule.monthWeekday;
     if (week === undefined || weekday === undefined) return false;
     const interval = Math.max(1, rule.interval || 1);
 
@@ -159,23 +161,23 @@ export class RoutineService {
   }
 
   // ---------- Helpers ----------
-  static #toPositiveInt(value: any, fallback: number | undefined): number {
+  static #toPositiveInt(value: unknown, fallback: number | undefined): number {
     const n = Number(value);
     if (Number.isFinite(n) && n >= 1) return Math.floor(n);
-    return (fallback ?? 1);
+    return fallback ?? 1;
   }
 
-  static #toWeekday(value: any): number | undefined {
+  static #toWeekday(value: unknown): number | undefined {
     const n = Number(value);
     return this.#isValidWeekday(n) ? n : undefined;
   }
 
-  static #isValidWeekday(n: any): n is number {
-    return Number.isFinite(n) && n >= 0 && n <= 6;
+  static #isValidWeekday(n: number): n is number {
+    return Number.isInteger(n) && n >= 0 && n <= 6;
   }
 
-  static #toDateStrOrUndef(v: any): string | undefined {
-    if (!v || typeof v !== 'string') return undefined;
+  static #toDateStrOrUndef(v: unknown): string | undefined {
+    if (typeof v !== 'string') return undefined;
     // simple YYYY-MM-DD check
     return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
   }

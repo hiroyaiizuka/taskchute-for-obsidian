@@ -33,7 +33,7 @@ export class RoutineAliasManager {
       } else {
         this.aliasCache = {};
       }
-    } catch (error) {
+    } catch {
       if (this.plugin._notify) {
         this.plugin._notify("ルーチンタスクの名前変更履歴の読み込みに失敗しました");
       } else {
@@ -58,7 +58,7 @@ export class RoutineAliasManager {
       }
       
       this.aliasCache = aliases;
-    } catch (error) {
+    } catch {
       if (this.plugin._notify) {
         this.plugin._notify("ルーチンタスクの名前変更履歴の保存に失敗しました");
       } else {

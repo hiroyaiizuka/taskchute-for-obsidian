@@ -1,6 +1,9 @@
 import { App, TFile } from 'obsidian'
 import { PathManager } from './PathManager'
-import { TaskInstance } from '../types'
+import type { TaskInstance } from '../types'
+
+type ParsedLogEntry = { lineIndex: number; content: string }
+type ParsedLog = { date: string; lineIndex: number; entries: ParsedLogEntry[] }
 
 /**
  * Syncs task comments to related project notes' log section.
@@ -68,9 +71,9 @@ export class ProjectNoteSyncManager {
   }
 
   // 既存ログをパースして構造化
-  parseExistingLogs(content: string, logSectionPosition: number) {
+  parseExistingLogs(content: string, logSectionPosition: number): ParsedLog[] {
     const lines = content.substring(logSectionPosition).split('\n')
-    const logs: Array<{ date: string; lineIndex: number; entries: Array<{ lineIndex: number; content: string }> }> = []
+    const logs: ParsedLog[] = []
     let currentDate: string | null = null
 
     for (let i = 0; i < lines.length; i++) {
@@ -82,7 +85,7 @@ export class ProjectNoteSyncManager {
         continue
       }
 
-      if (currentDate && line.match(/^(\t|    )-\s+/)) {
+      if (currentDate && line.match(/^(\t| {4})-\s+/)) {
         const log = logs[logs.length - 1]
         log.entries.push({ lineIndex: i, content: line })
       }
@@ -92,7 +95,7 @@ export class ProjectNoteSyncManager {
   }
 
   // 既存日付の末尾の次の位置を求める
-  findInsertPosition(content: string, existingDateLog: { lineIndex: number; entries: any[] }, sectionPos: number) {
+  findInsertPosition(content: string, existingDateLog: ParsedLog, sectionPos: number) {
     const logContent = content.substring(sectionPos)
     const logLines = logContent.split('\n')
     const lastEntryLine = existingDateLog.lineIndex + existingDateLog.entries.length + 1
@@ -104,7 +107,7 @@ export class ProjectNoteSyncManager {
   }
 
   // 日付の挿入位置を検出（降順）
-  findDateInsertPosition(content: string, logs: Array<{ date: string; lineIndex: number }>, newDate: string, sectionPos: number) {
+  findDateInsertPosition(content: string, logs: ParsedLog[], newDate: string, sectionPos: number) {
     if (logs.length === 0) return sectionPos + 1
 
     for (let i = 0; i < logs.length; i++) {
@@ -121,7 +124,7 @@ export class ProjectNoteSyncManager {
 
     // 最も古い日付の直後
     const lastLog = logs[logs.length - 1]
-    return this.findInsertPosition(content, lastLog as any, sectionPos)
+    return this.findInsertPosition(content, lastLog, sectionPos)
   }
 
   insertAtPosition(content: string, text: string, position: number) {
@@ -167,4 +170,3 @@ export class ProjectNoteSyncManager {
     return true
   }
 }
-

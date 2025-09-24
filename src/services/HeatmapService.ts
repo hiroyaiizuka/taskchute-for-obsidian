@@ -1,8 +1,22 @@
-import { TFile, normalizePath } from 'obsidian'
+import { App, TFile, normalizePath } from 'obsidian'
 import { HeatmapDayStats, HeatmapYearData } from '../types'
 
+type NormalizedSummary = { totalTasks: number; completedTasks: number }
+type DailySummaryMap = Record<string, NormalizedSummary>
+type TaskExecutionsMap = Record<string, Record<string, unknown>[]>
+
+interface MonthlyLogData {
+  dailySummary: DailySummaryMap
+  taskExecutions: TaskExecutionsMap
+}
+
+const createEmptyMonthlyLog = (): MonthlyLogData => ({
+  dailySummary: {},
+  taskExecutions: {},
+})
+
 interface PluginLike {
-  app: any
+  app: App
   pathManager: {
     getLogDataPath(): string
     getLogYearPath(year: number): string
@@ -15,6 +29,52 @@ export class HeatmapService {
 
   constructor(plugin: PluginLike) {
     this.plugin = plugin
+  }
+
+  private toNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+    return 0
+  }
+
+  private normalizeTaskExecutions(value: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(value)) {
+      return []
+    }
+    return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+  }
+
+  private normalizeMonthlyLog(raw: unknown): MonthlyLogData {
+    const output: MonthlyLogData = createEmptyMonthlyLog()
+    if (!raw || typeof raw !== 'object') {
+      return output
+    }
+
+    const record = raw as Record<string, unknown>
+    if (record.dailySummary && typeof record.dailySummary === 'object') {
+      for (const [date, value] of Object.entries(record.dailySummary as Record<string, unknown>)) {
+        const summarySource = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+        output.dailySummary[date] = {
+          totalTasks: this.toNumber(summarySource.totalTasks),
+          completedTasks: this.toNumber(summarySource.completedTasks),
+        }
+      }
+    }
+
+    if (record.taskExecutions && typeof record.taskExecutions === 'object') {
+      for (const [date, value] of Object.entries(record.taskExecutions as Record<string, unknown>)) {
+        output.taskExecutions[date] = this.normalizeTaskExecutions(value)
+      }
+    }
+
+    return output
   }
 
   async loadYearlyData(year: number): Promise<HeatmapYearData> {
@@ -30,7 +90,7 @@ export class HeatmapService {
           throw new Error('Invalid yearly heatmap data')
         }
         return data
-      } catch (_) {
+      } catch {
         // fallthrough to regeneration
       }
     }
@@ -59,16 +119,16 @@ export class HeatmapService {
         if (!file || !(file instanceof TFile)) continue
 
         const content = await this.plugin.app.vault.read(file)
-        const monthlyLog = JSON.parse(content)
-        if (!monthlyLog || typeof monthlyLog !== 'object') continue
+        const monthlyData = this.normalizeMonthlyLog(JSON.parse(content))
+        const hasSummary = Object.keys(monthlyData.dailySummary).length > 0
 
-        if (monthlyLog.dailySummary && typeof monthlyLog.dailySummary === 'object') {
-          for (const [dateString, summary] of Object.entries<any>(monthlyLog.dailySummary)) {
+        if (hasSummary) {
+          for (const [dateString, summary] of Object.entries(monthlyData.dailySummary)) {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue
             if (!dateString.startsWith(`${year}-`)) continue
 
-            const totalTasks = Number(summary.totalTasks) || 0
-            const completedTasks = Number(summary.completedTasks) || 0
+            const totalTasks = summary.totalTasks
+            const completedTasks = summary.completedTasks
             const stats: HeatmapDayStats = {
               totalTasks,
               completedTasks,
@@ -77,11 +137,10 @@ export class HeatmapService {
             }
             yearlyData.days[dateString] = stats
           }
-        } else if (monthlyLog.taskExecutions && typeof monthlyLog.taskExecutions === 'object') {
-          for (const [dateString, dayTasks] of Object.entries<any>(monthlyLog.taskExecutions)) {
+        } else {
+          for (const [dateString, dayTasks] of Object.entries(monthlyData.taskExecutions)) {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue
             if (!dateString.startsWith(`${year}-`)) continue
-            if (!Array.isArray(dayTasks)) continue
 
             const stats = this.calculateDailyStats(dayTasks)
             yearlyData.days[dateString] = stats
@@ -99,30 +158,42 @@ export class HeatmapService {
       } else {
         await this.plugin.app.vault.create(heatmapPath, content)
       }
-    } catch (_) {
+    } catch {
       // ignore generation errors; return current yearlyData (may be partial)
     }
 
     return yearlyData
   }
 
-  calculateDailyStats(dayTasks: any[]): HeatmapDayStats {
+  calculateDailyStats(dayTasks: Array<Record<string, unknown>>): HeatmapDayStats {
     const map = new Map<string, boolean>()
-    const toKey = (e: any) => (e?.taskPath && typeof e.taskPath === 'string' && e.taskPath)
-      || (e?.taskName && typeof e.taskName === 'string' && e.taskName)
-      || (e?.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
-      || (e?.instanceId && typeof e.instanceId === 'string' && e.instanceId)
-      || JSON.stringify(e)
-    const isCompleted = (e: any) => {
-      if (typeof e?.isCompleted === 'boolean') return e.isCompleted
-      if (e?.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true
-      if (typeof e?.durationSec === 'number' && e.durationSec > 0) return true
-      if (typeof e?.duration === 'number' && e.duration > 0) return true
+    const readStringField = (task: Record<string, unknown>, field: string): string | null => {
+      const value = task[field]
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value
+      }
+      return null
+    }
+    const toKey = (task: Record<string, unknown>): string =>
+      readStringField(task, 'taskPath') ??
+      readStringField(task, 'taskName') ??
+      readStringField(task, 'taskTitle') ??
+      readStringField(task, 'instanceId') ??
+      JSON.stringify(task)
+
+    const hasPositive = (task: Record<string, unknown>, field: string): boolean =>
+      this.toNumber(task[field]) > 0
+
+    const isCompleted = (task: Record<string, unknown>): boolean => {
+      const explicit = task['isCompleted']
+      if (typeof explicit === 'boolean') return explicit
+      if (readStringField(task, 'stopTime')) return true
+      if (hasPositive(task, 'durationSec')) return true
+      if (hasPositive(task, 'duration')) return true
       return true
     }
 
     for (const task of dayTasks) {
-      if (!task || typeof task !== 'object') continue
       const key = toKey(task)
       if (!map.has(key)) map.set(key, false)
       if (isCompleted(task)) map.set(key, true)
@@ -141,27 +212,27 @@ export class HeatmapService {
   async updateDailyStats(dateString: string): Promise<HeatmapDayStats | null> {
     try {
       const monthly = await this.loadMonthlyData(dateString)
-      const dayTasks: any[] = monthly.taskExecutions?.[dateString] || []
+      const dayTasks = monthly.taskExecutions[dateString] ?? []
       const stats = this.calculateDailyStats(dayTasks)
       await this.updateYearlyData(dateString, stats)
       return stats
-    } catch (_) {
+    } catch {
       return null
     }
   }
 
-  private async loadMonthlyData(dateString: string): Promise<any> {
+  private async loadMonthlyData(dateString: string): Promise<MonthlyLogData> {
     try {
       const [year, month] = dateString.split('-')
       const monthString = `${year}-${month}`
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = normalizePath(`${logDataPath}/${monthString}-tasks.json`)
       const file = this.plugin.app.vault.getAbstractFileByPath(logFilePath)
-      if (!file || !(file instanceof TFile)) return { taskExecutions: {} }
+      if (!file || !(file instanceof TFile)) return createEmptyMonthlyLog()
       const content = await this.plugin.app.vault.read(file)
-      return JSON.parse(content)
-    } catch (_) {
-      return { taskExecutions: {} }
+      return this.normalizeMonthlyLog(JSON.parse(content))
+    } catch {
+      return createEmptyMonthlyLog()
     }
   }
 
@@ -189,7 +260,7 @@ export class HeatmapService {
       } else {
         await this.plugin.app.vault.create(heatmapPath, out)
       }
-    } catch (_) {
+    } catch {
       // ignore
     }
   }

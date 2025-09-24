@@ -1,16 +1,15 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, Notice, normalizePath } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, Notice } from 'obsidian';
 import { calculateNextBoundary, getCurrentTimeSlot, getSlotFromTime, TimeBoundary } from '../utils/time';
 import { LogView } from './LogView';
 import RoutineManagerModal from '../ui/RoutineManagerModal';
 import { ReviewService } from '../services/ReviewService';
 import { HeatmapService } from '../services/HeatmapService';
-import { 
-  TaskData, 
-  TaskInstance, 
-  DeletedInstance, 
-  HiddenRoutine, 
-  DuplicatedInstance, 
-  NavigationState, 
+import {
+  TaskData,
+  TaskInstance,
+  DeletedInstance,
+  HiddenRoutine,
+  NavigationState,
   TaskNameValidator,
   AutocompleteInstance,
   DayState,
@@ -31,15 +30,52 @@ class NavigationStateManager implements NavigationState {
   isOpen: boolean = false;
 }
 
+type NavigationSectionKey = Exclude<NavigationStateManager['selectedSection'], null>;
+
+type TaskLogEntry = {
+  instanceId?: string;
+  executionComment?: string;
+  focusLevel?: number;
+  energyLevel?: number;
+  taskPath?: string;
+  taskName?: string;
+  taskTitle?: string;
+  durationSec?: number;
+  duration?: number;
+  startTime?: string;
+  stopTime?: string;
+  isCompleted?: boolean;
+  [key: string]: unknown;
+};
+
+type TaskLogSnapshot = {
+  taskExecutions: Record<string, TaskLogEntry[]>;
+  dailySummary: Record<string, Record<string, unknown>>;
+};
+
+type RoutineTaskShape = Pick<TaskData, 'path' | 'isRoutine' | 'scheduledTime'> & {
+  title?: string;
+  routine_type?: string;
+  routine_interval?: number;
+  routine_enabled?: boolean;
+  weekdays?: number[];
+  weekday?: number;
+  monthly_week?: number | 'last';
+  monthly_weekday?: number;
+  開始時刻?: string;
+  projectPath?: string;
+  projectTitle?: string;
+};
+
 export class TaskChuteView extends ItemView {
   // Core Properties
   private plugin: TaskChutePluginLike;
   private tasks: TaskData[] = [];
   private taskInstances: TaskInstance[] = [];
   private currentInstance: TaskInstance | null = null;
-  private globalTimerInterval: NodeJS.Timeout | null = null;
+  private globalTimerInterval: ReturnType<typeof setInterval> | null = null;
   private timerService: TimerService | null = null;
-  private logView: any = null;
+  private logView: LogView | null = null;
   private runningTasksService: RunningTasksService;
   private executionLogService: ExecutionLogService;
   private taskCreationService: TaskCreationService;
@@ -63,15 +99,15 @@ export class TaskChuteView extends ItemView {
   private currentDayStateKey: string | null = null;
   
   // Boundary Check (idle-task-auto-move feature)
-  private boundaryCheckTimeout: NodeJS.Timeout | null = null;
+  private boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null;
   
   // Debounce Timer
-  private renderDebounceTimer: NodeJS.Timeout | null = null;
+  private renderDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Debug helper flag
   // Task Name Validator
   private TaskNameValidator: TaskNameValidator = {
-    INVALID_CHARS_PATTERN: /[:|\/\\#^]/g,
+    INVALID_CHARS_PATTERN: new RegExp('[:|/\\#^]', 'g'),
     
     validate(taskName: string) {
       const invalidChars = taskName.match(this.INVALID_CHARS_PATTERN);
@@ -109,9 +145,9 @@ export class TaskChuteView extends ItemView {
     this.navigationState = new NavigationStateManager();
 
     // Services
-    this.runningTasksService = new RunningTasksService(this.plugin as any);
-    this.executionLogService = new ExecutionLogService(this.plugin as any);
-    this.taskCreationService = new TaskCreationService(this.plugin as any);
+    this.runningTasksService = new RunningTasksService(this.plugin);
+    this.executionLogService = new ExecutionLogService(this.plugin);
+    this.taskCreationService = new TaskCreationService(this.plugin);
   }
 
   getViewType(): string {
@@ -321,7 +357,7 @@ export class TaskChuteView extends ItemView {
     });
 
     // Navigation items
-    const navigationItems = [
+    const navigationItems: Array<{ key: NavigationSectionKey; label: string; icon: string }> = [
       { key: "routine", label: "ルーチン", icon: "🔄" },
       { key: "review", label: "レビュー", icon: "📋" },
       { key: "log", label: "ログ", icon: "📊" },
@@ -345,7 +381,7 @@ export class TaskChuteView extends ItemView {
       });
 
       navItem.addEventListener("click", () => {
-        this.handleNavigationItemClick(item.key as any);
+        this.handleNavigationItemClick(item.key);
       });
     });
   }
@@ -478,12 +514,11 @@ export class TaskChuteView extends ItemView {
       const input = document.createElement("input");
       input.type = "date";
       input.id = "calendar-date-input";
-      input.classList.add("taskchute-input-absolute");
-      
-      // Position the input
-      input.style.left = `${calendarBtn.getBoundingClientRect().left}px`;
-      input.style.top = `${calendarBtn.getBoundingClientRect().top - 900}px`;
-      input.style.zIndex = "10000";
+      input.classList.add("taskchute-calendar-input");
+
+      const rect = calendarBtn.getBoundingClientRect();
+      input.style.setProperty("--calendar-input-left", `${rect.left}px`);
+      input.style.setProperty("--calendar-input-top", `${rect.top - 900}px`);
       
       // Set current date
       const y = this.currentDate.getFullYear();
@@ -509,7 +544,7 @@ export class TaskChuteView extends ItemView {
             });
             input.dispatchEvent(mouseEvent);
           }
-        } catch (e) {
+        } catch {
           // Ignore errors (test environment, etc.)
         }
       }, 50);
@@ -627,7 +662,7 @@ export class TaskChuteView extends ItemView {
 
   private generateInstanceId(task: TaskData, dateStr: string): string {
     // Generate a unique ID for this task instance
-    return `${task.path}_${dateStr}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `${task.path}_${dateStr}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 
   private getTaskSlotKey(task: TaskData): string {
@@ -651,9 +686,9 @@ export class TaskChuteView extends ItemView {
   }
 
   private loadInstanceState(instance: TaskInstance, dateStr: string): void {
-    // Load state from localStorage
+    // Load state from app local storage
     const stateKey = `taskchute-instance-state-${instance.instanceId}`;
-    const savedState = localStorage.getItem(stateKey);
+    const savedState = this.app.loadLocalStorage(stateKey) as string | null;
     
     if (savedState) {
       try {
@@ -913,7 +948,7 @@ export class TaskChuteView extends ItemView {
     });
 
     // Apply same style for all tasks (completed and non-completed)
-    taskName.style.color = "var(--text-accent)";
+    taskName.classList.add('task-name--accent');
 
     // Click handler to open task file
     taskName.addEventListener("click", async (e) => {
@@ -921,6 +956,7 @@ export class TaskChuteView extends ItemView {
       try {
         await this.app.workspace.openLinkText(inst.task.path, "", false);
       } catch (error) {
+        console.error('Failed to open task file', error);
         new Notice("タスクファイルを開けませんでした");
       }
     });
@@ -941,13 +977,13 @@ export class TaskChuteView extends ItemView {
       });
 
       // Folder icon
-      const folderIcon = projectButton.createEl("span", {
+      projectButton.createEl("span", {
         cls: "taskchute-project-icon",
         text: "📁",
       });
 
       // Project name (remove "Project - " prefix)
-      const projectName = projectButton.createEl("span", {
+      projectButton.createEl("span", {
         cls: "taskchute-project-name",
         text: inst.task.projectTitle.replace(/^Project\s*-\s*/, ""),
       });
@@ -1204,7 +1240,7 @@ export class TaskChuteView extends ItemView {
 
       newInst.slotKey = slot;
       newInst.order = this.calculateSimpleOrder(insertIndex, sameState);
-    } catch (_) {
+    } catch {
       // フォールバック
       newInst.order = (originalInst.order ?? 0) + 100;
     }
@@ -1420,11 +1456,7 @@ export class TaskChuteView extends ItemView {
         comment: (commentInput as HTMLTextAreaElement).value,
         energy: energyValue,
         focus: focusValue,
-        focusLevel: focusValue,  // 新形式との互換性
-        energyLevel: energyValue, // 新形式との互換性
-        executionComment: (commentInput as HTMLTextAreaElement).value, // 新形式との互換性
-        timestamp: new Date().toISOString()
-      } as any);
+      });
       closeModal();
       this.renderTaskList();
     });
@@ -1481,12 +1513,12 @@ export class TaskChuteView extends ItemView {
         existingComment.focusLevel > 0 ||
         existingComment.energyLevel > 0
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }
   
-  private async getExistingTaskComment(inst: TaskInstance): Promise<any> {
+  private async getExistingTaskComment(inst: TaskInstance): Promise<TaskLogEntry | null> {
     try {
       // instanceIdが存在しない場合は、コメントなしとして扱う
       if (!inst.instanceId) {
@@ -1509,23 +1541,21 @@ export class TaskChuteView extends ItemView {
       }
 
       const logContent = await this.app.vault.read(logFile);
-      const monthlyLog = JSON.parse(logContent);
+      const monthlyLog = this.parseTaskLog(logContent);
 
       // 該当日付のタスク実行ログから検索
       const dateString = `${year}-${month}-${day}`;
-      const todayTasks = monthlyLog.taskExecutions?.[dateString] || [];
-      
-      // instanceIdが一致するエントリを検索
-      const existingEntry = todayTasks.find(
-        (entry: any) => entry.instanceId === inst.instanceId
-      );
+      const todayTasks = monthlyLog.taskExecutions[dateString] ?? [];
 
-      return existingEntry || null;
-    } catch (error) {
+      // instanceIdが一致するエントリを検索
+      const existingEntry = todayTasks.find((entry) => entry.instanceId === inst.instanceId);
+
+      return existingEntry ?? null;
+    } catch {
       return null;
     }
   }
-  
+
   private async saveTaskComment(inst: TaskInstance, data: { comment: string; energy: number; focus: number }): Promise<void> {
     try {
       // instanceIdが存在しない場合はエラー
@@ -1545,17 +1575,13 @@ export class TaskChuteView extends ItemView {
 
       // JSONファイルを読み込み（存在しない場合は新規作成）
       const logFile = this.app.vault.getAbstractFileByPath(logFilePath);
-      let monthlyLog: any = { taskExecutions: {} };
-      
+      let monthlyLog: TaskLogSnapshot = { taskExecutions: {}, dailySummary: {} };
+
       if (logFile && logFile instanceof TFile) {
         const logContent = await this.app.vault.read(logFile);
-        monthlyLog = JSON.parse(logContent);
+        monthlyLog = this.parseTaskLog(logContent);
       }
 
-      // 該当日付のタスク実行ログを取得または初期化
-      if (!monthlyLog.taskExecutions) {
-        monthlyLog.taskExecutions = {};
-      }
       if (!monthlyLog.taskExecutions[dateString]) {
         monthlyLog.taskExecutions[dateString] = [];
       }
@@ -1563,9 +1589,7 @@ export class TaskChuteView extends ItemView {
       const todayTasks = monthlyLog.taskExecutions[dateString];
       
       // instanceIdが一致するエントリを検索
-      const existingIndex = todayTasks.findIndex(
-        (entry: any) => entry.instanceId === inst.instanceId
-      );
+      const existingIndex = todayTasks.findIndex((entry) => entry.instanceId === inst.instanceId);
       const existingTaskData = existingIndex >= 0 ? { ...todayTasks[existingIndex] } : null;
 
       // コメントデータの構造を仕様に合わせる（JSON安全な最小構造）
@@ -1575,7 +1599,13 @@ export class TaskChuteView extends ItemView {
         ? Math.floor(this.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000)
         : 0
 
-      const commentData = {
+      const commentData: TaskLogEntry & {
+        project_path: string | null;
+        project: string | null;
+        timestamp: string;
+        duration: number;
+        isCompleted: boolean;
+      } = {
         instanceId: inst.instanceId,
         taskPath: inst.task?.path || '',
         taskName: inst.task?.name || '',
@@ -1589,7 +1619,7 @@ export class TaskChuteView extends ItemView {
         project_path: inst.task?.projectPath || null,
         project: inst.task?.projectTitle ? `[[${inst.task.projectTitle}]]` : null,
         timestamp: new Date().toISOString(),
-      } as any;
+      };
 
       if (existingIndex >= 0) {
         // 既存エントリを更新
@@ -1614,10 +1644,11 @@ export class TaskChuteView extends ItemView {
       }
 
       // JSONファイルに保存
+      const serialized = JSON.stringify(monthlyLog, null, 2);
       if (logFile && logFile instanceof TFile) {
-        await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
+        await this.app.vault.modify(logFile, serialized);
       } else {
-        await this.app.vault.create(logFilePath, JSON.stringify(monthlyLog, null, 2));
+        await this.app.vault.create(logFilePath, serialized);
       }
 
       // プロジェクトノートへの同期（コメント本文が変更された場合のみ）
@@ -1625,7 +1656,7 @@ export class TaskChuteView extends ItemView {
         executionComment: (data.comment || '').trim(),
         focusLevel: data.focus,
         energyLevel: data.energy,
-      } as any
+      };
 
       if (
         completionData.executionComment &&
@@ -1643,7 +1674,7 @@ export class TaskChuteView extends ItemView {
   }
 
   // コメント本文の変更検出
-  private hasCommentChanged(oldData: any, newData: { executionComment?: string } | null | undefined): boolean {
+  private hasCommentChanged(oldData: TaskLogEntry | null | undefined, newData: { executionComment?: string } | null | undefined): boolean {
     const oldComment = (oldData?.executionComment ?? '') as string
     const newComment = (newData?.executionComment ?? '') as string
     return oldComment !== newComment
@@ -1656,12 +1687,13 @@ export class TaskChuteView extends ItemView {
       const projectPath = await syncManager.getProjectNotePath(inst)
       if (!projectPath) return
       await syncManager.updateProjectNote(projectPath, inst, completionData)
-    } catch (error: any) {
-      new Notice(`プロジェクトノートの更新に失敗しました: ${error.message || error}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      new Notice(`プロジェクトノートの更新に失敗しました: ${message}`)
     }
   }
 
-  private showRoutineEditModal(task: any, button: HTMLElement): void {
+  private showRoutineEditModal(task: TaskData, button: HTMLElement): void {
     // モーダルコンテナ
     const modal = document.createElement("div");
     modal.className = "task-modal-overlay";
@@ -1731,17 +1763,17 @@ export class TaskChuteView extends ItemView {
 
     // 有効トグル
     const enabledGroup = form.createEl("div", { cls: "form-group" });
-    const enabledLabel = enabledGroup.createEl("label", { text: "有効:", cls: "form-label" });
+    enabledGroup.createEl("label", { text: "有効:", cls: "form-label" });
     const enabledToggle = enabledGroup.createEl("input", {
       type: "checkbox",
     }) as HTMLInputElement;
     enabledToggle.checked = task.routine_enabled !== false; // default true
     
     // 週次設定グループ（初期非表示）
-    const weeklyGroup = form.createEl("div", { 
-      cls: "form-group"
+    const weeklyGroup = form.createEl("div", {
+      cls: "form-group routine-weekly-group",
     });
-    weeklyGroup.style.display = 'none';
+    weeklyGroup.classList.add('is-hidden');
     weeklyGroup.createEl("label", { text: "曜日を選択:", cls: "form-label" });
     const weekdayContainer = weeklyGroup.createEl("div", { cls: "weekday-checkboxes" });
     
@@ -1783,21 +1815,19 @@ export class TaskChuteView extends ItemView {
     });
     
     // 月次設定グループ（初期非表示）
-    const monthlyGroup = form.createEl("div", { 
-      cls: "form-group"
+    const monthlyGroup = form.createEl("div", {
+      cls: "form-group routine-monthly-group",
     });
-    monthlyGroup.style.display = 'none';
+    monthlyGroup.classList.add('is-hidden');
     monthlyGroup.createEl("label", { text: "月次設定:", cls: "form-label" });
     
-    const monthlyContainer = monthlyGroup.createEl("div", { 
+    const monthlyContainer = monthlyGroup.createEl("div", {
       cls: "monthly-settings",
-      style: "display: flex; gap: 10px; align-items: center;"
     });
     
     monthlyContainer.createEl("span", { text: "第" });
     const weekSelect = monthlyContainer.createEl("select", {
-      cls: "form-input",
-      style: "width: 60px;"
+      cls: "form-input monthly-settings__week",
     }) as HTMLSelectElement;
     
     for (let i = 1; i <= 5; i++) {
@@ -1811,12 +1841,11 @@ export class TaskChuteView extends ItemView {
     }
     // 最終週
     const lastOpt = weekSelect.createEl("option", { value: 'last', text: '最終' });
-    if (task.monthly_week === 'last') lastOpt.selected = true as any;
+    if (task.monthly_week === 'last') lastOpt.selected = true;
     
     monthlyContainer.createEl("span", { text: "週の" });
     const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
-      cls: "form-input",
-      style: "width: 80px;"
+      cls: "form-input monthly-settings__weekday",
     }) as HTMLSelectElement;
     
     weekdays.forEach(day => {
@@ -1834,23 +1863,13 @@ export class TaskChuteView extends ItemView {
       const selectedType = typeSelect.value;
       
       // 全て非表示にする
-      weeklyGroup.style.display = "none";
-      monthlyGroup.style.display = "none";
-      
-      // 選択に応じて表示
-      if (selectedType === "weekly") {
-        weeklyGroup.style.display = "block";
-      } else if (selectedType === "monthly") {
-        monthlyGroup.style.display = "block";
-      }
+      weeklyGroup.classList.toggle('is-hidden', selectedType !== 'weekly');
+      monthlyGroup.classList.toggle('is-hidden', selectedType !== 'monthly');
     });
     
     // 初期表示設定
-    if (typeSelect.value === "weekly") {
-      weeklyGroup.style.display = "block";
-    } else if (typeSelect.value === "monthly") {
-      monthlyGroup.style.display = "block";
-    }
+    weeklyGroup.classList.toggle('is-hidden', typeSelect.value !== 'weekly');
+    monthlyGroup.classList.toggle('is-hidden', typeSelect.value !== 'monthly');
     
     // ボタンエリア
     const buttonGroup = form.createEl("div", { cls: "form-button-group" });
@@ -1859,7 +1878,7 @@ export class TaskChuteView extends ItemView {
       cls: "form-button cancel",
       text: "キャンセル",
     });
-    const saveButton = buttonGroup.createEl("button", {
+    buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
       text: "保存",
@@ -1927,7 +1946,7 @@ export class TaskChuteView extends ItemView {
             ? weekdayCheckboxes.filter(cb => cb.checked).map(cb => parseInt(cb.value))
             : undefined,
           monthly_week: routineType === "monthly" 
-            ? (weekSelect.value === 'last' ? 'last' as any : parseInt(weekSelect.value))
+            ? (weekSelect.value === 'last' ? 'last' : parseInt(weekSelect.value))
             : undefined,
           monthly_weekday: routineType === "monthly"
             ? parseInt(monthlyWeekdaySelect.value)
@@ -1945,7 +1964,7 @@ export class TaskChuteView extends ItemView {
     timeInput.focus();
   }
 
-  private async toggleRoutine(task: any, button: HTMLElement): Promise<void> {
+  private async toggleRoutine(task: TaskData, button: HTMLElement): Promise<void> {
     try {
       if (task.isRoutine) {
         // 解除時のみ即ファイルにアクセス
@@ -1994,9 +2013,9 @@ export class TaskChuteView extends ItemView {
         // ルーチンタスクに設定（時刻入力ポップアップを表示）
         this.showRoutineEditModal(task, button);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[TaskChute] toggleRoutine failed:', error);
-      const msg = (error && (error.message || String(error))) || '';
+      const msg = error instanceof Error ? error.message : String(error);
       new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
@@ -2096,31 +2115,20 @@ export class TaskChuteView extends ItemView {
     const tooltipHeight = 250; // 推定されるツールチップの高さ
     const tooltipWidth = 200; // 推定されるツールチップの幅
     
-    tooltip.style.position = "fixed"; // absoluteからfixedに変更
-    tooltip.style.zIndex = "10000";
-    
-    // 画面下部に近い場合は上向きに表示
-    if (buttonRect.bottom + tooltipHeight > windowHeight) {
-      tooltip.style.bottom = `${windowHeight - buttonRect.top + 5}px`;
-      tooltip.style.top = "auto";
-    } else {
-      tooltip.style.top = `${buttonRect.bottom + 5}px`;
-      tooltip.style.bottom = "auto";
+    let top = buttonRect.bottom + 5;
+    if (top + tooltipHeight > windowHeight) {
+      top = Math.max(buttonRect.top - tooltipHeight - 5, 0);
     }
-    
-    // 画面右端に近い場合は左寄せ
-    if (buttonRect.left + tooltipWidth > windowWidth) {
-      tooltip.style.right = `${windowWidth - buttonRect.right}px`;
-      tooltip.style.left = "auto";
-    } else {
-      tooltip.style.left = `${buttonRect.left}px`;
-      tooltip.style.right = "auto";
+
+    let left = buttonRect.left;
+    if (left + tooltipWidth > windowWidth) {
+      left = Math.max(windowWidth - tooltipWidth - 10, 0);
     }
-    
-    // 最小幅を設定
-    tooltip.style.minWidth = "180px";
-    tooltip.style.maxWidth = "250px";
-    
+
+    tooltip.classList.add('taskchute-tooltip');
+    tooltip.style.setProperty('--taskchute-tooltip-left', `${left}px`);
+    tooltip.style.setProperty('--taskchute-tooltip-top', `${top}px`);
+
     // ドキュメントに追加
     document.body.appendChild(tooltip);
     
@@ -2164,7 +2172,7 @@ export class TaskChuteView extends ItemView {
           if (!inst.originalSlotKey) inst.originalSlotKey = inst.slotKey;
           inst.slotKey = currentSlot;
         }
-      } catch (_) { /* fail-safe: keep original slot on error */ }
+      } catch { /* fail-safe: keep original slot on error */ }
 
       // Start the new instance
       inst.state = "running";
@@ -2185,7 +2193,7 @@ export class TaskChuteView extends ItemView {
             });
           }
         }
-      } catch (_) {}
+      } catch {}
 
       // Save state
       this.saveInstanceState(inst);
@@ -2245,9 +2253,9 @@ export class TaskChuteView extends ItemView {
         const mm = String(start.getMonth() + 1).padStart(2, '0');
         const dd = String(start.getDate()).padStart(2, '0');
         const dateStr = `${yyyy}-${mm}-${dd}`;
-        const heatmap = new HeatmapService(this.plugin as any);
+        const heatmap = new HeatmapService(this.plugin);
         await heatmap.updateDailyStats(dateStr);
-      } catch (_) {}
+      } catch {}
       
       // CRITICAL: Recalculate task orders to maintain execution time order
       // This ensures completed tasks are sorted by startTime immediately
@@ -2305,7 +2313,7 @@ export class TaskChuteView extends ItemView {
         .map((inst) => inst.path);
 
       let restored = false;
-      for (const runningData of runningTasksData as any[]) {
+      for (const runningData of runningTasksData) {
         
         if (runningData.date !== currentDateString) {
           continue;
@@ -2338,7 +2346,7 @@ export class TaskChuteView extends ItemView {
               }
               runningInstance.slotKey = desiredSlot;
             }
-          } catch (_) {}
+          } catch {}
 
           // 状態と時刻を復元
           runningInstance.state = "running";
@@ -2396,7 +2404,7 @@ export class TaskChuteView extends ItemView {
     };
 
     try {
-      localStorage.setItem(stateKey, JSON.stringify(state));
+    this.app.saveLocalStorage(stateKey, JSON.stringify(state));
     } catch (error) {
       console.error("Failed to save instance state:", error);
     }
@@ -2495,7 +2503,7 @@ export class TaskChuteView extends ItemView {
     // Buttons
     const buttons = form.createEl('div', { cls: 'form-button-group' });
     const cancelBtn = buttons.createEl('button', { type: 'button', cls: 'form-button cancel', text: 'キャンセル' });
-    const saveBtn = buttons.createEl('button', { type: 'submit', cls: 'form-button create', text: '保存' });
+    buttons.createEl('button', { type: 'submit', cls: 'form-button create', text: '保存' });
     cancelBtn.addEventListener('click', () => modal.remove());
 
     form.addEventListener('submit', async (e) => {
@@ -2961,9 +2969,10 @@ export class TaskChuteView extends ItemView {
       }
 
       if (value && typeof value === 'object') {
-        const order = Number((value as any).order);
+        const valueRecord = value as { order?: unknown; slot?: unknown };
+        const order = Number(valueRecord.order);
         if (!Number.isFinite(order)) continue;
-        const slot = (value as any).slot || 'none';
+        const slot = typeof valueRecord.slot === 'string' ? valueRecord.slot : 'none';
         const normalizedKey = key.includes('::') ? key : `${key}::${slot}`;
         normalized[normalizedKey] = order;
         mutated = true;
@@ -3021,8 +3030,8 @@ export class TaskChuteView extends ItemView {
       }
 
       // For running/idle/paused: use scheduledTime (HH:MM)
-      const tA = (a as any)?.task?.scheduledTime as string | undefined;
-      const tB = (b as any)?.task?.scheduledTime as string | undefined;
+      const tA = a.task?.scheduledTime as string | undefined;
+      const tB = b.task?.scheduledTime as string | undefined;
       if (!tA && !tB) return 0;
       if (!tA) return 1;
       if (!tB) return -1;
@@ -3179,43 +3188,41 @@ export class TaskChuteView extends ItemView {
         const logPath = `${logDataPath}/${monthString}-tasks.json`;
 
         const file = this.app.vault.getAbstractFileByPath(logPath);
-        let json: any = { taskExecutions: {}, dailySummary: {} };
+        let json: TaskLogSnapshot = { taskExecutions: {}, dailySummary: {} };
         if (file && file instanceof TFile) {
           try {
             const raw = await this.app.vault.read(file);
-            json = raw ? JSON.parse(raw) : json;
-          } catch (_) {}
+            json = raw ? this.parseTaskLog(raw) : json;
+          } catch {
+            // ignore parse errors; fall back to empty snapshot
+          }
         } else {
           await this.plugin.pathManager.ensureFolderExists(logDataPath);
         }
 
-        if (!json.dailySummary) json.dailySummary = {};
         const prev = json.dailySummary[dateStr] || {};
         if (typeof prev.totalTasks === 'number' && prev.totalTasks === total) {
           return; // no change
         }
 
         // Recompute derived fields conservatively
-        const dayExec = (json.taskExecutions && Array.isArray(json.taskExecutions[dateStr]))
-          ? json.taskExecutions[dateStr]
-          : [];
-        const toKey = (e: any) => (e?.taskPath && typeof e.taskPath === 'string' && e.taskPath)
-          || (e?.taskName && typeof e.taskName === 'string' && e.taskName)
-          || (e?.taskTitle && typeof e.taskTitle === 'string' && e.taskTitle)
-          || (e?.instanceId && typeof e.instanceId === 'string' && e.instanceId)
-          || JSON.stringify(e);
-        const isCompleted = (e: any) => {
-          if (typeof e?.isCompleted === 'boolean') return e.isCompleted;
-          if (e?.stopTime && typeof e.stopTime === 'string' && e.stopTime.trim().length > 0) return true;
-          if (typeof e?.durationSec === 'number' && e.durationSec > 0) return true;
-          if (typeof e?.duration === 'number' && e.duration > 0) return true;
-          return true; // entries in executions are typically completed
-        };
+        const dayExec = json.taskExecutions[dateStr] ?? [];
         const completedSet = new Set<string>();
-        for (const e of dayExec) { if (isCompleted(e)) completedSet.add(toKey(e)); }
+        for (const entry of dayExec) {
+          if (this.isExecutionCompleted(entry)) {
+            completedSet.add(this.getExecutionKey(entry));
+          }
+        }
         const completedTasks = completedSet.size;
 
-        const totalMinutes = prev.totalMinutes || dayExec.reduce((s: number, e: any) => s + Math.floor(((e.durationSec || e.duration || 0) / 60)), 0);
+        const totalMinutes = prev.totalMinutes || dayExec.reduce((sum: number, entry) => {
+          const duration = typeof entry.durationSec === 'number'
+            ? entry.durationSec
+            : typeof entry.duration === 'number'
+              ? entry.duration
+              : 0;
+          return sum + Math.floor(duration / 60);
+        }, 0);
         const procrastinatedTasks = Math.max(0, total - completedTasks);
         const completionRate = total > 0 ? completedTasks / total : 0;
 
@@ -3234,7 +3241,7 @@ export class TaskChuteView extends ItemView {
         } else {
           await this.app.vault.create(logPath, payload);
         }
-      } catch (e) {
+      } catch {
         // Fail-safe: do not block UI
       }
     })();
@@ -3293,7 +3300,7 @@ export class TaskChuteView extends ItemView {
     }
     if (section === 'routine') {
       try {
-        new RoutineManagerModal(this.app, this.plugin as any).open();
+        new RoutineManagerModal(this.app, this.plugin).open();
       } catch (error) {
         console.error('[TaskChute] Failed to open RoutineManagerModal:', error);
         // フォールバック: 既存のリスト表示
@@ -3341,11 +3348,11 @@ export class TaskChuteView extends ItemView {
     }
   }
 
-  private createRoutineRow(file: TFile, fm: any): HTMLElement {
+  private createRoutineRow(file: TFile, fm: RoutineTaskShape): HTMLElement {
     const row = document.createElement('div');
     row.className = 'routine-row';
 
-    const title = row.createEl('div', { cls: 'routine-title', text: file.basename });
+    row.createEl('div', { cls: 'routine-title', text: file.basename });
 
     const typeBadge = row.createEl('span', { cls: 'routine-type-badge' });
     const type = (fm.routine_type || 'daily') as string;
@@ -3356,7 +3363,7 @@ export class TaskChuteView extends ItemView {
     const toggle = toggleWrap.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
     toggle.checked = fm.routine_enabled !== false;
     toggle.title = '有効/無効';
-    toggle.addEventListener('change', async (e) => {
+    toggle.addEventListener('change', async () => {
       await this.updateRoutineEnabled(file, toggle.checked);
       // 反映のためリロード
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
@@ -3370,7 +3377,7 @@ export class TaskChuteView extends ItemView {
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       // Build minimal task adapter for modal
-      const task = {
+      const task: RoutineTaskShape = {
         title: file.basename,
         isRoutine: true,
         scheduledTime: fm.開始時刻,
@@ -3381,14 +3388,14 @@ export class TaskChuteView extends ItemView {
         weekdays: fm.weekdays,
         monthly_week: (fm.routine_week !== undefined ? (fm.routine_week === 'last' ? 'last' : Number(fm.routine_week) - 1) : fm.monthly_week),
         monthly_weekday: fm.routine_weekday ?? fm.monthly_weekday,
-      } as any;
+      };
       this.showRoutineEditModal(task, editBtn);
     });
 
     return row;
   }
 
-  private getRoutineTypeLabel(type: string, interval: number, fm: any): string {
+  private getRoutineTypeLabel(type: string, interval: number, fm: RoutineTaskShape): string {
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
     switch (type) {
       case 'daily':
@@ -3434,8 +3441,9 @@ export class TaskChuteView extends ItemView {
       const review = new ReviewService(this.plugin);
       const file = await review.ensureReviewFile(dateStr);
       await review.openInSplit(file, this.leaf);
-    } catch (error: any) {
-      new Notice('レビューの表示に失敗しました: ' + (error?.message || error));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`レビューの表示に失敗しました: ${message}`);
     }
   }
 
@@ -3448,7 +3456,7 @@ export class TaskChuteView extends ItemView {
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     });
 
-    const logView = new LogView(this.plugin as any, content);
+    const logView = new LogView(this.plugin, content);
     logView.render();
 
     overlay.addEventListener('click', (e) => {
@@ -3596,18 +3604,18 @@ export class TaskChuteView extends ItemView {
       }
       
       const content = await this.app.vault.read(logFile);
-      const monthlyLog = JSON.parse(content);
+      const monthlyLog = this.parseTaskLog(content);
       
       let deletedCount = 0;
-      for (const dateKey in monthlyLog.taskExecutions) {
-        const dayExecutions = monthlyLog.taskExecutions[dateKey];
+      for (const dateKey of Object.keys(monthlyLog.taskExecutions)) {
+        const dayExecutions = monthlyLog.taskExecutions[dateKey] ?? [];
         const beforeLength = dayExecutions.length;
         monthlyLog.taskExecutions[dateKey] = dayExecutions.filter(
-          (exec: any) => exec.instanceId !== instanceId
+          (exec) => exec.instanceId !== instanceId
         );
         deletedCount += beforeLength - monthlyLog.taskExecutions[dateKey].length;
       }
-      
+
       if (deletedCount > 0) {
         await this.app.vault.modify(logFile, JSON.stringify(monthlyLog, null, 2));
       }
@@ -3790,7 +3798,7 @@ export class TaskChuteView extends ItemView {
     this.navigationOverlay.classList.add("navigation-overlay-hidden");
   }
 
-  private async setRoutineTask(task: any, button: HTMLElement, scheduledTime: string): Promise<void> {
+  private async setRoutineTask(task: RoutineTaskShape, button: HTMLElement, scheduledTime: string): Promise<void> {
     try {
       // Prefer existing path to avoid folder mismatch
       const primaryPath = task.path || '';
@@ -3828,15 +3836,15 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、実行中タスクの表示も復元
         await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new Notice(`「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to set routine task:", error);
-      const msg = (error && (error.message || String(error))) || '';
+      const msg = error instanceof Error ? error.message : String(error);
       new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
 
   private async setRoutineTaskWithDetails(
-    task: any, 
+    task: RoutineTaskShape, 
     button: HTMLElement, 
     scheduledTime: string, 
     routineType: string,
@@ -3909,7 +3917,7 @@ export class TaskChuteView extends ItemView {
               const w = details.monthly_week === 'last'
                 ? 'last'
                 : (typeof details.monthly_week === 'number' ? details.monthly_week + 1 : undefined);
-              if (w !== undefined) frontmatter.routine_week = w as any; // 1..5 or 'last'
+              if (w !== undefined) frontmatter.routine_week = w;
               frontmatter.routine_weekday = details.monthly_weekday;
             }
             break;
@@ -3969,9 +3977,9 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true });
       new Notice(`「${task.title}」をルーチンタスクに設定しました`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to set routine task:", error);
-      const msg = (error && (error.message || String(error))) || '';
+      const msg = error instanceof Error ? error.message : String(error);
       new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`);
     }
   }
@@ -4037,12 +4045,13 @@ export class TaskChuteView extends ItemView {
       const isDup = this.isDuplicatedTask(inst);
       if (isDup) {
         // 複製インスタンスは instance 単位で削除（元は残す）
-        deletedInstances.push({
+        const deletion: DeletedInstance = {
           instanceId: inst.instanceId,
           path: inst.task.path,
           deletionType: 'temporary',
           timestamp: Date.now(),
-        } as any);
+        };
+        deletedInstances.push(deletion);
         // 複製メタデータからも除去
         dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
           (dup) => dup.instanceId !== inst.instanceId,
@@ -4053,27 +4062,30 @@ export class TaskChuteView extends ItemView {
           const p = inst.task.path;
           const isValidPath = typeof p === 'string' && p.length > 0 && !/\/undefined\.md$/.test(p);
           if (isValidPath) {
-            deletedInstances.push({
+            const deletion: DeletedInstance = {
               path: p,
               deletionType: 'permanent',
               timestamp: Date.now(),
-            } as any);
+            };
+            deletedInstances.push(deletion);
           } else {
-            deletedInstances.push({
+            const deletion: DeletedInstance = {
               instanceId: inst.instanceId,
               path: p || '',
               deletionType: 'temporary',
               timestamp: Date.now(),
-            } as any);
+            };
+            deletedInstances.push(deletion);
           }
         } else {
           // ルーチン: instance 単位（今日のみ非表示）
-          deletedInstances.push({
+          const deletion: DeletedInstance = {
             instanceId: inst.instanceId,
             path: inst.task.path,
             deletionType: 'temporary',
             timestamp: Date.now(),
-          } as any);
+          };
+          deletedInstances.push(deletion);
         }
       }
       this.saveDeletedInstances(dateStr, deletedInstances);
@@ -4088,7 +4100,7 @@ export class TaskChuteView extends ItemView {
         if (samePathInstances.length === 0 && inst.task.file) {
           // 最後のインスタンスの場合、ファイルも削除
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path);
-          await this.app.vault.delete(inst.task.file);
+          await this.app.fileManager.trashFile(inst.task.file, true);
           new Notice(`「${inst.task.title}」を完全に削除しました。`);
         } else {
           new Notice(`「${inst.task.title}」を本日のリストから削除しました。`);
@@ -4170,7 +4182,7 @@ export class TaskChuteView extends ItemView {
     const projects = await this.getAvailableProjects();
     
     // 「プロジェクトなし」オプション
-    const noneOption = projectSelect.createEl("option", {
+    projectSelect.createEl("option", {
       value: "",
       text: "プロジェクトなし",
     });
@@ -4194,7 +4206,7 @@ export class TaskChuteView extends ItemView {
       cls: "form-button cancel",
       text: "キャンセル",
     });
-    const saveButton = buttonGroup.createEl("button", {
+    buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
       text: "保存",
@@ -4327,8 +4339,8 @@ export class TaskChuteView extends ItemView {
       autocomplete = new TaskNameAutocomplete(this.plugin, nameInput, nameGroup, this);
       await autocomplete.initialize();
       const cleanup = () => {
-        if (typeof (autocomplete as any)?.destroy === "function") {
-          (autocomplete as any).destroy();
+        if (autocomplete && typeof autocomplete.destroy === 'function') {
+          autocomplete.destroy();
         }
       };
       cleanupAutocomplete = cleanup;
@@ -4509,7 +4521,6 @@ export class TaskChuteView extends ItemView {
 
   private async waitForFrontmatter(file: TFile, timeoutMs = 4000): Promise<void> {
     const start = Date.now();
-    const path = file.path;
     const hasFrontmatter = () => {
       const cache = this.app.metadataCache.getFileCache(file);
       return Boolean(cache?.frontmatter);
@@ -4525,6 +4536,46 @@ export class TaskChuteView extends ItemView {
         return;
       }
     }
+  }
+
+  private parseTaskLog(content: string): TaskLogSnapshot {
+    try {
+      const parsed = JSON.parse(content) as Partial<TaskLogSnapshot>;
+      const executionsEntries = Object.entries(parsed.taskExecutions ?? {});
+      const taskExecutions = executionsEntries.reduce<Record<string, TaskLogEntry[]>>(
+        (acc, [dateKey, value]) => {
+          if (Array.isArray(value)) {
+            acc[dateKey] = value.filter((entry): entry is TaskLogEntry => Boolean(entry) && typeof entry === 'object');
+          }
+          return acc;
+        },
+        {},
+      );
+
+      return {
+        taskExecutions,
+        dailySummary: parsed.dailySummary ?? {},
+      };
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to parse task log snapshot', error);
+      return { taskExecutions: {}, dailySummary: {} };
+    }
+  }
+
+  private getExecutionKey(entry: TaskLogEntry): string {
+    if (entry.taskPath && typeof entry.taskPath === 'string') return entry.taskPath;
+    if (entry.taskName && typeof entry.taskName === 'string') return entry.taskName;
+    if (entry.taskTitle && typeof entry.taskTitle === 'string') return entry.taskTitle;
+    if (entry.instanceId && typeof entry.instanceId === 'string') return entry.instanceId;
+    return JSON.stringify(entry);
+  }
+
+  private isExecutionCompleted(entry: TaskLogEntry): boolean {
+    if (typeof entry.isCompleted === 'boolean') return entry.isCompleted;
+    if (entry.stopTime && typeof entry.stopTime === 'string' && entry.stopTime.trim().length > 0) return true;
+    if (typeof entry.durationSec === 'number' && entry.durationSec > 0) return true;
+    if (typeof entry.duration === 'number' && entry.duration > 0) return true;
+    return true;
   }
 
   private persistSlotAssignment(inst: TaskInstance): void {
@@ -4589,9 +4640,7 @@ export class TaskChuteView extends ItemView {
     const calendarHeight = 350; // Estimated calendar picker height
     const calendarWidth = 300; // Estimated calendar picker width
 
-    input.style.position = "fixed";
-    input.style.opacity = "0.01"; // Nearly invisible but clickable
-    input.style.pointerEvents = "auto";
+    input.classList.add('taskchute-inline-picker');
 
     // Calculate horizontal position (slightly left of button)
     let leftPosition = buttonRect.left - 50;
@@ -4615,9 +4664,8 @@ export class TaskChuteView extends ItemView {
       }
     }
 
-    input.style.left = `${leftPosition}px`;
-    input.style.top = `${topPosition}px`;
-    input.style.zIndex = "10001";
+    input.style.setProperty('--inline-picker-left', `${leftPosition}px`);
+    input.style.setProperty('--inline-picker-top', `${topPosition}px`);
 
     // Handle date change
     input.addEventListener("change", async () => {
@@ -4711,6 +4759,7 @@ export class TaskChuteView extends ItemView {
       try {
         projectFiles = await this.getProjectFiles();
       } catch (error) {
+        console.error('Failed to load project list', error);
         new Notice("プロジェクトリストの読み込みに失敗しました");
         modal.remove();
         return;
@@ -4740,7 +4789,7 @@ export class TaskChuteView extends ItemView {
         
         // Add "Remove project" option if project is already set
         if (inst.task.projectPath) {
-          const removeProjectOption = projectSelect.createEl("option", {
+          projectSelect.createEl("option", {
             value: "",
             text: "➖ プロジェクトを外す",
           });
@@ -4786,7 +4835,7 @@ export class TaskChuteView extends ItemView {
           cls: "form-button cancel",
           text: "キャンセル",
         });
-        const saveButton = buttonGroup.createEl("button", {
+        buttonGroup.createEl("button", {
           type: "submit",
           cls: "form-button create",
           text: "保存",
@@ -4849,7 +4898,7 @@ export class TaskChuteView extends ItemView {
     return projectFiles;
   }
   
-  private async setProjectForTask(task: any, projectPath: string): Promise<void> {
+  private async setProjectForTask(task: TaskData, projectPath: string): Promise<void> {
     try {
       if (!task.file || !(task.file instanceof TFile)) {
         new Notice("タスクファイルが見つかりません");
@@ -4919,12 +4968,12 @@ export class TaskChuteView extends ItemView {
             },
           });
           
-          const folderIcon = projectButton.createEl("span", {
+          projectButton.createEl("span", {
             cls: "taskchute-project-icon",
             text: "📁",
           });
           
-          const projectName = projectButton.createEl("span", {
+          projectButton.createEl("span", {
             cls: "taskchute-project-name",
             text: inst.task.projectTitle.replace(/^Project\s*-\s*/, ""),
           });

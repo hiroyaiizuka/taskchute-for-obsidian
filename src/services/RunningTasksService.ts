@@ -1,5 +1,5 @@
 import { TFile } from 'obsidian';
-import TaskChutePlugin from '../main';
+import type { TaskChutePluginLike } from '../types';
 import { TaskInstance } from '../types';
 
 export interface RunningTaskRecord {
@@ -15,7 +15,20 @@ export interface RunningTaskRecord {
 }
 
 export class RunningTasksService {
-  constructor(private plugin: TaskChutePlugin) {}
+  constructor(private plugin: TaskChutePluginLike) {}
+
+  private isRunningTaskRecord(value: unknown): value is RunningTaskRecord {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+    const record = value as Record<string, unknown>;
+    return (
+      typeof record.date === 'string' &&
+      typeof record.taskTitle === 'string' &&
+      typeof record.taskPath === 'string' &&
+      typeof record.startTime === 'string'
+    );
+  }
 
   async save(runningInstances: TaskInstance[]): Promise<void> {
     const records: RunningTaskRecord[] = runningInstances.map((inst) => {
@@ -53,12 +66,13 @@ export class RunningTasksService {
       const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
       if (!file || !(file instanceof TFile)) return [];
       const raw = await this.plugin.app.vault.read(file);
-      const json: any = JSON.parse(raw);
-      if (!Array.isArray(json)) return [];
-      return (json as RunningTaskRecord[]).filter((r) => r.date === dateString);
-    } catch (_) {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry))
+        .filter((record) => record.date === dateString);
+    } catch {
       return [];
     }
   }
 }
-

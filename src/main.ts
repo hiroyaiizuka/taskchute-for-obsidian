@@ -1,13 +1,12 @@
 import {
   Plugin,
-  ItemView,
-  WorkspaceLeaf,
   Notice,
   PluginSettingTab,
   Setting,
+  App,
 } from "obsidian"
 
-import { TaskChuteSettings, DayState } from "./types"
+import { TaskChuteSettings } from "./types"
 import { DEFAULT_SETTINGS } from "./settings"
 import { PathManager } from "./managers/PathManager"
 import { RoutineAliasManager } from "./managers/RoutineAliasManager"
@@ -20,7 +19,7 @@ const VIEW_TYPE_TASKCHUTE = "taskchute-view"
 class TaskChuteSettingTab extends PluginSettingTab {
   plugin: TaskChutePlusPlugin
 
-  constructor(app: any, plugin: TaskChutePlusPlugin) {
+  constructor(app: App, plugin: TaskChutePlusPlugin) {
     super(app, plugin)
     this.plugin = plugin
   }
@@ -60,7 +59,7 @@ class TaskChuteSettingTab extends PluginSettingTab {
               await this.plugin.pathManager.ensureFolderExists(
                 this.plugin.pathManager.getTaskFolderPath(),
               )
-            } catch (error) {
+            } catch {
               // Failed to create task folder
             }
           }
@@ -173,20 +172,28 @@ export default class TaskChutePlusPlugin extends Plugin {
   pathManager!: PathManager
   routineAliasManager!: RoutineAliasManager
   dayStateService!: DayStateService
-  globalTimerInterval?: NodeJS.Timer | null
+  globalTimerInterval?: ReturnType<typeof setInterval> | null
 
   // Simple logger/notification wrapper
-  _log(level?: string, ...args: any[]): void {
+  _log(level: keyof Console | undefined, ...args: unknown[]): void {
     try {
-      ;(console as any)[level || "log"]?.(...args)
-    } catch (_) {}
+      if (level === 'warn') {
+        console.warn(...args);
+      } else if (level === 'error') {
+        console.error(...args);
+      } else {
+        console.debug(...args);
+      }
+    } catch {
+      // Ignore logging errors in production builds
+    }
   }
 
   _notify(message: string, timeout?: number): void {
     try {
-      new Notice(message, timeout)
-    } catch (_) {
-      this._log("warn", "[Notice]", message)
+      new Notice(message, timeout);
+    } catch (error) {
+      this._log('warn', '[Notice]', message, error);
     }
   }
 
@@ -254,26 +261,6 @@ export default class TaskChutePlusPlugin extends Plugin {
         leaf.view.onunload()
       }
     })
-
-    // Clean up old localStorage data (optional)
-    try {
-      const today = new Date()
-      const cutoffDate = new Date(today)
-      cutoffDate.setDate(today.getDate() - 30) // Remove data older than 30 days
-
-      const keysToCheck = Object.keys(localStorage)
-      keysToCheck.forEach((key) => {
-        const dateMatch = key.match(/taskchute-.*-(\d{4}-\d{2}-\d{2})/)
-        if (dateMatch) {
-          const keyDate = new Date(dateMatch[1])
-          if (keyDate < cutoffDate) {
-            localStorage.removeItem(key)
-          }
-        }
-      })
-    } catch (error) {
-      // Ignore cleanup errors
-    }
   }
 
   private registerCommands(): void {
@@ -322,16 +309,10 @@ export default class TaskChutePlusPlugin extends Plugin {
       },
     })
 
-    // Today's tasks command with hotkey
+    // Today's tasks command
     this.addCommand({
       id: "show-today-tasks",
       name: "今日のタスクを表示",
-      hotkeys: [
-        {
-          modifiers: ["Alt"],
-          key: "t",
-        },
-      ],
       callback: async () => {
         await this.triggerShowTodayTasks()
       },
@@ -364,10 +345,10 @@ export default class TaskChutePlusPlugin extends Plugin {
       try {
         const path = getter()
         await this.pathManager.ensureFolderExists(path)
-      } catch (error) {
+      } catch {
         try {
           new Notice(`${label}の作成に失敗しました`)
-        } catch (_) {
+        } catch {
           // Ignore if Notice is not available (e.g., in tests)
         }
       }
@@ -383,32 +364,45 @@ export default class TaskChutePlusPlugin extends Plugin {
     if (!leaf || !leaf.view) return null
     // Avoid instanceof to prevent identity issues across reloads/bundles
     try {
-      const view: any = leaf.view
-      if (
-        typeof view.getViewType === "function" &&
-        view.getViewType() === VIEW_TYPE_TASKCHUTE
-      ) {
-        return view as TaskChuteView
+      const candidate = leaf.view as Partial<TaskChuteView> & {
+        getViewType?: () => string
       }
-    } catch (_) {}
+
+      if (
+        candidate &&
+        typeof candidate.getViewType === "function" &&
+        candidate.getViewType() === VIEW_TYPE_TASKCHUTE
+      ) {
+        return candidate as TaskChuteView
+      }
+    } catch {
+      // Ignore legacy view instances that may not expose getViewType
+    }
     return null
   }
 
   // Ensure we have a fresh (current code) view instance.
   // If missing or missing required methods, detach and reopen.
   private async getOrCreateTaskChuteView(
-    requiredMethods: string[] = [],
+    requiredMethods: Array<keyof TaskChuteView> = [],
   ): Promise<TaskChuteView | null> {
     let view = this.getTaskChuteView()
-    const hasAll = (v: any) =>
-      requiredMethods.every((m) => typeof v?.[m] === "function")
+    const hasAll = (candidate: TaskChuteView | null): candidate is TaskChuteView =>
+      Boolean(
+        candidate &&
+          requiredMethods.every(
+            (method) => typeof candidate[method] === "function",
+          ),
+      )
 
-    if (view && hasAll(view)) return view
+    if (hasAll(view)) return view
 
     // Recreate view to avoid stale (pre-refactor) instances lingering across reloads
     try {
       this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASKCHUTE)
-    } catch (_) {}
+    } catch {
+      // Ignore workspace detach failures (e.g., during tests)
+    }
 
     await this.activateTaskChuteView()
 
@@ -416,43 +410,28 @@ export default class TaskChutePlusPlugin extends Plugin {
     await new Promise((r) => setTimeout(r, 50))
 
     view = this.getTaskChuteView()
-    if (view && hasAll(view)) return view
+    if (hasAll(view)) return view
     return view // return whatever we have; caller can still fallback
   }
 
   // Command bridges with back-compat/fallbacks
   private async triggerShowTodayTasks(): Promise<void> {
     const view = await this.getOrCreateTaskChuteView(["showTodayTasks"])
-    if (view && typeof (view as any).showTodayTasks === "function") {
-      ;(view as any).showTodayTasks()
+    if (!view) {
+      await this.activateTaskChuteView()
       return
     }
-    // Last resort: open view and rely on its default state
-    await this.activateTaskChuteView()
+
+    view.showTodayTasks()
   }
 
   private async triggerDuplicateSelectedTask(): Promise<void> {
-    const view = await this.getOrCreateTaskChuteView([
-      "duplicateSelectedTask",
-      "duplicateInstance",
-    ])
+    const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask"])
     if (!view) {
       new Notice("TaskChuteビューが開かれていません")
       return
     }
-    const v: any = view as any
-    if (typeof v.duplicateSelectedTask === "function") {
-      await v.duplicateSelectedTask()
-      return
-    }
-    if (
-      view.selectedTaskInstance &&
-      typeof v.duplicateInstance === "function"
-    ) {
-      await v.duplicateInstance(view.selectedTaskInstance)
-    } else {
-      new Notice("タスクが選択されていません")
-    }
+    await view.duplicateSelectedTask()
   }
 
   private async triggerDeleteSelectedTask(): Promise<void> {
@@ -461,38 +440,16 @@ export default class TaskChutePlusPlugin extends Plugin {
       new Notice("TaskChuteビューが開かれていません")
       return
     }
-    const v: any = view as any
-    if (typeof v.deleteSelectedTask === "function") {
-      v.deleteSelectedTask()
-      return
-    }
-    // Fallback (very old view): try direct method name if it existed
-    if (view.selectedTaskInstance && typeof v.deleteTask === "function") {
-      v.deleteTask(view.selectedTaskInstance)
-    } else {
-      new Notice("タスクが選択されていません")
-    }
+    view.deleteSelectedTask()
   }
 
   private async triggerResetSelectedTask(): Promise<void> {
-    const view = await this.getOrCreateTaskChuteView([
-      "resetSelectedTask",
-      "resetTaskToIdle",
-    ])
+    const view = await this.getOrCreateTaskChuteView(["resetSelectedTask"])
     if (!view) {
       new Notice("TaskChuteビューが開かれていません")
       return
     }
-    const v: any = view as any
-    if (typeof v.resetSelectedTask === "function") {
-      await v.resetSelectedTask()
-      return
-    }
-    if (view.selectedTaskInstance && typeof v.resetTaskToIdle === "function") {
-      await v.resetTaskToIdle(view.selectedTaskInstance)
-    } else {
-      new Notice("タスクが選択されていません")
-    }
+    await view.resetSelectedTask()
   }
 
   async activateTaskChuteView(): Promise<void> {
@@ -635,7 +592,7 @@ export default class TaskChutePlusPlugin extends Plugin {
               this.pathManager.getReviewDataPath(),
             )
           }
-        } catch (error) {
+        } catch {
           // Ignore folder creation errors
         }
       } else {

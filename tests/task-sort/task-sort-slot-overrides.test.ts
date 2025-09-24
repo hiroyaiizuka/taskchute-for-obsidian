@@ -2,13 +2,13 @@ import { TaskChuteView } from '../../src/views/TaskChuteView';
 import type { DayState, TaskData, TaskInstance } from '../../src/types';
 import { createRoutineLoadContext } from '../utils/taskViewTestUtils';
 
-const persistSlotAssignment = TaskChuteView.prototype.persistSlotAssignment as (
-  this: any,
+const persistSlotAssignment = TaskChuteView.prototype.persistSlotAssignment as unknown as (
+  this: TaskChuteView,
   inst: TaskInstance,
 ) => void;
 
-const getTaskSlotKey = TaskChuteView.prototype.getTaskSlotKey as (
-  this: any,
+const getTaskSlotKey = TaskChuteView.prototype.getTaskSlotKey as unknown as (
+  this: TaskChuteView,
   task: TaskData,
 ) => string;
 
@@ -23,18 +23,32 @@ function createDayState(partial?: Partial<DayState>): DayState {
   };
 }
 
-function createViewStub(dayState: DayState, pluginOverrides: Record<string, unknown> = {}) {
-  const plugin = {
-    settings: { slotKeys: {} as Record<string, string> },
-    saveSettings: jest.fn().mockResolvedValue(undefined),
-    ...pluginOverrides,
-  };
+interface PluginStub {
+  settings: { slotKeys: Record<string, string> };
+  saveSettings: jest.Mock<Promise<void>, []>;
+}
 
-  if (pluginOverrides.settings) {
-    plugin.settings = pluginOverrides.settings as Record<string, string>;
+interface ViewStub {
+  plugin: PluginStub;
+  getCurrentDayState: jest.Mock<DayState>;
+  getOrderKey: jest.Mock<string | null>;
+}
+
+function createViewStub(
+  dayState: DayState,
+  pluginOverrides: Partial<PluginStub> = {},
+): { view: ViewStub; plugin: PluginStub } {
+  const baseSettings = pluginOverrides.settings ?? { slotKeys: {} as Record<string, string> };
+  if (!baseSettings.slotKeys) {
+    baseSettings.slotKeys = {};
   }
 
-  const view: any = {
+  const plugin: PluginStub = {
+    settings: baseSettings,
+    saveSettings: pluginOverrides.saveSettings ?? jest.fn().mockResolvedValue(undefined),
+  };
+
+  const view: ViewStub = {
     plugin,
     getCurrentDayState: jest.fn(() => dayState),
     getOrderKey: jest.fn(() => null),
@@ -60,7 +74,7 @@ describe('Task sort slot overrides', () => {
         state: 'idle',
       };
 
-      persistSlotAssignment.call(view, inst);
+      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
 
       expect(dayState.slotOverrides['Tasks/routine.md']).toBe('16:00-0:00');
       expect(plugin.settings.slotKeys).toEqual({});
@@ -84,7 +98,7 @@ describe('Task sort slot overrides', () => {
         state: 'idle',
       };
 
-      persistSlotAssignment.call(view, inst);
+      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
 
       expect(dayState.slotOverrides['Tasks/routine.md']).toBeUndefined();
     });
@@ -106,7 +120,7 @@ describe('Task sort slot overrides', () => {
         state: 'idle',
       };
 
-      persistSlotAssignment.call(view, inst);
+      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
 
       expect(plugin.settings.slotKeys['Tasks/one-off.md']).toBe('12:00-16:00');
       expect(plugin.saveSettings).toHaveBeenCalled();
@@ -120,7 +134,7 @@ describe('Task sort slot overrides', () => {
       });
       const { view } = createViewStub(dayState);
 
-      const result = getTaskSlotKey.call(view, {
+      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
         path: 'Tasks/routine.md',
         isRoutine: true,
         scheduledTime: '08:00',
@@ -133,7 +147,7 @@ describe('Task sort slot overrides', () => {
       const dayState = createDayState();
       const { view } = createViewStub(dayState);
 
-      const result = getTaskSlotKey.call(view, {
+      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
         path: 'Tasks/routine.md',
         isRoutine: true,
         scheduledTime: '08:00',
@@ -149,7 +163,7 @@ describe('Task sort slot overrides', () => {
       };
       const { view } = createViewStub(dayState, pluginOverrides);
 
-      const result = getTaskSlotKey.call(view, {
+      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
         path: 'Tasks/one-off.md',
         isRoutine: false,
       } as TaskData);

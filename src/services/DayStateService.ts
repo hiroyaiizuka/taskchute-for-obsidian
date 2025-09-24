@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
-import { DayState, MonthlyDayStateFile } from '../types';
+import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 
 const DAY_STATE_VERSION = '1.0';
 
@@ -61,7 +61,7 @@ export class DayStateService {
     }
   }
 
-  private normalizeMonthlyState(state: any): MonthlyDayStateFile {
+  private normalizeMonthlyState(state: unknown): MonthlyDayStateFile {
     const normalized: MonthlyDayStateFile = {
       days: {},
       metadata: {
@@ -86,7 +86,7 @@ export class DayStateService {
     return normalized;
   }
 
-  private normalizeDayState(value: any): DayState {
+  private normalizeDayState(value: unknown): DayState {
     const day = createEmptyDayState();
 
     if (!value || typeof value !== 'object') {
@@ -131,7 +131,7 @@ export class DayStateService {
     if (existing && existing instanceof TFile) {
       try {
         const raw = await this.plugin.app.vault.read(existing);
-        const parsed = raw ? JSON.parse(raw) : {};
+        const parsed: unknown = raw ? JSON.parse(raw) : {};
         monthly = this.normalizeMonthlyState(parsed);
       } catch (error) {
         console.error('[TaskChute] Failed to parse day state file:', error);
@@ -233,7 +233,19 @@ export class DayStateService {
             existing.set(key, item);
           }
         }
-        state.hiddenRoutines = Array.from(existing.values()) as any;
+        const mergedHiddenRoutines = Array.from(existing.values()).reduce<HiddenRoutine[]>(
+          (acc, entry) => {
+            if (!entry) return acc;
+            if (typeof entry === 'string') {
+              acc.push({ path: entry, instanceId: null });
+            } else {
+              acc.push(entry);
+            }
+            return acc;
+          },
+          [],
+        );
+        state.hiddenRoutines = mergedHiddenRoutines;
       }
 
       if (partial.deletedInstances) {

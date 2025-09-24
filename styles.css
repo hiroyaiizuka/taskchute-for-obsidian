@@ -638,6 +638,14 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
   font-weight: bold;
 }
 
+.task-name--accent {
+  color: var(--text-accent);
+}
+
+.is-hidden {
+  display: none !important;
+}
+
 /* ステータスバッジ */
 .taskchute-status-badge {
   padding: 2px 6px;
@@ -702,14 +710,44 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 
 /* カレンダー入力 */
 .taskchute-calendar-input {
-  position: absolute;
+  position: fixed;
   z-index: 10000;
+  left: var(--calendar-input-left, 0);
+  top: var(--calendar-input-top, 0);
+}
+
+.taskchute-inline-picker {
+  position: fixed;
+  opacity: 0.01;
+  pointer-events: auto;
+  z-index: 10001;
+  left: var(--inline-picker-left, 0);
+  top: var(--inline-picker-top, 0);
+}
+
+.routine-weekly-group,
+.routine-monthly-group {
+  margin-top: 10px;
+}
+
+.monthly-settings {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.monthly-settings__week {
+  width: 60px;
+}
+
+.monthly-settings__weekday {
+  width: 80px;
 }
 
 /* ツールチップ */
 .taskchute-tooltip {
-  position: absolute;
-  z-index: 1000;
+  position: fixed;
+  z-index: 10000;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
@@ -719,6 +757,9 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   max-width: 200px;
   word-wrap: break-word;
+  min-width: 180px;
+  left: var(--taskchute-tooltip-left, 0);
+  top: var(--taskchute-tooltip-top, 0);
 }
 
 /* タスクハイライト */
@@ -923,16 +964,10 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 }
 
 .heatmap-container {
+    position: relative;
     flex: 1;
     padding: 20px;
     overflow: auto;
-}
-
-.heatmap-grid {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
 }
 
 .heatmap-placeholder {
@@ -942,6 +977,7 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 
 /* Heatmap Grid Styles */
 .heatmap-grid-container {
+    position: relative;
     padding: 20px;
 }
 
@@ -953,11 +989,14 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 }
 
 .month-label {
+    --heatmap-month-index: 0;
+    --heatmap-week-width: 13px;
     font-size: 10px;
     color: var(--text-muted);
     position: absolute;
     top: 0;
     text-align: left;
+    transform: translateX(calc(var(--heatmap-month-index) * var(--heatmap-week-width)));
 }
 
 .heatmap-weekdays-container {
@@ -985,8 +1024,9 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 .heatmap-grid {
     display: grid;
     grid-template-rows: repeat(7, 11px);
-    gap: 2px;
+    grid-auto-columns: var(--heatmap-week-width, 13px);
     grid-auto-flow: column;
+    gap: 2px;
     width: fit-content;
 }
 
@@ -1111,6 +1151,8 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
 
 /* Heatmap Tooltip */
 .heatmap-tooltip {
+    position: absolute;
+    z-index: 1000;
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
@@ -1119,6 +1161,8 @@ select.form-input { min-height: 36px; line-height: 1.5; padding: 8px 12px; }
     white-space: pre-line;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     pointer-events: none;
+    left: var(--heatmap-tooltip-left, 0);
+    top: var(--heatmap-tooltip-top, 0);
 }
 
 /* TASK-012: タスク名自動補完のスタイル */
@@ -2874,4 +2918,264 @@ select.form-input {
   .task-item .settings-task-button {
     display: none;
   }
+}
+
+/* Routine edit modal */
+.routine-edit-modal {
+  width: 600px;
+  max-width: min(600px, 90vw);
+}
+
+.routine-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-group--inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-group--date-range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.routine-form__inline-label {
+  font-weight: 500;
+}
+
+.routine-form__inline-label--gap {
+  margin-left: 8px;
+}
+
+.routine-form__checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+  margin-bottom: 4px;
+}
+
+.routine-form__weekly,
+.routine-form__monthly {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.routine-editor__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.routine-editor__button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.routine-editor__button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.routine-editor__button--primary {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.routine-editor__button--primary:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* Routine manager modal */
+.routine-manager-modal {
+  width: 90vw;
+  max-width: 1400px;
+  height: 80vh;
+}
+
+.routine-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.routine-manager__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.routine-manager__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.routine-manager__controls input[type="search"] {
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  min-width: 240px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.routine-manager__body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.routine-table__wrapper {
+  height: 100%;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: auto;
+  background: var(--background-primary);
+}
+
+.routine-table {
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.routine-table__row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.routine-table__row:last-child {
+  border-bottom: none;
+}
+
+.routine-table__row--head {
+  position: sticky;
+  top: 0;
+  background: var(--background-primary);
+  z-index: 2;
+  font-weight: 600;
+}
+
+.routine-table__cell {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  font-size: 0.92em;
+  color: var(--text-normal);
+}
+
+.routine-table__cell--actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.routine-table__link {
+  color: var(--text-accent);
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.routine-table__link:hover {
+  text-decoration: underline;
+}
+
+.routine-table__toggle {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.routine-table__toggle:hover {
+  background: var(--background-modifier-hover);
+}
+
+.routine-table__action-button {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.routine-table__action-button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.routine-table__action-button--danger {
+  color: var(--text-error);
+  border-color: var(--background-modifier-border);
+}
+
+.routine-table__action-button--danger:hover {
+  color: var(--text-on-accent);
+  background: var(--color-red, #e74c3c);
+  border-color: var(--color-red, #e74c3c);
+}
+
+.routine-empty {
+  padding: 12px;
+  color: var(--text-muted);
+}
+
+.routine-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.routine-confirm__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.routine-confirm__button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.routine-confirm__button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.routine-confirm__button.mod-danger {
+  color: var(--text-on-accent);
+  background: var(--color-red, #e74c3c);
+  border-color: var(--color-red, #e74c3c);
 }

@@ -1,11 +1,32 @@
-import { App, Modal, Notice, TFile } from 'obsidian';
+import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { TaskChutePluginLike } from '../types';
+import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../types';
+
+interface TaskChuteViewLike {
+  reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
+}
+
+const ROUTINE_TYPE_OPTIONS: Array<{ value: RoutineType; label: string }> = [
+  { value: 'daily', label: '日ごと' },
+  { value: 'weekly', label: '週ごと（曜日）' },
+  { value: 'monthly', label: '月ごと（第n x曜日）' },
+];
+
+const WEEK_OPTIONS: Array<{ value: RoutineWeek; label: string }> = [
+  { value: 1, label: '第1' },
+  { value: 2, label: '第2' },
+  { value: 3, label: '第3' },
+  { value: 4, label: '第4' },
+  { value: 5, label: '第5' },
+  { value: 'last', label: '最終' },
+];
+
+const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
 
 export default class RoutineEditModal extends Modal {
-  private plugin: TaskChutePluginLike;
-  private file: TFile;
-  private onSaved?: () => void;
+  private readonly plugin: TaskChutePluginLike;
+  private readonly file: TFile;
+  private readonly onSaved?: () => void;
 
   constructor(app: App, plugin: TaskChutePluginLike, file: TFile, onSaved?: () => void) {
     super(app);
@@ -17,125 +38,134 @@ export default class RoutineEditModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
-    try { (this.modalEl as HTMLElement).setAttr('style', 'width:600px;'); } catch (_) {}
+    this.modalEl?.classList.add('routine-edit-modal');
 
-    const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter || {};
-    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const frontmatter = this.getFrontmatterSnapshot();
+    const initialType = this.normalizeRoutineType(frontmatter.routine_type);
 
     contentEl.createEl('h4', { text: `「${this.file.basename}」のルーチン設定` });
 
     const form = contentEl.createEl('div', { cls: 'routine-form' });
 
-    // Type
+    // Type selector
     const typeGroup = form.createEl('div', { cls: 'form-group' });
     typeGroup.createEl('label', { text: 'タイプ:' });
     const typeSelect = typeGroup.createEl('select') as HTMLSelectElement;
-    ;[
-      ['daily', '日ごと'],
-      ['weekly', '週ごと（曜日）'],
-      ['monthly', '月ごと（第n x曜日）'],
-    ].forEach(([v, t]) => typeSelect.add(new Option(t, v)));
-    typeSelect.value = (fm.routine_type || 'daily') as string;
+    ROUTINE_TYPE_OPTIONS.forEach(({ value, label }) => {
+      typeSelect.add(new Option(label, value));
+    });
+    typeSelect.value = initialType;
 
     // Start time
     const timeGroup = form.createEl('div', { cls: 'form-group' });
     timeGroup.createEl('label', { text: '開始予定時刻:' });
     const timeInput = timeGroup.createEl('input', { type: 'time' }) as HTMLInputElement;
-    timeInput.value = (fm['開始時刻'] || '');
+    timeInput.value = typeof frontmatter['開始時刻'] === 'string' ? frontmatter['開始時刻'] : '';
 
     // Interval
     const intervalGroup = form.createEl('div', { cls: 'form-group' });
     intervalGroup.createEl('label', { text: '間隔:' });
-    const intervalInput = intervalGroup.createEl('input', { type: 'number', attr: { min: '1', step: '1' } }) as HTMLInputElement;
-    intervalInput.value = String(Math.max(1, Number(fm.routine_interval || 1)));
+    const intervalInput = intervalGroup.createEl('input', {
+      type: 'number',
+      attr: { min: '1', step: '1' },
+    }) as HTMLInputElement;
+    intervalInput.value = String(Math.max(1, Number(frontmatter.routine_interval ?? 1)));
 
-    // Enabled
-    const enabledGroup = form.createEl('div', { cls: 'form-group' });
+    // Enabled toggle
+    const enabledGroup = form.createEl('div', { cls: 'form-group form-group--inline' });
     const enabledLabel = enabledGroup.createEl('label', { text: '有効:' });
+    enabledLabel.classList.add('routine-form__inline-label');
     const enabledToggle = enabledGroup.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
-    enabledToggle.checked = fm.routine_enabled !== false;
-    enabledLabel.setAttr('style', 'margin-right: 6px;');
+    enabledToggle.checked = frontmatter.routine_enabled !== false;
 
     // Start / End dates
-    const datesGroup = form.createEl('div', { cls: 'form-group' });
+    const datesGroup = form.createEl('div', { cls: 'form-group form-group--date-range' });
     datesGroup.createEl('label', { text: '開始日:' });
     const startInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
-    startInput.value = fm.routine_start || '';
-    datesGroup.createEl('label', { text: '終了日:', attr: { style: 'margin-left:8px;' } });
+    startInput.value = typeof frontmatter.routine_start === 'string' ? frontmatter.routine_start : '';
+    const endLabel = datesGroup.createEl('label', { text: '終了日:' });
+    endLabel.classList.add('routine-form__inline-label', 'routine-form__inline-label--gap');
     const endInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
-    endInput.value = fm.routine_end || '';
+    endInput.value = typeof frontmatter.routine_end === 'string' ? frontmatter.routine_end : '';
 
-    // Weekly group
-    const weeklyGroup = form.createEl('div', { cls: 'form-group', attr: { 'data-kind': 'weekly' } });
+    // Weekly controls
+    const weeklyGroup = form.createEl('div', {
+      cls: 'form-group routine-form__weekly',
+      attr: { 'data-kind': 'weekly' },
+    });
     weeklyGroup.createEl('div', { text: '曜日（複数選択可）:' });
-    const weekdayCbs: HTMLInputElement[] = [];
-    for (let i = 0; i < 7; i++) {
-      const label = weeklyGroup.createEl('label', { attr: { style: 'margin-right:8px;' } });
-      const cb = label.createEl('input', { type: 'checkbox', attr: { value: String(i) } }) as HTMLInputElement;
-      label.appendText(' ' + dayNames[i]);
-      weekdayCbs.push(cb);
+    const weekdayInputs: HTMLInputElement[] = [];
+    for (let i = 0; i < DAY_NAMES.length; i++) {
+      const checkboxLabel = weeklyGroup.createEl('label');
+      checkboxLabel.classList.add('routine-form__checkbox-label');
+      const checkbox = checkboxLabel.createEl('input', {
+        type: 'checkbox',
+        attr: { value: String(i) },
+      }) as HTMLInputElement;
+      checkboxLabel.appendChild(document.createTextNode(` ${DAY_NAMES[i]}`));
+      weekdayInputs.push(checkbox);
     }
-    if (typeSelect.value === 'weekly') {
-      const set: number[] | null = Array.isArray((fm as any).weekdays) ? (fm as any).weekdays : null;
-      if (set) set.forEach((n) => { if (weekdayCbs[n]) weekdayCbs[n].checked = true; });
-      else {
-        const single = (fm.routine_weekday ?? fm.weekday) as number | undefined;
-        if (typeof single === 'number' && weekdayCbs[single]) weekdayCbs[single].checked = true;
-      }
-    }
+    this.applyWeeklySelection(weekdayInputs, frontmatter);
 
-    // Monthly group
-    const monthlyGroup = form.createEl('div', { cls: 'form-group', attr: { 'data-kind': 'monthly' } });
+    // Monthly controls
+    const monthlyGroup = form.createEl('div', {
+      cls: 'form-group routine-form__monthly',
+      attr: { 'data-kind': 'monthly' },
+    });
     monthlyGroup.createEl('label', { text: '第:' });
     const weekSelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    ;['1', '2', '3', '4', '5', 'last'].forEach((v) => weekSelect.add(new Option(v === 'last' ? '最終' : `第${v}`, v)));
+    WEEK_OPTIONS.forEach(({ value, label }) => {
+      weekSelect.add(new Option(label, value === 'last' ? 'last' : String(value)));
+    });
     monthlyGroup.createEl('label', { text: ' の ' });
     const monthWeekdaySelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    for (let i = 0; i < 7; i++) monthWeekdaySelect.add(new Option(dayNames[i] + '曜', String(i)));
-    if (typeSelect.value === 'monthly') {
-      const w = fm.routine_week ?? (typeof fm.monthly_week === 'number' ? fm.monthly_week + 1 : fm.monthly_week);
-      weekSelect.value = (w === 'last' ? 'last' : String(w || '1'));
-      const wd = (fm.routine_weekday ?? fm.monthly_weekday) as number | undefined;
-      monthWeekdaySelect.value = String(typeof wd === 'number' ? wd : 1);
-    }
+    DAY_NAMES.forEach((day, index) => {
+      monthWeekdaySelect.add(new Option(`${day}曜`, String(index)));
+    });
+    this.applyMonthlySelection(weekSelect, monthWeekdaySelect, frontmatter);
 
     const updateVisibility = () => {
-      weeklyGroup.toggleClass('is-hidden', typeSelect.value !== 'weekly');
-      monthlyGroup.toggleClass('is-hidden', typeSelect.value !== 'monthly');
+      const selected = this.normalizeRoutineType(typeSelect.value);
+      weeklyGroup.toggleClass('is-hidden', selected !== 'weekly');
+      monthlyGroup.toggleClass('is-hidden', selected !== 'monthly');
     };
     updateVisibility();
     typeSelect.addEventListener('change', updateVisibility);
 
     // Buttons
-    const btns = contentEl.createEl('div', { cls: 'routine-editor__buttons' });
-    const saveBtn = btns.createEl('button', { text: '保存' });
-    const cancelBtn = btns.createEl('button', { text: 'キャンセル' });
-    saveBtn.setAttr('style', 'margin-right:8px;');
+    const buttonRow = contentEl.createEl('div', { cls: 'routine-editor__buttons' });
+    const saveButton = buttonRow.createEl('button', { text: '保存' });
+    saveButton.classList.add('routine-editor__button', 'routine-editor__button--primary');
+    const cancelButton = buttonRow.createEl('button', { text: 'キャンセル' });
+    cancelButton.classList.add('routine-editor__button');
 
-    saveBtn.addEventListener('click', async () => {
+    saveButton.addEventListener('click', async () => {
       const errors: string[] = [];
-      const routineType = typeSelect.value;
+      const routineType = this.normalizeRoutineType(typeSelect.value);
       const interval = Math.max(1, Number(intervalInput.value || 1));
-      if (!Number.isFinite(interval) || interval < 1) errors.push('間隔は1以上の整数で指定してください');
+      if (!Number.isFinite(interval) || interval < 1) {
+        errors.push('間隔は1以上の整数で指定してください');
+      }
 
       const start = (startInput.value || '').trim();
       const end = (endInput.value || '').trim();
-      const isDate = (s: string) => !s || /^\d{4}-\d{2}-\d{2}$/.test(s);
+      const isDate = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
       if (!isDate(start)) errors.push('開始日は YYYY-MM-DD 形式で指定してください');
       if (!isDate(end)) errors.push('終了日は YYYY-MM-DD 形式で指定してください');
       if (start && end && start > end) errors.push('終了日は開始日以降で指定してください');
 
-      let weeklyDays: number[] | undefined;
-      let monthlyWeek: number | 'last' | undefined;
+      const weeklyDays = this.getCheckedDays(weekdayInputs);
+      let monthlyWeek: RoutineWeek | undefined;
       let monthlyWeekday: number | undefined;
 
-      if (routineType === 'weekly') {
-        weeklyDays = weekdayCbs.filter((cb) => cb.checked).map((cb) => parseInt(cb.value, 10));
-        if (!weeklyDays || weeklyDays.length === 0) errors.push('曜日を1つ以上選択してください');
+      if (routineType === 'weekly' && weeklyDays.length === 0) {
+        errors.push('曜日を1つ以上選択してください');
       } else if (routineType === 'monthly') {
-        monthlyWeek = (weekSelect.value === 'last') ? 'last' : parseInt(weekSelect.value, 10);
-        monthlyWeekday = parseInt(monthWeekdaySelect.value, 10);
-        if (!monthlyWeek || (!Number.isFinite(monthlyWeekday))) errors.push('「第n + 曜日」を選択してください');
+        monthlyWeek = weekSelect.value === 'last' ? 'last' : Number.parseInt(weekSelect.value, 10);
+        monthlyWeekday = Number.parseInt(monthWeekdaySelect.value, 10);
+        if (!monthlyWeek || Number.isNaN(monthlyWeekday)) {
+          errors.push('「第n + 曜日」を選択してください');
+        }
       }
 
       if (errors.length > 0) {
@@ -143,50 +173,155 @@ export default class RoutineEditModal extends Modal {
         return;
       }
 
-      await this.app.fileManager.processFrontMatter(this.file, (frontmatter) => {
-        frontmatter.routine_type = routineType;
-        frontmatter.routine_interval = interval;
-        frontmatter.routine_enabled = enabledToggle.checked;
+      await this.app.fileManager.processFrontMatter(this.file, (fm: RoutineFrontmatter) => {
+        fm.routine_type = routineType;
+        fm.routine_interval = interval;
+        fm.routine_enabled = enabledToggle.checked;
 
-        const t = (timeInput.value || '').trim();
-        if (t) frontmatter['開始時刻'] = t; else delete frontmatter['開始時刻'];
+        const timeValue = (timeInput.value || '').trim();
+        if (timeValue) fm['開始時刻'] = timeValue;
+        else delete fm['開始時刻'];
 
-        if (start) frontmatter.routine_start = start; else delete frontmatter.routine_start;
-        if (end) frontmatter.routine_end = end; else delete frontmatter.routine_end;
+        if (start) fm.routine_start = start;
+        else delete fm.routine_start;
+        if (end) fm.routine_end = end;
+        else delete fm.routine_end;
 
-        delete frontmatter.routine_week;
-        delete frontmatter.routine_weekday;
-        delete (frontmatter as any).weekday;
-        delete (frontmatter as any).weekdays;
-        delete (frontmatter as any).monthly_week;
-        delete (frontmatter as any).monthly_weekday;
+        delete fm.weekday;
+        delete fm.weekdays;
+        delete fm.monthly_week;
+        delete fm.monthly_weekday;
+        delete fm.routine_week;
+        delete fm.routine_weekday;
 
         if (routineType === 'weekly') {
-          if (weeklyDays && weeklyDays.length === 1) {
-            frontmatter.routine_weekday = weeklyDays[0];
-          } else if (weeklyDays && weeklyDays.length > 1) {
-            (frontmatter as any).weekdays = weeklyDays;
+          if (weeklyDays.length === 1) {
+            fm.routine_weekday = weeklyDays[0];
+          } else if (weeklyDays.length > 1) {
+            fm.weekdays = weeklyDays;
           }
         } else if (routineType === 'monthly') {
-          if (monthlyWeek) (frontmatter as any).routine_week = monthlyWeek as any;
-          if (Number.isFinite(monthlyWeekday)) (frontmatter as any).routine_weekday = monthlyWeekday as any;
+          if (monthlyWeek) {
+            fm.routine_week = monthlyWeek;
+          }
+          if (typeof monthlyWeekday === 'number' && Number.isFinite(monthlyWeekday)) {
+            fm.routine_weekday = monthlyWeekday;
+          }
         }
-        return frontmatter;
+
+        return fm;
       });
 
-      try { this.onSaved?.(); } catch (_) {}
-      try {
-        const leaves = this.app.workspace.getLeavesOfType('taskchute-view');
-        const view = (leaves && leaves[0] && (leaves[0] as any).view) || null;
-        if (view && typeof (view as any).reloadTasksAndRestore === 'function') {
-          (view as any).reloadTasksAndRestore({ runBoundaryCheck: true });
-        }
-      } catch (_) {}
+      await this.handlePostSave();
       new Notice('保存しました', 1500);
       this.close();
     });
 
-    cancelBtn.addEventListener('click', () => this.close());
+    cancelButton.addEventListener('click', () => this.close());
+  }
+
+  private getFrontmatterSnapshot(): RoutineFrontmatter {
+    const raw = this.app.metadataCache.getFileCache(this.file)?.frontmatter;
+    if (raw && typeof raw === 'object') {
+      return { ...(raw as RoutineFrontmatter) };
+    }
+    return {};
+  }
+
+  private normalizeRoutineType(type: unknown): RoutineType {
+    if (type === 'weekly' || type === 'monthly') {
+      return type;
+    }
+    return 'daily';
+  }
+
+  private applyWeeklySelection(checkboxes: HTMLInputElement[], fm: RoutineFrontmatter): void {
+    const selected = this.getWeeklySelection(fm);
+    selected.forEach((day) => {
+      if (checkboxes[day]) {
+        checkboxes[day].checked = true;
+      }
+    });
+  }
+
+  private getWeeklySelection(fm: RoutineFrontmatter): number[] {
+    if (Array.isArray(fm.weekdays)) {
+      return fm.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day < DAY_NAMES.length);
+    }
+    if (typeof fm.routine_weekday === 'number') {
+      return [fm.routine_weekday];
+    }
+    if (typeof fm.weekday === 'number') {
+      return [fm.weekday];
+    }
+    return [];
+  }
+
+  private applyMonthlySelection(
+    weekSelect: HTMLSelectElement,
+    weekdaySelect: HTMLSelectElement,
+    fm: RoutineFrontmatter,
+  ): void {
+    const week = this.getMonthlyWeek(fm);
+    const weekday = this.getMonthlyWeekday(fm);
+    weekSelect.value = week === 'last' ? 'last' : String(week ?? 1);
+    weekdaySelect.value = String(typeof weekday === 'number' ? weekday : 1);
+  }
+
+  private getMonthlyWeek(fm: RoutineFrontmatter): RoutineWeek | undefined {
+    if (fm.routine_week === 'last' || typeof fm.routine_week === 'number') {
+      return fm.routine_week;
+    }
+    if (fm.monthly_week === 'last') {
+      return 'last';
+    }
+    if (typeof fm.monthly_week === 'number') {
+      return (fm.monthly_week + 1) as RoutineWeek;
+    }
+    return undefined;
+  }
+
+  private getMonthlyWeekday(fm: RoutineFrontmatter): number | undefined {
+    if (typeof fm.routine_weekday === 'number') {
+      return fm.routine_weekday;
+    }
+    if (typeof fm.monthly_weekday === 'number') {
+      return fm.monthly_weekday;
+    }
+    return undefined;
+  }
+
+  private getCheckedDays(checkboxes: HTMLInputElement[]): number[] {
+    return checkboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => Number.parseInt(checkbox.value, 10))
+      .filter((value) => Number.isInteger(value));
+  }
+
+  private async handlePostSave(): Promise<void> {
+    if (this.onSaved) {
+      try {
+        this.onSaved();
+      } catch (error) {
+        console.error('RoutineEditModal onSaved callback failed', error);
+      }
+    }
+
+    try {
+      await this.refreshTaskView();
+    } catch (error) {
+      console.error('RoutineEditModal failed to refresh view', error);
+    }
+  }
+
+  private async refreshTaskView(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType('taskchute-view');
+    if (!leaves.length) return;
+
+    const leaf = leaves[0] as WorkspaceLeaf | undefined;
+    const view = leaf?.view as TaskChuteViewLike | undefined;
+    if (view?.reloadTasksAndRestore) {
+      await Promise.resolve(view.reloadTasksAndRestore({ runBoundaryCheck: true }));
+    }
   }
 }
-

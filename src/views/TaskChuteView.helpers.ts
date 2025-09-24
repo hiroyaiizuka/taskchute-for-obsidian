@@ -1,216 +1,234 @@
-// Refactored loadTasks implementation with proper filtering
+import { Notice, TFile } from 'obsidian';
 import RoutineService from '../services/RoutineService';
+import type {
+  DayState,
+  DeletedInstance,
+  DuplicatedInstance,
+  RoutineFrontmatter,
+  TaskData,
+  TaskInstance,
+} from '../types';
+import type { TaskChuteView } from './TaskChuteView';
 
-export async function loadTasksRefactored(this: any): Promise<void> {
+interface TaskFrontmatter extends RoutineFrontmatter {
+  estimatedMinutes?: number;
+  target_date?: string;
+}
+
+interface TaskExecutionEntry {
+  taskTitle?: string;
+  taskName?: string;
+  taskPath?: string;
+  instanceId?: string;
+  slotKey?: string;
+  startTime?: string;
+  stopTime?: string;
+  [key: string]: unknown;
+}
+
+interface NormalizedExecution {
+  taskTitle: string;
+  taskPath: string;
+  slotKey: string;
+  startTime?: string;
+  stopTime?: string;
+  instanceId?: string;
+}
+
+interface DuplicatedRecord extends DuplicatedInstance {
+  slotKey?: string;
+}
+
+export async function loadTasksRefactored(this: TaskChuteView): Promise<void> {
   this.tasks = [];
   this.taskInstances = [];
 
+  const dateKey = this.getCurrentDateString();
+
   try {
-    const dateString = this.getCurrentDateString();
-    
-    // Load today's executions from log
-    const todayExecutions = await loadTodayExecutions.call(this, dateString);
-    
-    // Get task folder
-    const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-    const taskFolder = this.app.vault.getAbstractFileByPath(taskFolderPath);
-    
-    if (!taskFolder) {
-      this.renderTaskList();
-      return;
-    }
+    const executions = await loadTodayExecutions.call(this, dateKey);
+    const taskFiles = await getTaskFiles.call(this);
 
-    // Get all task files
-    const taskFiles = taskFolder.children.filter(
-      (file: any) => file.extension === "md"
-    );
+    const processedTitles = new Set<string>();
+    const processedPaths = new Set<string>();
 
-    // Track processed task names to avoid duplicate execution grouping
-    const processedTaskNames = new Set<string>();
-    // Only mark a file as processed if at least one visible instance was materialized
-    const processedFilePaths = new Set<string>();
+    for (const execution of executions) {
+      if (processedTitles.has(execution.taskTitle)) continue;
+      processedTitles.add(execution.taskTitle);
 
-    // First, process tasks from execution history
-    for (const exec of todayExecutions) {
-      if (processedTaskNames.has(exec.taskTitle)) continue;
-      processedTaskNames.add(exec.taskTitle);
+      const matchedFile = taskFiles.find(
+        (file) => (execution.taskPath && file.path === execution.taskPath) || file.basename === execution.taskTitle,
+      ) ?? null;
 
-      // Find the task file (prefer exact path, fallback to basename)
-      const taskFile = taskFiles.find((f: any) =>
-        (exec.taskPath && f.path === exec.taskPath) || f.basename === exec.taskTitle
-      );
-
-      // Group all executions for this title
-      const taskExecutions = todayExecutions.filter(
-        (e: any) => e.taskTitle === exec.taskTitle
-      );
-
-      // Create from executions; only mark file as processed if something was actually rendered
-      const hadVisible = await createTaskFromExecutions.call(this, taskExecutions, taskFile, dateString);
-      if (hadVisible && taskFile) {
-        processedFilePaths.add(taskFile.path);
+      const groupedExecutions = executions.filter((entry) => entry.taskTitle === execution.taskTitle);
+      const hadVisibleInstance = await createTaskFromExecutions.call(this, groupedExecutions, matchedFile, dateKey);
+      if (hadVisibleInstance && matchedFile) {
+        processedPaths.add(matchedFile.path);
       }
     }
 
-    // Then, process tasks that haven't been executed today (routine and non-routine)
     for (const file of taskFiles) {
-      // Skip only if first phase actually materialized something for this path
-      if (processedFilePaths.has(file.path)) continue;
-      
+      if (processedPaths.has(file.path)) continue;
+
+      const frontmatter = getFrontmatter(this, file);
       const content = await this.app.vault.read(file);
-      const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      
-      // Check if it's a task file
-      if (!content.includes("#task") && !metadata?.estimatedMinutes) {
-        continue;
-      }
-      
-      // Check if it's a routine task (isRoutine only; no fallbacks)
-      const isRoutine = metadata?.isRoutine === true;
-      
-      if (isRoutine) {
-        // Process routine task
-        if (shouldShowRoutineTask.call(this, metadata, this.currentDate, dateString)) {
-          await createRoutineTask.call(this, file, content, metadata, dateString);
+      if (!isTaskFile(content, frontmatter)) continue;
+
+      if (frontmatter?.isRoutine === true) {
+        if (shouldShowRoutineTask.call(this, frontmatter, dateKey)) {
+          await createRoutineTask.call(this, file, frontmatter, dateKey);
         }
       } else {
-        // Process non-routine task - only show if conditions are met
-        const shouldShow = await shouldShowNonRoutineTask.call(this, file, metadata, dateString);
+        const shouldShow = await shouldShowNonRoutineTask.call(this, file, frontmatter, dateKey);
         if (shouldShow) {
-          await createNonRoutineTask.call(this, file, content, metadata, dateString);
+          await createNonRoutineTask.call(this, file, frontmatter, dateKey);
         }
+      }
     }
-    }
-    
-    // Add duplicated (unexecuted) instances recorded in day state for the day
-    await addDuplicatedInstances.call(this, dateString);
 
+    await addDuplicatedInstances.call(this, dateKey);
     this.renderTaskList();
   } catch (error) {
-    console.error("Failed to load tasks:", error);
-    new (this.app.constructor as any).Notice("タスクの読み込みに失敗しました");
+    console.error('Failed to load tasks', error);
+    new Notice('タスクの読み込みに失敗しました');
   }
 }
 
-async function loadTodayExecutions(this: any, dateString: string): Promise<any[]> {
+async function getTaskFiles(this: TaskChuteView): Promise<TFile[]> {
+  const folderPath = this.plugin.pathManager.getTaskFolderPath();
+  const abstract = this.app.vault.getAbstractFileByPath(folderPath);
+
+  const collected: TFile[] = [];
+
+  if (abstract && typeof abstract === 'object' && 'children' in abstract) {
+    const children = (abstract as { children: unknown[] }).children ?? [];
+    for (const child of children) {
+      if (isMarkdownFile(child)) {
+        collected.push(child);
+      }
+    }
+  }
+
+  if (collected.length > 0) {
+    return collected;
+  }
+
+  const markdownFiles = typeof this.app.vault.getMarkdownFiles === 'function'
+    ? this.app.vault.getMarkdownFiles()
+    : [];
+  return markdownFiles.filter((file) => file.path.startsWith(`${folderPath}/`));
+}
+
+function isMarkdownFile(candidate: unknown): candidate is TFile {
+  if (candidate instanceof TFile) {
+    return candidate.extension === 'md';
+  }
+  if (!candidate || typeof candidate !== 'object') {
+    return false;
+  }
+  const maybe = candidate as { path?: unknown; extension?: unknown };
+  return (
+    typeof maybe.path === 'string' &&
+    typeof maybe.extension === 'string' &&
+    maybe.extension === 'md'
+  );
+}
+
+async function loadTodayExecutions(this: TaskChuteView, dateKey: string): Promise<NormalizedExecution[]> {
   try {
     const logDataPath = this.plugin.pathManager.getLogDataPath();
-    const [year, month] = dateString.split('-');
-    const monthString = `${year}-${month}`;
-    const logPath = `${logDataPath}/${monthString}-tasks.json`;
-    
-    const logFile = this.app.vault.getAbstractFileByPath(logPath);
-    if (!logFile) {
+    const [year, month] = dateKey.split('-');
+    const logFilePath = `${logDataPath}/${year}-${month}-tasks.json`;
+    const abstract = this.app.vault.getAbstractFileByPath(logFilePath);
+    if (!abstract || !(abstract instanceof TFile)) {
       return [];
     }
 
-    const content = await this.app.vault.read(logFile);
-    const monthlyLog = JSON.parse(content);
-    
-    // Get executions for the specific date
-    const dayExecutions = monthlyLog.taskExecutions?.[dateString] || [];
-    
-    return dayExecutions.map((exec: any) => ({
-      taskTitle: exec.taskTitle || exec.taskName,
-      taskPath: exec.taskPath || '',
-      startTime: exec.startTime,
-      stopTime: exec.stopTime,
-      slotKey: exec.slotKey || calculateSlotKeyFromTime(exec.startTime),
-      instanceId: exec.instanceId,
-    }));
+    const raw = await this.app.vault.read(abstract);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as {
+      taskExecutions?: Record<string, TaskExecutionEntry[]>;
+    } | null;
+
+    const entries = Array.isArray(parsed?.taskExecutions?.[dateKey])
+      ? parsed!.taskExecutions![dateKey]!
+      : [];
+
+    return entries.map((entry): NormalizedExecution => {
+      const taskTitle = toStringField(entry.taskTitle ?? entry.taskName) ?? 'Untitled Task';
+      const taskPath = toStringField(entry.taskPath) ?? '';
+      const slotKey = toStringField(entry.slotKey) ?? calculateSlotKeyFromTime(entry.startTime) ?? 'none';
+      return {
+        taskTitle,
+        taskPath,
+        slotKey,
+        startTime: toStringField(entry.startTime),
+        stopTime: toStringField(entry.stopTime),
+        instanceId: toStringField(entry.instanceId) ?? undefined,
+      };
+    });
   } catch (error) {
-    console.error('Failed to load today executions:', error);
+    console.warn('Failed to load today executions', error);
     return [];
   }
 }
 
-function calculateSlotKeyFromTime(timeStr: string): string {
-  if (!timeStr) return "none";
-  
-  const [hourStr] = timeStr.split(':');
-  const hour = parseInt(hourStr, 10);
-  
-  if (hour >= 0 && hour < 8) return "0:00-8:00";
-  if (hour >= 8 && hour < 12) return "8:00-12:00";
-  if (hour >= 12 && hour < 16) return "12:00-16:00";
-  if (hour >= 16 && hour < 24) return "16:00-0:00";
-  
-  return "none";
-}
-
-// Returns true if at least one visible instance was created
-async function createTaskFromExecutions(this: any, executions: any[], file: any, dateString: string): Promise<boolean> {
-  const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
-  
-  // Extract project info
-  let projectPath = null;
-  let projectTitle = null;
-  
-  // First check if project_path is already set
-  if (metadata?.project_path) {
-    projectPath = metadata.project_path;
-    projectTitle = extractProjectTitle(metadata.project);
-  } else if (metadata?.project) {
-    projectTitle = extractProjectTitle(metadata.project);
-    if (projectTitle) {
-      const allFiles = this.app.vault.getMarkdownFiles();
-      const projectFile = allFiles.find(f => f.basename === projectTitle);
-      if (projectFile) {
-        projectPath = projectFile.path;
-      }
-    }
+async function createTaskFromExecutions(
+  this: TaskChuteView,
+  executions: NormalizedExecution[],
+  file: TFile | null,
+  dateKey: string,
+): Promise<boolean> {
+  if (executions.length === 0) {
+    return false;
   }
-  
-  // Derive stable identifiers
-  const first = executions[0] || {};
-  const derivedName = (file?.basename) 
-    || (typeof first.taskTitle === 'string' && first.taskTitle) 
-    || (typeof first.taskPath === 'string' && first.taskPath.split('/').pop()?.replace(/\.md$/, '')) 
-    || 'Unknown Task';
-  const derivedPath = (file?.path)
-    || (typeof first.taskPath === 'string' && first.taskPath)
-    || `TaskChute/Task/${derivedName}.md`;
 
-  const taskData = {
-    file: file || null,
-    frontmatter: metadata || {},
+  const metadata = file ? getFrontmatter(this, file) : undefined;
+  const projectInfo = resolveProjectInfo(this, metadata);
+  const templateName = file?.basename ?? executions[0].taskTitle;
+  const derivedPath = file?.path ?? executions[0].taskPath ?? `${templateName}.md`;
+
+  const taskData: TaskData = {
+    file,
+    frontmatter: metadata ?? {},
     path: derivedPath,
-    name: derivedName,
-    title: derivedName,
+    name: templateName,
     project: metadata?.project,
-    projectPath: projectPath,
-    projectTitle: projectTitle,
-    isRoutine: metadata?.isRoutine === true || false,
-    routineType: metadata?.routine_type,
-    scheduledTime: metadata?.開始時刻,
-    isVirtual: !file,
+    projectPath: projectInfo?.path,
+    projectTitle: projectInfo?.title,
+    isRoutine: metadata?.isRoutine === true,
+    routine_type: metadata?.routine_type,
+    routine_start: metadata?.routine_start,
+    routine_end: metadata?.routine_end,
+    routine_week: metadata?.routine_week,
+    routine_weekday: metadata?.routine_weekday,
+    routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
+    routine_enabled: metadata?.routine_enabled,
+    scheduledTime: toStringField(metadata?.['開始時刻']),
   };
 
   let created = 0;
-  // Create instances for each execution
-  for (const exec of executions) {
-    const instance = {
+  for (const execution of executions) {
+    const instance: TaskInstance = {
       task: taskData,
-      instanceId: exec.instanceId || this.generateInstanceId(taskData.path),
+      instanceId: execution.instanceId ?? this.generateInstanceId(taskData, dateKey),
       state: 'done',
-      slotKey: exec.slotKey,
-      date: dateString,
-      startTime: parseTimeString(exec.startTime, dateString),
-      stopTime: parseTimeString(exec.stopTime, dateString),
-      executedTitle: exec.taskTitle,
+      slotKey: execution.slotKey,
+      date: dateKey,
+      startTime: parseDateTime(execution.startTime, dateKey),
+      stopTime: parseDateTime(execution.stopTime, dateKey),
+      executedTitle: execution.taskTitle,
     };
 
-    // Check if deleted or hidden
-    const isDeleted = isInstanceDeleted.call(this, instance.instanceId, taskData.path, dateString);
-    const isHidden = isInstanceHidden.call(this, instance.instanceId, taskData.path, dateString);
-    
-    if (!isDeleted && !isHidden) {
+    if (isVisibleInstance.call(this, instance.instanceId, taskData.path, dateKey)) {
       this.taskInstances.push(instance);
-      created++;
+      created += 1;
     }
   }
 
-  // Only register task data if at least one instance is visible
   if (created > 0) {
     this.tasks.push(taskData);
   }
@@ -218,315 +236,309 @@ async function createTaskFromExecutions(this: any, executions: any[], file: any,
   return created > 0;
 }
 
-async function createNonRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
-  // Extract project info
-  let projectPath = null;
-  let projectTitle = null;
-  
-  // First check if project_path is already set
-  if (metadata?.project_path) {
-    projectPath = metadata.project_path;
-    projectTitle = extractProjectTitle(metadata.project);
-  } else if (metadata?.project) {
-    projectTitle = extractProjectTitle(metadata.project);
-    if (projectTitle) {
-      const allFiles = this.app.vault.getMarkdownFiles();
-      const projectFile = allFiles.find(f => f.basename === projectTitle);
-      if (projectFile) {
-        projectPath = projectFile.path;
-      }
-    }
-  }
-  
-  const taskData = {
+async function createNonRoutineTask(
+  this: TaskChuteView,
+  file: TFile,
+  metadata: TaskFrontmatter | undefined,
+  dateKey: string,
+): Promise<void> {
+  const projectInfo = resolveProjectInfo(this, metadata);
+  const taskData: TaskData = {
     file,
-    frontmatter: metadata || {},
+    frontmatter: metadata ?? {},
     path: file.path,
     name: file.basename,
-    title: file.basename,
     project: metadata?.project,
-    projectPath: projectPath,
-    projectTitle: projectTitle,
+    projectPath: projectInfo?.path,
+    projectTitle: projectInfo?.title,
     isRoutine: false,
-    scheduledTime: metadata?.開始時刻,
+    scheduledTime: toStringField(metadata?.['開始時刻']),
   };
 
   this.tasks.push(taskData);
 
-  // Create idle instance for non-routine task
-  const storedSlot = this.plugin?.settings?.slotKeys?.[file.path];
-  const slotKey = storedSlot || getScheduledSlotKey(metadata?.開始時刻) || 'none';
-  const instance = {
+  const storedSlot = this.plugin.settings.slotKeys?.[file.path];
+  const slotKey = storedSlot ?? getScheduledSlotKey(metadata?.['開始時刻']) ?? 'none';
+  const instance: TaskInstance = {
     task: taskData,
-    instanceId: this.generateInstanceId(taskData.path),
+    instanceId: this.generateInstanceId(taskData, dateKey),
     state: 'idle',
     slotKey,
-    date: dateString,
+    date: dateKey,
   };
 
-  // Check if deleted for today (path-level only). Do NOT hide due to duplicate-instance deletion.
-  const isDeleted = isInstanceDeleted.call(this, '', file.path, dateString);
-
-  if (!isDeleted) {
+  if (isVisibleInstance.call(this, instance.instanceId, file.path, dateKey)) {
     this.taskInstances.push(instance);
   }
-
 }
 
-async function createRoutineTask(this: any, file: any, content: string, metadata: any, dateString: string): Promise<void> {
+async function createRoutineTask(
+  this: TaskChuteView,
+  file: TFile,
+  metadata: TaskFrontmatter,
+  dateKey: string,
+): Promise<void> {
   const rule = RoutineService.parseFrontmatter(metadata);
   if (!rule || rule.enabled === false) return;
-  // Extract project info
-  let projectPath = null;
-  let projectTitle = null;
-  
-  // First check if project_path is already set
-  if (metadata?.project_path) {
-    projectPath = metadata.project_path;
-    projectTitle = extractProjectTitle(metadata.project);
-  } else if (metadata?.project) {
-    projectTitle = extractProjectTitle(metadata.project);
-    if (projectTitle) {
-      const allFiles = this.app.vault.getMarkdownFiles();
-      const projectFile = allFiles.find(f => f.basename === projectTitle);
-      if (projectFile) {
-        projectPath = projectFile.path;
-      }
-    }
-  }
-  
-  const taskData = {
+
+  await this.ensureDayStateForCurrentDate();
+  const dayState = this.getCurrentDayState();
+  const projectInfo = resolveProjectInfo(this, metadata);
+
+  const taskData: TaskData = {
     file,
-    frontmatter: metadata || {},
+    frontmatter: metadata,
     path: file.path,
     name: file.basename,
-    title: file.basename,
-    project: metadata?.project,
-    projectPath: projectPath,
-    projectTitle: projectTitle,
+    project: metadata.project,
+    projectPath: projectInfo?.path,
+    projectTitle: projectInfo?.title,
     isRoutine: true,
-    routineType: rule.type,
     routine_type: rule.type,
     routine_interval: rule.interval,
     routine_enabled: rule.enabled,
-    routine_start: metadata?.routine_start,
-    routine_end: metadata?.routine_end,
-    scheduledTime: metadata?.開始時刻,
-    // Backward compat fields used elsewhere in UI
-    weekday: metadata?.weekday ?? metadata?.routine_weekday ?? (rule as any).weekday,
-    weekdays: metadata?.weekdays,
-    monthlyWeek: metadata?.monthly_week ?? metadata?.routine_week ?? (rule as any).week,
-    monthlyWeekday: metadata?.monthly_weekday ?? metadata?.routine_weekday ?? (rule as any).monthWeekday,
+    routine_start: metadata.routine_start,
+    routine_end: metadata.routine_end,
+    routine_week: metadata.routine_week,
+    routine_weekday: metadata.routine_weekday,
+    scheduledTime: toStringField(metadata['開始時刻']),
   };
 
   this.tasks.push(taskData);
 
-  // Create idle instance for routine task
-  if (typeof this.ensureDayStateForCurrentDate === 'function') {
-    await this.ensureDayStateForCurrentDate();
-  }
-  const dayState = typeof this.getCurrentDayState === 'function'
-    ? this.getCurrentDayState()
-    : null;
-  const storedSlot = dayState?.slotOverrides?.[file.path];
-  const slotKey = storedSlot || getScheduledSlotKey(metadata?.開始時刻) || 'none';
-  const instance = {
+  const storedSlot = dayState.slotOverrides?.[file.path];
+  const slotKey = storedSlot ?? getScheduledSlotKey(metadata['開始時刻']) ?? 'none';
+  const instance: TaskInstance = {
     task: taskData,
-    instanceId: this.generateInstanceId(taskData, dateString),
+    instanceId: this.generateInstanceId(taskData, dateKey),
     state: 'idle',
     slotKey,
-    date: dateString,
+    date: dateKey,
   };
 
-  // Check hidden/deleted status using helpers (instance-aware)
-  const isHidden = isInstanceHidden.call(this, instance.instanceId, file.path, dateString);
-  const isDeleted = isInstanceDeleted.call(this, instance.instanceId, file.path, dateString);
-  if (!isHidden && !isDeleted) {
+  if (isVisibleInstance.call(this, instance.instanceId, file.path, dateKey)) {
     this.taskInstances.push(instance);
   }
 }
 
-function shouldShowRoutineTask(this: any, metadata: any, date: Date, dateString: string): boolean {
-  if (!metadata) return false;
-  const movedTargetDate = (metadata.target_date && metadata.target_date !== metadata.routine_start)
+function shouldShowRoutineTask(
+  this: TaskChuteView,
+  metadata: TaskFrontmatter,
+  dateKey: string,
+): boolean {
+  const movedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start
     ? metadata.target_date
     : undefined;
   const rule = RoutineService.parseFrontmatter(metadata);
-  return RoutineService.isDue(dateString, rule, movedTargetDate);
+  return RoutineService.isDue(dateKey, rule, movedTargetDate);
+}
+
+async function shouldShowNonRoutineTask(
+  this: TaskChuteView,
+  file: TFile,
+  metadata: TaskFrontmatter | undefined,
+  dateKey: string,
+): Promise<boolean> {
+  const deleted = getDeletedInstancesForDate.call(this, dateKey)
+    .some((entry) => entry.deletionType === 'permanent' && entry.path === file.path);
+  if (deleted) return false;
+
+  if (metadata?.target_date) {
+    return metadata.target_date === dateKey;
+  }
+
+  try {
+    const stats = await this.app.vault.adapter.stat(file.path);
+    if (!stats) return false;
+
+    const created = new Date(stats.ctime ?? stats.mtime ?? Date.now());
+    const createdKey = formatDate(created);
+    return createdKey === dateKey;
+  } catch (error) {
+    console.warn('Failed to determine task visibility', error);
+    return false;
+  }
+}
+
+async function addDuplicatedInstances(this: TaskChuteView, dateKey: string): Promise<void> {
+  try {
+    const dayState = await fetchDayState.call(this, dateKey);
+    const records = Array.isArray(dayState?.duplicatedInstances)
+      ? (dayState!.duplicatedInstances as DuplicatedRecord[])
+      : [];
+
+    for (const record of records) {
+      const { instanceId, originalPath, slotKey } = record;
+      if (!instanceId || !originalPath) continue;
+      if (this.taskInstances.some((instance) => instance.instanceId === instanceId)) {
+        continue;
+      }
+
+      let taskData = this.tasks.find((task) => task.path === originalPath);
+      if (!taskData) {
+        const file = this.app.vault.getAbstractFileByPath(originalPath);
+        if (file instanceof TFile) {
+          const metadata = getFrontmatter(this, file);
+          if (metadata) {
+            const projectInfo = resolveProjectInfo(this, metadata);
+            taskData = {
+              file,
+              frontmatter: metadata,
+              path: originalPath,
+              name: file.basename,
+              project: metadata.project,
+              projectPath: projectInfo?.path,
+              projectTitle: projectInfo?.title,
+              isRoutine: metadata.isRoutine === true,
+              scheduledTime: toStringField(metadata['開始時刻']),
+            };
+          }
+        }
+      }
+
+      if (!taskData) {
+        const fallbackName = originalPath.split('/').pop()?.replace(/\.md$/u, '') ?? originalPath;
+        taskData = {
+          file: null,
+          frontmatter: {},
+          path: originalPath,
+          name: fallbackName,
+          isRoutine: false,
+        };
+      }
+
+      this.tasks.push(taskData);
+
+      const instance: TaskInstance = {
+        task: taskData,
+        instanceId,
+        state: 'idle',
+        slotKey: slotKey ?? 'none',
+        date: dateKey,
+      };
+
+      if (isVisibleInstance.call(this, instance.instanceId, taskData.path, dateKey)) {
+        this.taskInstances.push(instance);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to restore duplicated instances', error);
+  }
+}
+
+async function fetchDayState(this: TaskChuteView, dateKey: string): Promise<DayState | null> {
+  if (typeof (this as TaskChuteView & { getDayStateSnapshot?(date: string): DayState | null }).getDayStateSnapshot === 'function') {
+    const snapshot = (this as TaskChuteView & { getDayStateSnapshot?(date: string): DayState | null }).getDayStateSnapshot!(dateKey);
+    if (snapshot) return snapshot;
+  }
+
+  if (typeof (this as TaskChuteView & { getDayState?(date: string): Promise<DayState | null> }).getDayState === 'function') {
+    return (this as TaskChuteView & { getDayState?(date: string): Promise<DayState | null> }).getDayState!(dateKey);
+  }
+
+  return null;
+}
+
+function getDeletedInstancesForDate(this: TaskChuteView, dateKey: string): DeletedInstance[] {
+  if (typeof this.getDeletedInstances === 'function') {
+    const result = this.getDeletedInstances(dateKey);
+    return Array.isArray(result) ? result : [];
+  }
+  return [];
+}
+
+function isVisibleInstance(this: TaskChuteView, instanceId: string, path: string, dateKey: string): boolean {
+  const deleted = typeof this.isInstanceDeleted === 'function'
+    ? this.isInstanceDeleted(instanceId, path, dateKey)
+    : false;
+  if (deleted) return false;
+
+  const hidden = typeof this.isInstanceHidden === 'function'
+    ? this.isInstanceHidden(instanceId, path, dateKey)
+    : false;
+  return !hidden;
+}
+
+function resolveProjectInfo(
+  view: TaskChuteView,
+  metadata: TaskFrontmatter | undefined,
+): { path?: string; title?: string } | undefined {
+  if (!metadata) return undefined;
+  if (typeof metadata.project_path === 'string') {
+    return {
+      path: metadata.project_path,
+      title: extractProjectTitle(metadata.project),
+    };
+  }
+
+  const title = extractProjectTitle(metadata.project);
+  if (!title) return undefined;
+
+  const file = view.app.vault.getMarkdownFiles().find((candidate) => candidate.basename === title);
+  if (!file) return { title };
+  return { title, path: file.path };
 }
 
 function extractProjectTitle(projectField: string | undefined): string | undefined {
   if (!projectField) return undefined;
-  
-  // Check for [[...]] format first
-  const match = projectField.match(/\[\[([^\]]+)\]\]/);
-  if (match) {
-    return match[1];
+  const wikilinkMatch = projectField.match(/\[\[([^\]]+)\]\]/u);
+  if (wikilinkMatch) {
+    return wikilinkMatch[1];
   }
-  
-  // If not in [[...]] format, return as-is (for plain text project names)
-  // This handles cases like "Project - Taskchute for Local"
   return projectField;
 }
 
-function parseTimeString(timeStr: string, dateStr: string): Date | undefined {
-  if (!timeStr) return undefined;
-  const [hours, minutes, seconds] = timeStr.split(':').map(Number);
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day, hours, minutes, seconds || 0);
+function getFrontmatter(view: TaskChuteView, file: TFile): TaskFrontmatter | undefined {
+  const cache = view.app.metadataCache.getFileCache(file);
+  return cache?.frontmatter as TaskFrontmatter | undefined;
 }
 
-function getScheduledSlotKey(scheduledTime: string | undefined): string | undefined {
-  if (!scheduledTime) return undefined;
-  const [hourStr] = scheduledTime.split(':');
-  const hour = parseInt(hourStr, 10);
-  
-  if (hour >= 0 && hour < 8) return "0:00-8:00";
-  if (hour >= 8 && hour < 12) return "8:00-12:00";
-  if (hour >= 12 && hour < 16) return "12:00-16:00";
-  if (hour >= 16 && hour < 24) return "16:00-0:00";
-  
+function isTaskFile(content: string, frontmatter: TaskFrontmatter | undefined): boolean {
+  if (content.includes('#task')) return true;
+  if (frontmatter?.estimatedMinutes) return true;
+  return false;
+}
+
+function toStringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function calculateSlotKeyFromTime(time: string | undefined): string | undefined {
+  if (!time) return undefined;
+  const [hourStr] = time.split(':');
+  const hour = Number.parseInt(hourStr ?? '', 10);
+  if (Number.isNaN(hour)) return undefined;
+  if (hour >= 0 && hour < 8) return '0:00-8:00';
+  if (hour >= 8 && hour < 12) return '8:00-12:00';
+  if (hour >= 12 && hour < 16) return '12:00-16:00';
+  if (hour >= 16 && hour < 24) return '16:00-0:00';
   return undefined;
 }
 
-function isInstanceDeleted(this: any, instanceId: string, path: string, dateString: string): boolean {
-  if (typeof this.isInstanceDeleted === 'function') {
-    return this.isInstanceDeleted(instanceId, path, dateString);
-  }
-  return false;
+function getScheduledSlotKey(time: string | undefined): string | undefined {
+  return calculateSlotKeyFromTime(time);
 }
 
-function isInstanceHidden(this: any, instanceId: string, path: string, dateString: string): boolean {
-  if (typeof this.isInstanceHidden === 'function') {
-    return this.isInstanceHidden(instanceId, path, dateString);
+function parseDateTime(time: string | undefined, dateKey: string): Date | undefined {
+  if (!time) return undefined;
+  const [year, month, day] = dateKey.split('-').map((value) => Number.parseInt(value, 10));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return undefined;
   }
-  return false;
-}
-
-async function shouldShowNonRoutineTask(this: any, file: any, metadata: any, dateString: string): Promise<boolean> {
-  // First check if task is deleted (only permanent path-level deletions hide the base)
-  const deletedInstances = typeof this.getDeletedInstances === 'function'
-    ? this.getDeletedInstances(dateString)
-    : [];
-  const isDeleted = deletedInstances.some(
-    (d: any) => d && d.deletionType === 'permanent' && d.path === file.path,
+  const [hours, minutes, seconds] = time.split(':').map((value) => Number.parseInt(value, 10));
+  return new Date(
+    year,
+    month - 1,
+    day,
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    Number.isFinite(seconds) ? seconds : 0,
   );
-  
-  if (isDeleted) {
-    return false;  // Don't show deleted tasks
-  }
-
-  // Check if task has a target_date set
-  if (metadata?.target_date) {
-    // If target_date is set, show only on that specific date
-    const shouldShow = metadata.target_date === dateString;
-    return shouldShow;
-  }
-
-  // Only check file creation date if target_date is NOT set
-  try {
-    const stats = await this.app.vault.adapter.stat(file.path);
-    if (!stats) {
-      // File doesn't exist
-      return false;
-    }
-    
-    const fileCreationDate = new Date(stats.ctime || stats.mtime);
-    
-    // Generate date string in local timezone
-    const year = fileCreationDate.getFullYear();
-    const month = (fileCreationDate.getMonth() + 1).toString().padStart(2, "0");
-    const day = fileCreationDate.getDate().toString().padStart(2, "0");
-    const fileCreationDateString = `${year}-${month}-${day}`;
-    
-    
-    // Show only on creation date
-    if (dateString === fileCreationDateString) {
-      return true;
-    }
-  } catch (error) {
-    // Don't show on error (file might be deleted)
-    return false;
-  }
-  
-  return false;
 }
 
-async function addDuplicatedInstances(this: any, dateString: string): Promise<void> {
-  try {
-    const snapshot = typeof this.getDayStateSnapshot === 'function'
-      ? this.getDayStateSnapshot(dateString)
-      : null;
-    const dayState = snapshot || (typeof this.getDayState === 'function'
-      ? await this.getDayState(dateString)
-      : null);
-    if (!dayState || !Array.isArray(dayState.duplicatedInstances) || dayState.duplicatedInstances.length === 0) {
-      return;
-    }
-
-    const records = dayState.duplicatedInstances;
-
-    for (const rec of records) {
-      const { instanceId, originalPath, slotKey } = rec || {};
-      if (!instanceId || !originalPath) continue;
-      // Skip if already present (e.g., completed from log)
-      const exists = this.taskInstances.some((i: any) => i.instanceId === instanceId);
-      if (exists) continue;
-
-      // Try to get taskData for path
-      let taskData = this.tasks.find((t: any) => t.path === originalPath);
-      if (!taskData) {
-        const file = this.app.vault.getAbstractFileByPath(originalPath);
-        const metadata = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
-        // Skip if routine is disabled
-        const rule = metadata ? RoutineService.parseFrontmatter(metadata) : null;
-        if (rule && rule.enabled === false) continue;
-        if (file) {
-          taskData = {
-            file,
-            frontmatter: metadata || {},
-            path: originalPath,
-            name: file.basename,
-            title: file.basename,
-            project: metadata?.project,
-            projectPath: metadata?.project_path,
-            projectTitle: extractProjectTitle(metadata?.project),
-            isRoutine: metadata?.isRoutine === true || false,
-            scheduledTime: metadata?.開始時刻,
-          };
-          this.tasks.push(taskData);
-        } else {
-          // Virtual fallback
-          const base = originalPath.split('/').pop()?.replace(/\.md$/, '') || originalPath;
-          taskData = {
-            file: null,
-            frontmatter: {},
-            path: originalPath,
-            name: base,
-            title: base,
-            isRoutine: false,
-            isVirtual: true,
-          };
-          this.tasks.push(taskData);
-        }
-      }
-
-      const instance = {
-        task: taskData,
-        instanceId,
-        state: 'idle',
-        slotKey: slotKey || 'none',
-        date: dateString,
-      };
-
-      // Check deleted/hidden flags before adding
-      const isDeleted = isInstanceDeleted.call(this, instance.instanceId, taskData.path, dateString);
-      const isHidden = isInstanceHidden.call(this, instance.instanceId, taskData.path, dateString);
-      if (!isDeleted && !isHidden) {
-        this.taskInstances.push(instance);
-      }
-    }
-  } catch (e) {
-    console.error('Failed to restore duplicated instances:', e);
-  }
+function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
