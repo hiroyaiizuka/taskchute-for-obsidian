@@ -1,12 +1,13 @@
 module.exports = {
-  testEnvironment: "jsdom",
-  setupFilesAfterEnv: ["<rootDir>/jest.setup.global.js", "<rootDir>/jest.setup.js", "<rootDir>/jest.setup.fix.js"],
-  testMatch: ["<rootDir>/__tests__/**/*.test.js"],
-  collectCoverageFrom: ["main.js", "!**/node_modules/**", "!**/__tests__/**"],
-  coverageReporters: ["text", "lcov", "html"],
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  roots: ['<rootDir>/tests'],
+  testMatch: ['**/*.test.[tj]s?(x)'],
   moduleNameMapper: {
-    "^obsidian$": "<rootDir>/__mocks__/obsidian.js",
+    '^obsidian$': '<rootDir>/__mocks__/obsidian.js',
   },
-  testTimeout: 10000,
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
+  },
   verbose: true,
-}
+};

@@ -5,6 +5,7 @@
 /data
 /node_modules
 /tmp
+main.js
 .hotreload
 CLAUDE.md
 data.json
