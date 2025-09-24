@@ -1,238 +1,163 @@
-# TaskChute Plus Plugin
+# TaskChute Plus
 
-Obsidian用の包括的なタスク管理・時間計測プラグインです。TaskChuteメソッドを実装し、時間ベースのタスク管理システムでユーザーの生産性向上を支援します。
+**Execute tasks, don't just organize them - The path emerges where you walk**
 
-## 機能
+![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
 
-### タスク管理機能
-- **自動タスク検出**: `#task`タグの付いたノートを自動的に検出
-- **時間計測**: タスクの開始・終了時刻を正確に記録
-- **タスクステータス管理**: 待機中(⏸)、実行中(▶️)、完了(☑️)の視覚的インジケーター
-- **Daily Note統合**: 実行履歴を日次ノート(`TaskChute/Log/YYYY-MM-DD.md`)に自動保存
-- **タスク名検証**: 無効な文字(スラッシュ、バックスラッシュ)を防止
-- **タスク名オートコンプリート**: 既存のタスク名から候補を提案
+TaskChute Plus brings the revolutionary TaskChute methodology to Obsidian, transforming your task management from endless planning to continuous execution.
 
-### 時間ベースの整理
-- **時間帯管理**: タスクを時間帯別(朝、午後、夕方、夜)に整理
-- **ドラッグ&ドロップ**: 直感的なドラッグ&ドロップでタスクを移動
-  - 正確な配置のためのドロップインジケーター強化
-  - リスト最下部へのドロップサポート
-  - 同一スロット内移動の正確なインデックス計算
-- **柔軟なルーチンタスク**: 曜日選択と拡張設定による定期タスクサポート
-- **動的ソート**: 開始時刻、完了状態、作成順序による知的なタスク並び替え
+## 🌟 The TaskChute Philosophy
 
-### 完了演出機能 🎉
-全てのタスクを完了すると、以下の演出が表示されます：
+Traditional task management is like a map - it shows you where to go but leaves you to figure out how. TaskChute is like GPS navigation - it tells you "turn right at the next corner" and guides you through actual execution.
 
-#### 視覚効果
-- **花火エフェクト**: カラフルな花火が画面全体に表示
-- **紙吹雪エフェクト**: 色とりどりの紙吹雪が降り注ぐ
-- **パーティクル効果**: 花火から飛び散る粒子
-- **グラデーション背景**: 美しいグラデーション背景
-- **アニメーション**: スムーズなアニメーション効果
+### The Core Difference
 
-#### 音効果
-- **成功メロディー**: 完了時に音楽が再生（C-E-G-Cの和音）
-- **Web Audio API**: ブラウザ標準の音声機能を使用
+| Aspect | Todo List | TaskChute |
+|--------|-----------|-----------|
+| **Where to focus?** | Future (Goals) | Present |
+| **Planning approach** | Plan backwards from goals | Build forward from reality |
+| **Task organization** | By priority | By execution order |
+| **What matters in tasks?** | Completing them | Starting them |
+| **When tasks end** | They disappear | They remain as logs |
+| **When stuck** | Revise the plan | Refer to the record |
 
-#### 統計表示
-- **完了タスク数**: その日に完了したタスクの数
-- **総作業時間**: 全てのタスクの合計作業時間
+## ✨ Key Features
 
-## 設定
+### 🎯 **Execution-Focused Task Management**
+- **Automatic task detection**: Identifies notes with `#task` tag automatically
+- **Real-time status tracking**: Pending (⏸), Running (▶️), Completed (☑️)
+- **1-minute rule**: Start any task for just 1 minute to achieve zero procrastination
+- **Log-based routines**: Build routines from actual execution patterns, not wishful thinking
 
-プラグインの設定で以下の項目をカスタマイズできます：
+### ⏰ **Time-Based Organization**
+- **Time slot management**: Organize tasks by when you'll do them (Morning/Afternoon/Evening/Night)
+- **Dynamic task flow**: Automatic idle task migration to current time slots
+- **Actual vs Estimated**: Track real time spent to improve future estimates
+- **Daily constraints**: Focus on today only - tomorrow's plan is tomorrow's problem
 
-### 基本設定
-- **タスクフォルダパス**: タスクファイルの保存場所（デフォルト: `TaskChute/Task/`）
-- **プロジェクトフォルダパス**: プロジェクトファイルの場所（デフォルト: `TaskChute/Project/`）
-- **ログフォルダパス**: 実行履歴の保存場所（デフォルト: `TaskChute/Log/`）
+### 📊 **Visual Progress & Reflection**
+- **Daily Review**: Focus/fatigue graphs with task comments
+- **Procrastination Heatmap**: GitHub-style visualization of task procrastination
+- **Project Progress**: Monitor project advancement with time-based calculations
+- **Celebration Effects**: Fireworks and confetti when all tasks are completed 🎉
 
-### 演出設定
-- **完了演出**: 演出全体の有効/無効
-- **音効果**: 音の有効/無効
-- **花火エフェクト**: 花火の有効/無効
-- **紙吹雪エフェクト**: 紙吹雪の有効/無効
+### 🔄 **Smart Routine Management**
+- **Flexible scheduling**: Daily, weekly, monthly patterns with specific day selection
+- **History preservation**: Maintains execution history even when routine names change
+- **Cross-day movement**: Enable temporary rescheduling for routine tasks
+- **Pattern-based creation**: Generate routines from successful execution logs
 
-### 設定方法
-1. Obsidianの設定を開く
-2. コミュニティプラグイン → TaskChute Plus
-3. 専用設定タブで各項目を調整
+### ⚡ **Frictionless Execution**
+- **Quick capture**: Create tasks with simple `#task` tags
+- **Hotkey access**: Option+T (Mac) / Alt+T (Win/Linux) for today's tasks
+- **Drag & drop**: Intuitive task reorganization with visual indicators
+- **Auto-completion**: Smart suggestions from existing task and project names
 
-## 使用方法
+## 🚀 Getting Started
 
-### タスクの作成
-1. `TaskChute/Task/`フォルダにMarkdownファイルを作成
-2. ファイルに`#task`タグを追加
-3. 必要に応じて説明を記述
+### Installation
+1. Open Obsidian Settings
+2. Go to Community Plugins
+3. Search for "TaskChute Plus"
+4. Install and Enable
 
-### ルーチンタスクの設定
-1. タスクファイルのフロントマターに以下を追加：
-```yaml
----
-routine: true
-開始時刻: "09:00"
----
-```
+### Basic Usage
 
-### 時間計測
-1. TaskChuteビューを開く
-2. タスクの▶️ボタンをクリックして開始
-3. ⏹ボタンをクリックして終了
-4. 完了したタスクは☑️マークで表示
+#### Create Your First Task
+1. Create a Markdown file in `TaskChute/Task/` folder
+2. Add `#task` tag to the file
+3. The task appears in TaskChute view automatically
 
-### Daily Review機能 🔍
-TaskChuteのログデータを活用して、1日の振り返りを視覚化できます。
+#### Start Small
+- Begin with just 3 tasks for today
+- Focus on starting, not completing
+- Track actual time, not estimates
+- Build routines from successful patterns
 
-#### 必要なプラグイン
-- **Dataview**: データの動的な読み込みと表示
-- **Obsidian Charts**: グラフの描画
+#### Execute and Log
+1. Open TaskChute view
+2. Click ▶️ to start a task
+3. Click ⏹ to stop
+4. Completed tasks show ☑️
+5. All executions are logged automatically
 
-#### 表示される情報
-1. **時間帯別の集中度・疲弊度グラフ**: 0-23時の推移を可視化
-2. **タスクコメント一覧**: コメント付きタスクの詳細情報
+## ⚙️ Configuration
 
-#### 使用方法
-1. `templates/daily-review-template.md`をテンプレートフォルダにコピー
-2. Daily Noteにテンプレートを適用
-3. グラフとコメント一覧が自動的に表示されます
+Access plugin settings through: Settings → Community Plugins → TaskChute Plus
 
-詳細は[Daily Review使用方法](doc/daily-review-usage.md)を参照してください。
+### Path Configuration
+- **Task folder**: Where task files are stored (default: `TaskChute/Task/`)
+- **Project folder**: Project files location (default: `TaskChute/Project/`)
+- **Log folder**: Execution history storage (default: `TaskChute/Log/`)
 
-### タスク先送りヒートマップ機能 📊
-GitHubの草（contribution graph）スタイルで、タスクの先送り状況を年間で可視化できます。
+### Display Options
+- **Celebration effects**: Enable/disable completion animations
+- **Sound effects**: Toggle completion sounds
+- **Fireworks/Confetti**: Individual effect controls
 
-#### 特徴
-- **先送り数の可視化**: タスクの実行状況を色の濃淡で表現
-- **特別な青色**: 全タスクを完了（先送り0）した日は特別なアニメーション付き青色で表示
-- **年単位の表示**: 2020年から現在まで、年ごとに切り替え可能
-- **日付ナビゲーション**: ヒートマップのセルをクリックしてその日に移動
+## ⌨️ Keyboard Shortcuts
 
-#### 使用方法
-1. 左上のハンバーガーメニューを開く
-2. 「ログ」を選択
-3. 年選択ドロップダウンで表示年を切り替え
-4. セルをクリックしてその日のタスクを表示
+### Global
+- **Option+T** (Mac) / **Alt+T** (Win/Linux): Show today's tasks
 
-#### データ保存
-- 年次データは `TaskChute/Log/YYYY/yearly-heatmap.json` に保存
-- 月次ログから自動的に集計・生成
-- タスク完了時にリアルタイムで更新
+### Task Operations
+- **Ctrl+C**: Duplicate selected task
+- **Ctrl+D**: Delete selected task (with confirmation)
+- **Ctrl+U**: Reset task to pending state
 
-## キーボードショートカット
+## 📈 Advanced Features
 
-### グローバルショートカット
-- **Option + T** (macOS) / **Alt + T** (Windows/Linux): 今日のタスクリストを表示
+### Daily Review
+Requires Dataview and Obsidian Charts plugins for visualization:
+- Time-based focus/fatigue tracking
+- Comprehensive task comment overview
+- Visual progress analysis
 
-### タスク操作ショートカット
-- **Ctrl + C**: 選択したタスクを複製
-- **Ctrl + D**: 選択したタスクを削除（確認ダイアログ付き）
-- **Ctrl + U**: 選択したタスクを未実行状態にリセット
+### Procrastination Heatmap
+GitHub-style contribution graph showing:
+- Annual task procrastination patterns
+- Special blue animation for zero-procrastination days
+- Click navigation to specific dates
+- Year-by-year comparison (2020-present)
 
-### その他のショートカット
-- **Enter**: モーダルダイアログでのタスク送信
-- **Tab/Shift+Tab**: タスク間のナビゲーション
-- **矢印キー**: リスト内の移動
+### Project Progress Monitoring
+- Real-time progress tracking
+- Comparison with similar past projects
+- Time-based completion estimates
+- Visual progress indicators
 
-## 技術仕様
+## 🏗️ Technical Details
 
-### 対応環境
-- **Obsidian**: 0.12.0以上
-- **プラットフォーム**: デスクトップ、モバイル対応
-- **技術**: Electron、Web Audio API、CSS3アニメーション、React (UI実装)
+### Requirements
+- **Obsidian**: v0.12.0 or higher
+- **Platform**: Desktop and mobile support
 
-### ファイル構造
-```
-.obsidian/plugins/taskchute-plus/
-├── main.js          # メインプラグインコード
-├── manifest.json    # プラグイン情報
-├── README.md        # このファイル
-├── data/            # データ保存ディレクトリ
-│   ├── running-task.json  # 実行中タスクの状態
-│   └── YYYY-MM-tasks.json # 月別タスクデータ
-├── __tests__/       # テストファイル
-│   ├── log-view.test.js
-│   ├── daily-task-aggregator.test.js
-│   └── procrastination-heatmap-integration.test.js
-└── doc/            # ドキュメント
+### Data Storage
+- **Execution logs**: `TaskChute/Log/YYYY-MM-DD.md`
+- **Task states**: `.obsidian/plugins/taskchute-plus/data/`
+- **Yearly heatmaps**: `TaskChute/Log/YYYY/yearly-heatmap.json`
+- **Settings**: Obsidian plugin configuration
 
-TaskChute/
-├── Log/
-│   ├── YYYY/
-│   │   └── yearly-heatmap.json # 年次ヒートマップデータ
-│   └── YYYY-MM-DD.md # 日次ログ
-```
+## 📚 Documentation
 
-### データ保存
-- **実行履歴**: `TaskChute/Log/YYYY-MM-DD.md`に保存（設定可能）
-- **設定**: Obsidianのプラグイン設定に保存
-- **実行中状態**: `.obsidian/plugins/taskchute-plus/data/running-task.json`
-- **月別タスクデータ**: `.obsidian/plugins/taskchute-plus/data/YYYY-MM-tasks.json`
+For detailed documentation, visit our [Docusaurus site](taskchute-docs/).
 
-## カスタマイズ
+## 🤝 Community & Support
 
-### CSSカスタマイズ
-プラグインのCSSは動的に生成されます。カスタマイズしたい場合は、ObsidianのカスタムCSSファイルに以下を追加：
+- **GitHub**: [Report issues and contribute](https://github.com/hiroyaiizuka/taskchute-plus)
+- **Discussions**: Share your execution stories and tips
+- **Documentation**: Comprehensive guides and tutorials
 
-```css
-/* 演出の色を変更 */
-.celebration-content {
-  background: linear-gradient(135deg, #your-color1 0%, #your-color2 100%);
-}
-
-/* 花火の色を変更 */
-.firework {
-  background-color: #your-color;
-}
-```
-
-## トラブルシューティング
-
-### よくある問題
-
-**Q: 演出が表示されない**
-A: 設定で演出が無効になっていないか確認してください。
-
-**Q: 音が鳴らない**
-A: ブラウザの音声許可が必要です。また、設定で音効果が有効になっているか確認してください。
-
-**Q: タスクが表示されない**
-A: ファイルに`#task`タグが正しく記述されているか確認してください。
-
-## 更新履歴
-
-### v0.0.2 (最新)
-- タスク先送りヒートマップ機能を追加
-  - GitHubスタイルのcontribution graph
-  - 年単位でのタスク先送り状況の可視化
-  - 先送り0の日は特別な青色アニメーション
-  - クリックで特定日付へナビゲーション
-- パフォーマンス最適化
-  - 年次データのキャッシング
-  - バッチ処理による描画最適化
-- エラーハンドリングの強化
-
-### v0.0.1
-- TaskChuteメソッドの包括的実装
-- 高度なタスク管理機能
-  - タスク名検証とオートコンプリート
-  - 柔軟なルーチンタスク設定
-  - ドラッグ&ドロップの強化
-- キーボードショートカット
-  - Option+T: 今日のタスクを表示
-  - Ctrl+C/D/U: タスク操作
-- カスタマイズ可能なフォルダパス
-- Daily Review機能
-- プロジェクト進捗モニタリング
-
-## ライセンス
+## 📝 License
 
 MIT License
 
-## 作者
+## 👤 Author
 
 Hiroya Iizuka
 
-## サポート
+---
 
-問題や要望がある場合は、GitHubのIssuesページでお知らせください。
+**Remember**: TaskChute Plus doesn't help you organize tasks better - it helps you execute them. It's not about having the perfect plan; it's about taking the next step, logging it, and building from what actually works.
+
+> **"The path emerges where you walk"** - This is the essence of TaskChute.
