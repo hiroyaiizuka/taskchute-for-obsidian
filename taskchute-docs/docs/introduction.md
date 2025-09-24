@@ -3,10 +3,16 @@ sidebar_position: 1
 slug: /
 ---
 
+import useBaseUrl from "@docusaurus/useBaseUrl"
+
 # TaskChute Plus
 
 <div style={{textAlign: 'center'}}>
-  <img src="/img/taskchute-social-card.png" alt="TaskChute Plus - Execute tasks, don't just organize them" style={{width: '80%', maxWidth: '800px'}} />
+  <img
+    src={useBaseUrl("/img/taskchute-social-card.png")}
+    alt="TaskChute Plus - Execute tasks, don't just organize them"
+    style={{ width: "80%", maxWidth: "800px" }}
+  />
 </div>
 
 ## The TaskChute Philosophy: From "Planning" to "Doing"
