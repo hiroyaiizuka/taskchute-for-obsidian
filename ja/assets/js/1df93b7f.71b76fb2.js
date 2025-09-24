@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunktaskchute_docs=self.webpackChunktaskchute_docs||[]).push([[583],{6866:(s,t,c)=>{c.r(t),c.d(t,{default:()=>a});var e=c(6347),u=c(4848);function a(){return(0,u.jsx)(e.rd,{to:"/docs/"})}}}]);

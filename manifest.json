@@ -1,9 +1,0 @@
-{
-  "id": "taskchute-plus",
-  "name": "TaskChute Plus",
-  "version": "0.0.1",
-  "minAppVersion": "0.12.0",
-  "author": "Hiroya Iizuka",
-  "description": "Task-based time tracker that lists task notes, records start and stop times, and writes each session to your daily note.",
-  "isDesktopOnly": false
-}
