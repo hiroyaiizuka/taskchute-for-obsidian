@@ -2,14 +2,10 @@ name: Docusaurus Documentation Automation
 
 on:
   pull_request:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
     paths:
-      # Monitor source code changes
       - "src/**/*.ts"
       - "src/**/*.js"
-      # Exclude documentation and test files
       - "!taskchute-docs/**"
       - "!tests/**"
       - "!**/*.test.ts"
@@ -30,36 +26,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # PRの「head」を直接チェックアウトすると差分計算が安定
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      # Ensure docusaurus-expert agent exists
-      - name: Setup Claude configuration
+      # docusaurus-expert の存在チェック（条件分岐を修正）
+      - name: Check Claude agent file
         run: |
-          # Check if agent exists in taskchute-docs directory
-          if [ ! -f "taskchute-docs/.claude/agents/docusaurus-expert.md" ]; then
-            echo "Error: docusaurus-expert.md not found in taskchute-docs/.claude/agents/"
-            echo "Agent already exists at the correct location"
+          if [ -f "taskchute-docs/.claude/agents/docusaurus-expert.md" ]; then
+            echo "✓ Found: taskchute-docs/.claude/agents/docusaurus-expert.md"
           else
-            echo "✓ docusaurus-expert agent found at taskchute-docs/.claude/agents/"
+            echo "❌ Missing: taskchute-docs/.claude/agents/docusaurus-expert.md"
+            exit 1
           fi
-      # Get changed files for context
+
+      # 変更ファイルの取得（base/head の SHA を使用）
       - name: Get changed files
         id: changed
         run: |
-          # Fetch the base branch
-          git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | tr '\n' ' ')
+          echo "files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+          echo "Changed files: $CHANGED_FILES"
 
-          # Get changed files and save to output
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.ref }}...HEAD | tr '\n' ' ')
-          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
-      # Execute with agent
+      # Claude Code の working dir を明示しつつ、プロンプトでは絶対相対パスを使う
       - name: Update documentation
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          working-directory: taskchute-docs
+          working-directory: . # ← ルートを基準にする
           prompt: |
-            Read and follow the instructions in .claude/agents/docusaurus-expert.md
+            Read and follow the instructions in taskchute-docs/.claude/agents/docusaurus-expert.md
 
             Changed files in this pull request:
             ${{ steps.changed.outputs.files }}
@@ -84,15 +82,12 @@ jobs:
             - Focus on user-facing changes and API updates
 
             ## File Structure
-            - Source code: ../src/ (TypeScript)
-            - Documentation: docs/ (in current taskchute-docs directory)
-            - Configuration: docusaurus.config.ts, sidebars.ts
+            - Source code: src/ (TypeScript)
+            - Documentation: taskchute-docs/docs/
+            - Configuration: taskchute-docs/docusaurus.config.ts, taskchute-docs/sidebars.ts
 
-            Focus on documenting the changes found in the modified TypeScript files above.
-          # CUSTOMIZE: Adjust settings
           claude_args: "--max-turns 15 --dangerously-skip-permissions"
 
-      # Create PR with documentation updates
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
@@ -101,11 +96,10 @@ jobs:
           title: "📚 Documentation Update"
           body: |
             Automated documentation update based on pull request changes.
+
             **Changed files:**
             ```
             ${{ steps.changed.outputs.files }}
             ```
           branch: docs/auto-${{ github.sha }}
           base: main
-          # CUSTOMIZE: Set your team or specific reviewers
-          # team-reviewers: documentation-team
