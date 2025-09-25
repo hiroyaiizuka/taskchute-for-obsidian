@@ -2172,7 +2172,7 @@ export class TaskChuteView extends ItemView {
 
         // タスク情報を再取得し、実行中タスクの表示も復元
         await this.reloadTasksAndRestore()
-        new Notice(`「${task.title}」をルーチンタスクから解除しました`)
+        new Notice(`ルーチンタスクから解除しました`)
       } else {
         // ルーチンタスクに設定（時刻入力ポップアップを表示）
         this.showRoutineEditModal(task, button)
@@ -3073,6 +3073,10 @@ export class TaskChuteView extends ItemView {
       today.getMonth(),
       today.getDate(),
     )
+
+    // DayStateのキャッシュをクリアして、今日の日付で確実に再読み込みされるようにする
+    this.currentDayStateKey = null
+    this.currentDayState = null
 
     // カレンダー表示（日付ラベル）を更新
     const dateLabel = this.containerEl.querySelector(
@@ -4432,7 +4436,7 @@ export class TaskChuteView extends ItemView {
 
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true })
-      new Notice(`「タスクを、ルーチンタスクに設定しました`)
+      new Notice(`タスクを、ルーチンタスクに設定しました`)
     } catch (error: unknown) {
       console.error("Failed to set routine task:", error)
       const msg = error instanceof Error ? error.message : String(error)
