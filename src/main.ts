@@ -297,12 +297,21 @@ export default class TaskChutePlusPlugin extends Plugin {
 
   async activateTaskChuteView(): Promise<void> {
     const { workspace } = this.app
-    // Open in a new tab in the main pane
-    const leaf = workspace.getLeaf(true)
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+    
+    if (leaves.length > 0) {
+      // 既存のタブがあればフォーカスを当てるだけ
+      await workspace.revealLeaf(leaves[0])
+      return
+    }
+    
+    // なければ新規作成
+    const leaf = workspace.getLeaf(false) // false: 既存のタブグループを再利用
     await leaf.setViewState({
       type: VIEW_TYPE_TASKCHUTE,
       active: true,
     })
+    await workspace.revealLeaf(leaf)
   }
 
   showSettingsModal(): void {
