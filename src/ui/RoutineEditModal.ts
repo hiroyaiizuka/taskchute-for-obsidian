@@ -1,6 +1,8 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../types';
+import { TaskValidator } from '../services/TaskValidator';
+import { getScheduledTime, setScheduledTime } from '../utils/fieldMigration';
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
@@ -60,7 +62,7 @@ export default class RoutineEditModal extends Modal {
     const timeGroup = form.createEl('div', { cls: 'form-group' });
     timeGroup.createEl('label', { text: '開始予定時刻:' });
     const timeInput = timeGroup.createEl('input', { type: 'time' }) as HTMLInputElement;
-    timeInput.value = typeof frontmatter['開始時刻'] === 'string' ? frontmatter['開始時刻'] : '';
+    timeInput.value = getScheduledTime(frontmatter) || '';
 
     // Interval
     const intervalGroup = form.createEl('div', { cls: 'form-group' });
@@ -174,18 +176,43 @@ export default class RoutineEditModal extends Modal {
       }
 
       await this.app.fileManager.processFrontMatter(this.file, (fm: RoutineFrontmatter) => {
-        fm.routine_type = routineType;
-        fm.routine_interval = interval;
-        fm.routine_enabled = enabledToggle.checked;
+
+        // Prepare changes
+        const changes: Record<string, unknown> = {
+          routine_type: routineType,
+          routine_interval: interval,
+          routine_enabled: enabledToggle.checked
+        };
 
         const timeValue = (timeInput.value || '').trim();
-        if (timeValue) fm['開始時刻'] = timeValue;
-        else delete fm['開始時刻'];
+        if (timeValue) {
+          // 新しいフィールド名(scheduled_time)を使用して時刻を設定
+          setScheduledTime(changes, timeValue, { preferNew: true });
+        }
 
-        if (start) fm.routine_start = start;
-        else delete fm.routine_start;
-        if (end) fm.routine_end = end;
-        else delete fm.routine_end;
+        if (start) changes.routine_start = start;
+        if (end) changes.routine_end = end;
+
+        // Apply cleanup to remove target_date if routine settings changed
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        const hadTargetDate = !!fm.target_date;
+        const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes);
+
+        // Apply cleaned values
+        Object.keys(cleaned).forEach(key => {
+          fm[key] = cleaned[key];
+        });
+
+        // Notify if target_date was removed
+         
+        if (hadTargetDate && !cleaned.target_date) {
+          new Notice('古いtarget_dateを自動削除しました');
+        }
+
+        // Clean up values that should be removed
+        if (!timeValue) setScheduledTime(fm, undefined, { preferNew: true });
+        if (!start) delete fm.routine_start;
+        if (!end) delete fm.routine_end;
 
         delete fm.weekday;
         delete fm.weekdays;

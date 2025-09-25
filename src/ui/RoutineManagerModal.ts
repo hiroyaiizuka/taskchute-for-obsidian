@@ -364,6 +364,7 @@ export class RoutineManagerModal extends Modal {
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       delete frontmatter['開始時刻'];
       return frontmatter;
     });
