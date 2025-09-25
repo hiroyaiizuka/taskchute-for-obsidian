@@ -3612,3 +3612,43 @@ select.form-input {
   background: var(--color-red, #e74c3c);
   border-color: var(--color-red, #e74c3c);
 }
+
+/* ===== Task Warning Styles ===== */
+.task-name-container {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.task-warning-icon {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  cursor: help;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.task-warning-icon:hover {
+  opacity: 1;
+}
+
+.task-warning-icon.warning-high {
+  color: var(--color-red, #e74c3c);
+  opacity: 1;
+}
+
+.task-warning-tooltip {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  max-width: 300px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+}

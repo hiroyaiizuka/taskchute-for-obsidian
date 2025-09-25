@@ -174,6 +174,8 @@ export default class TaskChutePlusPlugin extends Plugin {
         }
       },
     })
+
+
   }
 
   async ensureRequiredFolders(): Promise<void> {
@@ -294,6 +296,8 @@ export default class TaskChutePlusPlugin extends Plugin {
     }
     await view.resetSelectedTask()
   }
+
+
 
   async activateTaskChuteView(): Promise<void> {
     const { workspace } = this.app

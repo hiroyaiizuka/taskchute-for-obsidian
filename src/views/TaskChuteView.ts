@@ -28,6 +28,8 @@ import { RunningTasksService } from "../services/RunningTasksService"
 import { ExecutionLogService } from "../services/ExecutionLogService"
 import { TaskCreationService } from "../services/TaskCreationService"
 import { TaskNameAutocomplete } from "../ui/TaskNameAutocomplete"
+import { TaskValidator } from "../services/TaskValidator"
+import { getScheduledTime, setScheduledTime } from "../utils/fieldMigration"
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -984,6 +986,63 @@ export class TaskChuteView extends ItemView {
     })
   }
 
+  private createTaskNameWithWarning(taskItem: HTMLElement, inst: TaskInstance): void {
+    const container = taskItem.createEl("div", { cls: "task-name-container" });
+
+    // Check for warnings
+    const validation = TaskValidator.validate(inst.task.frontmatter || {});
+
+    // Add warning icon if there are warnings
+    if (validation.warnings.length > 0) {
+      const highSeverityWarning = validation.warnings.find(w => w.severity === 'high');
+      const warningToShow = highSeverityWarning || validation.warnings[0];
+
+      const warningIcon = container.createEl("span", {
+        cls: `task-warning-icon ${warningToShow.severity === 'high' ? 'warning-high' : ''}`,
+        text: "⚠️",
+        attr: {
+          'aria-label': warningToShow.message,
+          'title': `${warningToShow.message}\n${warningToShow.suggestion || ''}`
+        }
+      });
+
+      // Add tooltip behavior
+      warningIcon.addEventListener("mouseenter", () => {
+        const tooltip = document.body.createEl("div", {
+          cls: "task-warning-tooltip",
+          text: `${warningToShow.message}\n${warningToShow.suggestion || ''}`
+        });
+
+        const rect = warningIcon.getBoundingClientRect();
+        tooltip.setAttr('style', `position: absolute; left: ${rect.left}px; top: ${rect.bottom + 5}px; z-index: 1000;`);
+
+        warningIcon.addEventListener("mouseleave", () => {
+          tooltip.remove();
+        }, { once: true });
+      });
+    }
+
+    // Create task name
+    const taskName = container.createEl("span", {
+      cls: "task-name",
+      text: inst.task.name,
+    });
+
+    // Apply same style for all tasks (completed and non-completed)
+    taskName.classList.add("task-name--accent");
+
+    // Click handler to open task file
+    taskName.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await this.app.workspace.openLinkText(inst.task.path, "", false);
+      } catch (error) {
+        console.error("Failed to open task file", error);
+        new Notice("タスクファイルを開けませんでした");
+      }
+    });
+  }
+
   private createProjectDisplay(
     taskItem: HTMLElement,
     inst: TaskInstance,
@@ -1881,7 +1940,7 @@ export class TaskChuteView extends ItemView {
         ? task.routine_type
         : "daily"
 
-    // 開始時刻入力
+    // 開始時刻入力（互換性レイヤー経由）
     const timeGroup = form.createEl("div", { cls: "form-group" })
     timeGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
     const timeInput = timeGroup.createEl("input", {
@@ -2068,7 +2127,7 @@ export class TaskChuteView extends ItemView {
       const enabled = !!enabledToggle.checked
 
       if (!scheduledTime) {
-        new Notice("開始時刻を入力してください")
+        new Notice("開始予定時刻を入力してください")
         return
       }
 
@@ -2146,7 +2205,7 @@ export class TaskChuteView extends ItemView {
             const d = this.currentDate.getDate().toString().padStart(2, "0")
             frontmatter.routine_end = `${y}-${m}-${d}`
             frontmatter.isRoutine = false
-            delete frontmatter.開始時刻
+            setScheduledTime(frontmatter, undefined)
             return frontmatter
           })
         } else {
@@ -2159,7 +2218,7 @@ export class TaskChuteView extends ItemView {
             const d = this.currentDate.getDate().toString().padStart(2, "0")
             frontmatter.routine_end = `${y}-${m}-${d}`
             frontmatter.isRoutine = false
-            delete frontmatter.開始時刻
+            setScheduledTime(frontmatter, undefined)
             return frontmatter
           })
         }
@@ -2231,6 +2290,18 @@ export class TaskChuteView extends ItemView {
       if (inst.state !== "idle") {
         await this.resetTaskToIdle(inst)
       }
+    })
+
+    // 「開始時刻を設定」項目を追加
+    const setTimeItem = tooltip.createEl("div", {
+      cls: "tooltip-item",
+      text: "🕐 開始時刻を設定",
+    })
+    setTimeItem.setAttribute("title", "タスクの予定開始時刻を設定します")
+    setTimeItem.addEventListener("click", async (e) => {
+      e.stopPropagation()
+      tooltip.remove()
+      await this.showScheduledTimeEditModal(inst)
     })
 
     // 「タスクを移動」項目を追加
@@ -2626,6 +2697,99 @@ export class TaskChuteView extends ItemView {
   // Time Edit Modal (開始/終了時刻の編集)
   // ===========================================
 
+  private async showScheduledTimeEditModal(inst: TaskInstance): Promise<void> {
+    const modal = document.createElement("div")
+    modal.className = "task-modal-overlay"
+    const modalContent = modal.createEl("div", { cls: "task-modal-content" })
+
+    modalContent.createEl("h3", {
+      text: "開始時刻を設定",
+      cls: "modal-title",
+    })
+
+    const form = modalContent.createEl("form", { cls: "task-form" })
+
+    // Scheduled time input
+    const timeGroup = form.createEl("div", { cls: "form-group" })
+    timeGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
+
+    // Get current scheduled time using fieldMigration utility
+    const currentTime = getScheduledTime(inst.task.frontmatter || {})
+
+    const timeInput = timeGroup.createEl("input", {
+      type: "time",
+      cls: "form-input",
+      value: currentTime || "",
+    }) as HTMLInputElement
+
+    // Description
+    modalContent.createEl("p", {
+      cls: "modal-description",
+      text: "タスクの予定開始時刻を設定します。空欄にすると時刻設定が削除されます。",
+    })
+
+    // Buttons
+    const buttonRow = modalContent.createEl("div", { cls: "task-modal-buttons" })
+    const saveButton = buttonRow.createEl("button", {
+      text: "保存",
+      cls: "primary",
+    })
+    const cancelButton = buttonRow.createEl("button", { text: "キャンセル" })
+
+    saveButton.addEventListener("click", async (e) => {
+      e.preventDefault()
+      const newTime = timeInput.value.trim()
+
+      try {
+        if (!inst.task.path) {
+          new Notice("タスクファイルが見つかりません")
+          return
+        }
+
+        const file = this.app.vault.getAbstractFileByPath(inst.task.path)
+        if (!(file instanceof TFile)) {
+          new Notice("タスクファイルが見つかりません")
+          return
+        }
+
+        // Update frontmatter using fieldMigration utility
+        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+          setScheduledTime(frontmatter, newTime || undefined, { preferNew: true })
+        })
+
+        // Reload tasks to reflect changes
+        await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+
+        new Notice(
+          newTime
+            ? `開始時刻を ${newTime} に設定しました`
+            : "開始時刻を削除しました"
+        )
+        modal.remove()
+      } catch (error) {
+        console.error("Failed to update scheduled time:", error)
+        new Notice("開始時刻の更新に失敗しました")
+      }
+    })
+
+    cancelButton.addEventListener("click", (e) => {
+      e.preventDefault()
+      modal.remove()
+    })
+
+    // Close on escape
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        modal.remove()
+        document.removeEventListener("keydown", handleEscape)
+      }
+    }
+    document.addEventListener("keydown", handleEscape)
+
+    document.body.appendChild(modal)
+    timeInput.focus()
+  }
+
   private showTimeEditModal(inst: TaskInstance): void {
     // Safety: only for running/done with a start time
     if (
@@ -2652,7 +2816,7 @@ export class TaskChuteView extends ItemView {
 
     // Start time
     const startGroup = form.createEl("div", { cls: "form-group" })
-    startGroup.createEl("label", { text: "開始時刻:", cls: "form-label" })
+    startGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
     const pad = (n: number) => String(n).padStart(2, "0")
     const toHM = (d?: Date) =>
       d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : ""
@@ -2702,7 +2866,7 @@ export class TaskChuteView extends ItemView {
       },
     })
     if (inst.state === "running") {
-      desc.textContent = "開始時刻を削除すると、タスクは未実行状態に戻ります。"
+      desc.textContent = "開始予定時刻を削除すると、タスクは未実行状態に戻ります。"
     } else {
       desc.textContent =
         "終了時刻のみ削除：実行中に戻ります\n両方削除：未実行に戻ります"
@@ -2745,12 +2909,12 @@ export class TaskChuteView extends ItemView {
           return
         } else if (newStart && newStop) {
           if (newStart >= newStop) {
-            new Notice("開始時刻は終了時刻より前である必要があります")
+            new Notice("開始予定時刻は終了時刻より前である必要があります")
             return
           }
           await this.updateInstanceTimes(inst, newStart, newStop)
         } else {
-          new Notice("開始時刻は必須です")
+          new Notice("開始予定時刻は必須です")
           return
         }
       }
@@ -2832,7 +2996,7 @@ export class TaskChuteView extends ItemView {
     await this.saveRunningTasksState()
     this.renderTaskList()
     new Notice(
-      `「${inst.task.title || inst.task.name}」の開始時刻を更新しました`,
+      `「${inst.task.title || inst.task.name}」の開始予定時刻を更新しました`,
     )
   }
 
@@ -3735,7 +3899,7 @@ export class TaskChuteView extends ItemView {
       const task: RoutineTaskShape = {
         title: file.basename,
         isRoutine: true,
-        scheduledTime: fm.開始時刻,
+        scheduledTime: getScheduledTime(fm),
         routine_type: fm.routine_type || "daily",
         routine_interval: fm.routine_interval || 1,
         routine_enabled: fm.routine_enabled !== false,
@@ -4259,7 +4423,8 @@ export class TaskChuteView extends ItemView {
       // ルーチンタスクとして設定
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         frontmatter.isRoutine = true
-        frontmatter.開始時刻 = scheduledTime
+        // Phase 2: 新規タスクは新形式を優先
+        setScheduledTime(frontmatter, scheduledTime, { preferNew: true })
         frontmatter.routine_type = "daily"
         const y = this.currentDate.getFullYear()
         const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0")
@@ -4320,7 +4485,8 @@ export class TaskChuteView extends ItemView {
       // ルーチンタスクとして設定
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         frontmatter.isRoutine = true
-        frontmatter.開始時刻 = scheduledTime
+        // Phase 2: 新規タスクは新形式を優先
+        setScheduledTime(frontmatter, scheduledTime, { preferNew: true })
         frontmatter.routine_type = routineType
         frontmatter.routine_enabled = details.enabled !== false // default true
         frontmatter.routine_interval = Math.max(1, details.interval || 1)

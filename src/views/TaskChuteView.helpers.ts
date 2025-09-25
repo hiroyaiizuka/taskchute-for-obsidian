@@ -1,5 +1,6 @@
 import { Notice, TFile } from 'obsidian';
 import RoutineService from '../services/RoutineService';
+import { getScheduledTime } from '../utils/fieldMigration';
 import type {
   DayState,
   DeletedInstance,
@@ -207,7 +208,7 @@ async function createTaskFromExecutions(
     routine_weekday: metadata?.routine_weekday,
     routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
     routine_enabled: metadata?.routine_enabled,
-    scheduledTime: toStringField(metadata?.['開始時刻']),
+    scheduledTime: getScheduledTime(metadata) || undefined,
   };
 
   let created = 0;
@@ -252,13 +253,13 @@ async function createNonRoutineTask(
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
     isRoutine: false,
-    scheduledTime: toStringField(metadata?.['開始時刻']),
+    scheduledTime: getScheduledTime(metadata) || undefined,
   };
 
   this.tasks.push(taskData);
 
   const storedSlot = this.plugin.settings.slotKeys?.[file.path];
-  const slotKey = storedSlot ?? getScheduledSlotKey(metadata?.['開始時刻']) ?? 'none';
+  const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? 'none';
   const instance: TaskInstance = {
     task: taskData,
     instanceId: this.generateInstanceId(taskData, dateKey),
@@ -301,13 +302,13 @@ async function createRoutineTask(
     routine_end: metadata.routine_end,
     routine_week: metadata.routine_week,
     routine_weekday: metadata.routine_weekday,
-    scheduledTime: toStringField(metadata['開始時刻']),
+    scheduledTime: getScheduledTime(metadata) || undefined,
   };
 
   this.tasks.push(taskData);
 
   const storedSlot = dayState.slotOverrides?.[file.path];
-  const slotKey = storedSlot ?? getScheduledSlotKey(metadata['開始時刻']) ?? 'none';
+  const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? 'none';
   const instance: TaskInstance = {
     task: taskData,
     instanceId: this.generateInstanceId(taskData, dateKey),
@@ -326,7 +327,9 @@ function shouldShowRoutineTask(
   metadata: TaskFrontmatter,
   dateKey: string,
 ): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const movedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     ? metadata.target_date
     : undefined;
   const rule = RoutineService.parseFrontmatter(metadata);
@@ -343,7 +346,9 @@ async function shouldShowNonRoutineTask(
     .some((entry) => entry.deletionType === 'permanent' && entry.path === file.path);
   if (deleted) return false;
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (metadata?.target_date) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return metadata.target_date === dateKey;
   }
 
@@ -390,7 +395,7 @@ async function addDuplicatedInstances(this: TaskChuteView, dateKey: string): Pro
               projectPath: projectInfo?.path,
               projectTitle: projectInfo?.title,
               isRoutine: metadata.isRoutine === true,
-              scheduledTime: toStringField(metadata['開始時刻']),
+              scheduledTime: getScheduledTime(metadata) || undefined,
             };
           }
         }

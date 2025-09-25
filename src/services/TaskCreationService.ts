@@ -33,10 +33,11 @@ export class TaskCreationService {
   /**
    * Create a task file with frontmatter and heading.
    * - Adds target_date frontmatter
+   * - Adds scheduled_time if provided
    * - Keeps H1 heading as original taskName (basename may include suffix)
    * Returns the created TFile.
    */
-  async createTaskFile(taskName: string, dateStr: string): Promise<TFile> {
+  async createTaskFile(taskName: string, dateStr: string, scheduledTime?: string): Promise<TFile> {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
     // Ensure folder exists if the API is available
     if (typeof this.plugin.pathManager.ensureFolderExists === 'function') {
@@ -46,10 +47,20 @@ export class TaskCreationService {
     const uniqueBase = this.ensureUniqueBasename(taskName)
     const filePath = `${taskFolderPath}/${uniqueBase}.md`
 
-    const content = [
+    const frontmatterLines = [
       '---',
       `target_date: "${dateStr}"`,
-      '---',
+    ]
+
+    // Add scheduled_time if provided
+    if (scheduledTime) {
+      frontmatterLines.push(`scheduled_time: "${scheduledTime}"`)
+    }
+
+    frontmatterLines.push('---')
+
+    const content = [
+      ...frontmatterLines,
       '',
       '#task',
       '',

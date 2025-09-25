@@ -1,5 +1,8 @@
 import { TFile, App } from 'obsidian';
 
+// Re-export new typed fields
+export * from './TaskFields';
+
 export interface TaskChuteSettings {
   taskFolderPath: string;
   projectFolderPath: string;
@@ -10,6 +13,9 @@ export interface TaskChuteSettings {
   enableConfetti: boolean;
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
+  // Field migration settings
+  preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
+  autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading
 }
 
 export interface TaskData {
@@ -186,25 +192,17 @@ export interface AutocompleteInstance {
   [key: string]: unknown;
 }
 
-// Routine rule (normalized) used by RoutineService
-export type RoutineType = 'daily' | 'weekly' | 'monthly';
+// Routine types are now exported from TaskFields.ts via export *
 
-export type RoutineWeek = number | 'last';
+// Phase 3: Use properly typed frontmatter
+// Import from TaskFields module
+import type { TaskFrontmatter, RoutineType, RoutineWeek } from './TaskFields';
 
-export interface RoutineFrontmatter extends Record<string, unknown> {
-  isRoutine?: boolean;
-  routine_type?: RoutineType;
-  routine_interval?: number;
-  routine_enabled?: boolean;
-  routine_start?: string;
-  routine_end?: string;
-  routine_week?: RoutineWeek;
-  routine_weekday?: number;
-  weekdays?: number[];
+export interface RoutineFrontmatter extends TaskFrontmatter {
+  // Legacy compatibility - keep the original shape but extend from TaskFrontmatter
   weekday?: number;
   monthly_week?: RoutineWeek;
   monthly_weekday?: number;
-  '開始時刻'?: string;
 }
 
 export interface RoutineRule {
