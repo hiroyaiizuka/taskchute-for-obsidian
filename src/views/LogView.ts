@@ -1,6 +1,6 @@
 import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { HeatmapDayStats, HeatmapYearData } from '../types';
+import { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../types';
 import { HeatmapService } from '../services/HeatmapService';
 
 interface LogPathManager {
@@ -32,6 +32,13 @@ const MAX_WEEKS = 53;
 const DAYS_PER_WEEK = 7;
 const HEATMAP_BATCH_SIZE = 50;
 
+type DayDetailRenderState =
+  | { status: 'placeholder' }
+  | { status: 'loading'; dateKey: string }
+  | { status: 'future'; dateKey: string }
+  | { status: 'error'; dateKey: string }
+  | { status: 'success'; detail: HeatmapDayDetail };
+
 export class LogView {
   private readonly plugin: LogPlugin;
   private readonly container: HTMLElement;
@@ -41,6 +48,9 @@ export class LogView {
   private currentYear: number;
   private heatmapData: HeatmapYearData | null = null;
   private currentTooltip: HTMLElement | null = null;
+  private dayDetailCache = new Map<string, HeatmapDayDetail>();
+  private dayDetailContainer: HTMLElement | null = null;
+  private selectedDateKey: string | null = null;
 
   constructor(plugin: LogPlugin, container: HTMLElement) {
     this.plugin = plugin;
@@ -52,6 +62,10 @@ export class LogView {
   async render(): Promise<void> {
     this.container.empty();
     this.createHeader();
+
+    this.dayDetailCache.clear();
+    this.selectedDateKey = null;
+    this.dayDetailContainer = null;
 
     const loading = this.container.createEl('div', {
       cls: 'heatmap-loading',
@@ -125,6 +139,10 @@ export class LogView {
     const existing = this.container.querySelector('.heatmap-container');
     if (existing) existing.remove();
 
+    this.dayDetailCache.clear();
+    this.selectedDateKey = null;
+    this.dayDetailContainer = null;
+
     const loading = this.container.createEl('div', { cls: 'heatmap-loading', text: loadingText });
     try {
       this.heatmapData = await this.loadYearlyData(this.currentYear);
@@ -158,9 +176,28 @@ export class LogView {
     if (existing) existing.remove();
 
     const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' });
+    const layout = heatmapContainer.createEl('div', {
+      cls: 'heatmap-modal-body',
+    });
+
+    const gridSection = layout.createEl('div', { cls: 'heatmap-grid-section' });
     const grid = this.createHeatmapGrid(this.heatmapData.year);
-    heatmapContainer.appendChild(grid);
+    gridSection.appendChild(grid);
+
+    this.dayDetailContainer = layout.createEl('div', {
+      cls: 'heatmap-detail-section',
+    });
+
+    if (this.selectedDateKey) {
+      this.renderDayDetail({ status: 'loading', dateKey: this.selectedDateKey });
+    } else {
+      this.renderDayDetail({ status: 'placeholder' });
+    }
+
     this.applyDataToGrid(this.heatmapData);
+    window.requestAnimationFrame(() => {
+      void this.initializeDefaultSelection();
+    });
   }
 
   private renderEmptyHeatmap(year: number): void {
@@ -168,14 +205,27 @@ export class LogView {
     if (existing) existing.remove();
 
     const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' });
-    heatmapContainer.createEl('div', { cls: 'heatmap-error', text: `${year}年のデータは利用できません` });
+    const layout = heatmapContainer.createEl('div', {
+      cls: 'heatmap-modal-body',
+    });
+
+    const gridSection = layout.createEl('div', { cls: 'heatmap-grid-section' });
+    gridSection.createEl('div', {
+      cls: 'heatmap-error',
+      text: `${year}年のデータは利用できません`,
+    });
     const grid = this.createHeatmapGrid(year);
-    heatmapContainer.appendChild(grid);
+    gridSection.appendChild(grid);
 
     grid.querySelectorAll<HTMLElement>('.heatmap-cell').forEach((cell) => {
       cell.dataset.level = '0';
       cell.dataset.tooltip = 'データなし';
     });
+
+    this.dayDetailContainer = layout.createEl('div', {
+      cls: 'heatmap-detail-section',
+    });
+    this.renderDayDetail({ status: 'placeholder' });
   }
 
   private createHeatmapGrid(year: number): HTMLElement {
@@ -213,6 +263,10 @@ export class LogView {
       });
 
       if (inYear) {
+        cell.setAttr('role', 'button');
+        cell.setAttr('tabindex', '0');
+        cell.setAttr('aria-label', `${this.getAccessibleLabel(dateString)}を表示`);
+        cell.dataset.selected = 'false';
         this.addCellEventListeners(cell, dateString);
         const monthIndex = currentDate.getMonth();
         if (monthIndex !== lastMonthIndex) {
@@ -275,6 +329,354 @@ export class LogView {
     requestAnimationFrame(processBatch);
   }
 
+  private async initializeDefaultSelection(): Promise<void> {
+    if (!this.heatmapData) return;
+
+    const currentYearPrefix = `${this.currentYear}-`;
+    if (this.selectedDateKey && this.selectedDateKey.startsWith(currentYearPrefix)) {
+      const existingCell = this.container.querySelector<HTMLElement>(
+        `.heatmap-cell[data-date="${this.selectedDateKey}"]`,
+      );
+      if (existingCell && !existingCell.classList.contains('empty')) {
+        await this.selectDate(this.selectedDateKey, { focusCell: false });
+        return;
+      }
+    }
+
+    const today = new Date();
+    if (today.getFullYear() === this.currentYear) {
+      const todayKey = this.formatDate(today);
+      const todayCell = this.container.querySelector<HTMLElement>(
+        `.heatmap-cell[data-date="${todayKey}"]`,
+      );
+      if (todayCell && !todayCell.classList.contains('empty')) {
+        await this.selectDate(todayKey, { focusCell: false });
+        return;
+      }
+    }
+
+    this.selectedDateKey = null;
+    this.renderDayDetail({ status: 'placeholder' });
+  }
+
+  private async selectDate(
+    dateKey: string,
+    options: { focusCell?: boolean } = {},
+  ): Promise<void> {
+    const cell = this.container.querySelector<HTMLElement>(
+      `.heatmap-cell[data-date="${dateKey}"]`,
+    );
+    if (!cell || cell.classList.contains('empty')) {
+      this.renderDayDetail({ status: 'placeholder' });
+      return;
+    }
+
+    const previous = this.container.querySelector<HTMLElement>(
+      '.heatmap-cell[data-selected="true"]',
+    );
+    if (previous && previous !== cell) {
+      previous.dataset.selected = 'false';
+    }
+    cell.dataset.selected = 'true';
+    if (options.focusCell) {
+      cell.focus({ preventScroll: false });
+    }
+
+    this.selectedDateKey = dateKey;
+    this.hideTooltip();
+
+    if (this.isFutureDate(dateKey)) {
+      this.renderDayDetail({ status: 'future', dateKey });
+      return;
+    }
+
+    const cached = this.dayDetailCache.get(dateKey);
+    if (cached) {
+      this.renderDayDetail({ status: 'success', detail: cached });
+      return;
+    }
+
+    this.renderDayDetail({ status: 'loading', dateKey });
+
+    try {
+      const detail = await this.heatmapService.loadDayDetail(dateKey);
+      if (this.selectedDateKey !== dateKey) {
+        return;
+      }
+      if (!detail) {
+        this.renderDayDetail({ status: 'error', dateKey });
+        return;
+      }
+      this.dayDetailCache.set(dateKey, detail);
+      this.renderDayDetail({ status: 'success', detail });
+    } catch (error) {
+      console.error('Failed to load day detail', error);
+      if (this.selectedDateKey === dateKey) {
+        this.renderDayDetail({ status: 'error', dateKey });
+      }
+    }
+  }
+
+  private renderDayDetail(state: DayDetailRenderState): void {
+    if (!this.dayDetailContainer) {
+      return;
+    }
+    this.dayDetailContainer.empty();
+
+    switch (state.status) {
+      case 'placeholder':
+        this.dayDetailContainer.createEl('div', {
+          cls: 'heatmap-detail-placeholder',
+          text: '日付を選択してください',
+        });
+        break;
+      case 'loading':
+        this.dayDetailContainer.createEl('div', {
+          cls: 'heatmap-detail-loading',
+          text: `${state.dateKey} のデータを読み込み中...`,
+        });
+        break;
+      case 'future':
+        this.dayDetailContainer.createEl('div', {
+          cls: 'heatmap-detail-placeholder',
+          text: '未来の日付です。記録はまだありません。',
+        });
+        break;
+      case 'error':
+        this.dayDetailContainer.createEl('div', {
+          cls: 'heatmap-detail-error',
+          text: 'データの読み込みに失敗しました。',
+        });
+        break;
+      case 'success':
+        this.renderDayDetailContent(state.detail);
+        break;
+      default:
+        this.dayDetailContainer.createEl('div', {
+          cls: 'heatmap-detail-placeholder',
+          text: '日付を選択してください',
+        });
+    }
+  }
+
+  private renderDayDetailContent(detail: HeatmapDayDetail): void {
+    if (!this.dayDetailContainer) return;
+
+    const header = this.dayDetailContainer.createEl('div', {
+      cls: 'heatmap-detail-header',
+    });
+
+    const heading = header.createEl('div', { cls: 'heatmap-detail-heading' });
+    heading.createEl('h3', {
+      cls: 'heatmap-detail-date',
+      text: this.formatHeaderDate(detail.date),
+    });
+
+    const satisfactionBadge = this.createSatisfactionElement(detail.satisfaction);
+    heading.appendChild(satisfactionBadge);
+
+    const actions = header.createEl('div', { cls: 'heatmap-detail-actions' });
+    const openButton = actions.createEl('button', {
+      cls: 'heatmap-detail-open-button',
+      text: 'タスク一覧を開く',
+      attr: {
+        'aria-label': `${this.getAccessibleLabel(detail.date)}のタスク一覧を開く`,
+      },
+    });
+    openButton.addEventListener('click', () => {
+      void this.navigateToDate(detail.date);
+    });
+
+    const summary = this.dayDetailContainer.createEl('div', {
+      cls: 'heatmap-detail-summary',
+    });
+
+    this.createSummaryItem(summary, '総タスク', String(detail.summary.totalTasks));
+    this.createSummaryItem(summary, '完了', String(detail.summary.completedTasks));
+    this.createSummaryItem(
+      summary,
+      '先送り',
+      String(detail.summary.procrastinatedTasks),
+    );
+    this.createSummaryItem(
+      summary,
+      '合計時間',
+      this.formatMinutesValue(detail.summary.totalMinutes),
+    );
+    this.createSummaryItem(
+      summary,
+      '完了率',
+      this.formatCompletionRate(detail.summary.completionRate),
+    );
+    if (detail.executions.length === 0) {
+      this.dayDetailContainer.createEl('div', {
+        cls: 'heatmap-detail-empty',
+        text: 'この日に記録された実行ログはありません。',
+      });
+      return;
+    }
+
+    const table = this.dayDetailContainer.createEl('table', {
+      cls: 'heatmap-detail-table',
+    });
+    const thead = table.createEl('thead');
+    const headerRow = thead.createEl('tr');
+    const columns = [
+      `タスク名 (${detail.executions.length})`,
+      '実行時間',
+      '所要時間',
+      '集中度',
+      '元気度',
+      'コメント',
+    ];
+    columns.forEach((label) => {
+      headerRow.createEl('th', { text: label, attr: { scope: 'col' } });
+    });
+
+    const tbody = table.createEl('tbody');
+    detail.executions.forEach((entry) => {
+      const row = tbody.createEl('tr');
+
+      const nameCell = row.createEl('td', { cls: 'heatmap-detail-name' });
+      const titleRow = nameCell.createEl('div', {
+        cls: 'heatmap-detail-title-row',
+      });
+      titleRow.createEl('span', {
+        cls: 'heatmap-detail-status',
+        text: entry.isCompleted ? '✅' : '⬜️',
+      });
+      titleRow.createEl('span', {
+        cls: 'heatmap-detail-title',
+        text: entry.title,
+      });
+
+      row.createEl('td', {
+        cls: 'heatmap-detail-time',
+        text: this.formatExecutionTime(entry.startTime, entry.stopTime),
+      });
+
+      row.createEl('td', {
+        cls: 'heatmap-detail-duration',
+        text: this.formatDuration(entry.durationSec),
+      });
+
+      row.createEl('td', {
+        cls: 'heatmap-detail-rating',
+        text: this.formatRating(entry.focusLevel, 'focus'),
+      });
+
+      row.createEl('td', {
+        cls: 'heatmap-detail-rating',
+        text: this.formatRating(entry.energyLevel, 'energy'),
+      });
+
+      const commentCell = row.createEl('td', { cls: 'heatmap-detail-comment' });
+      if (entry.executionComment) {
+        commentCell.textContent = entry.executionComment;
+      } else {
+        commentCell.textContent = '-';
+      }
+    });
+  }
+
+  private createSummaryItem(parent: HTMLElement, label: string, value: string): void {
+    const item = parent.createEl('div', { cls: 'heatmap-summary-item' });
+    item.createEl('span', { cls: 'heatmap-summary-label', text: label });
+    item.createEl('span', { cls: 'heatmap-summary-value', text: value });
+  }
+
+  private createSatisfactionElement(value: number | null): HTMLElement {
+    const span = document.createElement('span');
+    span.className = 'heatmap-detail-satisfaction';
+    if (value === null) {
+      span.textContent = '1日の満足度: -';
+      return span;
+    }
+    const clamped = Math.min(5, Math.max(1, Math.round(value)));
+    span.textContent = `1日の満足度: ${clamped}/5`;
+    return span;
+  }
+
+  private formatHeaderDate(dateKey: string): string {
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return dateKey;
+    }
+    const weekday = WEEKDAY_LABELS[date.getDay()];
+    return `${dateKey} (${weekday})`;
+  }
+
+  private getAccessibleLabel(dateKey: string): string {
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return dateKey;
+    }
+    return date.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'long',
+    });
+  }
+
+  private formatMinutesValue(totalMinutes: number): string {
+    if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
+      return '0分';
+    }
+    const minutes = Math.round(totalMinutes);
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) {
+      return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
+    }
+    return `${mins}分`;
+  }
+
+  private formatCompletionRate(rate: number): string {
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return '0%';
+    }
+    const value = Math.round(rate * 100);
+    return `${value}%`;
+  }
+
+  private formatRating(level: number | undefined, type: 'focus' | 'energy'): string {
+    if (!level || level <= 0) {
+      return '-';
+    }
+    const clamped = Math.min(5, Math.max(1, Math.round(level)));
+    const icon = type === 'focus' ? '⭐️' : '⚡️';
+    return icon.repeat(clamped);
+  }
+
+  private formatDuration(durationSec: number | undefined): string {
+    if (!durationSec || durationSec <= 0) {
+      return '1分未満';
+    }
+    const minutes = Math.max(1, Math.round(durationSec / 60));
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) {
+      return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
+    }
+    return `${mins}分`;
+  }
+
+  private formatExecutionTime(start?: string, stop?: string): string {
+    const startText = start?.trim();
+    const stopText = stop?.trim();
+    if (startText && stopText) {
+      return `${startText} - ${stopText}`;
+    }
+    if (startText) {
+      return `${startText} -`;
+    }
+    if (stopText) {
+      return `- ${stopText}`;
+    }
+    return '-';
+  }
+
   private calculateLevel(stats: HeatmapDayStats): number {
     if (!stats || stats.totalTasks === 0) return 0;
     if (stats.procrastinatedTasks === 0) return 4;
@@ -306,7 +708,14 @@ export class LogView {
     cell.addEventListener('mouseleave', () => this.hideTooltip());
     cell.addEventListener('click', async (event) => {
       event.stopPropagation();
-      await this.navigateToDate(dateKey);
+      event.preventDefault();
+      await this.selectDate(dateKey);
+    });
+    cell.addEventListener('keydown', async (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        await this.selectDate(dateKey, { focusCell: false });
+      }
     });
   }
 

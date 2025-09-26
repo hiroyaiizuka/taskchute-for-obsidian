@@ -176,6 +176,36 @@ export interface HeatmapYearData {
   };
 }
 
+export interface HeatmapExecutionDetail {
+  id: string;
+  title: string;
+  taskPath?: string;
+  startTime?: string;
+  stopTime?: string;
+  durationSec?: number;
+  focusLevel?: number;
+  energyLevel?: number;
+  executionComment?: string;
+  project?: string;
+  projectPath?: string;
+  isCompleted: boolean;
+}
+
+export interface HeatmapDayDetail {
+  date: string;
+  satisfaction: number | null;
+  summary: {
+    totalTasks: number;
+    completedTasks: number;
+    totalMinutes: number;
+    procrastinatedTasks: number;
+    completionRate: number;
+    avgFocusLevel: number | null;
+    avgEnergyLevel: number | null;
+  };
+  executions: HeatmapExecutionDetail[];
+}
+
 export interface NavigationState {
   selectedSection: 'routine' | 'review' | 'log' | 'project' | null;
   isOpen: boolean;

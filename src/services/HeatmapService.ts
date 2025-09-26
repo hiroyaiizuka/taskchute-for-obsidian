@@ -1,5 +1,10 @@
-import { App, TFile, normalizePath } from 'obsidian'
-import { HeatmapDayStats, HeatmapYearData } from '../types'
+import { App, TFile, normalizePath, parseYaml } from 'obsidian'
+import {
+  HeatmapDayDetail,
+  HeatmapDayStats,
+  HeatmapExecutionDetail,
+  HeatmapYearData,
+} from '../types'
 import { computeExecutionInstanceKey } from '../utils/logKeys'
 
 type NormalizedSummary = { totalTasks: number; completedTasks: number }
@@ -28,6 +33,7 @@ export interface HeatmapServicePluginLike {
     getLogDataPath(): string
     getLogYearPath(year: number | string): string
     ensureYearFolder(year: number | string): Promise<string>
+    getReviewDataPath(): string
   }
 }
 
@@ -248,32 +254,90 @@ export class HeatmapService {
     return yearlyData
   }
 
-  calculateDailyStats(dayTasks: Array<Record<string, unknown>>): HeatmapDayStats {
-    const map = new Map<string, boolean>()
-    const readStringField = (task: Record<string, unknown>, field: string): string | null => {
-      const value = task[field]
-      if (typeof value === 'string' && value.trim().length > 0) {
-        return value
-      }
+  async loadDayDetail(dateString: string): Promise<HeatmapDayDetail | null> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      return null
+    }
+    if (this.isFutureDate(dateString)) {
       return null
     }
 
-    const hasPositive = (task: Record<string, unknown>, field: string): boolean =>
-      this.toNumber(task[field]) > 0
+    const raw = await this.readMonthlyLog(dateString)
+    const monthlyData = raw ? this.normalizeMonthlyLog(raw) : createEmptyMonthlyLog()
+    const dayTasks = monthlyData.taskExecutions[dateString] ?? []
+    const normalizedSummary = monthlyData.dailySummary[dateString]
 
-    const isCompleted = (task: Record<string, unknown>): boolean => {
-      const explicit = task['isCompleted']
-      if (typeof explicit === 'boolean') return explicit
-      if (readStringField(task, 'stopTime')) return true
-      if (hasPositive(task, 'durationSec')) return true
-      if (hasPositive(task, 'duration')) return true
-      return true
+    const summaryRecord = raw
+      ? this.ensureDailySummaryRecord(raw)
+      : ({} as Record<string, Record<string, unknown>>)
+    const summarySource = summaryRecord[dateString]
+    const fallbackStats = this.calculateDailyStats(dayTasks)
+
+    let totalTasks = this.readNumeric(summarySource, 'totalTasks')
+    if (totalTasks === null && normalizedSummary) {
+      totalTasks = normalizedSummary.totalTasks
+    }
+    if (totalTasks === null) {
+      totalTasks = fallbackStats.totalTasks
     }
 
+    let completedTasks = this.readNumeric(summarySource, 'completedTasks')
+    if (completedTasks === null && normalizedSummary) {
+      completedTasks = normalizedSummary.completedTasks
+    }
+    if (completedTasks === null) {
+      completedTasks = fallbackStats.completedTasks
+    }
+
+    let totalMinutes = this.readNumeric(summarySource, 'totalMinutes')
+    if (totalMinutes === null || totalMinutes < 0) {
+      totalMinutes = this.calculateMinutesFromTasks(dayTasks)
+    }
+
+    let procrastinatedTasks = this.readNumeric(summarySource, 'procrastinatedTasks')
+    if (procrastinatedTasks === null) {
+      procrastinatedTasks = Math.max(0, totalTasks - completedTasks)
+    }
+
+    let completionRate = this.readNumeric(summarySource, 'completionRate')
+    if (completionRate === null) {
+      completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0
+    } else {
+      completionRate = Math.min(1, Math.max(0, completionRate))
+    }
+
+    const avgFocusLevel = this.computeAverageRating(dayTasks, ['focusLevel', 'focus'])
+    const avgEnergyLevel = this.computeAverageRating(dayTasks, ['energyLevel', 'energy'])
+
+    const sortedTasks = [...dayTasks].sort((a, b) => this.compareTaskEntries(a, b))
+    const executions: HeatmapExecutionDetail[] = sortedTasks.map((task) =>
+      this.mapExecutionDetail(task),
+    )
+
+    const satisfaction = await this.loadSatisfaction(dateString)
+
+    return {
+      date: dateString,
+      satisfaction,
+      summary: {
+        totalTasks,
+        completedTasks,
+        totalMinutes,
+        procrastinatedTasks,
+        completionRate,
+        avgFocusLevel,
+        avgEnergyLevel,
+      },
+      executions,
+    }
+  }
+
+  calculateDailyStats(dayTasks: Array<Record<string, unknown>>): HeatmapDayStats {
+    const map = new Map<string, boolean>()
     for (const task of dayTasks) {
       const key = computeExecutionInstanceKey(task)
       if (!map.has(key)) map.set(key, false)
-      if (isCompleted(task)) map.set(key, true)
+      if (this.isTaskCompleted(task)) map.set(key, true)
     }
 
     const totalTasks = map.size
@@ -302,6 +366,240 @@ export class HeatmapService {
     }
   }
 
+  private mapExecutionDetail(task: Record<string, unknown>): HeatmapExecutionDetail {
+    const duration = this.getDurationSeconds(task)
+    const focus = this.readNumeric(task, 'focusLevel') ?? this.readNumeric(task, 'focus')
+    const energy = this.readNumeric(task, 'energyLevel') ?? this.readNumeric(task, 'energy')
+
+    return {
+      id: computeExecutionInstanceKey(task),
+      title: this.getTaskTitle(task),
+      taskPath: this.pickString(task, ['taskPath', 'path']) ?? undefined,
+      startTime: this.readTimeValue(task['startTime']),
+      stopTime: this.readTimeValue(task['stopTime']),
+      durationSec: duration,
+      focusLevel:
+        focus !== null && focus > 0 ? Math.min(5, Math.round(focus)) : undefined,
+      energyLevel:
+        energy !== null && energy > 0 ? Math.min(5, Math.round(energy)) : undefined,
+      executionComment: this.pickString(task, ['executionComment', 'comment']),
+      project: this.pickString(task, ['project', 'projectTitle', 'projectName']),
+      projectPath: this.pickString(task, ['project_path', 'projectPath']),
+      isCompleted: this.isTaskCompleted(task),
+    }
+  }
+
+  private compareTaskEntries(
+    a: Record<string, unknown>,
+    b: Record<string, unknown>,
+  ): number {
+    const startDiff = this.parseTimeToSeconds(a['startTime']) - this.parseTimeToSeconds(b['startTime'])
+    if (startDiff !== 0) return startDiff
+    const stopDiff = this.parseTimeToSeconds(a['stopTime']) - this.parseTimeToSeconds(b['stopTime'])
+    if (stopDiff !== 0) return stopDiff
+    return this.getTaskTitle(a).localeCompare(this.getTaskTitle(b), 'ja')
+  }
+
+  private computeAverageRating(
+    tasks: Array<Record<string, unknown>>,
+    fields: string[],
+  ): number | null {
+    const values: number[] = []
+    for (const task of tasks) {
+      for (const field of fields) {
+        const value = this.readNumeric(task, field)
+        if (value !== null && value > 0) {
+          values.push(value)
+          break
+        }
+      }
+    }
+    if (values.length === 0) {
+      return null
+    }
+    const avg = values.reduce((sum, value) => sum + value, 0) / values.length
+    return Math.round(avg * 10) / 10
+  }
+
+  private async loadSatisfaction(dateString: string): Promise<number | null> {
+    try {
+      const reviewPath = this.plugin.pathManager.getReviewDataPath()
+      const reviewFilePath = normalizePath(`${reviewPath}/Daily - ${dateString}.md`)
+      const file = this.plugin.app.vault.getAbstractFileByPath(reviewFilePath)
+      if (!file || !(file instanceof TFile)) {
+        return null
+      }
+      const content = await this.plugin.app.vault.read(file)
+      const fromFrontmatter = this.extractSatisfactionFromFrontmatter(content)
+      if (fromFrontmatter !== null) {
+        return fromFrontmatter
+      }
+
+      const fromInline = this.extractSatisfactionFromInline(content)
+      if (fromInline !== null) {
+        return fromInline
+      }
+
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  private extractSatisfactionFromFrontmatter(content: string): number | null {
+    const frontMatterMatch = /^---\n([\s\S]*?)\n---/u.exec(content)
+    if (!frontMatterMatch) {
+      return null
+    }
+    try {
+      const frontMatter = parseYaml(frontMatterMatch[1]) as Record<string, unknown> | null
+      if (!frontMatter || typeof frontMatter !== 'object') {
+        return null
+      }
+      const candidates: unknown[] = [
+        frontMatter['satisfaction'],
+        frontMatter['満足度'],
+        frontMatter['dailySatisfaction'],
+      ]
+      for (const candidate of candidates) {
+        const parsed = this.normalizeSatisfaction(candidate)
+        if (parsed !== null) {
+          return parsed
+        }
+      }
+    } catch {
+      // ignore parse errors and fall back to inline search
+    }
+    return null
+  }
+
+  private extractSatisfactionFromInline(content: string): number | null {
+    const patterns = [
+      /satisfaction\s*[:=]\s*([^\n]+)/i,
+      /満足度\s*[:=]\s*([^\n]+)/u,
+    ]
+    for (const pattern of patterns) {
+      const match = pattern.exec(content)
+      if (match && match[1]) {
+        const parsed = this.normalizeSatisfaction(match[1])
+        if (parsed !== null) {
+          return parsed
+        }
+      }
+    }
+    return null
+  }
+
+  private normalizeSatisfaction(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return this.clampSatisfaction(value)
+    }
+    if (typeof value === 'string') {
+      const digitMatch = value.match(/([1-5])/)
+      if (!digitMatch) return null
+      const parsed = Number.parseInt(digitMatch[1], 10)
+      if (!Number.isFinite(parsed)) return null
+      return this.clampSatisfaction(parsed)
+    }
+    return null
+  }
+
+  private clampSatisfaction(value: number): number | null {
+    if (!Number.isFinite(value)) return null
+    if (value <= 0) return null
+    const rounded = Math.round(value)
+    if (rounded < 1) return 1
+    if (rounded > 5) return 5
+    return rounded
+  }
+
+  private getDurationSeconds(task: Record<string, unknown>): number | undefined {
+    const primary = this.readNumeric(task, 'durationSec')
+    if (primary !== null && primary > 0) return primary
+    const fallback = this.readNumeric(task, 'duration')
+    if (fallback !== null && fallback > 0) return fallback
+    return undefined
+  }
+
+  private getTaskTitle(task: Record<string, unknown>): string {
+    const title = this.pickString(task, ['taskTitle', 'taskName', 'task_title'])
+    if (title) return title
+    const path = this.pickString(task, ['taskPath', 'path'])
+    if (path) return path
+    return '未設定タスク'
+  }
+
+  private pickString(
+    source: Record<string, unknown>,
+    fields: string[],
+  ): string | undefined {
+    for (const field of fields) {
+      const value = this.readString(source, field)
+      if (value) {
+        return value
+      }
+    }
+    return undefined
+  }
+
+  private readString(
+    source: Record<string, unknown> | undefined,
+    field: string,
+  ): string | null {
+    if (!source) return null
+    const value = source[field]
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed.length > 0) return trimmed
+    }
+    return null
+  }
+
+  private readNumeric(
+    source: Record<string, unknown> | undefined,
+    field: string,
+  ): number | null {
+    if (!source) return null
+    const value = source[field]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+    return null
+  }
+
+  private parseTimeToSeconds(value: unknown): number {
+    if (typeof value !== 'string') return Number.POSITIVE_INFINITY
+    const trimmed = value.trim()
+    if (!trimmed) return Number.POSITIVE_INFINITY
+    const parts = trimmed.split(':').map((part) => Number.parseInt(part, 10))
+    if (parts.some((part) => Number.isNaN(part))) return Number.POSITIVE_INFINITY
+    const [hours = 0, minutes = 0, seconds = 0] = parts
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  private readTimeValue(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
+  private isTaskCompleted(task: Record<string, unknown>): boolean {
+    const explicit = task['isCompleted']
+    if (typeof explicit === 'boolean') return explicit
+    if (this.readString(task, 'stopTime')) return true
+    const durationSec = this.readNumeric(task, 'durationSec')
+    if (durationSec !== null && durationSec > 0) return true
+    const duration = this.readNumeric(task, 'duration')
+    if (duration !== null && duration > 0) return true
+    return true
+  }
+
   private calculateMinutesFromTasks(dayTasks: Array<Record<string, unknown>>): number {
     return dayTasks.reduce((sum, task) => {
       const durationSec = this.toNumber(task['durationSec'])
@@ -321,16 +619,27 @@ export class HeatmapService {
     return raw.dailySummary as Record<string, Record<string, unknown>>
   }
 
-  private async loadMonthlyData(dateString: string): Promise<MonthlyLogData> {
+  private async readMonthlyLog(dateString: string): Promise<RawMonthlyLog | null> {
     try {
       const [year, month] = dateString.split('-')
+      if (!year || !month) return null
       const monthString = `${year}-${month}`
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       const logFilePath = normalizePath(`${logDataPath}/${monthString}-tasks.json`)
       const file = this.plugin.app.vault.getAbstractFileByPath(logFilePath)
-      if (!file || !(file instanceof TFile)) return createEmptyMonthlyLog()
+      if (!file || !(file instanceof TFile)) return null
       const content = await this.plugin.app.vault.read(file)
-      return this.normalizeMonthlyLog(JSON.parse(content))
+      return JSON.parse(content) as RawMonthlyLog
+    } catch {
+      return null
+    }
+  }
+
+  private async loadMonthlyData(dateString: string): Promise<MonthlyLogData> {
+    try {
+      const raw = await this.readMonthlyLog(dateString)
+      if (!raw) return createEmptyMonthlyLog()
+      return this.normalizeMonthlyLog(raw)
     } catch {
       return createEmptyMonthlyLog()
     }

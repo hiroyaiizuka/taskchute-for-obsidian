@@ -29,6 +29,7 @@ describe('HeatmapService', () => {
       getLogDataPath: () => 'LOGS',
       getLogYearPath: (year: number | string) => `LOGS/${year}`,
       ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+      getReviewDataPath: () => 'REVIEWS',
     }
 
     const vault = {
@@ -79,6 +80,7 @@ describe('HeatmapService', () => {
       getLogDataPath: () => 'LOGS',
       getLogYearPath: (year: number | string) => `LOGS/${year}`,
       ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+      getReviewDataPath: () => 'REVIEWS',
     }
 
     const vault = {
@@ -149,5 +151,124 @@ describe('HeatmapService', () => {
     expect(updatedMonth.dailySummary['2025-09-23'].completedTasks).toBe(3)
     expect(updatedMonth.dailySummary['2025-09-23'].procrastinatedTasks).toBe(0)
     expect(updatedMonth.dailySummary['2025-09-23'].completionRate).toBe(1)
+  })
+
+  test('loadDayDetail returns satisfaction, averages, and sorted executions', async () => {
+    const store = new Map<string, string>()
+
+    const pathManager = {
+      getLogDataPath: () => 'LOGS',
+      getLogYearPath: (year: number | string) => `LOGS/${year}`,
+      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+      getReviewDataPath: () => 'REVIEWS',
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) => {
+        if (store.has(path)) {
+          return createTFile(path)
+        }
+        return null
+      }),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      create: jest.fn(async (path: string, content: string) => {
+        store.set(path, content)
+        return createTFile(path)
+      }),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+    }
+
+    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const service = new HeatmapService(plugin)
+
+    const monthPath = 'LOGS/2025-09-tasks.json'
+    store.set(
+      monthPath,
+      JSON.stringify({
+        taskExecutions: {
+          '2025-09-23': [
+            {
+              taskTitle: 'タスクB',
+              instanceId: 'two',
+              startTime: '13:00:00',
+              stopTime: '14:10:00',
+              durationSec: 4200,
+              focusLevel: 4,
+              energyLevel: 3,
+              executionComment: '午後作業',
+              isCompleted: true,
+            },
+            {
+              taskTitle: 'タスクA',
+              instanceId: 'one',
+              startTime: '09:00:00',
+              stopTime: '09:45:00',
+              durationSec: 2700,
+              focusLevel: 5,
+              energyLevel: 5,
+              executionComment: '朝の集中タイム',
+              isCompleted: true,
+              project: 'Daily Review',
+            },
+          ],
+        },
+        dailySummary: {
+          '2025-09-23': {
+            totalTasks: 2,
+            completedTasks: 2,
+            totalMinutes: 115,
+            procrastinatedTasks: 0,
+            completionRate: 1,
+          },
+        },
+      }),
+    )
+
+    const reviewPath = 'REVIEWS/Daily - 2025-09-23.md'
+    store.set(
+      reviewPath,
+      ['---', 'satisfaction: 4', 'mood: good', '---', '', 'notes: great day'].join('\n'),
+    )
+
+    const detail = await service.loadDayDetail('2025-09-23')
+    expect(detail).not.toBeNull()
+    if (!detail) return
+    expect(detail.satisfaction).toBe(4)
+    expect(detail.summary.totalTasks).toBe(2)
+    expect(detail.summary.totalMinutes).toBe(115)
+    expect(detail.summary.avgFocusLevel).toBeCloseTo(4.5)
+    expect(detail.summary.avgEnergyLevel).toBeCloseTo(4)
+    expect(detail.executions).toHaveLength(2)
+    expect(detail.executions[0].title).toBe('タスクA')
+    expect(detail.executions[0].startTime).toBe('09:00:00')
+    expect(detail.executions[0].durationSec).toBe(2700)
+    expect(detail.executions[0].focusLevel).toBe(5)
+    expect(detail.executions[0].project).toBe('Daily Review')
+    expect(detail.executions[0].taskPath).toBeUndefined()
+    expect(detail.executions[1].title).toBe('タスクB')
+  })
+
+  test('loadDayDetail returns null for future dates', async () => {
+    const pathManager = {
+      getLogDataPath: () => 'LOGS',
+      getLogYearPath: (year: number | string) => `LOGS/${year}`,
+      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+      getReviewDataPath: () => 'REVIEWS',
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn(() => null),
+      read: jest.fn(),
+      create: jest.fn(),
+      modify: jest.fn(),
+    }
+
+    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const service = new HeatmapService(plugin)
+
+    const result = await service.loadDayDetail('2099-01-01')
+    expect(result).toBeNull()
   })
 })
