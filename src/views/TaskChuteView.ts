@@ -30,6 +30,7 @@ import { TaskCreationService } from "../services/TaskCreationService"
 import { TaskNameAutocomplete } from "../ui/TaskNameAutocomplete"
 import { TaskValidator } from "../services/TaskValidator"
 import { getScheduledTime, setScheduledTime } from "../utils/fieldMigration"
+import { computeExecutionInstanceKey } from "../utils/logKeys"
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -3707,7 +3708,7 @@ export class TaskChuteView extends ItemView {
         const completedSet = new Set<string>()
         for (const entry of dayExec) {
           if (this.isExecutionCompleted(entry)) {
-            completedSet.add(this.getExecutionKey(entry))
+            completedSet.add(computeExecutionInstanceKey(entry))
           }
         }
         const completedTasks = completedSet.size
@@ -5228,18 +5229,6 @@ export class TaskChuteView extends ItemView {
       console.warn("[TaskChuteView] Failed to parse task log snapshot", error)
       return { taskExecutions: {}, dailySummary: {} }
     }
-  }
-
-  private getExecutionKey(entry: TaskLogEntry): string {
-    if (entry.taskPath && typeof entry.taskPath === "string")
-      return entry.taskPath
-    if (entry.taskName && typeof entry.taskName === "string")
-      return entry.taskName
-    if (entry.taskTitle && typeof entry.taskTitle === "string")
-      return entry.taskTitle
-    if (entry.instanceId && typeof entry.instanceId === "string")
-      return entry.instanceId
-    return JSON.stringify(entry)
   }
 
   private isExecutionCompleted(entry: TaskLogEntry): boolean {

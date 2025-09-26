@@ -258,6 +258,11 @@ export class LogView {
         const [dateKey, stats] = entries[index];
         const cell = this.container.querySelector<HTMLElement>(`[data-date="${dateKey}"]`);
         if (!cell) continue;
+        if (this.isFutureDate(dateKey)) {
+          cell.dataset.level = '0';
+          delete cell.dataset.tooltip;
+          continue;
+        }
         const level = this.calculateLevel(stats);
         cell.dataset.level = String(level);
         cell.dataset.tooltip = this.createTooltipText(dateKey, stats);
@@ -303,6 +308,17 @@ export class LogView {
       event.stopPropagation();
       await this.navigateToDate(dateKey);
     });
+  }
+
+  private isFutureDate(dateKey: string): boolean {
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+    return date.getTime() > today.getTime();
   }
 
   private showTooltip(cell: HTMLElement): void {

@@ -97,7 +97,7 @@ function createInstance(overrides: Partial<TaskInstance> = {}): TaskInstance {
 }
 
 describe('ExecutionLogService.saveTaskLog', () => {
-  test('counts unique completions even with multiple executions', async () => {
+  test('counts completed instances even when metadata overlaps', async () => {
     const { plugin, store } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
@@ -123,8 +123,8 @@ describe('ExecutionLogService.saveTaskLog', () => {
 
     data = store.get(logPath)!;
     expect(data.taskExecutions['2025-09-24']).toHaveLength(2);
-    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
+    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(2);
     expect(data.dailySummary['2025-09-24'].totalTasks).toBe(5);
-    expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(4);
+    expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(3);
   });
 });

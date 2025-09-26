@@ -1,6 +1,7 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { TaskInstance } from '../types';
+import { computeExecutionInstanceKey } from '../utils/logKeys';
 
 
 interface TaskExecutionEntry {
@@ -54,14 +55,6 @@ function parseLogFile(raw: string | null | undefined): TaskLogFile {
     console.warn('[ExecutionLogService] Failed to parse log file', error);
     return { ...EMPTY_LOG_FILE };
   }
-}
-
-function toExecutionKey(entry: TaskExecutionEntry): string {
-  if (entry.taskPath && typeof entry.taskPath === 'string') return entry.taskPath;
-  if (entry.taskName && typeof entry.taskName === 'string') return entry.taskName;
-  if (entry.taskTitle && typeof entry.taskTitle === 'string') return entry.taskTitle;
-  if (entry.instanceId && typeof entry.instanceId === 'string') return entry.instanceId;
-  return JSON.stringify(entry);
 }
 
 function isEntryCompleted(entry: TaskExecutionEntry): boolean {
@@ -151,7 +144,7 @@ export class ExecutionLogService {
     const completedSet = new Set<string>();
     for (const entry of arr) {
       if (isEntryCompleted(entry)) {
-        completedSet.add(toExecutionKey(entry));
+        completedSet.add(computeExecutionInstanceKey(entry));
       }
     }
     const completedTasks = completedSet.size;
@@ -199,7 +192,7 @@ export class ExecutionLogService {
       const completedSet = new Set<string>();
       for (const entry of filtered) {
         if (isEntryCompleted(entry)) {
-          completedSet.add(toExecutionKey(entry));
+          completedSet.add(computeExecutionInstanceKey(entry));
         }
       }
       const completedTasks = completedSet.size;

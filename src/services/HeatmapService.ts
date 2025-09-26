@@ -1,5 +1,6 @@
 import { App, TFile, normalizePath } from 'obsidian'
 import { HeatmapDayStats, HeatmapYearData } from '../types'
+import { computeExecutionInstanceKey } from '../utils/logKeys'
 
 type NormalizedSummary = { totalTasks: number; completedTasks: number }
 type DailySummaryMap = Record<string, NormalizedSummary>
@@ -10,24 +11,30 @@ interface MonthlyLogData {
   taskExecutions: TaskExecutionsMap
 }
 
+type RawMonthlyLog = {
+  dailySummary?: Record<string, unknown>
+  taskExecutions?: Record<string, unknown[]>
+  [key: string]: unknown
+}
+
 const createEmptyMonthlyLog = (): MonthlyLogData => ({
   dailySummary: {},
   taskExecutions: {},
 })
 
-interface PluginLike {
+export interface HeatmapServicePluginLike {
   app: App
   pathManager: {
     getLogDataPath(): string
-    getLogYearPath(year: number): string
-    ensureYearFolder(year: number): Promise<string>
+    getLogYearPath(year: number | string): string
+    ensureYearFolder(year: number | string): Promise<string>
   }
 }
 
 export class HeatmapService {
-  private plugin: PluginLike
+  private plugin: HeatmapServicePluginLike
 
-  constructor(plugin: PluginLike) {
+  constructor(plugin: HeatmapServicePluginLike) {
     this.plugin = plugin
   }
 
@@ -119,32 +126,108 @@ export class HeatmapService {
         if (!file || !(file instanceof TFile)) continue
 
         const content = await this.plugin.app.vault.read(file)
-        const monthlyData = this.normalizeMonthlyLog(JSON.parse(content))
-        const hasSummary = Object.keys(monthlyData.dailySummary).length > 0
+        let raw: RawMonthlyLog
+        try {
+          raw = JSON.parse(content) as RawMonthlyLog
+        } catch {
+          continue
+        }
 
-        if (hasSummary) {
-          for (const [dateString, summary] of Object.entries(monthlyData.dailySummary)) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue
-            if (!dateString.startsWith(`${year}-`)) continue
+        const monthlyData = this.normalizeMonthlyLog(raw)
+        const summaryRecord = this.ensureDailySummaryRecord(raw)
+        const dateKeys = new Set([
+          ...Object.keys(monthlyData.dailySummary),
+          ...Object.keys(monthlyData.taskExecutions),
+        ])
 
-            const totalTasks = summary.totalTasks
-            const completedTasks = summary.completedTasks
-            const stats: HeatmapDayStats = {
+        let monthlyChanged = false
+
+        for (const dateString of dateKeys) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue
+
+          const dayTasks = monthlyData.taskExecutions[dateString] ?? []
+          const hasExecutions = dayTasks.length > 0
+          const computedStats = hasExecutions
+            ? this.calculateDailyStats(dayTasks)
+            : null
+          const previousSummary = monthlyData.dailySummary[dateString]
+
+          const prevSummaryTotal = previousSummary?.totalTasks ?? 0
+          const prevSummaryCompleted = previousSummary?.completedTasks ?? 0
+
+          const executionTotal = computedStats?.totalTasks ?? 0
+          const executionCompleted = computedStats?.completedTasks ?? 0
+
+          const completedTasks = hasExecutions
+            ? executionCompleted
+            : prevSummaryCompleted
+          const totalTasks = Math.max(
+            prevSummaryTotal,
+            hasExecutions ? executionTotal : 0,
+            completedTasks,
+          )
+          const procrastinatedTasks = Math.max(0, totalTasks - completedTasks)
+          const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0
+
+          if (
+            !previousSummary ||
+            previousSummary.totalTasks !== totalTasks ||
+            previousSummary.completedTasks !== completedTasks
+          ) {
+            monthlyChanged = true
+          }
+          monthlyData.dailySummary[dateString] = { totalTasks, completedTasks }
+
+          const existingSummarySource = summaryRecord[dateString]
+          const summarySource =
+            existingSummarySource && typeof existingSummarySource === 'object'
+              ? (existingSummarySource as Record<string, unknown>)
+              : {}
+
+          const prevTotal = this.toNumber(summarySource.totalTasks)
+          const prevCompleted = this.toNumber(summarySource.completedTasks)
+          const prevProcrastinated = this.toNumber(summarySource.procrastinatedTasks)
+          const prevCompletionRate = this.toNumber(summarySource.completionRate)
+          const prevMinutes = this.toNumber(summarySource.totalMinutes)
+
+          const computedMinutes = this.calculateMinutesFromTasks(dayTasks)
+          const totalMinutes = computedMinutes > 0 ? computedMinutes : prevMinutes
+
+          if (
+            prevTotal !== totalTasks ||
+            prevCompleted !== completedTasks ||
+            prevProcrastinated !== procrastinatedTasks ||
+            Math.abs(prevCompletionRate - completionRate) > 1e-6 ||
+            (totalMinutes > 0 && prevMinutes !== totalMinutes) ||
+            !existingSummarySource
+          ) {
+            monthlyChanged = true
+          }
+
+          summaryRecord[dateString] = {
+            ...summarySource,
+            totalMinutes,
+            totalTasks,
+            completedTasks,
+            procrastinatedTasks,
+            completionRate,
+          }
+
+          if (
+            dateString.startsWith(`${year}-`) &&
+            !this.isFutureDate(dateString)
+          ) {
+            yearlyData.days[dateString] = {
               totalTasks,
               completedTasks,
-              procrastinatedTasks: Math.max(0, totalTasks - completedTasks),
-              completionRate: totalTasks > 0 ? completedTasks / totalTasks : 0,
+              procrastinatedTasks,
+              completionRate,
             }
-            yearlyData.days[dateString] = stats
           }
-        } else {
-          for (const [dateString, dayTasks] of Object.entries(monthlyData.taskExecutions)) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) continue
-            if (!dateString.startsWith(`${year}-`)) continue
+        }
 
-            const stats = this.calculateDailyStats(dayTasks)
-            yearlyData.days[dateString] = stats
-          }
+        if (monthlyChanged) {
+          await this.plugin.app.vault.modify(file, JSON.stringify(raw, null, 2))
         }
       }
 
@@ -174,12 +257,6 @@ export class HeatmapService {
       }
       return null
     }
-    const toKey = (task: Record<string, unknown>): string =>
-      readStringField(task, 'taskPath') ??
-      readStringField(task, 'taskName') ??
-      readStringField(task, 'taskTitle') ??
-      readStringField(task, 'instanceId') ??
-      JSON.stringify(task)
 
     const hasPositive = (task: Record<string, unknown>, field: string): boolean =>
       this.toNumber(task[field]) > 0
@@ -194,7 +271,7 @@ export class HeatmapService {
     }
 
     for (const task of dayTasks) {
-      const key = toKey(task)
+      const key = computeExecutionInstanceKey(task)
       if (!map.has(key)) map.set(key, false)
       if (isCompleted(task)) map.set(key, true)
     }
@@ -211,6 +288,10 @@ export class HeatmapService {
 
   async updateDailyStats(dateString: string): Promise<HeatmapDayStats | null> {
     try {
+      if (this.isFutureDate(dateString)) {
+        await this.removeYearlyDateEntry(dateString)
+        return null
+      }
       const monthly = await this.loadMonthlyData(dateString)
       const dayTasks = monthly.taskExecutions[dateString] ?? []
       const stats = this.calculateDailyStats(dayTasks)
@@ -219,6 +300,25 @@ export class HeatmapService {
     } catch {
       return null
     }
+  }
+
+  private calculateMinutesFromTasks(dayTasks: Array<Record<string, unknown>>): number {
+    return dayTasks.reduce((sum, task) => {
+      const durationSec = this.toNumber(task['durationSec'])
+      const durationFallback = this.toNumber(task['duration'])
+      const seconds = durationSec > 0 ? durationSec : durationFallback
+      if (seconds <= 0) return sum
+      return sum + Math.floor(seconds / 60)
+    }, 0)
+  }
+
+  private ensureDailySummaryRecord(
+    raw: RawMonthlyLog,
+  ): Record<string, Record<string, unknown>> {
+    if (!raw.dailySummary || typeof raw.dailySummary !== 'object') {
+      raw.dailySummary = {}
+    }
+    return raw.dailySummary as Record<string, Record<string, unknown>>
   }
 
   private async loadMonthlyData(dateString: string): Promise<MonthlyLogData> {
@@ -262,6 +362,45 @@ export class HeatmapService {
       }
     } catch {
       // ignore
+    }
+  }
+
+  private isFutureDate(dateString: string): boolean {
+    const date = new Date(`${dateString}T00:00:00`)
+    if (Number.isNaN(date.getTime())) {
+      return false
+    }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    date.setHours(0, 0, 0, 0)
+    return date.getTime() > today.getTime()
+  }
+
+  private async removeYearlyDateEntry(dateString: string): Promise<void> {
+    try {
+      const [yearString] = dateString.split('-')
+      const year = Number(yearString)
+      if (!Number.isFinite(year)) {
+        return
+      }
+      const yearPath = this.plugin.pathManager.getLogYearPath(year)
+      const heatmapPath = normalizePath(`${yearPath}/yearly-heatmap.json`)
+      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
+      if (!file || !(file instanceof TFile)) return
+
+      const content = await this.plugin.app.vault.read(file)
+      if (!content) return
+
+      const yearly = JSON.parse(content) as HeatmapYearData
+      if (!yearly.days || !yearly.days[dateString]) return
+
+      delete yearly.days[dateString]
+      yearly.metadata = yearly.metadata ?? { version: '1.0' }
+      yearly.metadata.lastUpdated = new Date().toISOString()
+
+      await this.plugin.app.vault.modify(file, JSON.stringify(yearly, null, 2))
+    } catch {
+      // ignore removal errors
     }
   }
 }
