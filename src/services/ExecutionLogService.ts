@@ -93,6 +93,19 @@ export class ExecutionLogService {
     return `${y}-${m}-${d}`;
   }
 
+  private resolveTaskTitle(inst: TaskInstance): string {
+    const candidates = [inst.executedTitle, inst.task.displayTitle, inst.task.name];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+    return 'Untitled Task';
+  }
+
   async saveTaskLog(inst: TaskInstance, durationSec: number): Promise<void> {
     if (!inst.startTime || !inst.stopTime) return;
     const start = new Date(inst.startTime);
@@ -125,7 +138,7 @@ export class ExecutionLogService {
     }
 
     const exec: TaskExecutionEntry = {
-      taskTitle: inst.task.title || inst.task.name,
+      taskTitle: this.resolveTaskTitle(inst),
       taskPath: inst.task.path,
       instanceId: inst.instanceId,
       slotKey: inst.slotKey,

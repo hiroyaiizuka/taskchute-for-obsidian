@@ -40,6 +40,19 @@ interface DuplicatedRecord extends DuplicatedInstance {
   slotKey?: string;
 }
 
+function deriveDisplayTitle(
+  file: TFile | null,
+  metadata: TaskFrontmatter | undefined,
+  fallbackTitle: string | undefined,
+): string {
+  const frontmatterTitle = toStringField((metadata as Record<string, unknown> | undefined)?.title)
+  if (frontmatterTitle) return frontmatterTitle
+  if (file) return file.basename
+  const executionTitle = toStringField(fallbackTitle)
+  if (executionTitle) return executionTitle
+  return 'Untitled Task'
+}
+
 export async function loadTasksRefactored(this: TaskChuteView): Promise<void> {
   this.tasks = [];
   this.taskInstances = [];
@@ -197,6 +210,7 @@ async function createTaskFromExecutions(
     frontmatter: metadata ?? {},
     path: derivedPath,
     name: templateName,
+    displayTitle: deriveDisplayTitle(file, metadata, executions[0].taskTitle),
     project: metadata?.project,
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
@@ -249,6 +263,7 @@ async function createNonRoutineTask(
     frontmatter: metadata ?? {},
     path: file.path,
     name: file.basename,
+    displayTitle: deriveDisplayTitle(file, metadata, file.basename),
     project: metadata?.project,
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
@@ -291,6 +306,7 @@ async function createRoutineTask(
     frontmatter: metadata,
     path: file.path,
     name: file.basename,
+    displayTitle: deriveDisplayTitle(file, metadata, file.basename),
     project: metadata.project,
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
@@ -391,6 +407,7 @@ async function addDuplicatedInstances(this: TaskChuteView, dateKey: string): Pro
               frontmatter: metadata,
               path: originalPath,
               name: file.basename,
+              displayTitle: deriveDisplayTitle(file, metadata, file.basename),
               project: metadata.project,
               projectPath: projectInfo?.path,
               projectTitle: projectInfo?.title,
@@ -408,6 +425,7 @@ async function addDuplicatedInstances(this: TaskChuteView, dateKey: string): Pro
           frontmatter: {},
           path: originalPath,
           name: fallbackName,
+          displayTitle: deriveDisplayTitle(null, undefined, fallbackName),
           isRoutine: false,
         };
       }

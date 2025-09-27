@@ -23,6 +23,7 @@ export interface TaskData {
   frontmatter: Record<string, unknown>;
   path: string;
   name: string;
+  displayTitle?: string;
   startTime?: string;
   endTime?: string;
   actualMinutes?: number;

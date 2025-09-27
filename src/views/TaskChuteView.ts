@@ -165,6 +165,19 @@ export class TaskChuteView extends ItemView {
     this.taskCreationService = new TaskCreationService(this.plugin)
   }
 
+  private getInstanceDisplayTitle(inst: TaskInstance): string {
+    const candidates = [inst.task.displayTitle, inst.executedTitle, inst.task.name]
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim()
+        if (trimmed.length > 0) {
+          return trimmed
+        }
+      }
+    }
+    return "未設定タスク"
+  }
+
   getViewType(): string {
     return "taskchute-view"
   }
@@ -619,6 +632,10 @@ export class TaskChuteView extends ItemView {
         frontmatter: frontmatter || {},
         path: file.path,
         name: file.basename,
+        displayTitle:
+          typeof frontmatter?.title === "string" && frontmatter.title.trim().length > 0
+            ? frontmatter.title
+            : file.basename,
         project: frontmatter?.project,
         isRoutine: frontmatter?.isRoutine === true,
         routine_type: frontmatter?.routine_type,
@@ -1317,7 +1334,7 @@ export class TaskChuteView extends ItemView {
       // UIを更新
       this.renderTaskList()
 
-      new Notice(`「${inst.task.title}」を複製しました`)
+      new Notice(`「${this.getInstanceDisplayTitle(inst)}」を複製しました`)
 
       return returnOnly ? newInstance : undefined
     } catch (error) {
@@ -1443,6 +1460,7 @@ export class TaskChuteView extends ItemView {
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
     const existingComment = await this.getExistingTaskComment(inst)
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const modal = document.createElement("div")
     modal.className = "taskchute-comment-modal"
     const modalContent = modal.createEl("div", {
@@ -1454,8 +1472,8 @@ export class TaskChuteView extends ItemView {
       cls: "taskchute-modal-header",
     })
     const headerText = existingComment
-      ? `✏️ 「${inst.task.title}」のコメントを編集`
-      : `🎉 お疲れ様でした！「${inst.task.title}」が完了しました`
+      ? `✏️ 「${displayTitle}」のコメントを編集`
+      : `🎉 お疲れ様でした！「${displayTitle}」が完了しました`
     header.createEl("h2", { text: headerText })
 
     // 実行時間表示（完了タスクのみ）
@@ -2192,10 +2210,11 @@ export class TaskChuteView extends ItemView {
         if (!file || !(file instanceof TFile)) {
           // Fallback: タスクフォルダ直下
           const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-          const fallbackPath = `${taskFolderPath}/${task.title}.md`
+          const fallbackBase = task.name || task.displayTitle || 'Untitled Task'
+          const fallbackPath = `${taskFolderPath}/${fallbackBase}.md`
           const fb = this.app.vault.getAbstractFileByPath(fallbackPath)
           if (!fb || !(fb instanceof TFile)) {
-            new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+            new Notice(`タスクファイル「${fallbackBase}.md」が見つかりません`)
             return
           }
           await this.app.fileManager.processFrontMatter(fb, (frontmatter) => {
@@ -2798,15 +2817,14 @@ export class TaskChuteView extends ItemView {
     )
       return
 
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const modal = document.createElement("div")
     modal.className = "task-modal-overlay"
     const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
     // Header
     const header = modalContent.createEl("div", { cls: "modal-header" })
-    header.createEl("h3", {
-      text: `「${inst.task.title || inst.task.name}」の時刻を編集`,
-    })
+    header.createEl("h3", { text: `「${displayTitle}」の時刻を編集` })
     const closeBtn = header.createEl("button", {
       cls: "modal-close-button",
       text: "×",
@@ -2932,6 +2950,7 @@ export class TaskChuteView extends ItemView {
     startStr: string,
     stopStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const base = inst.startTime || new Date(this.currentDate)
     const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10))
     const [eh, em] = stopStr.split(":").map((n) => parseInt(n, 10))
@@ -2969,13 +2988,14 @@ export class TaskChuteView extends ItemView {
     await this.executionLogService.saveTaskLog(inst, durationSec)
     // Re-render
     this.renderTaskList()
-    new Notice(`「${inst.task.title || inst.task.name}」の時刻を更新しました`)
+    new Notice(`「${displayTitle}」の時刻を更新しました`)
   }
 
   private async updateRunningInstanceStartTime(
     inst: TaskInstance,
     startStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const base = inst.startTime || new Date(this.currentDate)
     const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10))
     inst.startTime = new Date(
@@ -2996,15 +3016,14 @@ export class TaskChuteView extends ItemView {
 
     await this.saveRunningTasksState()
     this.renderTaskList()
-    new Notice(
-      `「${inst.task.title || inst.task.name}」の開始予定時刻を更新しました`,
-    )
+    new Notice(`「${displayTitle}」の開始予定時刻を更新しました`)
   }
 
   private async transitionToRunningWithStart(
     inst: TaskInstance,
     startStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     // Re-open as running with a specified start time on the same date
     if (inst.state !== "done") return
     const base = inst.startTime || new Date(this.currentDate)
@@ -3035,7 +3054,7 @@ export class TaskChuteView extends ItemView {
 
     await this.saveRunningTasksState()
     this.renderTaskList()
-    new Notice(`「${inst.task.title || inst.task.name}」を実行中に戻しました`)
+    new Notice(`「${displayTitle}」を実行中に戻しました`)
   }
 
   private updateTimerDisplay(timerEl: HTMLElement, inst: TaskInstance): void {
@@ -4405,6 +4424,12 @@ export class TaskChuteView extends ItemView {
     scheduledTime: string,
   ): Promise<void> {
     try {
+      const fallbackTitle =
+        task.title ||
+        (typeof task.path === "string"
+          ? task.path.split("/").pop()?.replace(/\.md$/u, "")
+          : undefined) ||
+        "Untitled Task"
       // Prefer existing path to avoid folder mismatch
       const primaryPath = task.path || ""
       let file = primaryPath
@@ -4412,12 +4437,12 @@ export class TaskChuteView extends ItemView {
         : null
       if (!file) {
         const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-        const fallbackPath = `${taskFolderPath}/${task.title}.md`
+        const fallbackPath = `${taskFolderPath}/${fallbackTitle}.md`
         file = this.app.vault.getAbstractFileByPath(fallbackPath)
       }
 
       if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        new Notice(`タスクファイル「${fallbackTitle}.md」が見つかりません`)
         return
       }
 
@@ -4444,7 +4469,7 @@ export class TaskChuteView extends ItemView {
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true })
       new Notice(
-        `「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`,
+        `「${task.title ?? fallbackTitle}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`,
       )
     } catch (error: unknown) {
       console.error("Failed to set routine task:", error)
@@ -4467,6 +4492,12 @@ export class TaskChuteView extends ItemView {
     },
   ): Promise<void> {
     try {
+      const fallbackTitle =
+        task.title ||
+        (typeof task.path === "string"
+          ? task.path.split("/").pop()?.replace(/\.md$/u, "")
+          : undefined) ||
+        "Untitled Task"
       // Prefer existing path to avoid folder mismatch
       const primaryPath = task.path || ""
       let file = primaryPath
@@ -4474,12 +4505,12 @@ export class TaskChuteView extends ItemView {
         : null
       if (!file) {
         const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-        const fallbackPath = `${taskFolderPath}/${task.title}.md`
+        const fallbackPath = `${taskFolderPath}/${fallbackTitle}.md`
         file = this.app.vault.getAbstractFileByPath(fallbackPath)
       }
 
       if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        new Notice(`タスクファイル「${fallbackTitle}.md」が見つかりません`)
         return
       }
 
@@ -4603,7 +4634,7 @@ export class TaskChuteView extends ItemView {
 
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true })
-      new Notice(`タスクを、ルーチンタスクに設定しました`)
+      new Notice(`「${task.title ?? fallbackTitle}」をルーチンタスクに設定しました`)
     } catch (error: unknown) {
       console.error("Failed to set routine task:", error)
       const msg = error instanceof Error ? error.message : String(error)
@@ -4620,14 +4651,13 @@ export class TaskChuteView extends ItemView {
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
     return new Promise((resolve) => {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       const modal = document.createElement("div")
       modal.className = "task-modal-overlay"
       const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
       modalContent.createEl("h3", { text: "タスクの削除確認" })
-      modalContent.createEl("p", {
-        text: `「${inst.task.title}」を削除してもよろしいですか？`,
-      })
+      modalContent.createEl("p", { text: `「${displayTitle}」を削除してもよろしいですか？` })
 
       const buttonContainer = modalContent.createEl("div", {
         cls: "modal-button-container",
@@ -4747,6 +4777,7 @@ export class TaskChuteView extends ItemView {
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {
     try {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       // 状態をidleにリセット
       inst.state = "idle"
       inst.startTime = undefined
@@ -4764,7 +4795,7 @@ export class TaskChuteView extends ItemView {
       // UIを更新
       this.renderTaskList()
 
-      new Notice(`「${inst.task.title}」をアイドル状態に戻しました`)
+      new Notice(`「${displayTitle}」をアイドル状態に戻しました`)
     } catch (error) {
       console.error("Failed to reset task:", error)
       new Notice("タスクのリセットに失敗しました")
@@ -4780,6 +4811,7 @@ export class TaskChuteView extends ItemView {
       tooltip.remove()
     }
 
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     // モーダルコンテナ
     const modal = document.createElement("div")
     modal.className = "task-modal-overlay"
@@ -4787,9 +4819,7 @@ export class TaskChuteView extends ItemView {
 
     // モーダルヘッダー
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", {
-      text: `「${inst.task.title}」のプロジェクト設定`,
-    })
+    modalHeader.createEl("h3", { text: `「${displayTitle}」のプロジェクト設定` })
 
     // 閉じるボタン
     const closeButton = modalHeader.createEl("button", {
@@ -4891,12 +4921,22 @@ export class TaskChuteView extends ItemView {
     projectName: string,
   ): Promise<void> {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      const filePath = `${taskFolderPath}/${inst.task.title}.md`
-      const file = this.app.vault.getAbstractFileByPath(filePath)
+      const displayTitle = this.getInstanceDisplayTitle(inst)
+      let file: TFile | null = inst.task.file instanceof TFile ? inst.task.file : null
+      if (!file && inst.task.path) {
+        const byPath = this.app.vault.getAbstractFileByPath(inst.task.path)
+        file = byPath instanceof TFile ? byPath : null
+      }
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+        const fallbackBase = inst.task.name || displayTitle
+        const fallbackPath = `${taskFolderPath}/${fallbackBase}.md`
+        const byFallback = this.app.vault.getAbstractFileByPath(fallbackPath)
+        file = byFallback instanceof TFile ? byFallback : null
+      }
 
-      if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${inst.task.title}.md」が見つかりません`)
+      if (!file) {
+        new Notice(`タスクファイル「${displayTitle}.md」が見つかりません`)
         return
       }
 
@@ -4926,8 +4966,8 @@ export class TaskChuteView extends ItemView {
       this.renderTaskList()
 
       const message = projectName
-        ? `「${inst.task.title}」を${projectName}に関連付けました`
-        : `「${inst.task.title}」のプロジェクト関連付けを解除しました`
+        ? `「${displayTitle}」を${projectName}に関連付けました`
+        : `「${displayTitle}」のプロジェクト関連付けを解除しました`
       new Notice(message)
     } catch (error) {
       console.error("Failed to update project:", error)
@@ -5343,6 +5383,7 @@ export class TaskChuteView extends ItemView {
   private activeMoveCalendar: TaskMoveCalendar | null = null
 
   private async clearTaskTargetDate(inst: TaskInstance): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const file = inst.task?.path
       ? this.app.vault.getAbstractFileByPath(inst.task.path)
       : null
@@ -5357,9 +5398,7 @@ export class TaskChuteView extends ItemView {
         }
         return frontmatter
       })
-      new Notice(
-        `タスク「${inst.task.title ?? inst.task.name}」の移動先を解除しました`,
-      )
+      new Notice(`タスク「${displayTitle}」の移動先を解除しました`)
       await this.reloadTasksAndRestore()
     } catch (error) {
       console.error("Failed to clear task target date:", error)
@@ -5396,6 +5435,7 @@ export class TaskChuteView extends ItemView {
 
   private async showUnifiedProjectModal(inst: TaskInstance): Promise<void> {
     try {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       // Create modal overlay
       const modal = document.createElement("div")
       modal.className = "task-modal-overlay"
@@ -5403,9 +5443,7 @@ export class TaskChuteView extends ItemView {
 
       // Modal header
       const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-      modalHeader.createEl("h3", {
-        text: `「${inst.task.title}」のプロジェクト設定`,
-      })
+      modalHeader.createEl("h3", { text: `「${displayTitle}」のプロジェクト設定` })
 
       // Close button
       const closeButton = modalHeader.createEl("button", {

@@ -13,6 +13,8 @@ export interface ValidationResult {
 }
 
 export class TaskValidator {
+  private static readonly NON_ROUTINE_STALE_THRESHOLD_DAYS = 7;
+
   static validate(metadata: Record<string, unknown>): ValidationResult {
     const warnings: ValidationWarning[] = [];
     const errors: ValidationWarning[] = [];
@@ -64,9 +66,14 @@ export class TaskValidator {
     }
 
     // 非ルーチンタスクの古いtarget_date検証
-    if (!metadata.isRoutine && metadata.target_date && this.isValidDate(metadata.target_date)) {
-      const daysSinceTarget = this.daysSince(metadata.target_date);
-      if (daysSinceTarget > 7) {
+    if (
+      !metadata.isRoutine &&
+      metadata.target_date &&
+      this.isValidDate(metadata.target_date) &&
+      this.isPastDate(metadata.target_date as string)
+    ) {
+      const daysSinceTarget = this.daysSince(metadata.target_date as string);
+      if (daysSinceTarget > this.NON_ROUTINE_STALE_THRESHOLD_DAYS) {
         warnings.push({
           code: 'OLD_TARGET_DATE',
           message: `タスクが${daysSinceTarget}日前から未実行です`,

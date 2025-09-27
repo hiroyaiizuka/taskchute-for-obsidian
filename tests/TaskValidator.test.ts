@@ -34,9 +34,10 @@ describe('TaskValidator', () => {
     });
 
     test('非ルーチンタスクのtarget_dateは警告なし', () => {
+      const today = new Date().toISOString().split('T')[0];
       const metadata = {
         isRoutine: false,
-        target_date: '2025-09-19'
+        target_date: today
       };
 
       const result = TaskValidator.validate(metadata);
