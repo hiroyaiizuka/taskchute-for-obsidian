@@ -1,4 +1,4 @@
-import { TFile } from 'obsidian'
+import { App, TFile } from 'obsidian'
 import { HeatmapService, HeatmapServicePluginLike } from '../../src/services/HeatmapService'
 
 function createTFile(path: string) {
@@ -151,6 +151,62 @@ describe('HeatmapService', () => {
     expect(updatedMonth.dailySummary['2025-09-23'].completedTasks).toBe(3)
     expect(updatedMonth.dailySummary['2025-09-23'].procrastinatedTasks).toBe(0)
     expect(updatedMonth.dailySummary['2025-09-23'].completionRate).toBe(1)
+  })
+
+  test('calculateDailyStats distinguishes incomplete tasks', () => {
+    const pathManager = {
+      getLogDataPath: () => 'LOGS',
+      getLogYearPath: (year: number | string) => `LOGS/${year}`,
+      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+      getReviewDataPath: () => 'REVIEWS',
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn(),
+      read: jest.fn(),
+      create: jest.fn(),
+      modify: jest.fn(),
+    }
+
+    const plugin: HeatmapServicePluginLike = {
+      app: { vault } as unknown as App,
+      pathManager,
+    }
+
+    const service = new HeatmapService(plugin)
+
+    const stats = service.calculateDailyStats([
+      {
+        instanceId: 'task-1',
+        taskTitle: '未完了タスク',
+        isCompleted: false,
+      },
+      {
+        instanceId: 'task-2',
+        taskTitle: '文字列falseタスク',
+        isCompleted: 'false',
+      },
+      {
+        instanceId: 'task-3',
+        taskTitle: '進捗あり',
+        stopTime: '10:00:00',
+      },
+      {
+        instanceId: 'task-4',
+        taskTitle: 'durationあり',
+        durationSec: 1800,
+      },
+      {
+        instanceId: 'task-5',
+        taskTitle: '完了文字列',
+        isCompleted: 'done',
+      },
+    ])
+
+    expect(stats.totalTasks).toBe(5)
+    expect(stats.completedTasks).toBe(3)
+    expect(stats.procrastinatedTasks).toBe(2)
+    expect(stats.completionRate).toBeCloseTo(0.6, 5)
   })
 
   test('loadDayDetail returns satisfaction, averages, and sorted executions', async () => {

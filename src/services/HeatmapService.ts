@@ -591,13 +591,35 @@ export class HeatmapService {
 
   private isTaskCompleted(task: Record<string, unknown>): boolean {
     const explicit = task['isCompleted']
-    if (typeof explicit === 'boolean') return explicit
+    if (typeof explicit === 'boolean') {
+      return explicit
+    }
+    if (typeof explicit === 'string') {
+      const normalized = explicit.trim().toLowerCase()
+      if (['true', '1', 'yes', 'completed', 'done'].includes(normalized)) {
+        return true
+      }
+      if (['false', '0', 'no', 'pending', 'incomplete', 'todo'].includes(normalized)) {
+        return false
+      }
+    }
+
+    const status = this.readString(task, 'status')?.toLowerCase()
+    if (status) {
+      if (['done', 'completed', 'finished'].includes(status)) {
+        return true
+      }
+      if (['pending', 'todo', 'incomplete', 'scheduled'].includes(status)) {
+        return false
+      }
+    }
+
     if (this.readString(task, 'stopTime')) return true
     const durationSec = this.readNumeric(task, 'durationSec')
     if (durationSec !== null && durationSec > 0) return true
     const duration = this.readNumeric(task, 'duration')
     if (duration !== null && duration > 0) return true
-    return true
+    return false
   }
 
   private calculateMinutesFromTasks(dayTasks: Array<Record<string, unknown>>): number {

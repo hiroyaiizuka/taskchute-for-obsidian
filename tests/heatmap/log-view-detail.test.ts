@@ -1,5 +1,5 @@
 import { LogView } from '../../src/views/LogView'
-import type { HeatmapDayDetail, HeatmapYearData } from '../../src/types'
+import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../src/types'
 
 type TestVault = {
   getAbstractFileByPath: jest.Mock
@@ -290,5 +290,65 @@ describe('LogView heatmap detail panel', () => {
     await flushMicrotasks()
 
     expect(navigateSpy).toHaveBeenCalledWith('2025-09-25')
+  })
+
+  test('calculateLevel maps completion rate into five buckets', () => {
+    const { plugin, container } = createPlugin()
+    const view = new LogView(plugin, container)
+    const calculator = view as unknown as {
+      calculateLevel(stats: HeatmapDayStats): 0 | 1 | 2 | 3 | 4 | null
+    }
+
+    const makeStats = (total: number, completed: number): HeatmapDayStats => ({
+      totalTasks: total,
+      completedTasks: completed,
+      procrastinatedTasks: Math.max(0, total - completed),
+      completionRate: total > 0 ? completed / total : 0,
+    })
+
+    expect(calculator.calculateLevel(makeStats(0, 0))).toBeNull()
+    expect(calculator.calculateLevel(makeStats(4, 0))).toBeNull()
+    expect(calculator.calculateLevel(makeStats(4, 1))).toBe(0)
+    expect(calculator.calculateLevel(makeStats(5, 2))).toBe(1)
+    expect(calculator.calculateLevel(makeStats(4, 2))).toBe(2)
+    expect(calculator.calculateLevel(makeStats(4, 3))).toBe(3)
+    expect(calculator.calculateLevel(makeStats(20, 19))).toBe(4)
+  })
+
+  test('days with low completion but some progress render white cells', async () => {
+    const { plugin, container } = createPlugin()
+    const view = new LogView(plugin, container)
+
+    jest.setSystemTime(new Date('2025-10-10T09:00:00Z'))
+
+    const yearlyData: HeatmapYearData = {
+      year: 2025,
+      days: {
+        '2025-10-01': { totalTasks: 8, completedTasks: 0, procrastinatedTasks: 8, completionRate: 0 },
+        '2025-10-02': { totalTasks: 10, completedTasks: 2, procrastinatedTasks: 8, completionRate: 0.2 },
+        '2025-10-03': { totalTasks: 10, completedTasks: 5, procrastinatedTasks: 5, completionRate: 0.5 },
+      },
+    }
+
+    const heatmapService = (view as unknown as {
+      heatmapService: {
+        loadYearlyData: jest.Mock<Promise<HeatmapYearData>, [number]>
+        loadDayDetail: jest.Mock<Promise<HeatmapDayDetail | null>, [string]>
+      }
+    }).heatmapService
+
+    jest.spyOn(heatmapService, 'loadYearlyData').mockResolvedValue(yearlyData)
+    jest.spyOn(heatmapService, 'loadDayDetail').mockResolvedValue(createDetail('2025-10-02'))
+
+    await view.render()
+    await flushMicrotasks()
+
+    const day1 = container.querySelector<HTMLElement>('.heatmap-cell[data-date="2025-10-01"]')
+    const day2 = container.querySelector<HTMLElement>('.heatmap-cell[data-date="2025-10-02"]')
+    const day3 = container.querySelector<HTMLElement>('.heatmap-cell[data-date="2025-10-03"]')
+
+    expect(day1?.dataset.level).toBeUndefined()
+    expect(day2?.dataset.level).toBe('0')
+    expect(day3?.dataset.level).toBe('2')
   })
 })

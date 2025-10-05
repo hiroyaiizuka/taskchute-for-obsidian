@@ -218,7 +218,7 @@ export class LogView {
     gridSection.appendChild(grid);
 
     grid.querySelectorAll<HTMLElement>('.heatmap-cell').forEach((cell) => {
-      cell.dataset.level = '0';
+      delete cell.dataset.level;
       cell.dataset.tooltip = 'データなし';
     });
 
@@ -259,7 +259,7 @@ export class LogView {
 
       const cell = grid.createEl('div', {
         cls: inYear ? 'heatmap-cell' : 'heatmap-cell empty',
-        attr: { 'data-date': dateString, 'data-level': '0' },
+        attr: { 'data-date': dateString },
       });
 
       if (inYear) {
@@ -313,12 +313,16 @@ export class LogView {
         const cell = this.container.querySelector<HTMLElement>(`[data-date="${dateKey}"]`);
         if (!cell) continue;
         if (this.isFutureDate(dateKey)) {
-          cell.dataset.level = '0';
+          delete cell.dataset.level;
           delete cell.dataset.tooltip;
           continue;
         }
         const level = this.calculateLevel(stats);
-        cell.dataset.level = String(level);
+        if (level === null) {
+          delete cell.dataset.level;
+        } else {
+          cell.dataset.level = String(level);
+        }
         cell.dataset.tooltip = this.createTooltipText(dateKey, stats);
       }
       if (index < entries.length) {
@@ -677,14 +681,32 @@ export class LogView {
     return '-';
   }
 
-  private calculateLevel(stats: HeatmapDayStats): number {
-    if (!stats || stats.totalTasks === 0) return 0;
-    if (stats.procrastinatedTasks === 0) return 4;
-    const rate = stats.completionRate;
-    if (rate >= 0.8) return 3;
-    if (rate >= 0.5) return 2;
-    if (rate >= 0.2) return 1;
-    return 1;
+  private calculateLevel(stats: HeatmapDayStats): 0 | 1 | 2 | 3 | 4 | null {
+    if (!stats || stats.totalTasks === 0) {
+      return null;
+    }
+
+    if (!stats.completedTasks || stats.completedTasks <= 0) {
+      return null;
+    }
+
+    const clampedRate = Number.isFinite(stats.completionRate)
+      ? Math.min(1, Math.max(0, stats.completionRate))
+      : 0;
+
+    if (clampedRate <= 0.25) {
+      return 0;
+    }
+    if (clampedRate < 0.5) {
+      return 1;
+    }
+    if (clampedRate < 0.75) {
+      return 2;
+    }
+    if (clampedRate < 0.95) {
+      return 3;
+    }
+    return 4;
   }
 
   private createTooltipText(dateKey: string, stats: HeatmapDayStats): string {

@@ -1500,7 +1500,7 @@ select.form-input {
 
 .heatmap-cell[data-level="0"] {
   background: #ebedf0;
-  border-color: rgba(27, 31, 36, 0.12);
+  border-color: rgba(27, 31, 36, 0.25);
 }
 
 .heatmap-cell[data-level="1"] {
@@ -1528,8 +1528,8 @@ select.form-input {
 }
 
 .theme-dark .heatmap-cell[data-level="0"] {
-  background: rgba(240, 246, 252, 0.04);
-  border-color: rgba(240, 246, 252, 0.08);
+  background: #ebedf0;
+  border-color: rgba(240, 246, 252, 0.55);
 }
 
 @keyframes pulse {
