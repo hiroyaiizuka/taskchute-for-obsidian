@@ -51,9 +51,6 @@ describe('Navigate to today (showTodayTasks)', () => {
         projectFolderPath: 'PROJECTS',
         logDataPath: 'LOGS',
         reviewDataPath: 'REVIEWS',
-        enableSound: false,
-        enableFireworks: false,
-        enableConfetti: false,
       },
       saveSettings: jest.fn(),
       pathManager: {

@@ -374,22 +374,6 @@ export default class TaskChutePlusPlugin extends Plugin {
       PathManager.DEFAULT_PATHS.reviewData,
     )
 
-    // Effects settings section
-    const effectsSection = form.createEl("div", { cls: "settings-section" })
-    effectsSection.createEl("h4", { text: "視覚効果設定" })
-
-    this.createToggleSetting(effectsSection, "効果音を有効化", "enableSound")
-    this.createToggleSetting(
-      effectsSection,
-      "花火エフェクトを有効化",
-      "enableFireworks",
-    )
-    this.createToggleSetting(
-      effectsSection,
-      "紙吹雪エフェクトを有効化",
-      "enableConfetti",
-    )
-
     // Event listeners
     closeButton.addEventListener("click", () => {
       document.body.removeChild(modal)
@@ -455,29 +439,6 @@ export default class TaskChutePlusPlugin extends Plugin {
         new Notice(validation.error!)
         input.value = (this.settings[settingKey] as string) || ""
       }
-    })
-  }
-
-  private createToggleSetting(
-    container: HTMLElement,
-    label: string,
-    settingKey: keyof TaskChuteSettings,
-  ): void {
-    const group = container.createEl("div", {
-      cls: "form-group checkbox-group",
-    })
-    const checkbox = group.createEl("input", {
-      type: "checkbox",
-      cls: "form-checkbox",
-    }) as HTMLInputElement
-
-    group.createEl("label", { text: label, cls: "form-label" })
-
-    checkbox.checked = this.settings[settingKey] as boolean
-
-    checkbox.addEventListener("change", async () => {
-      ;(this.settings[settingKey] as boolean) = checkbox.checked
-      await this.saveSettings()
     })
   }
 }

@@ -3,7 +3,6 @@ import { PathManager } from '../managers/PathManager';
 import { TaskChuteSettings } from '../types';
 
 type PathSettingKey = 'taskFolderPath' | 'projectFolderPath' | 'logDataPath' | 'reviewDataPath';
-type ToggleSettingKey = 'enableSound' | 'enableFireworks' | 'enableConfetti';
 
 interface PluginWithSettings extends Plugin {
   app: App;
@@ -25,7 +24,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     this.renderPathSection(containerEl);
-    this.renderEffectsSection(containerEl);
   }
 
   private renderPathSection(container: HTMLElement): void {
@@ -61,31 +59,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       'reviewDataPath',
       PathManager.DEFAULT_PATHS.reviewData,
       () => this.plugin.pathManager.getReviewDataPath(),
-    );
-  }
-
-  private renderEffectsSection(container: HTMLElement): void {
-    new Setting(container).setName('視覚効果設定').setHeading();
-
-    this.createToggleSetting(
-      container,
-      '効果音を有効化',
-      'enableSound',
-      'タスク完了時に効果音を再生する',
-    );
-
-    this.createToggleSetting(
-      container,
-      '花火エフェクトを有効化',
-      'enableFireworks',
-      'タスク完了時に花火エフェクトを表示する',
-    );
-
-    this.createToggleSetting(
-      container,
-      '紙吹雪エフェクトを有効化',
-      'enableConfetti',
-      'タスク完了時に紙吹雪エフェクトを表示する',
     );
   }
 
@@ -141,22 +114,4 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     }
   }
 
-  private createToggleSetting(
-    container: HTMLElement,
-    label: string,
-    settingKey: ToggleSettingKey,
-    description: string,
-  ): void {
-    new Setting(container)
-      .setName(label)
-      .setDesc(description)
-      .addToggle((toggle) => {
-        toggle
-          .setValue(Boolean(this.plugin.settings[settingKey]))
-          .onChange(async (value) => {
-            this.plugin.settings[settingKey] = value;
-            await this.plugin.saveSettings();
-          });
-      });
-  }
 }

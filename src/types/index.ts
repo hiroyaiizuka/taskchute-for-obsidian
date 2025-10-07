@@ -8,9 +8,6 @@ export interface TaskChuteSettings {
   projectFolderPath: string;
   logDataPath: string;
   reviewDataPath: string;
-  enableSound: boolean;
-  enableFireworks: boolean;
-  enableConfetti: boolean;
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
   // Field migration settings
