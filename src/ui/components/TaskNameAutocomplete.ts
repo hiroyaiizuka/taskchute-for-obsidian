@@ -20,9 +20,86 @@ export class TaskNameAutocomplete {
   private selectedIndex: number = -1;
   private suggestionsElement: HTMLElement | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private blurTimer: ReturnType<typeof setTimeout> | null = null;
   private isVisible: boolean = false;
   private fileEventRefs: EventRef[] = [];
   private view?: TaskChuteView;
+
+  private handleInput = () => {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.showSuggestions();
+    }, 100);
+  };
+
+  private handleFocus = () => {
+    if (this.blurTimer) {
+      clearTimeout(this.blurTimer);
+      this.blurTimer = null;
+    }
+
+    this.showSuggestions();
+  };
+
+  private handleBlur = () => {
+    if (this.blurTimer) {
+      clearTimeout(this.blurTimer);
+    }
+
+    this.blurTimer = setTimeout(() => {
+      this.blurTimer = null;
+
+      if (
+        this.suggestionsElement &&
+        this.suggestionsElement.contains(document.activeElement)
+      ) {
+        return;
+      }
+
+      this.hideSuggestions();
+    }, 200);
+  };
+
+  private handleKeydown = (e: KeyboardEvent) => {
+    if (!this.isVisible) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        this.selectNext();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        this.selectPrevious();
+        break;
+      case 'Enter':
+        if (this.selectedIndex >= 0) {
+          e.preventDefault();
+          this.applySuggestion();
+        }
+        break;
+      case 'Escape':
+        this.hideSuggestions();
+        break;
+      case 'Tab':
+        if (this.selectedIndex >= 0) {
+          e.preventDefault();
+          this.applySuggestion();
+        }
+        break;
+    }
+  };
+
+  private handleWindowResize = () => {
+    this.hideSuggestions();
+  };
+
+  private handleWindowScroll = () => {
+    this.hideSuggestions();
+  };
 
   constructor(plugin: Plugin, inputElement: HTMLInputElement, containerElement: HTMLElement, view?: TaskChuteView) {
     this.plugin = plugin;
@@ -85,66 +162,13 @@ export class TaskNameAutocomplete {
   }
 
   private setupEventListeners(): void {
-    // Input event
-    this.inputElement.addEventListener('input', () => {
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
-      }
-      
-      this.debounceTimer = setTimeout(() => {
-        this.showSuggestions();
-      }, 100);
-    });
-    
-    // Focus event
-    this.inputElement.addEventListener('focus', () => {
-      this.showSuggestions();
-    });
-    
-    // Blur event
-    this.inputElement.addEventListener('blur', () => {
-      // Delay hide to allow click on suggestions
-      setTimeout(() => {
-        // If focus moved into suggestions element, keep visible
-        if (this.suggestionsElement && this.suggestionsElement.contains(document.activeElement)) return;
-        this.hideSuggestions();
-      }, 200);
-    });
-    
-    // Keyboard navigation
-    this.inputElement.addEventListener('keydown', (e) => {
-      if (!this.isVisible) return;
-      
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          this.selectNext();
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          this.selectPrevious();
-          break;
-        case 'Enter':
-          if (this.selectedIndex >= 0) {
-            e.preventDefault();
-            this.applySuggestion();
-          }
-          break;
-        case 'Escape':
-          this.hideSuggestions();
-          break;
-        case 'Tab':
-          if (this.selectedIndex >= 0) {
-            e.preventDefault();
-            this.applySuggestion();
-          }
-          break;
-      }
-    });
+    this.inputElement.addEventListener('input', this.handleInput);
+    this.inputElement.addEventListener('focus', this.handleFocus);
+    this.inputElement.addEventListener('blur', this.handleBlur);
+    this.inputElement.addEventListener('keydown', this.handleKeydown);
 
-    // Window events to hide repositioned UI
-    window.addEventListener('resize', () => this.hideSuggestions());
-    window.addEventListener('scroll', () => this.hideSuggestions(), true);
+    window.addEventListener('resize', this.handleWindowResize);
+    window.addEventListener('scroll', this.handleWindowScroll, true);
   }
 
   private setupFileEventListeners(): void {
@@ -346,15 +370,27 @@ export class TaskNameAutocomplete {
   }
 
   destroy(): void {
-    // Clean up event listeners
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
     }
-    
-    this.fileEventRefs.forEach(ref => {
+
+    if (this.blurTimer) {
+      clearTimeout(this.blurTimer);
+      this.blurTimer = null;
+    }
+
+    this.inputElement.removeEventListener('input', this.handleInput);
+    this.inputElement.removeEventListener('focus', this.handleFocus);
+    this.inputElement.removeEventListener('blur', this.handleBlur);
+    this.inputElement.removeEventListener('keydown', this.handleKeydown);
+    window.removeEventListener('resize', this.handleWindowResize);
+    window.removeEventListener('scroll', this.handleWindowScroll, true);
+
+    this.fileEventRefs.forEach((ref) => {
       this.plugin.app.vault.offref(ref);
     });
-    
+
     this.hideSuggestions();
   }
 }

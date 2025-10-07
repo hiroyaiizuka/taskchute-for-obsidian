@@ -56,7 +56,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private renderPathSection(container: HTMLElement): void {
-    new Setting(container).setName(t('settings.heading', 'Path settings')).setHeading();
+    new Setting(container).setName(t('settings.heading', 'Paths')).setHeading();
 
     this.createPathSetting(
       container,

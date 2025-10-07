@@ -129,7 +129,9 @@ export class TaskMoveCalendar {
   private render(): void {
     if (!this.container) return
 
-    this.container.innerHTML = ""
+    while (this.container.firstChild) {
+      this.container.removeChild(this.container.firstChild)
+    }
 
     const header = this.container.createEl("div", {
       cls: "taskchute-move-calendar__header",

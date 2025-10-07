@@ -11,7 +11,7 @@ export const ja = {
     delete: "削除",
   },
   settings: {
-    heading: "パス設定",
+    heading: "パス",
     taskFolder: {
       name: "タスクフォルダパス",
       description: "タスクファイルを保存するフォルダのパス",
@@ -40,6 +40,7 @@ export const ja = {
     validation: {
       invalidPath: "無効なパスです",
     },
+    openFailed: "TaskChuteの設定を開けませんでした",
   },
   paths: {
     taskFolder: "タスクフォルダ",

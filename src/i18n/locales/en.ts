@@ -11,7 +11,7 @@ export const en = {
     delete: "Delete",
   },
   settings: {
-    heading: "Path settings",
+    heading: "Paths",
     taskFolder: {
       name: "Task folder path",
       description: "Path to the folder where task files are stored",
@@ -40,6 +40,7 @@ export const en = {
     validation: {
       invalidPath: "Invalid path",
     },
+    openFailed: "Unable to open TaskChute settings",
   },
   paths: {
     taskFolder: "Task folder",

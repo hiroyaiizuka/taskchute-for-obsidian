@@ -80,10 +80,6 @@ export default class TaskChutePlusPlugin extends Plugin {
   }
 
   showSettingsModal(): void {
-    openSettingsModal({
-      settings: this.settings,
-      pathManager: this.pathManager,
-      saveSettings: () => this.saveSettings(),
-    })
+    openSettingsModal(this)
   }
 }

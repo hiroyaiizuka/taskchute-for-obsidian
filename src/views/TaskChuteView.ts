@@ -1715,25 +1715,36 @@ export class TaskChuteView extends ItemView {
     })
 
     // イベントハンドラ
-    const closeModal = () => {
-      document.body.removeChild(modal)
-    }
+    let modalClosed = false
+    let handleEsc: (e: KeyboardEvent) => void
+    let handleBackdropClick: (e: MouseEvent) => void
 
-    // ESCキーでモーダルを閉じる
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        closeModal()
-        document.removeEventListener("keydown", handleEsc)
+    const closeModal = () => {
+      if (modalClosed) return
+      modalClosed = true
+
+      document.removeEventListener("keydown", handleEsc)
+      modal.removeEventListener("click", handleBackdropClick)
+
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal)
       }
     }
-    document.addEventListener("keydown", handleEsc)
 
-    // モーダル外クリックで閉じる
-    modal.addEventListener("click", (e) => {
+    handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeModal()
+      }
+    }
+
+    handleBackdropClick = (e: MouseEvent) => {
       if (e.target === modal) {
         closeModal()
       }
-    })
+    }
+
+    document.addEventListener("keydown", handleEsc)
+    modal.addEventListener("click", handleBackdropClick)
 
     cancelButton.addEventListener("click", closeModal)
 
@@ -2964,6 +2975,33 @@ export class TaskChuteView extends ItemView {
       text: t("common.cancel", "Cancel"),
     })
 
+    let modalClosed = false
+    let handleEscape: (e: KeyboardEvent) => void
+
+    const closeModal = () => {
+      if (modalClosed) return
+      modalClosed = true
+
+      document.removeEventListener("keydown", handleEscape)
+
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal)
+      }
+    }
+
+    handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeModal()
+      }
+    }
+
+    const closeAndPrevent = (event?: Event) => {
+      if (event) {
+        event.preventDefault()
+      }
+      closeModal()
+    }
+
     saveButton.addEventListener("click", async (e) => {
       e.preventDefault()
       const newTime = timeInput.value.trim()
@@ -2995,7 +3033,7 @@ export class TaskChuteView extends ItemView {
               })
             : this.tv('forms.startTimeDeleted', 'Removed scheduled start time'),
         )
-        modal.remove()
+        closeModal()
       } catch (error) {
         console.error("Failed to update scheduled time:", error)
         new Notice(
@@ -3007,18 +3045,8 @@ export class TaskChuteView extends ItemView {
       }
     })
 
-    cancelButton.addEventListener("click", (e) => {
-      e.preventDefault()
-      modal.remove()
-    })
+    cancelButton.addEventListener("click", closeAndPrevent)
 
-    // Close on escape
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        modal.remove()
-        document.removeEventListener("keydown", handleEscape)
-      }
-    }
     document.addEventListener("keydown", handleEscape)
 
     document.body.appendChild(modal)
