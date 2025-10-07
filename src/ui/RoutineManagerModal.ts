@@ -6,6 +6,7 @@ import {
   RoutineWeek,
   TaskChutePluginLike,
 } from '../types';
+import { getScheduledTime } from '../utils/fieldMigration';
 import RoutineEditModal from './RoutineEditModal';
 
 interface RoutineRow {
@@ -79,6 +80,7 @@ export class RoutineManagerModal extends Modal {
   private filtered: RoutineRow[] = [];
   private searchInput!: HTMLInputElement;
   private tableBody!: HTMLElement;
+  private pendingRemovalPaths: Set<string> = new Set();
 
   constructor(app: App, plugin: TaskChutePluginLike) {
     super(app);
@@ -106,17 +108,25 @@ export class RoutineManagerModal extends Modal {
 
     const table = tableWrapper.createEl('div', { cls: 'routine-table' });
     const headRow = table.createEl('div', { cls: 'routine-table__row routine-table__row--head' });
-    [
+    const headerLabels = [
       'タイトル',
       'タイプ',
       '間隔',
       '曜日',
       '週',
+      '開始予定時刻',
       '開始日',
       '終了日',
       '有効',
-      '操作',
-    ].forEach((label) => headRow.createEl('div', { cls: 'routine-table__cell', text: label }));
+    ];
+    headerLabels.forEach((label) => {
+      headRow.createEl('div', { cls: 'routine-table__cell', text: label });
+    });
+
+    const actionsHeaderCell = headRow.createEl('div', {
+      cls: 'routine-table__cell routine-table__cell--actions routine-table__cell--actions-header',
+    });
+    actionsHeaderCell.setAttr('aria-label', '操作');
 
     this.tableBody = table.createEl('div', { cls: 'routine-table__body' });
 
@@ -140,6 +150,15 @@ export class RoutineManagerModal extends Modal {
         const frontmatter = this.toRoutineFrontmatter(
           this.app.metadataCache.getFileCache(file)?.frontmatter,
         );
+
+        if (this.pendingRemovalPaths.has(file.path)) {
+          if (!frontmatter || frontmatter.isRoutine !== true) {
+            this.pendingRemovalPaths.delete(file.path);
+          } else {
+            return null;
+          }
+        }
+
         return frontmatter?.isRoutine === true ? { file, fm: frontmatter } : null;
       })
       .filter((row): row is RoutineRow => row !== null);
@@ -209,6 +228,11 @@ export class RoutineManagerModal extends Modal {
 
     rowEl.createEl('div', {
       cls: 'routine-table__cell',
+      text: this.scheduledTimeLabel(fm),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
       text: fm.routine_start || '-',
     });
 
@@ -236,7 +260,9 @@ export class RoutineManagerModal extends Modal {
       this.refreshActiveView();
     });
 
-    const actionsCell = rowEl.createEl('div', { cls: 'routine-table__cell routine-table__cell--actions' });
+    const actionsCell = rowEl.createEl('div', {
+      cls: 'routine-table__cell routine-table__cell--actions',
+    });
     const editBtn = actionsCell.createEl('button', {
       text: '編集',
       cls: 'routine-table__action-button',
@@ -249,8 +275,8 @@ export class RoutineManagerModal extends Modal {
 
     editBtn.addEventListener('click', () => {
       const { file: currentFile } = this.filtered[index];
-      new RoutineEditModal(this.app, this.plugin, currentFile, () => {
-        void this.refreshRow(currentFile);
+      new RoutineEditModal(this.app, this.plugin, currentFile, (updatedFm) => {
+        void this.refreshRow(currentFile, undefined, updatedFm);
       }).open();
     });
 
@@ -258,8 +284,13 @@ export class RoutineManagerModal extends Modal {
       const message = `「${file.basename}」をルーチンから外しますか？`;
       const confirmed = await new RoutineConfirmModal(this.app, message).openAndWait();
       if (!confirmed) return;
-      await this.removeRoutine(file);
-      await this.reloadAll();
+      const removed = await this.removeRoutine(file);
+      if (removed) {
+        this.pendingRemovalPaths.add(file.path);
+        this.removeRowFromCaches(file.path);
+        this.renderTable();
+        window.setTimeout(() => void this.reloadAll(), 250);
+      }
     });
 
     return rowEl;
@@ -289,6 +320,12 @@ export class RoutineManagerModal extends Modal {
       default:
         return type ?? '-';
     }
+  }
+
+  private scheduledTimeLabel(fm: RoutineFrontmatter): string {
+    const value = getScheduledTime(fm);
+    if (!value) return '-';
+    return value;
   }
 
   private weekdayLabel(fm: RoutineFrontmatter): string {
@@ -356,37 +393,55 @@ export class RoutineManagerModal extends Modal {
     new Notice(enabled ? '有効化しました' : '無効化しました', 1200);
   }
 
-  private async removeRoutine(file: TFile): Promise<void> {
+  private async removeRoutine(file: TFile): Promise<boolean> {
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
+    let success = false;
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       delete frontmatter['開始時刻'];
+      success = true;
       return frontmatter;
     });
-    new Notice('ルーチンを外しました', 1200);
-    this.refreshActiveView();
+    if (success) {
+      new Notice('ルーチンを外しました', 1200);
+      this.refreshActiveView();
+    }
+    return success;
   }
 
-  private async refreshRow(file: TFile, expectedEnabled?: boolean): Promise<void> {
-    const fresh = this.getRoutineFrontmatter(file);
+  private async refreshRow(
+    file: TFile,
+    expectedEnabled?: boolean,
+    frontmatterOverride?: RoutineFrontmatter,
+  ): Promise<void> {
+    const fresh = frontmatterOverride ?? this.getRoutineFrontmatter(file);
     if (!fresh) return;
 
     const enabledFromFresh = fresh.routine_enabled !== false;
     const enabled = typeof expectedEnabled === 'boolean' ? expectedEnabled : enabledFromFresh;
     const merged: RoutineFrontmatter = { ...fresh, routine_enabled: enabled };
 
+    this.updateRowCaches(file, merged);
+    this.renderTable();
+  }
+
+  private updateRowCaches(file: TFile, updated: RoutineFrontmatter): void {
     this.rows = this.rows.map((row) =>
-      row.file.path === file.path ? { ...row, fm: merged } : row,
+      row.file.path === file.path ? { ...row, fm: updated } : row,
     );
     this.filtered = this.filtered.map((row) =>
-      row.file.path === file.path ? { ...row, fm: merged } : row,
+      row.file.path === file.path ? { ...row, fm: updated } : row,
     );
-    this.renderTable();
+  }
+
+  private removeRowFromCaches(path: string): void {
+    this.rows = this.rows.filter((row) => row.file.path !== path);
+    this.filtered = this.filtered.filter((row) => row.file.path !== path);
   }
 
   private async reloadAll(): Promise<void> {

@@ -29,9 +29,14 @@ const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
 export default class RoutineEditModal extends Modal {
   private readonly plugin: TaskChutePluginLike;
   private readonly file: TFile;
-  private readonly onSaved?: () => void;
+  private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void;
 
-  constructor(app: App, plugin: TaskChutePluginLike, file: TFile, onSaved?: () => void) {
+  constructor(
+    app: App,
+    plugin: TaskChutePluginLike,
+    file: TFile,
+    onSaved?: (frontmatter: RoutineFrontmatter) => void,
+  ) {
     super(app);
     this.plugin = plugin;
     this.file = file;
@@ -176,6 +181,8 @@ export default class RoutineEditModal extends Modal {
         return;
       }
 
+      let updatedFrontmatter: RoutineFrontmatter | null = null;
+
       await this.app.fileManager.processFrontMatter(this.file, (fm: RoutineFrontmatter) => {
 
         // Prepare changes
@@ -237,10 +244,11 @@ export default class RoutineEditModal extends Modal {
           }
         }
 
+        updatedFrontmatter = { ...fm };
         return fm;
       });
 
-      await this.handlePostSave();
+      await this.handlePostSave(updatedFrontmatter);
       new Notice('保存しました', 1500);
       this.close();
     });
@@ -326,10 +334,10 @@ export default class RoutineEditModal extends Modal {
       .filter((value) => Number.isInteger(value));
   }
 
-  private async handlePostSave(): Promise<void> {
-    if (this.onSaved) {
+  private async handlePostSave(updatedFrontmatter: RoutineFrontmatter | null): Promise<void> {
+    if (this.onSaved && updatedFrontmatter) {
       try {
-        this.onSaved();
+        this.onSaved(updatedFrontmatter);
       } catch (error) {
         console.error('RoutineEditModal onSaved callback failed', error);
       }
@@ -353,4 +361,3 @@ export default class RoutineEditModal extends Modal {
     }
   }
 }
-

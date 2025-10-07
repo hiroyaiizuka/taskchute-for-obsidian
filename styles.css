@@ -3765,10 +3765,20 @@ select.form-input {
 
 .routine-table__row {
   display: grid;
-  grid-template-columns: 1.2fr 0.6fr 0.4fr 0.8fr 0.4fr 0.9fr 0.9fr 0.4fr 0.6fr;
-  gap: 8px;
+  grid-template-columns:
+    minmax(0, 1.3fr)
+    minmax(96px, 0.6fr)
+    minmax(64px, 0.4fr)
+    minmax(0, 0.8fr)
+    minmax(64px, 0.4fr)
+    minmax(88px, 0.7fr)
+    minmax(112px, 0.7fr)
+    minmax(112px, 0.7fr)
+    minmax(64px, 0.45fr)
+    minmax(120px, 0.6fr);
+  gap: 6px;
   align-items: center;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -3792,10 +3802,21 @@ select.form-input {
   color: var(--text-normal);
 }
 
+.routine-table__row--head .routine-table__cell {
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+
 .routine-table__cell--actions {
   justify-content: flex-end;
   gap: 6px;
+  padding-right: 12px;
 }
+
+.routine-table__cell--actions-header {
+  pointer-events: none;
+}
+
 
 .routine-table__link {
   color: var(--text-accent);
