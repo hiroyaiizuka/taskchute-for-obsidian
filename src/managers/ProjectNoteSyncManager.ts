@@ -1,6 +1,5 @@
 import { App, TFile } from 'obsidian'
-import { PathManager } from './PathManager'
-import type { TaskInstance } from '../types'
+import type { TaskInstance, PathManagerLike } from '../types'
 import { t } from '../i18n'
 
 /**
@@ -9,9 +8,9 @@ import { t } from '../i18n'
  */
 export class ProjectNoteSyncManager {
   private app: App
-  private pathManager: PathManager
+  private pathManager: PathManagerLike
 
-  constructor(app: App, pathManager: PathManager) {
+  constructor(app: App, pathManager: PathManagerLike) {
     this.app = app
     this.pathManager = pathManager
   }

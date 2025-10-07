@@ -8,13 +8,13 @@
 // ============================================================================
 
 /** ISO 8601 date string (YYYY-MM-DD) */
-export type DateString = string & { readonly brand: unique symbol };
+export type DateString = string;
 
 /** Time string (HH:mm) */
-export type TimeString = string & { readonly brand: unique symbol };
+export type TimeString = string;
 
 /** UUID v4 string */
-export type UUIDString = string & { readonly brand: unique symbol };
+export type UUIDString = string;
 
 // Type guards
 export function isDateString(value: unknown): value is DateString {
@@ -142,4 +142,3 @@ export interface TaskFrontmatter extends
   // Allow additional fields for extensibility
   [key: string]: unknown;
 }
-

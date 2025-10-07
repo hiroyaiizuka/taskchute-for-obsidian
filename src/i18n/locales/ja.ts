@@ -122,6 +122,7 @@ export const ja = {
       weekdaysOnly: "平日のみ",
       weekendsOnly: "週末のみ",
       noWeekdaySet: "曜日未指定",
+      noWeekdaySelected: "曜日が選択されていません",
     },
     notices: {
       futureTaskPrevented: "未来のタスクは実行できません",
@@ -387,8 +388,8 @@ export const ja = {
       lessThanMinute: "1分未満",
     },
     summaries: {
-      noTasks: "{formatted}\\nタスクなし",
-      stats: "{formatted}\\n総タスク: {total}\\n完了: {completed}\\n先送り: {deferred}\\n完了率: {rate}%",
+      noTasks: "{formatted}\nタスクなし",
+      stats: "{formatted}\n総タスク: {total}\n完了: {completed}\n先送り: {deferred}\n完了率: {rate}%",
     },
   },
   routineManager: {

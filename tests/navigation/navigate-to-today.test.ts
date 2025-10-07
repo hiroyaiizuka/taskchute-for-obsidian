@@ -59,6 +59,9 @@ describe('Navigate to today (showTodayTasks)', () => {
         getLogDataPath: () => 'LOGS',
         getReviewDataPath: () => 'REVIEWS',
         ensureFolderExists: jest.fn(),
+        getLogYearPath: (year: string | number) => `${year}`,
+        ensureYearFolder: jest.fn(async (year: string | number) => `${year}`),
+        validatePath: () => ({ valid: true }),
       },
       dayStateService: {
         loadDay: jest.fn(async () => ({
@@ -72,6 +75,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       },
       routineAliasManager: {
         getRouteNameFromAlias: jest.fn((name: string) => name),
+        loadAliases: jest.fn().mockResolvedValue({}),
       },
       _notify: jest.fn(),
     } as unknown as TaskChutePluginLike;

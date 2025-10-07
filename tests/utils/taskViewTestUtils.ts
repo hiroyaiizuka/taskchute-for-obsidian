@@ -16,8 +16,13 @@ interface TaskChuteViewContextStub {
     saveSettings: jest.Mock<Promise<void>, []>;
     pathManager: {
       getTaskFolderPath: () => string;
+      getProjectFolderPath: () => string;
       getLogDataPath: () => string;
+      getReviewDataPath: () => string;
       ensureFolderExists: jest.Mock<Promise<void>, [string?]>;
+      getLogYearPath: (year: string | number) => string;
+      ensureYearFolder: jest.Mock<Promise<string>, [string | number]>;
+      validatePath: (path: string) => { valid: boolean; error?: string };
     };
   };
   app: {
@@ -97,8 +102,15 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     saveSettings: jest.fn().mockResolvedValue(undefined),
     pathManager: {
       getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
       getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+      getLogYearPath: (year: string | number) => `LOGS/${year}`,
+      ensureYearFolder: jest
+        .fn()
+        .mockImplementation(async (year: string | number) => `LOGS/${year}`),
+      validatePath: () => ({ valid: true }),
     },
   };
 
@@ -203,8 +215,15 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     saveSettings: jest.fn().mockResolvedValue(undefined),
     pathManager: {
       getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
       getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+      getLogYearPath: (year: string | number) => `LOGS/${year}`,
+      ensureYearFolder: jest
+        .fn()
+        .mockImplementation(async (year: string | number) => `LOGS/${year}`),
+      validatePath: () => ({ valid: true }),
     },
   };
 

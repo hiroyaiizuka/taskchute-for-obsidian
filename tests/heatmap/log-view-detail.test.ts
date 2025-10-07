@@ -22,9 +22,14 @@ type TestPlugin = {
     workspace: TestWorkspace
   }
   pathManager: {
+    getTaskFolderPath: () => string
+    getProjectFolderPath: () => string
     getLogDataPath: () => string
+    getReviewDataPath: () => string
+    ensureFolderExists: (path: string) => Promise<void>
     getLogYearPath: (year: number | string) => string
     ensureYearFolder: (year: number | string) => Promise<string>
+    validatePath: (path: string) => { valid: boolean; error?: string }
   }
 }
 
@@ -130,9 +135,14 @@ beforeAll(() => {
         },
       },
       pathManager: {
+        getTaskFolderPath: () => 'TASKS',
+        getProjectFolderPath: () => 'PROJECTS',
         getLogDataPath: () => 'LOGS',
+        getReviewDataPath: () => 'REVIEWS',
+        ensureFolderExists: jest.fn().mockResolvedValue(undefined),
         getLogYearPath: (year: number | string) => `LOGS/${year}`,
         ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+        validatePath: () => ({ valid: true }),
       },
     }
 

@@ -1,7 +1,7 @@
 import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian';
-import { t } from '../i18n';
-import type { TaskNameValidator } from '../types';
-import type { TaskChuteView } from '../views/TaskChuteView';
+import { t } from '../../i18n';
+import type { TaskNameValidator } from '../../types';
+import type { TaskChuteView } from '../../views/TaskChuteView';
 
 interface Plugin {
   app: App;
@@ -304,7 +304,7 @@ export class TaskNameAutocomplete {
       const validator: TaskNameValidator | null =
         typeof this.view.getTaskNameValidator === 'function'
           ? this.view.getTaskNameValidator()
-          : (this.view.TaskNameValidator ?? null);
+          : null
 
       if (validator && typeof validator.validate === 'function') {
         const validation = validator.validate(text);

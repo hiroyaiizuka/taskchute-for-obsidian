@@ -1,5 +1,5 @@
-import type { LocaleKey } from "../i18n"
-import { getCurrentLocale, t } from "../i18n"
+import type { LocaleKey } from "../../i18n"
+import { getCurrentLocale, t } from "../../i18n"
 
 interface TaskMoveCalendarOptions {
   anchor: HTMLElement

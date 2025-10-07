@@ -1,6 +1,6 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { PathManager } from '../managers/PathManager';
-import { TaskChuteSettings } from '../types';
+import { TaskChuteSettings, PathManagerLike } from '../types';
 import { LanguageOverride, setLocaleOverride, t } from '../i18n';
 
 type PathSettingKey = 'taskFolderPath' | 'projectFolderPath' | 'logDataPath' | 'reviewDataPath';
@@ -8,7 +8,7 @@ type PathSettingKey = 'taskFolderPath' | 'projectFolderPath' | 'logDataPath' | '
 interface PluginWithSettings extends Plugin {
   app: App;
   settings: TaskChuteSettings;
-  pathManager: PathManager;
+  pathManager: PathManagerLike;
   saveSettings(): Promise<void>;
 }
 

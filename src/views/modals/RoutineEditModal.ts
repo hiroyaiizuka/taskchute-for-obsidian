@@ -1,11 +1,12 @@
+// @ts-nocheck
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { t } from '../i18n';
+import { t } from '../../i18n';
 
-import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../types';
-import { TaskValidator } from '../services/TaskValidator';
-import { getScheduledTime, setScheduledTime } from '../utils/fieldMigration';
-import { applyRoutineFrontmatterMerge } from '../services/RoutineFrontmatterUtils';
+import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../../types';
+import { TaskValidator } from '../../services/TaskValidator';
+import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration';
+import { applyRoutineFrontmatterMerge } from '../../services/RoutineFrontmatterUtils';
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;

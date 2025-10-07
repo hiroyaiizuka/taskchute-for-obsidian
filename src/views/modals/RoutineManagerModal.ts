@@ -1,14 +1,14 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { getCurrentLocale, t } from '../i18n';
+import { getCurrentLocale, t } from '../../i18n';
 
 import {
   RoutineFrontmatter,
   RoutineType,
   RoutineWeek,
   TaskChutePluginLike,
-} from '../types';
-import { getScheduledTime } from '../utils/fieldMigration';
+} from '../../types';
+import { getScheduledTime } from '../../utils/fieldMigration';
 import RoutineEditModal from './RoutineEditModal';
 
 interface RoutineRow {

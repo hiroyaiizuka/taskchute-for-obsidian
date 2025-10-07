@@ -5,7 +5,9 @@ type ConsoleMethod = (...params: unknown[]) => void;
 export class Logger {
   static log(level: string = 'log', ...args: unknown[]): void {
     try {
-      const target = (console as Record<string, ConsoleMethod | undefined>)[level];
+      const record = console as unknown as Record<string, ConsoleMethod | undefined>
+      const normalizedLevel = typeof level === 'string' ? level : String(level)
+      const target = record[normalizedLevel] ?? record[normalizedLevel.toLowerCase()]
       target?.(...args);
     } catch {}
   }

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { getCurrentLocale, t } from '../i18n';

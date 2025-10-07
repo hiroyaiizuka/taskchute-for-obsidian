@@ -20,8 +20,16 @@ function createPluginStub() {
   const store = new Map<string, StoredLogFile>();
 
   const pathManager = {
+    getTaskFolderPath: () => 'TASKS',
+    getProjectFolderPath: () => 'PROJECTS',
     getLogDataPath: () => 'LOGS',
+    getReviewDataPath: () => 'REVIEWS',
     ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+    getLogYearPath: (year: string | number) => `LOGS/${year}`,
+    ensureYearFolder: jest
+      .fn()
+      .mockImplementation(async (year: string | number) => `LOGS/${year}`),
+    validatePath: () => ({ valid: true }),
   };
 
   const vault = {
@@ -59,7 +67,7 @@ function createPluginStub() {
     saveSettings: jest.fn().mockResolvedValue(undefined),
     pathManager,
     routineAliasManager: {
-      loadAliases: jest.fn().mockResolvedValue(undefined),
+      loadAliases: jest.fn().mockResolvedValue({}),
     },
     dayStateService: {
       loadDay: jest.fn(),

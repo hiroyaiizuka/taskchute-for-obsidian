@@ -71,15 +71,28 @@ export class DayStateService {
     };
 
     if (state && typeof state === 'object') {
-      if (state.days && typeof state.days === 'object') {
-        for (const [key, value] of Object.entries(state.days)) {
+      const record = state as {
+        days?: Record<string, unknown>
+        metadata?: Record<string, unknown>
+      }
+      if (record.days && typeof record.days === 'object') {
+        for (const [key, value] of Object.entries(record.days)) {
           normalized.days[key] = this.normalizeDayState(value);
         }
       }
-      if (state.metadata) {
-        normalized.metadata.version = state.metadata.version || DAY_STATE_VERSION;
+      if (record.metadata && typeof record.metadata === 'object') {
+        const meta = record.metadata as {
+          version?: unknown
+          lastUpdated?: unknown
+        }
+        normalized.metadata.version =
+          typeof meta.version === 'string' && meta.version.trim().length > 0
+            ? meta.version
+            : DAY_STATE_VERSION;
         normalized.metadata.lastUpdated =
-          state.metadata.lastUpdated || new Date().toISOString();
+          typeof meta.lastUpdated === 'string' && meta.lastUpdated.trim().length > 0
+            ? meta.lastUpdated
+            : new Date().toISOString();
       }
     }
 
@@ -93,26 +106,33 @@ export class DayStateService {
       return day;
     }
 
-    if (Array.isArray(value.hiddenRoutines)) {
-      day.hiddenRoutines = value.hiddenRoutines.filter(Boolean);
+    const record = value as Record<string, unknown>;
+
+    const hiddenRoutines = record.hiddenRoutines;
+    if (Array.isArray(hiddenRoutines)) {
+      day.hiddenRoutines = hiddenRoutines.filter(Boolean) as HiddenRoutine[];
     }
-    if (Array.isArray(value.deletedInstances)) {
-      day.deletedInstances = value.deletedInstances.filter(Boolean);
+    const deletedInstances = record.deletedInstances;
+    if (Array.isArray(deletedInstances)) {
+      day.deletedInstances = deletedInstances.filter(Boolean) as DayState['deletedInstances'];
     }
-    if (Array.isArray(value.duplicatedInstances)) {
-      day.duplicatedInstances = value.duplicatedInstances.filter(Boolean);
+    const duplicatedInstances = record.duplicatedInstances;
+    if (Array.isArray(duplicatedInstances)) {
+      day.duplicatedInstances = duplicatedInstances.filter(Boolean) as DayState['duplicatedInstances'];
     }
-    if (value.slotOverrides && typeof value.slotOverrides === 'object') {
-      const entries = Object.entries(value.slotOverrides).filter(
+    const slotOverrides = record.slotOverrides;
+    if (slotOverrides && typeof slotOverrides === 'object') {
+      const entries = Object.entries(slotOverrides as Record<string, unknown>).filter(
         ([key, val]) => typeof key === 'string' && typeof val === 'string',
       );
-      day.slotOverrides = Object.fromEntries(entries);
+      day.slotOverrides = Object.fromEntries(entries) as Record<string, string>
     }
-    if (value.orders && typeof value.orders === 'object') {
-      const entries = Object.entries(value.orders).filter(
+    const orders = record.orders;
+    if (orders && typeof orders === 'object') {
+      const entries = Object.entries(orders as Record<string, unknown>).filter(
         ([key, val]) => typeof key === 'string' && typeof val === 'number',
       );
-      day.orders = Object.fromEntries(entries);
+      day.orders = Object.fromEntries(entries) as Record<string, number>
     }
 
     return day;

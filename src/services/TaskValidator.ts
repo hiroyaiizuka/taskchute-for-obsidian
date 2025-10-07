@@ -16,6 +16,27 @@ export interface ValidationResult {
 export class TaskValidator {
   private static readonly NON_ROUTINE_STALE_THRESHOLD_DAYS = 7;
 
+  private static getStringField(
+    metadata: Record<string, unknown>,
+    key: string,
+  ): string | undefined {
+    const value = metadata[key]
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+  }
+
+  private static getNumberField(
+    metadata: Record<string, unknown>,
+    key: string,
+  ): number | undefined {
+    const value = metadata[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+    return undefined
+  }
+
   static validate(metadata: Record<string, unknown>): ValidationResult {
     const warnings: ValidationWarning[] = [];
     const errors: ValidationWarning[] = [];
@@ -26,14 +47,19 @@ export class TaskValidator {
     }
 
     // Phase 3: 新しいフィールドも検証
-    const targetDate = metadata.target_date || metadata.temporary_move_date;
+    const targetDate =
+      this.getStringField(metadata, 'target_date') ??
+      this.getStringField(metadata, 'temporary_move_date')
 
     // ルーチンタスクのtarget_date/temporary_move_date検証
-    if (metadata.isRoutine && targetDate && metadata.routine_enabled !== false) {
-      const routineStart = metadata.routine_start;
+    const isRoutine = metadata.isRoutine === true
+    const routineEnabled = metadata.routine_enabled !== false
+
+    if (isRoutine && targetDate && routineEnabled) {
+      const routineStart = this.getStringField(metadata, 'routine_start')
 
       // 日付の妥当性チェック
-      if (this.isValidDate(targetDate) && this.isValidDate(routineStart)) {
+      if (this.isValidDate(targetDate) && routineStart && this.isValidDate(routineStart)) {
         if (targetDate !== routineStart) {
           // target_dateがroutine_startより前
           if (targetDate < routineStart) {
@@ -88,13 +114,14 @@ export class TaskValidator {
     }
 
     // 非ルーチンタスクの古いtarget_date検証
+    const targetDateValue = this.getStringField(metadata, 'target_date')
     if (
-      !metadata.isRoutine &&
-      metadata.target_date &&
-      this.isValidDate(metadata.target_date) &&
-      this.isPastDate(metadata.target_date as string)
+      !isRoutine &&
+      targetDateValue &&
+      this.isValidDate(targetDateValue) &&
+      this.isPastDate(targetDateValue)
     ) {
-      const daysSinceTarget = this.daysSince(metadata.target_date as string);
+      const daysSinceTarget = this.daysSince(targetDateValue)
       if (daysSinceTarget > this.NON_ROUTINE_STALE_THRESHOLD_DAYS) {
         warnings.push({
           code: 'OLD_TARGET_DATE',
@@ -113,14 +140,15 @@ export class TaskValidator {
     }
 
     // ルーチンタスクの異常な間隔設定を検証
-    if (metadata.isRoutine && metadata.routine_interval) {
-      if (metadata.routine_interval > 365) {
+    const routineInterval = this.getNumberField(metadata, 'routine_interval')
+    if (isRoutine && routineInterval) {
+      if (routineInterval > 365) {
         warnings.push({
           code: 'EXCESSIVE_ROUTINE_INTERVAL',
           message: t(
             'taskChuteView.validator.routineIntervalTooLong',
             'Routine interval of {days} days is unusually long.',
-            { days: metadata.routine_interval as number },
+            { days: routineInterval },
           ),
           suggestion: t(
             'taskChuteView.validator.suggestionReviewInterval',
@@ -144,9 +172,10 @@ export class TaskValidator {
     // ルーチンタスクの場合のみクリーンアップ
     if (metadata.isRoutine) {
       // ルーチン設定が変更されたらtarget_dateを削除
-      const hasTimeChange = getScheduledTime(changes) !== undefined ||
-                           changes.開始時刻 !== undefined ||
-                           changes.scheduled_time !== undefined;
+      const hasTimeChange =
+        getScheduledTime(changes) !== undefined ||
+        Object.prototype.hasOwnProperty.call(changes, '開始時刻') ||
+        Object.prototype.hasOwnProperty.call(changes, 'scheduled_time')
 
       if (changes.routine_start !== undefined ||
           hasTimeChange ||

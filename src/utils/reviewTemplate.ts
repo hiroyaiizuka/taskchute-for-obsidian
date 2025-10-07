@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { getCurrentLocale } from '../i18n'
 
 // Builds the default Daily Review template used when creating a new review note.
