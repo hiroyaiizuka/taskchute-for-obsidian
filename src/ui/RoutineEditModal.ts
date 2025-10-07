@@ -3,6 +3,7 @@ import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../types';
 import { TaskValidator } from '../services/TaskValidator';
 import { getScheduledTime, setScheduledTime } from '../utils/fieldMigration';
+import { applyRoutineFrontmatterMerge } from '../services/RoutineFrontmatterUtils';
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
@@ -197,14 +198,14 @@ export default class RoutineEditModal extends Modal {
         // eslint-disable-next-line @typescript-eslint/no-deprecated
         const hadTargetDate = !!fm.target_date;
         const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes);
+        const hadTemporaryMoveDate = !!fm.temporary_move_date;
 
-        // Apply cleaned values
-        Object.keys(cleaned).forEach(key => {
-          fm[key] = cleaned[key];
+        applyRoutineFrontmatterMerge(fm, cleaned, {
+          hadTargetDate,
+          hadTemporaryMoveDate,
         });
 
         // Notify if target_date was removed
-         
         if (hadTargetDate && !cleaned.target_date) {
           new Notice('古いtarget_dateを自動削除しました');
         }
@@ -352,3 +353,4 @@ export default class RoutineEditModal extends Modal {
     }
   }
 }
+

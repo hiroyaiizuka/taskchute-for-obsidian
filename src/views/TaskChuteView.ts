@@ -20,6 +20,7 @@ import {
   AutocompleteInstance,
   DayState,
   TaskChutePluginLike,
+  RoutineFrontmatter,
 } from "../types"
 import { TimerService } from "../services/TimerService"
 import { loadTasksRefactored } from "./TaskChuteView.helpers"
@@ -29,7 +30,9 @@ import { ExecutionLogService } from "../services/ExecutionLogService"
 import { TaskCreationService } from "../services/TaskCreationService"
 import { TaskNameAutocomplete } from "../ui/TaskNameAutocomplete"
 import { TaskValidator } from "../services/TaskValidator"
+import { applyRoutineFrontmatterMerge } from "../services/RoutineFrontmatterUtils"
 import { getScheduledTime, setScheduledTime } from "../utils/fieldMigration"
+import { deriveRoutineModalTitle, deriveWeeklySelection, deriveMonthlySelection } from "./routineModal.helpers"
 import { computeExecutionInstanceKey } from "../utils/logKeys"
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
@@ -1917,7 +1920,8 @@ export class TaskChuteView extends ItemView {
 
     // モーダルヘッダー
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", { text: `「${task.title}」のルーチン設定` })
+    const taskTitle = deriveRoutineModalTitle(task)
+    modalHeader.createEl("h3", { text: `「${taskTitle}」のルーチン設定` })
 
     // 閉じるボタン
     const closeButton = modalHeader.createEl("button", {
@@ -2017,13 +2021,6 @@ export class TaskChuteView extends ItemView {
       }) as HTMLInputElement
       weekdayCheckboxes.push(checkbox)
 
-      // 既存の設定を反映（単一選択を優先）
-      if (typeof task.weekday === "number") {
-        checkbox.checked = task.weekday === day.value
-      } else if (task.weekdays && Array.isArray(task.weekdays)) {
-        checkbox.checked = task.weekdays.includes(day.value)
-      }
-
       label.createEl("span", { text: day.label })
       // 単一選択にする
       checkbox.addEventListener("change", () => {
@@ -2033,6 +2030,14 @@ export class TaskChuteView extends ItemView {
           })
         }
       })
+    })
+
+    const preselectedWeekdays = deriveWeeklySelection(task)
+    preselectedWeekdays.forEach((day) => {
+      const checkbox = weekdayCheckboxes[day]
+      if (checkbox) {
+        checkbox.checked = true
+      }
     })
 
     // 月次設定グループ（初期非表示）
@@ -2052,20 +2057,15 @@ export class TaskChuteView extends ItemView {
     }) as HTMLSelectElement
 
     for (let i = 1; i <= 5; i++) {
-      const option = weekSelect.createEl("option", {
+      weekSelect.createEl("option", {
         value: (i - 1).toString(),
         text: i.toString(),
       })
-      if (task.monthly_week === i - 1) {
-        option.selected = true
-      }
     }
-    // 最終週
-    const lastOpt = weekSelect.createEl("option", {
+    weekSelect.createEl("option", {
       value: "last",
       text: "最終",
     })
-    if (task.monthly_week === "last") lastOpt.selected = true
 
     monthlyContainer.createEl("span", { text: "週の" })
     const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
@@ -2073,14 +2073,22 @@ export class TaskChuteView extends ItemView {
     }) as HTMLSelectElement
 
     weekdays.forEach((day) => {
-      const option = monthlyWeekdaySelect.createEl("option", {
+      monthlyWeekdaySelect.createEl("option", {
         value: day.value.toString(),
         text: day.label + "曜日",
       })
-      if (task.monthly_weekday === day.value) {
-        option.selected = true
-      }
     })
+
+    const { week: initialMonthlyWeek, weekday: initialMonthlyWeekday } = deriveMonthlySelection(task)
+    if (initialMonthlyWeek === 'last') {
+      weekSelect.value = 'last'
+    } else if (typeof initialMonthlyWeek === 'number') {
+      const zeroBased = Math.max(0, Math.min(4, initialMonthlyWeek - 1))
+      weekSelect.value = String(zeroBased)
+    }
+    if (typeof initialMonthlyWeekday === 'number') {
+      monthlyWeekdaySelect.value = String(initialMonthlyWeekday)
+    }
 
     // タイプ変更時の表示切り替え
     typeSelect.addEventListener("change", () => {
@@ -4516,64 +4524,47 @@ export class TaskChuteView extends ItemView {
 
       // ルーチンタスクとして設定
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        frontmatter.isRoutine = true
-        // Phase 2: 新規タスクは新形式を優先
-        setScheduledTime(frontmatter, scheduledTime, { preferNew: true })
-        frontmatter.routine_type = routineType
-        frontmatter.routine_enabled = details.enabled !== false // default true
-        frontmatter.routine_interval = Math.max(1, details.interval || 1)
+        const y = this.currentDate.getFullYear();
+        const m = (this.currentDate.getMonth() + 1).toString().padStart(2, '0');
+        const d = this.currentDate.getDate().toString().padStart(2, '0');
 
-        // 現在の日付を設定
-        const y = this.currentDate.getFullYear()
-        const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0")
-        const d = this.currentDate.getDate().toString().padStart(2, "0")
-        frontmatter.routine_start = `${y}-${m}-${d}`
+        const changes: Record<string, unknown> = {
+          isRoutine: true,
+          routine_type: routineType,
+          routine_enabled: details.enabled !== false,
+          routine_interval: Math.max(1, details.interval || 1),
+          routine_start: `${y}-${m}-${d}`,
+        };
 
-        // 既存のルーチン設定をクリア（legacy含む）
-        delete frontmatter.routine_end
-        delete frontmatter.weekday
-        delete frontmatter.weekdays
-        delete frontmatter.monthly_week
-        delete frontmatter.monthly_weekday
-        delete frontmatter.routine_week
-        delete frontmatter.routine_weekday
+        setScheduledTime(changes, scheduledTime, { preferNew: true });
 
-        // タイプに応じて設定を追加
-        switch (routineType) {
-          case "daily":
-            // interval のみ反映済み
-            break
-          case "weekdays":
-          case "weekends":
-            // 互換タイプ（intervalは使わないが保存しておく）
-            break
+        const cleaned = TaskValidator.cleanupOnRoutineChange(frontmatter, changes);
+        delete cleaned.routine_end;
+        delete cleaned.weekday;
+        delete cleaned.weekdays;
+        delete cleaned.monthly_week;
+        delete cleaned.monthly_weekday;
+        delete cleaned.routine_week;
+        delete cleaned.routine_weekday;
 
-          case "weekly":
-            if (details.weekdays && details.weekdays.length > 0) {
-              // 単一選択のみ保存（将来拡張はRoutineServiceがweekdaySetを読む）
-              const chosen = details.weekdays[0]
-              frontmatter.routine_weekday = chosen
-            }
-            break
+        applyRoutineFrontmatterMerge(frontmatter as RoutineFrontmatter, cleaned);
 
-          case "monthly":
-            if (
-              details.monthly_week !== undefined &&
-              details.monthly_weekday !== undefined
-            ) {
-              const w =
-                details.monthly_week === "last"
-                  ? "last"
-                  : typeof details.monthly_week === "number"
-                  ? details.monthly_week + 1
-                  : undefined
-              if (w !== undefined) frontmatter.routine_week = w
-              frontmatter.routine_weekday = details.monthly_weekday
-            }
-            break
+        if (routineType === 'weekly') {
+          if (details.weekdays && details.weekdays.length > 0) {
+            frontmatter.routine_weekday = details.weekdays[0];
+          }
+        } else if (routineType === 'monthly') {
+          if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
+            const weekValue =
+              details.monthly_week === 'last'
+                ? 'last'
+                : (details.monthly_week as number) + 1;
+            frontmatter.routine_week = weekValue;
+            frontmatter.routine_weekday = details.monthly_weekday;
+          }
         }
 
-        return frontmatter
+        return frontmatter;
       })
 
       // 状態更新
@@ -4584,12 +4575,51 @@ export class TaskChuteView extends ItemView {
       task.routine_enabled = details.enabled !== false
 
       // タイプに応じて詳細情報も更新
-      if (routineType === "weekly" && details.weekdays) {
-        task.weekday = details.weekdays[0]
-        task.weekdays = details.weekdays // 互換
+      if (routineType === "weekly") {
+        const selected = Array.isArray(details.weekdays) ? details.weekdays.filter((value) => Number.isInteger(value)) : []
+        task.weekdays = selected
+        if (selected.length > 0) {
+          task.weekday = selected[0]
+          task.routine_weekday = selected[0]
+        } else {
+          delete task.weekday
+          delete task.routine_weekday
+        }
+        delete task.routine_week
+        delete task.monthly_week
+        delete task.monthly_weekday
       } else if (routineType === "monthly") {
-        task.monthly_week = details.monthly_week
-        task.monthly_weekday = details.monthly_weekday
+        const routineWeek = details.monthly_week === 'last'
+          ? 'last'
+          : typeof details.monthly_week === 'number'
+            ? details.monthly_week + 1
+            : undefined
+        if (routineWeek !== undefined) {
+          task.routine_week = routineWeek
+        } else {
+          delete task.routine_week
+        }
+        if (details.monthly_week !== undefined) {
+          task.monthly_week = details.monthly_week
+        } else {
+          delete task.monthly_week
+        }
+        if (typeof details.monthly_weekday === 'number') {
+          task.monthly_weekday = details.monthly_weekday
+          task.routine_weekday = details.monthly_weekday
+        } else {
+          delete task.monthly_weekday
+          delete task.routine_weekday
+        }
+        delete task.weekday
+        delete task.weekdays
+      } else {
+        delete task.weekday
+        delete task.weekdays
+        delete task.monthly_week
+        delete task.monthly_weekday
+        delete task.routine_week
+        delete task.routine_weekday
       }
 
       button.classList.add("active")
