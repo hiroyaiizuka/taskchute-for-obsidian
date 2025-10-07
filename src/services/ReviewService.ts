@@ -1,6 +1,7 @@
 import { TFile, WorkspaceLeaf, Notice } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { buildDefaultReviewTemplate } from '../utils/reviewTemplate';
+import { t } from '../i18n';
 
 export class ReviewService {
   private readonly plugin: TaskChutePluginLike;
@@ -55,7 +56,11 @@ export class ReviewService {
       workspace.setActiveLeaf(leftLeaf);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      new Notice(`レビューの表示に失敗しました: ${message}`);
+      new Notice(
+        t('notices.reviewDisplayFailed', 'Failed to display review: {message}', {
+          message,
+        }),
+      );
       throw error instanceof Error ? error : new Error(message);
     }
   }

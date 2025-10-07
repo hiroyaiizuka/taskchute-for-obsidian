@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { getScheduledTime } from '../utils/fieldMigration';
 
 export interface ValidationWarning {
@@ -38,8 +39,15 @@ export class TaskValidator {
           if (targetDate < routineStart) {
             warnings.push({
               code: 'ROUTINE_STALE_TARGET_DATE',
-              message: `target_date(${targetDate})がroutine_start(${routineStart})より前です。タスクが表示されません。`,
-              suggestion: 'target_dateを削除してください',
+              message: t(
+                'taskChuteView.validator.routineTargetBeforeStart',
+                'target_date({targetDate}) is before routine_start({routineStart}). The task will not appear.',
+                { targetDate, routineStart }
+              ),
+              suggestion: t(
+                'taskChuteView.validator.suggestionRemoveTargetDate',
+                'Remove target_date.',
+              ),
               severity: 'high'
             });
           }
@@ -47,8 +55,15 @@ export class TaskValidator {
           else if (this.isPastDate(targetDate)) {
             warnings.push({
               code: 'ROUTINE_PAST_TARGET_DATE',
-              message: `target_date(${targetDate})が過去の日付です。今日は表示されません。`,
-              suggestion: '日跨ぎ移動でない場合はtarget_dateを削除してください',
+              message: t(
+                'taskChuteView.validator.routineTargetPast',
+                'target_date({targetDate}) is in the past. It will not appear today.',
+                { targetDate }
+              ),
+              suggestion: t(
+                'taskChuteView.validator.suggestionRemoveTargetDateNonCross',
+                'Remove target_date unless this is a cross-day move.',
+              ),
               severity: 'medium'
             });
           }
@@ -56,8 +71,15 @@ export class TaskValidator {
           else if (this.isFutureDate(targetDate)) {
             warnings.push({
               code: 'ROUTINE_FUTURE_TARGET_DATE',
-              message: `target_date(${targetDate})が未来の日付です。その日まで表示されません。`,
-              suggestion: '今日表示したい場合はtarget_dateを削除してください',
+              message: t(
+                'taskChuteView.validator.routineTargetFuture',
+                'target_date({targetDate}) is in the future. It will not appear until that date.',
+                { targetDate }
+              ),
+              suggestion: t(
+                'taskChuteView.validator.suggestionRemoveTargetDateToday',
+                'Remove target_date if you want it to appear today.',
+              ),
               severity: 'medium'
             });
           }
@@ -76,8 +98,15 @@ export class TaskValidator {
       if (daysSinceTarget > this.NON_ROUTINE_STALE_THRESHOLD_DAYS) {
         warnings.push({
           code: 'OLD_TARGET_DATE',
-          message: `タスクが${daysSinceTarget}日前から未実行です`,
-          suggestion: '実行するか、削除を検討してください',
+          message: t(
+            'taskChuteView.validator.nonRoutineStale',
+            'This task has been idle for {days} days.',
+            { days: daysSinceTarget },
+          ),
+          suggestion: t(
+            'taskChuteView.validator.suggestionReviewOrDelete',
+            'Run the task or consider deleting it.',
+          ),
           severity: 'low'
         });
       }
@@ -88,8 +117,15 @@ export class TaskValidator {
       if (metadata.routine_interval > 365) {
         warnings.push({
           code: 'EXCESSIVE_ROUTINE_INTERVAL',
-          message: `ルーチン間隔が${metadata.routine_interval}日と長すぎます`,
-          suggestion: '間隔を見直してください',
+          message: t(
+            'taskChuteView.validator.routineIntervalTooLong',
+            'Routine interval of {days} days is unusually long.',
+            { days: metadata.routine_interval as number },
+          ),
+          suggestion: t(
+            'taskChuteView.validator.suggestionReviewInterval',
+            'Review the interval setting.',
+          ),
           severity: 'low'
         });
       }

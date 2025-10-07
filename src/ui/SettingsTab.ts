@@ -1,6 +1,7 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { PathManager } from '../managers/PathManager';
 import { TaskChuteSettings } from '../types';
+import { LanguageOverride, setLocaleOverride, t } from '../i18n';
 
 type PathSettingKey = 'taskFolderPath' | 'projectFolderPath' | 'logDataPath' | 'reviewDataPath';
 
@@ -23,15 +24,42 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    this.renderLanguageSection(containerEl);
     this.renderPathSection(containerEl);
   }
 
+  private renderLanguageSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t('settings.language.name', 'Language'))
+      .setDesc(t('settings.language.description', 'Override the plugin language'))
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption('auto', t('settings.language.options.auto', 'Follow Obsidian'))
+          .addOption('en', t('settings.language.options.en', 'English'))
+          .addOption('ja', t('settings.language.options.ja', 'Japanese'))
+          .setValue(this.plugin.settings.languageOverride ?? 'auto')
+          .onChange(async (value) => {
+            const override = this.normalizeLanguageOverride(value);
+            this.plugin.settings.languageOverride = override;
+            await this.plugin.saveSettings();
+            setLocaleOverride(override);
+            this.display();
+          });
+      });
+  }
+
+  private normalizeLanguageOverride(value: string): LanguageOverride {
+    if (value === 'auto' || value === 'en' || value === 'ja') {
+      return value;
+    }
+    return 'auto';
+  }
+
   private renderPathSection(container: HTMLElement): void {
-    new Setting(container).setName('パス設定').setHeading();
+    new Setting(container).setName(t('settings.heading', 'Path settings')).setHeading();
 
     this.createPathSetting(
       container,
-      'タスクフォルダパス',
       'taskFolderPath',
       PathManager.DEFAULT_PATHS.taskFolder,
       () => this.plugin.pathManager.getTaskFolderPath(),
@@ -39,7 +67,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     this.createPathSetting(
       container,
-      'プロジェクトフォルダパス',
       'projectFolderPath',
       PathManager.DEFAULT_PATHS.projectFolder,
       () => this.plugin.pathManager.getProjectFolderPath(),
@@ -47,7 +74,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     this.createPathSetting(
       container,
-      'ログデータパス',
       'logDataPath',
       PathManager.DEFAULT_PATHS.logData,
       () => this.plugin.pathManager.getLogDataPath(),
@@ -55,7 +81,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     this.createPathSetting(
       container,
-      'レビューデータパス',
       'reviewDataPath',
       PathManager.DEFAULT_PATHS.reviewData,
       () => this.plugin.pathManager.getReviewDataPath(),
@@ -64,13 +89,12 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
   private createPathSetting(
     container: HTMLElement,
-    label: string,
     settingKey: PathSettingKey,
     placeholder: string,
     ensurePath: () => string,
   ): void {
     new Setting(container)
-      .setName(label)
+      .setName(this.getPathName(settingKey))
       .setDesc(this.getPathDescription(settingKey))
       .addText((text) => {
         const currentValue = this.plugin.settings[settingKey] ?? '';
@@ -84,7 +108,10 @@ export class TaskChuteSettingTab extends PluginSettingTab {
               this.plugin.settings[settingKey] = value;
               await this.plugin.saveSettings();
             } else {
-              new Notice(validation.error || 'Invalid path');
+              new Notice(
+                validation.error ||
+                  t('settings.validation.invalidPath', 'Invalid path'),
+              );
               text.setValue(this.plugin.settings[settingKey] ?? '');
             }
           });
@@ -99,16 +126,43 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       });
   }
 
+  private getPathName(settingKey: PathSettingKey): string {
+    switch (settingKey) {
+      case 'taskFolderPath':
+        return t('settings.taskFolder.name', 'Task folder path');
+      case 'projectFolderPath':
+        return t('settings.projectFolder.name', 'Project folder path');
+      case 'logDataPath':
+        return t('settings.logDataFolder.name', 'Log data path');
+      case 'reviewDataPath':
+        return t('settings.reviewDataFolder.name', 'Review data path');
+      default:
+        return '';
+    }
+  }
+
   private getPathDescription(settingKey: PathSettingKey): string {
     switch (settingKey) {
       case 'taskFolderPath':
-        return 'タスクファイルを保存するフォルダのパス';
+        return t(
+          'settings.taskFolder.description',
+          'Path to the folder where task files are stored',
+        );
       case 'projectFolderPath':
-        return 'プロジェクトファイルを保存するフォルダのパス';
+        return t(
+          'settings.projectFolder.description',
+          'Path to the folder where project files are stored',
+        );
       case 'logDataPath':
-        return 'タスクの実行ログを保存するフォルダのパス';
+        return t(
+          'settings.logDataFolder.description',
+          'Path to the folder where execution logs are stored',
+        );
       case 'reviewDataPath':
-        return 'レビュー用データを保存するフォルダのパス';
+        return t(
+          'settings.reviewDataFolder.description',
+          'Path to the folder where review data is stored',
+        );
       default:
         return '';
     }

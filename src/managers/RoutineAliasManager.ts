@@ -1,6 +1,7 @@
 import { Plugin, normalizePath, Notice, TFile } from 'obsidian';
 import { PathManager } from './PathManager';
 import { TaskChuteSettings } from '../types';
+import { t } from '../i18n';
 
 interface PluginWithManagers extends Plugin {
   settings: TaskChuteSettings;
@@ -34,10 +35,14 @@ export class RoutineAliasManager {
         this.aliasCache = {};
       }
     } catch {
+      const message = t(
+        'notices.routineAliasLoadFailed',
+        'Failed to load routine alias history',
+      )
       if (this.plugin._notify) {
-        this.plugin._notify("ルーチンタスクの名前変更履歴の読み込みに失敗しました");
+        this.plugin._notify(message)
       } else {
-        new Notice("ルーチンタスクの名前変更履歴の読み込みに失敗しました");
+        new Notice(message)
       }
       this.aliasCache = {};
     }
@@ -59,10 +64,14 @@ export class RoutineAliasManager {
       
       this.aliasCache = aliases;
     } catch {
+      const message = t(
+        'notices.routineAliasSaveFailed',
+        'Failed to save routine alias history',
+      )
       if (this.plugin._notify) {
-        this.plugin._notify("ルーチンタスクの名前変更履歴の保存に失敗しました");
+        this.plugin._notify(message)
       } else {
-        new Notice("ルーチンタスクの名前変更履歴の保存に失敗しました");
+        new Notice(message)
       }
     }
   }

@@ -1,5 +1,7 @@
 import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
+import { getCurrentLocale, t } from '../i18n';
+
 import { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../types';
 import { HeatmapService } from '../services/HeatmapService';
 
@@ -27,7 +29,15 @@ interface TooltipPosition {
 }
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+const WEEKDAY_KEY_MAP = {
+  sunday: 'Sun',
+  monday: 'Mon',
+  tuesday: 'Tue',
+  wednesday: 'Wed',
+  thursday: 'Thu',
+  friday: 'Fri',
+  saturday: 'Sat',
+} as const;
 const MAX_WEEKS = 53;
 const DAYS_PER_WEEK = 7;
 const HEATMAP_BATCH_SIZE = 50;
@@ -59,6 +69,32 @@ export class LogView {
     this.heatmapService = new HeatmapService(plugin);
   }
 
+  private tv(
+    key: string,
+    fallback: string,
+    vars?: Record<string, string | number>,
+  ): string {
+    return t(`logView.${key}`, fallback, vars);
+  }
+
+  private getWeekdayLabel(index: number): string {
+    const keys: Array<keyof typeof WEEKDAY_KEY_MAP> = [
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+    ];
+    const key = keys[index] ?? 'sunday';
+    return this.tv(`weekdays.${key}`, WEEKDAY_KEY_MAP[key]);
+  }
+
+  private getWeekdayLabels(): string[] {
+    return Array.from({ length: 7 }, (_, idx) => this.getWeekdayLabel(idx));
+  }
+
   async render(): Promise<void> {
     this.container.empty();
     this.createHeader();
@@ -69,7 +105,7 @@ export class LogView {
 
     const loading = this.container.createEl('div', {
       cls: 'heatmap-loading',
-      text: 'データを読み込み中...',
+      text: this.tv('header.loading', 'データを読み込み中...'),
     });
 
     try {
@@ -84,21 +120,31 @@ export class LogView {
     } catch (error) {
       console.error('Failed to render heatmap', error);
       loading.remove();
-      new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`);
+      new Notice(
+        this.tv('notices.loadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
+          year: this.currentYear,
+        }),
+      );
       this.renderEmptyHeatmap(this.currentYear);
     }
   }
 
   private createHeader(): void {
     const header = this.container.createEl('div', { cls: 'taskchute-log-header' });
-    header.createEl('h2', { text: 'タスク実行ログ', cls: 'log-title' });
+    header.createEl('h2', {
+      text: this.tv('header.title', 'タスク実行ログ'),
+      cls: 'log-title',
+    });
 
     const controls = header.createEl('div', { cls: 'log-controls' });
     const yearSelector = controls.createEl('select', { cls: 'year-selector' }) as HTMLSelectElement;
     const currentYear = new Date().getFullYear();
 
     for (let year = currentYear + 1; year >= 2020; year--) {
-      const option = yearSelector.createEl('option', { value: String(year), text: `${year}年` });
+      const option = yearSelector.createEl('option', {
+        value: String(year),
+        text: this.tv('labels.yearOption', `${year}年`, { year }),
+      });
       if (year === this.currentYear) {
         option.selected = true;
       }
@@ -106,20 +152,28 @@ export class LogView {
 
     const refreshButton = controls.createEl('button', {
       cls: 'refresh-button',
-      text: '🔄 データ更新',
-      attr: { title: 'キャッシュをクリアして再計算' },
+      text: this.tv('header.reloadButton', '🔄 データ更新'),
+      attr: {
+        title: this.tv('header.reloadTooltip', 'キャッシュをクリアして再計算'),
+      },
     });
 
     refreshButton.addEventListener('click', async () => {
       this.dataCache.delete(this.currentYear);
       await this.removeCachedYearFile(this.currentYear);
-      await this.reloadCurrentYear('データを再計算中...', true);
+      await this.reloadCurrentYear(
+        this.tv('header.recalculating', 'データを再計算中...'),
+        true,
+      );
     });
 
     yearSelector.addEventListener('change', async (event) => {
       const target = event.currentTarget as HTMLSelectElement;
       this.currentYear = Number.parseInt(target.value, 10);
-      await this.reloadCurrentYear('データを読み込み中...', false);
+      await this.reloadCurrentYear(
+        this.tv('header.loading', 'データを読み込み中...'),
+        false,
+      );
     });
   }
 
@@ -149,12 +203,20 @@ export class LogView {
       loading.remove();
       this.renderHeatmap();
       if (showSuccessNotice) {
-        new Notice(`${this.currentYear}年のデータを更新しました`);
+        new Notice(
+          this.tv('notices.reloadSuccess', `${this.currentYear}年のデータを更新しました`, {
+            year: this.currentYear,
+          }),
+        );
       }
     } catch (error) {
       console.error('Failed to reload heatmap', error);
       loading.remove();
-      new Notice(`${this.currentYear}年のデータ読み込みに失敗しました`);
+      new Notice(
+        this.tv('notices.reloadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
+          year: this.currentYear,
+        }),
+      );
       this.renderEmptyHeatmap(this.currentYear);
     }
   }
@@ -212,14 +274,16 @@ export class LogView {
     const gridSection = layout.createEl('div', { cls: 'heatmap-grid-section' });
     gridSection.createEl('div', {
       cls: 'heatmap-error',
-      text: `${year}年のデータは利用できません`,
+      text: this.tv('notices.yearUnavailable', `${year}年のデータは利用できません`, {
+        year,
+      }),
     });
     const grid = this.createHeatmapGrid(year);
     gridSection.appendChild(grid);
 
     grid.querySelectorAll<HTMLElement>('.heatmap-cell').forEach((cell) => {
       delete cell.dataset.level;
-      cell.dataset.tooltip = 'データなし';
+      cell.dataset.tooltip = this.tv('labels.tooltipNoData', 'データなし');
     });
 
     this.dayDetailContainer = layout.createEl('div', {
@@ -236,7 +300,8 @@ export class LogView {
     const weekdayWrapper = container.createEl('div', { cls: 'heatmap-weekdays-container' });
     const weekdayColumn = weekdayWrapper.createEl('div', { cls: 'heatmap-weekdays' });
 
-    WEEKDAY_LABELS.forEach((labelText, index) => {
+    const weekdayLabels = this.getWeekdayLabels();
+    weekdayLabels.forEach((labelText, index) => {
       const label = weekdayColumn.createEl('span', { cls: 'weekday-label' });
       if (index % 2 !== 0) {
         label.textContent = labelText;
@@ -265,7 +330,14 @@ export class LogView {
       if (inYear) {
         cell.setAttr('role', 'button');
         cell.setAttr('tabindex', '0');
-        cell.setAttr('aria-label', `${this.getAccessibleLabel(dateString)}を表示`);
+        cell.setAttr(
+          'aria-label',
+          this.tv(
+            'labels.openTaskListAria',
+            `${this.getAccessibleLabel(dateString)}を表示`,
+            { date: this.getAccessibleLabel(dateString) },
+          ),
+        );
         cell.dataset.selected = 'false';
         this.addCellEventListeners(cell, dateString);
         const monthIndex = currentDate.getMonth();
@@ -431,25 +503,27 @@ export class LogView {
       case 'placeholder':
         this.dayDetailContainer.createEl('div', {
           cls: 'heatmap-detail-placeholder',
-          text: '日付を選択してください',
+          text: this.tv('labels.selectDate', '日付を選択してください'),
         });
         break;
       case 'loading':
         this.dayDetailContainer.createEl('div', {
           cls: 'heatmap-detail-loading',
-          text: `${state.dateKey} のデータを読み込み中...`,
+          text: this.tv('labels.loadingDate', `${state.dateKey} のデータを読み込み中...`, {
+            date: state.dateKey,
+          }),
         });
         break;
       case 'future':
         this.dayDetailContainer.createEl('div', {
           cls: 'heatmap-detail-placeholder',
-          text: '未来の日付です。記録はまだありません。',
+          text: this.tv('labels.futureDate', '未来の日付です。記録はまだありません。'),
         });
         break;
       case 'error':
         this.dayDetailContainer.createEl('div', {
           cls: 'heatmap-detail-error',
-          text: 'データの読み込みに失敗しました。',
+          text: this.tv('notices.loadFailedGeneric', 'データの読み込みに失敗しました。'),
         });
         break;
       case 'success':
@@ -458,7 +532,7 @@ export class LogView {
       default:
         this.dayDetailContainer.createEl('div', {
           cls: 'heatmap-detail-placeholder',
-          text: '日付を選択してください',
+          text: this.tv('labels.selectDatePrompt', '日付を選択してください'),
         });
     }
   }
@@ -482,9 +556,13 @@ export class LogView {
     const actions = header.createEl('div', { cls: 'heatmap-detail-actions' });
     const openButton = actions.createEl('button', {
       cls: 'heatmap-detail-open-button',
-      text: 'タスク一覧を開く',
+      text: this.tv('labels.openTaskList', 'タスク一覧を開く'),
       attr: {
-        'aria-label': `${this.getAccessibleLabel(detail.date)}のタスク一覧を開く`,
+        'aria-label': this.tv(
+          'labels.openTaskListAria',
+          `${this.getAccessibleLabel(detail.date)}のタスク一覧を開く`,
+          { date: this.getAccessibleLabel(detail.date) },
+        ),
       },
     });
     openButton.addEventListener('click', () => {
@@ -495,27 +573,35 @@ export class LogView {
       cls: 'heatmap-detail-summary',
     });
 
-    this.createSummaryItem(summary, '総タスク', String(detail.summary.totalTasks));
-    this.createSummaryItem(summary, '完了', String(detail.summary.completedTasks));
     this.createSummaryItem(
       summary,
-      '先送り',
+      this.tv('labels.totalTasks', '総タスク'),
+      String(detail.summary.totalTasks),
+    );
+    this.createSummaryItem(
+      summary,
+      this.tv('labels.completedTasks', '完了'),
+      String(detail.summary.completedTasks),
+    );
+    this.createSummaryItem(
+      summary,
+      this.tv('labels.postponedTasks', '先送り'),
       String(detail.summary.procrastinatedTasks),
     );
     this.createSummaryItem(
       summary,
-      '合計時間',
+      this.tv('labels.totalTime', '合計時間'),
       this.formatMinutesValue(detail.summary.totalMinutes),
     );
     this.createSummaryItem(
       summary,
-      '完了率',
+      this.tv('labels.completionRate', '完了率'),
       this.formatCompletionRate(detail.summary.completionRate),
     );
     if (detail.executions.length === 0) {
       this.dayDetailContainer.createEl('div', {
         cls: 'heatmap-detail-empty',
-        text: 'この日に記録された実行ログはありません。',
+        text: this.tv('labels.noEntries', 'この日に記録された実行ログはありません。'),
       });
       return;
     }
@@ -526,12 +612,14 @@ export class LogView {
     const thead = table.createEl('thead');
     const headerRow = thead.createEl('tr');
     const columns = [
-      `タスク名 (${detail.executions.length})`,
-      '実行時間',
-      '所要時間',
-      '集中度',
-      '元気度',
-      'コメント',
+      this.tv('labels.tableHeaders.taskNameWithCount', `タスク名 (${detail.executions.length})`, {
+        count: detail.executions.length,
+      }),
+      this.tv('labels.tableHeaders.executionTime', '実行時間'),
+      this.tv('labels.tableHeaders.duration', '所要時間'),
+      this.tv('labels.tableHeaders.focus', '集中度'),
+      this.tv('labels.tableHeaders.energy', '元気度'),
+      this.tv('labels.tableHeaders.comment', 'コメント'),
     ];
     columns.forEach((label) => {
       headerRow.createEl('th', { text: label, attr: { scope: 'col' } });
@@ -593,11 +681,15 @@ export class LogView {
     const span = document.createElement('span');
     span.className = 'heatmap-detail-satisfaction';
     if (value === null) {
-      span.textContent = '1日の満足度: -';
+      span.textContent = this.tv('labels.satisfactionEmpty', '1日の満足度: -');
       return span;
     }
     const clamped = Math.min(5, Math.max(1, Math.round(value)));
-    span.textContent = `1日の満足度: ${clamped}/5`;
+    span.textContent = this.tv(
+      'labels.satisfactionValue',
+      `1日の満足度: ${clamped}/5`,
+      { value: clamped },
+    );
     return span;
   }
 
@@ -606,7 +698,7 @@ export class LogView {
     if (Number.isNaN(date.getTime())) {
       return dateKey;
     }
-    const weekday = WEEKDAY_LABELS[date.getDay()];
+    const weekday = this.getWeekdayLabel(date.getDay());
     return `${dateKey} (${weekday})`;
   }
 
@@ -615,7 +707,8 @@ export class LogView {
     if (Number.isNaN(date.getTime())) {
       return dateKey;
     }
-    return date.toLocaleDateString('ja-JP', {
+    const locale = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US';
+    return date.toLocaleDateString(locale, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -625,15 +718,15 @@ export class LogView {
 
   private formatMinutesValue(totalMinutes: number): string {
     if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
-      return '0分';
+      return this.tv('durations.zeroMinutes', '0分');
     }
     const minutes = Math.round(totalMinutes);
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     if (hours > 0) {
-      return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
+      return this.formatHoursMinutes(hours, mins);
     }
-    return `${mins}分`;
+    return this.formatMinutesOnly(mins);
   }
 
   private formatCompletionRate(rate: number): string {
@@ -655,15 +748,15 @@ export class LogView {
 
   private formatDuration(durationSec: number | undefined): string {
     if (!durationSec || durationSec <= 0) {
-      return '1分未満';
+      return this.tv('durations.lessThanMinute', '1分未満');
     }
     const minutes = Math.max(1, Math.round(durationSec / 60));
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     if (hours > 0) {
-      return mins > 0 ? `${hours}時間${mins}分` : `${hours}時間`;
+      return this.formatHoursMinutes(hours, mins);
     }
-    return `${mins}分`;
+    return this.formatMinutesOnly(mins);
   }
 
   private formatExecutionTime(start?: string, stop?: string): string {
@@ -711,7 +804,8 @@ export class LogView {
 
   private createTooltipText(dateKey: string, stats: HeatmapDayStats): string {
     const date = new Date(`${dateKey}T00:00:00`);
-    const formatted = date.toLocaleDateString('ja-JP', {
+    const locale = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US';
+    const formatted = date.toLocaleDateString(locale, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -719,10 +813,37 @@ export class LogView {
     });
 
     if (!stats || stats.totalTasks === 0) {
-      return `${formatted}\nタスクなし`;
+      return this.tv('summaries.noTasks', `${formatted}\nタスクなし`, {
+        formatted,
+      });
     }
 
-    return `${formatted}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${Math.round(stats.completionRate * 100)}%`;
+    const rate = Math.round((stats.completionRate ?? 0) * 100);
+    return this.tv(
+      'summaries.stats',
+      `${formatted}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${rate}%`,
+      {
+        formatted,
+        total: stats.totalTasks,
+        completed: stats.completedTasks ?? 0,
+        deferred: stats.procrastinatedTasks ?? 0,
+        rate,
+      },
+    );
+  }
+
+  private formatHoursMinutes(hours: number, minutes: number): string {
+    if (minutes > 0) {
+      return this.tv('durations.hoursAndMinutes', `${hours}時間${minutes}分`, {
+        hours,
+        minutes,
+      });
+    }
+    return this.tv('durations.hoursOnly', `${hours}時間`, { hours });
+  }
+
+  private formatMinutesOnly(minutes: number): string {
+    return this.tv('durations.minutesOnly', `${minutes}分`, { minutes });
   }
 
   private addCellEventListeners(cell: HTMLElement, dateKey: string): void {

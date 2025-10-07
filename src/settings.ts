@@ -8,4 +8,5 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   reviewDataPath: PathManager.DEFAULT_PATHS.reviewData,
   useOrderBasedSort: true,
   slotKeys: {},
+  languageOverride: 'auto',
 };

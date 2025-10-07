@@ -7,8 +7,16 @@ import { RoutineAliasManager } from "./managers/RoutineAliasManager"
 import { TaskChuteView } from "./views/TaskChuteView"
 import DayStateService from "./services/DayStateService"
 import { TaskChuteSettingTab } from "./ui/SettingsTab"
+import { initializeLocaleManager, onLocaleChange, t } from "./i18n"
 
 const VIEW_TYPE_TASKCHUTE = "taskchute-view"
+
+type LocalizedCommandDefinition = {
+  id: string
+  nameKey: string
+  fallback: string
+  callback: () => void | Promise<void>
+}
 
 export default class TaskChutePlusPlugin extends Plugin {
   settings!: TaskChuteSettings
@@ -16,6 +24,9 @@ export default class TaskChutePlusPlugin extends Plugin {
   routineAliasManager!: RoutineAliasManager
   dayStateService!: DayStateService
   globalTimerInterval?: ReturnType<typeof setInterval> | null
+  private localizedCommands: LocalizedCommandDefinition[] = []
+  private unregisterLocaleListener?: () => void
+  private ribbonIconEl?: HTMLElement
 
   // Simple logger/notification wrapper
   _log(level: keyof Console | undefined, ...args: unknown[]): void {
@@ -40,6 +51,82 @@ export default class TaskChutePlusPlugin extends Plugin {
     }
   }
 
+  private registerRibbon(): void {
+    const label = t("commands.openView", "Open TaskChute")
+    this.ribbonIconEl = this.addRibbonIcon("checkmark", label, () => {
+      this.activateTaskChuteView()
+    })
+    this.updateRibbonLabel()
+  }
+
+  private translateCommand(def: LocalizedCommandDefinition): string {
+    return t(def.nameKey, def.fallback)
+  }
+
+  private registerLocalizedCommand(def: LocalizedCommandDefinition): void {
+    const alreadyRegistered = this.localizedCommands.some(
+      (existing) => existing.id === def.id,
+    )
+    if (!alreadyRegistered) {
+      this.localizedCommands.push(def)
+    }
+    this.addCommand({
+      id: def.id,
+      name: this.translateCommand(def),
+      callback: def.callback,
+    })
+  }
+
+  private refreshLocalizedCommands(): void {
+    const baseId = this.manifest.id
+    for (const def of this.localizedCommands) {
+      try {
+        this.app.commands.removeCommand(`${baseId}:${def.id}`)
+      } catch (error) {
+        this._log?.('warn', 'Failed to remove command for relocalization', error)
+      }
+      this.addCommand({
+        id: def.id,
+        name: this.translateCommand(def),
+        callback: def.callback,
+      })
+    }
+  }
+
+  private updateRibbonLabel(): void {
+    if (!this.ribbonIconEl) return
+    const label = t("commands.openView", "Open TaskChute")
+    const ribbon = this.ribbonIconEl as HTMLElement & {
+      setAttr?: (key: string, value: string) => void
+    }
+    if (typeof ribbon.setAttr === "function") {
+      ribbon.setAttr("aria-label", label)
+      ribbon.setAttr("aria-label-position", "right")
+      ribbon.setAttr("data-tooltip", label)
+    } else {
+      ribbon.setAttribute("aria-label", label)
+      ribbon.setAttribute("data-tooltip", label)
+    }
+    ribbon.setAttribute("title", label)
+  }
+
+  private handleLocaleChange(): void {
+    this.refreshLocalizedCommands()
+    this.updateRibbonLabel()
+    const view = this.getTaskChuteView()
+    if (
+      view &&
+      typeof (view as Partial<TaskChuteView> & { applyLocale?: () => void }).applyLocale ===
+        "function"
+    ) {
+      try {
+        ;(view as TaskChuteView & { applyLocale: () => void }).applyLocale()
+      } catch (error) {
+        this._log?.("warn", "Failed to apply locale to TaskChuteView", error)
+      }
+    }
+  }
+
   async onload(): Promise<void> {
     // Load settings with defaults
     const loaded = (await this.loadData()) || {}
@@ -48,6 +135,14 @@ export default class TaskChutePlusPlugin extends Plugin {
     if (typeof this.settings.useOrderBasedSort !== "boolean") {
       this.settings.useOrderBasedSort = true
     }
+    if (!this.settings.languageOverride) {
+      this.settings.languageOverride = "auto"
+    }
+
+    initializeLocaleManager(this.settings.languageOverride)
+    this.unregisterLocaleListener = onLocaleChange(() => {
+      this.handleLocaleChange()
+    })
 
     // Initialize PathManager
     this.pathManager = new PathManager(this)
@@ -76,12 +171,13 @@ export default class TaskChutePlusPlugin extends Plugin {
     )
 
     // Add ribbon icon
-    this.addRibbonIcon("checkmark", "TaskChuteを開く", () => {
-      this.activateTaskChuteView()
-    })
+    this.registerRibbon()
 
     // Register commands
     this.registerCommands()
+
+    // Apply initial locale-dependent UI updates
+    this.handleLocaleChange()
   }
 
   async onunload(): Promise<void> {
@@ -89,6 +185,11 @@ export default class TaskChutePlusPlugin extends Plugin {
     if (this.globalTimerInterval) {
       clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
+    }
+
+    if (this.unregisterLocaleListener) {
+      this.unregisterLocaleListener()
+      this.unregisterLocaleListener = undefined
     }
 
     // Clear boundary check timeout
@@ -107,92 +208,117 @@ export default class TaskChutePlusPlugin extends Plugin {
   }
 
   private registerCommands(): void {
-    // Main TaskChute command
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "open-taskchute-view",
-      name: "TaskChuteを開く",
+      nameKey: "commands.openView",
+      fallback: "Open TaskChute",
       callback: () => {
         this.activateTaskChuteView()
       },
     })
 
-    // Settings command
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "taskchute-settings",
-      name: "TaskChute設定",
+      nameKey: "commands.openSettings",
+      fallback: "TaskChute settings",
       callback: () => {
         this.showSettingsModal()
       },
     })
 
-    // Task manipulation commands
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "duplicate-selected-task",
-      name: "選択されたタスクを複製",
-      // ホットキーはデフォルトで設定しない
+      nameKey: "commands.duplicateSelected",
+      fallback: "Duplicate selected task",
       callback: async () => {
         await this.triggerDuplicateSelectedTask()
       },
     })
 
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "delete-selected-task",
-      name: "選択されたタスクを削除",
-      // ホットキーはデフォルトで設定しない
+      nameKey: "commands.deleteSelected",
+      fallback: "Delete selected task",
       callback: async () => {
         await this.triggerDeleteSelectedTask()
       },
     })
 
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "reset-selected-task",
-      name: "選択されたタスクを未実行に戻す",
+      nameKey: "commands.resetSelected",
+      fallback: "Reset selected task",
       callback: async () => {
         await this.triggerResetSelectedTask()
       },
     })
 
-    // Today's tasks command
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "show-today-tasks",
-      name: "今日のタスクを表示",
+      nameKey: "commands.showToday",
+      fallback: "Show today's tasks",
       callback: async () => {
         await this.triggerShowTodayTasks()
       },
     })
 
-    // Reorganize idle tasks command
-    this.addCommand({
+    this.registerLocalizedCommand({
       id: "reorganize-idle-tasks",
-      name: "未実行タスクを現在の時間帯に整理",
+      nameKey: "commands.reorganizeIdle",
+      fallback: "Reorganize idle tasks to current slot",
       callback: () => {
         const view = this.getTaskChuteView()
         if (view) {
           view.reorganizeIdleTasks()
         } else {
-          new Notice("TaskChuteビューが開かれていません")
+          new Notice(t("notices.viewNotOpen", "TaskChute view is not open"))
         }
       },
     })
-
-
   }
 
   async ensureRequiredFolders(): Promise<void> {
-    const targets: [string, () => string][] = [
-      ["タスクフォルダ", () => this.pathManager.getTaskFolderPath()],
-      ["プロジェクトフォルダ", () => this.pathManager.getProjectFolderPath()],
-      ["ログデータフォルダ", () => this.pathManager.getLogDataPath()],
-      ["レビューデータフォルダ", () => this.pathManager.getReviewDataPath()],
+    const targets: Array<{
+      labelKey: string
+      fallback: string
+      getter: () => string
+    }> = [
+      {
+        labelKey: "paths.taskFolder",
+        fallback: "Task folder",
+        getter: () => this.pathManager.getTaskFolderPath(),
+      },
+      {
+        labelKey: "paths.projectFolder",
+        fallback: "Project folder",
+        getter: () => this.pathManager.getProjectFolderPath(),
+      },
+      {
+        labelKey: "paths.logDataFolder",
+        fallback: "Log data folder",
+        getter: () => this.pathManager.getLogDataPath(),
+      },
+      {
+        labelKey: "paths.reviewDataFolder",
+        fallback: "Review data folder",
+        getter: () => this.pathManager.getReviewDataPath(),
+      },
     ]
 
-    for (const [label, getter] of targets) {
+    for (const target of targets) {
+      const label = t(target.labelKey, target.fallback)
       try {
-        const path = getter()
+        const path = target.getter()
         await this.pathManager.ensureFolderExists(path)
       } catch {
         try {
-          new Notice(`${label}の作成に失敗しました`)
+          new Notice(
+            t(
+              "notices.folderCreationFailed",
+              "Failed to create {label}",
+              { label },
+            ),
+          )
         } catch {
           // Ignore if Notice is not available (e.g., in tests)
         }
@@ -273,7 +399,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   private async triggerDuplicateSelectedTask(): Promise<void> {
     const view = await this.getOrCreateTaskChuteView(["duplicateSelectedTask"])
     if (!view) {
-      new Notice("TaskChuteビューが開かれていません")
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"))
       return
     }
     await view.duplicateSelectedTask()
@@ -282,7 +408,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   private async triggerDeleteSelectedTask(): Promise<void> {
     const view = await this.getOrCreateTaskChuteView(["deleteSelectedTask"])
     if (!view) {
-      new Notice("TaskChuteビューが開かれていません")
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"))
       return
     }
     view.deleteSelectedTask()
@@ -291,7 +417,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   private async triggerResetSelectedTask(): Promise<void> {
     const view = await this.getOrCreateTaskChuteView(["resetSelectedTask"])
     if (!view) {
-      new Notice("TaskChuteビューが開かれていません")
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"))
       return
     }
     await view.resetSelectedTask()
@@ -326,13 +452,15 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Modal header
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", { text: "TaskChute設定" })
+    modalHeader.createEl("h3", {
+      text: t("commands.openSettings", "TaskChute settings"),
+    })
 
     // Close button
     const closeButton = modalHeader.createEl("button", {
       cls: "modal-close-button",
       text: "×",
-      attr: { title: "閉じる" },
+      attr: { title: t("common.close", "Close") },
     })
 
     // Form container
@@ -340,12 +468,14 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Path settings section
     const pathSection = form.createEl("div", { cls: "settings-section" })
-    pathSection.createEl("h4", { text: "パス設定" })
+    pathSection.createEl("h4", {
+      text: t("settings.heading", "Path settings"),
+    })
 
     // Task folder path
     this.createPathSetting(
       pathSection,
-      "タスクフォルダパス",
+      t("settings.taskFolder.name", "Task folder path"),
       "taskFolderPath",
       PathManager.DEFAULT_PATHS.taskFolder,
     )
@@ -353,7 +483,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     // Project folder path
     this.createPathSetting(
       pathSection,
-      "プロジェクトフォルダパス",
+      t("settings.projectFolder.name", "Project folder path"),
       "projectFolderPath",
       PathManager.DEFAULT_PATHS.projectFolder,
     )
@@ -361,7 +491,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     // Log data path
     this.createPathSetting(
       pathSection,
-      "ログデータパス",
+      t("settings.logDataFolder.name", "Log data path"),
       "logDataPath",
       PathManager.DEFAULT_PATHS.logData,
     )
@@ -369,7 +499,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     // Review data path
     this.createPathSetting(
       pathSection,
-      "レビューデータパス",
+      t("settings.reviewDataFolder.name", "Review data path"),
       "reviewDataPath",
       PathManager.DEFAULT_PATHS.reviewData,
     )
@@ -436,7 +566,10 @@ export default class TaskChutePlusPlugin extends Plugin {
           // Ignore folder creation errors
         }
       } else {
-        new Notice(validation.error!)
+        new Notice(
+          validation.error ||
+            t('settings.validation.invalidPath', 'Invalid path'),
+        )
         input.value = (this.settings[settingKey] as string) || ""
       }
     })

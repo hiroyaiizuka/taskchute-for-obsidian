@@ -1,3 +1,4 @@
+import { initializeLocaleManager } from '../../src/i18n'
 import { LogView } from '../../src/views/LogView'
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../src/types'
 
@@ -83,9 +84,10 @@ const ensureObsidianDomHelpers = () => {
 describe('LogView heatmap detail panel', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]> | null = null
 
-  beforeAll(() => {
-    ensureObsidianDomHelpers()
-  })
+beforeAll(() => {
+  initializeLocaleManager('ja')
+  ensureObsidianDomHelpers()
+})
 
   beforeEach(() => {
     jest.useFakeTimers()

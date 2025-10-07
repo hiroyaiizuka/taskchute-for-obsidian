@@ -1,4 +1,5 @@
 import { App, Notice, TFile } from 'obsidian'
+import { t } from '../i18n'
 
 interface PluginLike {
   app: App
@@ -69,8 +70,11 @@ export class TaskCreationService {
     ].join('\n')
 
     const file = await this.plugin.app.vault.create(filePath, content)
-    new Notice(`タスク「${taskName}」を作成しました`)
+    new Notice(
+      t('taskChuteView.notices.taskCreated', 'Created task "{name}"', {
+        name: taskName,
+      }),
+    )
     return file
   }
 }
-

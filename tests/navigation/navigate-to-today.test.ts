@@ -280,7 +280,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Noticeが表示されることを確認
-      expect(Notice).toHaveBeenCalledWith('今日のタスクを表示しました');
+      expect(Notice).toHaveBeenCalledWith("Showing today's tasks");
     });
   });
 });

@@ -10,6 +10,7 @@ export interface TaskChuteSettings {
   reviewDataPath: string;
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
+  languageOverride: 'auto' | 'en' | 'ja';
   // Field migration settings
   preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
   autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading

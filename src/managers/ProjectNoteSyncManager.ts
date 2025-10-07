@@ -1,6 +1,7 @@
 import { App, TFile } from 'obsidian'
 import { PathManager } from './PathManager'
 import type { TaskInstance } from '../types'
+import { t } from '../i18n'
 
 /**
  * Syncs task comments to related project notes' log section.
@@ -43,7 +44,8 @@ export class ProjectNoteSyncManager {
       }
     }
 
-    const newContent = content.trimEnd() + "\n\n## ログ\n"
+    const logHeading = t('taskChuteView.project.logHeading', '## Log')
+    const newContent = `${content.trimEnd()}\n\n${logHeading}\n`
     return {
       exists: false,
       position: newContent.length,
@@ -219,7 +221,13 @@ export class ProjectNoteSyncManager {
   async updateProjectNote(projectPath: string, inst: TaskInstance, completionData: { executionComment: string }) {
     const file = this.app.vault.getAbstractFileByPath(projectPath)
     if (!file || !(file instanceof TFile)) {
-      throw new Error(`プロジェクトノートが見つかりません: ${projectPath}`)
+      throw new Error(
+        t(
+          'taskChuteView.project.noteNotFound',
+          'Project note not found: {path}',
+          { path: projectPath },
+        ),
+      )
     }
 
     let content = await this.app.vault.read(file)

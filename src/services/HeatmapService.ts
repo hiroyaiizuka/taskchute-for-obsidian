@@ -1,4 +1,5 @@
 import { App, TFile, normalizePath, parseYaml } from 'obsidian'
+import { t } from '../i18n'
 import {
   HeatmapDayDetail,
   HeatmapDayStats,
@@ -526,7 +527,7 @@ export class HeatmapService {
     if (title) return title
     const path = this.pickString(task, ['taskPath', 'path'])
     if (path) return path
-    return '未設定タスク'
+    return t('taskChuteView.status.unassignedTask', 'Unassigned task')
   }
 
   private pickString(

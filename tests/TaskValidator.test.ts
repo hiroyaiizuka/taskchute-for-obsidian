@@ -14,8 +14,8 @@ describe('TaskValidator', () => {
 
       expect(result.warnings).toContainEqual({
         code: 'ROUTINE_STALE_TARGET_DATE',
-        message: 'target_date(2025-09-19)がroutine_start(2025-09-24)より前です。タスクが表示されません。',
-        suggestion: 'target_dateを削除してください',
+        message: 'target_date(2025-09-19) is before routine_start(2025-09-24). The task will not appear.',
+        suggestion: 'Remove target_date.',
         severity: 'high'
       });
     });
@@ -61,8 +61,8 @@ describe('TaskValidator', () => {
 
       expect(result.warnings).toContainEqual({
         code: 'ROUTINE_FUTURE_TARGET_DATE',
-        message: `target_date(${tomorrowStr})が未来の日付です。その日まで表示されません。`,
-        suggestion: '今日表示したい場合はtarget_dateを削除してください',
+        message: `target_date(${tomorrowStr}) is in the future. It will not appear until that date.`,
+        suggestion: 'Remove target_date if you want it to appear today.',
         severity: 'medium'
       });
     });

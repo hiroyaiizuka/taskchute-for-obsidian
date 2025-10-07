@@ -1,4 +1,5 @@
 import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian';
+import { t } from '../i18n';
 import type { TaskNameValidator } from '../types';
 import type { TaskChuteView } from '../views/TaskChuteView';
 
@@ -311,7 +312,11 @@ export class TaskNameAutocomplete {
           const message =
             typeof validator.getErrorMessage === 'function'
               ? validator.getErrorMessage(validation.invalidChars)
-              : 'このタスク名には使用できない文字が含まれています';
+              : t(
+                  'taskChuteView.validator.invalidChars',
+                  'Task name contains invalid characters: {chars}',
+                  { chars: validation.invalidChars?.join(', ') ?? '' },
+                );
           new Notice(message);
           return;
         }
