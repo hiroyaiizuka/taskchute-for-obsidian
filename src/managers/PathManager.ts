@@ -1,5 +1,6 @@
 import { Plugin, normalizePath } from 'obsidian';
 import { TaskChuteSettings } from '../types';
+import { t } from '../i18n';
 
 export class PathManager {
   private plugin: Plugin & { settings: TaskChuteSettings };
@@ -55,13 +56,25 @@ export class PathManager {
 
   validatePath(path: string): { valid: boolean; error?: string } {
     if (path.startsWith("/") || path.match(/^[A-Za-z]:\\/)) {
-      return { valid: false, error: "絶対パスは使用できません" };
+      return {
+        valid: false,
+        error: t('paths.errors.absoluteNotAllowed', 'Absolute paths are not allowed'),
+      };
     }
     if (path.includes("..")) {
-      return { valid: false, error: "パスに'..'を含めることはできません" };
+      return {
+        valid: false,
+        error: t('paths.errors.parentSegmentNotAllowed', "Paths cannot include '..'"),
+      };
     }
     if (path.match(/[<>"|?*]/)) {
-      return { valid: false, error: "パスに特殊文字を含めることはできません" };
+      return {
+        valid: false,
+        error: t(
+          'paths.errors.invalidCharacters',
+          'Paths cannot contain special characters',
+        ),
+      };
     }
     return { valid: true };
   }

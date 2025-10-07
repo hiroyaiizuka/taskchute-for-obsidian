@@ -1,6 +1,7 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { TaskInstance } from '../types';
+import { computeExecutionInstanceKey } from '../utils/logKeys';
 
 
 interface TaskExecutionEntry {
@@ -56,14 +57,6 @@ function parseLogFile(raw: string | null | undefined): TaskLogFile {
   }
 }
 
-function toExecutionKey(entry: TaskExecutionEntry): string {
-  if (entry.taskPath && typeof entry.taskPath === 'string') return entry.taskPath;
-  if (entry.taskName && typeof entry.taskName === 'string') return entry.taskName;
-  if (entry.taskTitle && typeof entry.taskTitle === 'string') return entry.taskTitle;
-  if (entry.instanceId && typeof entry.instanceId === 'string') return entry.instanceId;
-  return JSON.stringify(entry);
-}
-
 function isEntryCompleted(entry: TaskExecutionEntry): boolean {
   if (typeof entry.isCompleted === 'boolean') return entry.isCompleted;
   if (entry.stopTime && typeof entry.stopTime === 'string' && entry.stopTime.trim().length > 0) return true;
@@ -100,6 +93,19 @@ export class ExecutionLogService {
     return `${y}-${m}-${d}`;
   }
 
+  private resolveTaskTitle(inst: TaskInstance): string {
+    const candidates = [inst.executedTitle, inst.task.displayTitle, inst.task.name];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+    }
+    return 'Untitled Task';
+  }
+
   async saveTaskLog(inst: TaskInstance, durationSec: number): Promise<void> {
     if (!inst.startTime || !inst.stopTime) return;
     const start = new Date(inst.startTime);
@@ -132,7 +138,7 @@ export class ExecutionLogService {
     }
 
     const exec: TaskExecutionEntry = {
-      taskTitle: inst.task.title || inst.task.name,
+      taskTitle: this.resolveTaskTitle(inst),
       taskPath: inst.task.path,
       instanceId: inst.instanceId,
       slotKey: inst.slotKey,
@@ -151,7 +157,7 @@ export class ExecutionLogService {
     const completedSet = new Set<string>();
     for (const entry of arr) {
       if (isEntryCompleted(entry)) {
-        completedSet.add(toExecutionKey(entry));
+        completedSet.add(computeExecutionInstanceKey(entry));
       }
     }
     const completedTasks = completedSet.size;
@@ -199,7 +205,7 @@ export class ExecutionLogService {
       const completedSet = new Set<string>();
       for (const entry of filtered) {
         if (isEntryCompleted(entry)) {
-          completedSet.add(toExecutionKey(entry));
+          completedSet.add(computeExecutionInstanceKey(entry));
         }
       }
       const completedTasks = completedSet.size;

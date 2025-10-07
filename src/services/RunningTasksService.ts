@@ -37,6 +37,9 @@ export class RunningTasksService {
       const m = String(base.getMonth() + 1).padStart(2, '0');
       const d = String(base.getDate()).padStart(2, '0');
       const dateString = `${y}-${m}-${d}`;
+      const descriptionField = inst.task?.description;
+      const taskDescription =
+        typeof descriptionField === 'string' ? descriptionField : undefined;
       return {
         date: dateString,
         taskTitle: inst.task.name,
@@ -45,7 +48,7 @@ export class RunningTasksService {
         slotKey: inst.slotKey,
         originalSlotKey: inst.originalSlotKey,
         instanceId: inst.instanceId,
-        taskDescription: inst.task.description || '',
+        taskDescription,
         isRoutine: inst.task.isRoutine === true,
       };
     });

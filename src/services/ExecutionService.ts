@@ -16,12 +16,12 @@ interface MonthlyLogFile {
 }
 
 export interface TaskExecution {
-  taskTitle: string;
-  taskPath: string;
-  startTime: string;
-  stopTime: string;
-  slotKey: string;
-  instanceId?: string;
+  taskTitle: string
+  taskPath: string
+  slotKey: string
+  startTime?: string
+  stopTime?: string
+  instanceId?: string
 }
 
 export class ExecutionService {
@@ -48,14 +48,22 @@ export class ExecutionService {
       // Get executions for the specific date
       const dayExecutions = monthlyLog.taskExecutions?.[dateString] ?? [];
 
-      return dayExecutions.map((exec: RawExecutionEntry) => ({
-        taskTitle: exec.taskTitle || exec.taskName,
-        taskPath: exec.taskPath || '',
-        startTime: exec.startTime,
-        stopTime: exec.stopTime,
-        slotKey: exec.slotKey || this.calculateSlotKey(exec.startTime),
-        instanceId: exec.instanceId,
-      }));
+      return dayExecutions.map((exec: RawExecutionEntry) => {
+        const taskTitle = exec.taskTitle ?? exec.taskName ?? 'Untitled Task'
+        const taskPath = exec.taskPath ?? ''
+        const startTime = exec.startTime
+        const stopTime = exec.stopTime
+        const slotKey = exec.slotKey ?? this.calculateSlotKey(exec.startTime)
+
+        return {
+          taskTitle,
+          taskPath,
+          startTime,
+          stopTime,
+          slotKey,
+          instanceId: exec.instanceId,
+        }
+      })
     } catch (error) {
       console.error('Failed to load today executions:', error);
       return [];
@@ -65,18 +73,20 @@ export class ExecutionService {
   /**
    * Calculate time slot key based on time string
    */
-  private calculateSlotKey(timeStr: string): string {
-    if (!timeStr) return "none";
-    
-    const [hourStr] = timeStr.split(':');
-    const hour = parseInt(hourStr, 10);
-    
-    if (hour >= 0 && hour < 8) return "0:00-8:00";
-    if (hour >= 8 && hour < 12) return "8:00-12:00";
-    if (hour >= 12 && hour < 16) return "12:00-16:00";
-    if (hour >= 16 && hour < 24) return "16:00-0:00";
-    
-    return "none";
+  private calculateSlotKey(timeStr: string | undefined): string {
+    if (!timeStr) return "none"
+
+    const [hourStr] = timeStr.split(':')
+    const hour = parseInt(hourStr ?? '', 10)
+
+    if (!Number.isFinite(hour)) return "none"
+
+    if (hour >= 0 && hour < 8) return "0:00-8:00"
+    if (hour >= 8 && hour < 12) return "8:00-12:00"
+    if (hour >= 12 && hour < 16) return "12:00-16:00"
+    if (hour >= 16 && hour < 24) return "16:00-0:00"
+
+    return "none"
   }
 
   private get app() {

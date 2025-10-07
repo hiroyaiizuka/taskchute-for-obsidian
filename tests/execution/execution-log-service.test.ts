@@ -20,8 +20,16 @@ function createPluginStub() {
   const store = new Map<string, StoredLogFile>();
 
   const pathManager = {
+    getTaskFolderPath: () => 'TASKS',
+    getProjectFolderPath: () => 'PROJECTS',
     getLogDataPath: () => 'LOGS',
+    getReviewDataPath: () => 'REVIEWS',
     ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+    getLogYearPath: (year: string | number) => `LOGS/${year}`,
+    ensureYearFolder: jest
+      .fn()
+      .mockImplementation(async (year: string | number) => `LOGS/${year}`),
+    validatePath: () => ({ valid: true }),
   };
 
   const vault = {
@@ -53,16 +61,13 @@ function createPluginStub() {
       projectFolderPath: '',
       logDataPath: 'LOGS',
       reviewDataPath: '',
-      enableSound: false,
-      enableFireworks: false,
-      enableConfetti: false,
       useOrderBasedSort: true,
       slotKeys: {},
     },
     saveSettings: jest.fn().mockResolvedValue(undefined),
     pathManager,
     routineAliasManager: {
-      loadAliases: jest.fn().mockResolvedValue(undefined),
+      loadAliases: jest.fn().mockResolvedValue({}),
     },
     dayStateService: {
       loadDay: jest.fn(),
@@ -97,7 +102,7 @@ function createInstance(overrides: Partial<TaskInstance> = {}): TaskInstance {
 }
 
 describe('ExecutionLogService.saveTaskLog', () => {
-  test('counts unique completions even with multiple executions', async () => {
+  test('counts completed instances even when metadata overlaps', async () => {
     const { plugin, store } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
@@ -123,8 +128,8 @@ describe('ExecutionLogService.saveTaskLog', () => {
 
     data = store.get(logPath)!;
     expect(data.taskExecutions['2025-09-24']).toHaveLength(2);
-    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
+    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(2);
     expect(data.dailySummary['2025-09-24'].totalTasks).toBe(5);
-    expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(4);
+    expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(3);
   });
 });

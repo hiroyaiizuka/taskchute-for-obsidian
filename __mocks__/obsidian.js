@@ -222,9 +222,6 @@ const mockApp = {
       "taskchute-plus": {
         settings: {
           enableCelebration: true,
-          enableSound: true,
-          enableFireworks: true,
-          enableConfetti: true,
         },
       },
     },

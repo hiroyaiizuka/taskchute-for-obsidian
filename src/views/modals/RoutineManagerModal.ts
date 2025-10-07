@@ -1,11 +1,14 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
+import { getCurrentLocale, t } from '../../i18n';
+
 import {
   RoutineFrontmatter,
   RoutineType,
   RoutineWeek,
   TaskChutePluginLike,
-} from '../types';
+} from '../../types';
+import { getScheduledTime } from '../../utils/fieldMigration';
 import RoutineEditModal from './RoutineEditModal';
 
 interface RoutineRow {
@@ -17,7 +20,7 @@ interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
 }
 
-const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+const DEFAULT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 class RoutineConfirmModal extends Modal {
   private readonly message: string;
@@ -40,12 +43,20 @@ class RoutineConfirmModal extends Modal {
     contentEl.empty();
     contentEl.addClass('routine-confirm');
 
-    contentEl.createEl('h3', { text: '確認' });
+    contentEl.createEl('h3', {
+      text: t('routineManager.confirm.heading', 'Confirm'),
+    });
     contentEl.createEl('p', { text: this.message });
 
     const buttonRow = contentEl.createEl('div', { cls: 'routine-confirm__buttons' });
-    const confirmBtn = buttonRow.createEl('button', { text: '削除', cls: 'routine-confirm__button mod-danger' });
-    const cancelBtn = buttonRow.createEl('button', { text: 'キャンセル', cls: 'routine-confirm__button' });
+    const confirmBtn = buttonRow.createEl('button', {
+      text: t('routineManager.confirm.removeButton', 'Remove'),
+      cls: 'routine-confirm__button mod-danger',
+    });
+    const cancelBtn = buttonRow.createEl('button', {
+      text: t('routineManager.confirm.cancelButton', 'Cancel'),
+      cls: 'routine-confirm__button',
+    });
 
     confirmBtn.addEventListener('click', () => {
       this.closeWith(true);
@@ -79,10 +90,25 @@ export class RoutineManagerModal extends Modal {
   private filtered: RoutineRow[] = [];
   private searchInput!: HTMLInputElement;
   private tableBody!: HTMLElement;
+  private pendingRemovalPaths: Set<string> = new Set();
 
   constructor(app: App, plugin: TaskChutePluginLike) {
     super(app);
     this.plugin = plugin;
+  }
+
+  private tv(
+    key: string,
+    fallback: string,
+    vars?: Record<string, string | number>,
+  ): string {
+    return t(`routineManager.${key}`, fallback, vars);
+  }
+
+  private getWeekdayLabel(index: number): string {
+    const keys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+    const key = keys[index] ?? 'sunday';
+    return this.tv(`weekdays.${key}`, DEFAULT_DAY_NAMES[index] ?? DEFAULT_DAY_NAMES[0]);
   }
 
   onOpen(): void {
@@ -92,12 +118,16 @@ export class RoutineManagerModal extends Modal {
     this.modalEl?.classList.add('routine-manager-modal');
 
     const header = contentEl.createEl('div', { cls: 'routine-manager__header' });
-    header.createEl('h3', { text: 'ルーチン管理' });
+    header.createEl('h3', {
+      text: this.tv('dialog.title', 'Routine manager'),
+    });
 
     const controls = header.createEl('div', { cls: 'routine-manager__controls' });
     this.searchInput = controls.createEl('input', {
       type: 'search',
-      attr: { placeholder: '検索（タイトル / パス）' },
+      attr: {
+        placeholder: this.tv('dialog.searchPlaceholder', 'Search (title / path)'),
+      },
     }) as HTMLInputElement;
     this.searchInput.addEventListener('input', () => this.applyFilters());
 
@@ -106,17 +136,28 @@ export class RoutineManagerModal extends Modal {
 
     const table = tableWrapper.createEl('div', { cls: 'routine-table' });
     const headRow = table.createEl('div', { cls: 'routine-table__row routine-table__row--head' });
-    [
-      'タイトル',
-      'タイプ',
-      '間隔',
-      '曜日',
-      '週',
-      '開始日',
-      '終了日',
-      '有効',
-      '操作',
-    ].forEach((label) => headRow.createEl('div', { cls: 'routine-table__cell', text: label }));
+    const headerLabels = [
+      this.tv('dialog.columns.title', 'Title'),
+      this.tv('dialog.columns.type', 'Type'),
+      this.tv('dialog.columns.interval', 'Interval'),
+      this.tv('dialog.columns.weekdays', 'Weekdays'),
+      this.tv('dialog.columns.week', 'Week'),
+      this.tv('dialog.columns.startTime', 'Scheduled time'),
+      this.tv('dialog.columns.startDate', 'Start date'),
+      this.tv('dialog.columns.endDate', 'End date'),
+      this.tv('dialog.columns.enabled', 'Enabled'),
+    ];
+    headerLabels.forEach((label) => {
+      headRow.createEl('div', { cls: 'routine-table__cell', text: label });
+    });
+
+    const actionsHeaderCell = headRow.createEl('div', {
+      cls: 'routine-table__cell routine-table__cell--actions routine-table__cell--actions-header',
+    });
+    actionsHeaderCell.setAttr(
+      'aria-label',
+      this.tv('dialog.columns.actions', 'Actions'),
+    );
 
     this.tableBody = table.createEl('div', { cls: 'routine-table__body' });
 
@@ -130,16 +171,26 @@ export class RoutineManagerModal extends Modal {
 
   private loadRows(): void {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
+    const locale = getCurrentLocale() === 'ja' ? 'ja' : 'en';
     const files = this.app.vault
       .getMarkdownFiles()
       .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
-      .sort((a, b) => a.basename.localeCompare(b.basename, 'ja'));
+      .sort((a, b) => a.basename.localeCompare(b.basename, locale));
 
     this.rows = files
       .map((file) => {
         const frontmatter = this.toRoutineFrontmatter(
           this.app.metadataCache.getFileCache(file)?.frontmatter,
         );
+
+        if (this.pendingRemovalPaths.has(file.path)) {
+          if (!frontmatter || frontmatter.isRoutine !== true) {
+            this.pendingRemovalPaths.delete(file.path);
+          } else {
+            return null;
+          }
+        }
+
         return frontmatter?.isRoutine === true ? { file, fm: frontmatter } : null;
       })
       .filter((row): row is RoutineRow => row !== null);
@@ -161,7 +212,7 @@ export class RoutineManagerModal extends Modal {
     if (this.filtered.length === 0) {
       this.tableBody.createEl('div', {
         cls: 'routine-empty',
-        text: 'ルーチンが見つかりません',
+        text: this.tv('status.noneFound', 'No routines found'),
       });
       return;
     }
@@ -209,6 +260,11 @@ export class RoutineManagerModal extends Modal {
 
     rowEl.createEl('div', {
       cls: 'routine-table__cell',
+      text: this.scheduledTimeLabel(fm),
+    });
+
+    rowEl.createEl('div', {
+      cls: 'routine-table__cell',
       text: fm.routine_start || '-',
     });
 
@@ -222,7 +278,7 @@ export class RoutineManagerModal extends Modal {
     const toggle = enabledCell.createEl('button', {
       text: isEnabled ? '✓' : '×',
       cls: 'routine-table__toggle',
-      attr: { title: 'クリックで有効/無効を切り替え' },
+      attr: { title: this.tv('tooltips.toggleEnable', 'Toggle enabled state') },
     }) as HTMLButtonElement;
 
     toggle.addEventListener('click', async (evt) => {
@@ -236,30 +292,43 @@ export class RoutineManagerModal extends Modal {
       this.refreshActiveView();
     });
 
-    const actionsCell = rowEl.createEl('div', { cls: 'routine-table__cell routine-table__cell--actions' });
+    const actionsCell = rowEl.createEl('div', {
+      cls: 'routine-table__cell routine-table__cell--actions',
+    });
     const editBtn = actionsCell.createEl('button', {
-      text: '編集',
+      text: this.tv('tooltips.editRoutine', 'Edit'),
       cls: 'routine-table__action-button',
     });
     const deleteBtn = actionsCell.createEl('button', {
       text: '🗑️',
       cls: 'routine-table__action-button routine-table__action-button--danger',
-      attr: { title: 'ルーチンを外す' },
+      attr: { title: this.tv('tooltips.removeRoutine', 'Remove from routine') },
     });
 
     editBtn.addEventListener('click', () => {
       const { file: currentFile } = this.filtered[index];
-      new RoutineEditModal(this.app, this.plugin, currentFile, () => {
-        void this.refreshRow(currentFile);
+      new RoutineEditModal(this.app, this.plugin, currentFile, (updatedFm) => {
+        void this.refreshRow(currentFile, undefined, updatedFm);
       }).open();
     });
 
     deleteBtn.addEventListener('click', async () => {
-      const message = `「${file.basename}」をルーチンから外しますか？`;
+      const message = this.tv(
+        'confirm.removeMessage',
+        this.tv('confirm.removeMessage', 'Remove "{name}" from routines?', {
+          name: file.basename,
+        }),
+        { name: file.basename },
+      );
       const confirmed = await new RoutineConfirmModal(this.app, message).openAndWait();
       if (!confirmed) return;
-      await this.removeRoutine(file);
-      await this.reloadAll();
+      const removed = await this.removeRoutine(file);
+      if (removed) {
+        this.pendingRemovalPaths.add(file.path);
+        this.removeRowFromCaches(file.path);
+        this.renderTable();
+        window.setTimeout(() => void this.reloadAll(), 250);
+      }
     });
 
     return rowEl;
@@ -281,14 +350,20 @@ export class RoutineManagerModal extends Modal {
   private typeLabel(type: RoutineType | undefined): string {
     switch (type) {
       case 'daily':
-        return '日ごと';
+        return this.tv('types.daily', 'Daily');
       case 'weekly':
-        return '週ごと';
+        return this.tv('types.weekly', 'Weekly');
       case 'monthly':
-        return '月ごと';
+        return this.tv('types.monthly', 'Monthly');
       default:
         return type ?? '-';
     }
+  }
+
+  private scheduledTimeLabel(fm: RoutineFrontmatter): string {
+    const value = getScheduledTime(fm);
+    if (!value) return '-';
+    return value;
   }
 
   private weekdayLabel(fm: RoutineFrontmatter): string {
@@ -296,21 +371,21 @@ export class RoutineManagerModal extends Modal {
       if (Array.isArray(fm.weekdays) && fm.weekdays.length > 0) {
         return fm.weekdays
           .filter((day) => Number.isInteger(day))
-          .map((day) => DAY_NAMES[Number(day)] + '曜')
+          .map((day) => `${this.getWeekdayLabel(Number(day))}${this.tv('labels.weekdaySuffix', ' weekday')}`)
           .join(', ');
       }
       if (typeof fm.routine_weekday === 'number') {
-        return `${DAY_NAMES[fm.routine_weekday]}曜`;
+        return `${this.getWeekdayLabel(fm.routine_weekday)}${this.tv('labels.weekdaySuffix', ' weekday')}`;
       }
       if (typeof fm.weekday === 'number') {
-        return `${DAY_NAMES[fm.weekday]}曜`;
+        return `${this.getWeekdayLabel(fm.weekday)}${this.tv('labels.weekdaySuffix', ' weekday')}`;
       }
     }
 
     if (fm.routine_type === 'monthly') {
       const weekday = this.getMonthlyWeekday(fm);
       if (typeof weekday === 'number') {
-        return `${DAY_NAMES[weekday]}曜`;
+        return `${this.getWeekdayLabel(weekday)}${this.tv('labels.weekdaySuffix', ' weekday')}`;
       }
     }
 
@@ -320,8 +395,10 @@ export class RoutineManagerModal extends Modal {
   private weekLabel(fm: RoutineFrontmatter): string {
     if (fm.routine_type !== 'monthly') return '-';
     const week = this.getMonthlyWeek(fm);
-    if (week === 'last') return '最終';
-    if (typeof week === 'number') return `第${week}`;
+    if (week === 'last') return this.tv('labels.weekLast', 'Last');
+    if (typeof week === 'number') {
+      return this.tv('labels.weekNth', `Week ${week}`, { week });
+    }
     return '-';
   }
 
@@ -353,40 +430,63 @@ export class RoutineManagerModal extends Modal {
       frontmatter.routine_enabled = enabled;
       return frontmatter;
     });
-    new Notice(enabled ? '有効化しました' : '無効化しました', 1200);
+    new Notice(
+      enabled
+        ? this.tv('notices.toggledOn', 'Enabled')
+        : this.tv('notices.toggledOff', 'Disabled'),
+      1200,
+    );
   }
 
-  private async removeRoutine(file: TFile): Promise<void> {
+  private async removeRoutine(file: TFile): Promise<boolean> {
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
+    let success = false;
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       delete frontmatter['開始時刻'];
+      success = true;
       return frontmatter;
     });
-    new Notice('ルーチンを外しました', 1200);
-    this.refreshActiveView();
+    if (success) {
+      new Notice(this.tv('notices.removed', 'Removed from routine'), 1200);
+      this.refreshActiveView();
+    }
+    return success;
   }
 
-  private async refreshRow(file: TFile, expectedEnabled?: boolean): Promise<void> {
-    const fresh = this.getRoutineFrontmatter(file);
+  private async refreshRow(
+    file: TFile,
+    expectedEnabled?: boolean,
+    frontmatterOverride?: RoutineFrontmatter,
+  ): Promise<void> {
+    const fresh = frontmatterOverride ?? this.getRoutineFrontmatter(file);
     if (!fresh) return;
 
     const enabledFromFresh = fresh.routine_enabled !== false;
     const enabled = typeof expectedEnabled === 'boolean' ? expectedEnabled : enabledFromFresh;
     const merged: RoutineFrontmatter = { ...fresh, routine_enabled: enabled };
 
+    this.updateRowCaches(file, merged);
+    this.renderTable();
+  }
+
+  private updateRowCaches(file: TFile, updated: RoutineFrontmatter): void {
     this.rows = this.rows.map((row) =>
-      row.file.path === file.path ? { ...row, fm: merged } : row,
+      row.file.path === file.path ? { ...row, fm: updated } : row,
     );
     this.filtered = this.filtered.map((row) =>
-      row.file.path === file.path ? { ...row, fm: merged } : row,
+      row.file.path === file.path ? { ...row, fm: updated } : row,
     );
-    this.renderTable();
+  }
+
+  private removeRowFromCaches(path: string): void {
+    this.rows = this.rows.filter((row) => row.file.path !== path);
+    this.filtered = this.filtered.filter((row) => row.file.path !== path);
   }
 
   private async reloadAll(): Promise<void> {

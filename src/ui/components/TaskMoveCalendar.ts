@@ -1,3 +1,6 @@
+import type { LocaleKey } from "../../i18n"
+import { getCurrentLocale, t } from "../../i18n"
+
 interface TaskMoveCalendarOptions {
   anchor: HTMLElement
   initialDate: Date
@@ -6,11 +9,6 @@ interface TaskMoveCalendarOptions {
   onClear?: () => void | Promise<void>
   onClose?: () => void
 }
-
-const DATE_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
-  year: "numeric",
-  month: "long",
-})
 
 function cloneDate(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
@@ -38,6 +36,9 @@ export class TaskMoveCalendar {
   private readonly onSelect: (isoDate: string) => void | Promise<void>
   private readonly onClear?: () => void | Promise<void>
   private readonly onClose?: () => void
+  private readonly locale: LocaleKey
+  private readonly monthFormatter: Intl.DateTimeFormat
+  private readonly weekdayLabels: string[]
 
   private container: HTMLDivElement | null = null
   private currentMonth: Date
@@ -50,6 +51,24 @@ export class TaskMoveCalendar {
     this.onSelect = options.onSelect
     this.onClear = options.onClear
     this.onClose = options.onClose
+
+    this.locale = getCurrentLocale()
+    this.monthFormatter = new Intl.DateTimeFormat(
+      this.locale === "ja" ? "ja-JP" : "en-US",
+      {
+        year: "numeric",
+        month: "long",
+      },
+    )
+    this.weekdayLabels = [
+      t('taskChuteView.labels.weekdays.sundayShort', 'Sun'),
+      t('taskChuteView.labels.weekdays.mondayShort', 'Mon'),
+      t('taskChuteView.labels.weekdays.tuesdayShort', 'Tue'),
+      t('taskChuteView.labels.weekdays.wednesdayShort', 'Wed'),
+      t('taskChuteView.labels.weekdays.thursdayShort', 'Thu'),
+      t('taskChuteView.labels.weekdays.fridayShort', 'Fri'),
+      t('taskChuteView.labels.weekdays.saturdayShort', 'Sat'),
+    ]
 
     this.selectedDate = cloneDate(options.initialDate)
     this.currentMonth = new Date(
@@ -110,7 +129,9 @@ export class TaskMoveCalendar {
   private render(): void {
     if (!this.container) return
 
-    this.container.innerHTML = ""
+    while (this.container.firstChild) {
+      this.container.removeChild(this.container.firstChild)
+    }
 
     const header = this.container.createEl("div", {
       cls: "taskchute-move-calendar__header",
@@ -118,7 +139,12 @@ export class TaskMoveCalendar {
 
     const prevBtn = header.createEl("button", {
       cls: "taskchute-move-calendar__nav taskchute-move-calendar__nav--prev",
-      attr: { "aria-label": "前の月へ" },
+      attr: {
+        "aria-label": t(
+          'taskChuteView.moveCalendar.prevMonth',
+          'Previous month',
+        ),
+      },
     })
     prevBtn.textContent = "‹"
     prevBtn.addEventListener("click", () => {
@@ -127,12 +153,17 @@ export class TaskMoveCalendar {
 
     header.createEl("div", {
       cls: "taskchute-move-calendar__title",
-      text: DATE_FORMATTER.format(this.currentMonth),
+      text: this.monthFormatter.format(this.currentMonth),
     })
 
     const nextBtn = header.createEl("button", {
       cls: "taskchute-move-calendar__nav taskchute-move-calendar__nav--next",
-      attr: { "aria-label": "次の月へ" },
+      attr: {
+        "aria-label": t(
+          'taskChuteView.moveCalendar.nextMonth',
+          'Next month',
+        ),
+      },
     })
     nextBtn.textContent = "›"
     nextBtn.addEventListener("click", () => {
@@ -142,8 +173,7 @@ export class TaskMoveCalendar {
     const weekdayRow = this.container.createEl("div", {
       cls: "taskchute-move-calendar__weekdays",
     })
-    const weekdays = ["日", "月", "火", "水", "木", "金", "土"]
-    weekdays.forEach((day, index) => {
+    this.weekdayLabels.forEach((day, index) => {
       const cell = weekdayRow.createEl("div", {
         cls: "taskchute-move-calendar__weekday",
         text: day,
@@ -211,7 +241,7 @@ export class TaskMoveCalendar {
 
     const clearButton = footer.createEl("button", {
       cls: "taskchute-move-calendar__action taskchute-move-calendar__action--clear",
-      text: "削除",
+      text: t('taskChuteView.moveCalendar.clear', 'Clear'),
     })
     clearButton.addEventListener("click", async () => {
       if (this.onClear) {
@@ -222,7 +252,7 @@ export class TaskMoveCalendar {
 
     const todayButton = footer.createEl("button", {
       cls: "taskchute-move-calendar__action taskchute-move-calendar__action--today",
-      text: "今日",
+      text: t('taskChuteView.moveCalendar.today', 'Today'),
     })
     todayButton.addEventListener("click", async () => {
       const todayIso = toISODate(this.today)

@@ -1,16 +1,16 @@
 import { Plugin, normalizePath, Notice, TFile } from 'obsidian';
-import { PathManager } from './PathManager';
-import { TaskChuteSettings } from '../types';
+import { TaskChuteSettings, PathManagerLike } from '../types';
+import { t } from '../i18n';
 
 interface PluginWithManagers extends Plugin {
   settings: TaskChuteSettings;
-  pathManager: PathManager;
+  pathManager: PathManagerLike;
   _notify?: (message: string) => void;
 }
 
 export class RoutineAliasManager {
   private plugin: PluginWithManagers;
-  private aliasCache: Record<string, string[]> | null = null;
+  private aliasCache: Record<string, string[]> = {};
 
   constructor(plugin: PluginWithManagers) {
     this.plugin = plugin;
@@ -22,26 +22,27 @@ export class RoutineAliasManager {
   }
 
   async loadAliases(): Promise<Record<string, string[]>> {
-    if (this.aliasCache) return this.aliasCache;
-    
+    if (Object.keys(this.aliasCache).length > 0) return this.aliasCache;
+
     const path = this.getAliasFilePath();
     try {
       const file = this.plugin.app.vault.getAbstractFileByPath(path);
       if (file instanceof TFile) {
         const content = await this.plugin.app.vault.read(file);
-        this.aliasCache = JSON.parse(content);
-      } else {
-        this.aliasCache = {};
+        this.aliasCache = JSON.parse(content) ?? {};
       }
     } catch {
+      const message = t(
+        'notices.routineAliasLoadFailed',
+        'Failed to load routine alias history',
+      )
       if (this.plugin._notify) {
-        this.plugin._notify("ルーチンタスクの名前変更履歴の読み込みに失敗しました");
+        this.plugin._notify(message)
       } else {
-        new Notice("ルーチンタスクの名前変更履歴の読み込みに失敗しました");
+        new Notice(message)
       }
-      this.aliasCache = {};
     }
-    
+
     return this.aliasCache;
   }
 
@@ -59,10 +60,14 @@ export class RoutineAliasManager {
       
       this.aliasCache = aliases;
     } catch {
+      const message = t(
+        'notices.routineAliasSaveFailed',
+        'Failed to save routine alias history',
+      )
       if (this.plugin._notify) {
-        this.plugin._notify("ルーチンタスクの名前変更履歴の保存に失敗しました");
+        this.plugin._notify(message)
       } else {
-        new Notice("ルーチンタスクの名前変更履歴の保存に失敗しました");
+        new Notice(message)
       }
     }
   }

@@ -51,9 +51,6 @@ describe('Navigate to today (showTodayTasks)', () => {
         projectFolderPath: 'PROJECTS',
         logDataPath: 'LOGS',
         reviewDataPath: 'REVIEWS',
-        enableSound: false,
-        enableFireworks: false,
-        enableConfetti: false,
       },
       saveSettings: jest.fn(),
       pathManager: {
@@ -62,6 +59,9 @@ describe('Navigate to today (showTodayTasks)', () => {
         getLogDataPath: () => 'LOGS',
         getReviewDataPath: () => 'REVIEWS',
         ensureFolderExists: jest.fn(),
+        getLogYearPath: (year: string | number) => `${year}`,
+        ensureYearFolder: jest.fn(async (year: string | number) => `${year}`),
+        validatePath: () => ({ valid: true }),
       },
       dayStateService: {
         loadDay: jest.fn(async () => ({
@@ -75,6 +75,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       },
       routineAliasManager: {
         getRouteNameFromAlias: jest.fn((name: string) => name),
+        loadAliases: jest.fn().mockResolvedValue({}),
       },
       _notify: jest.fn(),
     } as unknown as TaskChutePluginLike;
@@ -283,7 +284,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Noticeが表示されることを確認
-      expect(Notice).toHaveBeenCalledWith('今日のタスクを表示しました');
+      expect(Notice).toHaveBeenCalledWith("Showing today's tasks");
     });
   });
 });

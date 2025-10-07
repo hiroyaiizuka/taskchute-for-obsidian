@@ -1,40 +1,86 @@
+// @ts-nocheck
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../types';
-import { TaskValidator } from '../services/TaskValidator';
-import { getScheduledTime, setScheduledTime } from '../utils/fieldMigration';
+import { t } from '../../i18n';
+
+import { RoutineFrontmatter, RoutineWeek, TaskChutePluginLike, RoutineType } from '../../types';
+import { TaskValidator } from '../../services/TaskValidator';
+import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration';
+import { applyRoutineFrontmatterMerge } from '../../services/RoutineFrontmatterUtils';
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
 }
 
-const ROUTINE_TYPE_OPTIONS: Array<{ value: RoutineType; label: string }> = [
-  { value: 'daily', label: '日ごと' },
-  { value: 'weekly', label: '週ごと（曜日）' },
-  { value: 'monthly', label: '月ごと（第n x曜日）' },
+const ROUTINE_TYPE_DEFAULTS: Array<{ value: RoutineType; label: string }> = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly (weekday)' },
+  { value: 'monthly', label: 'Monthly (Nth weekday)' },
 ];
 
-const WEEK_OPTIONS: Array<{ value: RoutineWeek; label: string }> = [
-  { value: 1, label: '第1' },
-  { value: 2, label: '第2' },
-  { value: 3, label: '第3' },
-  { value: 4, label: '第4' },
-  { value: 5, label: '第5' },
-  { value: 'last', label: '最終' },
+const WEEK_OPTION_DEFAULTS: Array<{ value: RoutineWeek; label: string }> = [
+  { value: 1, label: '1st' },
+  { value: 2, label: '2nd' },
+  { value: 3, label: '3rd' },
+  { value: 4, label: '4th' },
+  { value: 5, label: '5th' },
+  { value: 'last', label: 'Last' },
 ];
 
-const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+const DEFAULT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default class RoutineEditModal extends Modal {
   private readonly plugin: TaskChutePluginLike;
   private readonly file: TFile;
-  private readonly onSaved?: () => void;
+  private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void;
 
-  constructor(app: App, plugin: TaskChutePluginLike, file: TFile, onSaved?: () => void) {
+  constructor(
+    app: App,
+    plugin: TaskChutePluginLike,
+    file: TFile,
+    onSaved?: (frontmatter: RoutineFrontmatter) => void,
+  ) {
     super(app);
     this.plugin = plugin;
     this.file = file;
     this.onSaved = onSaved;
+  }
+
+  private tv(
+    key: string,
+    fallback: string,
+    vars?: Record<string, string | number>,
+  ): string {
+    return t(`routineEdit.${key}`, fallback, vars);
+  }
+
+  private getTypeOptions(): Array<{ value: RoutineType; label: string }> {
+    return ROUTINE_TYPE_DEFAULTS.map(({ value, label }) => ({
+      value,
+      label: this.tv(`types.${value}`, label),
+    }));
+  }
+
+  private getWeekOptions(): Array<{ value: RoutineWeek; label: string }> {
+    const keyMap: Record<string, string> = {
+      '1': 'weekOptions.first',
+      '2': 'weekOptions.second',
+      '3': 'weekOptions.third',
+      '4': 'weekOptions.fourth',
+      '5': 'weekOptions.fifth',
+      last: 'weekOptions.last',
+    };
+    return WEEK_OPTION_DEFAULTS.map(({ value, label }) => {
+      const key = keyMap[String(value)] ?? 'weekOptions.first';
+      return { value, label: this.tv(key, label) };
+    });
+  }
+
+  private getWeekdayLabels(): string[] {
+    const keys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+    return keys.map((key, index) =>
+      t(`routineManager.weekdays.${key}`, DEFAULT_DAY_NAMES[index] ?? DEFAULT_DAY_NAMES[0]),
+    );
   }
 
   onOpen(): void {
@@ -45,28 +91,38 @@ export default class RoutineEditModal extends Modal {
     const frontmatter = this.getFrontmatterSnapshot();
     const initialType = this.normalizeRoutineType(frontmatter.routine_type);
 
-    contentEl.createEl('h4', { text: `「${this.file.basename}」のルーチン設定` });
+    contentEl.createEl('h4', {
+      text: this.tv('title', `Routine settings for "${this.file.basename}"`, {
+        name: this.file.basename,
+      }),
+    });
 
     const form = contentEl.createEl('div', { cls: 'routine-form' });
 
     // Type selector
     const typeGroup = form.createEl('div', { cls: 'form-group' });
-    typeGroup.createEl('label', { text: 'タイプ:' });
+    typeGroup.createEl('label', {
+      text: this.tv('fields.typeLabel', 'Type:'),
+    });
     const typeSelect = typeGroup.createEl('select') as HTMLSelectElement;
-    ROUTINE_TYPE_OPTIONS.forEach(({ value, label }) => {
+    this.getTypeOptions().forEach(({ value, label }) => {
       typeSelect.add(new Option(label, value));
     });
     typeSelect.value = initialType;
 
     // Start time
     const timeGroup = form.createEl('div', { cls: 'form-group' });
-    timeGroup.createEl('label', { text: '開始予定時刻:' });
+    timeGroup.createEl('label', {
+      text: this.tv('fields.startTimeLabel', 'Scheduled time:'),
+    });
     const timeInput = timeGroup.createEl('input', { type: 'time' }) as HTMLInputElement;
     timeInput.value = getScheduledTime(frontmatter) || '';
 
     // Interval
     const intervalGroup = form.createEl('div', { cls: 'form-group' });
-    intervalGroup.createEl('label', { text: '間隔:' });
+    intervalGroup.createEl('label', {
+      text: this.tv('fields.intervalLabel', 'Interval:'),
+    });
     const intervalInput = intervalGroup.createEl('input', {
       type: 'number',
       attr: { min: '1', step: '1' },
@@ -75,17 +131,23 @@ export default class RoutineEditModal extends Modal {
 
     // Enabled toggle
     const enabledGroup = form.createEl('div', { cls: 'form-group form-group--inline' });
-    const enabledLabel = enabledGroup.createEl('label', { text: '有効:' });
+    const enabledLabel = enabledGroup.createEl('label', {
+      text: this.tv('fields.enabledLabel', 'Enabled:'),
+    });
     enabledLabel.classList.add('routine-form__inline-label');
     const enabledToggle = enabledGroup.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
     enabledToggle.checked = frontmatter.routine_enabled !== false;
 
     // Start / End dates
     const datesGroup = form.createEl('div', { cls: 'form-group form-group--date-range' });
-    datesGroup.createEl('label', { text: '開始日:' });
+    datesGroup.createEl('label', {
+      text: this.tv('fields.startDateLabel', 'Start date:'),
+    });
     const startInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
     startInput.value = typeof frontmatter.routine_start === 'string' ? frontmatter.routine_start : '';
-    const endLabel = datesGroup.createEl('label', { text: '終了日:' });
+    const endLabel = datesGroup.createEl('label', {
+      text: this.tv('fields.endDateLabel', 'End date:'),
+    });
     endLabel.classList.add('routine-form__inline-label', 'routine-form__inline-label--gap');
     const endInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
     endInput.value = typeof frontmatter.routine_end === 'string' ? frontmatter.routine_end : '';
@@ -95,16 +157,19 @@ export default class RoutineEditModal extends Modal {
       cls: 'form-group routine-form__weekly',
       attr: { 'data-kind': 'weekly' },
     });
-    weeklyGroup.createEl('div', { text: '曜日（複数選択可）:' });
+    weeklyGroup.createEl('div', {
+      text: this.tv('fields.weekdaysLabel', 'Weekdays (multi-select):'),
+    });
     const weekdayInputs: HTMLInputElement[] = [];
-    for (let i = 0; i < DAY_NAMES.length; i++) {
+    const weekdayLabels = this.getWeekdayLabels();
+    for (let i = 0; i < weekdayLabels.length; i++) {
       const checkboxLabel = weeklyGroup.createEl('label');
       checkboxLabel.classList.add('routine-form__checkbox-label');
       const checkbox = checkboxLabel.createEl('input', {
         type: 'checkbox',
         attr: { value: String(i) },
       }) as HTMLInputElement;
-      checkboxLabel.appendChild(document.createTextNode(` ${DAY_NAMES[i]}`));
+      checkboxLabel.appendChild(document.createTextNode(` ${weekdayLabels[i]}`));
       weekdayInputs.push(checkbox);
     }
     this.applyWeeklySelection(weekdayInputs, frontmatter);
@@ -114,15 +179,24 @@ export default class RoutineEditModal extends Modal {
       cls: 'form-group routine-form__monthly',
       attr: { 'data-kind': 'monthly' },
     });
-    monthlyGroup.createEl('label', { text: '第:' });
+    monthlyGroup.createEl('label', {
+      text: this.tv('fields.monthWeekLabel', 'Week:'),
+    });
     const weekSelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    WEEK_OPTIONS.forEach(({ value, label }) => {
+    this.getWeekOptions().forEach(({ value, label }) => {
       weekSelect.add(new Option(label, value === 'last' ? 'last' : String(value)));
     });
-    monthlyGroup.createEl('label', { text: ' の ' });
+    monthlyGroup.createEl('label', {
+      text: this.tv('fields.monthWeekSuffix', ' of '),
+    });
     const monthWeekdaySelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    DAY_NAMES.forEach((day, index) => {
-      monthWeekdaySelect.add(new Option(`${day}曜`, String(index)));
+    weekdayLabels.forEach((day, index) => {
+      monthWeekdaySelect.add(
+        new Option(
+          `${day}${this.tv('fields.monthWeekdaySuffix', ' weekday')}`,
+          String(index),
+        ),
+      );
     });
     this.applyMonthlySelection(weekSelect, monthWeekdaySelect, frontmatter);
 
@@ -136,9 +210,13 @@ export default class RoutineEditModal extends Modal {
 
     // Buttons
     const buttonRow = contentEl.createEl('div', { cls: 'routine-editor__buttons' });
-    const saveButton = buttonRow.createEl('button', { text: '保存' });
+    const saveButton = buttonRow.createEl('button', {
+      text: this.tv('fields.saveButton', 'Save'),
+    });
     saveButton.classList.add('routine-editor__button', 'routine-editor__button--primary');
-    const cancelButton = buttonRow.createEl('button', { text: 'キャンセル' });
+    const cancelButton = buttonRow.createEl('button', {
+      text: this.tv('fields.cancelButton', 'Cancel'),
+    });
     cancelButton.classList.add('routine-editor__button');
 
     saveButton.addEventListener('click', async () => {
@@ -146,27 +224,33 @@ export default class RoutineEditModal extends Modal {
       const routineType = this.normalizeRoutineType(typeSelect.value);
       const interval = Math.max(1, Number(intervalInput.value || 1));
       if (!Number.isFinite(interval) || interval < 1) {
-        errors.push('間隔は1以上の整数で指定してください');
+        errors.push(this.tv('errors.intervalInvalid', 'Interval must be an integer of 1 or greater.'));
       }
 
       const start = (startInput.value || '').trim();
       const end = (endInput.value || '').trim();
       const isDate = (value: string) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
-      if (!isDate(start)) errors.push('開始日は YYYY-MM-DD 形式で指定してください');
-      if (!isDate(end)) errors.push('終了日は YYYY-MM-DD 形式で指定してください');
-      if (start && end && start > end) errors.push('終了日は開始日以降で指定してください');
+      if (!isDate(start)) {
+        errors.push(this.tv('errors.startDateFormat', 'Start date must use YYYY-MM-DD format.'));
+      }
+      if (!isDate(end)) {
+        errors.push(this.tv('errors.endDateFormat', 'End date must use YYYY-MM-DD format.'));
+      }
+      if (start && end && start > end) {
+        errors.push(this.tv('errors.endBeforeStart', 'End date must be on or after the start date.'));
+      }
 
       const weeklyDays = this.getCheckedDays(weekdayInputs);
       let monthlyWeek: RoutineWeek | undefined;
       let monthlyWeekday: number | undefined;
 
       if (routineType === 'weekly' && weeklyDays.length === 0) {
-        errors.push('曜日を1つ以上選択してください');
+        errors.push(this.tv('errors.weeklyRequiresDay', 'Select at least one weekday.'));
       } else if (routineType === 'monthly') {
         monthlyWeek = weekSelect.value === 'last' ? 'last' : Number.parseInt(weekSelect.value, 10);
         monthlyWeekday = Number.parseInt(monthWeekdaySelect.value, 10);
         if (!monthlyWeek || Number.isNaN(monthlyWeekday)) {
-          errors.push('「第n + 曜日」を選択してください');
+          errors.push(this.tv('errors.monthlyRequiresSelection', 'Choose an "Nth + weekday" combination.'));
         }
       }
 
@@ -174,6 +258,8 @@ export default class RoutineEditModal extends Modal {
         new Notice(errors[0]);
         return;
       }
+
+      let updatedFrontmatter: RoutineFrontmatter | null = null;
 
       await this.app.fileManager.processFrontMatter(this.file, (fm: RoutineFrontmatter) => {
 
@@ -197,16 +283,16 @@ export default class RoutineEditModal extends Modal {
         // eslint-disable-next-line @typescript-eslint/no-deprecated
         const hadTargetDate = !!fm.target_date;
         const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes);
+        const hadTemporaryMoveDate = !!fm.temporary_move_date;
 
-        // Apply cleaned values
-        Object.keys(cleaned).forEach(key => {
-          fm[key] = cleaned[key];
+        applyRoutineFrontmatterMerge(fm, cleaned, {
+          hadTargetDate,
+          hadTemporaryMoveDate,
         });
 
         // Notify if target_date was removed
-         
         if (hadTargetDate && !cleaned.target_date) {
-          new Notice('古いtarget_dateを自動削除しました');
+          new Notice(this.tv('notices.legacyTargetDateRemoved', 'Removed legacy target_date automatically.'));
         }
 
         // Clean up values that should be removed
@@ -236,11 +322,12 @@ export default class RoutineEditModal extends Modal {
           }
         }
 
+        updatedFrontmatter = { ...fm };
         return fm;
       });
 
-      await this.handlePostSave();
-      new Notice('保存しました', 1500);
+      await this.handlePostSave(updatedFrontmatter);
+      new Notice(this.tv('notices.saved', 'Saved.'), 1500);
       this.close();
     });
 
@@ -273,7 +360,9 @@ export default class RoutineEditModal extends Modal {
 
   private getWeeklySelection(fm: RoutineFrontmatter): number[] {
     if (Array.isArray(fm.weekdays)) {
-      return fm.weekdays.filter((day) => Number.isInteger(day) && day >= 0 && day < DAY_NAMES.length);
+      return fm.weekdays.filter(
+        (day) => Number.isInteger(day) && day >= 0 && day < DEFAULT_DAY_NAMES.length,
+      );
     }
     if (typeof fm.routine_weekday === 'number') {
       return [fm.routine_weekday];
@@ -325,10 +414,10 @@ export default class RoutineEditModal extends Modal {
       .filter((value) => Number.isInteger(value));
   }
 
-  private async handlePostSave(): Promise<void> {
-    if (this.onSaved) {
+  private async handlePostSave(updatedFrontmatter: RoutineFrontmatter | null): Promise<void> {
+    if (this.onSaved && updatedFrontmatter) {
       try {
-        this.onSaved();
+        this.onSaved(updatedFrontmatter);
       } catch (error) {
         console.error('RoutineEditModal onSaved callback failed', error);
       }

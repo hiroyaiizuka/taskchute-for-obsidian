@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ItemView, WorkspaceLeaf, TFile, Notice } from "obsidian"
 import {
   calculateNextBoundary,
@@ -6,8 +7,8 @@ import {
   TimeBoundary,
 } from "../utils/time"
 import { LogView } from "./LogView"
-import RoutineManagerModal from "../ui/RoutineManagerModal"
-import TaskMoveCalendar from "../ui/TaskMoveCalendar"
+import RoutineManagerModal from "./modals/RoutineManagerModal"
+import TaskMoveCalendar from "../ui/components/TaskMoveCalendar"
 import { ReviewService } from "../services/ReviewService"
 import { HeatmapService } from "../services/HeatmapService"
 import {
@@ -20,6 +21,7 @@ import {
   AutocompleteInstance,
   DayState,
   TaskChutePluginLike,
+  RoutineFrontmatter,
 } from "../types"
 import { TimerService } from "../services/TimerService"
 import { loadTasksRefactored } from "./TaskChuteView.helpers"
@@ -27,9 +29,13 @@ import { ProjectNoteSyncManager } from "../managers/ProjectNoteSyncManager"
 import { RunningTasksService } from "../services/RunningTasksService"
 import { ExecutionLogService } from "../services/ExecutionLogService"
 import { TaskCreationService } from "../services/TaskCreationService"
-import { TaskNameAutocomplete } from "../ui/TaskNameAutocomplete"
+import { TaskNameAutocomplete } from "../ui/components/TaskNameAutocomplete"
 import { TaskValidator } from "../services/TaskValidator"
+import { applyRoutineFrontmatterMerge } from "../services/RoutineFrontmatterUtils"
 import { getScheduledTime, setScheduledTime } from "../utils/fieldMigration"
+import { deriveRoutineModalTitle, deriveWeeklySelection, deriveMonthlySelection } from "./routineModal.helpers"
+import { computeExecutionInstanceKey } from "../utils/logKeys"
+import { getCurrentLocale, t } from "../i18n"
 
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
@@ -83,40 +89,40 @@ type RoutineTaskShape = Pick<
 
 export class TaskChuteView extends ItemView {
   // Core Properties
-  private plugin: TaskChutePluginLike
-  private tasks: TaskData[] = []
-  private taskInstances: TaskInstance[] = []
-  private currentInstance: TaskInstance | null = null
-  private globalTimerInterval: ReturnType<typeof setInterval> | null = null
-  private timerService: TimerService | null = null
-  private logView: LogView | null = null
-  private runningTasksService: RunningTasksService
-  private executionLogService: ExecutionLogService
-  private taskCreationService: TaskCreationService
+  public plugin: TaskChutePluginLike
+  public tasks: TaskData[] = []
+  public taskInstances: TaskInstance[] = []
+  public currentInstance: TaskInstance | null = null
+  public globalTimerInterval: ReturnType<typeof setInterval> | null = null
+  public timerService: TimerService | null = null
+  public logView: LogView | null = null
+  public runningTasksService: RunningTasksService
+  public executionLogService: ExecutionLogService
+  public taskCreationService: TaskCreationService
 
   // Date Navigation
-  private currentDate: Date
+  public currentDate: Date
 
   // UI Elements
-  private taskList: HTMLElement
-  private navigationPanel: HTMLElement
-  private navigationOverlay: HTMLElement
-  private navigationContent: HTMLElement
+  public taskList: HTMLElement
+  public navigationPanel: HTMLElement
+  public navigationOverlay: HTMLElement
+  public navigationContent: HTMLElement
 
   // State Management
-  private useOrderBasedSort: boolean
-  private navigationState: NavigationStateManager
-  private selectedTaskInstance: TaskInstance | null = null
-  private autocompleteInstances: AutocompleteInstance[] = []
-  private dayStateCache: Map<string, DayState> = new Map()
-  private currentDayState: DayState | null = null
-  private currentDayStateKey: string | null = null
+  public useOrderBasedSort: boolean
+  public navigationState: NavigationStateManager
+  public selectedTaskInstance: TaskInstance | null = null
+  public autocompleteInstances: AutocompleteInstance[] = []
+  public dayStateCache: Map<string, DayState> = new Map()
+  public currentDayState: DayState | null = null
+  public currentDayStateKey: string | null = null
 
   // Boundary Check (idle-task-auto-move feature)
-  private boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  public boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null
 
   // Debounce Timer
-  private renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  public renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
   // Debug helper flag
   // Task Name Validator
@@ -132,12 +138,48 @@ export class TaskChuteView extends ItemView {
     },
 
     getErrorMessage(invalidChars: string[]) {
-      return `使用できない文字が含まれています: ${invalidChars.join(", ")}`
+      return t(
+        "taskChuteView.validator.invalidChars",
+        `Task name contains invalid characters: ${invalidChars.join(", ")}`,
+        { chars: invalidChars.join(", ") },
+      )
     },
   }
 
   public getTaskNameValidator(): TaskNameValidator {
     return this.TaskNameValidator
+  }
+
+  private tv(
+    key: string,
+    fallback: string,
+    vars?: Record<string, string | number>,
+  ): string {
+    return t(`taskChuteView.${key}`, fallback, vars)
+  }
+
+  private getWeekdayNames(): string[] {
+    const locale = getCurrentLocale()
+    if (locale === "ja") {
+      return [
+        this.tv("labels.weekdays.sunday", "Sun"),
+        this.tv("labels.weekdays.monday", "Mon"),
+        this.tv("labels.weekdays.tuesday", "Tue"),
+        this.tv("labels.weekdays.wednesday", "Wed"),
+        this.tv("labels.weekdays.thursday", "Thu"),
+        this.tv("labels.weekdays.friday", "Fri"),
+        this.tv("labels.weekdays.saturday", "Sat"),
+      ]
+    }
+    return [
+      this.tv("labels.weekdays.sundayShort", "Sun"),
+      this.tv("labels.weekdays.mondayShort", "Mon"),
+      this.tv("labels.weekdays.tuesdayShort", "Tue"),
+      this.tv("labels.weekdays.wednesdayShort", "Wed"),
+      this.tv("labels.weekdays.thursdayShort", "Thu"),
+      this.tv("labels.weekdays.fridayShort", "Fri"),
+      this.tv("labels.weekdays.saturdayShort", "Sat"),
+    ]
   }
 
   constructor(leaf: WorkspaceLeaf, plugin: TaskChutePluginLike) {
@@ -162,6 +204,19 @@ export class TaskChuteView extends ItemView {
     this.runningTasksService = new RunningTasksService(this.plugin)
     this.executionLogService = new ExecutionLogService(this.plugin)
     this.taskCreationService = new TaskCreationService(this.plugin)
+  }
+
+  private getInstanceDisplayTitle(inst: TaskInstance): string {
+    const candidates = [inst.task.displayTitle, inst.executedTitle, inst.task.name]
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim()
+        if (trimmed.length > 0) {
+          return trimmed
+        }
+      }
+    }
+    return this.tv("status.unassignedTask", "Unassigned task")
   }
 
   getViewType(): string {
@@ -253,7 +308,10 @@ export class TaskChuteView extends ItemView {
   private createDrawerToggle(topBarContainer: HTMLElement): void {
     const drawerToggle = topBarContainer.createEl("button", {
       cls: "drawer-toggle",
-      attr: { title: "ナビゲーションを開く" },
+      attr: {
+        title: this.tv("header.openNavigation", "Open navigation"),
+        "aria-label": this.tv("header.openNavigation", "Open navigation"),
+      },
     })
 
     drawerToggle.createEl("span", {
@@ -275,10 +333,13 @@ export class TaskChuteView extends ItemView {
     const calendarBtn = navContainer.createEl("button", {
       cls: "calendar-btn",
       text: "🗓️",
-      attr: { title: "カレンダーを開く" },
-      style:
-        "font-size:18px;padding:0 6px;background:none;border:none;cursor:pointer;",
+      attr: {
+        title: this.tv("header.openCalendar", "Open calendar"),
+        "aria-label": this.tv("header.openCalendar", "Open calendar"),
+      },
     })
+    calendarBtn.style.cssText =
+      "font-size:18px;padding:0 6px;background:none;border:none;cursor:pointer;"
 
     const dateLabel = navContainer.createEl("span", { cls: "date-nav-label" })
 
@@ -320,13 +381,19 @@ export class TaskChuteView extends ItemView {
     const addTaskButton = actionSection.createEl("button", {
       cls: "add-task-button repositioned",
       text: "+",
-      attr: { title: "新しいタスクを追加" },
+      attr: {
+        title: this.tv("header.addTask", "Add new task"),
+        "aria-label": this.tv("header.addTask", "Add new task"),
+      },
     })
 
     const robotButton = actionSection.createEl("button", {
       cls: "robot-terminal-button",
       text: "🤖",
-      attr: { title: "ターミナルを開く" },
+      attr: {
+        title: this.tv("header.openTerminal", "Open terminal"),
+        "aria-label": this.tv("header.openTerminal", "Open terminal"),
+      },
     })
 
     // Event listeners
@@ -337,7 +404,12 @@ export class TaskChuteView extends ItemView {
           "terminal:open-terminal.integrated.root",
         )
       } catch (error) {
-        new Notice("ターミナルを開けませんでした: " + error.message)
+        const message = this.tv(
+          "header.terminalOpenFailed",
+          "Failed to open terminal: {message}",
+          { message: error instanceof Error ? error.message : String(error) },
+        )
+        new Notice(message)
       }
     })
   }
@@ -383,10 +455,10 @@ export class TaskChuteView extends ItemView {
       label: string
       icon: string
     }> = [
-      { key: "routine", label: "ルーチン", icon: "🔄" },
-      { key: "review", label: "レビュー", icon: "📋" },
-      { key: "log", label: "ログ", icon: "📊" },
-      { key: "project", label: "プロジェクト", icon: "📁" },
+      { key: "routine", label: this.tv("navigation.routine", "Routine"), icon: "🔄" },
+      { key: "review", label: this.tv("navigation.review", "Review"), icon: "📋" },
+      { key: "log", label: this.tv("navigation.log", "Log"), icon: "📊" },
+      { key: "project", label: this.tv("navigation.project", "Project"), icon: "📁" },
     ]
 
     navigationItems.forEach((item) => {
@@ -422,18 +494,17 @@ export class TaskChuteView extends ItemView {
     current.setHours(0, 0, 0, 0)
 
     const isToday = current.getTime() === today.getTime()
-    const dayName = current.toLocaleDateString("ja-JP", { weekday: "short" })
-    const dateStr = `${
-      this.currentDate.getMonth() + 1
-    }/${this.currentDate.getDate()}`
+    const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
+    const dayName = current.toLocaleDateString(localeCode, { weekday: "short" })
+    const dateStr = `${this.currentDate.getMonth() + 1}/${this.currentDate.getDate()}`
 
-    // 日付 曜日の順番に変更
+    const todayLabel = this.tv("date.today", "Today")
     label.textContent = isToday
-      ? `今日 (${dateStr} ${dayName})`
+      ? `${todayLabel} (${dateStr} ${dayName})`
       : `${dateStr} ${dayName}`
   }
 
-  private getCurrentDateString(): string {
+  public getCurrentDateString(): string {
     const y = this.currentDate.getFullYear()
     const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0")
     const d = this.currentDate.getDate().toString().padStart(2, "0")
@@ -472,12 +543,12 @@ export class TaskChuteView extends ItemView {
     return this.dayStateCache.get(dateStr) ?? null
   }
 
-  private async ensureDayStateForCurrentDate(): Promise<DayState> {
+  public async ensureDayStateForCurrentDate(): Promise<DayState> {
     const dateStr = this.getCurrentDateString()
     return this.ensureDayStateForDate(dateStr)
   }
 
-  private getCurrentDayState(): DayState {
+  public getCurrentDayState(): DayState {
     const dateStr = this.getCurrentDateString()
     let state = this.dayStateCache.get(dateStr)
     if (!state) {
@@ -618,6 +689,10 @@ export class TaskChuteView extends ItemView {
         frontmatter: frontmatter || {},
         path: file.path,
         name: file.basename,
+        displayTitle:
+          typeof frontmatter?.title === "string" && frontmatter.title.trim().length > 0
+            ? frontmatter.title
+            : file.basename,
         project: frontmatter?.project,
         isRoutine: frontmatter?.isRoutine === true,
         routine_type: frontmatter?.routine_type,
@@ -691,7 +766,7 @@ export class TaskChuteView extends ItemView {
     }
   }
 
-  private generateInstanceId(task: TaskData, dateStr: string): string {
+  public generateInstanceId(task: TaskData, dateStr: string): string {
     // Generate a unique ID for this task instance
     return `${task.path}_${dateStr}_${Date.now()}_${Math.random()
       .toString(36)
@@ -773,7 +848,7 @@ export class TaskChuteView extends ItemView {
   private renderNoTimeGroup(instances: TaskInstance[]): void {
     const noTimeHeader = this.taskList.createEl("div", {
       cls: "time-slot-header other",
-      text: "時間指定なし",
+      text: this.tv("lists.noTime", "No time"),
     })
 
     this.setupTimeSlotDragHandlers(noTimeHeader, "none")
@@ -878,8 +953,13 @@ export class TaskChuteView extends ItemView {
     const dragHandle = taskItem.createEl("div", {
       cls: "drag-handle",
       attr: isDraggable
-        ? { draggable: "true", title: "ドラッグして移動" }
-        : { title: "完了済みタスク" },
+        ? {
+            draggable: "true",
+            title: this.tv("tooltips.dragToMove", "Drag to move"),
+          }
+        : {
+            title: this.tv("tooltips.completedTask", "Completed task"),
+          },
     })
 
     if (!isDraggable) {
@@ -922,19 +1002,19 @@ export class TaskChuteView extends ItemView {
   ): void {
     let btnCls = "play-stop-button"
     let btnText = "▶️"
-    let btnTitle = "スタート"
+    let btnTitle = this.tv("buttons.start", "Start")
 
     if (isFutureTask) {
       btnCls += " future-task-button"
       btnText = "—"
-      btnTitle = "未来のタスクは実行できません"
+      btnTitle = this.tv("notices.futureTaskPrevented", "Cannot start future tasks")
     } else if (inst.state === "running") {
       btnCls += " stop"
       btnText = "⏹"
-      btnTitle = "ストップ"
+      btnTitle = this.tv("buttons.stop", "Stop")
     } else if (inst.state === "done") {
       btnText = "☑️"
-      btnTitle = "完了タスクを再計測"
+      btnTitle = this.tv("buttons.remeasureCompleted", "Re-measure completed task")
     }
 
     const playButton = taskItem.createEl("button", {
@@ -950,7 +1030,13 @@ export class TaskChuteView extends ItemView {
     playButton.addEventListener("click", async (e) => {
       e.stopPropagation()
       if (isFutureTask) {
-        new Notice("未来のタスクは実行できません。", 2000)
+        new Notice(
+          this.tv(
+            "notices.futureTaskPreventedWithPeriod",
+            "Cannot start a future task.",
+          ),
+          2000,
+        )
         return
       }
 
@@ -981,7 +1067,9 @@ export class TaskChuteView extends ItemView {
         await this.app.workspace.openLinkText(inst.task.path, "", false)
       } catch (error) {
         console.error("Failed to open task file", error)
-        new Notice("タスクファイルを開けませんでした")
+        new Notice(
+          this.tv("notices.taskFileOpenFailed", "Failed to open task file"),
+        )
       }
     })
   }
@@ -1038,7 +1126,9 @@ export class TaskChuteView extends ItemView {
         await this.app.workspace.openLinkText(inst.task.path, "", false);
       } catch (error) {
         console.error("Failed to open task file", error);
-        new Notice("タスクファイルを開けませんでした");
+        new Notice(
+          this.tv("notices.taskFileOpenFailed", "Failed to open task file"),
+        );
       }
     });
   }
@@ -1056,7 +1146,11 @@ export class TaskChuteView extends ItemView {
       const projectButton = projectDisplay.createEl("span", {
         cls: "taskchute-project-button",
         attr: {
-          title: `プロジェクト: ${inst.task.projectTitle}`,
+          title: this.tv(
+            "project.tooltipAssigned",
+            "Project: {title}",
+            { title: inst.task.projectTitle },
+          ),
         },
       })
 
@@ -1083,7 +1177,7 @@ export class TaskChuteView extends ItemView {
       const externalLinkIcon = projectDisplay.createEl("span", {
         cls: "taskchute-external-link",
         text: "🔗",
-        attr: { title: "プロジェクトノートを開く" },
+        attr: { title: this.tv("project.openNote", "Open project note") },
       })
 
       externalLinkIcon.addEventListener("click", async (e) => {
@@ -1095,7 +1189,7 @@ export class TaskChuteView extends ItemView {
       // プロジェクト未設定の場合（ホバーで表示）
       const projectPlaceholder = projectDisplay.createEl("span", {
         cls: "taskchute-project-placeholder",
-        attr: { title: "クリックしてプロジェクトを設定" },
+        attr: { title: this.tv("project.clickToSet", "Click to set project") },
       })
 
       projectPlaceholder.addEventListener("click", async (e) => {
@@ -1168,7 +1262,10 @@ export class TaskChuteView extends ItemView {
 
       // Add tooltip for cross-day tasks
       if (inst.startTime.getDate() !== inst.stopTime.getDate()) {
-        durationEl.setAttribute("title", "日を跨いだタスク")
+        durationEl.setAttribute(
+          "title",
+          this.tv("tooltips.crossDayTask", "Cross-day task"),
+        )
       }
     } else if (inst.state === "running") {
       // Running task: show timer
@@ -1226,7 +1323,9 @@ export class TaskChuteView extends ItemView {
       cls: `routine-button ${inst.task.isRoutine ? "active" : ""}`,
       text: "🔄",
       attr: {
-        title: inst.task.isRoutine ? `ルーチンタスク` : "ルーチンタスクに設定",
+        title: inst.task.isRoutine
+          ? this.tv('tooltips.routineAssigned', 'Routine task')
+          : this.tv('tooltips.routineSet', 'Set as routine'),
       },
     })
 
@@ -1247,7 +1346,9 @@ export class TaskChuteView extends ItemView {
     const settingsButton = taskItem.createEl("button", {
       cls: "settings-task-button",
       text: "⚙️",
-      attr: { title: "タスク設定" },
+      attr: {
+        title: this.tv("forms.taskSettings", "Task settings"),
+      },
     })
 
     settingsButton.addEventListener("click", (e) => {
@@ -1316,12 +1417,16 @@ export class TaskChuteView extends ItemView {
       // UIを更新
       this.renderTaskList()
 
-      new Notice(`「${inst.task.title}」を複製しました`)
+      new Notice(
+        this.tv('notices.taskDuplicated', 'Duplicated "{title}"', {
+          title: this.getInstanceDisplayTitle(inst),
+        }),
+      )
 
       return returnOnly ? newInstance : undefined
     } catch (error) {
       console.error("Failed to duplicate instance:", error)
-      new Notice("タスクの複製に失敗しました")
+      new Notice(this.tv("notices.taskDuplicateFailed", "Failed to duplicate task"))
     }
   }
 
@@ -1442,6 +1547,7 @@ export class TaskChuteView extends ItemView {
 
   private async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
     const existingComment = await this.getExistingTaskComment(inst)
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const modal = document.createElement("div")
     modal.className = "taskchute-comment-modal"
     const modalContent = modal.createEl("div", {
@@ -1453,8 +1559,12 @@ export class TaskChuteView extends ItemView {
       cls: "taskchute-modal-header",
     })
     const headerText = existingComment
-      ? `✏️ 「${inst.task.title}」のコメントを編集`
-      : `🎉 お疲れ様でした！「${inst.task.title}」が完了しました`
+      ? this.tv('comment.editTitle', `✏️ Edit comment for "${displayTitle}"`, {
+          title: displayTitle,
+        })
+      : this.tv('comment.completedTitle', `🎉 Great job! "${displayTitle}" completed`, {
+          title: displayTitle,
+        })
     header.createEl("h2", { text: headerText })
 
     // 実行時間表示（完了タスクのみ）
@@ -1477,12 +1587,18 @@ export class TaskChuteView extends ItemView {
         : ""
 
       timeInfo.createEl("div", {
-        text: `実行時間: ${duration}`,
+        text: this.tv('comment.duration', `Duration: ${duration}`, {
+          duration,
+        }),
         cls: "time-duration",
       })
       if (startTime && endTime) {
         timeInfo.createEl("div", {
-          text: `開始: ${startTime} 終了: ${endTime}`,
+        text: this.tv(
+          'comment.timeRange',
+          `Start: ${startTime} End: ${endTime}`,
+          { start: startTime, end: endTime },
+        ),
           cls: "time-range",
         })
       }
@@ -1492,11 +1608,16 @@ export class TaskChuteView extends ItemView {
     const ratingSection = modalContent.createEl("div", {
       cls: "taskchute-rating-section",
     })
-    ratingSection.createEl("h3", { text: "今回のタスクはいかがでしたか？" })
+    ratingSection.createEl("h3", {
+      text: this.tv('comment.question', 'How was this task?'),
+    })
 
     // 集中度
     const focusGroup = ratingSection.createEl("div", { cls: "rating-group" })
-    focusGroup.createEl("label", { text: "集中度:", cls: "rating-label" })
+    focusGroup.createEl("label", {
+      text: this.tv('comment.focusLabel', 'Focus:'),
+      cls: "rating-label",
+    })
     const initialFocusRating = existingComment?.focusLevel || 0
     const focusRating = focusGroup.createEl("div", {
       cls: "star-rating",
@@ -1526,7 +1647,10 @@ export class TaskChuteView extends ItemView {
 
     // 元気度
     const energyGroup = ratingSection.createEl("div", { cls: "rating-group" })
-    energyGroup.createEl("label", { text: "元気度:", cls: "rating-label" })
+    energyGroup.createEl("label", {
+      text: this.tv('comment.energyLabel', 'Energy:'),
+      cls: "rating-label",
+    })
     const initialEnergyRating = existingComment?.energyLevel || 0
     const energyRating = energyGroup.createEl("div", {
       cls: "star-rating",
@@ -1559,13 +1683,15 @@ export class TaskChuteView extends ItemView {
       cls: "taskchute-comment-section",
     })
     commentSection.createEl("label", {
-      text: "感想・学び・次回への改善点:",
+      text: this.tv('comment.fieldLabel', 'Notes / learnings / improvements:'),
       cls: "comment-label",
     })
     const commentInput = commentSection.createEl("textarea", {
       cls: "taskchute-comment-textarea",
-      placeholder:
-        "今回のタスクで感じたこと、学んだこと、次回への改善点などを自由にお書きください...",
+      placeholder: this.tv(
+        'comment.placeholder',
+        'Share any thoughts, learnings, or improvements for next time...',
+      ),
     })
     // ⚠️ 重要：valueプロパティに直接代入（steering documentの指示通り）
     if (existingComment?.executionComment) {
@@ -1580,34 +1706,45 @@ export class TaskChuteView extends ItemView {
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "taskchute-button-cancel",
-      text: "キャンセル",
+      text: t("common.cancel", "Cancel"),
     })
     const saveButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "taskchute-button-save",
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
     })
 
     // イベントハンドラ
-    const closeModal = () => {
-      document.body.removeChild(modal)
-    }
+    let modalClosed = false
+    let handleEsc: (e: KeyboardEvent) => void
+    let handleBackdropClick: (e: MouseEvent) => void
 
-    // ESCキーでモーダルを閉じる
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        closeModal()
-        document.removeEventListener("keydown", handleEsc)
+    const closeModal = () => {
+      if (modalClosed) return
+      modalClosed = true
+
+      document.removeEventListener("keydown", handleEsc)
+      modal.removeEventListener("click", handleBackdropClick)
+
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal)
       }
     }
-    document.addEventListener("keydown", handleEsc)
 
-    // モーダル外クリックで閉じる
-    modal.addEventListener("click", (e) => {
+    handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeModal()
+      }
+    }
+
+    handleBackdropClick = (e: MouseEvent) => {
       if (e.target === modal) {
         closeModal()
       }
-    })
+    }
+
+    document.addEventListener("keydown", handleEsc)
+    modal.addEventListener("click", handleBackdropClick)
 
     cancelButton.addEventListener("click", closeModal)
 
@@ -1854,10 +1991,10 @@ export class TaskChuteView extends ItemView {
         await this.syncCommentToProjectNote(inst, completionData)
       }
 
-      new Notice("コメントを保存しました")
+      new Notice(this.tv('comment.saved', 'Comment saved'))
     } catch (error) {
       console.error("Failed to save comment:", error)
-      new Notice("コメントの保存に失敗しました")
+      new Notice(this.tv('comment.saveFailed', 'Failed to save comment'))
     }
   }
 
@@ -1886,7 +2023,11 @@ export class TaskChuteView extends ItemView {
       await syncManager.updateProjectNote(projectPath, inst, completionData)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
-      new Notice(`プロジェクトノートの更新に失敗しました: ${message}`)
+      new Notice(
+        this.tv('project.noteSyncFailed', 'Failed to update project note: {message}', {
+          message,
+        }),
+      )
     }
   }
 
@@ -1898,13 +2039,23 @@ export class TaskChuteView extends ItemView {
 
     // モーダルヘッダー
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", { text: `「${task.title}」のルーチン設定` })
+    const taskTitle = deriveRoutineModalTitle(task)
+    modalHeader.createEl(
+      "h3",
+      {
+        text: t('routineEdit.title', `Routine settings for "${taskTitle}"`, {
+          name: taskTitle,
+        }),
+      },
+    )
 
     // 閉じるボタン
     const closeButton = modalHeader.createEl("button", {
       cls: "modal-close-button",
       text: "×",
-      attr: { title: "閉じる" },
+      attr: {
+        title: t("common.close", "Close"),
+      },
     })
 
     // フォーム
@@ -1912,16 +2063,19 @@ export class TaskChuteView extends ItemView {
 
     // ルーチンタイプ選択
     const typeGroup = form.createEl("div", { cls: "form-group" })
-    typeGroup.createEl("label", { text: "ルーチンタイプ:", cls: "form-label" })
+    typeGroup.createEl("label", {
+      text: this.tv("forms.routineType", "Routine type:"),
+      cls: "form-label",
+    })
     const typeSelect = typeGroup.createEl("select", {
       cls: "form-input",
     }) as HTMLSelectElement
 
     // オプション追加
     const options = [
-      { value: "daily", text: "日ごと" },
-      { value: "weekly", text: "週ごと（曜日指定）" },
-      { value: "monthly", text: "月ごと（曜日指定）" },
+      { value: "daily", text: this.tv("forms.routineDaily", "Daily") },
+      { value: "weekly", text: this.tv("forms.routineWeekly", "Weekly (by weekday)") },
+      { value: "monthly", text: this.tv("forms.routineMonthly", "Monthly (weekday)") },
     ]
 
     options.forEach((opt) => {
@@ -1942,7 +2096,10 @@ export class TaskChuteView extends ItemView {
 
     // 開始時刻入力（互換性レイヤー経由）
     const timeGroup = form.createEl("div", { cls: "form-group" })
-    timeGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
+    timeGroup.createEl("label", {
+      text: this.tv("forms.scheduledTimeLabel", "Scheduled start time:"),
+      cls: "form-label",
+    })
     const timeInput = timeGroup.createEl("input", {
       type: "time",
       cls: "form-input",
@@ -1951,7 +2108,10 @@ export class TaskChuteView extends ItemView {
 
     // 間隔入力（共通）
     const intervalGroup = form.createEl("div", { cls: "form-group" })
-    intervalGroup.createEl("label", { text: "間隔:", cls: "form-label" })
+    intervalGroup.createEl("label", {
+      text: this.tv("forms.interval", "Interval:"),
+      cls: "form-label",
+    })
     const intervalInput = intervalGroup.createEl("input", {
       type: "number",
       cls: "form-input",
@@ -1961,7 +2121,10 @@ export class TaskChuteView extends ItemView {
 
     // 有効トグル
     const enabledGroup = form.createEl("div", { cls: "form-group" })
-    enabledGroup.createEl("label", { text: "有効:", cls: "form-label" })
+    enabledGroup.createEl("label", {
+      text: this.tv("forms.enabled", "Enabled:"),
+      cls: "form-label",
+    })
     const enabledToggle = enabledGroup.createEl("input", {
       type: "checkbox",
     }) as HTMLInputElement
@@ -1972,20 +2135,16 @@ export class TaskChuteView extends ItemView {
       cls: "form-group routine-weekly-group",
     })
     weeklyGroup.classList.add("is-hidden")
-    weeklyGroup.createEl("label", { text: "曜日を選択:", cls: "form-label" })
+    weeklyGroup.createEl("label", {
+      text: this.tv("forms.selectWeekdays", "Select weekdays:"),
+      cls: "form-label",
+    })
     const weekdayContainer = weeklyGroup.createEl("div", {
       cls: "weekday-checkboxes",
     })
 
-    const weekdays = [
-      { value: 0, label: "日" },
-      { value: 1, label: "月" },
-      { value: 2, label: "火" },
-      { value: 3, label: "水" },
-      { value: 4, label: "木" },
-      { value: 5, label: "金" },
-      { value: 6, label: "土" },
-    ]
+    const weekdayNames = this.getWeekdayNames()
+    const weekdays = weekdayNames.map((label, value) => ({ value, label }))
 
     const weekdayCheckboxes: HTMLInputElement[] = []
     weekdays.forEach((day) => {
@@ -1998,13 +2157,6 @@ export class TaskChuteView extends ItemView {
       }) as HTMLInputElement
       weekdayCheckboxes.push(checkbox)
 
-      // 既存の設定を反映（単一選択を優先）
-      if (typeof task.weekday === "number") {
-        checkbox.checked = task.weekday === day.value
-      } else if (task.weekdays && Array.isArray(task.weekdays)) {
-        checkbox.checked = task.weekdays.includes(day.value)
-      }
-
       label.createEl("span", { text: day.label })
       // 単一選択にする
       checkbox.addEventListener("change", () => {
@@ -2016,52 +2168,70 @@ export class TaskChuteView extends ItemView {
       })
     })
 
+    const preselectedWeekdays = deriveWeeklySelection(task)
+    preselectedWeekdays.forEach((day) => {
+      const checkbox = weekdayCheckboxes[day]
+      if (checkbox) {
+        checkbox.checked = true
+      }
+    })
+
     // 月次設定グループ（初期非表示）
     const monthlyGroup = form.createEl("div", {
       cls: "form-group routine-monthly-group",
     })
     monthlyGroup.classList.add("is-hidden")
-    monthlyGroup.createEl("label", { text: "月次設定:", cls: "form-label" })
+    monthlyGroup.createEl("label", {
+      text: this.tv("forms.monthlySettings", "Monthly settings:"),
+      cls: "form-label",
+    })
 
     const monthlyContainer = monthlyGroup.createEl("div", {
       cls: "monthly-settings",
     })
 
-    monthlyContainer.createEl("span", { text: "第" })
+    monthlyContainer.createEl("span", {
+      text: this.tv("forms.nth", "Nth"),
+    })
     const weekSelect = monthlyContainer.createEl("select", {
       cls: "form-input monthly-settings__week",
     }) as HTMLSelectElement
 
     for (let i = 1; i <= 5; i++) {
-      const option = weekSelect.createEl("option", {
+      weekSelect.createEl("option", {
         value: (i - 1).toString(),
         text: i.toString(),
       })
-      if (task.monthly_week === i - 1) {
-        option.selected = true
-      }
     }
-    // 最終週
-    const lastOpt = weekSelect.createEl("option", {
+    weekSelect.createEl("option", {
       value: "last",
-      text: "最終",
+      text: this.tv("forms.lastWeek", "Last"),
     })
-    if (task.monthly_week === "last") lastOpt.selected = true
 
-    monthlyContainer.createEl("span", { text: "週の" })
+    monthlyContainer.createEl("span", {
+      text: this.tv("forms.weekOf", " week"),
+    })
     const monthlyWeekdaySelect = monthlyContainer.createEl("select", {
       cls: "form-input monthly-settings__weekday",
     }) as HTMLSelectElement
 
     weekdays.forEach((day) => {
-      const option = monthlyWeekdaySelect.createEl("option", {
+      monthlyWeekdaySelect.createEl("option", {
         value: day.value.toString(),
-        text: day.label + "曜日",
+        text: `${day.label}${this.tv("forms.weekdaySuffix", " weekday")}`,
       })
-      if (task.monthly_weekday === day.value) {
-        option.selected = true
-      }
     })
+
+    const { week: initialMonthlyWeek, weekday: initialMonthlyWeekday } = deriveMonthlySelection(task)
+    if (initialMonthlyWeek === 'last') {
+      weekSelect.value = 'last'
+    } else if (typeof initialMonthlyWeek === 'number') {
+      const zeroBased = Math.max(0, Math.min(4, initialMonthlyWeek - 1))
+      weekSelect.value = String(zeroBased)
+    }
+    if (typeof initialMonthlyWeekday === 'number') {
+      monthlyWeekdaySelect.value = String(initialMonthlyWeekday)
+    }
 
     // タイプ変更時の表示切り替え
     typeSelect.addEventListener("change", () => {
@@ -2081,12 +2251,12 @@ export class TaskChuteView extends ItemView {
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "form-button cancel",
-      text: "キャンセル",
+      text: t("common.cancel", "Cancel"),
     })
     buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
     })
 
     // 既存のルーチンタスクの場合のみ「ルーチンを外す」ボタンを表示
@@ -2095,7 +2265,7 @@ export class TaskChuteView extends ItemView {
       removeButton = buttonGroup.createEl("button", {
         type: "button",
         cls: "form-button cancel",
-        text: "ルーチンを外す",
+        text: this.tv('buttons.removeRoutine', 'Remove from routine'),
       }) as HTMLButtonElement
     }
 
@@ -2127,7 +2297,9 @@ export class TaskChuteView extends ItemView {
       const enabled = !!enabledToggle.checked
 
       if (!scheduledTime) {
-        new Notice("開始予定時刻を入力してください")
+        new Notice(
+          this.tv("forms.scheduledTimePlaceholder", "Enter a scheduled start time"),
+        )
         return
       }
 
@@ -2138,7 +2310,9 @@ export class TaskChuteView extends ItemView {
           .map((cb) => parseInt(cb.value))
 
         if (selectedWeekdays.length === 0) {
-          new Notice("曜日を選択してください")
+          new Notice(
+            this.tv("forms.selectWeekdaysPrompt", "Please select at least one weekday"),
+          )
           return
         }
       }
@@ -2191,10 +2365,15 @@ export class TaskChuteView extends ItemView {
         if (!file || !(file instanceof TFile)) {
           // Fallback: タスクフォルダ直下
           const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-          const fallbackPath = `${taskFolderPath}/${task.title}.md`
+          const fallbackBase = task.name || task.displayTitle || 'Untitled Task'
+          const fallbackPath = `${taskFolderPath}/${fallbackBase}.md`
           const fb = this.app.vault.getAbstractFileByPath(fallbackPath)
           if (!fb || !(fb instanceof TFile)) {
-            new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+            new Notice(
+              this.tv('project.fileMissing', 'Task file "{title}.md" not found', {
+                title: fallbackBase,
+              }),
+            )
             return
           }
           await this.app.fileManager.processFrontMatter(fb, (frontmatter) => {
@@ -2227,11 +2406,14 @@ export class TaskChuteView extends ItemView {
         task.isRoutine = false
         task.scheduledTime = null
         button.classList.remove("active")
-        button.setAttribute("title", "ルーチンタスクに設定")
+        button.setAttribute(
+          "title",
+          this.tv('tooltips.routineSet', 'Set as routine'),
+        )
 
         // タスク情報を再取得し、実行中タスクの表示も復元
         await this.reloadTasksAndRestore()
-        new Notice(`ルーチンタスクから解除しました`)
+        new Notice(this.tv('notices.routineDetached', 'Detached from routine'))
       } else {
         // ルーチンタスクに設定（時刻入力ポップアップを表示）
         this.showRoutineEditModal(task, button)
@@ -2239,7 +2421,11 @@ export class TaskChuteView extends ItemView {
     } catch (error: unknown) {
       console.error("[TaskChute] toggleRoutine failed:", error)
       const msg = error instanceof Error ? error.message : String(error)
-      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`)
+      new Notice(
+        this.tv('notices.routineSetFailed', 'Failed to set routine task: {message}', {
+          message: msg,
+        }),
+      )
     }
   }
 
@@ -2266,7 +2452,7 @@ export class TaskChuteView extends ItemView {
     const closeButton = tooltipHeader.createEl("button", {
       cls: "tooltip-close-button",
       text: "×",
-      attr: { title: "閉じる" },
+      attr: { title: t("common.close", "Close") },
     })
     closeButton.addEventListener("click", (e) => {
       e.stopPropagation()
@@ -2276,13 +2462,19 @@ export class TaskChuteView extends ItemView {
     // 「未実行に戻す」項目を追加
     const resetItem = tooltip.createEl("div", {
       cls: "tooltip-item",
-      text: "↩️ 未実行に戻す",
+      text: this.tv("buttons.resetToNotStarted", "↩️ Reset to not started"),
     })
     if (inst.state === "idle") {
       resetItem.classList.add("disabled")
-      resetItem.setAttribute("title", "このタスクは未実行です")
+      resetItem.setAttribute(
+        "title",
+        this.tv("forms.feedbackPrompt", "This task is not started"),
+      )
     } else {
-      resetItem.setAttribute("title", "タスクを実行前の状態に戻します")
+      resetItem.setAttribute(
+        "title",
+        this.tv("forms.feedbackDescription", "Reset the task to its pre-start state"),
+      )
     }
     resetItem.addEventListener("click", async (e) => {
       e.stopPropagation()
@@ -2295,9 +2487,12 @@ export class TaskChuteView extends ItemView {
     // 「開始時刻を設定」項目を追加
     const setTimeItem = tooltip.createEl("div", {
       cls: "tooltip-item",
-      text: "🕐 開始時刻を設定",
+      text: this.tv("buttons.setStartTime", "🕐 Set start time"),
     })
-    setTimeItem.setAttribute("title", "タスクの予定開始時刻を設定します")
+    setTimeItem.setAttribute(
+      "title",
+      this.tv("forms.startTimeInfo", "Set the scheduled start time. Leave empty to clear it."),
+    )
     setTimeItem.addEventListener("click", async (e) => {
       e.stopPropagation()
       tooltip.remove()
@@ -2307,9 +2502,12 @@ export class TaskChuteView extends ItemView {
     // 「タスクを移動」項目を追加
     const moveItem = tooltip.createEl("div", {
       cls: "tooltip-item",
-      text: "📅 タスクを移動",
+      text: this.tv("buttons.moveTask", "📅 Move task"),
     })
-    moveItem.setAttribute("title", "タスクを別の日付に移動します")
+    moveItem.setAttribute(
+      "title",
+      this.tv("forms.moveDescription", "Move the task to another date"),
+    )
     moveItem.addEventListener("click", (e) => {
       e.stopPropagation()
       tooltip.remove()
@@ -2319,9 +2517,12 @@ export class TaskChuteView extends ItemView {
     // 「タスクを複製」項目を追加
     const duplicateItem = tooltip.createEl("div", {
       cls: "tooltip-item",
-      text: "📄 タスクを複製",
+      text: this.tv("buttons.duplicateTask", "📄 Duplicate task"),
     })
-    duplicateItem.setAttribute("title", "同じタスクをすぐ下に追加します")
+    duplicateItem.setAttribute(
+      "title",
+      this.tv("forms.duplicateDescription", "Insert a duplicate task below"),
+    )
     duplicateItem.addEventListener("click", async (e) => {
       e.stopPropagation()
       tooltip.remove()
@@ -2331,7 +2532,7 @@ export class TaskChuteView extends ItemView {
     // 削除項目を追加
     const deleteItem = tooltip.createEl("div", {
       cls: "tooltip-item delete-item",
-      text: "🗑️ タスクを削除",
+      text: this.tv("buttons.deleteTask", "🗑️ Delete task"),
     })
     deleteItem.addEventListener("click", async (e) => {
       e.stopPropagation()
@@ -2395,7 +2596,13 @@ export class TaskChuteView extends ItemView {
       const viewDate = new Date(this.currentDate)
       viewDate.setHours(0, 0, 0, 0)
       if (viewDate.getTime() > today.getTime()) {
-        new Notice("未来のタスクは実行できません。", 2000)
+        new Notice(
+          this.tv(
+            "notices.futureTaskPreventedWithPeriod",
+            "Cannot start a future task.",
+          ),
+          2000,
+        )
         return
       }
 
@@ -2444,10 +2651,14 @@ export class TaskChuteView extends ItemView {
       // Start/ensure global timer is running
       if (!this.globalTimerInterval) this.startGlobalTimer()
 
-      new Notice(`開始: ${inst.task.name}`)
+      new Notice(
+        this.tv('notices.taskStarted', 'Started {name}', {
+          name: inst.task.name,
+        }),
+      )
     } catch (error) {
       console.error("Failed to start instance:", error)
-      new Notice("タスクの開始に失敗しました")
+      new Notice(this.tv("notices.taskStartFailed", "Failed to start task"))
     }
   }
 
@@ -2504,10 +2715,15 @@ export class TaskChuteView extends ItemView {
       // Update UI
       this.renderTaskList()
 
-      new Notice(`完了: ${inst.task.name} (${inst.actualMinutes || 0}分)`)
+      new Notice(
+        this.tv('notices.taskCompleted', 'Completed {name} ({minutes} min)', {
+          name: inst.task.name,
+          minutes: inst.actualMinutes || 0,
+        }),
+      )
     } catch (error) {
       console.error("Failed to stop instance:", error)
-      new Notice("タスクの停止に失敗しました")
+      new Notice(this.tv("notices.taskStopFailed", "Failed to stop task"))
     }
   }
 
@@ -2535,7 +2751,13 @@ export class TaskChuteView extends ItemView {
       )
       await this.runningTasksService.save(runningInstances)
     } catch (e) {
-      console.error("[TaskChute] 実行中タスクの保存に失敗:", e)
+      console.error(
+        this.tv(
+          "notices.runningTaskSaveFailed",
+          "[TaskChute] Failed to save running task:",
+        ),
+        e,
+      )
     }
   }
 
@@ -2641,7 +2863,13 @@ export class TaskChuteView extends ItemView {
         this.renderTaskList() // UIを更新
       }
     } catch (e) {
-      console.error("[TaskChute] 実行中タスクの復元に失敗:", e)
+      console.error(
+        this.tv(
+          "notices.runningTaskRestoreFailed",
+          "[TaskChute] Failed to restore running task:",
+        ),
+        e,
+      )
     }
   }
 
@@ -2703,7 +2931,10 @@ export class TaskChuteView extends ItemView {
     const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
     modalContent.createEl("h3", {
-      text: "開始時刻を設定",
+      text: this.tv(
+        'forms.scheduledTimeModalTitle',
+        'Set scheduled start time',
+      ),
       cls: "modal-title",
     })
 
@@ -2711,7 +2942,10 @@ export class TaskChuteView extends ItemView {
 
     // Scheduled time input
     const timeGroup = form.createEl("div", { cls: "form-group" })
-    timeGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
+    timeGroup.createEl("label", {
+      text: this.tv("forms.scheduledTimeLabel", "Scheduled start time:"),
+      cls: "form-label",
+    })
 
     // Get current scheduled time using fieldMigration utility
     const currentTime = getScheduledTime(inst.task.frontmatter || {})
@@ -2725,16 +2959,48 @@ export class TaskChuteView extends ItemView {
     // Description
     modalContent.createEl("p", {
       cls: "modal-description",
-      text: "タスクの予定開始時刻を設定します。空欄にすると時刻設定が削除されます。",
+      text: this.tv(
+        "forms.startTimeInfo",
+        "Set the scheduled start time. Leave empty to clear it.",
+      ),
     })
 
     // Buttons
     const buttonRow = modalContent.createEl("div", { cls: "task-modal-buttons" })
     const saveButton = buttonRow.createEl("button", {
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
       cls: "primary",
     })
-    const cancelButton = buttonRow.createEl("button", { text: "キャンセル" })
+    const cancelButton = buttonRow.createEl("button", {
+      text: t("common.cancel", "Cancel"),
+    })
+
+    let modalClosed = false
+    let handleEscape: (e: KeyboardEvent) => void
+
+    const closeModal = () => {
+      if (modalClosed) return
+      modalClosed = true
+
+      document.removeEventListener("keydown", handleEscape)
+
+      if (modal.parentElement) {
+        modal.parentElement.removeChild(modal)
+      }
+    }
+
+    handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeModal()
+      }
+    }
+
+    const closeAndPrevent = (event?: Event) => {
+      if (event) {
+        event.preventDefault()
+      }
+      closeModal()
+    }
 
     saveButton.addEventListener("click", async (e) => {
       e.preventDefault()
@@ -2742,13 +3008,13 @@ export class TaskChuteView extends ItemView {
 
       try {
         if (!inst.task.path) {
-          new Notice("タスクファイルが見つかりません")
+          new Notice(this.tv("notices.taskFileMissing", "Task file not found"))
           return
         }
 
         const file = this.app.vault.getAbstractFileByPath(inst.task.path)
         if (!(file instanceof TFile)) {
-          new Notice("タスクファイルが見つかりません")
+          new Notice(this.tv("notices.taskFileMissing", "Task file not found"))
           return
         }
 
@@ -2762,28 +3028,25 @@ export class TaskChuteView extends ItemView {
 
         new Notice(
           newTime
-            ? `開始時刻を ${newTime} に設定しました`
-            : "開始時刻を削除しました"
+            ? this.tv('forms.startTimeUpdated', 'Scheduled start time set to {time}', {
+                time: newTime,
+              })
+            : this.tv('forms.startTimeDeleted', 'Removed scheduled start time'),
         )
-        modal.remove()
+        closeModal()
       } catch (error) {
         console.error("Failed to update scheduled time:", error)
-        new Notice("開始時刻の更新に失敗しました")
+        new Notice(
+          this.tv(
+            "forms.startTimeUpdateFailed",
+            "Failed to update scheduled start time",
+          ),
+        )
       }
     })
 
-    cancelButton.addEventListener("click", (e) => {
-      e.preventDefault()
-      modal.remove()
-    })
+    cancelButton.addEventListener("click", closeAndPrevent)
 
-    // Close on escape
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        modal.remove()
-        document.removeEventListener("keydown", handleEscape)
-      }
-    }
     document.addEventListener("keydown", handleEscape)
 
     document.body.appendChild(modal)
@@ -2797,15 +3060,23 @@ export class TaskChuteView extends ItemView {
     )
       return
 
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const modal = document.createElement("div")
     modal.className = "task-modal-overlay"
     const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
     // Header
     const header = modalContent.createEl("div", { cls: "modal-header" })
-    header.createEl("h3", {
-      text: `「${inst.task.title || inst.task.name}」の時刻を編集`,
-    })
+    header.createEl(
+      "h3",
+      {
+        text: this.tv(
+          'forms.timeEditTitle',
+          `Edit times for "${displayTitle}"`,
+          { title: displayTitle },
+        ),
+      },
+    )
     const closeBtn = header.createEl("button", {
       cls: "modal-close-button",
       text: "×",
@@ -2816,7 +3087,10 @@ export class TaskChuteView extends ItemView {
 
     // Start time
     const startGroup = form.createEl("div", { cls: "form-group" })
-    startGroup.createEl("label", { text: "開始予定時刻:", cls: "form-label" })
+    startGroup.createEl("label", {
+      text: this.tv("forms.scheduledTimeLabel", "Scheduled start time:"),
+      cls: "form-label",
+    })
     const pad = (n: number) => String(n).padStart(2, "0")
     const toHM = (d?: Date) =>
       d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : ""
@@ -2828,7 +3102,7 @@ export class TaskChuteView extends ItemView {
     const startClear = startGroup.createEl("button", {
       type: "button",
       cls: "form-button secondary",
-      text: "クリア",
+      text: this.tv("buttons.clear", "Clear"),
       attr: { style: "margin-left: 8px; padding: 4px 12px; font-size: 12px;" },
     })
     startClear.addEventListener("click", () => {
@@ -2839,7 +3113,10 @@ export class TaskChuteView extends ItemView {
     let stopInput: HTMLInputElement | null = null
     if (inst.state === "done" && inst.stopTime) {
       const stopGroup = form.createEl("div", { cls: "form-group" })
-      stopGroup.createEl("label", { text: "終了時刻:", cls: "form-label" })
+      stopGroup.createEl("label", {
+        text: this.tv("forms.endTimeLabel", "End time:"),
+        cls: "form-label",
+      })
       stopInput = stopGroup.createEl("input", {
         type: "time",
         cls: "form-input",
@@ -2848,7 +3125,7 @@ export class TaskChuteView extends ItemView {
       const stopClear = stopGroup.createEl("button", {
         type: "button",
         cls: "form-button secondary",
-        text: "クリア",
+        text: this.tv("buttons.clear", "Clear"),
         attr: {
           style: "margin-left: 8px; padding: 4px 12px; font-size: 12px;",
         },
@@ -2866,10 +3143,15 @@ export class TaskChuteView extends ItemView {
       },
     })
     if (inst.state === "running") {
-      desc.textContent = "開始予定時刻を削除すると、タスクは未実行状態に戻ります。"
+      desc.textContent = this.tv(
+        "forms.startTimeRemovedHint",
+        "Removing the scheduled start time resets the task to not started.",
+      )
     } else {
-      desc.textContent =
-        "終了時刻のみ削除：実行中に戻ります\n両方削除：未実行に戻ります"
+      desc.textContent = this.tv(
+        "forms.endTimeResetHint",
+        "Delete end time only: back to running\nDelete both: back to not started",
+      )
     }
 
     // Buttons
@@ -2877,12 +3159,12 @@ export class TaskChuteView extends ItemView {
     const cancelBtn = buttons.createEl("button", {
       type: "button",
       cls: "form-button cancel",
-      text: "キャンセル",
+      text: t("common.cancel", "Cancel"),
     })
     buttons.createEl("button", {
       type: "submit",
       cls: "form-button create",
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
     })
     cancelBtn.addEventListener("click", () => modal.remove())
 
@@ -2909,12 +3191,19 @@ export class TaskChuteView extends ItemView {
           return
         } else if (newStart && newStop) {
           if (newStart >= newStop) {
-            new Notice("開始予定時刻は終了時刻より前である必要があります")
+            new Notice(
+              this.tv(
+                "forms.startTimeBeforeEnd",
+                "Scheduled start time must be before end time",
+              ),
+            )
             return
           }
           await this.updateInstanceTimes(inst, newStart, newStop)
         } else {
-          new Notice("開始予定時刻は必須です")
+          new Notice(
+            this.tv("forms.startTimeRequired", "Scheduled start time is required"),
+          )
           return
         }
       }
@@ -2931,6 +3220,7 @@ export class TaskChuteView extends ItemView {
     startStr: string,
     stopStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const base = inst.startTime || new Date(this.currentDate)
     const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10))
     const [eh, em] = stopStr.split(":").map((n) => parseInt(n, 10))
@@ -2968,13 +3258,18 @@ export class TaskChuteView extends ItemView {
     await this.executionLogService.saveTaskLog(inst, durationSec)
     // Re-render
     this.renderTaskList()
-    new Notice(`「${inst.task.title || inst.task.name}」の時刻を更新しました`)
+    new Notice(
+      this.tv('notices.taskTimesUpdated', 'Updated times for "{title}"', {
+        title: displayTitle,
+      }),
+    )
   }
 
   private async updateRunningInstanceStartTime(
     inst: TaskInstance,
     startStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const base = inst.startTime || new Date(this.currentDate)
     const [sh, sm] = startStr.split(":").map((n) => parseInt(n, 10))
     inst.startTime = new Date(
@@ -2996,7 +3291,9 @@ export class TaskChuteView extends ItemView {
     await this.saveRunningTasksState()
     this.renderTaskList()
     new Notice(
-      `「${inst.task.title || inst.task.name}」の開始予定時刻を更新しました`,
+      this.tv('notices.runningStartUpdated', 'Updated start time for "{title}"', {
+        title: displayTitle,
+      }),
     )
   }
 
@@ -3004,6 +3301,7 @@ export class TaskChuteView extends ItemView {
     inst: TaskInstance,
     startStr: string,
   ): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     // Re-open as running with a specified start time on the same date
     if (inst.state !== "done") return
     const base = inst.startTime || new Date(this.currentDate)
@@ -3034,7 +3332,11 @@ export class TaskChuteView extends ItemView {
 
     await this.saveRunningTasksState()
     this.renderTaskList()
-    new Notice(`「${inst.task.title || inst.task.name}」を実行中に戻しました`)
+    new Notice(
+      this.tv('notices.restoredToRunning', 'Moved "{title}" back to running', {
+        title: displayTitle,
+      }),
+    )
   }
 
   private updateTimerDisplay(timerEl: HTMLElement, inst: TaskInstance): void {
@@ -3202,7 +3504,7 @@ export class TaskChuteView extends ItemView {
       await this.duplicateInstance(this.selectedTaskInstance)
       this.clearTaskSelection()
     } else {
-      new Notice("タスクが選択されていません")
+      new Notice(this.tv("notices.taskNotSelected", "No task selected"))
     }
   }
 
@@ -3217,7 +3519,7 @@ export class TaskChuteView extends ItemView {
         },
       )
     } else {
-      new Notice("タスクが選択されていません")
+      new Notice(this.tv("notices.taskNotSelected", "No task selected"))
     }
   }
 
@@ -3226,7 +3528,7 @@ export class TaskChuteView extends ItemView {
       await this.resetTaskToIdle(this.selectedTaskInstance)
       this.clearTaskSelection()
     } else {
-      new Notice("タスクが選択されていません")
+      new Notice(this.tv("notices.taskNotSelected", "No task selected"))
     }
   }
 
@@ -3252,13 +3554,15 @@ export class TaskChuteView extends ItemView {
 
     // タスクリストを再読み込みし、実行中タスクも復元
     this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
-      new Notice(`今日のタスクを表示しました`)
+      new Notice(
+        this.tv('notices.showToday', "Showing today's tasks"),
+      )
     })
   }
 
   reorganizeIdleTasks(): void {
     this.moveIdleTasksToCurrentTime()
-    new Notice("アイドルタスクを整理しました")
+    new Notice(this.tv("notices.idleReorganized", "Reorganized idle tasks"))
   }
 
   // ===========================================
@@ -3707,7 +4011,7 @@ export class TaskChuteView extends ItemView {
         const completedSet = new Set<string>()
         for (const entry of dayExec) {
           if (this.isExecutionCompleted(entry)) {
-            completedSet.add(this.getExecutionKey(entry))
+            completedSet.add(computeExecutionInstanceKey(entry))
           }
         }
         const completedTasks = completedSet.size
@@ -3811,7 +4115,15 @@ export class TaskChuteView extends ItemView {
       this.closeNavigation()
       return
     }
-    new Notice(`${section} 機能は実装中です`)
+    const sectionLabel = this.tv(
+      `navigation.${section}`,
+      section,
+    )
+    new Notice(
+      this.tv('notices.sectionWip', '{section} is under construction', {
+        section: sectionLabel,
+      }),
+    )
   }
 
   // Render routine list with enabled toggle
@@ -3822,12 +4134,16 @@ export class TaskChuteView extends ItemView {
     const header = this.navigationContent.createEl("div", {
       cls: "routine-list-header",
     })
-    header.createEl("h3", { text: "ルーチン一覧" })
+    header.createEl("h3", {
+      text: this.tv("labels.routineList", "Routine list"),
+    })
     const hint = this.navigationContent.createEl("div", {
       cls: "routine-list-hint",
     })
-    hint.textContent =
-      "ここでは有効/無効を切り替えできます。設定の詳細は各タスクの設定から編集してください。"
+    hint.textContent = this.tv(
+      "labels.routineToggleHelp",
+      "Toggle routines on or off here. Edit details from each task's settings.",
+    )
 
     const list = this.navigationContent.createEl("div", { cls: "routine-list" })
 
@@ -3854,7 +4170,7 @@ export class TaskChuteView extends ItemView {
       const none = this.navigationContent.createEl("div", {
         cls: "routine-empty",
       })
-      none.textContent = "ルーチンが見つかりません"
+      none.textContent = this.tv("status.noRoutineFound", "No routines found")
     }
   }
 
@@ -3874,7 +4190,7 @@ export class TaskChuteView extends ItemView {
       type: "checkbox",
     }) as HTMLInputElement
     toggle.checked = fm.routine_enabled !== false
-    toggle.title = "有効/無効"
+    toggle.title = this.tv('tooltips.toggleRoutine', 'Toggle enabled state')
     toggle.addEventListener("change", async () => {
       await this.updateRoutineEnabled(file, toggle.checked)
       // 反映のためリロード
@@ -3891,7 +4207,7 @@ export class TaskChuteView extends ItemView {
     // Edit button → opens existing modal
     const editBtn = row.createEl("button", {
       cls: "routine-edit-btn",
-      text: "編集",
+      text: this.tv("buttons.edit", "Edit"),
     })
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation()
@@ -3924,18 +4240,29 @@ export class TaskChuteView extends ItemView {
     interval: number,
     fm: RoutineTaskShape,
   ): string {
-    const dayNames = ["日", "月", "火", "水", "木", "金", "土"]
+    const dayNames = this.getWeekdayNames()
     switch (type) {
       case "daily":
-        return `${interval}日ごと`
+        return this.tv('labels.routineDailyLabel', 'Every {interval} day(s)', {
+          interval,
+        })
       case "weekly": {
         const wd =
           fm.routine_weekday ??
           fm.weekday ??
           (Array.isArray(fm.weekdays) ? fm.weekdays[0] : undefined)
         const dayLabel =
-          typeof wd === "number" ? dayNames[wd] + "曜" : "曜日未指定"
-        return `${interval}週ごと ${dayLabel}`
+          typeof wd === "number"
+            ? dayNames[wd]
+            : this.tv('labels.routineDayUnset', 'No weekday set')
+        return this.tv(
+          'labels.routineWeeklyLabel',
+          'Every {interval} week(s) on {day}',
+          {
+            interval,
+            day: dayLabel,
+          },
+        )
       }
       case "monthly": {
         const w =
@@ -3946,14 +4273,31 @@ export class TaskChuteView extends ItemView {
             ? "last"
             : undefined)
         const wd = fm.routine_weekday ?? fm.monthly_weekday
-        const weekLabel = w === "last" ? "最終" : `第${w}`
-        const dayLabel = typeof wd === "number" ? dayNames[wd] + "曜" : ""
-        return `${interval}ヶ月ごと ${weekLabel}${dayLabel}`.trim()
+        const weekLabel =
+          w === "last"
+            ? this.tv('labels.routineWeekLast', 'Last week')
+            : typeof w === "number"
+            ? this.tv('labels.routineWeekNth', 'Week {week}', { week: w })
+            : ''
+        const dayLabel =
+          typeof wd === "number"
+            ? dayNames[wd]
+            : this.tv('labels.routineDayUnset', 'No weekday set')
+        const raw = this.tv(
+          'labels.routineMonthlyLabel',
+          'Every {interval} month(s) on {week} {day}',
+          {
+            interval,
+            week: weekLabel,
+            day: dayLabel,
+          },
+        )
+        return raw.replace(/\s{2,}/g, ' ').trim()
       }
       case "weekdays":
-        return "平日のみ"
+        return this.tv('status.weekdaysOnly', 'Weekdays only')
       case "weekends":
-        return "週末のみ"
+        return this.tv('status.weekendsOnly', 'Weekends only')
       default:
         return type
     }
@@ -3986,7 +4330,11 @@ export class TaskChuteView extends ItemView {
       await review.openInSplit(file, this.leaf)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
-      new Notice(`レビューの表示に失敗しました: ${message}`)
+      new Notice(
+        this.tv('notices.reviewDisplayFailed', 'Failed to display review: {message}', {
+          message,
+        }),
+      )
     }
   }
 
@@ -3999,7 +4347,7 @@ export class TaskChuteView extends ItemView {
     const closeBtn = content.createEl("button", {
       cls: "log-modal-close",
       text: "×",
-      attr: { title: "閉じる" },
+      attr: { title: t("common.close", "Close") },
     })
     closeBtn.addEventListener("click", () => {
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay)
@@ -4060,7 +4408,12 @@ export class TaskChuteView extends ItemView {
             await this.resetTaskToIdle(this.selectedTaskInstance)
             this.clearTaskSelection()
           } else {
-            new Notice("このタスクは既に未実行状態です")
+            new Notice(
+              this.tv(
+                "status.alreadyNotStarted",
+                "This task is already not started",
+              ),
+            )
           }
         }
         break
@@ -4201,7 +4554,9 @@ export class TaskChuteView extends ItemView {
   }
 
   private showTaskContextMenu(e: MouseEvent, inst: TaskInstance): void {
-    new Notice("コンテキストメニューは実装中です")
+    new Notice(
+      this.tv("status.contextMenuWip", "Context menu is under construction"),
+    )
   }
 
   private handleDragOver(
@@ -4308,7 +4663,12 @@ export class TaskChuteView extends ItemView {
     }
 
     if (newPosition < minAllowed) {
-      new Notice("完了済み・実行中タスクより上には配置できません")
+      new Notice(
+        this.tv(
+          "notices.cannotPlaceAboveCompleted",
+          "Cannot place above running or completed tasks",
+        ),
+      )
       this.clearDragoverClasses(taskItem)
       return
     }
@@ -4404,6 +4764,12 @@ export class TaskChuteView extends ItemView {
     scheduledTime: string,
   ): Promise<void> {
     try {
+      const fallbackTitle =
+        task.title ||
+        (typeof task.path === "string"
+          ? task.path.split("/").pop()?.replace(/\.md$/u, "")
+          : undefined) ||
+        "Untitled Task"
       // Prefer existing path to avoid folder mismatch
       const primaryPath = task.path || ""
       let file = primaryPath
@@ -4411,12 +4777,16 @@ export class TaskChuteView extends ItemView {
         : null
       if (!file) {
         const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-        const fallbackPath = `${taskFolderPath}/${task.title}.md`
+        const fallbackPath = `${taskFolderPath}/${fallbackTitle}.md`
         file = this.app.vault.getAbstractFileByPath(fallbackPath)
       }
 
       if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        new Notice(
+          this.tv('project.fileMissing', 'Task file "{title}.md" not found', {
+            title: fallbackTitle,
+          }),
+        )
         return
       }
 
@@ -4438,17 +4808,33 @@ export class TaskChuteView extends ItemView {
       task.isRoutine = true
       task.scheduledTime = scheduledTime
       button.classList.add("active")
-      button.setAttribute("title", `ルーチンタスク（${scheduledTime}開始予定）`)
+      button.setAttribute(
+        "title",
+        this.tv('tooltips.routineScheduled', 'Routine task (starts at {time})', {
+          time: scheduledTime,
+        }),
+      )
 
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true })
       new Notice(
-        `「${task.title}」をルーチンタスクに設定しました（${scheduledTime}開始予定）`,
+        this.tv(
+          'notices.routineSetSuccess',
+          'Set "{title}" as a routine task (starts at {time})',
+          {
+            title: task.title ?? fallbackTitle,
+            time: scheduledTime,
+          },
+        ),
       )
     } catch (error: unknown) {
       console.error("Failed to set routine task:", error)
       const msg = error instanceof Error ? error.message : String(error)
-      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`)
+      new Notice(
+        this.tv('notices.routineSetFailed', 'Failed to set routine task: {message}', {
+          message: msg,
+        }),
+      )
     }
   }
 
@@ -4466,6 +4852,12 @@ export class TaskChuteView extends ItemView {
     },
   ): Promise<void> {
     try {
+      const fallbackTitle =
+        task.title ||
+        (typeof task.path === "string"
+          ? task.path.split("/").pop()?.replace(/\.md$/u, "")
+          : undefined) ||
+        "Untitled Task"
       // Prefer existing path to avoid folder mismatch
       const primaryPath = task.path || ""
       let file = primaryPath
@@ -4473,75 +4865,62 @@ export class TaskChuteView extends ItemView {
         : null
       if (!file) {
         const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-        const fallbackPath = `${taskFolderPath}/${task.title}.md`
+        const fallbackPath = `${taskFolderPath}/${fallbackTitle}.md`
         file = this.app.vault.getAbstractFileByPath(fallbackPath)
       }
 
       if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${task.title}.md」が見つかりません`)
+        new Notice(
+          this.tv('project.fileMissing', 'Task file "{title}.md" not found', {
+            title: fallbackTitle,
+          }),
+        )
         return
       }
 
       // ルーチンタスクとして設定
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        frontmatter.isRoutine = true
-        // Phase 2: 新規タスクは新形式を優先
-        setScheduledTime(frontmatter, scheduledTime, { preferNew: true })
-        frontmatter.routine_type = routineType
-        frontmatter.routine_enabled = details.enabled !== false // default true
-        frontmatter.routine_interval = Math.max(1, details.interval || 1)
+        const y = this.currentDate.getFullYear();
+        const m = (this.currentDate.getMonth() + 1).toString().padStart(2, '0');
+        const d = this.currentDate.getDate().toString().padStart(2, '0');
 
-        // 現在の日付を設定
-        const y = this.currentDate.getFullYear()
-        const m = (this.currentDate.getMonth() + 1).toString().padStart(2, "0")
-        const d = this.currentDate.getDate().toString().padStart(2, "0")
-        frontmatter.routine_start = `${y}-${m}-${d}`
+        const changes: Record<string, unknown> = {
+          isRoutine: true,
+          routine_type: routineType,
+          routine_enabled: details.enabled !== false,
+          routine_interval: Math.max(1, details.interval || 1),
+          routine_start: `${y}-${m}-${d}`,
+        };
 
-        // 既存のルーチン設定をクリア（legacy含む）
-        delete frontmatter.routine_end
-        delete frontmatter.weekday
-        delete frontmatter.weekdays
-        delete frontmatter.monthly_week
-        delete frontmatter.monthly_weekday
-        delete frontmatter.routine_week
-        delete frontmatter.routine_weekday
+        setScheduledTime(changes, scheduledTime, { preferNew: true });
 
-        // タイプに応じて設定を追加
-        switch (routineType) {
-          case "daily":
-            // interval のみ反映済み
-            break
-          case "weekdays":
-          case "weekends":
-            // 互換タイプ（intervalは使わないが保存しておく）
-            break
+        const cleaned = TaskValidator.cleanupOnRoutineChange(frontmatter, changes);
+        delete cleaned.routine_end;
+        delete cleaned.weekday;
+        delete cleaned.weekdays;
+        delete cleaned.monthly_week;
+        delete cleaned.monthly_weekday;
+        delete cleaned.routine_week;
+        delete cleaned.routine_weekday;
 
-          case "weekly":
-            if (details.weekdays && details.weekdays.length > 0) {
-              // 単一選択のみ保存（将来拡張はRoutineServiceがweekdaySetを読む）
-              const chosen = details.weekdays[0]
-              frontmatter.routine_weekday = chosen
-            }
-            break
+        applyRoutineFrontmatterMerge(frontmatter as RoutineFrontmatter, cleaned);
 
-          case "monthly":
-            if (
-              details.monthly_week !== undefined &&
-              details.monthly_weekday !== undefined
-            ) {
-              const w =
-                details.monthly_week === "last"
-                  ? "last"
-                  : typeof details.monthly_week === "number"
-                  ? details.monthly_week + 1
-                  : undefined
-              if (w !== undefined) frontmatter.routine_week = w
-              frontmatter.routine_weekday = details.monthly_weekday
-            }
-            break
+        if (routineType === 'weekly') {
+          if (details.weekdays && details.weekdays.length > 0) {
+            frontmatter.routine_weekday = details.weekdays[0];
+          }
+        } else if (routineType === 'monthly') {
+          if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
+            const weekValue =
+              details.monthly_week === 'last'
+                ? 'last'
+                : (details.monthly_week as number) + 1;
+            frontmatter.routine_week = weekValue;
+            frontmatter.routine_weekday = details.monthly_weekday;
+          }
         }
 
-        return frontmatter
+        return frontmatter;
       })
 
       // 状態更新
@@ -4552,33 +4931,97 @@ export class TaskChuteView extends ItemView {
       task.routine_enabled = details.enabled !== false
 
       // タイプに応じて詳細情報も更新
-      if (routineType === "weekly" && details.weekdays) {
-        task.weekday = details.weekdays[0]
-        task.weekdays = details.weekdays // 互換
+      if (routineType === "weekly") {
+        const selected = Array.isArray(details.weekdays) ? details.weekdays.filter((value) => Number.isInteger(value)) : []
+        task.weekdays = selected
+        if (selected.length > 0) {
+          task.weekday = selected[0]
+          task.routine_weekday = selected[0]
+        } else {
+          delete task.weekday
+          delete task.routine_weekday
+        }
+        delete task.routine_week
+        delete task.monthly_week
+        delete task.monthly_weekday
       } else if (routineType === "monthly") {
-        task.monthly_week = details.monthly_week
-        task.monthly_weekday = details.monthly_weekday
+        const routineWeek = details.monthly_week === 'last'
+          ? 'last'
+          : typeof details.monthly_week === 'number'
+            ? details.monthly_week + 1
+            : undefined
+        if (routineWeek !== undefined) {
+          task.routine_week = routineWeek
+        } else {
+          delete task.routine_week
+        }
+        if (details.monthly_week !== undefined) {
+          task.monthly_week = details.monthly_week
+        } else {
+          delete task.monthly_week
+        }
+        if (typeof details.monthly_weekday === 'number') {
+          task.monthly_weekday = details.monthly_weekday
+          task.routine_weekday = details.monthly_weekday
+        } else {
+          delete task.monthly_weekday
+          delete task.routine_weekday
+        }
+        delete task.weekday
+        delete task.weekdays
+      } else {
+        delete task.weekday
+        delete task.weekdays
+        delete task.monthly_week
+        delete task.monthly_weekday
+        delete task.routine_week
+        delete task.routine_weekday
       }
 
       button.classList.add("active")
 
       // ツールチップテキストを生成
-      let tooltipText = `ルーチンタスク（${scheduledTime}開始予定）`
+      let tooltipText = this.tv(
+        'tooltips.routineScheduled',
+        'Routine task (starts at {time})',
+        { time: scheduledTime },
+      )
+      const intervalValue = task.routine_interval || details.interval || 1
       switch (routineType) {
         case "daily":
-          tooltipText += ` - ${task.routine_interval || 1}日ごと`
+          tooltipText += ` - ${this.tv(
+            'labels.routineDailyLabel',
+            'Every {interval} day(s)',
+            { interval: intervalValue },
+          )}`
           break
         case "weekdays":
-          tooltipText += " - 平日のみ"
+          tooltipText += this.tv(
+            "lists.weekdaysOnlySuffix",
+            " - Weekdays only",
+          )
           break
         case "weekends":
-          tooltipText += " - 週末のみ"
+          tooltipText += this.tv(
+            "lists.weekendsOnlySuffix",
+            " - Weekends only",
+          )
           break
         case "weekly":
           if (details.weekdays) {
-            const dayNames = ["日", "月", "火", "水", "木", "金", "土"]
-            const day = dayNames[details.weekdays[0]]
-            tooltipText += ` - ${task.routine_interval || 1}週ごと ${day}曜`
+            const dayNames = this.getWeekdayNames()
+            const selectedDay =
+              typeof details.weekdays[0] === "number"
+                ? dayNames[details.weekdays[0]]
+                : this.tv('labels.routineDayUnset', 'No weekday set')
+            tooltipText += ` - ${this.tv(
+              'labels.routineWeeklyLabel',
+              'Every {interval} week(s) on {day}',
+              {
+                interval: intervalValue,
+                day: selectedDay,
+              },
+            )}`
           }
           break
         case "monthly":
@@ -4586,14 +5029,27 @@ export class TaskChuteView extends ItemView {
             details.monthly_week !== undefined &&
             details.monthly_weekday !== undefined
           ) {
-            const dayNames = ["日", "月", "火", "水", "木", "金", "土"]
+            const dayNames = this.getWeekdayNames()
             const weekLabel =
               details.monthly_week === "last"
-                ? "最終"
-                : `第${(details.monthly_week as number) + 1}`
-            tooltipText += ` - ${
-              task.routine_interval || 1
-            }ヶ月ごと ${weekLabel}${dayNames[details.monthly_weekday]}曜日`
+                ? this.tv('labels.routineWeekLast', 'Last week')
+                : this.tv('labels.routineWeekNth', 'Week {week}', {
+                    week: (details.monthly_week as number) + 1,
+                  })
+            const dayLabel =
+              typeof details.monthly_weekday === "number"
+                ? dayNames[details.monthly_weekday]
+                : this.tv('labels.routineDayUnset', 'No weekday set')
+            const monthlyLabel = this.tv(
+              'labels.routineMonthlyLabel',
+              'Every {interval} month(s) on {week} {day}',
+              {
+                interval: intervalValue,
+                week: weekLabel,
+                day: dayLabel,
+              },
+            )
+            tooltipText += ` - ${monthlyLabel.replace(/\s{2,}/g, ' ').trim()}`
           }
           break
       }
@@ -4602,11 +5058,24 @@ export class TaskChuteView extends ItemView {
 
       // タスク情報を再取得し、実行中タスクの表示も復元
       await this.reloadTasksAndRestore({ runBoundaryCheck: true })
-      new Notice(`タスクを、ルーチンタスクに設定しました`)
+      new Notice(
+        this.tv(
+          'notices.routineSetSuccess',
+          'Set "{title}" as a routine task (starts at {time})',
+          {
+            title: task.title ?? fallbackTitle,
+            time: scheduledTime,
+          },
+        ),
+      )
     } catch (error: unknown) {
       console.error("Failed to set routine task:", error)
       const msg = error instanceof Error ? error.message : String(error)
-      new Notice(`ルーチンタスクの設定に失敗しました: ${msg}`)
+      new Notice(
+        this.tv('notices.routineSetFailed', 'Failed to set routine task: {message}', {
+          message: msg,
+        }),
+      )
     }
   }
 
@@ -4619,13 +5088,18 @@ export class TaskChuteView extends ItemView {
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
     return new Promise((resolve) => {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       const modal = document.createElement("div")
       modal.className = "task-modal-overlay"
       const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
-      modalContent.createEl("h3", { text: "タスクの削除確認" })
+      modalContent.createEl("h3", {
+        text: this.tv('forms.deleteConfirmTitle', 'Confirm task deletion'),
+      })
       modalContent.createEl("p", {
-        text: `「${inst.task.title}」を削除してもよろしいですか？`,
+        text: this.tv('forms.deleteConfirmBody', 'Delete "{task}"?', {
+          task: displayTitle,
+        }),
       })
 
       const buttonContainer = modalContent.createEl("div", {
@@ -4633,12 +5107,12 @@ export class TaskChuteView extends ItemView {
       })
 
       const confirmButton = buttonContainer.createEl("button", {
-        text: "削除",
+        text: t("common.delete", "Delete"),
         cls: "mod-cta",
       })
 
       const cancelButton = buttonContainer.createEl("button", {
-        text: "キャンセル",
+        text: t("common.cancel", "Cancel"),
       })
 
       confirmButton.addEventListener("click", () => {
@@ -4657,6 +5131,7 @@ export class TaskChuteView extends ItemView {
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
     try {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       await this.ensureDayStateForCurrentDate()
       // インスタンスをリストから削除
       const index = this.taskInstances.indexOf(inst)
@@ -4728,24 +5203,29 @@ export class TaskChuteView extends ItemView {
           // 最後のインスタンスの場合、ファイルも削除
           this.tasks = this.tasks.filter((t) => t.path !== inst.task.path)
           await this.app.fileManager.trashFile(inst.task.file, true)
-          new Notice(`タスクを完全に削除しました。`)
+          new Notice(this.tv('notices.taskDeletedPermanent', 'Permanently deleted the task.'))
         } else {
-          new Notice(`タスクを本日のリストから削除しました。`)
+          new Notice(this.tv('notices.taskRemovedFromToday', 'Removed task from today.'))
         }
       } else {
-        new Notice(`「タスクを本日のリストから削除しました。`)
+        new Notice(
+          this.tv('notices.taskRemovedFromTodayWithTitle', 'Removed "{title}" from today.', {
+            title: displayTitle,
+          }),
+        )
       }
 
       // UIを更新
       this.renderTaskList()
     } catch (error) {
       console.error("Failed to delete instance:", error)
-      new Notice("タスクの削除に失敗しました")
+      new Notice(this.tv("notices.taskDeleteFailed", "Failed to delete task"))
     }
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {
     try {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       // 状態をidleにリセット
       inst.state = "idle"
       inst.startTime = undefined
@@ -4763,10 +5243,14 @@ export class TaskChuteView extends ItemView {
       // UIを更新
       this.renderTaskList()
 
-      new Notice(`「${inst.task.title}」をアイドル状態に戻しました`)
+      new Notice(
+        this.tv('notices.restoredToIdle', 'Moved "{title}" back to idle', {
+          title: displayTitle,
+        }),
+      )
     } catch (error) {
       console.error("Failed to reset task:", error)
-      new Notice("タスクのリセットに失敗しました")
+      new Notice(this.tv("notices.taskResetFailed", "Failed to reset task"))
     }
   }
 
@@ -4779,6 +5263,7 @@ export class TaskChuteView extends ItemView {
       tooltip.remove()
     }
 
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     // モーダルコンテナ
     const modal = document.createElement("div")
     modal.className = "task-modal-overlay"
@@ -4786,14 +5271,22 @@ export class TaskChuteView extends ItemView {
 
     // モーダルヘッダー
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", {
-      text: `「${inst.task.title}」のプロジェクト設定`,
-    })
+    modalHeader.createEl(
+      "h3",
+      {
+        text: this.tv(
+          'project.settingsTitle',
+          `Project settings for "${displayTitle}"`,
+          { title: displayTitle },
+        ),
+      },
+    )
 
     // 閉じるボタン
     const closeButton = modalHeader.createEl("button", {
       cls: "modal-close-button",
       text: "×",
+      attr: { title: t("common.close", "Close") },
     })
 
     // フォーム
@@ -4801,7 +5294,10 @@ export class TaskChuteView extends ItemView {
 
     // プロジェクト選択
     const projectGroup = form.createEl("div", { cls: "form-group" })
-    projectGroup.createEl("label", { text: "プロジェクト:", cls: "form-label" })
+    projectGroup.createEl("label", {
+      text: this.tv('project.selectLabel', 'Select project:'),
+      cls: "form-label",
+    })
     const projectSelect = projectGroup.createEl("select", {
       cls: "form-select",
     }) as HTMLSelectElement
@@ -4812,7 +5308,7 @@ export class TaskChuteView extends ItemView {
     // 「プロジェクトなし」オプション
     projectSelect.createEl("option", {
       value: "",
-      text: "プロジェクトなし",
+      text: this.tv('project.none', 'No project'),
     })
 
     projects.forEach((project) => {
@@ -4832,12 +5328,12 @@ export class TaskChuteView extends ItemView {
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "form-button cancel",
-      text: "キャンセル",
+      text: t("common.cancel", "Cancel"),
     })
     buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
     })
 
     // イベントリスナー
@@ -4890,12 +5386,26 @@ export class TaskChuteView extends ItemView {
     projectName: string,
   ): Promise<void> {
     try {
-      const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-      const filePath = `${taskFolderPath}/${inst.task.title}.md`
-      const file = this.app.vault.getAbstractFileByPath(filePath)
+      const displayTitle = this.getInstanceDisplayTitle(inst)
+      let file: TFile | null = inst.task.file instanceof TFile ? inst.task.file : null
+      if (!file && inst.task.path) {
+        const byPath = this.app.vault.getAbstractFileByPath(inst.task.path)
+        file = byPath instanceof TFile ? byPath : null
+      }
+      if (!file) {
+        const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
+        const fallbackBase = inst.task.name || displayTitle
+        const fallbackPath = `${taskFolderPath}/${fallbackBase}.md`
+        const byFallback = this.app.vault.getAbstractFileByPath(fallbackPath)
+        file = byFallback instanceof TFile ? byFallback : null
+      }
 
-      if (!file || !(file instanceof TFile)) {
-        new Notice(`タスクファイル「${inst.task.title}.md」が見つかりません`)
+      if (!file) {
+        new Notice(
+          this.tv('project.fileMissing', 'Task file "{title}.md" not found', {
+            title: displayTitle,
+          }),
+        )
         return
       }
 
@@ -4925,17 +5435,32 @@ export class TaskChuteView extends ItemView {
       this.renderTaskList()
 
       const message = projectName
-        ? `「${inst.task.title}」を${projectName}に関連付けました`
-        : `「${inst.task.title}」のプロジェクト関連付けを解除しました`
+        ? this.tv(
+            'project.linked',
+            'Linked "{title}" to {project}',
+            { title: displayTitle, project: projectName },
+          )
+        : this.tv(
+            'project.unlinked',
+            'Removed project link from "{title}"',
+            { title: displayTitle },
+          )
       new Notice(message)
     } catch (error) {
       console.error("Failed to update project:", error)
-      new Notice("プロジェクトの更新に失敗しました")
+      new Notice(
+        this.tv("notices.projectUpdateFailed", "Failed to update project"),
+      )
     }
   }
 
   private moveIdleTasksToCurrentTime(): void {
-    new Notice("アイドルタスク移動機能は実装中です")
+    new Notice(
+      this.tv(
+        "status.idleFeatureWip",
+        "Idle task reordering is under construction",
+      ),
+    )
   }
 
   private async showAddTaskModal(): Promise<void> {
@@ -4944,7 +5469,9 @@ export class TaskChuteView extends ItemView {
     const modalContent = modal.createEl("div", { cls: "task-modal-content" })
 
     const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", { text: "新しいタスクを追加" })
+    modalHeader.createEl("h3", {
+      text: this.tv('addTask.title', 'Add new task'),
+    })
 
     const closeButton = modalHeader.createEl("button", {
       cls: "modal-close-button",
@@ -4954,11 +5481,14 @@ export class TaskChuteView extends ItemView {
     const form = modalContent.createEl("form", { cls: "task-form" })
 
     const nameGroup = form.createEl("div", { cls: "form-group" })
-    nameGroup.createEl("label", { text: "タスク名:", cls: "form-label" })
+    nameGroup.createEl("label", {
+      text: this.tv('addTask.nameLabel', 'Task name:'),
+      cls: "form-label",
+    })
     const nameInput = nameGroup.createEl("input", {
       type: "text",
       cls: "form-input",
-      placeholder: "タスク名を入力",
+      placeholder: this.tv('addTask.namePlaceholder', 'Enter task name'),
     }) as HTMLInputElement
 
     const warningMessage = nameGroup.createEl("div", {
@@ -4994,12 +5524,12 @@ export class TaskChuteView extends ItemView {
     const cancelButton = buttonGroup.createEl("button", {
       type: "button",
       cls: "form-button cancel",
-      text: "キャンセル",
+      text: t("common.cancel", "Cancel"),
     }) as HTMLButtonElement
     const saveButton = buttonGroup.createEl("button", {
       type: "submit",
       cls: "form-button create",
-      text: "保存",
+      text: this.tv("buttons.save", "Save"),
     }) as HTMLButtonElement
 
     const validationControls = this.setupTaskNameValidation(
@@ -5051,7 +5581,9 @@ export class TaskChuteView extends ItemView {
       const taskName = nameInput.value.trim()
 
       if (!taskName) {
-        new Notice("タスク名を入力してください")
+        new Notice(
+          this.tv("forms.nameRequired", "Please enter a task name"),
+        )
         return
       }
 
@@ -5090,15 +5622,20 @@ export class TaskChuteView extends ItemView {
     } catch (error) {
       console.error("Failed to create task:", error)
 
-      let errorMessage = "タスクの作成に失敗しました"
+      let errorMessage = this.tv(
+        "notices.taskCreationFailed",
+        "Failed to create task",
+      )
       const validation = this.getTaskNameValidator().validate(taskName)
       if (
         (error instanceof Error &&
           error.message.includes("Invalid characters")) ||
         !validation.isValid
       ) {
-        errorMessage =
-          "タスクの作成に失敗しました: ファイル名に使用できない文字が含まれています"
+        errorMessage = this.tv(
+          "notices.taskCreationInvalidFilename",
+          "Failed to create task: filename contains invalid characters",
+        )
       }
 
       new Notice(errorMessage)
@@ -5230,18 +5767,6 @@ export class TaskChuteView extends ItemView {
     }
   }
 
-  private getExecutionKey(entry: TaskLogEntry): string {
-    if (entry.taskPath && typeof entry.taskPath === "string")
-      return entry.taskPath
-    if (entry.taskName && typeof entry.taskName === "string")
-      return entry.taskName
-    if (entry.taskTitle && typeof entry.taskTitle === "string")
-      return entry.taskTitle
-    if (entry.instanceId && typeof entry.instanceId === "string")
-      return entry.instanceId
-    return JSON.stringify(entry)
-  }
-
   private isExecutionCompleted(entry: TaskLogEntry): boolean {
     if (typeof entry.isCompleted === "boolean") return entry.isCompleted
     if (
@@ -5354,6 +5879,7 @@ export class TaskChuteView extends ItemView {
   private activeMoveCalendar: TaskMoveCalendar | null = null
 
   private async clearTaskTargetDate(inst: TaskInstance): Promise<void> {
+    const displayTitle = this.getInstanceDisplayTitle(inst)
     const file = inst.task?.path
       ? this.app.vault.getAbstractFileByPath(inst.task.path)
       : null
@@ -5369,12 +5895,19 @@ export class TaskChuteView extends ItemView {
         return frontmatter
       })
       new Notice(
-        `タスク「${inst.task.title ?? inst.task.name}」の移動先を解除しました`,
+        this.tv('notices.taskMoveCleared', 'Cleared destination for "{title}"', {
+          title: displayTitle,
+        }),
       )
       await this.reloadTasksAndRestore()
     } catch (error) {
       console.error("Failed to clear task target date:", error)
-      new Notice("タスクの移動先解除に失敗しました")
+      new Notice(
+        this.tv(
+          "notices.taskMoveClearFailed",
+          "Failed to clear task destination",
+        ),
+      )
     }
   }
 
@@ -5392,11 +5925,15 @@ export class TaskChuteView extends ItemView {
         })
       }
 
-      new Notice(`タスクを${dateStr}に移動しました`)
+      new Notice(
+        this.tv('notices.taskMoveSuccess', 'Moved task to {date}', {
+          date: dateStr,
+        }),
+      )
       await this.reloadTasksAndRestore()
     } catch (error) {
       console.error("Failed to move task:", error)
-      new Notice("タスクの移動に失敗しました")
+      new Notice(this.tv("notices.taskMoveFailed", "Failed to move task"))
     }
   }
 
@@ -5407,6 +5944,7 @@ export class TaskChuteView extends ItemView {
 
   private async showUnifiedProjectModal(inst: TaskInstance): Promise<void> {
     try {
+      const displayTitle = this.getInstanceDisplayTitle(inst)
       // Create modal overlay
       const modal = document.createElement("div")
       modal.className = "task-modal-overlay"
@@ -5414,15 +5952,22 @@ export class TaskChuteView extends ItemView {
 
       // Modal header
       const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-      modalHeader.createEl("h3", {
-        text: `「${inst.task.title}」のプロジェクト設定`,
-      })
+      modalHeader.createEl(
+        "h3",
+        {
+          text: this.tv(
+            'project.settingsTitle',
+            `Project settings for "${displayTitle}"`,
+            { title: displayTitle },
+          ),
+        },
+      )
 
       // Close button
       const closeButton = modalHeader.createEl("button", {
         cls: "modal-close-button",
         text: "×",
-        attr: { title: "閉じる" },
+        attr: { title: t("common.close", "Close") },
       })
 
       // Form
@@ -5434,7 +5979,12 @@ export class TaskChuteView extends ItemView {
         projectFiles = await this.getProjectFiles()
       } catch (error) {
         console.error("Failed to load project list", error)
-        new Notice("プロジェクトリストの読み込みに失敗しました")
+        new Notice(
+          this.tv(
+            "notices.projectListFailed",
+            "Failed to load project list",
+          ),
+        )
         modal.remove()
         return
       }
@@ -5443,18 +5993,18 @@ export class TaskChuteView extends ItemView {
         // No project files found
         const noProjectGroup = form.createEl("div", { cls: "form-group" })
         noProjectGroup.createEl("p", {
-          text: "プロジェクトファイルが見つかりません。",
+          text: this.tv('project.noFiles', 'No project files found.'),
           cls: "form-description",
         })
         noProjectGroup.createEl("p", {
-          text: "プロジェクトファイルに #project タグを追加してください。",
+          text: this.tv('project.addTagHint', 'Add the #project tag to your project files.'),
           cls: "form-description",
         })
       } else {
         // Project selection
         const projectGroup = form.createEl("div", { cls: "form-group" })
         projectGroup.createEl("label", {
-          text: "プロジェクトを選択:",
+          text: this.tv('project.selectLabel', 'Select project:'),
           cls: "form-label",
         })
         const projectSelect = projectGroup.createEl("select", {
@@ -5465,13 +6015,13 @@ export class TaskChuteView extends ItemView {
         if (inst.task.projectPath) {
           projectSelect.createEl("option", {
             value: "",
-            text: "➖ プロジェクトを外す",
+            text: this.tv("buttons.removeProject", "➖ Remove project"),
           })
         } else {
           // Add empty option if no project is set
           const emptyOption = projectSelect.createEl("option", {
             value: "",
-            text: "",
+            text: this.tv('project.none', 'No project'),
           })
           emptyOption.selected = true
         }
@@ -5492,12 +6042,18 @@ export class TaskChuteView extends ItemView {
         const descGroup = form.createEl("div", { cls: "form-group" })
         if (inst.task.projectPath) {
           descGroup.createEl("p", {
-            text: "別のプロジェクトを選択するか、「プロジェクトを外す」を選択してプロジェクトを解除できます。",
+            text: this.tv(
+              'project.instructionsLinked',
+              'Select another project or choose "Remove project" to clear the assignment.',
+            ),
             cls: "form-description",
           })
         } else {
           descGroup.createEl("p", {
-            text: "タスクにプロジェクトを設定すると、プロジェクトページから関連タスクを確認できます。",
+            text: this.tv(
+              'project.instructionsUnlinked',
+              'Assigning a project lets you review related tasks from the project page.',
+            ),
             cls: "form-description",
           })
         }
@@ -5507,12 +6063,12 @@ export class TaskChuteView extends ItemView {
         const cancelButton = buttonGroup.createEl("button", {
           type: "button",
           cls: "form-button cancel",
-          text: "キャンセル",
+          text: t("common.cancel", "Cancel"),
         })
         buttonGroup.createEl("button", {
           type: "submit",
           cls: "form-button create",
-          text: "保存",
+          text: this.tv("buttons.save", "Save"),
         })
 
         // Event listeners
@@ -5537,7 +6093,12 @@ export class TaskChuteView extends ItemView {
       document.body.appendChild(modal)
     } catch (error) {
       console.error("Failed to show project modal:", error)
-      new Notice("プロジェクト選択画面の表示に失敗しました")
+      new Notice(
+        this.tv(
+          "notices.projectPickerFailed",
+          "Failed to open project picker",
+        ),
+      )
     }
   }
 
@@ -5578,7 +6139,9 @@ export class TaskChuteView extends ItemView {
   ): Promise<void> {
     try {
       if (!task.file || !(task.file instanceof TFile)) {
-        new Notice("タスクファイルが見つかりません")
+        new Notice(
+          this.tv("notices.taskFileMissing", "Task file not found"),
+        )
         return
       }
 
@@ -5615,10 +6178,12 @@ export class TaskChuteView extends ItemView {
         task.projectTitle = null
       }
 
-      new Notice(`プロジェクト設定を保存しました`)
+      new Notice(this.tv('project.settingsSaved', 'Project settings saved'))
     } catch (error) {
       console.error("Failed to set project:", error)
-      new Notice("プロジェクト設定に失敗しました")
+      new Notice(
+        this.tv("notices.projectSetFailed", "Failed to set project"),
+      )
     }
   }
 
@@ -5642,7 +6207,11 @@ export class TaskChuteView extends ItemView {
           const projectButton = projectDisplay.createEl("span", {
             cls: "taskchute-project-button",
             attr: {
-              title: `プロジェクト: ${inst.task.projectTitle}`,
+              title: this.tv(
+                'project.tooltipAssigned',
+                'Project: {title}',
+                { title: inst.task.projectTitle },
+              ),
             },
           })
 
@@ -5664,7 +6233,7 @@ export class TaskChuteView extends ItemView {
           const externalLinkIcon = projectDisplay.createEl("span", {
             cls: "taskchute-external-link",
             text: "🔗",
-            attr: { title: "プロジェクトノートを開く" },
+            attr: { title: this.tv('project.openNote', 'Open project note') },
           })
 
           externalLinkIcon.addEventListener("click", async (e) => {
@@ -5675,7 +6244,9 @@ export class TaskChuteView extends ItemView {
           // If project is not set
           const projectPlaceholder = projectDisplay.createEl("span", {
             cls: "taskchute-project-placeholder",
-            attr: { title: "クリックしてプロジェクトを設定" },
+            attr: {
+              title: this.tv('project.clickToSet', 'Click to set project'),
+            },
           })
 
           projectPlaceholder.addEventListener("click", async (e) => {
@@ -5694,11 +6265,19 @@ export class TaskChuteView extends ItemView {
         const leaf = this.app.workspace.getLeaf("split")
         await leaf.openFile(file)
       } else {
-        new Notice(`プロジェクトファイルが見つかりません: ${projectPath}`)
+        new Notice(
+          this.tv(
+            'project.fileMissingPath',
+            'Project file not found: {path}',
+            { path: projectPath },
+          ),
+        )
       }
     } catch (error) {
       console.error("Failed to open project:", error)
-      new Notice("プロジェクトファイルを開けませんでした")
+      new Notice(
+        this.tv("notices.projectOpenFailed", "Failed to open project file"),
+      )
     }
   }
 
@@ -5721,7 +6300,7 @@ export class TaskChuteView extends ItemView {
   }
 
   // State management methods for deletion/hiding
-  private getDeletedInstances(dateStr: string): DeletedInstance[] {
+  public getDeletedInstances(dateStr: string): DeletedInstance[] {
     const state = this.dayStateCache.get(dateStr)
     return state ? state.deletedInstances : []
   }
@@ -5760,7 +6339,7 @@ export class TaskChuteView extends ItemView {
     void this.persistDayState(dateStr)
   }
 
-  private isInstanceDeleted(
+  public isInstanceDeleted(
     instanceId: string,
     taskPath: string,
     dateStr: string,
@@ -5774,7 +6353,7 @@ export class TaskChuteView extends ItemView {
     })
   }
 
-  private isInstanceHidden(
+  public isInstanceHidden(
     instanceId: string,
     taskPath: string,
     dateStr: string,

@@ -1,9 +1,6 @@
 import { App, TFile } from 'obsidian'
-import { PathManager } from './PathManager'
-import type { TaskInstance } from '../types'
-
-type ParsedLogEntry = { lineIndex: number; content: string }
-type ParsedLog = { date: string; lineIndex: number; entries: ParsedLogEntry[] }
+import type { TaskInstance, PathManagerLike } from '../types'
+import { t } from '../i18n'
 
 /**
  * Syncs task comments to related project notes' log section.
@@ -11,9 +8,9 @@ type ParsedLog = { date: string; lineIndex: number; entries: ParsedLogEntry[] }
  */
 export class ProjectNoteSyncManager {
   private app: App
-  private pathManager: PathManager
+  private pathManager: PathManagerLike
 
-  constructor(app: App, pathManager: PathManager) {
+  constructor(app: App, pathManager: PathManagerLike) {
     this.app = app
     this.pathManager = pathManager
   }
@@ -46,89 +43,13 @@ export class ProjectNoteSyncManager {
       }
     }
 
-    const newContent = content.trimEnd() + "\n\n## ログ\n"
+    const logHeading = t('taskChuteView.project.logHeading', '## Log')
+    const newContent = `${content.trimEnd()}\n\n${logHeading}\n`
     return {
       exists: false,
       position: newContent.length,
       content: newContent,
     }
-  }
-
-  // コメントエントリをフォーマット
-  formatCommentEntry(inst: TaskInstance, completionData: { executionComment: string }, dateString: string) {
-    const wikilink = `[[${dateString}]]`
-    const comment = completionData.executionComment || ''
-    const formattedComment = comment
-      .split('\n')
-      .map((line) => `    - ${line}`)
-      .join('\n')
-
-    return {
-      date: dateString,
-      entry: `- ${wikilink}\n${formattedComment}`,
-      instanceId: inst.instanceId,
-    }
-  }
-
-  // 既存ログをパースして構造化
-  parseExistingLogs(content: string, logSectionPosition: number): ParsedLog[] {
-    const lines = content.substring(logSectionPosition).split('\n')
-    const logs: ParsedLog[] = []
-    let currentDate: string | null = null
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const dateMatch = line.match(/^-\s+\[\[(\d{4}-\d{2}-\d{2})\]\]/)
-      if (dateMatch) {
-        currentDate = dateMatch[1]
-        logs.push({ date: currentDate, lineIndex: i, entries: [] })
-        continue
-      }
-
-      if (currentDate && line.match(/^(\t| {4})-\s+/)) {
-        const log = logs[logs.length - 1]
-        log.entries.push({ lineIndex: i, content: line })
-      }
-    }
-
-    return logs
-  }
-
-  // 既存日付の末尾の次の位置を求める
-  findInsertPosition(content: string, existingDateLog: ParsedLog, sectionPos: number) {
-    const logContent = content.substring(sectionPos)
-    const logLines = logContent.split('\n')
-    const lastEntryLine = existingDateLog.lineIndex + existingDateLog.entries.length + 1
-    let relativePosition = 0
-    for (let i = 0; i < lastEntryLine && i < logLines.length; i++) {
-      relativePosition += logLines[i].length + 1
-    }
-    return sectionPos + relativePosition
-  }
-
-  // 日付の挿入位置を検出（降順）
-  findDateInsertPosition(content: string, logs: ParsedLog[], newDate: string, sectionPos: number) {
-    if (logs.length === 0) return sectionPos + 1
-
-    for (let i = 0; i < logs.length; i++) {
-      if (newDate > logs[i].date) {
-        const logContent = content.substring(sectionPos)
-        const logLines = logContent.split('\n')
-        let relativePosition = 0
-        for (let j = 0; j < logs[i].lineIndex && j < logLines.length; j++) {
-          relativePosition += logLines[j].length + 1
-        }
-        return sectionPos + relativePosition
-      }
-    }
-
-    // 最も古い日付の直後
-    const lastLog = logs[logs.length - 1]
-    return this.findInsertPosition(content, lastLog, sectionPos)
-  }
-
-  insertAtPosition(content: string, text: string, position: number) {
-    return content.substring(0, position) + text + '\n' + content.substring(position)
   }
 
   formatDateString(date: Date) {
@@ -138,11 +59,174 @@ export class ProjectNoteSyncManager {
     return `${y}-${m}-${d}`
   }
 
+  private resolveTaskDisplayTitle(inst: TaskInstance): string {
+    const candidates = [inst.task.displayTitle, inst.executedTitle, inst.task.name]
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const trimmed = candidate.trim()
+        if (trimmed.length > 0) {
+          return trimmed
+        }
+      }
+    }
+    return 'Untitled Task'
+  }
+
+  private splitLogSection(content: string, sectionPos: number) {
+    const before = content.substring(0, sectionPos)
+    const rest = content.substring(sectionPos)
+    const nextHeadingMatch = rest.match(/^#{1,6}\s+/m)
+
+    if (!nextHeadingMatch || typeof nextHeadingMatch.index !== 'number') {
+      return { before, body: rest, after: '' }
+    }
+
+    const body = rest.substring(0, nextHeadingMatch.index)
+    const after = rest.substring(nextHeadingMatch.index)
+    return { before, body, after }
+  }
+
+  private buildTaskLine(taskTitle: string) {
+    return `    - ${taskTitle}`
+  }
+
+  private formatCommentLines(raw: string) {
+    const source = typeof raw === 'string' ? raw : ''
+    const lines = source.split('\n')
+    if (lines.length === 0) {
+      return ['        - ']
+    }
+    return lines.map((line) => `        - ${line}`)
+  }
+
+  private isTaskLine(line: string) {
+    return /^(?:\t| {4})-\s+/.test(line)
+  }
+
+  private isCommentLine(line: string) {
+    return /^(?:\t{2}| {8})-\s+/.test(line)
+  }
+
+  private extractTaskTitle(line: string) {
+    const match = line.match(/^(?:\t| {4})-\s+(.*)$/)
+    return match ? match[1] : line.trim()
+  }
+
+  private normalizeTaskTitle(title: string) {
+    return title.replace(/\s+/g, ' ').trim()
+  }
+
+  private updateDateBlock(original: string, taskTitle: string, commentLines: string[]) {
+    const lines = original.split('\n')
+    const normalizedTarget = this.normalizeTaskTitle(taskTitle)
+    const updatedLines: string[] = []
+    let index = 0
+    let replaced = false
+
+    while (index < lines.length) {
+      const line = lines[index]
+
+      if (this.isTaskLine(line)) {
+        const currentTitle = this.normalizeTaskTitle(this.extractTaskTitle(line))
+        if (!replaced && currentTitle === normalizedTarget) {
+          updatedLines.push(this.buildTaskLine(taskTitle))
+          index += 1
+          while (index < lines.length && this.isCommentLine(lines[index])) {
+            index += 1
+          }
+          updatedLines.push(...commentLines)
+          replaced = true
+          continue
+        }
+      }
+
+      updatedLines.push(line)
+      index += 1
+    }
+
+    if (!replaced) {
+      let trailingBlankCount = 0
+      for (let i = updatedLines.length - 1; i >= 0; i--) {
+        if (updatedLines[i].trim().length === 0) {
+          trailingBlankCount += 1
+        } else {
+          break
+        }
+      }
+
+      const trailingBlanks = trailingBlankCount > 0
+        ? updatedLines.splice(updatedLines.length - trailingBlankCount, trailingBlankCount)
+        : []
+
+      updatedLines.push(this.buildTaskLine(taskTitle))
+      updatedLines.push(...commentLines)
+      updatedLines.push(...trailingBlanks)
+    }
+
+    return updatedLines.join('\n').trimEnd()
+  }
+
+  private buildDateBlock(dateString: string, taskTitle: string, commentLines: string[]) {
+    const lines = [`- [[${dateString}]]`, this.buildTaskLine(taskTitle), ...commentLines]
+    return lines.join('\n')
+  }
+
+  private upsertLogEntry(logBody: string, dateString: string, taskTitle: string, commentLines: string[]) {
+    const leadingWhitespaceMatch = logBody.match(/^\s*/)
+    const leadingWhitespace = leadingWhitespaceMatch ? leadingWhitespaceMatch[0] : ''
+    const core = logBody.slice(leadingWhitespace.length).trim()
+
+    const blocks: Array<{ date: string; text: string }> = []
+    if (core.length > 0) {
+      const blockRegex = /- \[\[(\d{4}-\d{2}-\d{2})\]\][\s\S]*?(?=- \[\[\d{4}-\d{2}-\d{2}\]\]|$)/g
+      let match: RegExpExecArray | null
+      while ((match = blockRegex.exec(core)) !== null) {
+        const [text, date] = match
+        blocks.push({ date, text: text.trimEnd() })
+      }
+    }
+
+    if (blocks.length === 0) {
+      const newBlock = this.buildDateBlock(dateString, taskTitle, commentLines)
+      return `${leadingWhitespace}${newBlock}\n`
+    }
+
+    const existingIndex = blocks.findIndex((block) => block.date === dateString)
+
+    if (existingIndex >= 0) {
+      const updatedBlock = this.updateDateBlock(blocks[existingIndex].text, taskTitle, commentLines)
+      blocks[existingIndex].text = updatedBlock.trimEnd()
+    } else {
+      const newBlock = this.buildDateBlock(dateString, taskTitle, commentLines)
+      let insertIndex = blocks.findIndex((block) => dateString > block.date)
+      if (insertIndex < 0) {
+        insertIndex = blocks.length
+      }
+      blocks.splice(insertIndex, 0, { date: dateString, text: newBlock })
+    }
+
+    const normalizedBlocks = blocks.map((block) => block.text.trimEnd())
+    const joined = normalizedBlocks
+      .map((block, index) => {
+        const separator = index < normalizedBlocks.length - 1 ? '\n\n' : '\n'
+        return `${block}${separator}`
+      })
+      .join('')
+
+    return `${leadingWhitespace}${joined}`
+  }
+
   // プロジェクトノートを更新
   async updateProjectNote(projectPath: string, inst: TaskInstance, completionData: { executionComment: string }) {
     const file = this.app.vault.getAbstractFileByPath(projectPath)
     if (!file || !(file instanceof TFile)) {
-      throw new Error(`プロジェクトノートが見つかりません: ${projectPath}`)
+      throw new Error(
+        t(
+          'taskChuteView.project.noteNotFound',
+          'Project note not found: {path}',
+          { path: projectPath },
+        ),
+      )
     }
 
     let content = await this.app.vault.read(file)
@@ -151,22 +235,14 @@ export class ProjectNoteSyncManager {
 
     const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()
     const dateString = this.formatDateString(taskDate)
-    const entry = this.formatCommentEntry(inst, completionData, dateString)
+    const taskTitle = this.resolveTaskDisplayTitle(inst)
+    const commentLines = this.formatCommentLines(completionData.executionComment)
 
-    const logs = this.parseExistingLogs(content, sectionResult.position)
-    const existingDateLog = logs.find((l) => l.date === dateString)
+    const { before, body, after } = this.splitLogSection(content, sectionResult.position)
+    const updatedBody = this.upsertLogEntry(body, dateString, taskTitle, commentLines)
+    const updatedContent = `${before}${updatedBody}${after}`
 
-    if (existingDateLog) {
-      const insertPos = this.findInsertPosition(content, existingDateLog, sectionResult.position)
-      const commentOnly = entry.entry.split('\n').slice(1).join('\n')
-      content = this.insertAtPosition(content, commentOnly, insertPos)
-    } else {
-      const insertPos = this.findDateInsertPosition(content, logs, dateString, sectionResult.position)
-      const entryWithSpacing = logs.length > 0 ? `${entry.entry}\n` : entry.entry
-      content = this.insertAtPosition(content, entryWithSpacing, insertPos)
-    }
-
-    await this.app.vault.modify(file, content)
+    await this.app.vault.modify(file, updatedContent)
     return true
   }
 }

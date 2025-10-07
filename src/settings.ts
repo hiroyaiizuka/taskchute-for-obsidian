@@ -6,9 +6,7 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   projectFolderPath: PathManager.DEFAULT_PATHS.projectFolder,
   logDataPath: PathManager.DEFAULT_PATHS.logData,
   reviewDataPath: PathManager.DEFAULT_PATHS.reviewData,
-  enableSound: false,
-  enableFireworks: false,
-  enableConfetti: false,
   useOrderBasedSort: true,
   slotKeys: {},
+  languageOverride: 'auto',
 };
