@@ -37,6 +37,9 @@ export interface TaskChuteSettings {
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
   languageOverride?: "auto" | "en" | "ja";
+
+  // UI/Features
+  aiRobotButtonEnabled?: boolean; // default false; show robot button if true
   // Field migration settings
   preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
   autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading

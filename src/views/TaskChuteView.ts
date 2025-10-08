@@ -386,31 +386,49 @@ export class TaskChuteView extends ItemView {
       },
     })
 
-    const robotButton = actionSection.createEl("button", {
-      cls: "robot-terminal-button",
-      text: "🤖",
-      attr: {
-        title: this.tv("header.openTerminal", "Open terminal"),
-        "aria-label": this.tv("header.openTerminal", "Open terminal"),
-      },
-    })
+    // Optional robot (Terminal) button
+    const showRobot = this.plugin.settings.aiRobotButtonEnabled === true
+    let robotButton: HTMLButtonElement | null = null
+    if (showRobot) {
+      robotButton = actionSection.createEl("button", {
+        cls: "robot-terminal-button",
+        text: "🤖",
+        attr: {
+          title: this.tv("header.openTerminal", "Open terminal"),
+          "aria-label": this.tv("header.openTerminal", "Open terminal"),
+        },
+      })
+    }
 
     // Event listeners
     addTaskButton.addEventListener("click", () => this.showAddTaskModal())
-    robotButton.addEventListener("click", async () => {
-      try {
-        await this.app.commands.executeCommandById(
-          "terminal:open-terminal.integrated.root",
-        )
-      } catch (error) {
-        const message = this.tv(
-          "header.terminalOpenFailed",
-          "Failed to open terminal: {message}",
-          { message: error instanceof Error ? error.message : String(error) },
-        )
-        new Notice(message)
-      }
-    })
+    if (robotButton) {
+      robotButton.addEventListener("click", async () => {
+        const commandId = "terminal:open-terminal.integrated.root"
+        const exists = !!(this.app as unknown as {
+          commands?: { commands?: Record<string, unknown> }
+        })?.commands?.commands?.[commandId]
+        if (!exists) {
+          new Notice(
+            this.tv(
+              "header.terminalPluginMissing",
+              "Terminal plugin not found. Please install it.",
+            ),
+          )
+          return
+        }
+        try {
+          await this.app.commands.executeCommandById(commandId)
+        } catch (error) {
+          const message = this.tv(
+            "header.terminalOpenFailed",
+            "Failed to open terminal: {message}",
+            { message: error instanceof Error ? error.message : String(error) },
+          )
+          new Notice(message)
+        }
+      })
+    }
   }
 
   // Utility: reload tasks and immediately restore running-state from persistence
@@ -1190,6 +1208,7 @@ export class TaskChuteView extends ItemView {
         cls: "taskchute-project-placeholder",
         attr: { title: this.tv("project.clickToSet", "Click to set project") },
       })
+      projectPlaceholder.textContent = `📁 ${this.tv('project.clickToSet', 'Set project')}`
 
       projectPlaceholder.addEventListener("click", async (e) => {
         e.stopPropagation()

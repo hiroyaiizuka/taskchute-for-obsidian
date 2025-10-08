@@ -90,6 +90,11 @@ export const en = {
       parentSegmentNotAllowed: "Paths cannot include '..'",
       invalidCharacters: "Paths cannot contain special characters",
     },
+    features: {
+      heading: "External tools",
+      robotButton: "Show Terminal button",
+      robotButtonDesc: "Enable AI integration via Terminal (requires Terminal plugin).",
+    },
   },
   commands: {
     openView: "Open TaskChute",
@@ -119,6 +124,7 @@ export const en = {
       addTask: "Add new task",
       openTerminal: "Open terminal",
       terminalOpenFailed: "Failed to open terminal: {message}",
+      terminalPluginMissing: "Terminal plugin not found. Please install it.",
     },
     navigation: {
       routine: "Routine",
@@ -213,7 +219,7 @@ export const en = {
     tooltips: {
       dragToMove: "Drag to move",
       reopenProject: "Open project note",
-      clickToSetProject: "Click to set project",
+      clickToSetProject: "Set project",
       reorganizeIdle: "Reorganize idle tasks",
       removeProject: "Remove project",
       completedTask: "Completed task",
@@ -233,7 +239,7 @@ export const en = {
       none: "No project",
       tooltipAssigned: "Project: {title}",
       openNote: "Open project note",
-      clickToSet: "Click to set project",
+      clickToSet: "Set project",
       linked: 'Linked "{title}" to {project}',
       unlinked: 'Removed project link from "{title}"',
       fileMissing: 'Task file "{title}.md" not found',

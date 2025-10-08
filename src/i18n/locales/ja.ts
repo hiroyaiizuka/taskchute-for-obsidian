@@ -90,6 +90,11 @@ export const ja = {
       parentSegmentNotAllowed: "パスに'..'を含めることはできません",
       invalidCharacters: "パスに特殊文字を含めることはできません",
     },
+    features: {
+      heading: "外部ツール連携",
+      robotButton: "Terminalボタンを表示",
+      robotButtonDesc: "Terminalから、AI連携が可能となります（Terminal プラグインが必要）。",
+    },
   },
   commands: {
     openView: "TaskChuteを開く",
@@ -119,6 +124,7 @@ export const ja = {
       addTask: "新しいタスクを追加",
       openTerminal: "ターミナルを開く",
       terminalOpenFailed: "ターミナルを開けませんでした: {message}",
+      terminalPluginMissing: "Terminal プラグインが見つかりません。インストールしてください。",
     },
     navigation: {
       routine: "ルーチン",
@@ -214,7 +220,7 @@ export const ja = {
     tooltips: {
       dragToMove: "ドラッグして移動",
       reopenProject: "プロジェクトノートを開く",
-      clickToSetProject: "クリックしてプロジェクトを設定",
+      clickToSetProject: "プロジェクトを設定",
       reorganizeIdle: "未実行タスクを現在の時間帯に整理",
       removeProject: "プロジェクトを外す",
       completedTask: "完了済みタスク",
@@ -234,7 +240,7 @@ export const ja = {
       none: "プロジェクトなし",
       tooltipAssigned: "プロジェクト: {title}",
       openNote: "プロジェクトノートを開く",
-      clickToSet: "クリックしてプロジェクトを設定",
+      clickToSet: "プロジェクトを設定",
       linked: "「{title}」を{project}に関連付けました",
       unlinked: "「{title}」のプロジェクト関連付けを解除しました",
       fileMissing: "タスクファイル「{title}.md」が見つかりません",
