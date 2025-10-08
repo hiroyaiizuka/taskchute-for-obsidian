@@ -30,6 +30,51 @@ export async function prepareSettings(
     settings.useOrderBasedSort = true
   if (!settings.languageOverride) settings.languageOverride = "auto"
 
+  // Lightweight migration from legacy individual paths -> new base model
+  if (!settings.locationMode) {
+    try {
+      const legacy = loaded as Record<string, unknown>
+      const getStr = (key: string) => (typeof legacy[key] === 'string' ? (legacy[key] as string) : '')
+      const task = getStr('taskFolderPath')
+      const log = getStr('logDataPath')
+      const review = getStr('reviewDataPath')
+
+      const extractBase = (p: string, suffix: string) => {
+        const idx = p.lastIndexOf('/' + suffix)
+        if (idx < 0) return null
+        const group = p.substring(0, idx) // .../TaskChute
+        const gidx = group.lastIndexOf('/TaskChute')
+        if (gidx < 0) return null
+        const base = group.substring(0, gidx) // may be ''
+        return base
+      }
+
+      const bases = [
+        extractBase(task, 'Task'),
+        extractBase(log, 'Log'),
+        extractBase(review, 'Review'),
+      ].filter((b) => b !== null) as string[]
+
+      if (bases.length > 0) {
+        // If all extracted bases are equal
+        const allSame = bases.every((b) => b === bases[0])
+        const base = allSame ? bases[0] : bases[0]
+        if (!base) {
+          settings.locationMode = 'vaultRoot'
+        } else {
+          settings.locationMode = 'specifiedFolder'
+          settings.specifiedFolder = base
+        }
+      }
+
+      // Project folder migration
+      const project = getStr('projectFolderPath')
+      if (project) settings.projectsFolder = project
+    } catch {
+      // best-effort migration only
+    }
+  }
+
   return settings
 }
 

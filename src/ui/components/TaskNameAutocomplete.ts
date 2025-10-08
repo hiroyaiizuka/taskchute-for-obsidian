@@ -7,7 +7,7 @@ interface Plugin {
   app: App;
   pathManager: {
     getTaskFolderPath(): string;
-    getProjectFolderPath(): string;
+    getProjectFolderPath(): string | null;
   };
 }
 
@@ -140,9 +140,10 @@ export class TaskNameAutocomplete {
 
   private async loadProjectNames(): Promise<void> {
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
+    if (!projectFolderPath) { this.projectNames = []; return; }
     const projectFolder = this.plugin.app.vault.getAbstractFileByPath(projectFolderPath);
     
-    if (!(projectFolder instanceof TFolder)) return;
+    if (!(projectFolder instanceof TFolder)) { this.projectNames = []; return; }
     
     const projectNames = new Set<string>();
     
@@ -179,7 +180,7 @@ export class TaskNameAutocomplete {
     const fileCreated = this.plugin.app.vault.on('create', (file: TAbstractFile) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
-      } else if (file instanceof TFile && file.path.startsWith(projectFolderPath)) {
+      } else if (projectFolderPath && file instanceof TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
@@ -187,14 +188,14 @@ export class TaskNameAutocomplete {
     const fileDeleted = this.plugin.app.vault.on('delete', (file: TAbstractFile) => {
       if (file instanceof TFile && file.path.startsWith(taskFolderPath)) {
         this.loadTaskNames();
-      } else if (file instanceof TFile && file.path.startsWith(projectFolderPath)) {
+      } else if (projectFolderPath && file instanceof TFile && file.path.startsWith(projectFolderPath)) {
         this.loadProjectNames();
       }
     });
 
     const fileRenamed = this.plugin.app.vault.on('rename', (file: TAbstractFile) => {
       if (file instanceof TFile && 
-          (file.path.startsWith(taskFolderPath) || file.path.startsWith(projectFolderPath))) {
+          (file.path.startsWith(taskFolderPath) || (projectFolderPath ? file.path.startsWith(projectFolderPath) : false))) {
         this.loadTaskNames();
         this.loadProjectNames();
       }

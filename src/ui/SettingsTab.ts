@@ -1,9 +1,6 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { PathManager } from '../managers/PathManager';
 import { TaskChuteSettings, PathManagerLike } from '../types';
-import { LanguageOverride, setLocaleOverride, t } from '../i18n';
-
-type PathSettingKey = 'taskFolderPath' | 'projectFolderPath' | 'logDataPath' | 'reviewDataPath';
+import { t } from '../i18n';
 
 interface PluginWithSettings extends Plugin {
   app: App;
@@ -24,148 +21,266 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    this.renderLanguageSection(containerEl);
-    this.renderPathSection(containerEl);
+    this.renderStorageSection(containerEl);
+    this.renderProjectCandidateSection(containerEl);
   }
 
-  private renderLanguageSection(container: HTMLElement): void {
+  private renderStorageSection(container: HTMLElement): void {
     new Setting(container)
-      .setName(t('settings.language.name', 'Language'))
-      .setDesc(t('settings.language.description', 'Override the plugin language'))
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption('auto', t('settings.language.options.auto', 'Follow Obsidian'))
-          .addOption('en', t('settings.language.options.en', 'English'))
-          .addOption('ja', t('settings.language.options.ja', 'Japanese'))
-          .setValue(this.plugin.settings.languageOverride ?? 'auto')
-          .onChange(async (value) => {
-            const override = this.normalizeLanguageOverride(value);
-            this.plugin.settings.languageOverride = override;
+      .setName(t('settings.heading', 'Storage'))
+      .setHeading();
+
+    // Base location dropdown
+    new Setting(container)
+      .setName(
+        t(
+          'settings.storage.baseLocationName',
+          'Default storage location',
+        ),
+      )
+      .setDesc(
+        t(
+          'settings.storage.baseLocationDesc',
+          'Save Task/Log/Review under the selected base.',
+        ),
+      )
+      .addDropdown((dd) => {
+        const current = this.plugin.settings.locationMode ?? 'vaultRoot';
+        dd.addOption(
+          'vaultRoot',
+          t(
+            'settings.storage.baseOptions.vaultRoot',
+            'Vault root (TaskChute/...)',
+          ),
+        );
+        dd.addOption(
+          'specifiedFolder',
+          t(
+            'settings.storage.baseOptions.specifiedFolder',
+            'Below specified folder',
+          ),
+        );
+        dd.setValue(current)
+          .onChange(async (val) => {
+            const mode = val === 'specifiedFolder' ? 'specifiedFolder' : 'vaultRoot';
+            this.plugin.settings.locationMode = mode;
             await this.plugin.saveSettings();
-            setLocaleOverride(override);
             this.display();
           });
       });
-  }
 
-  private normalizeLanguageOverride(value: string): LanguageOverride {
-    if (value === 'auto' || value === 'en' || value === 'ja') {
-      return value;
+    // Specified folder (render only when mode === specifiedFolder)
+    const isSpecified = (this.plugin.settings.locationMode ?? 'vaultRoot') === 'specifiedFolder';
+    if (isSpecified) {
+      new Setting(container)
+        .setName(
+          t('settings.storage.specifiedFolderName', 'Specified folder'),
+        )
+        .setDesc(
+          t(
+            'settings.storage.specifiedFolderDesc',
+            'TaskChute/... will be created under this folder.',
+          ),
+        )
+        .addText((text) => {
+          const value = this.plugin.settings.specifiedFolder ?? '';
+          text
+            .setValue(value)
+            .onChange(async (raw) => {
+              const v = raw.trim();
+              const validation = this.plugin.pathManager.validatePath(v);
+              if (validation.valid || v === '') {
+                this.plugin.settings.specifiedFolder = v || undefined;
+                await this.plugin.saveSettings();
+              } else {
+                new Notice(
+                  validation.error ||
+                    t('settings.validation.invalidPath', 'Invalid path'),
+                );
+                text.setValue(this.plugin.settings.specifiedFolder ?? '');
+              }
+            });
+          text.inputEl.addEventListener('blur', async () => {
+            const base = this.plugin.settings.specifiedFolder?.trim();
+            if (!base) return;
+            try {
+              await this.plugin.pathManager.ensureFolderExists(base);
+            } catch {}
+          });
+        });
     }
-    return 'auto';
-  }
 
-  private renderPathSection(container: HTMLElement): void {
-    new Setting(container).setName(t('settings.heading', 'Paths')).setHeading();
-
-    this.createPathSetting(
-      container,
-      'taskFolderPath',
-      PathManager.DEFAULT_PATHS.taskFolder,
-      () => this.plugin.pathManager.getTaskFolderPath(),
-    );
-
-    this.createPathSetting(
-      container,
-      'projectFolderPath',
-      PathManager.DEFAULT_PATHS.projectFolder,
-      () => this.plugin.pathManager.getProjectFolderPath(),
-    );
-
-    this.createPathSetting(
-      container,
-      'logDataPath',
-      PathManager.DEFAULT_PATHS.logData,
-      () => this.plugin.pathManager.getLogDataPath(),
-    );
-
-    this.createPathSetting(
-      container,
-      'reviewDataPath',
-      PathManager.DEFAULT_PATHS.reviewData,
-      () => this.plugin.pathManager.getReviewDataPath(),
-    );
-  }
-
-  private createPathSetting(
-    container: HTMLElement,
-    settingKey: PathSettingKey,
-    placeholder: string,
-    ensurePath: () => string,
-  ): void {
+    // Projects folder (independent; can be unset)
     new Setting(container)
-      .setName(this.getPathName(settingKey))
-      .setDesc(this.getPathDescription(settingKey))
+      .setName(
+        t('settings.storage.projectsFolderName', 'Project files location'),
+      )
+      .setDesc(
+        t(
+          'settings.storage.projectsFolderDesc',
+          'Folder for project notes (optional).',
+        ),
+      )
       .addText((text) => {
-        const currentValue = this.plugin.settings[settingKey] ?? '';
+        const value = this.plugin.settings.projectsFolder ?? '';
         text
-          .setPlaceholder(placeholder)
-          .setValue(currentValue)
+          .setPlaceholder('')
+          .setValue(value)
           .onChange(async (raw) => {
-            const value = raw.trim();
-            const validation = this.plugin.pathManager.validatePath(value);
-            if (validation.valid || value === '') {
-              this.plugin.settings[settingKey] = value;
+            const v = raw.trim();
+            const validation = this.plugin.pathManager.validatePath(v);
+            if (validation.valid || v === '') {
+              this.plugin.settings.projectsFolder = v || null;
               await this.plugin.saveSettings();
             } else {
               new Notice(
                 validation.error ||
                   t('settings.validation.invalidPath', 'Invalid path'),
               );
-              text.setValue(this.plugin.settings[settingKey] ?? '');
+              text.setValue(this.plugin.settings.projectsFolder ?? '');
             }
           });
-
         text.inputEl.addEventListener('blur', async () => {
-          try {
-            await this.plugin.pathManager.ensureFolderExists(ensurePath());
-          } catch {
-            // Ensure is best-effort; suppress errors to avoid noisy UX.
-          }
+          const v = this.plugin.settings.projectsFolder?.trim();
+          if (!v) return;
+          try { await this.plugin.pathManager.ensureFolderExists(v); } catch {}
         });
+      })
+      .addExtraButton((btn) => {
+        btn.setIcon('x')
+          .setTooltip(t('common.clear', 'Clear'))
+          .onClick(async () => {
+            this.plugin.settings.projectsFolder = null;
+            await this.plugin.saveSettings();
+            this.display();
+          });
       });
   }
 
-  private getPathName(settingKey: PathSettingKey): string {
-    switch (settingKey) {
-      case 'taskFolderPath':
-        return t('settings.taskFolder.name', 'Task folder path');
-      case 'projectFolderPath':
-        return t('settings.projectFolder.name', 'Project folder path');
-      case 'logDataPath':
-        return t('settings.logDataFolder.name', 'Log data path');
-      case 'reviewDataPath':
-        return t('settings.reviewDataFolder.name', 'Review data path');
-      default:
-        return '';
+  private renderProjectCandidateSection(container: HTMLElement): void {
+    // Section heading
+    new Setting(container)
+      .setName(t('settings.projectCandidates.heading', 'Project candidates'))
+      .setHeading();
+
+    // Enable/disable toggle
+    new Setting(container)
+      .setName(t('settings.projectCandidates.enable', 'Use filters'))
+      .setDesc(t('settings.projectCandidates.enableDesc', 'Filter project candidates by prefixes, tags, etc.'))
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.projectsFilterEnabled ?? false).onChange(async (v) => {
+          this.plugin.settings.projectsFilterEnabled = v
+          await this.plugin.saveSettings()
+          this.display()
+        })
+      })
+
+    if (!(this.plugin.settings.projectsFilterEnabled ?? false)) {
+      return
     }
+
+    const s = this.plugin.settings.projectsFilter ?? {};
+
+    // Match mode
+    new Setting(container)
+      .setName(t('settings.projectCandidates.matchMode', 'Match mode'))
+      .setDesc(t('settings.projectCandidates.matchModeDesc', 'How to combine rules'))
+      .addDropdown((dd) => {
+        const cur = s.matchMode ?? 'OR';
+        dd.addOption('OR', t('settings.projectCandidates.or', 'Match any (OR)'))
+          .addOption('AND', t('settings.projectCandidates.and', 'Match all (AND)'))
+          .setValue(cur)
+          .onChange(async (val) => {
+            this.ensureProjectsFilter();
+            this.plugin.settings.projectsFilter!.matchMode = val === 'AND' ? 'AND' : 'OR';
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // Prefixes
+    new Setting(container)
+      .setName(t('settings.projectCandidates.prefixes', 'Filename prefixes'))
+      .setDesc(t('settings.projectCandidates.prefixesDesc', 'Comma-separated. Example: Project - '))
+      .addText((text) => {
+        const cur = (s.prefixes ?? []).join(', ');
+        text
+          .setPlaceholder('Project - ')
+          .setValue(cur)
+          .onChange(async (raw) => {
+            this.ensureProjectsFilter();
+            const arr = raw
+              .split(',')
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0);
+            this.plugin.settings.projectsFilter!.prefixes = arr;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // Tags
+    new Setting(container)
+      .setName(t('settings.projectCandidates.tags', 'Tags'))
+      .setDesc(t('settings.projectCandidates.tagsDesc', 'Comma-separated without #. Example: project'))
+      .addText((text) => {
+        const cur = (s.tags ?? []).join(', ');
+        text
+          .setPlaceholder('project')
+          .setValue(cur)
+          .onChange(async (raw) => {
+            this.ensureProjectsFilter();
+            const arr = raw
+              .split(',')
+              .map((x) => x.trim().replace(/^#/, ''))
+              .filter((x) => x.length > 0);
+            this.plugin.settings.projectsFilter!.tags = arr;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // Include subfolders
+    new Setting(container)
+      .setName(t('settings.projectCandidates.includeSubfolders', 'Include subfolders'))
+      .addToggle((tg) => {
+        tg.setValue(s.includeSubfolders ?? true).onChange(async (v) => {
+          this.ensureProjectsFilter();
+          this.plugin.settings.projectsFilter!.includeSubfolders = v;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    // Limit
+    new Setting(container)
+      .setName(t('settings.projectCandidates.limit', 'Max candidates'))
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text
+          .setValue(String(s.limit ?? 50))
+          .onChange(async (raw) => {
+            this.ensureProjectsFilter();
+            const n = Math.max(1, Math.min(500, Number(raw) || 50));
+            this.plugin.settings.projectsFilter!.limit = n;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // (display rules removed per UX simplification)
+
+    // (advanced filters removed per UX simplification)
+
+    // (test button removed per UX simplification)
   }
 
-  private getPathDescription(settingKey: PathSettingKey): string {
-    switch (settingKey) {
-      case 'taskFolderPath':
-        return t(
-          'settings.taskFolder.description',
-          'Path to the folder where task files are stored',
-        );
-      case 'projectFolderPath':
-        return t(
-          'settings.projectFolder.description',
-          'Path to the folder where project files are stored',
-        );
-      case 'logDataPath':
-        return t(
-          'settings.logDataFolder.description',
-          'Path to the folder where execution logs are stored',
-        );
-      case 'reviewDataPath':
-        return t(
-          'settings.reviewDataFolder.description',
-          'Path to the folder where review data is stored',
-        );
-      default:
-        return '';
+  private ensureProjectsFilter(): void {
+    if (!this.plugin.settings.projectsFilter) {
+      this.plugin.settings.projectsFilter = {
+        prefixes: ['Project - '],
+        tags: ['project'],
+        includeSubfolders: true,
+        matchMode: 'OR',
+        trimPrefixesInUI: true,
+        transformName: false,
+        limit: 50,
+      };
     }
   }
-
 }

@@ -5,17 +5,41 @@ import type { PathManager } from "../managers/PathManager"
 // Re-export new typed fields
 export * from "./TaskFields"
 
+export type LocationMode = "vaultRoot" | "specifiedFolder";
+
 export interface TaskChuteSettings {
-  taskFolderPath: string
-  projectFolderPath: string
-  logDataPath: string
-  reviewDataPath: string
-  useOrderBasedSort: boolean
-  slotKeys: Record<string, string>
-  languageOverride: "auto" | "en" | "ja"
+  // New storage model (all optional for backward-compat)
+  locationMode?: LocationMode; // default: 'vaultRoot'
+  specifiedFolder?: string; // used when locationMode==='specifiedFolder'
+  projectsFolder?: string | null; // independent; can be unset
+  projectsFilterEnabled?: boolean; // default false; when true apply projectsFilter
+
+  // Project candidate filter settings
+  projectsFilter?: {
+    prefixes?: string[]; // default ['Project - ']
+    tags?: string[]; // default ['project']
+    includeSubfolders?: boolean; // default true
+    matchMode?: 'OR' | 'AND'; // default 'OR'
+    trimPrefixesInUI?: boolean; // default true
+    transformName?: boolean; // default false
+    limit?: number; // default 50
+    nameRegex?: string; // optional regex string
+    excludePathRegex?: string; // optional regex string applied to path
+  };
+
+  // Legacy (kept for migration/compat; UI should not expose)
+  taskFolderPath?: string;
+  projectFolderPath?: string;
+  logDataPath?: string;
+  reviewDataPath?: string;
+
+  // General
+  useOrderBasedSort: boolean;
+  slotKeys: Record<string, string>;
+  languageOverride?: "auto" | "en" | "ja";
   // Field migration settings
-  preferNewFieldFormat?: boolean // Use scheduled_time for new tasks
-  autoMigrateOnLoad?: boolean // Auto-migrate old fields when loading
+  preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
+  autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
@@ -153,7 +177,6 @@ export type PathManagerLike = Pick<
     | "ensureYearFolder"
     | "validatePath"
 >
-
 
 export interface DayStateServiceAPI {
   loadDay(date: Date): Promise<DayState>

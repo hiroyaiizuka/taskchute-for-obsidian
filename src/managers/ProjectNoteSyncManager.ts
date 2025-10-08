@@ -24,6 +24,7 @@ export class ProjectNoteSyncManager {
     }
 
     const projectFolderPath = this.pathManager.getProjectFolderPath()
+    if (!projectFolderPath) return null
     const projectPath = `${projectFolderPath}/${inst.task.projectTitle}.md`
     const file = this.app.vault.getAbstractFileByPath(projectPath)
     return file ? projectPath : null

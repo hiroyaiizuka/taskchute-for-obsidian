@@ -9,38 +9,52 @@ export class PathManager {
     this.plugin = plugin;
   }
 
+  // Back-compat: retained for legacy uses; not directly read from settings anymore
   static DEFAULT_PATHS = {
-    taskFolder: "TaskChute/Task",
-    projectFolder: "TaskChute/Project",
-    logData: "TaskChute/Log",
-    reviewData: "TaskChute/Review",
+    taskFolder: 'TaskChute/Task',
+    projectFolder: 'TaskChute/Project',
+    logData: 'TaskChute/Log',
+    reviewData: 'TaskChute/Review',
   };
 
-  getTaskFolderPath(): string {
-    const path =
-      this.plugin.settings.taskFolderPath ||
-      PathManager.DEFAULT_PATHS.taskFolder;
-    return normalizePath(path);
+  static GROUP = 'TaskChute' as const;
+  static SUBDIR = { task: 'Task', log: 'Log', review: 'Review' } as const;
+
+  private resolveBase(): string {
+    const mode = this.plugin.settings.locationMode ?? 'vaultRoot';
+    if (mode === 'specifiedFolder') {
+      const specified = (this.plugin.settings.specifiedFolder || '').trim();
+      if (!specified) return '';
+      return normalizePath(specified);
+    }
+    return '';
   }
 
-  getProjectFolderPath(): string {
-    const path =
-      this.plugin.settings.projectFolderPath ||
-      PathManager.DEFAULT_PATHS.projectFolder;
-    return normalizePath(path);
+  private join(...parts: string[]): string {
+    const filtered = parts.filter((p) => !!p && p.trim().length > 0);
+    return normalizePath(filtered.join('/'));
+  }
+
+  getTaskFolderPath(): string {
+    // New model: <base>/TaskChute/Task
+    const base = this.resolveBase();
+    return this.join(base, PathManager.GROUP, PathManager.SUBDIR.task);
+  }
+
+  getProjectFolderPath(): string | null {
+    const raw = this.plugin.settings.projectsFolder;
+    if (!raw) return null;
+    return normalizePath(raw);
   }
 
   getLogDataPath(): string {
-    const path =
-      this.plugin.settings.logDataPath || PathManager.DEFAULT_PATHS.logData;
-    return normalizePath(path);
+    const base = this.resolveBase();
+    return this.join(base, PathManager.GROUP, PathManager.SUBDIR.log);
   }
 
   getReviewDataPath(): string {
-    const path =
-      this.plugin.settings.reviewDataPath ||
-      PathManager.DEFAULT_PATHS.reviewData;
-    return normalizePath(path);
+    const base = this.resolveBase();
+    return this.join(base, PathManager.GROUP, PathManager.SUBDIR.review);
   }
 
   getLogYearPath(year: number | string): string {

@@ -32,7 +32,7 @@ export async function ensureRequiredFolders(pathManager: PathManager): Promise<v
   const targets: Array<{
     labelKey: string;
     fallback: string;
-    getter: () => string;
+    getter: () => string | null;
   }> = [
     {
       labelKey: "paths.taskFolder",
@@ -60,6 +60,7 @@ export async function ensureRequiredFolders(pathManager: PathManager): Promise<v
     const label = t(target.labelKey, target.fallback);
     try {
       const path = target.getter();
+      if (!path) continue; // Skip when projectFolder is unset
       await pathManager.ensureFolderExists(path);
     } catch {
       try {
