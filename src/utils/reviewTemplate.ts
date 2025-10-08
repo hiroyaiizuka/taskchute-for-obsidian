@@ -37,7 +37,8 @@ function buildJapaneseTemplate(logDataPath: string): string {
   lines.push('')
   lines.push('const currentDate = dateMatch[0] // YYYY-MM-DD')
   lines.push("const [year, month] = currentDate.split('-')")
-  lines.push('const monthString = year + '-' + month')
+  // Use a template literal to avoid quote-escaping bugs in the generated script
+  lines.push("const monthString = `${year}-${month}`")
   lines.push('')
   lines.push('// ログファイルパス')
   lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'")
@@ -111,7 +112,8 @@ function buildJapaneseTemplate(logDataPath: string): string {
   lines.push('')
   lines.push('const currentDate = dateMatch[0] // YYYY-MM-DD')
   lines.push("const [year, month] = currentDate.split('-')")
-  lines.push('const monthString = year + '-' + month')
+  // Use a template literal to avoid quote-escaping bugs in the generated script
+  lines.push("const monthString = `${year}-${month}`")
   lines.push('')
   lines.push('// ログファイルパス')
   lines.push("const logPath = LOG_DATA_PATH + '/' + monthString + '-tasks.json'")
