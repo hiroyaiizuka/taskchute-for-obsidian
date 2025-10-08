@@ -86,6 +86,7 @@ export const ja = {
       review: "レビュー",
       log: "ログ",
       project: "プロジェクト",
+      settings: "設定",
     },
     date: {
       today: "今日",

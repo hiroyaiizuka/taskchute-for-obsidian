@@ -238,7 +238,7 @@ export interface HeatmapDayDetail {
 }
 
 export interface NavigationState {
-  selectedSection: "routine" | "review" | "log" | "project" | null
+  selectedSection: "routine" | "review" | "log" | "settings" | null
   isOpen: boolean
 }
 

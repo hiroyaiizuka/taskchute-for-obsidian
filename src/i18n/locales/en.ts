@@ -86,6 +86,7 @@ export const en = {
       review: "Review",
       log: "Log",
       project: "Project",
+      settings: "Settings",
     },
     date: {
       today: "Today",

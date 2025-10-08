@@ -40,7 +40,7 @@ import { getCurrentLocale, t } from "../i18n"
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
 class NavigationStateManager implements NavigationState {
-  selectedSection: "routine" | "review" | "log" | "project" | null = null
+  selectedSection: "routine" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
 
@@ -458,7 +458,7 @@ export class TaskChuteView extends ItemView {
       { key: "routine", label: this.tv("navigation.routine", "Routine"), icon: "🔄" },
       { key: "review", label: this.tv("navigation.review", "Review"), icon: "📋" },
       { key: "log", label: this.tv("navigation.log", "Log"), icon: "📊" },
-      { key: "project", label: this.tv("navigation.project", "Project"), icon: "📁" },
+      { key: "settings", label: this.tv("navigation.settings", "Settings"), icon: "⚙️" },
     ]
 
     navigationItems.forEach((item) => {
@@ -4091,7 +4091,7 @@ export class TaskChuteView extends ItemView {
   // ===========================================
 
   private async handleNavigationItemClick(
-    section: "routine" | "review" | "log" | "project",
+    section: "routine" | "review" | "log" | "settings",
   ): Promise<void> {
     if (section === "log") {
       this.openLogModal()
@@ -4111,6 +4111,25 @@ export class TaskChuteView extends ItemView {
         // フォールバック: 既存のリスト表示
         await this.renderRoutineList()
         this.openNavigation()
+      }
+      this.closeNavigation()
+      return
+    }
+    if (section === "settings") {
+      try {
+        // Open this plugin's settings tab
+        const settingApi = this.app.setting
+        if (settingApi && this.plugin?.manifest?.id) {
+          settingApi.open()
+          settingApi.openTabById(this.plugin.manifest.id)
+        } else {
+          throw new Error("Settings API unavailable")
+        }
+      } catch (error) {
+        console.warn("[TaskChute] Failed to open settings from navigation", error)
+        new Notice(
+          t("settings.openFailed", "Unable to open TaskChute settings"),
+        )
       }
       this.closeNavigation()
       return
