@@ -40,7 +40,7 @@ import { getCurrentLocale, t } from "../i18n"
 // VIEW_TYPE_TASKCHUTE is defined in main.ts
 
 class NavigationStateManager implements NavigationState {
-  selectedSection: "routine" | "review" | "log" | "project" | null = null
+  selectedSection: "routine" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
 
@@ -338,8 +338,7 @@ export class TaskChuteView extends ItemView {
         "aria-label": this.tv("header.openCalendar", "Open calendar"),
       },
     })
-    calendarBtn.style.cssText =
-      "font-size:18px;padding:0 6px;background:none;border:none;cursor:pointer;"
+    // Styling handled via styles.css (.calendar-btn)
 
     const dateLabel = navContainer.createEl("span", { cls: "date-nav-label" })
 
@@ -458,7 +457,7 @@ export class TaskChuteView extends ItemView {
       { key: "routine", label: this.tv("navigation.routine", "Routine"), icon: "🔄" },
       { key: "review", label: this.tv("navigation.review", "Review"), icon: "📋" },
       { key: "log", label: this.tv("navigation.log", "Log"), icon: "📊" },
-      { key: "project", label: this.tv("navigation.project", "Project"), icon: "📁" },
+      { key: "settings", label: this.tv("navigation.settings", "Settings"), icon: "⚙️" },
     ]
 
     navigationItems.forEach((item) => {
@@ -4091,7 +4090,7 @@ export class TaskChuteView extends ItemView {
   // ===========================================
 
   private async handleNavigationItemClick(
-    section: "routine" | "review" | "log" | "project",
+    section: "routine" | "review" | "log" | "settings",
   ): Promise<void> {
     if (section === "log") {
       this.openLogModal()
@@ -4111,6 +4110,25 @@ export class TaskChuteView extends ItemView {
         // フォールバック: 既存のリスト表示
         await this.renderRoutineList()
         this.openNavigation()
+      }
+      this.closeNavigation()
+      return
+    }
+    if (section === "settings") {
+      try {
+        // Open this plugin's settings tab
+        const settingApi = this.app.setting
+        if (settingApi && this.plugin?.manifest?.id) {
+          settingApi.open()
+          settingApi.openTabById(this.plugin.manifest.id)
+        } else {
+          throw new Error("Settings API unavailable")
+        }
+      } catch (error) {
+        console.warn("[TaskChute] Failed to open settings from navigation", error)
+        new Notice(
+          t("settings.openFailed", "Unable to open TaskChute settings"),
+        )
       }
       this.closeNavigation()
       return
@@ -5360,12 +5378,10 @@ export class TaskChuteView extends ItemView {
   private async getAvailableProjects(): Promise<string[]> {
     try {
       const projectFolderPath = this.plugin.pathManager.getProjectFolderPath()
-      const projectFolder =
-        this.app.vault.getAbstractFileByPath(projectFolderPath)
+      if (!projectFolderPath) return []
+      const projectFolder = this.app.vault.getAbstractFileByPath(projectFolderPath)
 
-      if (!projectFolder || !("children" in projectFolder)) {
-        return []
-      }
+      if (!projectFolder || !("children" in projectFolder)) return []
 
       const projects: string[] = []
       for (const file of projectFolder.children) {
@@ -5426,7 +5442,7 @@ export class TaskChuteView extends ItemView {
       inst.task.project = projectName || undefined
       // Compute path using settings (PathManager)
       const projectFolderPath = this.plugin.pathManager.getProjectFolderPath()
-      inst.task.projectPath = projectName
+      inst.task.projectPath = projectName && projectFolderPath
         ? `${projectFolderPath}/${projectName}.md`
         : undefined
       inst.task.projectTitle = projectName || undefined
@@ -5944,6 +5960,25 @@ export class TaskChuteView extends ItemView {
 
   private async showUnifiedProjectModal(inst: TaskInstance): Promise<void> {
     try {
+      // Guard: projects folder must be configured
+      const projectsFolder = this.plugin.pathManager.getProjectFolderPath()
+      if (!projectsFolder) {
+        new Notice(
+          this.tv(
+            'notices.projectFolderUnset',
+            'Project files location is not set. Open settings to choose a folder.',
+          ),
+        )
+        const settingApi = this.app.setting
+        try {
+          if (settingApi && this.plugin?.manifest?.id) {
+            settingApi.open()
+            settingApi.openTabById(this.plugin.manifest.id)
+          }
+        } catch {}
+        return
+      }
+
       const displayTitle = this.getInstanceDisplayTitle(inst)
       // Create modal overlay
       const modal = document.createElement("div")
@@ -6027,10 +6062,29 @@ export class TaskChuteView extends ItemView {
         }
 
         // Add project list
+        const pf = this.plugin.settings.projectsFilter ?? {}
+        const prefixes = pf.prefixes ?? ['Project - ']
+        const trim = pf.trimPrefixesInUI ?? true
+        const transform = pf.transformName ?? false
+
+        const toDisplay = (name: string) => {
+          let n = name
+          if (trim) {
+            for (const p of prefixes) {
+              if (p && n.startsWith(p)) {
+                n = n.substring(p.length)
+                break
+              }
+            }
+          }
+          if (transform) n = n.replace(/[-_]+/g, ' ')
+          return n
+        }
+
         projectFiles.forEach((project) => {
           const option = projectSelect.createEl("option", {
             value: project.path,
-            text: project.basename,
+            text: toDisplay(project.basename),
           })
           // Select current project if set
           if (inst.task.projectPath === project.path) {
@@ -6104,33 +6158,85 @@ export class TaskChuteView extends ItemView {
 
   private async getProjectFiles(): Promise<TFile[]> {
     const files = this.app.vault.getMarkdownFiles()
-    const projectFiles: TFile[] = []
+    const result: TFile[] = []
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath()
+    if (!projectFolderPath) return result
 
-    for (const file of files) {
-      // Get files that start with "Project - " in the project folder
-      if (
-        file.path.startsWith(projectFolderPath + "/") &&
-        file.basename.startsWith("Project - ")
-      ) {
-        projectFiles.push(file)
-        continue
+    const filtering = this.plugin.settings.projectsFilterEnabled ?? false
+    const pf = this.plugin.settings.projectsFilter ?? {}
+    const prefixes = pf.prefixes ?? []
+    const tags = (pf.tags ?? []).filter(Boolean)
+    const includeSub = pf.includeSubfolders ?? true
+    const matchMode = pf.matchMode ?? 'OR'
+    const limit = Math.max(1, Math.min(500, pf.limit ?? 50))
+    let nameRegex: RegExp | null = null
+    let excludePathRegex: RegExp | null = null
+    try { if (pf.nameRegex) nameRegex = new RegExp(pf.nameRegex) } catch {}
+    try { if (pf.excludePathRegex) excludePathRegex = new RegExp(pf.excludePathRegex) } catch {}
+
+    const inScope = files.filter((f) => {
+      if (excludePathRegex && excludePathRegex.test(f.path)) return false
+      if (!f.path.startsWith(projectFolderPath + '/')) return false
+      if (!includeSub) {
+        const rel = f.path.substring(projectFolderPath.length + 1)
+        if (rel.includes('/')) return false
       }
+      return true
+    })
 
-      // For compatibility, also search for files starting with "Project - " in other folders
-      if (file.basename.startsWith("Project - ")) {
-        projectFiles.push(file)
-        continue
+    if (!filtering) {
+      // No filters: return all in-scope up to limit
+      for (const f of inScope) {
+        result.push(f)
+        if (result.length >= limit) break
       }
+      return result
+    }
 
-      // Also check for #project tag
-      const content = await this.app.vault.read(file)
-      if (content.includes("#project")) {
-        projectFiles.push(file)
+    const hasNameRules = (prefixes && prefixes.length > 0) || !!nameRegex
+    const hasContentRules = (tags && tags.length > 0)
+
+    // If filtering is enabled but no rules are provided, treat as no-op
+    if (!hasNameRules && !hasContentRules && !nameRegex && !excludePathRegex) {
+      for (const f of inScope) {
+        result.push(f)
+        if (result.length >= limit) break
+      }
+      return result
+    }
+
+    const testName = (file: TFile) => {
+      const byPrefix = prefixes.some((p) => p && file.basename.startsWith(p))
+      const byRegex = nameRegex ? nameRegex.test(file.basename) : false
+      return matchMode === 'AND' ? (byPrefix && (nameRegex ? byRegex : true)) : (byPrefix || byRegex)
+    }
+
+    const testTags = (file: TFile) => {
+      if (!hasContentRules) return matchMode === 'AND' ? true : false
+      const cache = this.app.metadataCache.getFileCache(file)
+      const tagSet = new Set<string>()
+      if (cache?.tags) {
+        for (const tag of cache.tags) {
+          const val = (tag.tag || '').replace(/^#/, '')
+          if (val) tagSet.add(val)
+        }
+      }
+      const pass = tags.some((t) => tagSet.has(t))
+      return pass
+    }
+
+    for (const f of inScope) {
+      let okName = hasNameRules ? testName(f) : (matchMode === 'AND' ? true : false)
+      let okContent = hasContentRules ? testTags(f) : (matchMode === 'AND' ? true : false)
+
+      const pass = matchMode === 'AND' ? okName && okContent : okName || okContent
+      if (pass) {
+        result.push(f)
+        if (result.length >= limit) break
       }
     }
 
-    return projectFiles
+    return result
   }
 
   private async setProjectForTask(

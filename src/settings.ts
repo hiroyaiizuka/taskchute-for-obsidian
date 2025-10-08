@@ -1,11 +1,23 @@
 import { TaskChuteSettings } from './types';
-import { PathManager } from './managers/PathManager';
 
 export const DEFAULT_SETTINGS: TaskChuteSettings = {
-  taskFolderPath: PathManager.DEFAULT_PATHS.taskFolder,
-  projectFolderPath: PathManager.DEFAULT_PATHS.projectFolder,
-  logDataPath: PathManager.DEFAULT_PATHS.logData,
-  reviewDataPath: PathManager.DEFAULT_PATHS.reviewData,
+  // New storage model defaults
+  locationMode: 'vaultRoot',
+  specifiedFolder: undefined,
+  projectsFolder: null, // unset by default
+  projectsFilterEnabled: false,
+  projectsFilter: {
+    prefixes: [],
+    tags: [],
+    includeSubfolders: true,
+    matchMode: 'OR',
+    trimPrefixesInUI: true,
+    transformName: false,
+    limit: 50,
+    nameRegex: undefined,
+    excludePathRegex: undefined,
+  },
+
   useOrderBasedSort: true,
   slotKeys: {},
   languageOverride: 'auto',
