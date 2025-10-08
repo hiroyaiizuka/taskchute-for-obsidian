@@ -1,8 +1,11 @@
 import { PathManager } from '../../src/managers/PathManager'
 import type { TaskChuteSettings } from '../../src/types'
+import type { Plugin } from 'obsidian'
 
 function makePathManager(settings: Partial<TaskChuteSettings>) {
-  const plugin = { settings: settings as TaskChuteSettings } as unknown as any
+  const plugin = { settings: settings as TaskChuteSettings } as unknown as Plugin & {
+    settings: TaskChuteSettings
+  }
   return new PathManager(plugin)
 }
 
@@ -30,4 +33,3 @@ describe('PathManager storage path resolution', () => {
     expect(pm2.getProjectFolderPath()).toBe('06_Projects')
   })
 })
-

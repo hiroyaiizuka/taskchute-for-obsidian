@@ -1,4 +1,4 @@
-import { TFile } from 'obsidian'
+import { TFile, type WorkspaceLeaf } from 'obsidian'
 import type { TaskChuteSettings, TaskChutePluginLike } from '../../src/types'
 import { TaskChuteView } from '../../src/views/TaskChuteView'
 
@@ -8,6 +8,18 @@ function createTFile(path: string) {
   f.basename = path.replace(/^.*\//, '').replace(/\.md$/, '')
   Object.setPrototypeOf(f, TFile.prototype)
   return f
+}
+
+type AppStub = {
+  vault: {
+    getMarkdownFiles: () => TFile[]
+    getAbstractFileByPath: (path: string) => unknown
+  }
+  metadataCache: {
+    getFileCache: (file: TFile) => unknown
+  }
+  setting?: unknown
+  workspace: unknown
 }
 
 function makeView(options: Partial<TaskChuteSettings> & { files: string[]; tagged?: string[] }) {
@@ -52,17 +64,19 @@ function makeView(options: Partial<TaskChuteSettings> & { files: string[]; tagge
     pathManager: {
       getProjectFolderPath: () => projectFolder,
     },
-  } as unknown as TaskChutePluginLike & { app: any }
+  } as unknown as TaskChutePluginLike & { app: AppStub }
 
   // Create a minimal stub object with the shape expected by getProjectFiles
-  const fakeLeaf = {} as any
+  const fakeLeaf = {} as unknown as WorkspaceLeaf
   const view = new TaskChuteView(fakeLeaf, plugin)
-  ;(view as any).app = plugin.app // ensure app is available
+  ;(view as unknown as { app: AppStub }).app = plugin.app // ensure app is available
   return view
 }
 
 async function getProjectsViaPrivate(view: TaskChuteView) {
-  const fn = (TaskChuteView.prototype as any).getProjectFiles
+  const fn = (TaskChuteView.prototype as unknown as {
+    getProjectFiles: () => Promise<TFile[]>
+  }).getProjectFiles
   const files = await fn.call(view)
   return (files as TFile[]).map((f) => f.path)
 }
@@ -130,4 +144,3 @@ describe('Project candidates filtering', () => {
     expect(paths).toEqual(['PROJ/Project - Alpha.md'])
   })
 })
-
