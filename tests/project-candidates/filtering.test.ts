@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
 import type { TaskChuteSettings, TaskChutePluginLike } from '../../src/types'
-import { TaskChuteView } from '../../src/views/TaskChuteView'
+import ProjectController from '../../src/ui/project/ProjectController'
 
 function createTFile(path: string) {
   const f = new TFile()
@@ -10,7 +10,19 @@ function createTFile(path: string) {
   return f
 }
 
-function makeView(options: Partial<TaskChuteSettings> & { files: string[]; tagged?: string[] }) {
+type AppStub = {
+  vault: {
+    getMarkdownFiles: () => TFile[]
+    getAbstractFileByPath: (path: string) => unknown
+  }
+  metadataCache: {
+    getFileCache: (file: TFile) => unknown
+  }
+  setting?: unknown
+  workspace: unknown
+}
+
+function makeController(options: Partial<TaskChuteSettings> & { files: string[]; tagged?: string[] }) {
   const projectFolder = options.projectsFolder ?? 'PROJ'
   const files = options.files.map(createTFile)
   const taggedSet = new Set(options.tagged ?? [])
@@ -52,24 +64,28 @@ function makeView(options: Partial<TaskChuteSettings> & { files: string[]; tagge
     pathManager: {
       getProjectFolderPath: () => projectFolder,
     },
-  } as unknown as TaskChutePluginLike & { app: any }
+  } as unknown as TaskChutePluginLike & { app: AppStub }
 
-  // Create a minimal stub object with the shape expected by getProjectFiles
-  const fakeLeaf = {} as any
-  const view = new TaskChuteView(fakeLeaf, plugin)
-  ;(view as any).app = plugin.app // ensure app is available
-  return view
+  const controller = new ProjectController({
+    app: plugin.app,
+    plugin,
+    tv: (_key: string, fallback: string) => fallback,
+    getInstanceDisplayTitle: () => 'Sample task',
+    renderTaskList: () => {},
+    getTaskListElement: () => document.createElement('div'),
+  })
+
+  return controller
 }
 
-async function getProjectsViaPrivate(view: TaskChuteView) {
-  const fn = (TaskChuteView.prototype as any).getProjectFiles
-  const files = await fn.call(view)
-  return (files as TFile[]).map((f) => f.path)
+async function getProjects(controller: ProjectController) {
+  const files = await controller.getProjectFiles()
+  return files.map((f) => f.path)
 }
 
 describe('Project candidates filtering', () => {
   test('filter OFF returns all files under project folder', async () => {
-    const view = makeView({
+    const controller = makeController({
       files: [
         'PROJ/A.md',
         'PROJ/Project - Alpha.md',
@@ -80,54 +96,53 @@ describe('Project candidates filtering', () => {
       projectsFilterEnabled: false,
     })
 
-    const paths = await getProjectsViaPrivate(view)
+    const paths = await getProjects(controller)
     expect(paths.sort()).toEqual(
       ['PROJ/A.md', 'PROJ/Project - Alpha.md', 'PROJ/Sub/Project - Beta.md', 'PROJ/Note.md'].sort(),
     )
   })
 
   test('filter by prefixes only', async () => {
-    const view = makeView({
+    const controller = makeController({
       files: ['PROJ/Project - Alpha.md', 'PROJ/Sub/Project - Beta.md', 'PROJ/Note.md'],
       projectsFilterEnabled: true,
       projectsFilter: { prefixes: ['Project - '], tags: [] },
     })
-    const paths = await getProjectsViaPrivate(view)
+    const paths = await getProjects(controller)
     expect(paths.sort()).toEqual(
       ['PROJ/Project - Alpha.md', 'PROJ/Sub/Project - Beta.md'].sort(),
     )
   })
 
   test('filter by tags only', async () => {
-    const view = makeView({
+    const controller = makeController({
       files: ['PROJ/Project - Alpha.md', 'PROJ/Note.md'],
       tagged: ['PROJ/Note.md'],
       projectsFilterEnabled: true,
       projectsFilter: { prefixes: [], tags: ['project'] },
     })
-    const paths = await getProjectsViaPrivate(view)
+    const paths = await getProjects(controller)
     expect(paths).toEqual(['PROJ/Note.md'])
   })
 
   test('AND mode requires both prefix and tag', async () => {
-    const view = makeView({
+    const controller = makeController({
       files: ['PROJ/Project - Alpha.md', 'PROJ/Note.md'],
       tagged: ['PROJ/Project - Alpha.md'],
       projectsFilterEnabled: true,
       projectsFilter: { prefixes: ['Project - '], tags: ['project'], matchMode: 'AND' },
     })
-    const paths = await getProjectsViaPrivate(view)
+    const paths = await getProjects(controller)
     expect(paths).toEqual(['PROJ/Project - Alpha.md'])
   })
 
   test('includeSubfolders=false excludes nested files', async () => {
-    const view = makeView({
+    const controller = makeController({
       files: ['PROJ/Project - Alpha.md', 'PROJ/Sub/Project - Beta.md'],
       projectsFilterEnabled: true,
       projectsFilter: { prefixes: ['Project - '], includeSubfolders: false },
     })
-    const paths = await getProjectsViaPrivate(view)
+    const paths = await getProjects(controller)
     expect(paths).toEqual(['PROJ/Project - Alpha.md'])
   })
 })
-

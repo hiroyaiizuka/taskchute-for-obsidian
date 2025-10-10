@@ -15,7 +15,7 @@
   z-index: 1000;
 }
 
-.task-modal-content {
+.task-modal-overlay .task-modal-content {
   background: var(--background-primary);
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -27,10 +27,11 @@
 
 .modal-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  padding: 20px 20px 0 20px;
+  padding: 20px 56px 0 20px;
   border-bottom: 1px solid var(--background-modifier-border);
+  position: relative;
 }
 
 .modal-header h3 {
@@ -38,10 +39,11 @@
   color: var(--text-normal);
 }
 
-.modal-close-button {
+.modal-close-button,
+.tooltip-close-button {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 0;
   color: var(--text-muted);
   cursor: pointer;
   padding: 0;
@@ -54,9 +56,33 @@
   transition: all 0.2s ease;
 }
 
-.modal-close-button:hover {
+.modal-header .modal-close-button {
+  position: absolute;
+  top: 12px;
+  right: 20px;
+}
+
+.modal-close-button:hover,
+.tooltip-close-button:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
+}
+
+.modal-close-button svg,
+.tooltip-close-button svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+}
+
+.modal-close-button svg line,
+.modal-close-button svg path,
+.tooltip-close-button svg line,
+.tooltip-close-button svg path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .task-form {
@@ -410,13 +436,20 @@ select.form-input {
   gap: 8px;
 }
 .add-task-button {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border: none;
-  border-radius: 4px;
-  padding: 4px 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 6px 12px 8px 12px; /* larger touch target */
+  min-width: 36px; /* a bit wider */
   cursor: pointer;
-  font-size: 14px;
+  font-size: 17px; /* ~1.2x larger + icon */
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.02);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.add-task-button:hover {
+  background: var(--background-modifier-hover);
 }
 .add-task-button.repositioned {
   margin-left: 0;
@@ -1358,6 +1391,92 @@ select.form-input {
   align-items: center;
 }
 
+/* Confirm Modal */
+.taskchute-confirm-modal {
+  width: min(460px, 90vw);
+}
+
+.taskchute-confirm-content {
+  padding: 24px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--background-primary);
+  border-radius: 16px;
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.35);
+}
+
+.theme-light .taskchute-confirm-content {
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+}
+
+.taskchute-confirm-header {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 12px;
+}
+
+.taskchute-confirm-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.taskchute-confirm-message {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+}
+
+.taskchute-confirm-description {
+  margin: -8px 0 0;
+  color: var(--text-faint);
+  font-size: 0.95rem;
+}
+
+.taskchute-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.taskchute-confirm-actions .mod-cancel,
+.taskchute-confirm-actions .mod-cta {
+  min-width: 110px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.taskchute-confirm-actions .mod-cta.mod-danger {
+  background-color: var(--color-accent);
+  border: none;
+}
+
+.taskchute-confirm-actions .mod-cta.mod-danger:hover {
+  filter: brightness(1.08);
+}
+
+.project-settings-modal-content {
+  gap: 20px;
+}
+
+.project-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.project-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 .year-selector {
   padding: 5px 10px;
   border-radius: 4px;
@@ -1751,7 +1870,6 @@ select.form-input {
   font-size: 14px;
   color: var(--text-normal);
 }
-
 
 .heatmap-detail-project {
   font-size: 12px;
@@ -2461,10 +2579,7 @@ select.form-input {
   min-width: 100px;
 }
 
-.taskchute-project-placeholder::before {
-  content: "📁 プロジェクトを設定";
-  font-size: 13px;
-}
+/* Content text is now provided from TS with i18n; pseudo-element removed */
 
 .task-item:hover .taskchute-project-placeholder {
   opacity: 0.6;
@@ -3816,7 +3931,6 @@ select.form-input {
 .routine-table__cell--actions-header {
   pointer-events: none;
 }
-
 
 .routine-table__link {
   color: var(--text-accent);

@@ -1,12 +1,14 @@
-// @ts-nocheck
 import { getCurrentLocale } from '../i18n'
+
+type LocaleCode = 'ja' | 'en' | string
 
 // Builds the default Daily Review template used when creating a new review note.
 // It embeds dataviewjs that reads monthly task logs and renders:
 // - Hourly average focus/energy chart
 // - Comment list table
 export function buildDefaultReviewTemplate(logDataPath: string): string {
-  return getCurrentLocale() === 'ja'
+  const locale = getCurrentLocale() as LocaleCode
+  return locale === 'ja'
     ? buildJapaneseTemplate(logDataPath)
     : buildEnglishTemplate(logDataPath)
 }

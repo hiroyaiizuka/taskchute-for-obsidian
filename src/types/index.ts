@@ -37,6 +37,9 @@ export interface TaskChuteSettings {
   useOrderBasedSort: boolean;
   slotKeys: Record<string, string>;
   languageOverride?: "auto" | "en" | "ja";
+
+  // UI/Features
+  aiRobotButtonEnabled?: boolean; // default false; show robot button if true
   // Field migration settings
   preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
   autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading
@@ -93,6 +96,10 @@ export interface TaskData {
   routine_type?: "daily" | "weekly" | "monthly" | "weekdays" | "weekends"
   routine_start?: string
   routine_end?: string
+  weekdays?: number[]
+  weekday?: number
+  monthly_week?: number | "last"
+  monthly_weekday?: number
   // New normalized routine fields
   routine_interval?: number // >=1, default 1
   routine_enabled?: boolean // default true
@@ -102,6 +109,8 @@ export interface TaskData {
   routine_week?: number | "last"
   routine_day?: string
   flexible_schedule?: boolean
+  scheduledTime?: string
+  title?: string
   [key: string]: unknown
 }
 
@@ -119,6 +128,7 @@ export interface TaskInstance {
   stopTime?: Date
   pausedDuration?: number
   actualMinutes?: number
+  actualTime?: number
   comment?: string
   focusLevel?: number
   energyLevel?: number

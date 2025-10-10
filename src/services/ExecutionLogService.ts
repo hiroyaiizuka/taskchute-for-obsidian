@@ -1,76 +1,14 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
-import { TaskInstance } from '../types';
+import type { TaskInstance } from '../types';
 import { computeExecutionInstanceKey } from '../utils/logKeys';
-
-
-interface TaskExecutionEntry {
-  taskTitle?: string;
-  taskName?: string;
-  taskPath?: string;
-  instanceId?: string;
-  slotKey?: string;
-  startTime?: string;
-  stopTime?: string;
-  durationSec?: number;
-  duration?: number;
-  isCompleted?: boolean;
-  [key: string]: unknown;
-}
-
-interface DailySummaryEntry {
-  totalMinutes?: number;
-  totalTasks?: number;
-  completedTasks?: number;
-  procrastinatedTasks?: number;
-  completionRate?: number;
-  [key: string]: unknown;
-}
-
-interface TaskLogFile {
-  taskExecutions: Record<string, TaskExecutionEntry[]>;
-  dailySummary: Record<string, DailySummaryEntry>;
-  totalTasks?: number;
-  [key: string]: unknown;
-}
-
-const EMPTY_LOG_FILE: TaskLogFile = {
-  taskExecutions: {},
-  dailySummary: {},
-};
-
-function parseLogFile(raw: string | null | undefined): TaskLogFile {
-  if (!raw) {
-    return { ...EMPTY_LOG_FILE };
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<TaskLogFile>;
-    return {
-      taskExecutions: parsed.taskExecutions ?? {},
-      dailySummary: parsed.dailySummary ?? {},
-      ...parsed,
-    };
-  } catch (error) {
-    console.warn('[ExecutionLogService] Failed to parse log file', error);
-    return { ...EMPTY_LOG_FILE };
-  }
-}
-
-function isEntryCompleted(entry: TaskExecutionEntry): boolean {
-  if (typeof entry.isCompleted === 'boolean') return entry.isCompleted;
-  if (entry.stopTime && typeof entry.stopTime === 'string' && entry.stopTime.trim().length > 0) return true;
-  if (typeof entry.durationSec === 'number' && entry.durationSec > 0) return true;
-  if (typeof entry.duration === 'number' && entry.duration > 0) return true;
-  return true;
-}
-
-function minutesFromEntries(entries: TaskExecutionEntry[]): number {
-  return entries.reduce((sum, entry) => {
-    const duration = entry.durationSec ?? entry.duration ?? 0;
-    return sum + Math.floor(duration / 60);
-  }, 0);
-}
+import {
+  createEmptyTaskLogSnapshot,
+  isExecutionLogEntryCompleted,
+  minutesFromLogEntries,
+  parseTaskLogSnapshot,
+} from '../utils/executionLogUtils';
+import type { TaskLogEntry, TaskLogSnapshot } from '../types/execution-log';
 
 export class ExecutionLogService {
   constructor(private plugin: TaskChutePluginLike) {}
@@ -117,14 +55,14 @@ export class ExecutionLogService {
     // Load
     const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
     let file = abstract instanceof TFile ? abstract : null;
-    let json: TaskLogFile = { ...EMPTY_LOG_FILE };
+    let json: TaskLogSnapshot = createEmptyTaskLogSnapshot();
     if (file && file instanceof TFile) {
       try {
         const raw = await this.plugin.app.vault.read(file);
-        json = parseLogFile(raw);
+        json = parseTaskLogSnapshot(raw);
       } catch (error) {
         console.warn("[ExecutionLogService] Failed to read log file", error);
-        json = { ...EMPTY_LOG_FILE };
+        json = createEmptyTaskLogSnapshot();
       }
     } else {
       await this.plugin.pathManager.ensureFolderExists(logDataPath);
@@ -137,7 +75,7 @@ export class ExecutionLogService {
       json.taskExecutions[dateKey] = [];
     }
 
-    const exec: TaskExecutionEntry = {
+    const exec: TaskLogEntry = {
       taskTitle: this.resolveTaskTitle(inst),
       taskPath: inst.task.path,
       instanceId: inst.instanceId,
@@ -147,16 +85,16 @@ export class ExecutionLogService {
       durationSec,
     };
 
-    const arr: TaskExecutionEntry[] = json.taskExecutions[dateKey];
+    const arr: TaskLogEntry[] = json.taskExecutions[dateKey];
     const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
     if (idx >= 0) arr[idx] = exec; else arr.push(exec);
 
     // Recompute daily summary (do NOT equate totalTasks with completed)
-    const totalMinutes = minutesFromEntries(arr);
+    const totalMinutes = minutesFromLogEntries(arr);
     // completed = unique tasks completed on the day
     const completedSet = new Set<string>();
     for (const entry of arr) {
-      if (isEntryCompleted(entry)) {
+      if (isExecutionLogEntryCompleted(entry)) {
         completedSet.add(computeExecutionInstanceKey(entry));
       }
     }
@@ -194,17 +132,17 @@ export class ExecutionLogService {
       const raw = await this.plugin.app.vault.read(maybeFile);
       if (!raw) return;
 
-      const json = parseLogFile(raw);
+      const json = parseTaskLogSnapshot(raw);
       const dayEntries = json.taskExecutions[dateKey];
       if (!Array.isArray(dayEntries)) return;
 
       const filtered = dayEntries.filter((entry) => entry.instanceId !== instanceId);
       json.taskExecutions[dateKey] = filtered;
 
-      const totalMinutes = minutesFromEntries(filtered);
+      const totalMinutes = minutesFromLogEntries(filtered);
       const completedSet = new Set<string>();
       for (const entry of filtered) {
-        if (isEntryCompleted(entry)) {
+        if (isExecutionLogEntryCompleted(entry)) {
           completedSet.add(computeExecutionInstanceKey(entry));
         }
       }
@@ -227,5 +165,130 @@ export class ExecutionLogService {
     } catch (error) {
       console.warn('[ExecutionLogService] Failed to remove task log entry', error);
     }
+  }
+
+  async hasExecutionHistory(taskPath: string): Promise<boolean> {
+    if (!taskPath || !taskPath.trim()) {
+      return false;
+    }
+    const normalized = taskPath.trim();
+    const files = this.collectLogFiles();
+    for (const file of files) {
+      try {
+        const raw = await this.plugin.app.vault.read(file);
+        if (!raw) {
+          continue;
+        }
+        const snapshot = parseTaskLogSnapshot(raw);
+        const days = Object.values(snapshot.taskExecutions);
+        const hasMatch = days.some((entries) =>
+          Array.isArray(entries) &&
+          entries.some((entry) =>
+            entry && typeof entry === 'object' && 'taskPath' in entry && entry.taskPath === normalized,
+          ),
+        );
+        if (hasMatch) {
+          return true;
+        }
+      } catch (error) {
+        console.warn('[ExecutionLogService] Failed to inspect log file', file.path, error);
+      }
+    }
+    return false;
+  }
+
+  async updateDailySummaryTotals(dateKey: string, totalTasks: number): Promise<void> {
+    if (!dateKey || typeof dateKey !== 'string') {
+      return;
+    }
+    const [year, month] = dateKey.split('-');
+    if (!year || !month) {
+      return;
+    }
+
+    const monthKey = `${year}-${month}`;
+    const logDataPath = this.plugin.pathManager.getLogDataPath();
+    const logPath = `${logDataPath}/${monthKey}-tasks.json`;
+    const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
+    let file = abstract instanceof TFile ? abstract : null;
+
+    let snapshot: TaskLogSnapshot = createEmptyTaskLogSnapshot();
+    if (file) {
+      try {
+        const raw = await this.plugin.app.vault.read(file);
+        snapshot = parseTaskLogSnapshot(raw);
+      } catch (error) {
+        console.warn('[ExecutionLogService] Failed to update summary (read error)', error);
+      }
+    } else {
+      await this.plugin.pathManager.ensureFolderExists(logDataPath);
+    }
+
+    const dayExecutions = snapshot.taskExecutions[dateKey] ?? [];
+    snapshot.taskExecutions[dateKey] = dayExecutions;
+
+    const completedSet = new Set<string>();
+    for (const entry of dayExecutions) {
+      if (isExecutionLogEntryCompleted(entry)) {
+        completedSet.add(computeExecutionInstanceKey(entry));
+      }
+    }
+
+    const completedTasks = completedSet.size;
+    const totalMinutes = minutesFromLogEntries(dayExecutions);
+    const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
+    const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
+
+    const prev = snapshot.dailySummary[dateKey] ?? {};
+    snapshot.dailySummary[dateKey] = {
+      ...prev,
+      totalMinutes,
+      totalTasks,
+      completedTasks,
+      procrastinatedTasks,
+      completionRate,
+    };
+
+    const payload = JSON.stringify(snapshot, null, 2);
+    if (file) {
+      await this.plugin.app.vault.modify(file, payload);
+    } else {
+      await this.plugin.app.vault.create(logPath, payload);
+    }
+  }
+
+  private collectLogFiles(): TFile[] {
+    const logBase = this.plugin.pathManager.getLogDataPath();
+    const vault = this.plugin.app.vault as { getFiles?: () => TFile[] };
+    const suffix = '-tasks.json';
+    const files: TFile[] = [];
+    if (typeof vault.getFiles === 'function') {
+      const allFiles = vault.getFiles();
+      allFiles.forEach((file) => {
+        if (file instanceof TFile && file.path.startsWith(`${logBase}/`) && file.path.endsWith(suffix)) {
+          files.push(file);
+        }
+      });
+      if (files.length > 0) {
+        return files;
+      }
+    }
+
+    const seen = new Set<string>();
+    const now = new Date();
+    for (let i = 0; i < 12; i += 1) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = this.getMonthKey(date);
+      const path = `${logBase}/${monthKey}${suffix}`;
+      if (seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      const abstract = this.plugin.app.vault.getAbstractFileByPath(path);
+      if (abstract && abstract instanceof TFile) {
+        files.push(abstract);
+      }
+    }
+    return files;
   }
 }

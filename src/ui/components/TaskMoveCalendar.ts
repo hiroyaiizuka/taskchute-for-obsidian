@@ -1,13 +1,19 @@
 import type { LocaleKey } from "../../i18n"
 import { getCurrentLocale, t } from "../../i18n"
 
-interface TaskMoveCalendarOptions {
+export interface TaskMoveCalendarOptions {
   anchor: HTMLElement
   initialDate: Date
   today: Date
   onSelect: (isoDate: string) => void | Promise<void>
   onClear?: () => void | Promise<void>
   onClose?: () => void
+  registerDisposer?: (cleanup: () => void) => void
+}
+
+export interface TaskMoveCalendarHandle {
+  open(): void
+  close(): void
 }
 
 function cloneDate(date: Date): Date {
@@ -30,12 +36,13 @@ function isSameDate(a: Date | undefined, b: Date | undefined): boolean {
   )
 }
 
-export class TaskMoveCalendar {
+export class TaskMoveCalendar implements TaskMoveCalendarHandle {
   private readonly anchor: HTMLElement
   private readonly today: Date
   private readonly onSelect: (isoDate: string) => void | Promise<void>
   private readonly onClear?: () => void | Promise<void>
   private readonly onClose?: () => void
+  private readonly registerDisposer?: (cleanup: () => void) => void
   private readonly locale: LocaleKey
   private readonly monthFormatter: Intl.DateTimeFormat
   private readonly weekdayLabels: string[]
@@ -51,6 +58,7 @@ export class TaskMoveCalendar {
     this.onSelect = options.onSelect
     this.onClear = options.onClear
     this.onClose = options.onClose
+    this.registerDisposer = options.registerDisposer
 
     this.locale = getCurrentLocale()
     this.monthFormatter = new Intl.DateTimeFormat(
@@ -76,6 +84,8 @@ export class TaskMoveCalendar {
       this.selectedDate.getMonth(),
       1,
     )
+
+    this.registerDisposer?.(() => this.close())
   }
 
   open(): void {
@@ -330,5 +340,9 @@ export class TaskMoveCalendar {
     this.container.style.top = `${top}px`
   }
 }
+
+export type TaskMoveCalendarFactory = (
+  options: TaskMoveCalendarOptions,
+) => TaskMoveCalendarHandle
 
 export default TaskMoveCalendar

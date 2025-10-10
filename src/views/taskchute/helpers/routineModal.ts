@@ -1,4 +1,4 @@
-import type { TaskData } from '../types';
+import type { TaskData } from '../../../types';
 
 const VALID_WEEKDAY = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 6;

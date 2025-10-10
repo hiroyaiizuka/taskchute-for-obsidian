@@ -23,6 +23,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     this.renderStorageSection(containerEl);
     this.renderProjectCandidateSection(containerEl);
+    this.renderFeaturesSection(containerEl);
   }
 
   private renderStorageSection(container: HTMLElement): void {
@@ -282,5 +283,21 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         limit: 50,
       };
     }
+  }
+
+  private renderFeaturesSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t('settings.features.heading', 'External tools'))
+      .setHeading();
+
+    new Setting(container)
+      .setName(t('settings.features.robotButton', 'Show Terminal button'))
+      .setDesc(t('settings.features.robotButtonDesc', 'Enable AI integration via Terminal (requires Terminal plugin).'))
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.aiRobotButtonEnabled ?? false).onChange(async (v) => {
+          this.plugin.settings.aiRobotButtonEnabled = v
+          await this.plugin.saveSettings()
+        })
+      })
   }
 }

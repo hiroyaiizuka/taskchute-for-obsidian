@@ -31,6 +31,7 @@ const TFile = jest.fn().mockImplementation(() => ({
 
 const Notice = jest.fn()
 
+
 const PluginSettingTab = jest.fn().mockImplementation(() => ({
   display: jest.fn(),
 }))

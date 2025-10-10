@@ -1,15 +1,15 @@
-// @ts-nocheck
-import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
-import { getCurrentLocale, t } from '../i18n';
+import { getCurrentLocale, t } from '../i18n'
 
-import { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../types';
-import { HeatmapService } from '../services/HeatmapService';
+import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../types'
+import { HeatmapService } from '../services/HeatmapService'
 
 interface LogPathManager {
   getLogDataPath(): string;
   getLogYearPath(year: number | string): string;
   ensureYearFolder(year: number | string): Promise<string>;
+  getReviewDataPath(): string;
 }
 
 interface LogPlugin {
@@ -24,9 +24,9 @@ interface TaskChuteViewLike {
   updateDateLabel?(element: Element): void;
 }
 
-interface TooltipPosition {
-  left: number;
-  top: number;
+type TooltipPosition = {
+  left: number
+  top: number
 }
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -51,23 +51,23 @@ type DayDetailRenderState =
   | { status: 'success'; detail: HeatmapDayDetail };
 
 export class LogView {
-  private readonly plugin: LogPlugin;
-  private readonly container: HTMLElement;
-  private readonly heatmapService: HeatmapService;
-  private readonly dataCache = new Map<number, HeatmapYearData>();
+  private readonly plugin: LogPlugin
+  private readonly container: HTMLElement
+  private readonly heatmapService: HeatmapService
+  private readonly dataCache = new Map<number, HeatmapYearData>()
 
-  private currentYear: number;
-  private heatmapData: HeatmapYearData | null = null;
-  private currentTooltip: HTMLElement | null = null;
-  private dayDetailCache = new Map<string, HeatmapDayDetail>();
-  private dayDetailContainer: HTMLElement | null = null;
-  private selectedDateKey: string | null = null;
+  private currentYear: number
+  private heatmapData: HeatmapYearData | null = null
+  private currentTooltip: HTMLElement | null = null
+  private dayDetailCache = new Map<string, HeatmapDayDetail>()
+  private dayDetailContainer: HTMLElement | null = null
+  private selectedDateKey: string | null = null
 
   constructor(plugin: LogPlugin, container: HTMLElement) {
-    this.plugin = plugin;
-    this.container = container;
-    this.currentYear = new Date().getFullYear();
-    this.heatmapService = new HeatmapService(plugin);
+    this.plugin = plugin
+    this.container = container
+    this.currentYear = new Date().getFullYear()
+    this.heatmapService = new HeatmapService(plugin)
   }
 
   private tv(
@@ -75,7 +75,7 @@ export class LogView {
     fallback: string,
     vars?: Record<string, string | number>,
   ): string {
-    return t(`logView.${key}`, fallback, vars);
+    return t(`logView.${key}`, fallback, vars)
   }
 
   private getWeekdayLabel(index: number): string {
@@ -97,57 +97,57 @@ export class LogView {
   }
 
   async render(): Promise<void> {
-    this.container.empty();
-    this.createHeader();
+    this.container.empty()
+    this.createHeader()
 
-    this.dayDetailCache.clear();
-    this.selectedDateKey = null;
-    this.dayDetailContainer = null;
+    this.dayDetailCache.clear()
+    this.selectedDateKey = null
+    this.dayDetailContainer = null
 
     const loading = this.container.createEl('div', {
       cls: 'heatmap-loading',
       text: this.tv('header.loading', 'データを読み込み中...'),
-    });
+    })
 
     try {
       if (this.currentYear === new Date().getFullYear()) {
-        this.dataCache.delete(this.currentYear);
-        await this.removeCachedYearFile(this.currentYear);
+        this.dataCache.delete(this.currentYear)
+        await this.removeCachedYearFile(this.currentYear)
       }
 
-      this.heatmapData = await this.loadYearlyData(this.currentYear);
-      loading.remove();
-      this.renderHeatmap();
+      this.heatmapData = await this.loadYearlyData(this.currentYear)
+      loading.remove()
+      this.renderHeatmap()
     } catch (error) {
-      console.error('Failed to render heatmap', error);
-      loading.remove();
+      console.error('Failed to render heatmap', error)
+      loading.remove()
       new Notice(
         this.tv('notices.loadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
           year: this.currentYear,
         }),
-      );
-      this.renderEmptyHeatmap(this.currentYear);
+      )
+      this.renderEmptyHeatmap(this.currentYear)
     }
   }
 
   private createHeader(): void {
-    const header = this.container.createEl('div', { cls: 'taskchute-log-header' });
+    const header = this.container.createEl('div', { cls: 'taskchute-log-header' })
     header.createEl('h2', {
       text: this.tv('header.title', 'タスク実行ログ'),
       cls: 'log-title',
     });
 
-    const controls = header.createEl('div', { cls: 'log-controls' });
-    const yearSelector = controls.createEl('select', { cls: 'year-selector' }) as HTMLSelectElement;
-    const currentYear = new Date().getFullYear();
+    const controls = header.createEl('div', { cls: 'log-controls' })
+    const yearSelector = controls.createEl('select', { cls: 'year-selector' }) as HTMLSelectElement
+    const currentYear = new Date().getFullYear()
 
-    for (let year = currentYear + 1; year >= 2020; year--) {
+    for (let year = currentYear + 1; year >= 2020; year -= 1) {
       const option = yearSelector.createEl('option', {
         value: String(year),
         text: this.tv('labels.yearOption', `${year}年`, { year }),
-      });
+      })
       if (year === this.currentYear) {
-        option.selected = true;
+        option.selected = true
       }
     }
 
@@ -157,68 +157,71 @@ export class LogView {
       attr: {
         title: this.tv('header.reloadTooltip', 'キャッシュをクリアして再計算'),
       },
-    });
+    })
 
     refreshButton.addEventListener('click', async () => {
-      this.dataCache.delete(this.currentYear);
-      await this.removeCachedYearFile(this.currentYear);
+      this.dataCache.delete(this.currentYear)
+      await this.removeCachedYearFile(this.currentYear)
       await this.reloadCurrentYear(
         this.tv('header.recalculating', 'データを再計算中...'),
         true,
-      );
-    });
+      )
+    })
 
     yearSelector.addEventListener('change', async (event) => {
-      const target = event.currentTarget as HTMLSelectElement;
-      this.currentYear = Number.parseInt(target.value, 10);
+      const target = event.currentTarget as HTMLSelectElement
+      this.currentYear = Number.parseInt(target.value, 10)
       await this.reloadCurrentYear(
         this.tv('header.loading', 'データを読み込み中...'),
         false,
-      );
-    });
+      )
+    })
   }
 
   private async removeCachedYearFile(year: number): Promise<void> {
     try {
-      const yearPath = this.plugin.pathManager.getLogYearPath(year);
-      const file = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`);
-      if (file && file instanceof TFile) {
-        await this.plugin.app.fileManager.trashFile(file, true);
+      const yearPath = this.plugin.pathManager.getLogYearPath(year)
+      const file = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`)
+      if (file instanceof TFile) {
+        await this.plugin.app.fileManager.trashFile(file)
       }
     } catch (error) {
-      console.warn('Failed to delete cached heatmap file', error);
+      console.warn('Failed to delete cached heatmap file', error)
     }
   }
 
   private async reloadCurrentYear(loadingText: string, showSuccessNotice: boolean): Promise<void> {
-    const existing = this.container.querySelector('.heatmap-container');
-    if (existing) existing.remove();
+    const existing = this.container.querySelector('.heatmap-container')
+    existing?.remove()
 
-    this.dayDetailCache.clear();
-    this.selectedDateKey = null;
-    this.dayDetailContainer = null;
+    this.dayDetailCache.clear()
+    this.selectedDateKey = null
+    this.dayDetailContainer = null
 
-    const loading = this.container.createEl('div', { cls: 'heatmap-loading', text: loadingText });
+    const loading = this.container.createEl('div', {
+      cls: 'heatmap-loading',
+      text: loadingText,
+    })
     try {
-      this.heatmapData = await this.loadYearlyData(this.currentYear);
-      loading.remove();
-      this.renderHeatmap();
+      this.heatmapData = await this.loadYearlyData(this.currentYear)
+      loading.remove()
+      this.renderHeatmap()
       if (showSuccessNotice) {
         new Notice(
           this.tv('notices.reloadSuccess', `${this.currentYear}年のデータを更新しました`, {
             year: this.currentYear,
           }),
-        );
+        )
       }
     } catch (error) {
-      console.error('Failed to reload heatmap', error);
-      loading.remove();
+      console.error('Failed to reload heatmap', error)
+      loading.remove()
       new Notice(
         this.tv('notices.reloadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
           year: this.currentYear,
         }),
-      );
-      this.renderEmptyHeatmap(this.currentYear);
+      )
+      this.renderEmptyHeatmap(this.currentYear)
     }
   }
 
@@ -907,35 +910,35 @@ export class LogView {
 
   private async navigateToDate(dateKey: string): Promise<void> {
     try {
-      const [year, month, day] = dateKey.split('-').map((value) => Number.parseInt(value, 10));
-      const workspace = this.plugin.app.workspace;
-      let leaf = workspace.getLeavesOfType('taskchute-view')[0] ?? null;
+      const [year, month, day] = dateKey.split('-').map((value) => Number.parseInt(value, 10))
+      const workspace = this.plugin.app.workspace
+      let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType('taskchute-view')[0] ?? null
 
       if (!leaf) {
-        leaf = workspace.getRightLeaf(false);
-        if (!leaf) return;
-        await leaf.setViewState({ type: 'taskchute-view', active: true });
-        await new Promise((resolve) => window.setTimeout(resolve, 300));
-        leaf = workspace.getLeavesOfType('taskchute-view')[0] ?? leaf;
+        leaf = workspace.getRightLeaf(false)
+        if (!leaf) return
+        await leaf.setViewState({ type: 'taskchute-view', active: true })
+        await new Promise((resolve) => window.setTimeout(resolve, 300))
+        leaf = workspace.getLeavesOfType('taskchute-view')[0] ?? leaf
       }
 
-      const view = leaf.view as TaskChuteViewLike | undefined;
-      if (!view || typeof view.loadTasks !== 'function') return;
+      const view = (leaf.view as unknown) as TaskChuteViewLike | undefined
+      if (!view || typeof view.loadTasks !== 'function') return
 
-      view.currentDate = new Date(year, month - 1, day);
+      view.currentDate = new Date(year, month - 1, day)
       if (view.updateDateLabel && view.containerEl) {
-        const dateLabel = view.containerEl.querySelector('.date-nav-label');
+        const dateLabel = view.containerEl.querySelector('.date-nav-label')
         if (dateLabel) {
-          view.updateDateLabel(dateLabel);
+          view.updateDateLabel(dateLabel)
         }
       }
 
-      await view.loadTasks();
-      workspace.setActiveLeaf(leaf as WorkspaceLeaf);
+      await view.loadTasks()
+      workspace.setActiveLeaf(leaf)
 
-      const modal = this.container.closest('.taskchute-log-modal-overlay');
+      const modal = this.container.closest('.taskchute-log-modal-overlay')
       if (modal instanceof HTMLElement) {
-        modal.remove();
+        modal.remove()
       }
     } catch (error) {
       console.error('Failed to navigate to date', error);
