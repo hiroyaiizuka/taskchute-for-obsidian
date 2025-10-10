@@ -1,48 +1,48 @@
 import type { Command, Plugin } from "obsidian"
 import { TFile } from "obsidian"
-import type { PathManager } from "../managers/PathManager"
+import type { PathService } from "../services/PathService"
 
 // Re-export new typed fields
 export * from "./TaskFields"
 
-export type LocationMode = "vaultRoot" | "specifiedFolder";
+export type LocationMode = "vaultRoot" | "specifiedFolder"
 
 export interface TaskChuteSettings {
   // New storage model (all optional for backward-compat)
-  locationMode?: LocationMode; // default: 'vaultRoot'
-  specifiedFolder?: string; // used when locationMode==='specifiedFolder'
-  projectsFolder?: string | null; // independent; can be unset
-  projectsFilterEnabled?: boolean; // default false; when true apply projectsFilter
+  locationMode?: LocationMode // default: 'vaultRoot'
+  specifiedFolder?: string // used when locationMode==='specifiedFolder'
+  projectsFolder?: string | null // independent; can be unset
+  projectsFilterEnabled?: boolean // default false; when true apply projectsFilter
 
   // Project candidate filter settings
   projectsFilter?: {
-    prefixes?: string[]; // default ['Project - ']
-    tags?: string[]; // default ['project']
-    includeSubfolders?: boolean; // default true
-    matchMode?: 'OR' | 'AND'; // default 'OR'
-    trimPrefixesInUI?: boolean; // default true
-    transformName?: boolean; // default false
-    limit?: number; // default 50
-    nameRegex?: string; // optional regex string
-    excludePathRegex?: string; // optional regex string applied to path
-  };
+    prefixes?: string[] // default ['Project - ']
+    tags?: string[] // default ['project']
+    includeSubfolders?: boolean // default true
+    matchMode?: "OR" | "AND" // default 'OR'
+    trimPrefixesInUI?: boolean // default true
+    transformName?: boolean // default false
+    limit?: number // default 50
+    nameRegex?: string // optional regex string
+    excludePathRegex?: string // optional regex string applied to path
+  }
 
   // Legacy (kept for migration/compat; UI should not expose)
-  taskFolderPath?: string;
-  projectFolderPath?: string;
-  logDataPath?: string;
-  reviewDataPath?: string;
+  taskFolderPath?: string
+  projectFolderPath?: string
+  logDataPath?: string
+  reviewDataPath?: string
 
   // General
-  useOrderBasedSort: boolean;
-  slotKeys: Record<string, string>;
-  languageOverride?: "auto" | "en" | "ja";
+  useOrderBasedSort: boolean
+  slotKeys: Record<string, string>
+  languageOverride?: "auto" | "en" | "ja"
 
   // UI/Features
-  aiRobotButtonEnabled?: boolean; // default false; show robot button if true
+  aiRobotButtonEnabled?: boolean // default false; show robot button if true
   // Field migration settings
-  preferNewFieldFormat?: boolean; // Use scheduled_time for new tasks
-  autoMigrateOnLoad?: boolean; // Auto-migrate old fields when loading
+  preferNewFieldFormat?: boolean // Use scheduled_time for new tasks
+  autoMigrateOnLoad?: boolean // Auto-migrate old fields when loading
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
@@ -52,7 +52,7 @@ export type TaskChutePlugin = Plugin & TaskChutePluginAugment
 type TaskChutePluginAugment = {
   settings: TaskChuteSettings
   pathManager: PathManagerLike
-  routineAliasManager: RoutineAliasManagerLike
+  routineAliasService: RoutineAliasServiceLike
   dayStateService: DayStateServiceAPI
   saveSettings(): Promise<void>
   showSettingsModal(): void
@@ -71,7 +71,7 @@ export type TaskChutePluginLike = Pick<
   | "app"
   | "settings"
   | "pathManager"
-  | "routineAliasManager"
+  | "routineAliasService"
   | "dayStateService"
   | "saveSettings"
   | "_log"
@@ -176,16 +176,15 @@ export interface MonthlyDayStateFile {
 }
 
 export type PathManagerLike = Pick<
-  PathManager,
-  |
-    "getTaskFolderPath"
-    | "getProjectFolderPath"
-    | "getLogDataPath"
-    | "getReviewDataPath"
-    | "ensureFolderExists"
-    | "getLogYearPath"
-    | "ensureYearFolder"
-    | "validatePath"
+  PathService,
+  | "getTaskFolderPath"
+  | "getProjectFolderPath"
+  | "getLogDataPath"
+  | "getReviewDataPath"
+  | "ensureFolderExists"
+  | "getLogYearPath"
+  | "ensureYearFolder"
+  | "validatePath"
 >
 
 export interface DayStateServiceAPI {
@@ -196,7 +195,7 @@ export interface DayStateServiceAPI {
   getDateFromKey(dateKey: string): Date
 }
 
-export interface RoutineAliasManagerLike {
+export interface RoutineAliasServiceLike {
   getAllPossibleNames?(title: string): string[]
   loadAliases(): Promise<Record<string, string[]>>
   getAliases?(taskName: string): string[]

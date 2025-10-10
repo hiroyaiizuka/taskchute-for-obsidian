@@ -1,9 +1,9 @@
 import type { TaskChutePlugin } from "../../types";
-import type { PathManager } from "../../managers/PathManager";
-import type { RoutineAliasManager } from "../../managers/RoutineAliasManager";
-import type DayStateService from "../../services/DayStateService";
+import type { PathService } from "../../services/PathService";
+import type { RoutineAliasService } from "../../features/routine/services/RoutineAliasService";
+import type DayStatePersistenceService from "../../services/DayStatePersistenceService";
 import type { TaskChuteViewController } from "../taskchute/TaskChuteViewController";
-import type { CommandRegistrar } from "../../commands/types";
+import type { CommandRegistrar } from "../../types/Commands";
 
 export interface RibbonController {
   updateLabel(): void;
@@ -14,9 +14,9 @@ export interface LocaleCoordinatorHandle {
 }
 
 export interface PluginContext {
-  pathManager: PathManager;
-  dayStateService: DayStateService;
-  routineAliasManager: RoutineAliasManager;
+  pathManager: PathService;
+  dayStateService: DayStatePersistenceService;
+  routineAliasService: RoutineAliasService;
   viewController: TaskChuteViewController;
   commandRegistrar: CommandRegistrar;
   ribbonManager: RibbonController;
@@ -30,5 +30,5 @@ export function createPluginContext(context: PluginContext): PluginContext {
 export function attachPluginContext(plugin: TaskChutePlugin, context: PluginContext): void {
   plugin.pathManager = context.pathManager;
   plugin.dayStateService = context.dayStateService;
-  plugin.routineAliasManager = context.routineAliasManager;
+  plugin.routineAliasService = context.routineAliasService;
 }

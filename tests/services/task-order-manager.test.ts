@@ -1,5 +1,5 @@
-import TaskOrderManager, { TaskOrderManagerOptions } from '../../src/services/TaskOrderManager';
-import DayStateManager from '../../src/services/DayStateManager';
+import TaskOrderManager, { TaskOrderManagerOptions } from '../../src/features/core/services/TaskOrderManager';
+import DayStateStoreService from '../../src/services/DayStateStoreService';
 import { DayState, TaskInstance } from '../../src/types';
 
 describe('TaskOrderManager', () => {
@@ -14,7 +14,7 @@ describe('TaskOrderManager', () => {
 
     const dayStateManager = {
       getStateFor: jest.fn(() => dayState),
-    } as unknown as DayStateManager;
+    } as unknown as DayStateStoreService;
 
     const baseOptions: TaskOrderManagerOptions = {
       dayStateManager,

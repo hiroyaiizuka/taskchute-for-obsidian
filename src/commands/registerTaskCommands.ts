@@ -1,5 +1,5 @@
 import { t } from "../i18n";
-import type { CommandHost, ViewActions, CommandRegistrar } from "./types";
+import type { CommandHost, ViewActions, CommandRegistrar } from "../types/Commands";
 
 interface LocalizedCommandDefinition {
   id: string;

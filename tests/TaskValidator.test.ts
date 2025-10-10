@@ -1,4 +1,4 @@
-import { TaskValidator } from '../src/services/TaskValidator';
+import { TaskValidator } from '../src/features/core/services/TaskValidator';
 
 describe('TaskValidator', () => {
   describe('validateRoutineTask', () => {

@@ -87,7 +87,7 @@ describe('TaskCreationController', () => {
         ensureYearFolder: jest.fn(),
         validatePath: jest.fn(() => ({ valid: true })),
       },
-      routineAliasManager: {
+      routineAliasService: {
         loadAliases: jest.fn(),
       },
       dayStateService: {

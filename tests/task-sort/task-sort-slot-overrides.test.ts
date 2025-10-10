@@ -1,6 +1,6 @@
-import TaskMutationService, { TaskMutationHost } from '../../src/services/TaskMutationService';
+import TaskMutationService, { TaskMutationHost } from '../../src/features/core/services/TaskMutationService';
 import type { DayState, TaskData, TaskInstance, DeletedInstance } from '../../src/types';
-import type DayStateManager from '../../src/services/DayStateManager';
+import type DayStateStoreService from '../../src/services/DayStateStoreService';
 import { createRoutineLoadContext } from '../utils/taskViewTestUtils';
 
 function createDayState(partial?: Partial<DayState>): DayState {
@@ -30,7 +30,7 @@ function createMutationHost(dayState: DayState, pluginOverrides: Partial<PluginS
     setDeleted: jest.fn((entries: DeletedInstance[]) => {
       dayState.deletedInstances = entries
     }),
-  } as unknown as DayStateManager
+  } as unknown as DayStateStoreService
 
   const host: TaskMutationHost = {
     tv: (_key: string, fallback: string) => fallback,

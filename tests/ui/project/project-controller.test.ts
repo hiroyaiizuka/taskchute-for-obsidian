@@ -87,7 +87,7 @@ describe('ProjectController', () => {
       },
       manifest: { id: 'taskchute-plus' },
       app,
-      routineAliasManager: {
+      routineAliasService: {
         loadAliases: jest.fn(),
       },
       dayStateService: {

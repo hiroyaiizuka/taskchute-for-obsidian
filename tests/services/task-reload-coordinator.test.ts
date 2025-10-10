@@ -1,6 +1,6 @@
 import TaskReloadCoordinator, {
   TaskReloadCoordinatorHost,
-} from '../../src/services/TaskReloadCoordinator';
+} from '../../src/features/core/services/TaskReloadCoordinator';
 import type { TaskInstance } from '../../src/types';
 
 jest.mock('../../src/utils/time', () => {

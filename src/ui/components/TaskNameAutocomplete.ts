@@ -1,7 +1,7 @@
 import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian';
 import { t } from '../../i18n';
 import type { TaskNameValidator } from '../../types';
-import type { TaskChuteView } from '../../views/TaskChuteView';
+import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
 
 interface Plugin {
   app: App;

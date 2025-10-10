@@ -1,4 +1,4 @@
-import { TaskChuteView } from '../../../src/views/TaskChuteView';
+import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView';
 import {
   AutocompleteInstance,
   DayState,
@@ -8,19 +8,19 @@ import {
   TaskInstance,
 } from '../../../src/types';
 import { WorkspaceLeaf, TFile } from 'obsidian';
-import RoutineManagerModal from '../../../src/routine/modals/RoutineManagerModal';
-import { ReviewService } from '../../../src/services/ReviewService';
-import { LogView } from '../../../src/views/LogView';
+import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal';
+import { ReviewService } from '../../../src/features/review/services/ReviewService';
+import { LogView } from '../../../src/features/log/views/LogView';
 import {
   createExecutionLogContext,
   createNonRoutineLoadContext,
   createRoutineLoadContext,
 } from '../../utils/taskViewTestUtils';
-import { HeatmapService } from '../../../src/services/HeatmapService';
+import { HeatmapService } from '../../../src/features/log/services/HeatmapService';
 import TaskSelectionController from '../../../src/ui/task/TaskSelectionController';
 
 jest.mock('obsidian');
-jest.mock('../../../src/services/HeatmapService', () => {
+jest.mock('../../../src/features/log/services/HeatmapService', () => {
   const updateDailyStats = jest.fn().mockResolvedValue(undefined);
   return {
     HeatmapService: jest.fn().mockImplementation(() => ({
@@ -28,8 +28,8 @@ jest.mock('../../../src/services/HeatmapService', () => {
     })),
   };
 });
-jest.mock('../../../src/routine/modals/RoutineManagerModal');
-jest.mock('../../../src/services/ReviewService', () => {
+jest.mock('../../../src/features/routine/modals/RoutineManagerModal');
+jest.mock('../../../src/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
   return {
@@ -39,7 +39,7 @@ jest.mock('../../../src/services/ReviewService', () => {
     })),
   }
 })
-jest.mock('../../../src/views/LogView', () => {
+jest.mock('../../../src/features/log/views/LogView', () => {
   return {
     LogView: jest.fn().mockImplementation(() => ({
       render: jest.fn(),
@@ -135,7 +135,7 @@ function createPluginStub() {
       validatePath: () => ({ valid: true }),
     },
     dayStateService,
-    routineAliasManager: {
+    routineAliasService: {
       getRouteNameFromAlias: jest.fn((name: string) => name),
       loadAliases: jest.fn().mockResolvedValue({}),
     },

@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian'
-import { HeatmapService, HeatmapServicePluginLike } from '../../src/services/HeatmapService'
+import { HeatmapService, HeatmapServicePluginLike } from '../../src/features/log/services/HeatmapService'
 
 function createTFile(path: string) {
   const file = new TFile()

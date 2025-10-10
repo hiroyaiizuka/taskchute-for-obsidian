@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian';
-import { loadTasksRefactored } from '../../src/views/taskchute/helpers';
-import DayStateManager from '../../src/services/DayStateManager';
-import { TaskLoaderService } from '../../src/services/TaskLoaderService';
+import { loadTasksRefactored } from '../../src/features/core/helpers';
+import DayStateStoreService from '../../src/services/DayStateStoreService';
+import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
 import {
   DayState,
   TaskInstance,
@@ -74,7 +74,7 @@ interface TaskChuteViewContextStub {
   isInstanceHidden: jest.Mock<boolean, [string?, string?, string?]>;
   isInstanceDeleted: jest.Mock<boolean, [string?, string?, string?]>;
   generateInstanceId: jest.Mock<string, []>;
-  dayStateManager?: DayStateManager;
+  dayStateManager?: DayStateStoreService;
   taskLoader: TaskLoaderService;
 }
 
@@ -89,7 +89,7 @@ function createDayState(overrides?: Partial<DayState>): DayState {
   } as DayState;
 }
 
-function createDayStateManagerStub(dayState: DayState, date: string) {
+function createDayStateStoreServiceStub(dayState: DayState, date: string) {
   return {
     ensure: jest.fn(async (dateKey?: string) => {
       if (dateKey && dateKey !== date) {
@@ -116,7 +116,7 @@ function createDayStateManagerStub(dayState: DayState, date: string) {
         return false;
       });
     }),
-  } as unknown as DayStateManager;
+  } as unknown as DayStateStoreService;
 }
 
 export interface RoutineContextOptions {
@@ -188,7 +188,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
   };
 
   const ctime = new Date(date).getTime();
-  const routineDayStateManager = createDayStateManagerStub(dayState, date);
+  const routineDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
 
   const context = {
     plugin,
@@ -249,7 +249,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
       });
     }),
     generateInstanceId: jest.fn(() => `routine-${Math.random().toString(36).slice(2)}`),
-    dayStateManager: routineDayStateManager,
+    dayStateManager: routineDayStateStoreService,
     taskLoader: new TaskLoaderService(),
   } as TaskChuteViewContextStub;
 
@@ -341,7 +341,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
   };
 
   const ctime = new Date(date).getTime();
-  const nonRoutineDayStateManager = createDayStateManagerStub(dayState, date);
+  const nonRoutineDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
 
   const context = {
     plugin,
@@ -402,7 +402,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
       });
     }),
     generateInstanceId: jest.fn(() => `non-routine-${Math.random().toString(36).slice(2)}`),
-    dayStateManager: nonRoutineDayStateManager,
+    dayStateManager: nonRoutineDayStateStoreService,
     taskLoader: new TaskLoaderService(),
   } as TaskChuteViewContextStub;
 
@@ -469,7 +469,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
     dayState.duplicatedInstances = [...duplicatedInstances];
   }
 
-  const executionDayStateManager = createDayStateManagerStub(dayState, date);
+  const executionDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
 
   const taskFileEntries = taskFiles.map((descriptor) => {
     const file = createMockTFile(descriptor.path, descriptor.path.split('/').pop() ?? descriptor.path, 'md');
@@ -581,7 +581,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
       });
     }),
     generateInstanceId: jest.fn(() => `exec-${Math.random().toString(36).slice(2)}`),
-    dayStateManager: executionDayStateManager,
+    dayStateManager: executionDayStateStoreService,
     taskLoader: new TaskLoaderService(),
   } as TaskChuteViewContextStub;
 

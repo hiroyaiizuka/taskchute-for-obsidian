@@ -1,4 +1,4 @@
-import type { TaskLogEntry, TaskLogSnapshot } from '../types/execution-log'
+import type { TaskLogEntry, TaskLogSnapshot } from '../types/ExecutionLog'
 
 export const EMPTY_TASK_LOG_SNAPSHOT: TaskLogSnapshot = {
   taskExecutions: {},

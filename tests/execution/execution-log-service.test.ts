@@ -1,5 +1,5 @@
 import { TFile } from 'obsidian';
-import { ExecutionLogService } from '../../src/services/ExecutionLogService';
+import { ExecutionLogService } from '../../src/features/log/services/ExecutionLogService';
 import type { TaskInstance, TaskChutePluginLike } from '../../src/types';
 
 type StoredLogFile = {
@@ -71,7 +71,7 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
     },
     saveSettings: jest.fn().mockResolvedValue(undefined),
     pathManager,
-    routineAliasManager: {
+    routineAliasService: {
       loadAliases: jest.fn().mockResolvedValue({}),
     },
     dayStateService: {

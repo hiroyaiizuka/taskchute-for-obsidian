@@ -1,7 +1,7 @@
 import { initializeLocaleManager, onLocaleChange } from "../../i18n";
 import type { LanguageOverride } from "../../i18n";
 
-import type { CommandRegistrar } from "../../commands/types";
+import type { CommandRegistrar } from "../../types/Commands";
 import type { RibbonController } from "../context/PluginContext";
 import { TaskChuteViewController } from "../taskchute/TaskChuteViewController";
 

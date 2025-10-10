@@ -1,9 +1,9 @@
 import { Notice, Plugin } from "obsidian"
 
 import type { TaskChuteSettings } from "./types"
-import type { PathManager } from "./managers/PathManager"
-import type { RoutineAliasManager } from "./managers/RoutineAliasManager"
-import type DayStateService from "./services/DayStateService"
+import type { PathService } from "./services/PathService"
+import type { RoutineAliasService } from "./features/routine/services/RoutineAliasService"
+import type DayStatePersistenceService from "./services/DayStatePersistenceService"
 import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
@@ -13,9 +13,9 @@ import type { PluginContext } from "./app/context/PluginContext"
 
 export default class TaskChutePlusPlugin extends Plugin {
   settings!: TaskChuteSettings
-  pathManager!: PathManager
-  routineAliasManager!: RoutineAliasManager
-  dayStateService!: DayStateService
+  pathManager!: PathService
+  routineAliasService!: RoutineAliasService
+  dayStateService!: DayStatePersistenceService
   globalTimerInterval?: ReturnType<typeof setInterval> | null
   private viewController!: TaskChuteViewController
   private localeCoordinator?: LocaleCoordinatorHandle

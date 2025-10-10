@@ -1,4 +1,4 @@
-import type { RoutineTaskShape } from '../../types/routine'
+import type { RoutineTaskShape } from '../../types/Routine'
 import type { TFile } from 'obsidian'
 
 export type RoutineTaskWithFile = RoutineTaskShape & { file: TFile }
