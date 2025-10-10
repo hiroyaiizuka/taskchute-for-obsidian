@@ -1,5 +1,5 @@
-import { applyRoutineFrontmatterMerge } from '../../src/services/RoutineFrontmatterUtils';
-import { TaskValidator } from '../../src/services/TaskValidator';
+import { applyRoutineFrontmatterMerge } from '../../src/features/routine/utils/RoutineFrontmatterUtils';
+import { TaskValidator } from '../../src/features/core/services/TaskValidator';
 import type { RoutineFrontmatter } from '../../src/types';
 
 describe('applyRoutineFrontmatterMerge', () => {

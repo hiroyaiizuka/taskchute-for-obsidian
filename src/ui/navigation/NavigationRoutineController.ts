@@ -1,7 +1,7 @@
 
 import { App, Notice, TFile } from 'obsidian'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
-import type { RoutineTaskShape } from '../../types/routine'
+import type { RoutineTaskShape } from '../../types/Routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
 
 export interface NavigationRoutineHost {

@@ -1,5 +1,5 @@
-import type { TaskChuteView } from '../../src/views/TaskChuteView';
-import { TaskLoaderService } from '../../src/services/TaskLoaderService';
+import type { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
+import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
 import {
   createNonRoutineLoadContext,
   createRoutineLoadContext,

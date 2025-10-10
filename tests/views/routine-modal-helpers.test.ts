@@ -3,7 +3,7 @@ import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
   deriveMonthlySelection,
-} from '../../src/views/taskchute/helpers';
+} from '../../src/features/routine/modals/RoutineModal';
 
 describe('routine modal helpers', () => {
   const baseTask = (): TaskData => ({

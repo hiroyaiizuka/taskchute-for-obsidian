@@ -1,9 +1,9 @@
-import { TaskChuteView } from "../views/TaskChuteView"
+import { TaskChuteView } from "../features/core/views/TaskChuteView"
 import { TaskChuteSettingTab } from "../settings"
 import { VIEW_TYPE_TASKCHUTE, type TaskChutePlugin } from "../types"
 import { TaskChuteViewController } from "./taskchute/TaskChuteViewController"
 import { createCommandRegistrar } from "../commands/registerTaskCommands"
-import type { CommandRegistrar } from "../commands/types"
+import type { CommandRegistrar } from "../types/Commands"
 import { RibbonManager } from "./ribbon/RibbonManager"
 import { LocaleCoordinator } from "./locale/LocaleCoordinator"
 import { ensureRequiredFolders, initializeServices } from "./serviceFactory"
@@ -81,7 +81,7 @@ export async function prepareSettings(
 export async function bootstrapPlugin(
   plugin: TaskChutePlugin,
 ): Promise<PluginContext> {
-  const { pathManager, dayStateService, routineAliasManager } =
+  const { pathManager, dayStateService, routineAliasService } =
     await initializeServices(plugin)
 
   await ensureRequiredFolders(pathManager)
@@ -119,7 +119,7 @@ export async function bootstrapPlugin(
   const context = createPluginContext({
     pathManager,
     dayStateService,
-    routineAliasManager,
+    routineAliasService,
     viewController,
     commandRegistrar,
     ribbonManager,

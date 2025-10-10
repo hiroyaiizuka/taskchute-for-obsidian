@@ -1,4 +1,4 @@
-import { RoutineService } from '../../src/services/RoutineService';
+import { RoutineService } from '../../src/features/routine/services/RoutineService';
 
 describe('RoutineService.isDue', () => {
   test('daily routine respects interval and start date', () => {

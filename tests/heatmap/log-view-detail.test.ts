@@ -1,5 +1,5 @@
 import { initializeLocaleManager } from '../../src/i18n'
-import { LogView } from '../../src/views/LogView'
+import { LogView } from '../../src/features/log/views/LogView'
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../src/types'
 
 type TestVault = {

@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian'
 import TaskCompletionController, { TaskCompletionControllerHost } from '../../../src/ui/task/TaskCompletionController'
 import type { TaskInstance } from '../../../src/types'
-import { ProjectNoteSyncManager } from '../../../src/managers/ProjectNoteSyncManager'
+import { ProjectNoteSyncService } from '../../../src/features/project/services/ProjectNoteSyncService'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -16,9 +16,9 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/managers/ProjectNoteSyncManager', () => {
+jest.mock('../../../src/features/project/services/ProjectNoteSyncService', () => {
   return {
-    ProjectNoteSyncManager: jest.fn().mockImplementation(() => ({
+    ProjectNoteSyncService: jest.fn().mockImplementation(() => ({
       getProjectNotePath: jest.fn().mockResolvedValue('Projects/Note.md'),
       updateProjectNote: jest.fn().mockResolvedValue(undefined),
     })),
@@ -176,7 +176,7 @@ describe('TaskCompletionController', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await Promise.resolve()
     expect(host.renderTaskList).toHaveBeenCalled()
-    const SyncMock = ProjectNoteSyncManager as unknown as jest.Mock
+    const SyncMock = ProjectNoteSyncService as unknown as jest.Mock
     const syncInstance = SyncMock.mock.instances.at(-1)
     if (syncInstance && syncInstance.updateProjectNote) {
       expect(syncInstance.updateProjectNote).toHaveBeenCalled()

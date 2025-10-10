@@ -1,6 +1,6 @@
 import { TaskChutePluginLike, DayState } from '../../src/types';
 import { Notice, WorkspaceLeaf } from 'obsidian';
-import { TaskChuteView } from '../../src/views/TaskChuteView';
+import { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
 
 // モック設定
 jest.mock('obsidian');
@@ -73,7 +73,7 @@ describe('Navigate to today (showTodayTasks)', () => {
         } as DayState)),
         saveDay: jest.fn(),
       },
-      routineAliasManager: {
+      routineAliasService: {
         getRouteNameFromAlias: jest.fn((name: string) => name),
         loadAliases: jest.fn().mockResolvedValue({}),
       },

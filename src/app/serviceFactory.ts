@@ -1,34 +1,34 @@
 import { Notice } from "obsidian";
 
 import { t } from "../i18n";
-import { PathManager } from "../managers/PathManager";
-import { RoutineAliasManager } from "../managers/RoutineAliasManager";
-import DayStateService from "../services/DayStateService";
+import { PathService } from "../services/PathService";
+import { RoutineAliasService } from "../features/routine/services/RoutineAliasService";
+import DayStatePersistenceService from "../services/DayStatePersistenceService";
 
 import type { TaskChutePlugin } from "../types";
 
 export interface InitializedServices {
-  pathManager: PathManager;
-  dayStateService: DayStateService;
-  routineAliasManager: RoutineAliasManager;
+  pathManager: PathService;
+  dayStateService: DayStatePersistenceService;
+  routineAliasService: RoutineAliasService;
 }
 
 export async function initializeServices(plugin: TaskChutePlugin): Promise<InitializedServices> {
-  const pathManager = new PathManager(plugin);
-  // RoutineAliasManager expects plugin.pathManager to exist when loading aliases
+  const pathManager = new PathService(plugin);
+  // RoutineAliasService expects plugin.pathManager to exist when loading aliases
   plugin.pathManager = pathManager;
-  const dayStateService = new DayStateService(plugin);
-  const routineAliasManager = new RoutineAliasManager(plugin);
-  await routineAliasManager.loadAliases();
+  const dayStateService = new DayStatePersistenceService(plugin);
+  const routineAliasService = new RoutineAliasService(plugin);
+  await routineAliasService.loadAliases();
 
   return {
     pathManager,
     dayStateService,
-    routineAliasManager,
+    routineAliasService,
   };
 }
 
-export async function ensureRequiredFolders(pathManager: PathManager): Promise<void> {
+export async function ensureRequiredFolders(pathManager: PathService): Promise<void> {
   const targets: Array<{
     labelKey: string;
     fallback: string;

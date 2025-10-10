@@ -1,6 +1,6 @@
-import TaskExecutionService from '../../src/services/TaskExecutionService'
-import { HeatmapService } from '../../src/services/HeatmapService'
-import type { TaskExecutionHost } from '../../src/services/TaskExecutionService'
+import TaskExecutionService from '../../src/features/core/services/TaskExecutionService'
+import { HeatmapService } from '../../src/features/log/services/HeatmapService'
+import type { TaskExecutionHost } from '../../src/features/core/services/TaskExecutionService'
 import type { TaskInstance, TaskChutePluginLike } from '../../src/types'
 
 describe('TaskExecutionService', () => {

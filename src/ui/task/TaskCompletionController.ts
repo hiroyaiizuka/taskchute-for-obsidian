@@ -1,8 +1,8 @@
 import { Notice, TFile, App } from 'obsidian'
 import { t } from '../../i18n'
-import { ProjectNoteSyncManager } from '../../managers/ProjectNoteSyncManager'
+import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '../../types'
-import type { TaskLogEntry, TaskLogSnapshot } from '../../types/execution-log'
+import type { TaskLogEntry, TaskLogSnapshot } from '../../types/ExecutionLog'
 import { parseTaskLogSnapshot } from '../../utils/executionLogUtils'
 
 export interface TaskCompletionControllerHost {
@@ -332,7 +332,7 @@ export default class TaskCompletionController {
 
   private async syncCommentToProject(inst: TaskInstance, executionComment: string): Promise<void> {
     try {
-      const syncManager = new ProjectNoteSyncManager(
+      const syncManager = new ProjectNoteSyncService(
         this.host.app as unknown as App,
         this.host.plugin.pathManager as unknown as PathManagerLike,
       )

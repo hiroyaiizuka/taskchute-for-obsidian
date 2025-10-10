@@ -1,7 +1,7 @@
 import { Notice, TFile } from 'obsidian'
-import TaskMutationService, { TaskMutationHost } from '../../src/services/TaskMutationService'
+import TaskMutationService, { TaskMutationHost } from '../../src/features/core/services/TaskMutationService'
 import { TaskInstance, TaskData, HiddenRoutine, DeletedInstance } from '../../src/types'
-import type DayStateManager from '../../src/services/DayStateManager'
+import type DayStateStoreService from '../../src/services/DayStateStoreService'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -110,7 +110,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
       setDeleted: jest.fn((entries: DeletedInstance[]) => {
         dayState.deletedInstances = entries
       }),
-    } as unknown as DayStateManager,
+    } as unknown as DayStateStoreService,
     persistSlotAssignment: jest.fn(),
     tasks,
     taskInstances,

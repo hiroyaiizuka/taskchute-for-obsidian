@@ -1,4 +1,4 @@
-import { ReviewService } from '../../services/ReviewService'
+import { ReviewService } from '../../features/review/services/ReviewService'
 import type { WorkspaceLeaf, TFile } from 'obsidian'
 import type { TaskChutePluginLike } from '../../types'
 

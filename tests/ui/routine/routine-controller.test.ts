@@ -2,8 +2,8 @@ import type { App } from 'obsidian'
 import { Notice, TFile } from 'obsidian'
 import RoutineController, {
   RoutineControllerHost,
-} from '../../../src/ui/routine/RoutineController'
-import type { RoutineTaskShape } from '../../../src/types/routine'
+} from '../../../src/features/routine/controllers/RoutineController'
+import type { RoutineTaskShape } from '../../../src/types/Routine'
 import type { TaskChutePluginLike } from '../../../src/types'
 
 describe('RoutineController', () => {

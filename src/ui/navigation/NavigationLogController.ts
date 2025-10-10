@@ -1,6 +1,6 @@
 import type { WorkspaceLeaf } from 'obsidian'
 import type { TaskChutePluginLike } from '../../types'
-import { LogView } from '../../views/LogView'
+import { LogView } from '../../features/log/views/LogView'
 
 const OVERLAY_CLASS = 'taskchute-log-modal-overlay'
 const CONTAINER_CLASS = 'taskchute-log-modal-content'

@@ -2,7 +2,7 @@ import { Notice, App } from "obsidian"
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
 import { TaskNameAutocomplete } from "../components/TaskNameAutocomplete"
-import type { TaskCreationService } from "../../services/TaskCreationService"
+import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
 import type { TaskChutePluginLike, TaskNameValidator } from "../../types"
 
 export interface TaskCreationControllerHost {

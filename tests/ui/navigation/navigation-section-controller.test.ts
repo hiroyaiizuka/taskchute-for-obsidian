@@ -1,7 +1,7 @@
 import NavigationSectionController, { NavigationSectionHost } from '../../../src/ui/navigation/NavigationSectionController'
-import RoutineManagerModal from '../../../src/routine/modals/RoutineManagerModal'
-import { ReviewService } from '../../../src/services/ReviewService'
-import { LogView } from '../../../src/views/LogView'
+import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal'
+import { ReviewService } from '../../../src/features/review/services/ReviewService'
+import { LogView } from '../../../src/features/log/views/LogView'
 import NavigationSettingsController from '../../../src/ui/navigation/NavigationSettingsController'
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
@@ -15,8 +15,8 @@ jest.mock('obsidian', () => {
 
 type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
-jest.mock('../../../src/routine/modals/RoutineManagerModal')
-jest.mock('../../../src/services/ReviewService', () => {
+jest.mock('../../../src/features/routine/modals/RoutineManagerModal')
+jest.mock('../../../src/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
   return {
@@ -26,7 +26,7 @@ jest.mock('../../../src/services/ReviewService', () => {
     })),
   }
 })
-jest.mock('../../../src/views/LogView', () => {
+jest.mock('../../../src/features/log/views/LogView', () => {
   return {
     LogView: jest.fn().mockImplementation(() => ({
       render: jest.fn().mockResolvedValue(undefined),
@@ -159,7 +159,7 @@ describe('NavigationSectionController', () => {
           },
           workspace,
         },
-        routineAliasManager: {
+        routineAliasService: {
           loadAliases: jest.fn().mockResolvedValue({}),
         },
         dayStateService: {
