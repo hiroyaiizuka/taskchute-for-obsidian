@@ -1,6 +1,7 @@
-import { TFile } from 'obsidian';
-import type { TaskChutePluginLike } from '../types';
-import { TaskInstance } from '../types';
+import { TFile } from 'obsidian'
+import type { TaskChutePluginLike, TaskData } from '../types'
+import { TaskInstance } from '../types'
+import { getCurrentTimeSlot } from '../utils/time'
 
 export interface RunningTaskRecord {
   date: string;
@@ -77,5 +78,74 @@ export class RunningTasksService {
     } catch {
       return [];
     }
+  }
+
+  async restoreForDate(options: {
+    dateString: string
+    instances: TaskInstance[]
+    deletedPaths: string[]
+    findTaskByPath: (path: string) => TaskData | undefined
+    generateInstanceId: (task: TaskData) => string
+  }): Promise<TaskInstance[]> {
+    const { dateString, instances, deletedPaths, findTaskByPath, generateInstanceId } = options
+    const records = await this.loadForDate(dateString)
+    const restoredInstances: TaskInstance[] = []
+
+    for (const record of records) {
+      if (record.date !== dateString) continue
+      if (record.taskPath && deletedPaths.includes(record.taskPath)) continue
+
+      let runningInstance = instances.find((inst) => inst.instanceId === record.instanceId)
+      if (!runningInstance) {
+        runningInstance = instances.find(
+          (inst) => inst.task.path === record.taskPath && inst.state === 'idle',
+        )
+      }
+
+      if (runningInstance) {
+        try {
+          const desiredSlot = record.slotKey || getCurrentTimeSlot(new Date())
+          if (runningInstance.slotKey !== desiredSlot) {
+            if (!runningInstance.originalSlotKey) {
+              runningInstance.originalSlotKey = runningInstance.slotKey
+            }
+            runningInstance.slotKey = desiredSlot
+          }
+        } catch {
+          /* ignore slot errors */
+        }
+
+        runningInstance.state = 'running'
+        runningInstance.startTime = new Date(record.startTime)
+        runningInstance.stopTime = undefined
+        if (record.instanceId && runningInstance.instanceId !== record.instanceId) {
+          runningInstance.instanceId = record.instanceId
+        }
+        if (!runningInstance.originalSlotKey && record.originalSlotKey) {
+          runningInstance.originalSlotKey = record.originalSlotKey
+        }
+        if (!restoredInstances.includes(runningInstance)) {
+          restoredInstances.push(runningInstance)
+        }
+        continue
+      }
+
+      const taskData = record.taskPath ? findTaskByPath(record.taskPath) : undefined
+      if (!taskData) continue
+
+      const recreated: TaskInstance = {
+        task: taskData,
+        instanceId: record.instanceId || generateInstanceId(taskData),
+        state: 'running',
+        slotKey: record.slotKey || getCurrentTimeSlot(new Date()),
+        originalSlotKey: record.originalSlotKey,
+        startTime: new Date(record.startTime),
+        stopTime: undefined,
+      }
+      instances.push(recreated)
+      restoredInstances.push(recreated)
+    }
+
+    return restoredInstances
   }
 }

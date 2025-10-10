@@ -1,7 +1,7 @@
 import { createCommandRegistrar } from '../../src/commands/registerTaskCommands';
 import type { CommandRegistrar, CommandHost } from '../../src/commands/types';
 import type { App, Command } from 'obsidian';
-import type { TaskChuteViewController } from '../../src/views/controllers/TaskChuteViewController';
+import type { TaskChuteViewController } from '../../src/app/taskchute/TaskChuteViewController';
 import { initializeLocaleManager } from '../../src/i18n';
 
 describe('CommandRegistrar', () => {

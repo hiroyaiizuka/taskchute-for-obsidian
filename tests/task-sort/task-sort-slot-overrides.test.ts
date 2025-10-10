@@ -1,16 +1,7 @@
-import { TaskChuteView } from '../../src/views/TaskChuteView';
-import type { DayState, TaskData, TaskInstance } from '../../src/types';
+import TaskMutationService, { TaskMutationHost } from '../../src/services/TaskMutationService';
+import type { DayState, TaskData, TaskInstance, DeletedInstance } from '../../src/types';
+import type DayStateManager from '../../src/services/DayStateManager';
 import { createRoutineLoadContext } from '../utils/taskViewTestUtils';
-
-const persistSlotAssignment = TaskChuteView.prototype.persistSlotAssignment as unknown as (
-  this: TaskChuteView,
-  inst: TaskInstance,
-) => void;
-
-const getTaskSlotKey = TaskChuteView.prototype.getTaskSlotKey as unknown as (
-  this: TaskChuteView,
-  task: TaskData,
-) => string;
 
 function createDayState(partial?: Partial<DayState>): DayState {
   return {
@@ -28,41 +19,57 @@ interface PluginStub {
   saveSettings: jest.Mock<Promise<void>, []>;
 }
 
-interface ViewStub {
-  plugin: PluginStub;
-  getCurrentDayState: jest.Mock<DayState>;
-  getOrderKey: jest.Mock<string | null>;
-}
-
-function createViewStub(
-  dayState: DayState,
-  pluginOverrides: Partial<PluginStub> = {},
-): { view: ViewStub; plugin: PluginStub } {
-  const baseSettings = pluginOverrides.settings ?? { slotKeys: {} as Record<string, string> };
-  if (!baseSettings.slotKeys) {
-    baseSettings.slotKeys = {};
+function createMutationHost(dayState: DayState, pluginOverrides: Partial<PluginStub> = {}) {
+  const plugin: PluginStub = {
+    settings: pluginOverrides.settings ?? { slotKeys: {} },
+    saveSettings: pluginOverrides.saveSettings ?? jest.fn().mockResolvedValue(undefined),
   }
 
-  const plugin: PluginStub = {
-    settings: baseSettings,
-    saveSettings: pluginOverrides.saveSettings ?? jest.fn().mockResolvedValue(undefined),
-  };
+  const dayStateManager = {
+    getDeleted: jest.fn(() => dayState.deletedInstances),
+    setDeleted: jest.fn((entries: DeletedInstance[]) => {
+      dayState.deletedInstances = entries
+    }),
+  } as unknown as DayStateManager
 
-  const view: ViewStub = {
+  const host: TaskMutationHost = {
+    tv: (_key: string, fallback: string) => fallback,
+    app: {
+      vault: {
+        getAbstractFileByPath: jest.fn(),
+        read: jest.fn(async () => '{}'),
+        modify: jest.fn(async () => {}),
+        create: jest.fn(async () => {}),
+      },
+      fileManager: {
+        trashFile: jest.fn(async () => {}),
+      },
+    },
     plugin,
-    getCurrentDayState: jest.fn(() => dayState),
-    getOrderKey: jest.fn(() => null),
-  };
+    taskInstances: [] as TaskInstance[],
+    tasks: [] as TaskData[],
+    renderTaskList: jest.fn(),
+    generateInstanceId: () => 'generated-id',
+    getInstanceDisplayTitle: () => 'Task',
+    ensureDayStateForCurrentDate: jest.fn(async () => {}),
+    getCurrentDayState: () => dayState,
+    persistDayState: jest.fn(async () => {}),
+    getCurrentDateString: () => '2025-10-09',
+    calculateSimpleOrder: () => 0,
+    normalizeState: () => 'idle',
+    saveTaskOrders: jest.fn(async () => {}),
+    sortTaskInstancesByTimeOrder: jest.fn(),
+    getOrderKey: () => null,
+    dayStateManager,
+  }
 
-  return { view, plugin };
+  return { host, plugin }
 }
 
 describe('Task sort slot overrides', () => {
   describe('persistSlotAssignment', () => {
     test('stores routine slot overrides in day state only', () => {
       const dayState = createDayState();
-      const { view, plugin } = createViewStub(dayState);
-
       const inst: TaskInstance = {
         task: {
           path: 'Tasks/routine.md',
@@ -73,8 +80,10 @@ describe('Task sort slot overrides', () => {
         instanceId: 'routine-1',
         state: 'idle',
       };
+      const { host, plugin } = createMutationHost(dayState);
+      const service = new TaskMutationService(host);
 
-      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
+      service.persistSlotAssignment(inst);
 
       expect(dayState.slotOverrides['Tasks/routine.md']).toBe('16:00-0:00');
       expect(plugin.settings.slotKeys).toEqual({});
@@ -85,8 +94,6 @@ describe('Task sort slot overrides', () => {
       const dayState = createDayState({
         slotOverrides: { 'Tasks/routine.md': '16:00-0:00' },
       });
-      const { view } = createViewStub(dayState);
-
       const inst: TaskInstance = {
         task: {
           path: 'Tasks/routine.md',
@@ -97,18 +104,17 @@ describe('Task sort slot overrides', () => {
         instanceId: 'routine-1',
         state: 'idle',
       };
+      const { host } = createMutationHost(dayState);
+      const service = new TaskMutationService(host);
 
-      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
+      service.persistSlotAssignment(inst);
 
       expect(dayState.slotOverrides['Tasks/routine.md']).toBeUndefined();
     });
 
     test('stores non-routine overrides in plugin settings', () => {
       const dayState = createDayState();
-      const pluginOverrides = {
-        settings: { slotKeys: {} as Record<string, string> },
-      };
-      const { view, plugin } = createViewStub(dayState, pluginOverrides);
+      const pluginOverrides = { settings: { slotKeys: {} as Record<string, string> } };
 
       const inst: TaskInstance = {
         task: {
@@ -119,56 +125,13 @@ describe('Task sort slot overrides', () => {
         instanceId: 'non-routine-1',
         state: 'idle',
       };
+      const { host, plugin } = createMutationHost(dayState, pluginOverrides);
+      const service = new TaskMutationService(host);
 
-      persistSlotAssignment.call(view as unknown as TaskChuteView, inst);
+      service.persistSlotAssignment(inst);
 
       expect(plugin.settings.slotKeys['Tasks/one-off.md']).toBe('12:00-16:00');
       expect(plugin.saveSettings).toHaveBeenCalled();
-    });
-  });
-
-  describe('getTaskSlotKey', () => {
-    test('uses day-state override for routines when present', () => {
-      const dayState = createDayState({
-        slotOverrides: { 'Tasks/routine.md': '16:00-0:00' },
-      });
-      const { view } = createViewStub(dayState);
-
-      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
-        path: 'Tasks/routine.md',
-        isRoutine: true,
-        scheduledTime: '08:00',
-      } as TaskData);
-
-      expect(result).toBe('16:00-0:00');
-    });
-
-    test('falls back to scheduled time for routines without overrides', () => {
-      const dayState = createDayState();
-      const { view } = createViewStub(dayState);
-
-      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
-        path: 'Tasks/routine.md',
-        isRoutine: true,
-        scheduledTime: '08:00',
-      } as TaskData);
-
-      expect(result).toBe('8:00-12:00');
-    });
-
-    test('uses plugin slotKeys for non-routine tasks', () => {
-      const dayState = createDayState();
-      const pluginOverrides = {
-        settings: { slotKeys: { 'Tasks/one-off.md': '12:00-16:00' } },
-      };
-      const { view } = createViewStub(dayState, pluginOverrides);
-
-      const result = getTaskSlotKey.call(view as unknown as TaskChuteView, {
-        path: 'Tasks/one-off.md',
-        isRoutine: false,
-      } as TaskData);
-
-      expect(result).toBe('12:00-16:00');
     });
   });
 

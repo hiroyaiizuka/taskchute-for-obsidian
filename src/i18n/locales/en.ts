@@ -198,6 +198,7 @@ export const en = {
       routineDetachFailed: "Failed to remove from routine",
       runningTaskSaveFailed: "[TaskChute] Failed to save running task:",
       runningTaskRestoreFailed: "[TaskChute] Failed to restore running task:",
+      taskOrderSaveFailed: "Failed to save task order",
       taskNotSelected: "No task selected",
       cannotPlaceAboveCompleted: "Cannot place above running or completed tasks",
       taskMoveSuccess: "Moved task to {date}",
@@ -215,6 +216,7 @@ export const en = {
       taskRemovedFromToday: 'Removed task from today.',
       taskRemovedFromTodayWithTitle: 'Removed "{title}" from today.',
       taskMoveCleared: 'Cleared destination for "{title}"',
+      routineDetached: "Detached from routine",
     },
     tooltips: {
       dragToMove: "Drag to move",
@@ -293,6 +295,7 @@ export const en = {
       lastWeek: "Last",
       weekdaySuffix: " weekday",
       scheduledTimeLabel: "Scheduled start time:",
+      stopTimeLabel: "Stop time:",
       scheduledTimeModalTitle: "Set scheduled start time",
       scheduledTimePlaceholder: "Enter a scheduled start time",
       startTimeRequired: "Scheduled start time is required",

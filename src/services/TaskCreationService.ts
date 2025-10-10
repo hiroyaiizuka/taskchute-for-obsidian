@@ -71,7 +71,7 @@ export class TaskCreationService {
 
     const file = await this.plugin.app.vault.create(filePath, content)
     new Notice(
-      t('taskChuteView.notices.taskCreated', 'Created task "{name}"', {
+      t('notices.taskCreated', 'Created task "{name}"', {
         name: taskName,
       }),
     )

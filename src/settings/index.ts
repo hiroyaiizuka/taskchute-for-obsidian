@@ -1,4 +1,4 @@
-import { TaskChuteSettings } from './types';
+import { TaskChuteSettings } from '../types';
 
 export const DEFAULT_SETTINGS: TaskChuteSettings = {
   // New storage model defaults
@@ -23,3 +23,5 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   languageOverride: 'auto',
   aiRobotButtonEnabled: false,
 };
+
+export { TaskChuteSettingTab } from './SettingsTab';

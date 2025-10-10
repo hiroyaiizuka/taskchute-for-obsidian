@@ -199,6 +199,7 @@ export const ja = {
       routineDetachFailed: "ルーチンを外しました",
       runningTaskSaveFailed: "[TaskChute] 実行中タスクの保存に失敗:",
       runningTaskRestoreFailed: "[TaskChute] 実行中タスクの復元に失敗:",
+      taskOrderSaveFailed: "タスクの並び順を保存できませんでした",
       taskNotSelected: "タスクが選択されていません",
       cannotPlaceAboveCompleted: "完了済み・実行中タスクより上には配置できません",
       taskMoveSuccess: "タスクを{date}に移動しました",
@@ -216,6 +217,7 @@ export const ja = {
       taskRemovedFromToday: "タスクを本日のリストから削除しました。",
       taskRemovedFromTodayWithTitle: "「{title}」を本日のリストから削除しました。",
       taskMoveCleared: "タスク「{title}」の移動先を解除しました",
+      routineDetached: "ルーチンを外しました",
     },
     tooltips: {
       dragToMove: "ドラッグして移動",
@@ -294,6 +296,7 @@ export const ja = {
       lastWeek: "最終",
       weekdaySuffix: "曜日",
       scheduledTimeLabel: "開始予定時刻:",
+      stopTimeLabel: "終了予定時刻:",
       scheduledTimeModalTitle: "開始時刻を設定",
       scheduledTimePlaceholder: "開始予定時刻を入力してください",
       startTimeRequired: "開始予定時刻は必須です",

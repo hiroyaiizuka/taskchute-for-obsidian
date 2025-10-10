@@ -16,7 +16,7 @@ function createTFile(path: string) {
   return file;
 }
 
-function createPluginStub() {
+function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
   const store = new Map<string, StoredLogFile>();
 
   const pathManager = {
@@ -53,6 +53,11 @@ function createPluginStub() {
       store.set(file.path, parsed);
     }),
   };
+  if (!options.disableGetFiles) {
+    (vault as { getFiles?: () => TFile[] }).getFiles = jest.fn(() =>
+      Array.from(store.keys()).map((path) => createTFile(path)),
+    );
+  }
 
   const plugin: TaskChutePluginLike = {
     app: { vault },
@@ -131,5 +136,156 @@ describe('ExecutionLogService.saveTaskLog', () => {
     expect(data.dailySummary['2025-09-24'].completedTasks).toBe(2);
     expect(data.dailySummary['2025-09-24'].totalTasks).toBe(5);
     expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(3);
+  });
+
+  test('overwrites existing entry when same instance id is logged again', async () => {
+    const { plugin, store } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    const base = createInstance();
+    await service.saveTaskLog(base, 3600);
+
+    const logPath = 'LOGS/2025-09-tasks.json';
+    let data = store.get(logPath)!;
+    expect(data.taskExecutions['2025-09-24']).toHaveLength(1);
+    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
+      expect.objectContaining({ instanceId: 'inst-1', slotKey: '8:00-12:00' }),
+    );
+
+    const updated = createInstance({
+      instanceId: 'inst-1',
+      slotKey: '12:00-16:00',
+      startTime: new Date('2025-09-24T12:00:00'),
+      stopTime: new Date('2025-09-24T13:00:00'),
+    });
+    await service.saveTaskLog(updated, 3600);
+
+    data = store.get(logPath)!;
+    expect(data.taskExecutions['2025-09-24']).toHaveLength(1);
+    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
+      expect.objectContaining({ instanceId: 'inst-1', slotKey: '12:00-16:00' }),
+    );
+    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
+  });
+});
+
+describe('ExecutionLogService.hasExecutionHistory', () => {
+  test('returns true when any log entry matches path using getFiles', async () => {
+    const { plugin, store, vault } = createPluginStub();
+    store.set('LOGS/2025-10-tasks.json', {
+      taskExecutions: {
+        '2025-10-09': [
+          { taskPath: 'Tasks/sample.md' },
+          { taskPath: 'Tasks/other.md' },
+        ],
+      },
+      dailySummary: {},
+    });
+    const service = new ExecutionLogService(plugin);
+
+    const result = await service.hasExecutionHistory('Tasks/sample.md');
+
+    expect(result).toBe(true);
+    expect(vault.getFiles).toHaveBeenCalled();
+    expect(vault.read).toHaveBeenCalled();
+  });
+
+  test('falls back to month probing when getFiles unavailable', async () => {
+    const { plugin, store, vault } = createPluginStub({ disableGetFiles: true });
+    store.set('LOGS/2025-08-tasks.json', {
+      taskExecutions: {
+        '2025-08-12': [{ taskPath: 'Tasks/history.md' }],
+      },
+      dailySummary: {},
+    });
+    const service = new ExecutionLogService(plugin);
+
+    const result = await service.hasExecutionHistory('Tasks/history.md');
+
+    expect(result).toBe(true);
+    expect(vault.getAbstractFileByPath).toHaveBeenCalledWith('LOGS/2025-08-tasks.json');
+  });
+
+  test('returns false when no log entries exist for path', async () => {
+    const { plugin, store } = createPluginStub();
+    store.set('LOGS/2025-10-tasks.json', {
+      taskExecutions: {
+        '2025-10-09': [{ taskPath: 'Tasks/another.md' }],
+      },
+      dailySummary: {},
+    });
+    const service = new ExecutionLogService(plugin);
+
+    const result = await service.hasExecutionHistory('Tasks/missing.md');
+
+    expect(result).toBe(false);
+  });
+});
+
+describe('ExecutionLogService.updateDailySummaryTotals', () => {
+  test('creates snapshot when log file is missing', async () => {
+    const { plugin, store } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    await service.updateDailySummaryTotals('2025-10-09', 4);
+
+    const data = store.get('LOGS/2025-10-tasks.json');
+    expect(data).toBeDefined();
+    expect(data?.dailySummary['2025-10-09']).toEqual(
+      expect.objectContaining({
+        totalTasks: 4,
+        completedTasks: 0,
+        procrastinatedTasks: 4,
+        completionRate: 0,
+      }),
+    );
+    expect(data?.taskExecutions['2025-10-09']).toEqual([]);
+  });
+
+  test('recomputes summary metrics from existing executions', async () => {
+    const { plugin, store } = createPluginStub();
+    store.set('LOGS/2025-09-tasks.json', {
+      taskExecutions: {
+        '2025-09-24': [
+      {
+        instanceId: 'inst-1',
+        durationSec: 1800,
+        stopTime: '09:30',
+        isCompleted: true,
+      },
+      {
+        instanceId: 'inst-2',
+        durationSec: 600,
+        stopTime: '',
+        isCompleted: false,
+      },
+        ],
+      },
+      dailySummary: {
+        '2025-09-24': {
+          totalMinutes: 999,
+          totalTasks: 2,
+          completedTasks: 1,
+          procrastinatedTasks: 1,
+          completionRate: 0.5,
+        },
+      },
+    });
+    const service = new ExecutionLogService(plugin);
+
+    await service.updateDailySummaryTotals('2025-09-24', 6);
+
+    const data = store.get('LOGS/2025-09-tasks.json');
+    expect(data).toBeDefined();
+    const summary = data?.dailySummary['2025-09-24'];
+    expect(summary).toEqual(
+      expect.objectContaining({
+        totalTasks: 6,
+        completedTasks: 1,
+        procrastinatedTasks: 5,
+        completionRate: 1 / 6,
+        totalMinutes: 40,
+      }),
+    );
   });
 });

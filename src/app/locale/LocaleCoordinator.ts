@@ -3,7 +3,7 @@ import type { LanguageOverride } from "../../i18n";
 
 import type { CommandRegistrar } from "../../commands/types";
 import type { RibbonController } from "../context/PluginContext";
-import { TaskChuteViewController } from "../../views/controllers/TaskChuteViewController";
+import { TaskChuteViewController } from "../taskchute/TaskChuteViewController";
 
 interface LocaleCoordinatorDeps {
   commandRegistrar: CommandRegistrar;

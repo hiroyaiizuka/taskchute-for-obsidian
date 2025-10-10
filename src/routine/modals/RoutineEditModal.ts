@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { t } from '../../i18n';
@@ -202,8 +201,8 @@ export default class RoutineEditModal extends Modal {
 
     const updateVisibility = () => {
       const selected = this.normalizeRoutineType(typeSelect.value);
-      weeklyGroup.toggleClass('is-hidden', selected !== 'weekly');
-      monthlyGroup.toggleClass('is-hidden', selected !== 'monthly');
+      weeklyGroup.classList.toggle('is-hidden', selected !== 'weekly');
+      monthlyGroup.classList.toggle('is-hidden', selected !== 'monthly');
     };
     updateVisibility();
     typeSelect.addEventListener('change', updateVisibility);
@@ -247,9 +246,19 @@ export default class RoutineEditModal extends Modal {
       if (routineType === 'weekly' && weeklyDays.length === 0) {
         errors.push(this.tv('errors.weeklyRequiresDay', 'Select at least one weekday.'));
       } else if (routineType === 'monthly') {
-        monthlyWeek = weekSelect.value === 'last' ? 'last' : Number.parseInt(weekSelect.value, 10);
-        monthlyWeekday = Number.parseInt(monthWeekdaySelect.value, 10);
-        if (!monthlyWeek || Number.isNaN(monthlyWeekday)) {
+        if (weekSelect.value === 'last') {
+          monthlyWeek = 'last';
+        } else {
+          const parsedWeek = Number.parseInt(weekSelect.value, 10);
+          if (!Number.isNaN(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 5) {
+            monthlyWeek = parsedWeek as RoutineWeek;
+          }
+        }
+        const parsedWeekday = Number.parseInt(monthWeekdaySelect.value, 10);
+        if (!Number.isNaN(parsedWeekday) && parsedWeekday >= 0 && parsedWeekday <= 6) {
+          monthlyWeekday = parsedWeekday;
+        }
+        if (monthlyWeek === undefined || monthlyWeekday === undefined) {
           errors.push(this.tv('errors.monthlyRequiresSelection', 'Choose an "Nth + weekday" combination.'));
         }
       }
@@ -339,7 +348,10 @@ export default class RoutineEditModal extends Modal {
     if (raw && typeof raw === 'object') {
       return { ...(raw as RoutineFrontmatter) };
     }
-    return {};
+    return {
+      isRoutine: true,
+      name: this.file.basename ?? 'untitled',
+    } as RoutineFrontmatter;
   }
 
   private normalizeRoutineType(type: unknown): RoutineType {

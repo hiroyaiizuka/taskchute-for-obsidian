@@ -2,7 +2,7 @@ import type { TaskChutePlugin } from "../../types";
 import type { PathManager } from "../../managers/PathManager";
 import type { RoutineAliasManager } from "../../managers/RoutineAliasManager";
 import type DayStateService from "../../services/DayStateService";
-import type { TaskChuteViewController } from "../../views/controllers/TaskChuteViewController";
+import type { TaskChuteViewController } from "../taskchute/TaskChuteViewController";
 import type { CommandRegistrar } from "../../commands/types";
 
 export interface RibbonController {

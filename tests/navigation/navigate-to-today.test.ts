@@ -203,10 +203,14 @@ describe('Navigate to today (showTodayTasks)', () => {
       view['renderTaskList'] = jest.fn();
 
       // checkBoundaryTasksをモック
-      view['checkBoundaryTasks'] = jest.fn();
+      jest
+        .spyOn(view.taskReloadCoordinator, 'checkBoundaryTasks')
+        .mockResolvedValue(undefined);
 
       // scheduleBoundaryCheckをモック
-      view['scheduleBoundaryCheck'] = jest.fn();
+      jest
+        .spyOn(view.taskReloadCoordinator, 'scheduleBoundaryCheck')
+        .mockImplementation(() => {});
 
       // updateDateLabelをモック
       view['updateDateLabel'] = jest.fn();
