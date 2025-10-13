@@ -22,6 +22,8 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   slotKeys: {},
   languageOverride: 'auto',
   aiRobotButtonEnabled: false,
+  reviewTemplatePath: null,
+  reviewFileNamePattern: 'Daily - {{date}}.md',
 };
 
 export { TaskChuteSettingTab } from './SettingsTab';

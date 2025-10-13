@@ -12,7 +12,7 @@ export const en = {
     delete: "Delete",
   },
   settings: {
-    heading: "Paths",
+    heading: "TaskChute file paths",
     storage: {
       baseLocationName: "Default storage location",
       baseLocationDesc: "Save Task/Log/Review under the selected base.",
@@ -26,8 +26,23 @@ export const en = {
       projectsFolderDesc: "Folder for project notes (optional).",
       previewName: "Resolved paths",
     },
+    reviewTemplate: {
+      heading: "Review",
+      prefixName: "File name prefix",
+      prefixDesc: "Example: Daily - ",
+      pathName: "Template file",
+      pathDesc: "Path to the markdown file used as the review template.",
+      pick: "Select file from vault",
+      suggestPlaceholder: "Type to search review template files",
+    },
+    features: {
+      heading: "External tools",
+      robotButton: "Show Terminal button",
+      robotButtonDesc:
+        "Enable AI integration via Terminal (requires Terminal plugin).",
+    },
     projectCandidates: {
-      heading: "Project candidates",
+      heading: "Projects",
       enable: "Use filters",
       enableDesc: "Filter project candidates by prefixes, tags, etc.",
       matchMode: "Match mode",
@@ -77,6 +92,7 @@ export const en = {
     },
     validation: {
       invalidPath: "Invalid path",
+      missingDateToken: "Pattern must include {{date}}",
     },
     openFailed: "Unable to open TaskChute settings",
   },
@@ -89,11 +105,6 @@ export const en = {
       absoluteNotAllowed: "Absolute paths are not allowed",
       parentSegmentNotAllowed: "Paths cannot include '..'",
       invalidCharacters: "Paths cannot contain special characters",
-    },
-    features: {
-      heading: "External tools",
-      robotButton: "Show Terminal button",
-      robotButtonDesc: "Enable AI integration via Terminal (requires Terminal plugin).",
     },
   },
   commands: {
@@ -116,6 +127,8 @@ export const en = {
     routineEnabled: "Routine enabled",
     routineDisabled: "Routine disabled",
     projectFolderUnset: "Project files location is not set. Open settings to choose a folder.",
+    reviewTemplateMissing: "Review template file was not found: {path}",
+    reviewTemplateReadFailed: "Failed to read review template: {message}",
   },
   taskChuteView: {
     header: {

@@ -2920,6 +2920,21 @@ select.form-input {
   z-index: 1000;
 }
 
+.taskchute-settings-divider {
+  margin: var(--size-4-4) 0 var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-settings-pane .setting-item.setting-item-heading .setting-item-name {
+  font-size: var(--font-ui-large, 1.25rem);
+  font-weight: 600;
+  margin-top: var(--size-4-3);
+}
+
+.taskchute-settings-pane .setting-item-description {
+  font-size: 0.75em;
+}
+
 .tooltip-header {
   display: flex;
   justify-content: flex-end;
