@@ -317,7 +317,7 @@ export const en = {
       startTimeUpdated: "Scheduled start time set to {time}",
       startTimeUpdateFailed: "Failed to update scheduled start time",
       startTimeRemovedHint: "Removing the scheduled start time resets the task to not started.",
-      startTimeInfo: "Set the scheduled start time. Leave empty to clear it.",
+      startTimeInfo: "Set the scheduled start time.\nLeave empty to clear it.",
       endTimeLabel: "End time:",
       endTimeResetHint: "Delete end time only: back to running\\nDelete both: back to not started",
       satisfactionQuestion: "How was this task?",

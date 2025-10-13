@@ -51,7 +51,7 @@ describe('ConfirmModal', () => {
       destructive: true,
     })
 
-    const confirmButton = document.querySelector('.taskchute-confirm-modal .taskchute-confirm-actions button.mod-cta')
+    const confirmButton = document.querySelector('.taskchute-confirm-modal .form-button.danger')
     expect(confirmButton).toBeTruthy()
     confirmButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
@@ -67,7 +67,7 @@ describe('ConfirmModal', () => {
       cancelText: 'Cancel',
     })
 
-    const cancelButton = document.querySelector('.taskchute-confirm-modal .taskchute-confirm-actions button.mod-cancel')
+    const cancelButton = document.querySelector('.taskchute-confirm-modal .form-button.cancel')
     expect(cancelButton).toBeTruthy()
     cancelButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 

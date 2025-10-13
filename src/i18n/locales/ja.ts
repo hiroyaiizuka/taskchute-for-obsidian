@@ -318,7 +318,7 @@ export const ja = {
       startTimeUpdated: "開始時刻を{time}に設定しました",
       startTimeUpdateFailed: "開始時刻の更新に失敗しました",
       startTimeRemovedHint: "開始予定時刻を削除すると、タスクは未実行状態に戻ります。",
-      startTimeInfo: "タスクの予定開始時刻を設定します。空欄にすると時刻設定が削除されます。",
+      startTimeInfo: "タスクの予定開始時刻を設定します。\n空欄にすると時刻設定が削除されます。",
       endTimeLabel: "終了時刻:",
       endTimeResetHint: "終了時刻のみ削除：実行中に戻ります\\n両方削除：未実行に戻ります",
       satisfactionQuestion: "今回のタスクはいかがでしたか？",
