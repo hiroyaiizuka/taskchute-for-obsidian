@@ -66,13 +66,9 @@ export default class ProjectSettingsModal extends Modal {
 
     const form = body.createEl('form', { cls: 'task-form project-settings-form' })
 
-    const selectGroup = form.createEl('div', { cls: 'form-group' })
-    selectGroup.createEl('label', {
-      text: this.tv('project.selectLabel', 'Select project:'),
-      cls: 'form-label',
-    })
-
+    const selectGroup = form.createEl('div', { cls: 'form-group project-select-group' })
     const projectSelect = selectGroup.createEl('select', { cls: 'form-input' }) as HTMLSelectElement
+    projectSelect.setAttr('aria-label', this.tv('project.selectLabel', 'Select project:'))
 
     // Remove/None option
     if (this.currentProjectPath) {

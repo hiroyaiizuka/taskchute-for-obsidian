@@ -59,9 +59,16 @@ export default class ScheduledTimeModal extends Modal {
       }
     })
 
-    contentEl.createEl('p', {
-      cls: 'modal-description',
-      text: host.tv('forms.startTimeInfo', 'Set the scheduled start time. Leave empty to clear it.'),
+    const descriptionText = host.tv(
+      'forms.startTimeInfo',
+      'Set the scheduled start time. Leave empty to clear it.',
+    )
+    const description = contentEl.createEl('p', { cls: 'modal-description' })
+    descriptionText.split('\n').forEach((line, index) => {
+      if (index > 0) {
+        description.createEl('br')
+      }
+      description.appendChild(document.createTextNode(line))
     })
 
     const footer = form.createEl('div', { cls: 'form-button-group' })

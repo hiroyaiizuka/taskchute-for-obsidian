@@ -9,6 +9,44 @@ export interface ConfirmModalOptions {
   description?: string
 }
 
+type CreateElOptions = {
+  cls?: string | string[]
+  text?: string
+  type?: string
+  attr?: Record<string, string>
+}
+
+const createElCompat = <K extends keyof HTMLElementTagNameMap>(
+  parent: HTMLElement,
+  tag: K,
+  options?: CreateElOptions,
+): HTMLElementTagNameMap[K] => {
+  const maybeCreateEl = (parent as HTMLElement & {
+    createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement
+  }).createEl
+  if (typeof maybeCreateEl === 'function') {
+    return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K]
+  }
+  const element = document.createElement(tag)
+  if (options?.cls) {
+    const classes = Array.isArray(options.cls) ? options.cls : [options.cls]
+    element.classList.add(...classes)
+  }
+  if (options?.text !== undefined) {
+    element.textContent = options.text
+  }
+  if (options?.type !== undefined && 'type' in element) {
+    ;(element as HTMLButtonElement).type = options.type
+  }
+  if (options?.attr) {
+    Object.entries(options.attr).forEach(([key, value]) => {
+      element.setAttribute(key, value)
+    })
+  }
+  parent.appendChild(element)
+  return element
+}
+
 class ConfirmModal extends Modal {
   private readonly resolve: (value: boolean) => void
   private readonly titleText: string
@@ -31,61 +69,67 @@ class ConfirmModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this
-    while (contentEl.firstChild) {
-      contentEl.removeChild(contentEl.firstChild)
+    if (typeof (contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
+      contentEl.empty()
+    } else {
+      while (contentEl.firstChild) {
+        contentEl.removeChild(contentEl.firstChild)
+      }
     }
     this.modalEl?.classList.add('taskchute-confirm-modal')
-    contentEl.classList.add('taskchute-confirm-content')
 
-    const header = document.createElement('div')
-    header.classList.add('taskchute-confirm-header')
-    const titleEl = document.createElement('h3')
-    titleEl.classList.add('taskchute-confirm-title')
-    titleEl.textContent = this.titleText
-    header.appendChild(titleEl)
-    contentEl.appendChild(header)
+    const header = createElCompat(contentEl, 'div', { cls: 'modal-header' })
+    createElCompat(header, 'h3', { text: this.titleText })
 
-    const messageEl = document.createElement('p')
-    messageEl.classList.add('taskchute-confirm-message')
-    messageEl.textContent = this.messageText
-    contentEl.appendChild(messageEl)
+    const messageEl = createElCompat(contentEl, 'p', { cls: 'modal-message' })
+    this.messageText.split('\n').forEach((line, index) => {
+      if (index > 0) {
+        createElCompat(messageEl, 'br')
+      }
+      messageEl.appendChild(document.createTextNode(line))
+    })
 
     if (this.description) {
-      const descriptionEl = document.createElement('p')
-      descriptionEl.textContent = this.description
-      descriptionEl.classList.add('taskchute-confirm-description')
-      contentEl.appendChild(descriptionEl)
+      const descriptionEl = createElCompat(contentEl, 'p', { cls: 'modal-description' })
+      this.description.split('\n').forEach((line, index) => {
+        if (index > 0) {
+          createElCompat(descriptionEl, 'br')
+        }
+        descriptionEl.appendChild(document.createTextNode(line))
+      })
     }
 
-    const buttonGroup = document.createElement('div')
-    buttonGroup.classList.add('taskchute-confirm-actions')
-    contentEl.appendChild(buttonGroup)
+    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' })
+    buttonGroup.classList.add('confirm-button-group')
 
-    const cancelButton = document.createElement('button')
-    cancelButton.textContent = this.cancelText
-    cancelButton.classList.add('mod-cancel')
+    const cancelButton = createElCompat(buttonGroup, 'button', {
+      type: 'button',
+      cls: ['form-button', 'cancel'],
+      text: this.cancelText,
+    })
     cancelButton.addEventListener('click', () => {
       this.closeWith(false)
     })
-    buttonGroup.appendChild(cancelButton)
 
-    const confirmButton = document.createElement('button')
-    confirmButton.textContent = this.confirmText
-    confirmButton.classList.add('mod-cta')
-    if (this.destructive) {
-      confirmButton.classList.add('mod-danger')
-    }
+    const confirmButton = createElCompat(buttonGroup, 'button', {
+      type: 'button',
+      cls: ['form-button', this.destructive ? 'danger' : 'create'],
+      text: this.confirmText,
+    })
     confirmButton.addEventListener('click', () => {
       this.closeWith(true)
     })
-    buttonGroup.appendChild(confirmButton)
   }
 
   onClose(): void {
-    while (this.contentEl.firstChild) {
-      this.contentEl.removeChild(this.contentEl.firstChild)
+    if (typeof (this.contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
+      this.contentEl.empty()
+    } else {
+      while (this.contentEl.firstChild) {
+        this.contentEl.removeChild(this.contentEl.firstChild)
+      }
     }
-    this.contentEl.classList.remove('taskchute-confirm-content')
+    this.modalEl?.classList.remove('taskchute-confirm-modal')
   }
 
   private closeWith(result: boolean): void {

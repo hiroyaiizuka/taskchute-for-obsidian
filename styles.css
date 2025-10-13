@@ -136,6 +136,47 @@ select.form-input {
   margin-top: 20px;
 }
 
+.scheduled-time-modal .modal-header {
+  border-bottom: none;
+  padding: 20px 20px 12px 20px;
+  margin-bottom: 4px;
+}
+
+.scheduled-time-modal .task-form {
+  padding-top: 12px;
+}
+
+.scheduled-time-modal .modal-description {
+  margin: 12px 20px 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.taskchute-confirm-modal .modal-header {
+  border-bottom: none;
+  padding: 20px 20px 12px 20px;
+  margin-bottom: 0;
+}
+
+.taskchute-confirm-modal .modal-message {
+  margin: 12px 20px 0;
+  color: var(--text-normal);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.taskchute-confirm-modal .modal-description {
+  margin: 8px 20px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.taskchute-confirm-modal .confirm-button-group {
+  margin: 24px 20px 20px;
+}
+
 .form-button {
   padding: 8px 16px;
   border: none;
@@ -145,6 +186,15 @@ select.form-input {
   cursor: pointer;
   transition: all 0.2s ease;
   min-width: 80px;
+}
+
+.form-button.danger {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.form-button.danger:hover {
+  background: var(--interactive-accent-hover);
 }
 
 .form-button.cancel {
@@ -1458,6 +1508,24 @@ select.form-input {
 
 .project-settings-modal-content {
   gap: 20px;
+}
+
+.project-settings-modal-content .modal-header {
+  border-bottom: none;
+  padding: 20px 20px 12px 20px;
+  margin-bottom: 0;
+}
+
+.project-settings-modal-content .project-settings-body {
+  padding: 12px 20px 20px;
+}
+
+.project-settings-modal-content .task-form {
+  padding: 0;
+}
+
+.project-settings-form .project-select-group {
+  margin-bottom: 12px;
 }
 
 .project-settings-body {
