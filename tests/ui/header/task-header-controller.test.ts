@@ -1,4 +1,7 @@
-import TaskHeaderController, { TaskHeaderControllerHost } from '../../../src/ui/header/TaskHeaderController'
+import TaskHeaderController, {
+  TaskHeaderControllerHost,
+  TaskHeaderControllerDependencies,
+} from '../../../src/ui/header/TaskHeaderController'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -118,11 +121,23 @@ describe('TaskHeaderController', () => {
     expect(executeCommand).toHaveBeenCalledWith('terminal:open-terminal.integrated.root')
   })
 
-  test('calendar input updates current date and triggers reload', async () => {
+  test('calendar selection updates current date and triggers reload', async () => {
     const setCurrentDate = jest.fn()
     const reloadSpy = jest.fn().mockResolvedValue(undefined)
     const host = createHost({ setCurrentDate, reloadTasksAndRestore: reloadSpy })
-    const controller = new TaskHeaderController(host)
+    let capturedSelect: ((isoDate: string) => Promise<void> | void) | null = null
+    let capturedClose: (() => void) | null = null
+    const dependencies: TaskHeaderControllerDependencies = {
+      createCalendar: (options) => {
+        capturedSelect = options.onSelect
+        capturedClose = options.onClose ?? null
+        return {
+          open: jest.fn(),
+          close: jest.fn(),
+        }
+      },
+    }
+    const controller = new TaskHeaderController(host, dependencies)
     const container = document.createElement('div')
     attachCreateEl(container)
 
@@ -130,12 +145,11 @@ describe('TaskHeaderController', () => {
     const calendarButton = container.querySelector('.calendar-btn') as HTMLButtonElement
     calendarButton.dispatchEvent(new Event('click'))
 
-    const input = document.getElementById('calendar-date-input') as HTMLInputElement
-    expect(input).toBeTruthy()
-    input.value = '2025-10-11'
-    input.dispatchEvent(new Event('change'))
-    await Promise.resolve()
+    expect(capturedSelect).toBeTruthy()
+    await capturedSelect?.('2025-10-11')
     expect(setCurrentDate).toHaveBeenCalled()
     expect(reloadSpy).toHaveBeenCalled()
+
+    capturedClose?.()
   })
 })

@@ -1,4 +1,8 @@
 import { Notice, App } from 'obsidian'
+import TaskMoveCalendar, {
+  TaskMoveCalendarFactory,
+  TaskMoveCalendarHandle,
+} from '../components/TaskMoveCalendar'
 import { getCurrentLocale } from '../../i18n'
 import type { TaskChutePluginLike } from '../../types'
 
@@ -13,14 +17,29 @@ export interface TaskHeaderControllerHost {
   plugin: TaskChutePluginLike
   app: Pick<App, 'commands'>
   registerManagedDomEvent: (target: Document | HTMLElement, event: string, handler: EventListener) => void
+  registerDisposer?: (cleanup: () => void) => void
 }
 
 const TERMINAL_COMMAND_ID = 'terminal:open-terminal.integrated.root'
 
+export interface TaskHeaderControllerDependencies {
+  createCalendar: TaskMoveCalendarFactory
+}
+
+const defaultDependencies: TaskHeaderControllerDependencies = {
+  createCalendar: (options) => new TaskMoveCalendar(options),
+}
+
 export default class TaskHeaderController {
   private dateLabelEl: HTMLElement | null = null
+  private activeCalendar: TaskMoveCalendarHandle | null = null
 
-  constructor(private readonly host: TaskHeaderControllerHost) {}
+  constructor(
+    private readonly host: TaskHeaderControllerHost,
+    private readonly dependencies: TaskHeaderControllerDependencies = defaultDependencies,
+  ) {
+    this.host.registerDisposer?.(() => this.closeActiveCalendar())
+  }
 
   render(container: HTMLElement): void {
     this.renderDateNavigation(container)
@@ -152,59 +171,61 @@ export default class TaskHeaderController {
   private attachCalendarButton(calendarBtn: HTMLElement): void {
     this.host.registerManagedDomEvent(calendarBtn, 'click', (event) => {
       event.stopPropagation()
-      const existing = document.getElementById('calendar-date-input')
-      existing?.remove()
-
-      const input = document.createElement('input')
-      input.type = 'date'
-      input.id = 'calendar-date-input'
-      input.classList.add('taskchute-calendar-input')
-
-      const rect = calendarBtn.getBoundingClientRect()
-      input.style.setProperty('--calendar-input-left', `${rect.left}px`)
-      input.style.setProperty('--calendar-input-top', `${rect.top - 900}px`)
-
-      const currentDate = this.host.getCurrentDate()
-      const y = currentDate.getFullYear()
-      const m = (currentDate.getMonth() + 1).toString().padStart(2, '0')
-      const d = currentDate.getDate().toString().padStart(2, '0')
-      input.value = `${y}-${m}-${d}`
-
-      document.body.appendChild(input)
-
-      setTimeout(() => {
-        try {
-          input.focus()
-          input.click()
-          const picker = (input as HTMLInputElement & { showPicker?: () => void }).showPicker
-          if (typeof picker === 'function') {
-            picker.call(input)
-          } else {
-            const mouseEvent = new MouseEvent('mousedown', {
-              view: window,
-              bubbles: true,
-              cancelable: true,
-            })
-            input.dispatchEvent(mouseEvent)
-          }
-        } catch {
-          /* swallow focus errors */
-        }
-      }, 50)
-
-      this.host.registerManagedDomEvent(input, 'change', async () => {
-        const [yy, mm, dd] = input.value.split('-').map(Number)
-        if (yy && mm && dd) {
-          this.host.setCurrentDate(new Date(yy, mm - 1, dd))
-          this.refreshDateLabel()
-          await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
-        }
-        input.remove()
-      })
-      this.host.registerManagedDomEvent(input, 'blur', () => {
-        input.remove()
-      })
+      this.openCalendar(calendarBtn)
     })
+  }
+
+  private openCalendar(anchor: HTMLElement): void {
+    if (this.activeCalendar) {
+      this.closeActiveCalendar()
+    }
+
+    const calendar = this.dependencies.createCalendar({
+      anchor,
+      initialDate: this.host.getCurrentDate(),
+      today: new Date(),
+      onSelect: async (isoDate) => {
+        const nextDate = this.parseIsoDate(isoDate)
+        if (!nextDate) {
+          return
+        }
+        this.host.setCurrentDate(nextDate)
+        this.refreshDateLabel()
+        await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      },
+      onClose: () => {
+        if (this.activeCalendar === calendar) {
+          this.activeCalendar = null
+        }
+      },
+      registerDisposer: this.host.registerDisposer
+        ? (cleanup) => this.host.registerDisposer?.(cleanup)
+        : undefined,
+    })
+
+    this.activeCalendar = calendar
+    calendar.open()
+  }
+
+  private closeActiveCalendar(): void {
+    if (this.activeCalendar) {
+      this.activeCalendar.close()
+      this.activeCalendar = null
+    }
+  }
+
+  private parseIsoDate(value: string): Date | null {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+    if (!match) {
+      return null
+    }
+    const [, year, month, day] = match
+    const parsed = Date.parse(`${year}-${month}-${day}T00:00:00`)
+    if (Number.isNaN(parsed)) {
+      return null
+    }
+    const date = new Date(parsed)
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
   }
 
   private formatDateLabel(): string {
