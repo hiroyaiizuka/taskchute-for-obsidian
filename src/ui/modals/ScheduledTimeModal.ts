@@ -53,20 +53,27 @@ export default class ScheduledTimeModal extends Modal {
       value: current || '',
     }) as HTMLInputElement
 
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+      }
+    })
+
     contentEl.createEl('p', {
       cls: 'modal-description',
       text: host.tv('forms.startTimeInfo', 'Set the scheduled start time. Leave empty to clear it.'),
     })
 
-    const footer = form.createEl('div', { cls: 'task-modal-buttons' })
-    footer.createEl('button', {
-      type: 'submit',
-      cls: 'primary',
-      text: host.tv('buttons.save', 'Save'),
-    })
+    const footer = form.createEl('div', { cls: 'form-button-group' })
     const cancelButton = footer.createEl('button', {
       type: 'button',
+      cls: 'form-button cancel',
       text: t('common.cancel', 'Cancel'),
+    })
+    footer.createEl('button', {
+      type: 'submit',
+      cls: 'form-button create',
+      text: host.tv('buttons.save', 'Save'),
     })
 
     const close = () => {

@@ -123,11 +123,11 @@ export default class TaskCreationController {
 
     nameInput.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return
+      event.preventDefault()
       const validation = this.host
         .getTaskNameValidator()
         .validate(nameInput.value)
       if (!validation.isValid) {
-        event.preventDefault()
         this.highlightWarning(warningMessage)
       }
     })

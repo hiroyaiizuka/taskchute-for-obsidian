@@ -58,9 +58,6 @@ export default class TaskScheduleController {
       onSelect: async (isoDate) => {
         await this.moveTaskToDate(inst, isoDate)
       },
-      onClear: async () => {
-        await this.clearTaskTargetDate(inst)
-      },
       onClose: () => {
         if (this.activeMoveCalendar === calendar) {
           this.activeMoveCalendar = null

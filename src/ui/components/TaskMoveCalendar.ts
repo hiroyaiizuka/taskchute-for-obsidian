@@ -6,7 +6,6 @@ export interface TaskMoveCalendarOptions {
   initialDate: Date
   today: Date
   onSelect: (isoDate: string) => void | Promise<void>
-  onClear?: () => void | Promise<void>
   onClose?: () => void
   registerDisposer?: (cleanup: () => void) => void
 }
@@ -40,7 +39,6 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
   private readonly anchor: HTMLElement
   private readonly today: Date
   private readonly onSelect: (isoDate: string) => void | Promise<void>
-  private readonly onClear?: () => void | Promise<void>
   private readonly onClose?: () => void
   private readonly registerDisposer?: (cleanup: () => void) => void
   private readonly locale: LocaleKey
@@ -56,7 +54,6 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
     this.anchor = options.anchor
     this.today = cloneDate(options.today)
     this.onSelect = options.onSelect
-    this.onClear = options.onClear
     this.onClose = options.onClose
     this.registerDisposer = options.registerDisposer
 
@@ -247,17 +244,6 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
 
     const footer = this.container.createEl("div", {
       cls: "taskchute-move-calendar__footer",
-    })
-
-    const clearButton = footer.createEl("button", {
-      cls: "taskchute-move-calendar__action taskchute-move-calendar__action--clear",
-      text: t('taskChuteView.moveCalendar.clear', 'Clear'),
-    })
-    clearButton.addEventListener("click", async () => {
-      if (this.onClear) {
-        await this.onClear()
-      }
-      this.close()
     })
 
     const todayButton = footer.createEl("button", {

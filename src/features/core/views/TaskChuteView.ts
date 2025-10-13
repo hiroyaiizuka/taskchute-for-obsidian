@@ -330,6 +330,7 @@ export class TaskChuteView
       registerManagedDomEvent: (target, event, handler) =>
         this.registerManagedDomEvent(target, event, handler),
       toggleNavigation: () => this.navigationController.toggleNavigation(),
+      registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
     })
     this.routineController = new RoutineController({
       app: this.app,
