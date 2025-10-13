@@ -647,6 +647,10 @@ export class TaskChuteView
       .slice(2, 11)}`
   }
 
+  public updateDateLabel(_element: Element): void {
+    this.taskHeaderController.refreshDateLabel()
+  }
+
   // ===========================================
   // Task Rendering Methods
   // ===========================================
