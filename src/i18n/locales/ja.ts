@@ -12,7 +12,7 @@ export const ja = {
     delete: "削除",
   },
   settings: {
-    heading: "パス",
+    heading: "タスクシュートのファイルパス",
     storage: {
       baseLocationName: "デフォルトの場所",
       baseLocationDesc: "選択したベース配下に Task/Log/Review を保存します。",
@@ -26,8 +26,23 @@ export const ja = {
       projectsFolderDesc: "プロジェクトとして使用するノートの保存先（未設定可）",
       previewName: "解決済みパス",
     },
+    reviewTemplate: {
+      heading: "レビュー",
+      prefixName: "ファイルの接頭辞",
+      prefixDesc: "例: Daily - ",
+      pathName: "テンプレートファイルの場所",
+      pathDesc: "レビュー用テンプレートとして使用するMarkdownファイルのパス",
+      pick: "保管庫からファイルを選択",
+      suggestPlaceholder: "テンプレートファイル名で検索",
+    },
+    features: {
+      heading: "外部ツール連携",
+      robotButton: "Terminalボタンを表示",
+      robotButtonDesc:
+        "Terminal から AI 連携が可能になります（Terminal プラグインが必要です）。",
+    },
     projectCandidates: {
-      heading: "プロジェクト候補",
+      heading: "プロジェクト",
       enable: "絞り込みを使う",
       enableDesc: "接頭辞・タグなどでプロジェクト候補を絞り込みます",
       matchMode: "一致モード",
@@ -77,6 +92,7 @@ export const ja = {
     },
     validation: {
       invalidPath: "無効なパスです",
+      missingDateToken: "パターンには {{date}} を含める必要があります",
     },
     openFailed: "TaskChuteの設定を開けませんでした",
   },
@@ -89,11 +105,6 @@ export const ja = {
       absoluteNotAllowed: "絶対パスは使用できません",
       parentSegmentNotAllowed: "パスに'..'を含めることはできません",
       invalidCharacters: "パスに特殊文字を含めることはできません",
-    },
-    features: {
-      heading: "外部ツール連携",
-      robotButton: "Terminalボタンを表示",
-      robotButtonDesc: "Terminalから、AI連携が可能となります（Terminal プラグインが必要）。",
     },
   },
   commands: {
@@ -116,6 +127,8 @@ export const ja = {
     routineEnabled: "有効化しました",
     routineDisabled: "無効化しました",
     projectFolderUnset: "プロジェクトファイルの場所が未設定です。設定でフォルダを選択してください。",
+    reviewTemplateMissing: "レビュー用テンプレートが見つかりませんでした: {path}",
+    reviewTemplateReadFailed: "レビュー用テンプレートの読み込みに失敗しました: {message}",
   },
   taskChuteView: {
     header: {

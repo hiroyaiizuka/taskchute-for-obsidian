@@ -65,6 +65,11 @@ describe("TaskMoveCalendar", () => {
       ".taskchute-move-calendar__day.is-selected",
     )
     expect(selected?.getAttribute("data-date")).toBe("2025-09-24")
+
+    const clearButton = rendered?.querySelector(
+      ".taskchute-move-calendar__action--clear",
+    )
+    expect(clearButton).toBeNull()
   })
 
   it("invokes onSelect for today button", () => {

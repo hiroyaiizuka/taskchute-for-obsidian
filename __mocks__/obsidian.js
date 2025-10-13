@@ -23,11 +23,16 @@ const WorkspaceLeaf = jest.fn().mockImplementation(() => ({
   getViewState: jest.fn(),
 }))
 
-const TFile = jest.fn().mockImplementation(() => ({
-  path: "test-file.md",
-  basename: "test-file",
-  extension: "md",
-}))
+const TFile = jest.fn().mockImplementation(function (path = 'test-file.md') {
+  if (!(this instanceof TFile)) {
+    return new TFile(path)
+  }
+
+  this.path = typeof path === 'string' ? path : 'test-file.md'
+  const dotIndex = this.path.lastIndexOf('.')
+  this.basename = dotIndex > -1 ? this.path.substring(0, dotIndex) : this.path
+  this.extension = dotIndex > -1 ? this.path.substring(dotIndex + 1) : ''
+})
 
 const Notice = jest.fn()
 
@@ -46,6 +51,7 @@ const Setting = jest.fn().mockImplementation(() => {
     addButton: jest.fn().mockReturnThis(),
     addDropdown: jest.fn().mockReturnThis(),
     addSlider: jest.fn().mockReturnThis(),
+    addExtraButton: jest.fn().mockReturnThis(),
   }
   return settingInstance
 })
@@ -176,6 +182,23 @@ class Modal {
   }
 }
 
+class SuggestModal {
+  constructor(app) {
+    this.app = app
+    this.open = jest.fn()
+    this.close = jest.fn()
+    this.setPlaceholder = jest.fn()
+  }
+
+  getSuggestions() {
+    return []
+  }
+
+  renderSuggestion() {}
+
+  onChooseSuggestion() {}
+}
+
 const mockLeaf = {
   containerEl: {
     children: [
@@ -246,6 +269,7 @@ module.exports = {
   TFile,
   TFolder,
   Modal,
+  SuggestModal,
   Notice,
   PluginSettingTab,
   Setting,

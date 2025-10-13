@@ -32,6 +32,8 @@ export interface TaskChuteSettings {
   projectFolderPath?: string
   logDataPath?: string
   reviewDataPath?: string
+  reviewTemplatePath?: string | null
+  reviewFileNamePattern?: string
 
   // General
   useOrderBasedSort: boolean

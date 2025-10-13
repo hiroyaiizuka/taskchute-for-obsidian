@@ -1,6 +1,5 @@
 import { TFile, WorkspaceLeaf, Notice } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
-import { buildDefaultReviewTemplate } from '../utils/reviewTemplate'
 import { t } from '../../../i18n'
 
 export class ReviewService {
@@ -11,8 +10,10 @@ export class ReviewService {
   }
 
   getReviewFileName(dateStr: string): string {
-    // Current spec uses "Daily - YYYY-MM-DD.md"
-    return `Daily - ${dateStr}.md`;
+    const pattern = this.plugin.settings.reviewFileNamePattern?.trim() || 'Daily - {{date}}.md';
+    const replaced = replaceDateTokens(pattern, dateStr);
+    const fileName = replaced.endsWith('.md') ? replaced : `${replaced}.md`;
+    return fileName;
   }
 
   getReviewFilePath(dateStr: string): string {
@@ -29,10 +30,9 @@ export class ReviewService {
     const existing = this.plugin.app.vault.getAbstractFileByPath(reviewPath);
     if (existing && existing instanceof TFile) return existing;
 
-    const logDataPath = this.plugin.pathManager.getLogDataPath();
-    const content = buildDefaultReviewTemplate(logDataPath);
+    const content = await this.generateReviewContent(dateStr);
     const created = await this.plugin.app.vault.create(reviewPath, content);
-    if (!(created instanceof TFile)) {
+    if (!isTFileLike(created)) {
       throw new Error(`Failed to create review file at ${reviewPath}`);
     }
     return created;
@@ -64,4 +64,64 @@ export class ReviewService {
       throw error instanceof Error ? error : new Error(message);
     }
   }
+
+  private async generateReviewContent(dateStr: string): Promise<string> {
+    const logDataPath = this.plugin.pathManager.getLogDataPath();
+    const configured = this.plugin.settings.reviewTemplatePath?.trim();
+
+    if (configured) {
+      try {
+        const abstract = this.plugin.app.vault.getAbstractFileByPath(configured);
+        if (isTFileLike(abstract)) {
+          const template = await this.plugin.app.vault.read(abstract);
+          return this.applyTemplateVariables(template, dateStr, logDataPath);
+        }
+        this.notifyMissingTemplate(configured);
+      } catch (error) {
+        this.notifyTemplateReadFailed(configured, error);
+      }
+      return '';
+    }
+
+    return '';
+  }
+
+  private applyTemplateVariables(template: string, dateStr: string, logDataPath: string): string {
+    const withDates = replaceDateTokens(template, dateStr);
+    return withDates.replaceAll('{{logDataPath}}', logDataPath);
+  }
+
+  private notifyMissingTemplate(path: string): void {
+    this.plugin._log?.('warn', '[TaskChute] Review template not found:', path);
+    this.plugin._notify?.(
+      t('notices.reviewTemplateMissing', 'Review template file was not found: {path}', {
+        path,
+      }),
+    );
+  }
+
+  private notifyTemplateReadFailed(path: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.plugin._log?.('warn', '[TaskChute] Failed to read review template:', path, error);
+    this.plugin._notify?.(
+      t('notices.reviewTemplateReadFailed', 'Failed to read review template: {message}', {
+        message,
+      }),
+    );
+  }
+}
+
+function isTFileLike(value: unknown): value is TFile {
+  if (value instanceof TFile) return true;
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as { path?: unknown }).path === 'string';
+}
+
+function replaceDateTokens(template: string, dateStr: string): string {
+  const [year = '', month = '', day = ''] = dateStr.split('-');
+  return template
+    .replaceAll('{{date}}', dateStr)
+    .replaceAll('{{year}}', year)
+    .replaceAll('{{month}}', month)
+    .replaceAll('{{day}}', day);
 }

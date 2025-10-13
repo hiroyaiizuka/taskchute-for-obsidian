@@ -1,4 +1,5 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile } from 'obsidian';
+import type { TextComponent } from 'obsidian';
 import { TaskChuteSettings, PathManagerLike } from '../types';
 import { t } from '../i18n';
 
@@ -20,15 +21,132 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.classList.add('taskchute-settings-pane');
 
     this.renderStorageSection(containerEl);
+    this.renderReviewTemplateSection(containerEl);
     this.renderProjectCandidateSection(containerEl);
     this.renderFeaturesSection(containerEl);
   }
 
+  private renderReviewTemplateSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t('settings.reviewTemplate.heading', 'Review'))
+      .setHeading();
+
+    const pattern = this.plugin.settings.reviewFileNamePattern ?? 'Daily - {{date}}.md';
+    const prefix = pattern.endsWith('{{date}}.md')
+      ? pattern.slice(0, -'{{date}}.md'.length)
+      : pattern;
+
+    new Setting(container)
+      .setName(t('settings.reviewTemplate.prefixName', 'File name prefix'))
+      .setDesc(t('settings.reviewTemplate.prefixDesc', 'Example: Daily - '))
+      .addText((text) => {
+        text
+          .setPlaceholder('Daily - ')
+          .setValue(prefix)
+          .onChange(async (raw) => {
+            const base = raw.trim() || 'Daily - ';
+            this.plugin.settings.reviewFileNamePattern = `${base}{{date}}.md`;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    let templatePathInput: TextComponent | null = null;
+
+    const pathSetting = new Setting(container)
+      .setName(t('settings.reviewTemplate.pathName', 'Template file'))
+      .setDesc(
+        t(
+          'settings.reviewTemplate.pathDesc',
+          'Path to the markdown file used as the review template.',
+        ),
+      );
+
+    pathSetting.addText((text) => {
+      templatePathInput = text;
+      const current = this.plugin.settings.reviewTemplatePath ?? '';
+      text
+        .setPlaceholder('TaskChute/Templates/DailyReview.md')
+        .setValue(current)
+        .onChange(async (raw) => {
+          const trimmed = raw.trim();
+          if (!trimmed) {
+            this.plugin.settings.reviewTemplatePath = null;
+            await this.plugin.saveSettings();
+            return;
+          }
+
+          const validation = this.plugin.pathManager.validatePath(trimmed);
+          if (!validation.valid) {
+            new Notice(
+              validation.error ||
+                t('settings.validation.invalidPath', 'Invalid path'),
+            );
+            text.setValue(this.plugin.settings.reviewTemplatePath ?? '');
+            return;
+          }
+
+          this.plugin.settings.reviewTemplatePath = trimmed;
+          await this.plugin.saveSettings();
+        });
+
+      text.inputEl.addEventListener('blur', () => {
+        const path = this.plugin.settings.reviewTemplatePath?.trim();
+        if (!path) return;
+        const abstract = this.plugin.app.vault.getAbstractFileByPath(path);
+        if (!(abstract instanceof TFile)) {
+          this.notifyMissingTemplate(path);
+        }
+      });
+    });
+
+    pathSetting.addExtraButton((btn) => {
+      btn
+        .setIcon('magnifying-glass')
+        .setTooltip(
+          t(
+            'settings.reviewTemplate.pick',
+            'Select file from vault',
+          ),
+        )
+        .onClick(() => {
+          const modal = new ReviewTemplateSuggestModal(this.app, (file) => {
+            const normalized = file.path;
+            this.plugin.settings.reviewTemplatePath = normalized;
+            void this.plugin.saveSettings();
+            templatePathInput?.setValue(normalized);
+          });
+          modal.open();
+        });
+    });
+
+    pathSetting.addExtraButton((btn) => {
+      btn
+        .setIcon('x')
+        .setTooltip(t('common.clear', 'Clear'))
+        .onClick(async () => {
+          this.plugin.settings.reviewTemplatePath = null;
+          await this.plugin.saveSettings();
+          templatePathInput?.setValue('');
+        });
+    });
+  }
+
+  private notifyMissingTemplate(path: string): void {
+    new Notice(
+      t(
+        'notices.reviewTemplateMissing',
+        'Review template file was not found: {path}',
+        { path },
+      ),
+    );
+  }
+
   private renderStorageSection(container: HTMLElement): void {
     new Setting(container)
-      .setName(t('settings.heading', 'Storage'))
+      .setName(t('settings.heading', 'TaskChute file paths'))
       .setHeading();
 
     // Base location dropdown
@@ -111,7 +229,13 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         });
     }
 
-    // Projects folder (independent; can be unset)
+  }
+
+  private renderProjectCandidateSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t('settings.projectCandidates.heading', 'Projects'))
+      .setHeading();
+
     new Setting(container)
       .setName(
         t('settings.storage.projectsFolderName', 'Project files location'),
@@ -156,13 +280,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             this.display();
           });
       });
-  }
-
-  private renderProjectCandidateSection(container: HTMLElement): void {
-    // Section heading
-    new Setting(container)
-      .setName(t('settings.projectCandidates.heading', 'Project candidates'))
-      .setHeading();
 
     // Enable/disable toggle
     new Setting(container)
@@ -299,5 +416,41 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings()
         })
       })
+  }
+}
+
+class ReviewTemplateSuggestModal extends SuggestModal<TFile> {
+  private readonly onChoose: (file: TFile) => void;
+
+  constructor(app: App, onChoose: (file: TFile) => void) {
+    super(app);
+    this.onChoose = onChoose;
+    this.setPlaceholder(
+      t(
+        'settings.reviewTemplate.suggestPlaceholder',
+        'Type to search review template files',
+      ),
+    );
+  }
+
+  getSuggestions(query: string): TFile[] {
+    const lower = query.toLowerCase();
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => file.path.toLowerCase().includes(lower));
+  }
+
+  renderSuggestion(file: TFile, el: HTMLElement): void {
+    const target = el as HTMLElement & { setText?: (value: string) => void };
+    if (typeof target.setText === 'function') {
+      target.setText(file.path);
+    } else {
+      target.textContent = file.path;
+    }
+  }
+
+  onChooseSuggestion(file: TFile): void {
+    this.onChoose(file);
+    this.close();
   }
 }
