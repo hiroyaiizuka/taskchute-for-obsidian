@@ -471,7 +471,7 @@ select.form-input {
 /* Containers (top bar / date nav minimal) */
 .top-bar-container {
   display: grid;
-  grid-template-columns: 40px 1fr 120px; /* drawer | center | actions */
+  grid-template-columns: 40px minmax(0, 1fr) 120px; /* drawer | center | actions */
   align-items: center;
   margin-bottom: 8px;
   gap: 8px;
@@ -487,13 +487,9 @@ select.form-input {
   height: 36px;
 }
 .date-nav-container.compact {
-  flex: 1;
-  margin-bottom: 0;
-  gap: 1px;
-  height: 100%;
-  display: flex;
-  align-items: center;
   justify-content: center;
+  gap: 1px;
+  margin-left: 50px;
 }
 .date-nav-arrow {
   background: none;
@@ -1162,7 +1158,7 @@ select.form-input {
 
 .taskchute-move-calendar__footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .taskchute-move-calendar__action {
