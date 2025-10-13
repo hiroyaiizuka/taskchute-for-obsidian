@@ -46,6 +46,14 @@ export default class TimeEditModal extends Modal {
         ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
         : ''
 
+    const preventEnterSubmit = (element: HTMLElement) => {
+      element.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+        }
+      })
+    }
+
     const startGroup = form.createEl('div', { cls: 'form-group' })
     startGroup.createEl('label', {
       text: host.tv('forms.scheduledTimeLabel', 'Start time:'),
@@ -56,6 +64,8 @@ export default class TimeEditModal extends Modal {
       cls: 'form-input',
       value: toHM(instance.startTime),
     }) as HTMLInputElement
+
+    preventEnterSubmit(startInput)
 
     const startClear = startGroup.createEl('button', {
       type: 'button',
@@ -79,6 +89,8 @@ export default class TimeEditModal extends Modal {
         cls: 'form-input',
         value: toHM(instance.stopTime),
       }) as HTMLInputElement
+
+      preventEnterSubmit(stopInput)
 
       const stopClear = stopGroup.createEl('button', {
         type: 'button',
@@ -115,17 +127,17 @@ export default class TimeEditModal extends Modal {
       })
     }
 
-    const buttonRow = form.createEl('div', { cls: 'task-modal-buttons' })
-    const submitButton = buttonRow.createEl('button', {
-      type: 'submit',
-      cls: 'primary',
-      text: host.tv('buttons.save', t('common.save', 'Save')),
-    })
-    submitButton.classList.add('taskchute-primary')
-
-    const cancelButton = buttonRow.createEl('button', {
+    const buttonGroup = form.createEl('div', { cls: 'form-button-group' })
+    const cancelButton = buttonGroup.createEl('button', {
       type: 'button',
+      cls: 'form-button cancel',
       text: host.tv('buttons.cancel', t('common.cancel', 'Cancel')),
+    })
+
+    buttonGroup.createEl('button', {
+      type: 'submit',
+      cls: 'form-button create',
+      text: host.tv('buttons.save', t('common.save', 'Save')),
     })
 
     const closeModal = () => {
