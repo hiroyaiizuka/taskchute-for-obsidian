@@ -740,6 +740,7 @@ export class TaskChuteView
     try {
       const dateKey = this.getCurrentDateString()
       const deletedInstances = this.dayStateManager.getDeleted(dateKey)
+      const hiddenRoutines = this.dayStateManager.getHidden(dateKey)
       const deletedPaths = deletedInstances
         .filter((inst) => inst.deletionType === "permanent")
         .map((inst) => inst.path)
@@ -749,6 +750,8 @@ export class TaskChuteView
         dateString: dateKey,
         instances: this.taskInstances,
         deletedPaths,
+        hiddenRoutines,
+        deletedInstances,
         findTaskByPath: (path) => this.tasks.find((task) => task.path === path),
         generateInstanceId: (task) => this.generateInstanceId(task, dateKey),
       })

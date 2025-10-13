@@ -1,6 +1,11 @@
 import { TFile } from 'obsidian'
-import type { TaskChutePluginLike, TaskData } from '../../../types'
-import { TaskInstance } from '../../../types'
+import type {
+  DeletedInstance,
+  HiddenRoutine,
+  TaskChutePluginLike,
+  TaskData,
+  TaskInstance,
+} from '../../../types'
 import { getCurrentTimeSlot } from '../../../utils/time'
 
 export interface RunningTaskRecord {
@@ -84,16 +89,76 @@ export class RunningTasksService {
     dateString: string
     instances: TaskInstance[]
     deletedPaths: string[]
+    hiddenRoutines: Array<HiddenRoutine | string>
+    deletedInstances: DeletedInstance[]
     findTaskByPath: (path: string) => TaskData | undefined
     generateInstanceId: (task: TaskData) => string
   }): Promise<TaskInstance[]> {
-    const { dateString, instances, deletedPaths, findTaskByPath, generateInstanceId } = options
+    const {
+      dateString,
+      instances,
+      deletedPaths,
+      hiddenRoutines,
+      deletedInstances,
+      findTaskByPath,
+      generateInstanceId,
+    } = options
     const records = await this.loadForDate(dateString)
     const restoredInstances: TaskInstance[] = []
+    const hiddenEntries = hiddenRoutines ?? []
+    const deletedEntries = deletedInstances ?? []
+
+    const isHiddenRecord = (record: RunningTaskRecord): boolean => {
+      return hiddenEntries.some((entry) => {
+        if (!entry) return false
+        if (typeof entry === 'string') {
+          return entry === record.taskPath
+        }
+        if (entry.instanceId && record.instanceId) {
+          return entry.instanceId === record.instanceId
+        }
+        if (entry.instanceId && !record.instanceId && entry.path === record.taskPath) {
+          return true
+        }
+        return entry.path === record.taskPath
+      })
+    }
+
+    const isDeletedRecord = (record: RunningTaskRecord): boolean => {
+      return deletedEntries.some((entry) => {
+        if (!entry) return false
+        const instanceMatches =
+          entry.instanceId && record.instanceId && entry.instanceId === record.instanceId
+        if (instanceMatches) {
+          return true
+        }
+
+        const pathMatches = entry.path && record.taskPath && entry.path === record.taskPath
+        if (!pathMatches) {
+          return false
+        }
+
+        if (entry.instanceId && !record.instanceId) {
+          return true
+        }
+
+        if (entry.deletionType === 'permanent') {
+          return true
+        }
+
+        if (entry.deletionType === 'temporary' && record.isRoutine === true) {
+          return true
+        }
+
+        return false
+      })
+    }
 
     for (const record of records) {
       if (record.date !== dateString) continue
       if (record.taskPath && deletedPaths.includes(record.taskPath)) continue
+      if (isHiddenRecord(record)) continue
+      if (isDeletedRecord(record)) continue
 
       let runningInstance = instances.find((inst) => inst.instanceId === record.instanceId)
       if (!runningInstance) {
