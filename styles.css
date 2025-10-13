@@ -2313,6 +2313,15 @@ select.form-input {
   height: 16px;
 }
 
+.drag-handle svg circle {
+  fill: currentColor;
+  transition: fill 0.2s ease;
+}
+
+.drag-handle.disabled svg circle {
+  fill: var(--background-modifier-border);
+}
+
 .task-item.dragging {
   opacity: 0.5;
   background: var(--background-modifier-hover);
