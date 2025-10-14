@@ -88,6 +88,10 @@ export default class TaskTimeController {
     inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0)
     inst.stopTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), eh, em, 0, 0)
 
+    if (inst.startTime && inst.stopTime && inst.stopTime <= inst.startTime) {
+      inst.stopTime.setDate(inst.stopTime.getDate() + 1)
+    }
+
     const newSlot = getSlotFromTime(startStr)
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot

@@ -188,4 +188,65 @@ describe('TaskTimeController', () => {
     const modalInstance = modalMock.mock.results[0].value as { open: jest.Mock }
     expect(modalInstance.open).toHaveBeenCalledTimes(1)
   })
+
+  test('updateInstanceTimes rolls stop time into next day when needed', async () => {
+    const host = createHost()
+    const controller = new TaskTimeController(host)
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+      },
+      state: 'done',
+      slotKey: 'evening',
+      startTime: new Date(2025, 9, 10, 23, 0, 0, 0),
+      stopTime: new Date(2025, 9, 11, 8, 0, 0, 0),
+    } as TaskInstance
+
+    const durationSpy = jest
+      .spyOn(host, 'calculateCrossDayDuration')
+      .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+    await (controller as unknown as {
+      updateInstanceTimes: (inst: TaskInstance, startStr: string, stopStr: string) => Promise<void>
+    }).updateInstanceTimes(instance, '23:00', '00:30')
+
+    expect(instance.startTime?.getHours()).toBe(23)
+    expect(instance.stopTime?.getDate()).toBe(instance.startTime!.getDate() + 1)
+    expect(instance.stopTime?.getHours()).toBe(0)
+    expect(instance.stopTime?.getMinutes()).toBe(30)
+    expect(durationSpy).toHaveBeenCalled()
+  })
+
+  test('updateInstanceTimes keeps same-day stop when stop is after start', async () => {
+    const host = createHost()
+    const controller = new TaskTimeController(host)
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+      },
+      state: 'done',
+      slotKey: 'morning',
+      startTime: new Date(2025, 9, 10, 8, 0, 0, 0),
+      stopTime: new Date(2025, 9, 10, 9, 0, 0, 0),
+    } as TaskInstance
+
+    const durationSpy = jest
+      .spyOn(host, 'calculateCrossDayDuration')
+      .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+    await (controller as unknown as {
+      updateInstanceTimes: (inst: TaskInstance, startStr: string, stopStr: string) => Promise<void>
+    }).updateInstanceTimes(instance, '08:30', '09:15')
+
+    expect(instance.startTime?.getHours()).toBe(8)
+    expect(instance.startTime?.getMinutes()).toBe(30)
+    expect(instance.stopTime?.getHours()).toBe(9)
+    expect(instance.stopTime?.getMinutes()).toBe(15)
+    expect(instance.stopTime?.getDate()).toBe(instance.startTime?.getDate())
+    expect(durationSpy).toHaveBeenCalled()
+  })
 })

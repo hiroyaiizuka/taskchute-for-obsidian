@@ -1,6 +1,7 @@
 import { Modal, Notice } from 'obsidian'
 import type { TaskInstance } from '../../types'
 import { t } from '../../i18n'
+import { showConfirmModal } from './ConfirmModal'
 
 export interface TimeEditModalHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -45,6 +46,16 @@ export default class TimeEditModal extends Modal {
       date
         ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
         : ''
+
+    const toMinutes = (value: string): number => {
+      const [hours, minutes] = value.split(':').map((n) => parseInt(n, 10))
+      return hours * 60 + minutes
+    }
+
+    const isSameDay = (a: Date, b: Date): boolean =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
 
     const preventEnterSubmit = (element: HTMLElement) => {
       element.addEventListener('keydown', (event: KeyboardEvent) => {
@@ -183,12 +194,40 @@ export default class TimeEditModal extends Modal {
         }
 
         if (startStr && stopStr) {
-          if (startStr >= stopStr) {
+          const startMinutes = toMinutes(startStr)
+          const stopMinutes = toMinutes(stopStr)
+
+          if (startMinutes === stopMinutes) {
             new Notice(
               host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
             )
             return
           }
+
+          const originalCrossDay = Boolean(
+            instance.startTime &&
+              instance.stopTime &&
+              !isSameDay(instance.startTime, instance.stopTime),
+          )
+
+          if (startMinutes > stopMinutes && !originalCrossDay) {
+            const confirmed = await showConfirmModal(this.app, {
+              title: host.tv('forms.confirmStopNextDayTitle', 'Treat stop time as next day?'),
+              message: host.tv(
+                'forms.confirmStopNextDayMessage',
+                'The stop time you entered is earlier than the start time. Save it as next day?',
+              ),
+              confirmText: host.tv('buttons.save', t('common.save', 'Save')),
+              cancelText: host.tv('buttons.cancel', t('common.cancel', 'Cancel')),
+            })
+            if (!confirmed) {
+              new Notice(
+                host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
+              )
+              return
+            }
+          }
+
           await callbacks.updateInstanceTimes(startStr, stopStr)
           closeModal()
           return
