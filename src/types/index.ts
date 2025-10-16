@@ -195,6 +195,7 @@ export interface DayStateServiceAPI {
   mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>
   clearCache(): Promise<void>
   getDateFromKey(dateKey: string): Date
+  renameTaskPath(oldPath: string, newPath: string): Promise<void>
 }
 
 export interface RoutineAliasServiceLike {

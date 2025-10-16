@@ -5,6 +5,7 @@ import {
   App,
   EventRef,
   TAbstractFile,
+  TFile,
 } from "obsidian"
 import {
   TaskData,
@@ -1153,6 +1154,77 @@ export class TaskChuteView
     file: TAbstractFile,
     oldPath: string,
   ): Promise<void> {
-    // Handle file rename logic (debug log removed)
+    if (!(file instanceof TFile)) {
+      return
+    }
+    if (file.extension !== 'md') {
+      return
+    }
+
+    const oldPathNormalized = typeof oldPath === 'string' ? oldPath.trim() : ''
+    const newPathNormalized = typeof file.path === 'string' ? file.path.trim() : ''
+
+    if (!oldPathNormalized || !newPathNormalized || oldPathNormalized === newPathNormalized) {
+      return
+    }
+
+    try {
+      const metadata = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {}
+      const frontmatterTitle = typeof metadata.title === 'string' ? metadata.title.trim() : ''
+      const displayTitle = frontmatterTitle.length > 0 ? frontmatterTitle : file.basename
+
+      // Update in-memory task references
+      this.tasks.forEach((task) => {
+        if (task.path !== oldPathNormalized) return
+        task.path = newPathNormalized
+        task.file = file
+        task.name = file.basename
+        task.displayTitle = displayTitle
+        task.frontmatter = metadata as Record<string, unknown>
+      })
+
+      this.taskInstances.forEach((inst) => {
+        if (!inst.task || inst.task.path !== oldPathNormalized) return
+        inst.task.path = newPathNormalized
+        inst.task.file = file
+        inst.task.name = file.basename
+        if (!inst.task.displayTitle || inst.state !== 'done') {
+          inst.task.displayTitle = displayTitle
+        }
+      })
+
+      if (this.currentInstance?.task?.path === oldPathNormalized) {
+        this.currentInstance.task.path = newPathNormalized
+        this.currentInstance.task.file = file
+        this.currentInstance.task.name = file.basename
+        if (!this.currentInstance.task.displayTitle || this.currentInstance.state !== 'done') {
+          this.currentInstance.task.displayTitle = displayTitle
+        }
+      }
+
+      let settingsChanged = false
+      if (this.plugin.settings.slotKeys && this.plugin.settings.slotKeys[oldPathNormalized]) {
+        const slot = this.plugin.settings.slotKeys[oldPathNormalized]
+        delete this.plugin.settings.slotKeys[oldPathNormalized]
+        this.plugin.settings.slotKeys[newPathNormalized] = slot
+        settingsChanged = true
+      }
+
+      await Promise.allSettled([
+        this.executionLogService.renameTaskPath(oldPathNormalized, newPathNormalized),
+        this.dayStateManager.renameTaskPath(oldPathNormalized, newPathNormalized),
+        this.runningTasksService.renameTaskPath(oldPathNormalized, newPathNormalized, {
+          newTitle: displayTitle,
+        }),
+      ])
+
+      if (settingsChanged) {
+        await this.plugin.saveSettings()
+      }
+
+      await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+    } catch (error) {
+      console.error('[TaskChuteView] handleFileRename failed', error)
+    }
   }
 }

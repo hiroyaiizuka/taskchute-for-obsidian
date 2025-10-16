@@ -27,6 +27,7 @@ describe('DayStateStoreService', () => {
         mergeDayState: jest.fn(),
         clearCache: jest.fn(),
         getDateFromKey: jest.fn(),
+        renameTaskPath: jest.fn().mockResolvedValue(undefined),
       },
       getCurrentDateString: () => '2025-10-09',
       parseDateString: (key: string) => {
@@ -84,4 +85,45 @@ describe('DayStateStoreService', () => {
     expect(manager.isDeleted({ path: 'TASKS/remove.md' })).toBe(true);
     expect(manager.isDeleted({ instanceId: 'missing', path: 'TASKS/other.md' })).toBe(false);
   });
+
+  test('renameTaskPath updates cache and delegates to persistence layer', async () => {
+    const preset = createState({
+      hiddenRoutines: [{ path: 'TASKS/old.md', instanceId: null }],
+      deletedInstances: [
+        {
+          path: 'TASKS/old.md',
+          deletionType: 'temporary',
+          timestamp: Date.now(),
+        },
+      ],
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-1',
+          originalPath: 'TASKS/old.md',
+        },
+      ],
+      slotOverrides: {
+        'TASKS/old.md': '8:00-12:00',
+      },
+      orders: {
+        'TASKS/old.md::none': 120,
+      },
+    })
+
+    const { deps } = createDeps({ '2025-10-09': preset })
+    const manager = new DayStateStoreService(deps)
+
+    await manager.ensure()
+    await manager.renameTaskPath('TASKS/old.md', 'TASKS/new.md')
+
+    expect(deps.dayStateService.renameTaskPath).toHaveBeenCalledWith('TASKS/old.md', 'TASKS/new.md')
+
+    const state = manager.getStateFor('2025-10-09')
+    expect(state.slotOverrides['TASKS/new.md']).toBe('8:00-12:00')
+    expect(state.slotOverrides['TASKS/old.md']).toBeUndefined()
+    expect(state.orders['TASKS/new.md::none']).toBe(120)
+    expect(state.hiddenRoutines[0]?.path).toBe('TASKS/new.md')
+    expect(state.deletedInstances[0]?.path).toBe('TASKS/new.md')
+    expect(state.duplicatedInstances[0]?.originalPath).toBe('TASKS/new.md')
+  })
 });

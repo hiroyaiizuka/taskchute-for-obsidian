@@ -1,6 +1,7 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
+import { renamePathsInMonthlyState } from './dayState/pathRename';
 
 const DAY_STATE_VERSION = '1.0';
 
@@ -46,6 +47,49 @@ export class DayStatePersistenceService {
   private getStatePath(monthKey: string): string {
     const base = this.plugin.pathManager.getLogDataPath();
     return `${base}/${monthKey}-state.json`;
+  }
+
+  private collectStateFiles(): TFile[] {
+    const base = this.plugin.pathManager.getLogDataPath();
+    const vault = this.plugin.app.vault as { getFiles?: () => TFile[] };
+    const suffix = '-state.json';
+    const files: TFile[] = [];
+
+    if (typeof vault.getFiles === 'function') {
+      const candidates = vault.getFiles();
+      candidates.forEach((candidate) => {
+        if (candidate instanceof TFile && candidate.path.startsWith(`${base}/`) && candidate.path.endsWith(suffix)) {
+          files.push(candidate);
+        }
+      });
+      if (files.length > 0) {
+        return files;
+      }
+    }
+
+    const seen = new Set<string>();
+    const now = new Date();
+    for (let i = 0; i < 12; i += 1) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = this.getMonthKey(date);
+      const path = this.getStatePath(monthKey);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const abstract = this.plugin.app.vault.getAbstractFileByPath(path);
+      if (abstract && abstract instanceof TFile) {
+        files.push(abstract);
+      }
+    }
+    return files;
+  }
+
+  private extractMonthKeyFromPath(path: string): string | null {
+    const base = `${this.plugin.pathManager.getLogDataPath()}/`;
+    const suffix = '-state.json';
+    if (!path.startsWith(base) || !path.endsWith(suffix)) {
+      return null;
+    }
+    return path.slice(base.length, path.length - suffix.length);
   }
 
   private ensureMetadata(state: MonthlyDayStateFile): void {
@@ -314,6 +358,42 @@ export class DayStatePersistenceService {
 
       return state;
     });
+  }
+
+  async renameTaskPath(oldPath: string, newPath: string): Promise<void> {
+    const normalizedOld = typeof oldPath === 'string' ? oldPath.trim() : '';
+    const normalizedNew = typeof newPath === 'string' ? newPath.trim() : '';
+    if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+      return;
+    }
+
+    const files = this.collectStateFiles();
+    for (const file of files) {
+      try {
+        const raw = await this.plugin.app.vault.read(file);
+        const parsed: unknown = raw ? JSON.parse(raw) : {};
+        const monthly = this.normalizeMonthlyState(parsed);
+        const mutated = renamePathsInMonthlyState(monthly, normalizedOld, normalizedNew);
+        if (!mutated) {
+          continue;
+        }
+        this.ensureMetadata(monthly);
+        await this.plugin.app.vault.modify(file, JSON.stringify(monthly, null, 2));
+        const monthKey = this.extractMonthKeyFromPath(file.path);
+        if (monthKey) {
+          this.cache.set(monthKey, monthly);
+        }
+      } catch (error) {
+        console.warn('[DayStatePersistenceService] Failed to rename task path', file.path, error);
+      }
+    }
+
+    for (const [monthKey, cached] of this.cache.entries()) {
+      if (!cached) continue;
+      if (renamePathsInMonthlyState(cached, normalizedOld, normalizedNew)) {
+        this.cache.set(monthKey, cached);
+      }
+    }
   }
 
   async clearCache(): Promise<void> {

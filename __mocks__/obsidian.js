@@ -41,6 +41,8 @@ const PluginSettingTab = jest.fn().mockImplementation(() => ({
   display: jest.fn(),
 }))
 
+const SettingInstances = []
+
 const Setting = jest.fn().mockImplementation(() => {
   const settingInstance = {
     setName: jest.fn().mockReturnThis(),
@@ -53,8 +55,16 @@ const Setting = jest.fn().mockImplementation(() => {
     addSlider: jest.fn().mockReturnThis(),
     addExtraButton: jest.fn().mockReturnThis(),
   }
+  SettingInstances.push(settingInstance)
   return settingInstance
 })
+Setting.__instances = SettingInstances
+
+const momentLib = require('moment')
+const moment = (...args) => momentLib(...args)
+Object.assign(moment, momentLib)
+
+const requestUrl = jest.fn(async () => ({ status: 200, text: '', json: async () => ({}) }))
 
 // DOM要素のモック関数
 const createMockElement = (tag = 'div') => {
@@ -273,6 +283,8 @@ module.exports = {
   Notice,
   PluginSettingTab,
   Setting,
+  moment,
+  requestUrl,
   normalizePath,
   mockApp,
   mockLeaf,

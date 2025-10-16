@@ -1,3 +1,4 @@
+import { TFile } from 'obsidian'
 import { RunningTasksService, type RunningTaskRecord } from '../../src/features/core/services/RunningTasksService'
 import type {
   DeletedInstance,
@@ -134,5 +135,85 @@ describe('RunningTasksService.restoreForDate', () => {
     })
 
     expect(result).toHaveLength(1)
+  })
+})
+
+describe('RunningTasksService.renameTaskPath', () => {
+  const createServiceWithStore = () => {
+    const store = new Map<string, string>()
+    const pathManager = {
+      getLogDataPath: () => 'LOGS',
+    }
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+      adapter: {
+        write: jest.fn(async (path: string, content: string) => {
+          store.set(path, content)
+        }),
+      },
+    }
+
+    const plugin = {
+      app: { vault },
+      pathManager,
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    const dataPath = 'LOGS/running-task.json'
+    store.set(
+      dataPath,
+      JSON.stringify(
+        [
+          {
+            date: '2025-10-16',
+            taskTitle: 'Old Title',
+            taskPath: 'TASKS/old.md',
+            startTime: new Date('2025-10-16T09:00:00.000Z').toISOString(),
+          },
+        ],
+        null,
+        2,
+      ),
+    )
+
+    return { service, store, vault, dataPath }
+  }
+
+  it('renames taskPath and updates title when provided', async () => {
+    const { service, store, dataPath, vault } = createServiceWithStore()
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md', { newTitle: 'New Title' })
+
+    expect(vault.modify).toHaveBeenCalled()
+    const updated = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
+    expect(updated[0]).toEqual(
+      expect.objectContaining({ taskPath: 'TASKS/new.md', taskTitle: 'New Title' }),
+    )
+  })
+
+  it('skips rewrite when no matching record exists', async () => {
+    const { service, store, dataPath, vault } = createServiceWithStore()
+
+    await service.renameTaskPath('TASKS/missing.md', 'TASKS/new.md')
+
+    expect(vault.modify).not.toHaveBeenCalled()
+    const unchanged = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
+    expect(unchanged[0]).toEqual(
+      expect.objectContaining({ taskPath: 'TASKS/old.md', taskTitle: 'Old Title' }),
+    )
   })
 })

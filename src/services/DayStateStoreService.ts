@@ -1,4 +1,5 @@
 import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI } from '../types';
+import { renamePathsInDayState } from './dayState/pathRename';
 
 export interface DayStateStoreServiceOptions {
   dayStateService: DayStateServiceAPI;
@@ -59,6 +60,27 @@ export class DayStateStoreService {
       this.options.parseDateString(key),
       state,
     );
+  }
+
+  async renameTaskPath(oldPath: string, newPath: string): Promise<void> {
+    const normalizedOld = typeof oldPath === 'string' ? oldPath.trim() : '';
+    const normalizedNew = typeof newPath === 'string' ? newPath.trim() : '';
+    if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+      return;
+    }
+
+    for (const [key, state] of this.cache.entries()) {
+      if (!state) continue;
+      if (renamePathsInDayState(state, normalizedOld, normalizedNew)) {
+        this.cache.set(key, state);
+      }
+    }
+
+    if (this.currentState) {
+      renamePathsInDayState(this.currentState, normalizedOld, normalizedNew);
+    }
+
+    await this.options.dayStateService.renameTaskPath(normalizedOld, normalizedNew);
   }
 
   getHidden(dateKey?: string): HiddenRoutine[] {

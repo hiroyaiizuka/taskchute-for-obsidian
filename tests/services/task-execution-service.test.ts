@@ -102,6 +102,7 @@ describe('TaskExecutionService', () => {
     expect(instance.state).toBe('done')
     expect(instance.stopTime).toBeInstanceOf(Date)
     expect(instance.actualMinutes).toBe(60)
+    expect(instance.executedTitle).toBe('Sample')
     expect(host.executionLogService.saveTaskLog).toHaveBeenCalledWith(instance, 3600)
     expect(host.sortTaskInstancesByTimeOrder).toHaveBeenCalled()
     expect(host.saveTaskOrders).toHaveBeenCalled()
