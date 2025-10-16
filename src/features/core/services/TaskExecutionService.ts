@@ -118,6 +118,21 @@ export class TaskExecutionService {
         inst.actualMinutes = Math.floor(duration / (1000 * 60))
       }
 
+      if (!inst.executedTitle || inst.executedTitle.trim().length === 0) {
+        try {
+          const resolved = this.host.getInstanceDisplayTitle(inst)
+          if (typeof resolved === 'string' && resolved.trim().length > 0) {
+            inst.executedTitle = resolved.trim()
+          } else if (inst.task?.name) {
+            inst.executedTitle = inst.task.name
+          }
+        } catch {
+          if (inst.task?.name) {
+            inst.executedTitle = inst.task.name
+          }
+        }
+      }
+
       if (this.host.getCurrentInstance() === inst) {
         this.host.setCurrentInstance(null)
       }

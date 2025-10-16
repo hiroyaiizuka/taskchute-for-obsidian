@@ -222,6 +222,57 @@ describe('ExecutionLogService.hasExecutionHistory', () => {
   });
 });
 
+describe('ExecutionLogService.renameTaskPath', () => {
+  test('updates taskPath across log entries while preserving titles', async () => {
+    const { plugin, store } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    const logPath = 'LOGS/2025-09-tasks.json';
+    store.set(logPath, {
+      taskExecutions: {
+        '2025-09-14': [
+          { taskPath: 'TASKS/old.md', taskTitle: 'Old Routine', instanceId: 'old-1' },
+          { taskPath: 'TASKS/other.md', taskTitle: 'Other Task', instanceId: 'other-1' },
+        ],
+      },
+      dailySummary: {},
+    });
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md');
+
+    const snapshot = store.get(logPath)!;
+    const entries = snapshot.taskExecutions['2025-09-14'] as Array<Record<string, unknown>>;
+    expect(entries[0]).toEqual(
+      expect.objectContaining({ taskPath: 'TASKS/new.md', taskTitle: 'Old Routine' }),
+    );
+    expect(entries[1]).toEqual(
+      expect.objectContaining({ taskPath: 'TASKS/other.md', taskTitle: 'Other Task' }),
+    );
+  });
+
+  test('performs no writes when old path does not exist', async () => {
+    const { plugin, store, vault } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    const logPath = 'LOGS/2025-10-tasks.json';
+    store.set(logPath, {
+      taskExecutions: {
+        '2025-10-01': [{ taskPath: 'TASKS/a.md', taskTitle: 'Task A' }],
+      },
+      dailySummary: {},
+    });
+
+    await service.renameTaskPath('TASKS/missing.md', 'TASKS/new.md');
+
+    expect(vault.modify).not.toHaveBeenCalled();
+    const snapshot = store.get(logPath)!;
+    expect(snapshot.taskExecutions['2025-10-01'][0]).toEqual({
+      taskPath: 'TASKS/a.md',
+      taskTitle: 'Task A',
+    });
+  });
+});
+
 describe('ExecutionLogService.updateDailySummaryTotals', () => {
   test('creates snapshot when log file is missing', async () => {
     const { plugin, store } = createPluginStub();

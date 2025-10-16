@@ -1,6 +1,7 @@
 import { App, Notice } from 'obsidian'
 import type { TaskInstance } from '../../../src/types'
 import TimeEditModal from '../../../src/ui/modals/TimeEditModal'
+import { showConfirmModal } from '../../../src/ui/modals/ConfirmModal'
 
 type TimeEditModalCallbacks = Required<
   Exclude<ConstructorParameters<typeof TimeEditModal>[0], undefined>['callbacks']
@@ -96,6 +97,11 @@ jest.mock('obsidian', () => {
   }
 })
 
+jest.mock('../../../src/ui/modals/ConfirmModal', () => ({
+  showConfirmModal: jest.fn(() => Promise.resolve(true)),
+}))
+
+
 describe('TimeEditModal', () => {
   const createHost = () => ({
     tv: (_key: string, fallback: string) => fallback,
@@ -123,6 +129,7 @@ describe('TimeEditModal', () => {
   beforeEach(() => {
     ;(Notice as unknown as jest.Mock).mockClear()
     document.body.innerHTML = ''
+    ;(showConfirmModal as jest.MockedFunction<typeof showConfirmModal>).mockReset()
   })
 
   test('running task: clearing start resets to idle', async () => {
@@ -213,28 +220,83 @@ describe('TimeEditModal', () => {
     expect(callbacks.updateInstanceTimes).not.toHaveBeenCalled()
   })
 
-  test('done task: invalid range shows notice and aborts', async () => {
+  test('done task: earlier stop time asks for confirmation and cancels when declined', async () => {
     const callbacks = createCallbacks()
     const instance = {
       state: 'done',
-      startTime: new Date('2025-10-10T02:00:00Z'),
-      stopTime: new Date('2025-10-10T03:30:00Z'),
+      startTime: new Date('2025-10-10T08:00:00Z'),
+      stopTime: new Date('2025-10-10T09:00:00Z'),
     } as TaskInstance
+
+    const confirmMock = showConfirmModal as jest.MockedFunction<typeof showConfirmModal>
+    confirmMock.mockResolvedValueOnce(false)
 
     openModal(instance, callbacks)
 
     const form = document.querySelector('.time-edit-form') as HTMLFormElement
     const startInput = form.querySelector('input[type="time"]') as HTMLInputElement
     const stopInput = form.querySelectorAll('input[type="time"]')[1] as HTMLInputElement
-    startInput.value = '04:00'
-    stopInput.value = '03:00'
+    startInput.value = '08:00'
+    stopInput.value = '07:00'
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await Promise.resolve()
 
+    expect(confirmMock).toHaveBeenCalledTimes(1)
     expect(Notice).toHaveBeenCalled()
     expect(callbacks.updateInstanceTimes).not.toHaveBeenCalled()
-    expect(callbacks.resetTaskToIdle).not.toHaveBeenCalled()
+  })
+
+  test('done task: earlier stop time proceeds when confirmation accepted', async () => {
+    const callbacks = createCallbacks()
+    const instance = {
+      state: 'done',
+      startTime: new Date('2025-10-10T08:00:00Z'),
+      stopTime: new Date('2025-10-10T09:00:00Z'),
+    } as TaskInstance
+
+    const confirmMock = showConfirmModal as jest.MockedFunction<typeof showConfirmModal>
+    confirmMock.mockResolvedValueOnce(true)
+
+    openModal(instance, callbacks)
+
+    const form = document.querySelector('.time-edit-form') as HTMLFormElement
+    const startInput = form.querySelector('input[type="time"]') as HTMLInputElement
+    const stopInput = form.querySelectorAll('input[type="time"]')[1] as HTMLInputElement
+    startInput.value = '08:00'
+    stopInput.value = '07:00'
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await Promise.resolve()
+
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(callbacks.updateInstanceTimes).toHaveBeenCalledWith('08:00', '07:00')
+    expect(Notice).not.toHaveBeenCalled()
+  })
+
+  test('done task: cross-day adjustment skips confirmation', async () => {
+    const callbacks = createCallbacks()
+    const instance = {
+      state: 'done',
+      startTime: new Date(2025, 9, 10, 23, 0, 0, 0),
+      stopTime: new Date(2025, 9, 11, 8, 0, 0, 0),
+    } as TaskInstance
+
+    const confirmMock = showConfirmModal as jest.MockedFunction<typeof showConfirmModal>
+
+    openModal(instance, callbacks)
+
+    const form = document.querySelector('.time-edit-form') as HTMLFormElement
+    const startInput = form.querySelector('input[type="time"]') as HTMLInputElement
+    const stopInput = form.querySelectorAll('input[type="time"]')[1] as HTMLInputElement
+    startInput.value = '23:00'
+    stopInput.value = '00:30'
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await Promise.resolve()
+
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(callbacks.updateInstanceTimes).toHaveBeenCalledWith('23:00', '00:30')
   })
 
   test('done task: valid times call updateInstanceTimes', async () => {

@@ -63,9 +63,21 @@ export default class TaskRowController {
   }
 
   renderTaskName(taskItem: HTMLElement, inst: TaskInstance): void {
+    const displayName = (() => {
+      const executed = typeof inst.executedTitle === 'string' ? inst.executedTitle.trim() : ''
+      if (inst.state === 'done' && executed.length > 0) {
+        return executed
+      }
+      const displayTitle = typeof inst.task.displayTitle === 'string' ? inst.task.displayTitle.trim() : ''
+      if (displayTitle.length > 0) {
+        return displayTitle
+      }
+      return inst.task.name ?? this.host.tv('labels.untitledTask', 'Untitled Task')
+    })()
+
     const taskName = taskItem.createEl('span', {
       cls: 'task-name task-name--accent',
-      text: inst.task.name,
+      text: displayName,
     })
 
     taskName.addEventListener('click', async (e) => {

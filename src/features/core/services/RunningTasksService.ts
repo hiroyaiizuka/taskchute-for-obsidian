@@ -85,6 +85,55 @@ export class RunningTasksService {
     }
   }
 
+  async renameTaskPath(oldPath: string, newPath: string, options: { newTitle?: string } = {}): Promise<void> {
+    const normalizedOld = typeof oldPath === 'string' ? oldPath.trim() : '';
+    const normalizedNew = typeof newPath === 'string' ? newPath.trim() : '';
+    if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+      return;
+    }
+
+    try {
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const dataPath = `${logDataPath}/running-task.json`;
+      const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
+      if (!file || !(file instanceof TFile)) {
+        return;
+      }
+
+      const raw = await this.plugin.app.vault.read(file);
+      if (!raw) {
+        return;
+      }
+
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      let mutated = false;
+      const updated = (parsed as RunningTaskRecord[]).map((record) => {
+        if (!record || typeof record !== 'object') {
+          return record;
+        }
+        if (record.taskPath === normalizedOld) {
+          mutated = true;
+          const next: RunningTaskRecord = { ...record, taskPath: normalizedNew };
+          if (options.newTitle && typeof options.newTitle === 'string' && options.newTitle.trim().length > 0) {
+            next.taskTitle = options.newTitle.trim();
+          }
+          return next;
+        }
+        return record;
+      });
+
+      if (mutated) {
+        await this.plugin.app.vault.modify(file, JSON.stringify(updated, null, 2));
+      }
+    } catch (error) {
+      console.warn('[RunningTasksService] Failed to rename task path', error);
+    }
+  }
+
   async restoreForDate(options: {
     dateString: string
     instances: TaskInstance[]

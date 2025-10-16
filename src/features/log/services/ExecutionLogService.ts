@@ -167,6 +167,46 @@ export class ExecutionLogService {
     }
   }
 
+  async renameTaskPath(oldPath: string, newPath: string): Promise<void> {
+    const normalizedOld = typeof oldPath === 'string' ? oldPath.trim() : '';
+    const normalizedNew = typeof newPath === 'string' ? newPath.trim() : '';
+    if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+      return;
+    }
+
+    const files = this.collectLogFiles();
+    for (const file of files) {
+      try {
+        const raw = await this.plugin.app.vault.read(file);
+        const snapshot = raw ? parseTaskLogSnapshot(raw) : createEmptyTaskLogSnapshot();
+        let mutated = false;
+
+        for (const [dateKey, entries] of Object.entries(snapshot.taskExecutions)) {
+          if (!Array.isArray(entries) || entries.length === 0) {
+            continue;
+          }
+          const updated = entries.map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+              return entry;
+            }
+            if ('taskPath' in entry && entry.taskPath === normalizedOld) {
+              mutated = true;
+              return { ...entry, taskPath: normalizedNew };
+            }
+            return entry;
+          });
+          snapshot.taskExecutions[dateKey] = updated as typeof entries;
+        }
+
+        if (mutated) {
+          await this.plugin.app.vault.modify(file, JSON.stringify(snapshot, null, 2));
+        }
+      } catch (error) {
+        console.warn('[ExecutionLogService] Failed to rename task path in log', file.path, error);
+      }
+    }
+  }
+
   async hasExecutionHistory(taskPath: string): Promise<boolean> {
     if (!taskPath || !taskPath.trim()) {
       return false;
