@@ -43,7 +43,7 @@ type HostStub = TaskMutationHost & {
   dayState: {
     hiddenRoutines: HiddenRoutine[]
     deletedInstances: DeletedInstance[]
-    duplicatedInstances: Array<{ instanceId?: string; path?: string; slotKey?: string }>
+    duplicatedInstances: Array<{ instanceId?: string; path?: string; slotKey?: string; createdMillis?: number }>
     slotOverrides: Record<string, string>
     orders: Record<string, number>
   }
@@ -140,9 +140,12 @@ describe('TaskMutationService', () => {
     const result = (await service.duplicateInstance(instance, { returnInstance: true })) as TaskInstance
 
     expect(result).toBeDefined()
+    expect(result.createdMillis).toEqual(expect.any(Number))
     expect(host.taskInstances).toHaveLength(2)
     expect(host.renderTaskList).toHaveBeenCalled()
-    expect(host.dayState.duplicatedInstances.some((dup) => dup.instanceId === result.instanceId)).toBe(true)
+    const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)
+    expect(record).toBeDefined()
+    expect(record?.createdMillis).toBe(result.createdMillis)
   })
 
   test('duplicateInstance surfaces failure notice when ensureDayState throws', async () => {

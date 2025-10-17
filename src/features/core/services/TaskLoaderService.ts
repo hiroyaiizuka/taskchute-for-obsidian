@@ -76,6 +76,34 @@ export interface TaskLoaderHost {
 
 const DEFAULT_SLOT_KEY = 'none'
 
+function resolveCreatedMillis(file: TFile | null | undefined, fallback?: number): number | undefined {
+  if (!file) {
+    return fallback
+  }
+  const { ctime, mtime } = file.stat ?? {}
+  if (typeof ctime === 'number' && Number.isFinite(ctime)) {
+    return ctime
+  }
+  if (typeof mtime === 'number' && Number.isFinite(mtime)) {
+    return mtime
+  }
+  return fallback
+}
+
+function resolveExecutionCreatedMillis(executions: NormalizedExecution[], dateKey: string): number | undefined {
+  for (const execution of executions) {
+    const start = parseDateTime(execution.startTime, dateKey)
+    if (start) {
+      return start.getTime()
+    }
+    const stop = parseDateTime(execution.stopTime, dateKey)
+    if (stop) {
+      return stop.getTime()
+    }
+  }
+  return undefined
+}
+
 export class TaskLoaderService {
   async load(context: TaskLoaderHost): Promise<void> {
     await loadTasksForContext(context)
@@ -193,6 +221,7 @@ async function createTaskFromExecutions(
   const projectInfo = resolveProjectInfo(context, metadata)
   const templateName = file?.basename ?? executions[0]!.taskTitle
   const derivedPath = file?.path ?? executions[0]!.taskPath ?? `${templateName}.md`
+  const createdMillis = resolveCreatedMillis(file, resolveExecutionCreatedMillis(executions, dateKey))
 
   const taskData: TaskData = {
     file,
@@ -204,6 +233,7 @@ async function createTaskFromExecutions(
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
     isRoutine: metadata?.isRoutine === true,
+    createdMillis,
     routine_type: metadata?.routine_type,
     routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
     routine_enabled: metadata?.routine_enabled,
@@ -221,6 +251,7 @@ async function createTaskFromExecutions(
       startTime: parseDateTime(execution.startTime, dateKey),
       stopTime: parseDateTime(execution.stopTime, dateKey),
       executedTitle: execution.taskTitle,
+      createdMillis,
     }
 
     if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey)) {
@@ -243,6 +274,7 @@ async function createNonRoutineTask(
   dateKey: string,
 ): Promise<void> {
   const projectInfo = resolveProjectInfo(context, metadata)
+  const createdMillis = resolveCreatedMillis(file, Date.now())
   const taskData: TaskData = {
     file,
     frontmatter: metadata ?? {},
@@ -253,6 +285,7 @@ async function createNonRoutineTask(
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
     isRoutine: false,
+    createdMillis,
     scheduledTime: getScheduledTime(metadata) || undefined,
   }
 
@@ -266,6 +299,7 @@ async function createNonRoutineTask(
     state: 'idle',
     slotKey,
     date: dateKey,
+    createdMillis,
   }
 
   if (isVisibleInstance(context, instance.instanceId, file.path, dateKey)) {
@@ -284,6 +318,7 @@ async function createRoutineTask(
 
   const dayState = await ensureDayState(context, dateKey)
   const projectInfo = resolveProjectInfo(context, metadata)
+  const createdMillis = resolveCreatedMillis(file, Date.now())
 
   const taskData: TaskData = {
     file,
@@ -295,6 +330,7 @@ async function createRoutineTask(
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
     isRoutine: true,
+    createdMillis,
     routine_type: rule.type,
     routine_interval: rule.interval,
     routine_enabled: rule.enabled,
@@ -315,6 +351,7 @@ async function createRoutineTask(
     state: 'idle',
     slotKey,
     date: dateKey,
+    createdMillis,
   }
 
   if (isVisibleInstance(context, instance.instanceId, file.path, dateKey)) {
@@ -378,6 +415,8 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
         continue
       }
 
+      const createdMillis = record.createdMillis ?? record.timestamp ?? Date.now()
+
       let taskData = context.tasks.find((task) => task.path === originalPath)
       if (!taskData) {
         const file = context.app.vault.getAbstractFileByPath(originalPath)
@@ -421,6 +460,7 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
         state: 'idle',
         slotKey: slotKey ?? DEFAULT_SLOT_KEY,
         date: dateKey,
+        createdMillis,
       }
 
       if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey)) {

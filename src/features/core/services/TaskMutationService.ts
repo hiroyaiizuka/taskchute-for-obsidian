@@ -66,12 +66,14 @@ export default class TaskMutationService {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const dateKey = this.host.getCurrentDateString()
+      const createdMillis = Date.now()
       const newInstance: TaskInstance = {
         task: inst.task,
         instanceId: this.host.generateInstanceId(inst.task, dateKey),
         state: 'idle',
         slotKey: inst.slotKey,
         originalSlotKey: inst.slotKey,
+        createdMillis,
       }
 
       this.assignDuplicateOrder(newInstance, inst)
@@ -84,7 +86,8 @@ export default class TaskMutationService {
           originalPath: inst.task.path,
           slotKey: newInstance.slotKey,
           originalSlotKey: inst.slotKey,
-          timestamp: Date.now(),
+          timestamp: createdMillis,
+          createdMillis,
         })
         await this.host.persistDayState(dateKey)
       }

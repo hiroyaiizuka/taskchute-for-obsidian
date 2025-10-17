@@ -95,6 +95,7 @@ export interface TaskData {
   projectPath?: string
   projectTitle?: string
   isRoutine?: boolean
+  createdMillis?: number
   routine_type?: "daily" | "weekly" | "monthly" | "weekdays" | "weekends"
   routine_start?: string
   routine_end?: string
@@ -121,6 +122,7 @@ export interface TaskInstance {
   instanceId: string
   state: "idle" | "running" | "done" | "paused"
   slotKey: string
+  createdMillis?: number
   // Optional: record keeping and display helpers
   executedTitle?: string
   originalSlotKey?: string
@@ -154,6 +156,7 @@ export interface DuplicatedInstance {
   instanceId: string
   originalPath: string
   timestamp?: number
+  createdMillis?: number
 }
 
 export interface DayState {

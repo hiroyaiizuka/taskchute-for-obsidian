@@ -399,6 +399,7 @@ describe('TaskChuteView duplication and deletion', () => {
 
     expect(duplicated).toBeDefined();
     expect(duplicated?.instanceId).toBe('dup-123');
+    expect(duplicated?.createdMillis).toEqual(expect.any(Number));
     expect(view.taskInstances).toContain(duplicated);
     expect(dayState.duplicatedInstances).toHaveLength(1);
     expect(dayState.duplicatedInstances[0]).toMatchObject({
@@ -406,6 +407,7 @@ describe('TaskChuteView duplication and deletion', () => {
       originalPath: task.path,
       slotKey: original.slotKey,
     });
+    expect(dayState.duplicatedInstances[0]?.createdMillis).toBe(duplicated?.createdMillis);
     expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
     expect(view.renderTaskList).toHaveBeenCalled();
 

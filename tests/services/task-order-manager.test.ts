@@ -51,6 +51,7 @@ describe('TaskOrderManager', () => {
       displayTitle: overrides.task?.displayTitle ?? 'Sample',
       isRoutine: overrides.task?.isRoutine ?? false,
       scheduledTime: overrides.task?.scheduledTime,
+      createdMillis: overrides.task?.createdMillis ?? overrides.createdMillis,
     },
     instanceId: overrides.instanceId ?? `inst-${Math.random().toString(36).slice(2, 8)}`,
     state: overrides.state ?? 'idle',
@@ -59,6 +60,7 @@ describe('TaskOrderManager', () => {
     order: overrides.order,
     startTime: overrides.startTime,
     stopTime: overrides.stopTime,
+    createdMillis: overrides.createdMillis ?? overrides.task?.createdMillis,
   });
 
   test('sortTaskInstancesByTimeOrder assigns deterministic orders for done/running/idle', () => {
@@ -195,6 +197,43 @@ describe('TaskOrderManager', () => {
     expect(errorSpy).toHaveBeenCalled();
     expect(handleOrderSaveError).toHaveBeenCalledWith(failure);
     errorSpy.mockRestore();
+  });
+
+  test('sortTaskInstancesByTimeOrder stacks unscheduled idle tasks by creation time', () => {
+    const { options } = createOptions();
+    const manager = new TaskOrderManager(options);
+    const older = createInstance({
+      task: {
+        path: 'TASKS/older.md',
+        displayTitle: 'Older',
+        isRoutine: false,
+        scheduledTime: undefined,
+        createdMillis: 1_695_000_000_000,
+      },
+      createdMillis: 1_695_000_000_000,
+      slotKey: 'none',
+      order: undefined,
+    });
+    const newer = createInstance({
+      task: {
+        path: 'TASKS/newer.md',
+        displayTitle: 'Newer',
+        isRoutine: false,
+        scheduledTime: undefined,
+        createdMillis: 1_696_000_000_000,
+      },
+      createdMillis: 1_696_000_000_000,
+      slotKey: 'none',
+      order: undefined,
+    });
+
+    const instances = [older, newer];
+    manager.sortTaskInstancesByTimeOrder(instances);
+    const sorted = manager.sortByOrder(instances);
+
+    expect(older.order).toBeGreaterThan(newer.order as number);
+    expect(sorted[0]).toBe(newer);
+    expect(sorted[1]).toBe(older);
   });
 
   test('calculateSimpleOrder returns midpoint when inserting between neighbors', () => {

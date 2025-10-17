@@ -255,6 +255,7 @@ export class RunningTasksService {
         originalSlotKey: record.originalSlotKey,
         startTime: new Date(record.startTime),
         stopTime: undefined,
+        createdMillis: taskData.createdMillis,
       }
       instances.push(recreated)
       restoredInstances.push(recreated)
