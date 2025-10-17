@@ -148,6 +148,118 @@ describe('TaskMutationService', () => {
     expect(record?.createdMillis).toBe(result.createdMillis)
   })
 
+  test('deleteInstance on duplicate does not mark base task permanent', async () => {
+    const task = createTask('TASKS/base.md')
+    const base: TaskInstance = {
+      task,
+      instanceId: 'base-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const duplicate: TaskInstance = {
+      task,
+      instanceId: 'dup-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-1',
+      originalPath: task.path,
+      slotKey: 'none',
+    })
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(duplicate)
+
+    const deletedEntries = host.dayState.deletedInstances
+    expect(deletedEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ instanceId: 'dup-1', deletionType: 'temporary' }),
+      ]),
+    )
+    expect(
+      deletedEntries.find(
+        (entry) => entry.deletionType === 'permanent' && entry.path === task.path,
+      ),
+    ).toBeUndefined()
+  })
+
+  test('deleteInstance marks permanent when duplicate metadata missing', async () => {
+    const task = createTask('TASKS/base.md')
+    const base: TaskInstance = {
+      task,
+      instanceId: 'base-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const duplicate: TaskInstance = {
+      task,
+      instanceId: 'dup-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
+    // Intentionally do NOT push to duplicatedInstances to simulate missing metadata
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(duplicate)
+
+    const deletedEntries = host.dayState.deletedInstances
+    expect(deletedEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          instanceId: 'dup-1',
+          deletionType: 'temporary',
+        }),
+      ]),
+    )
+    expect(
+      deletedEntries.find(
+        (entry) => entry.deletionType === 'permanent' && entry.path === task.path,
+      ),
+    ).toBeUndefined()
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[TaskMutationService] deleteInstance fallback duplicate metadata missing',
+      expect.objectContaining({ path: task.path, instanceId: 'dup-1' }),
+    )
+    warnSpy.mockRestore()
+  })
+
+  test('deleteInstance removes duplicatedRecords by path when instanceId mismatches', async () => {
+    const task = createTask('TASKS/base.md')
+    const base: TaskInstance = {
+      task,
+      instanceId: 'base-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const duplicate: TaskInstance = {
+      task,
+      instanceId: 'dup-new',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-old',
+      originalPath: task.path,
+      slotKey: 'none',
+      timestamp: Date.now() - 1000,
+    })
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(duplicate)
+
+    expect(
+      host.dayState.duplicatedInstances.find((entry) => entry.originalPath === task.path),
+    ).toBeUndefined()
+  })
+
   test('duplicateInstance surfaces failure notice when ensureDayState throws', async () => {
     const task = createTask('TASKS/dup-failure.md')
     const instance: TaskInstance = {

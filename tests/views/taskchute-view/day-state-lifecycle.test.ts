@@ -499,6 +499,74 @@ describe('TaskChuteView duplication and deletion', () => {
     expect(view.taskInstances[0].instanceId).toBe('orig-1');
   });
 
+  test('duplicate creation then delete duplicate keeps base task visible after reload', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/new-task.md';
+    const task = createTaskData({ file, path: 'TASKS/new-task.md' });
+
+    const base = createTaskInstance(task, { instanceId: 'base-inst', slotKey: 'none' });
+    view.taskInstances = [base];
+    view.tasks = [task];
+
+    const duplicate = (await (view as unknown as {
+      duplicateInstance: (inst: TaskInstance, returnOnly?: boolean) => Promise<TaskInstance | void>;
+    }).duplicateInstance(base, true)) as TaskInstance;
+
+    expect(duplicate).toBeDefined();
+    expect(view.getCurrentDayState().duplicatedInstances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ instanceId: duplicate.instanceId, originalPath: task.path }),
+      ]),
+    );
+
+    await (view as unknown as { deleteInstance: (inst: TaskInstance) => Promise<void> }).deleteInstance(duplicate);
+
+    const dayStateAfterDelete = view.getCurrentDayState();
+    expect(dayStateAfterDelete.duplicatedInstances.find((d) => d.instanceId === duplicate.instanceId)).toBeUndefined();
+    expect(dayStateAfterDelete.deletedInstances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ instanceId: duplicate.instanceId, deletionType: 'temporary' }),
+      ]),
+    );
+
+    view.taskInstances = [];
+    view.tasks = [];
+
+    const folder = { children: [file] };
+    (view.app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+      if (path === 'TASKS') return folder;
+      if (path === file.path) return file;
+      return null;
+    });
+    (view.app.vault.getMarkdownFiles as jest.Mock).mockReturnValue([file]);
+    (view.app.metadataCache.getFileCache as jest.Mock).mockImplementation((candidate: TFile) => {
+      if (candidate === file) {
+        return {
+          frontmatter: {
+            target_date: '2025-01-01',
+          },
+        };
+      }
+      return null;
+    });
+    (view.app.vault.read as jest.Mock).mockImplementation(async (candidate: TFile) => {
+      if (candidate === file) {
+        return '#task\n';
+      }
+      return '';
+    });
+
+    await (view as unknown as { loadTasks: () => Promise<void> }).loadTasks();
+
+    const remaining = view.taskInstances.find((inst) => inst.task.path === task.path);
+    expect(remaining).toBeDefined();
+    expect(remaining?.instanceId).not.toBe(duplicate.instanceId);
+  });
+
   test('deleteRoutineTask hides base routine and persists state', async () => {
     const { view } = createView();
     await view.ensureDayStateForCurrentDate();
