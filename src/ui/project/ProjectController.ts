@@ -1,5 +1,5 @@
 import { Notice, TFile } from 'obsidian'
-import { TaskData, TaskInstance, TaskChutePluginLike } from '../../types'
+import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '../../types'
 import ProjectSettingsModal from '../modals/ProjectSettingsModal'
 
 export interface ProjectControllerHost {
@@ -124,90 +124,28 @@ export default class ProjectController {
   }
 
   async getProjectFiles(): Promise<TFile[]> {
-    const files = this.host.app.vault.getMarkdownFiles()
-    const result: TFile[] = []
     const projectFolderPath = this.host.plugin.pathManager.getProjectFolderPath()
-    if (!projectFolderPath) return result
+    if (!projectFolderPath) return []
 
-    const filtering = this.host.plugin.settings.projectsFilterEnabled ?? false
-    const pf = this.host.plugin.settings.projectsFilter ?? {}
-    const prefixes = pf.prefixes ?? []
-    const tags = (pf.tags ?? []).filter(Boolean)
-    const includeSub = pf.includeSubfolders ?? true
-    const matchMode = pf.matchMode === 'AND' ? 'AND' : 'OR'
-    const limit = Math.max(1, Math.min(500, pf.limit ?? 50))
-    let nameRegex: RegExp | null = null
-    let excludePathRegex: RegExp | null = null
-    try {
-      if (pf.nameRegex) nameRegex = new RegExp(pf.nameRegex)
-    } catch {
-      nameRegex = null
-    }
-    try {
-      if (pf.excludePathRegex) excludePathRegex = new RegExp(pf.excludePathRegex)
-    } catch {
-      excludePathRegex = null
-    }
+    const prefix = projectFolderPath.endsWith('/')
+      ? projectFolderPath
+      : `${projectFolderPath}/`
 
-    const inScope = files.filter((file) => {
-      if (excludePathRegex && excludePathRegex.test(file.path)) return false
-      if (!file.path.startsWith(projectFolderPath + '/')) return false
-      if (!includeSub) {
-        const rel = file.path.substring(projectFolderPath.length + 1)
-        if (rel.includes('/')) return false
-      }
-      return true
+    const files = this.host.app.vault.getMarkdownFiles()
+    const inScope = files.filter((file) => file.path.startsWith(prefix))
+
+    const filtered = inScope.filter((file) => {
+      const cache = this.host.app.metadataCache.getFileCache(file)
+      const statusValue = cache?.frontmatter?.status
+      const status = typeof statusValue === 'string'
+        ? (statusValue.trim().toLowerCase() as ProjectBoardStatus | string)
+        : null
+      return status === 'todo' || status === 'in-progress'
     })
 
-    if (!filtering) {
-      for (const file of inScope) {
-        result.push(file)
-        if (result.length >= limit) break
-      }
-      return result
-    }
-
-    const hasNameRules = (prefixes && prefixes.length > 0) || !!nameRegex
-    const hasContentRules = (tags && tags.length > 0)
-
-    if (!hasNameRules && !hasContentRules && !nameRegex && !excludePathRegex) {
-      for (const file of inScope) {
-        result.push(file)
-        if (result.length >= limit) break
-      }
-      return result
-    }
-
-    const testName = (file: TFile) => {
-      const byPrefix = prefixes.some((prefix) => prefix && file.basename.startsWith(prefix))
-      const byRegex = nameRegex ? nameRegex.test(file.basename) : false
-      return matchMode === 'AND' ? byPrefix && (nameRegex ? byRegex : true) : byPrefix || byRegex
-    }
-
-    const testTags = (file: TFile) => {
-      if (!hasContentRules) return matchMode === 'AND' ? true : false
-      const cache = this.host.app.metadataCache.getFileCache(file)
-      const tagSet = new Set<string>()
-      if (cache?.tags) {
-        for (const tag of cache.tags) {
-          const value = (tag.tag || '').replace(/^#/, '')
-          if (value) tagSet.add(value)
-        }
-      }
-      return tags.some((tag) => tagSet.has(tag))
-    }
-
-    for (const file of inScope) {
-      const okName = hasNameRules ? testName(file) : matchMode === 'AND'
-      const okContent = hasContentRules ? testTags(file) : matchMode === 'AND'
-      const pass = matchMode === 'AND' ? okName && okContent : okName || okContent
-      if (pass) {
-        result.push(file)
-        if (result.length >= limit) break
-      }
-    }
-
-    return result
+    return filtered.sort((a, b) =>
+      a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
+    )
   }
 
   async setProjectForTask(task: TaskData, projectPath: string): Promise<void> {
@@ -266,19 +204,23 @@ export default class ProjectController {
 
     projectDisplay.empty()
     if (inst.task.projectPath && inst.task.projectTitle) {
-      const normalized = inst.task.projectTitle.replace(/^Project\s*-\s*/u, '')
-      const title = normalized.trim().length > 0
-        ? normalized
-        : inst.task.projectTitle || this.host.tv('project.none', 'No project')
+      const prefix = this.host.plugin.settings.projectTitlePrefix ?? ''
+      let displayName = inst.task.projectTitle
+      if (prefix && displayName.startsWith(prefix)) {
+        displayName = displayName.slice(prefix.length).trimStart()
+      }
+      if (!displayName || displayName.length === 0) {
+        displayName = inst.task.projectTitle || this.host.tv('project.none', 'No project')
+      }
 
       const projectButton = projectDisplay.createEl('span', {
         cls: 'taskchute-project-button',
         attr: {
-          title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title }),
+          title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title: displayName }),
         },
       })
       projectButton.createEl('span', { cls: 'taskchute-project-icon', text: '📁' })
-      projectButton.createEl('span', { cls: 'taskchute-project-name', text: title })
+      projectButton.createEl('span', { cls: 'taskchute-project-name', text: displayName })
       projectButton.addEventListener('click', async (event) => {
         event.stopPropagation()
         await this.showUnifiedProjectModal(inst)

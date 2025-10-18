@@ -89,8 +89,13 @@ describe('NavigationSectionController', () => {
     const navigationContent = document.createElement('div')
     const workspace = {
       splitActiveLeaf: jest.fn(() => ({} as WorkspaceLeaf)),
-      getLeaf: jest.fn(() => ({} as WorkspaceLeaf)),
+      getLeavesOfType: jest.fn(() => [] as WorkspaceLeaf[]),
+      getLeaf: jest.fn(() => ({
+        setViewState: jest.fn(),
+        openFile: jest.fn(),
+      } as unknown as WorkspaceLeaf)),
       setActiveLeaf: jest.fn(),
+      revealLeaf: undefined,
     }
 
     const frontmatterMap = new Map<TFile, Record<string, unknown>>()
@@ -144,6 +149,7 @@ describe('NavigationSectionController', () => {
         manifest: { id: 'taskchute-plus' },
         pathManager: {
           getTaskFolderPath: () => 'TASKS',
+          getProjectFolderPath: () => 'PROJECTS',
           getLogDataPath: () => 'LOGS',
           getReviewDataPath: () => 'REVIEWS',
           ensureFolderExists: jest.fn().mockResolvedValue(undefined),
@@ -230,6 +236,22 @@ describe('NavigationSectionController', () => {
     expect((containerArg as HTMLElement).classList.contains('taskchute-log-modal-content')).toBe(true)
     expect(host.closeNavigation).toHaveBeenCalled()
     expect(document.querySelector('.taskchute-log-modal-overlay')).not.toBeNull()
+  })
+
+  test('handleNavigationItemClick opens project board view', async () => {
+    const host = createHost()
+    const controller = new NavigationSectionController(host, {
+      closeNavigation: host.closeNavigation,
+      openNavigation: host.openNavigation,
+    })
+
+    await controller.handleNavigationItemClick('projects')
+
+    expect(host.app.workspace.getLeavesOfType).toHaveBeenCalledWith('taskchute-project-board')
+    expect(host.app.workspace.getLeaf).toHaveBeenCalledWith(true)
+    const leaf = host.app.workspace.getLeaf.mock.results[0]?.value as { setViewState: jest.Mock }
+    expect(leaf.setViewState).toHaveBeenCalledWith({ type: 'taskchute-project-board', active: true })
+    expect(host.closeNavigation).toHaveBeenCalled()
   })
 
   test('handleNavigationItemClick triggers review service', async () => {

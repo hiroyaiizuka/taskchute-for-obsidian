@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile, TFolder } from 'obsidian';
 import type { TextComponent } from 'obsidian';
 import { TaskChuteSettings, PathManagerLike } from '../types';
 import { t } from '../i18n';
@@ -144,6 +144,16 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     );
   }
 
+  private notifyMissingProjectTemplate(path: string): void {
+    new Notice(
+      t(
+        'notices.projectTemplateMissing',
+        'Project template file was not found: {path}',
+        { path },
+      ),
+    );
+  }
+
   private renderStorageSection(container: HTMLElement): void {
     new Setting(container)
       .setName(t('settings.heading', 'TaskChute file paths'))
@@ -237,169 +247,178 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setHeading();
 
     new Setting(container)
-      .setName(
-        t('settings.storage.projectsFolderName', 'Project files location'),
-      )
+      .setName(t('settings.projectCandidates.titlePrefixName', 'File name prefix'))
       .setDesc(
         t(
-          'settings.storage.projectsFolderDesc',
-          'Folder for project notes (optional).',
+          'settings.projectCandidates.titlePrefixDesc',
+          'Applied to project titles when creating new notes.',
         ),
       )
       .addText((text) => {
-        const value = this.plugin.settings.projectsFolder ?? '';
+        const value = this.plugin.settings.projectTitlePrefix ?? 'Project - '
         text
-          .setPlaceholder('')
+          .setPlaceholder('Project - ')
           .setValue(value)
           .onChange(async (raw) => {
-            const v = raw.trim();
-            const validation = this.plugin.pathManager.validatePath(v);
-            if (validation.valid || v === '') {
-              this.plugin.settings.projectsFolder = v || null;
+            this.plugin.settings.projectTitlePrefix = raw
+            await this.plugin.saveSettings()
+          })
+      })
+
+    let projectFolderInput: TextComponent | null = null;
+    const folderSetting = new Setting(container)
+      .setName(
+        t('settings.projectCandidates.folderName', 'Project files location'),
+      )
+      .setDesc(
+        t(
+          'settings.projectCandidates.folderDesc',
+          'Folder where project notes will be saved.',
+        ),
+      );
+
+    folderSetting
+      .addText((text) => {
+        projectFolderInput = text;
+        const value = this.plugin.settings.projectsFolder ?? '';
+        text
+          .setValue(value)
+          .onChange(async (raw) => {
+            const trimmed = raw.trim();
+            if (!trimmed) {
+              this.plugin.settings.projectsFolder = null;
               await this.plugin.saveSettings();
-            } else {
+              return;
+            }
+            const validation = this.plugin.pathManager.validatePath(trimmed);
+            if (!validation.valid) {
               new Notice(
                 validation.error ||
                   t('settings.validation.invalidPath', 'Invalid path'),
               );
               text.setValue(this.plugin.settings.projectsFolder ?? '');
+              return;
+            }
+            this.plugin.settings.projectsFolder = trimmed;
+            await this.plugin.saveSettings();
+            try {
+              await this.plugin.pathManager.ensureFolderExists(trimmed);
+            } catch (error) {
+              console.warn('[TaskChute] ensureFolderExists failed', error);
             }
           });
-        text.inputEl.addEventListener('blur', async () => {
-          const v = this.plugin.settings.projectsFolder?.trim();
-          if (!v) return;
-          try { await this.plugin.pathManager.ensureFolderExists(v); } catch {}
-        });
       })
       .addExtraButton((btn) => {
-        btn.setIcon('x')
+        btn
+          .setIcon('magnifying-glass')
+          .setTooltip(
+            t(
+              'settings.projectCandidates.folderPick',
+              'Select folder from vault',
+            ),
+          )
+          .onClick(() => {
+            const modal = new ProjectFolderSuggestModal(this.app, (folder) => {
+              const normalized = folder.path;
+              this.plugin.settings.projectsFolder = normalized;
+              void this.plugin.saveSettings();
+              projectFolderInput?.setValue(normalized);
+            });
+            modal.open();
+          });
+      })
+      .addExtraButton((btn) => {
+        btn
+          .setIcon('x')
           .setTooltip(t('common.clear', 'Clear'))
           .onClick(async () => {
             this.plugin.settings.projectsFolder = null;
             await this.plugin.saveSettings();
-            this.display();
+            projectFolderInput?.setValue('');
           });
       });
 
-    // Enable/disable toggle
-    new Setting(container)
-      .setName(t('settings.projectCandidates.enable', 'Use filters'))
-      .setDesc(t('settings.projectCandidates.enableDesc', 'Filter project candidates by prefixes, tags, etc.'))
-      .addToggle((tg) => {
-        tg.setValue(this.plugin.settings.projectsFilterEnabled ?? false).onChange(async (v) => {
-          this.plugin.settings.projectsFilterEnabled = v
-          await this.plugin.saveSettings()
-          this.display()
-        })
-      })
+    let templateInput: TextComponent | null = null;
+    const templateSetting = new Setting(container)
+      .setName(
+        t('settings.projectCandidates.templateName', 'Template file'),
+      )
+      .setDesc(
+        t(
+          'settings.projectCandidates.templateDesc',
+          'Optional markdown template applied when creating new projects.',
+        ),
+      );
 
-    if (!(this.plugin.settings.projectsFilterEnabled ?? false)) {
-      return
-    }
-
-    const s = this.plugin.settings.projectsFilter ?? {};
-
-    // Match mode
-    new Setting(container)
-      .setName(t('settings.projectCandidates.matchMode', 'Match mode'))
-      .setDesc(t('settings.projectCandidates.matchModeDesc', 'How to combine rules'))
-      .addDropdown((dd) => {
-        const cur = s.matchMode ?? 'OR';
-        dd.addOption('OR', t('settings.projectCandidates.or', 'Match any (OR)'))
-          .addOption('AND', t('settings.projectCandidates.and', 'Match all (AND)'))
-          .setValue(cur)
-          .onChange(async (val) => {
-            this.ensureProjectsFilter();
-            this.plugin.settings.projectsFilter!.matchMode = val === 'AND' ? 'AND' : 'OR';
-            await this.plugin.saveSettings();
-          });
-      });
-
-    // Prefixes
-    new Setting(container)
-      .setName(t('settings.projectCandidates.prefixes', 'Filename prefixes'))
-      .setDesc(t('settings.projectCandidates.prefixesDesc', 'Comma-separated. Example: Project - '))
+    templateSetting
       .addText((text) => {
-        const cur = (s.prefixes ?? []).join(', ');
+        templateInput = text;
+        const value = this.plugin.settings.projectTemplatePath ?? '';
         text
-          .setPlaceholder('Project - ')
-          .setValue(cur)
+          .setPlaceholder('Projects/Template.md')
+          .setValue(value)
           .onChange(async (raw) => {
-            this.ensureProjectsFilter();
-            const arr = raw
-              .split(',')
-              .map((x) => x.trim())
-              .filter((x) => x.length > 0);
-            this.plugin.settings.projectsFilter!.prefixes = arr;
+            const trimmed = raw.trim();
+            if (!trimmed) {
+              this.plugin.settings.projectTemplatePath = null;
+              await this.plugin.saveSettings();
+              return;
+            }
+            const validation = this.plugin.pathManager.validatePath(trimmed);
+            if (!validation.valid) {
+              new Notice(
+                validation.error ||
+                  t('settings.validation.invalidPath', 'Invalid path'),
+              );
+              text.setValue(this.plugin.settings.projectTemplatePath ?? '');
+              return;
+            }
+            this.plugin.settings.projectTemplatePath = trimmed;
             await this.plugin.saveSettings();
           });
-      });
 
-    // Tags
-    new Setting(container)
-      .setName(t('settings.projectCandidates.tags', 'Tags'))
-      .setDesc(t('settings.projectCandidates.tagsDesc', 'Comma-separated without #. Example: project'))
-      .addText((text) => {
-        const cur = (s.tags ?? []).join(', ');
-        text
-          .setPlaceholder('project')
-          .setValue(cur)
-          .onChange(async (raw) => {
-            this.ensureProjectsFilter();
-            const arr = raw
-              .split(',')
-              .map((x) => x.trim().replace(/^#/, ''))
-              .filter((x) => x.length > 0);
-            this.plugin.settings.projectsFilter!.tags = arr;
-            await this.plugin.saveSettings();
-          });
-      });
-
-    // Include subfolders
-    new Setting(container)
-      .setName(t('settings.projectCandidates.includeSubfolders', 'Include subfolders'))
-      .addToggle((tg) => {
-        tg.setValue(s.includeSubfolders ?? true).onChange(async (v) => {
-          this.ensureProjectsFilter();
-          this.plugin.settings.projectsFilter!.includeSubfolders = v;
-          await this.plugin.saveSettings();
+        text.inputEl.addEventListener('blur', () => {
+          const path = this.plugin.settings.projectTemplatePath?.trim();
+          if (!path) return;
+          const file = this.plugin.app.vault.getAbstractFileByPath(path);
+          if (!(file instanceof TFile)) {
+            this.notifyMissingProjectTemplate(path);
+          }
         });
-      });
-
-    // Limit
-    new Setting(container)
-      .setName(t('settings.projectCandidates.limit', 'Max candidates'))
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text
-          .setValue(String(s.limit ?? 50))
-          .onChange(async (raw) => {
-            this.ensureProjectsFilter();
-            const n = Math.max(1, Math.min(500, Number(raw) || 50));
-            this.plugin.settings.projectsFilter!.limit = n;
+      })
+      .addExtraButton((btn) => {
+        btn
+          .setIcon('magnifying-glass')
+          .setTooltip(
+            t(
+              'settings.projectCandidates.templatePick',
+              'Select template file from vault',
+            ),
+          )
+          .onClick(() => {
+            const modal = new ProjectTemplateSuggestModal(
+              this.app,
+              this.plugin.settings.projectsFolder ?? undefined,
+              (file) => {
+                const normalized = file.path;
+                this.plugin.settings.projectTemplatePath = normalized;
+                void this.plugin.saveSettings();
+                templateInput?.setValue(normalized);
+              },
+            );
+            modal.open();
+          });
+      })
+      .addExtraButton((btn) => {
+        btn
+          .setIcon('x')
+          .setTooltip(t('common.clear', 'Clear'))
+          .onClick(async () => {
+            this.plugin.settings.projectTemplatePath = null;
             await this.plugin.saveSettings();
+            templateInput?.setValue('');
           });
       });
-
-    // (display rules removed per UX simplification)
-
-    // (advanced filters removed per UX simplification)
-
-    // (test button removed per UX simplification)
-  }
-
-  private ensureProjectsFilter(): void {
-    if (!this.plugin.settings.projectsFilter) {
-      this.plugin.settings.projectsFilter = {
-        prefixes: ['Project - '],
-        tags: ['project'],
-        includeSubfolders: true,
-        matchMode: 'OR',
-        trimPrefixesInUI: true,
-        transformName: false,
-        limit: 50,
-      };
-    }
   }
 
   private renderFeaturesSection(container: HTMLElement): void {
@@ -447,6 +466,71 @@ class ReviewTemplateSuggestModal extends SuggestModal<TFile> {
     } else {
       target.textContent = file.path;
     }
+  }
+
+  onChooseSuggestion(file: TFile): void {
+    this.onChoose(file);
+    this.close();
+  }
+}
+
+class ProjectFolderSuggestModal extends SuggestModal<TFolder> {
+  private readonly onChoose: (folder: TFolder) => void;
+
+  constructor(app: App, onChoose: (folder: TFolder) => void) {
+    super(app);
+    this.onChoose = onChoose;
+    this.setPlaceholder(
+      t(
+        'settings.projectCandidates.folderSuggestPlaceholder',
+        'Type to search folders',
+      ),
+    );
+  }
+
+  getSuggestions(query: string): TFolder[] {
+    const lower = query.toLowerCase();
+    return this.app.vault
+      .getAllLoadedFiles()
+      .filter((file): file is TFolder => file instanceof TFolder)
+      .filter((folder) => folder.path.toLowerCase().includes(lower));
+  }
+
+  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+    el.setText(folder.path);
+  }
+
+  onChooseSuggestion(folder: TFolder): void {
+    this.onChoose(folder);
+    this.close();
+  }
+}
+
+class ProjectTemplateSuggestModal extends SuggestModal<TFile> {
+  private readonly baseFolder?: string;
+  private readonly onChoose: (file: TFile) => void;
+
+  constructor(app: App, baseFolder: string | undefined, onChoose: (file: TFile) => void) {
+    super(app);
+    this.baseFolder = baseFolder;
+    this.onChoose = onChoose;
+    this.setPlaceholder(
+      t(
+        'settings.projectCandidates.templateSuggestPlaceholder',
+        'Type to search project templates',
+      ),
+    );
+  }
+
+  getSuggestions(query: string): TFile[] {
+    const lower = query.toLowerCase();
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => file.path.toLowerCase().includes(lower));
+  }
+
+  renderSuggestion(file: TFile, el: HTMLElement): void {
+    el.setText(file.path);
   }
 
   onChooseSuggestion(file: TFile): void {

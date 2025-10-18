@@ -35,6 +35,7 @@ describe('TaskLoaderService', () => {
         originalPath: 'TASKS/routine.md',
         clonedPath: 'TASKS/routine.md',
         slotKey: '8:00-12:00',
+        timestamp: 1_700_000_000_000,
       },
     ];
     const { context } = createRoutineLoadContext({
@@ -45,7 +46,9 @@ describe('TaskLoaderService', () => {
     await loader.load(context as unknown as TaskChuteView);
 
     expect(context.tasks.length).toBeGreaterThanOrEqual(1);
-    expect(context.taskInstances.some((inst) => inst.instanceId === 'dup-1')).toBe(true);
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'dup-1');
+    expect(restored).toBeDefined();
+    expect(restored?.createdMillis).toBe(duplicatedInstances[0].timestamp);
   });
 
   test('hydrates execution log driven instances when log file exists', async () => {

@@ -18,6 +18,7 @@ type DuplicatedEntry = {
   slotKey?: string
   originalSlotKey?: string
   timestamp?: number
+  createdMillis?: number
 }
 
 interface MutationDayState {
@@ -66,12 +67,14 @@ export default class TaskMutationService {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const dateKey = this.host.getCurrentDateString()
+      const createdMillis = Date.now()
       const newInstance: TaskInstance = {
         task: inst.task,
         instanceId: this.host.generateInstanceId(inst.task, dateKey),
         state: 'idle',
         slotKey: inst.slotKey,
         originalSlotKey: inst.slotKey,
+        createdMillis,
       }
 
       this.assignDuplicateOrder(newInstance, inst)
@@ -84,7 +87,8 @@ export default class TaskMutationService {
           originalPath: inst.task.path,
           slotKey: newInstance.slotKey,
           originalSlotKey: inst.slotKey,
-          timestamp: Date.now(),
+          timestamp: createdMillis,
+          createdMillis,
         })
         await this.host.persistDayState(dateKey)
       }
@@ -119,6 +123,9 @@ export default class TaskMutationService {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
+      const hadSiblingWithSamePath = this.host.taskInstances.some(
+        (candidate) => candidate !== inst && candidate.task?.path === inst.task.path,
+      )
       const index = this.host.taskInstances.indexOf(inst)
       if (index > -1) {
         this.host.taskInstances.splice(index, 1)
@@ -127,7 +134,20 @@ export default class TaskMutationService {
       const dateKey = this.host.getCurrentDateString()
       const dayState = this.host.getCurrentDayState()
       const deletedEntries = [...this.host.dayStateManager.getDeleted(dateKey)]
-      const isDuplicate = this.isDuplicatedTask(inst)
+      let isDuplicate = this.isDuplicatedTask(inst)
+      const inferredDuplicate =
+        !isDuplicate && !inst.task.isRoutine && hadSiblingWithSamePath
+
+      if (inferredDuplicate) {
+        isDuplicate = true
+        console.warn(
+          '[TaskMutationService] deleteInstance fallback duplicate metadata missing',
+          {
+            path: inst.task.path,
+            instanceId: inst.instanceId,
+          },
+        )
+      }
       const timestamp = Date.now()
 
       if (isDuplicate) {
@@ -138,7 +158,8 @@ export default class TaskMutationService {
           timestamp,
         })
         dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
-          (entry) => entry.instanceId !== inst.instanceId,
+          (entry) =>
+            entry.instanceId !== inst.instanceId && entry.originalPath !== inst.task.path,
         )
       } else if (!inst.task.isRoutine) {
         const hasValidPath = typeof inst.task.path === 'string' && inst.task.path.length > 0

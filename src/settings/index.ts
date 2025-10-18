@@ -5,18 +5,8 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   locationMode: 'vaultRoot',
   specifiedFolder: undefined,
   projectsFolder: null, // unset by default
-  projectsFilterEnabled: false,
-  projectsFilter: {
-    prefixes: [],
-    tags: [],
-    includeSubfolders: true,
-    matchMode: 'OR',
-    trimPrefixesInUI: true,
-    transformName: false,
-    limit: 50,
-    nameRegex: undefined,
-    excludePathRegex: undefined,
-  },
+  projectTitlePrefix: 'Project - ',
+  projectTemplatePath: null,
 
   useOrderBasedSort: true,
   slotKeys: {},

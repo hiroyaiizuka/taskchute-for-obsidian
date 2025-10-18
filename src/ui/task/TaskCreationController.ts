@@ -2,6 +2,7 @@ import { Notice, App } from "obsidian"
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
 import { TaskNameAutocomplete } from "../components/TaskNameAutocomplete"
+import { createNameModal } from "../components/NameModal"
 import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
 import type { TaskChutePluginLike, TaskNameValidator } from "../../types"
 
@@ -26,40 +27,16 @@ export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
 
   async showAddTaskModal(): Promise<void> {
-    const modal = document.createElement("div")
-    modal.className = "task-modal-overlay"
-    const modalContent = modal.createEl("div", { cls: "task-modal-content" })
-
-    const modalHeader = modalContent.createEl("div", { cls: "modal-header" })
-    modalHeader.createEl("h3", {
-      text: this.host.tv("addTask.title", "Add new task"),
-    })
-
-    const closeButton = modalHeader.createEl("button", {
-      cls: "modal-close-button",
-      attr: {
-        "aria-label": this.host.tv("common.close", "Close"),
-        title: this.host.tv("common.close", "Close"),
-        type: "button",
-      },
-    }) as HTMLButtonElement
-
-    const form = modalContent.createEl("form", { cls: "task-form" })
-    const nameGroup = form.createEl("div", { cls: "form-group" })
-    nameGroup.createEl("label", {
-      text: this.host.tv("addTask.nameLabel", "Task name:"),
-      cls: "form-label",
-    })
-    const nameInput = nameGroup.createEl("input", {
-      type: "text",
-      cls: "form-input",
+    const modal = createNameModal({
+      title: this.host.tv("addTask.title", "Add new task"),
+      label: this.host.tv("addTask.nameLabel", "Task name:"),
       placeholder: this.host.tv("addTask.namePlaceholder", "Enter task name"),
-    }) as HTMLInputElement
-
-    const warningMessage = nameGroup.createEl("div", {
-      cls: "task-name-warning hidden",
-      attr: { role: "alert", "aria-live": "polite" },
+      submitText: this.host.tv("buttons.save", "Save"),
+      cancelText: t("common.cancel", "Cancel"),
+      closeLabel: this.host.tv("common.close", "Close"),
     })
+
+    const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
 
     let cleanupAutocomplete: (() => void) | null = null
     try {
@@ -83,38 +60,15 @@ export default class TaskCreationController {
       )
     }
 
-    const buttonGroup = form.createEl("div", { cls: "form-button-group" })
-    const cancelButton = buttonGroup.createEl("button", {
-      type: "button",
-      cls: "form-button cancel",
-      text: t("common.cancel", "Cancel"),
-    }) as HTMLButtonElement
-    const saveButton = buttonGroup.createEl("button", {
-      type: "submit",
-      cls: "form-button create",
-      text: this.host.tv("buttons.save", "Save"),
-    }) as HTMLButtonElement
-
     const validationControls = this.setupTaskNameValidation(
       nameInput,
       saveButton,
       warningMessage,
     )
 
-    const closeModal = () => {
+    onClose(() => {
       cleanupAutocomplete?.()
       validationControls.dispose()
-      if (modal.parentElement) {
-        modal.parentElement.removeChild(modal)
-      }
-    }
-
-    closeButton.addEventListener("click", closeModal)
-    cancelButton.addEventListener("click", closeModal)
-    modal.addEventListener("click", (event) => {
-      if (event.target === modal) {
-        closeModal()
-      }
     })
 
     nameInput.addEventListener("autocomplete-selected", () => {
@@ -151,15 +105,12 @@ export default class TaskCreationController {
 
       const created = await this.createNewTask(taskName, 30)
       if (created) {
-        closeModal()
+        close()
       } else {
         this.highlightWarning(warningMessage)
         validationControls.runValidation()
       }
     })
-
-    document.body.appendChild(modal)
-    nameInput.focus()
   }
 
   private async createNewTask(

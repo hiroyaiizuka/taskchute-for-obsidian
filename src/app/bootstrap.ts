@@ -1,6 +1,6 @@
 import { TaskChuteView } from "../features/core/views/TaskChuteView"
 import { TaskChuteSettingTab } from "../settings"
-import { VIEW_TYPE_TASKCHUTE, type TaskChutePlugin } from "../types"
+import { VIEW_TYPE_TASKCHUTE, VIEW_TYPE_PROJECT_BOARD, type TaskChutePlugin } from "../types"
 import { TaskChuteViewController } from "./taskchute/TaskChuteViewController"
 import { createCommandRegistrar } from "../commands/registerTaskCommands"
 import type { CommandRegistrar } from "../types/Commands"
@@ -9,6 +9,7 @@ import { LocaleCoordinator } from "./locale/LocaleCoordinator"
 import { ensureRequiredFolders, initializeServices } from "./serviceFactory"
 import { DEFAULT_SETTINGS } from "../settings"
 import type { TaskChuteSettings } from "../types"
+import ProjectBoardView from "../ui/project/ProjectBoardView"
 import {
   attachPluginContext,
   createPluginContext,
@@ -95,6 +96,11 @@ export async function bootstrapPlugin(
   plugin.registerView(
     VIEW_TYPE_TASKCHUTE,
     (leaf) => new TaskChuteView(leaf, plugin),
+  )
+
+  plugin.registerView(
+    VIEW_TYPE_PROJECT_BOARD,
+    (leaf) => new ProjectBoardView(leaf, plugin),
   )
 
   const viewController = new TaskChuteViewController(plugin)

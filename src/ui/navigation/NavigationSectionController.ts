@@ -5,6 +5,7 @@ import NavigationLogController from './NavigationLogController'
 import NavigationReviewController from './NavigationReviewController'
 import NavigationRoutineController from './NavigationRoutineController'
 import NavigationSettingsController from './NavigationSettingsController'
+import { VIEW_TYPE_PROJECT_BOARD } from '../../types'
 import type { RoutineTaskShape } from '../../types/Routine'
 
 export interface NavigationSectionHost {
@@ -20,7 +21,7 @@ export interface NavigationSectionHost {
   leaf: WorkspaceLeaf
 }
 
-export type NavigationSection = 'routine' | 'review' | 'log' | 'settings'
+export type NavigationSection = 'routine' | 'projects' | 'review' | 'log' | 'settings'
 
 interface NavigationCallbacks {
   closeNavigation: () => void
@@ -84,6 +85,11 @@ export default class NavigationSectionController {
   }
 
   async handleNavigationItemClick(section: NavigationSection): Promise<void> {
+    if (section === 'projects') {
+      await this.openProjectBoard()
+      this.callbacks.closeNavigation()
+      return
+    }
     if (section === 'log') {
       this.logController.openLogModal()
       this.callbacks.closeNavigation()
@@ -116,6 +122,28 @@ export default class NavigationSectionController {
 
   async renderRoutineList(): Promise<void> {
     await this.routineController.renderRoutineList()
+  }
+
+  private async openProjectBoard(): Promise<void> {
+    try {
+      const workspace = this.host.app.workspace
+      const existing = workspace.getLeavesOfType(VIEW_TYPE_PROJECT_BOARD)
+      const leaf = existing.length > 0 ? existing[0] : workspace.getLeaf(true)
+      if (!leaf) {
+        throw new Error('No workspace leaf available')
+      }
+      await leaf.setViewState({ type: VIEW_TYPE_PROJECT_BOARD, active: true })
+      if (typeof workspace.revealLeaf === 'function') {
+        workspace.revealLeaf(leaf)
+      } else {
+        workspace.setActiveLeaf(leaf)
+      }
+    } catch (error) {
+      console.error('[Navigation] Failed to open project board view:', error)
+      new Notice(
+        this.host.tv('projectBoard.errors.genericTitle', 'Unable to load projects'),
+      )
+    }
   }
 
 }

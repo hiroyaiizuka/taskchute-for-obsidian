@@ -23,6 +23,18 @@ interface EnsureOptions {
 export class TaskOrderManager {
   constructor(private readonly options: TaskOrderManagerOptions) {}
 
+  private getCreatedMillis(inst: TaskInstance): number | null {
+    const fromInstance = inst.createdMillis;
+    if (typeof fromInstance === 'number' && Number.isFinite(fromInstance)) {
+      return fromInstance;
+    }
+    const fromTask = inst.task?.createdMillis;
+    if (typeof fromTask === 'number' && Number.isFinite(fromTask)) {
+      return fromTask;
+    }
+    return null;
+  }
+
   private getTaskTitle(task: TaskInstance['task'] | undefined): string {
     if (!task) return '';
     if (typeof task.displayTitle === 'string' && task.displayTitle.trim().length > 0) {
@@ -262,13 +274,31 @@ export class TaskOrderManager {
     const idle = slotInstances.filter((inst) => normalizedState(inst.state) === 'idle');
 
     let maxOrder = 0;
+    let minOrder: number | null = null;
+
+    const trackOrder = (value: number | null | undefined) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        maxOrder = Math.max(maxOrder, value);
+        minOrder = minOrder === null ? value : Math.min(minOrder, value);
+      }
+    };
 
     const assignSequential = (items: TaskInstance[], startOrder: number, step = 100) => {
       let cursor = startOrder;
       items.forEach((inst) => {
         inst.order = cursor;
+        trackOrder(cursor);
         cursor += step;
-        maxOrder = Math.max(maxOrder, cursor - step);
+      });
+      return cursor;
+    };
+
+    const assignDescending = (items: TaskInstance[], startOrder: number, step = 100) => {
+      let cursor = startOrder;
+      items.forEach((inst) => {
+        inst.order = cursor;
+        trackOrder(cursor);
+        cursor -= step;
       });
       return cursor;
     };
@@ -284,43 +314,65 @@ export class TaskOrderManager {
       assignSequential(sortedDone, 100);
     } else {
       done.forEach((inst) => {
-        if (typeof inst.order === 'number') {
-          maxOrder = Math.max(maxOrder, inst.order);
-        }
+        trackOrder(inst.order);
       });
     }
 
     running.forEach((inst) => {
-      if (typeof inst.order === 'number') {
-        maxOrder = Math.max(maxOrder, inst.order);
-      }
+      trackOrder(inst.order);
     });
 
     const runningMissing = running.filter((inst) => inst.order === undefined || inst.order === null);
     if (runningMissing.length > 0) {
       runningMissing.sort((a, b) => (a.startTime?.getTime() ?? 0) - (b.startTime?.getTime() ?? 0));
-      assignSequential(runningMissing, maxOrder + 100);
+      const start = (Number.isFinite(maxOrder) ? maxOrder : 0) + 100;
+      assignSequential(runningMissing, start);
     }
 
     idle.forEach((inst) => {
-      if (typeof inst.order === 'number') {
-        maxOrder = Math.max(maxOrder, inst.order);
-      }
+      trackOrder(inst.order);
     });
 
     const idleMissing = idle.filter((inst) => inst.order === undefined || inst.order === null);
     if (idleMissing.length > 0) {
-      idleMissing.sort((a, b) => {
-        const minutesA = this.getScheduledMinutes(a.task);
-        const minutesB = this.getScheduledMinutes(b.task);
-        if (minutesA === null && minutesB === null) {
-          return this.getTaskTitle(a.task).localeCompare(this.getTaskTitle(b.task));
-        }
-        if (minutesA === null) return 1;
-        if (minutesB === null) return -1;
-        return minutesA - minutesB;
-      });
-      assignSequential(idleMissing, maxOrder + 100);
+      const scheduledIdle = idleMissing.filter((candidate) => this.getScheduledMinutes(candidate.task) !== null);
+      const unscheduledIdle = idleMissing.filter((candidate) => this.getScheduledMinutes(candidate.task) === null);
+
+      if (unscheduledIdle.length > 0) {
+        const sortedUnscheduled = [...unscheduledIdle].sort((a, b) => {
+          const createdA = this.getCreatedMillis(a);
+          const createdB = this.getCreatedMillis(b);
+          const keyA = createdA ?? Number.MIN_SAFE_INTEGER;
+          const keyB = createdB ?? Number.MIN_SAFE_INTEGER;
+          if (keyA !== keyB) {
+            return keyA - keyB;
+          }
+          const titleCompare = this.getTaskTitle(a.task).localeCompare(this.getTaskTitle(b.task));
+          if (titleCompare !== 0) {
+            return titleCompare;
+          }
+          return (a.instanceId ?? '').localeCompare(b.instanceId ?? '');
+        });
+
+        const startingOrder = minOrder !== null ? minOrder - 100 : 100;
+        assignDescending(sortedUnscheduled, startingOrder);
+      }
+
+      if (scheduledIdle.length > 0) {
+        const sortedScheduled = [...scheduledIdle].sort((a, b) => {
+          const minutesA = this.getScheduledMinutes(a.task);
+          const minutesB = this.getScheduledMinutes(b.task);
+          if (minutesA === null && minutesB === null) {
+            return this.getTaskTitle(a.task).localeCompare(this.getTaskTitle(b.task));
+          }
+          if (minutesA === null) return 1;
+          if (minutesB === null) return -1;
+          return minutesA - minutesB;
+        });
+
+        const start = (Number.isFinite(maxOrder) ? maxOrder : 0) + 100;
+        assignSequential(sortedScheduled, start);
+      }
     }
   }
 }
