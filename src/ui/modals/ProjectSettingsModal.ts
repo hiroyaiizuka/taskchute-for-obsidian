@@ -151,22 +151,10 @@ export default class ProjectSettingsModal extends Modal {
   }
 
   private getDisplayName(basename: string): string {
-    const filter = this.plugin.settings.projectsFilter ?? {}
-    const prefixes = filter.prefixes ?? ['Project - ']
-    const trim = filter.trimPrefixesInUI ?? true
-    const transform = filter.transformName ?? false
-    let result = basename
-    if (trim) {
-      for (const prefix of prefixes) {
-        if (prefix && result.startsWith(prefix)) {
-          result = result.slice(prefix.length)
-          break
-        }
-      }
+    const prefix = this.plugin.settings.projectTitlePrefix ?? ''
+    if (prefix && basename.startsWith(prefix)) {
+      return basename.slice(prefix.length).trimStart()
     }
-    if (transform) {
-      result = result.replace(/[-_]+/g, ' ')
-    }
-    return result
+    return basename
   }
 }

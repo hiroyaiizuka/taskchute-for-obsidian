@@ -4,6 +4,7 @@ import type { PathService } from "../services/PathService"
 
 // Re-export new typed fields
 export * from "./TaskFields"
+export * from "./projectBoard"
 
 export type LocationMode = "vaultRoot" | "specifiedFolder"
 
@@ -12,20 +13,8 @@ export interface TaskChuteSettings {
   locationMode?: LocationMode // default: 'vaultRoot'
   specifiedFolder?: string // used when locationMode==='specifiedFolder'
   projectsFolder?: string | null // independent; can be unset
-  projectsFilterEnabled?: boolean // default false; when true apply projectsFilter
-
-  // Project candidate filter settings
-  projectsFilter?: {
-    prefixes?: string[] // default ['Project - ']
-    tags?: string[] // default ['project']
-    includeSubfolders?: boolean // default true
-    matchMode?: "OR" | "AND" // default 'OR'
-    trimPrefixesInUI?: boolean // default true
-    transformName?: boolean // default false
-    limit?: number // default 50
-    nameRegex?: string // optional regex string
-    excludePathRegex?: string // optional regex string applied to path
-  }
+  projectTemplatePath?: string | null
+  projectTitlePrefix?: string
 
   // Legacy (kept for migration/compat; UI should not expose)
   taskFolderPath?: string
@@ -48,6 +37,7 @@ export interface TaskChuteSettings {
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
+export const VIEW_TYPE_PROJECT_BOARD = "taskchute-project-board" as const
 
 export type TaskChutePlugin = Plugin & TaskChutePluginAugment
 

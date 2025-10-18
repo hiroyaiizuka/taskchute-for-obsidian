@@ -41,7 +41,10 @@ describe('ProjectController', () => {
     }
   }
 
-  function createController(overrides: Partial<TaskData> = {}) {
+  function createController(
+    overrides: Partial<TaskData> = {},
+    statusByPath: Record<string, string> = {},
+  ) {
     const projectFolder = 'PROJ'
     const taskList = document.createElement('div')
     attachCreateEl(taskList)
@@ -52,7 +55,10 @@ describe('ProjectController', () => {
         getAbstractFileByPath: jest.fn(() => null),
       },
       metadataCache: {
-        getFileCache: jest.fn(() => undefined),
+        getFileCache: jest.fn((file: TFile) => {
+          const status = statusByPath[file.path]
+          return status ? { frontmatter: { status } } : {}
+        }),
       },
       fileManager: {
         processFrontMatter: jest.fn(),
@@ -72,9 +78,8 @@ describe('ProjectController', () => {
     const plugin = {
       settings: {
         projectsFolder: projectFolder,
-        projectsFilterEnabled: false,
-        projectsFilter: {},
-        trimPrefixesInUI: true,
+        projectTemplatePath: null,
+        projectTitlePrefix: 'Project - ',
       },
       pathManager: {
         getProjectFolderPath: () => projectFolder,
@@ -172,7 +177,9 @@ describe('ProjectController', () => {
   })
 
   test('showProjectModal opens ProjectSettingsModal with project options', async () => {
-    const { controller, controllerOptions, inst, app } = createController()
+    const { controller, controllerOptions, inst, app } = createController({}, {
+      'PROJ/Project - Alpha.md': 'todo',
+    })
     const projectFile = new TFile()
     projectFile.path = 'PROJ/Project - Alpha.md'
     projectFile.basename = 'Project - Alpha'

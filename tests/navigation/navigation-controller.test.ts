@@ -117,8 +117,8 @@ describe('NavigationController', () => {
     expect(view.navigationPanel).toBeDefined();
     expect(view.navigationContent).toBeDefined();
     const navItems = container.querySelectorAll('.navigation-nav-item');
-    expect(navItems).toHaveLength(4);
-    expect(registerManagedDomEvent).toHaveBeenCalledTimes(4);
+    expect(navItems).toHaveLength(5);
+    expect(registerManagedDomEvent).toHaveBeenCalledTimes(5);
 
     navItems[0].dispatchEvent(new Event('click'));
     await Promise.resolve();

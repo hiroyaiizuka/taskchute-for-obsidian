@@ -73,6 +73,7 @@ export default class NavigationController {
       { key: 'routine', label: this.view.tv('navigation.routine', 'Routine'), icon: '🔄' },
       { key: 'review', label: this.view.tv('navigation.review', 'Review'), icon: '📋' },
       { key: 'log', label: this.view.tv('navigation.log', 'Log'), icon: '📊' },
+      { key: 'projects', label: this.view.tv('navigation.projects', 'Projects'), icon: '📁' },
       { key: 'settings', label: this.view.tv('navigation.settings', 'Settings'), icon: '⚙️' },
     ]
 
