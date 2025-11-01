@@ -29,26 +29,23 @@ jobs:
           node-version: "20"
 
       - name: Install deps
-        run: |
-          npm ci || npm install
+        run: npm ci || npm install
 
       - name: Configure git user
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name  "github-actions[bot]"
 
-      # 1) 版本上げ（root package.json） 2) あなたのスクリプトで manifest.json 同期
-      - name: Bump version & sync manifest
+      # package.json をバンプし、manifest.json を Node で同期
+      - name: Bump version & sync manifest.json
         id: bump
         run: |
           npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-          # manifest.json を同期（あなたの package.json の "version" スクリプト想定）
-          npm run version
+          node -e "const fs=require('fs');let m=JSON.parse(fs.readFileSync('manifest.json','utf8'));const v=require('./package.json').version;m.version=v;fs.writeFileSync('manifest.json',JSON.stringify(m,null,2)+'\n');"
 
-          # ついでに存在すれば一緒にコミット
           git add package.json manifest.json || true
           [ -f versions.json ] && git add versions.json || true
           [ -f README.md ] && git add README.md || true
@@ -57,7 +54,7 @@ jobs:
       - name: Push changes
         run: git push origin HEAD
 
-      # v なしタグ（例: 0.1.4）。v を付けたいなら "v${{ steps.bump.outputs.new_version }}" に変更
+      # v なしタグ（例: 1.0.1）。v を付けたい場合は "v${{ steps.bump.outputs.new_version }}" に変更
       - name: Create & push tag
         run: |
           TAG="${{ steps.bump.outputs.new_version }}"
@@ -67,8 +64,7 @@ jobs:
       - name: Build plugin
         env:
           NODE_ENV: production
-        run: |
-          npm run build
+        run: npm run build
 
       - name: Prepare release assets
         id: prep
@@ -78,7 +74,7 @@ jobs:
           PKG_DIR="release-${TAG}"
           mkdir -p "$PKG_DIR"
 
-          # main.js の検出
+          # main.js の検出（優先順）
           if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
           elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
           elif [ -f main.js ]; then SRC_MAIN=main.js
@@ -87,13 +83,13 @@ jobs:
           fi
           cp "$SRC_MAIN" "$PKG_DIR/main.js"
 
-          # manifest.json（rootを採用）
+          # manifest.json（root）
           if [ ! -f manifest.json ]; then
             echo "ERROR: manifest.json が見つかりません。"; exit 1
           fi
           cp manifest.json "$PKG_DIR/manifest.json"
 
-          # styles.css（必須と聞いたので必須扱い）
+          # styles.css（必須）
           if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
           elif [ -f styles.css ]; then SRC_CSS=styles.css
           else
