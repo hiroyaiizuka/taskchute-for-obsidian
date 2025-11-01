@@ -3,33 +3,49 @@ name: Release Obsidian plugin
 on:
   push:
     tags:
-      - "*"
+      - "v*"
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v3
 
-      - name: Use Node.js
-        uses: actions/setup-node@v3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18.x"
+          node-version: "20"
+          cache: "npm"
 
       - name: Build plugin
         run: |
-          npm install
+          npm ci
           npm run build
 
-      - name: Create release
+          mkdir -p release
+          if [ -f dist/main.js ]; then cp dist/main.js release/main.js; else cp main.js release/main.js; fi
+          cp manifest.json release/
+          [ -f styles.css ] && cp styles.css release/ || true
+
+          (cd release && zip -r "${{ github.event.repository.name }}-${{ github.ref_name }}.zip" .)
+
+      - name: Create GitHub Release (published)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
+          tag="${{ github.ref_name }}"
+
+          prerelease=""
+          if [[ "$tag" == *"-beta"* || "$tag" == *"-alpha"* ]]; then
+            prerelease="--prerelease"
+          fi
 
           gh release create "$tag" \
-            --title="$tag" \
-            --draft \
-            main.js manifest.json styles.css
+            --title "$tag" \
+            $prerelease \
+            release/manifest.json \
+            release/main.js \
+            release/styles.css \
+            "release/${{ github.event.repository.name }}-${tag}.zip"
