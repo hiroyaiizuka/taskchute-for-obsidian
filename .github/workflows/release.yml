@@ -1,133 +1,68 @@
-name: Auto Release
+name: Release Obsidian plugin
 
 on:
-  workflow_dispatch:
-    inputs:
-      version_type:
-        description: "Version type"
-        required: true
-        default: "patch"
-        type: choice
-        options: [patch, minor, major]
-
-permissions:
-  contents: write
+  push:
+    tags:
+      - "*"
 
 jobs:
-  auto-release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
+      - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure Git user
+      - name: Install & Build
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
+          npm ci || npm install
+          npm run build
 
-      # ルート package.json をバンプ → あなたの npm run version で manifest.json 同期
-      - name: Bump version & sync manifest.json
-        id: bump
-        run: |
-          npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-          npm run version
-
-          # オプションの versions.json / README.md がある場合だけステージング
-          git add package.json manifest.json || true
-          [ -f versions.json ] && git add versions.json || true
-          [ -f README.md ] && git add README.md || true
-          git commit -m "chore: release ${NEW_VERSION}" || echo "No changes to commit"
-
-      - name: Push changes to default branch
-        run: git push origin HEAD
-
-      - name: Create and push tag (no 'v' prefix)
-        run: |
-          git tag "${{ steps.bump.outputs.new_version }}"
-          git push origin "${{ steps.bump.outputs.new_version }}"
-
-      # —— ここからビルド ——
-      - name: Build plugin
-        env:
-          NODE_ENV: production
-          OBSIDIAN_LINE_API_URL: ${{ secrets.OBSIDIAN_LINE_API_URL }}
-        run: |
-          # モノレポ想定：obsidian-plugin パッケージをビルド
-          pnpm --filter obsidian-plugin build || pnpm run build
-
-      # 成果物の場所を自動検出して ZIP を作る（main.js / manifest.json / styles.css をトップ階層に）
-      - name: Prepare release files
-        id: prep
+      - name: Prepare release assets
         run: |
           set -e
-
-          PKG_DIR="${{ github.event.repository.name }}-${{ steps.bump.outputs.new_version }}"
+          TAG="${{ github.ref_name }}"
+          PKG_DIR="release-${TAG}"
           mkdir -p "$PKG_DIR"
 
-          # ---- main.js の検出 ----
           if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
           elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
           elif [ -f main.js ]; then SRC_MAIN=main.js
           else
-            echo "main.js が見つかりません。ビルド設定を確認してください。"; exit 1
+            echo "ERROR: main.js が見つかりません。"; exit 1
           fi
-          echo "Using main.js: $SRC_MAIN"
           cp "$SRC_MAIN" "$PKG_DIR/main.js"
 
-          # ---- manifest.json はリポジトリ直下を採用（npm run version で更新済みの前提）----
           if [ ! -f manifest.json ]; then
-            echo "manifest.json がリポジトリ直下にありません。"; exit 1
+            echo "ERROR: manifest.json が見つかりません。"; exit 1
           fi
           cp manifest.json "$PKG_DIR/manifest.json"
 
-          # ---- styles.css の検出（任意）----
           if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
           elif [ -f styles.css ]; then SRC_CSS=styles.css
-          else SRC_CSS=""
-          fi
-          if [ -n "$SRC_CSS" ]; then
-            echo "Using styles.css: $SRC_CSS"
-            cp "$SRC_CSS" "$PKG_DIR/styles.css"
           else
-            echo "styles.css は見つかりませんでした（任意ファイルなので続行します）"
+            echo "ERROR: styles.css が見つかりません。"; exit 1
           fi
+          cp "$SRC_CSS" "$PKG_DIR/styles.css"
 
           (cd "$PKG_DIR" && zip -r "../${PKG_DIR}.zip" .)
-
-          echo "zip_name=${PKG_DIR}.zip" >> $GITHUB_OUTPUT
-          echo "pkg_dir=${PKG_DIR}" >> $GITHUB_OUTPUT
+          echo "PKG_DIR=$PKG_DIR" >> $GITHUB_ENV
 
       - name: Create GitHub Release (published)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.bump.outputs.new_version }}
-          name: ${{ steps.bump.outputs.new_version }}
-          generate_release_notes: true
-          files: |
-            ${{ steps.prep.outputs.zip_name }}
-            ${{ steps.prep.outputs.pkg_dir }}/main.js
-            ${{ steps.prep.outputs.pkg_dir }}/manifest.json
-            ${{ steps.prep.outputs.pkg_dir }}/styles.css
-
-      - name: Done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Release ${{ steps.bump.outputs.new_version }} created."
-          echo "https://github.com/${{ github.repository }}/releases/tag/${{ steps.bump.outputs.new_version }}"
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Automated release ($TAG)" \
+            "${PKG_DIR}.zip" \
+            "${PKG_DIR}/main.js" \
+            "${PKG_DIR}/manifest.json" \
+            "${PKG_DIR}/styles.css"
