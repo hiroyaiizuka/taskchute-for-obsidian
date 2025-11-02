@@ -47,7 +47,7 @@ describe('RoutineService.isDue', () => {
     expect(RoutineService.isDue('2025-09-19', rule)).toBe(false);
   });
 
-  test('moved target date shows only on specified day', () => {
+  test('moved target date snoozes until the specified day and then resumes schedule', () => {
     const rule = RoutineService.parseFrontmatter({
       isRoutine: true,
       routine_type: 'daily',
@@ -56,8 +56,28 @@ describe('RoutineService.isDue', () => {
     });
 
     expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-20', rule, '2025-09-22')).toBe(false);
     expect(RoutineService.isDue('2025-09-21', rule, '2025-09-22')).toBe(false);
     expect(RoutineService.isDue('2025-09-22', rule, '2025-09-22')).toBe(true);
+    expect(RoutineService.isDue('2025-09-23', rule, '2025-09-22')).toBe(true);
+  });
+
+  test('moved target date forces visibility on the moved day for weekly routines', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'weekly',
+      routine_interval: 1,
+      routine_start: '2025-09-01', // Monday
+      routine_weekday: 1, // Monday
+    });
+
+    expect(rule).not.toBeNull();
+    // Moved to Wednesday (2025-09-03)
+    expect(RoutineService.isDue('2025-09-02', rule, '2025-09-03')).toBe(false);
+    expect(RoutineService.isDue('2025-09-03', rule, '2025-09-03')).toBe(true);
+    // Resume normal cadence: next due on Monday 2025-09-08
+    expect(RoutineService.isDue('2025-09-04', rule, '2025-09-03')).toBe(false);
+    expect(RoutineService.isDue('2025-09-08', rule, '2025-09-03')).toBe(true);
   });
 
   test('disabled routines never trigger', () => {
