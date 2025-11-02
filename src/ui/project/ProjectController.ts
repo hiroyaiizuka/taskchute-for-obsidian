@@ -137,9 +137,7 @@ export default class ProjectController {
     const filtered = inScope.filter((file) => {
       const cache = this.host.app.metadataCache.getFileCache(file)
       const statusValue = cache?.frontmatter?.status
-      const status = typeof statusValue === 'string'
-        ? (statusValue.trim().toLowerCase() as ProjectBoardStatus | string)
-        : null
+      const status = normalizeProjectModalStatus(statusValue)
       return status === 'todo' || status === 'in-progress'
     })
 
@@ -269,4 +267,19 @@ export default class ProjectController {
       new Notice(this.host.tv('notices.projectOpenFailed', 'Failed to open project file'))
     }
   }
+}
+function normalizeProjectModalStatus(value: unknown): ProjectBoardStatus {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'done' || normalized === 'completed') {
+      return 'done'
+    }
+    if (normalized === 'in-progress' || normalized === 'in_progress' || normalized === 'in progress') {
+      return 'in-progress'
+    }
+    if (normalized === 'todo' || normalized === 'to-do' || normalized === 'not started') {
+      return 'todo'
+    }
+  }
+  return 'todo'
 }
