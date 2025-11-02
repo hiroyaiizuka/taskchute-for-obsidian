@@ -67,12 +67,12 @@ export class TaskValidator {
               code: 'ROUTINE_STALE_TARGET_DATE',
               message: t(
                 'taskChuteView.validator.routineTargetBeforeStart',
-                'target_date({targetDate}) is before routine_start({routineStart}). The task will not appear.',
+                'target_date({targetDate}) is before routine_start({routineStart}). The routine will show on the target date, but normal repetitions start at routine_start.',
                 { targetDate, routineStart }
               ),
               suggestion: t(
                 'taskChuteView.validator.suggestionRemoveTargetDate',
-                'Remove target_date.',
+                'Clear target_date to cancel the snooze.',
               ),
               severity: 'high'
             });
@@ -83,12 +83,12 @@ export class TaskValidator {
               code: 'ROUTINE_PAST_TARGET_DATE',
               message: t(
                 'taskChuteView.validator.routineTargetPast',
-                'target_date({targetDate}) is in the past. It will not appear today.',
+                'target_date({targetDate}) is in the past. It already appeared on that day and the routine has resumed normally.',
                 { targetDate }
               ),
               suggestion: t(
                 'taskChuteView.validator.suggestionRemoveTargetDateNonCross',
-                'Remove target_date unless this is a cross-day move.',
+                'Clear target_date unless this is a cross-day move.',
               ),
               severity: 'medium'
             });
@@ -99,12 +99,12 @@ export class TaskValidator {
               code: 'ROUTINE_FUTURE_TARGET_DATE',
               message: t(
                 'taskChuteView.validator.routineTargetFuture',
-                'target_date({targetDate}) is in the future. It will not appear until that date.',
+                'target_date({targetDate}) is in the future. The routine is snoozed until then and will appear on that day.',
                 { targetDate }
               ),
               suggestion: t(
                 'taskChuteView.validator.suggestionRemoveTargetDateToday',
-                'Remove target_date if you want it to appear today.',
+                'Clear target_date if you need it today.',
               ),
               severity: 'medium'
             });

@@ -369,16 +369,16 @@ export const ja = {
     validator: {
       invalidChars: "使用できない文字が含まれています: {chars}",
       routineTargetBeforeStart:
-        'target_date({targetDate})がroutine_start({routineStart})より前です。タスクが表示されません。',
+        'target_date({targetDate})がroutine_start({routineStart})より前です。ターゲット日には表示されますが、通常の繰り返しはroutine_start以降です。',
       routineTargetPast:
-        'target_date({targetDate})が過去の日付です。今日は表示されません。',
+        'target_date({targetDate})は過去の日付です。ターゲット日に表示済みで、現在は通常のルーチンに戻っています。',
       routineTargetFuture:
-        'target_date({targetDate})が未来の日付です。その日まで表示されません。',
-      suggestionRemoveTargetDate: 'target_dateを削除してください',
+        'target_date({targetDate})が未来の日付です。その日まではスヌーズされ、当日は表示されます。',
+      suggestionRemoveTargetDate: 'target_dateを削除してスヌーズを解除してください',
       suggestionRemoveTargetDateNonCross:
-        '日跨ぎ移動でない場合はtarget_dateを削除してください',
+        '日跨ぎ移動でない場合はtarget_dateを削除してスヌーズを解除してください',
       suggestionRemoveTargetDateToday:
-        '今日表示したい場合はtarget_dateを削除してください',
+        '今日すぐ表示したい場合はtarget_dateを削除してください',
       nonRoutineStale: 'タスクが{days}日前から未実行です',
       suggestionReviewOrDelete: '実行するか、削除を検討してください',
       routineIntervalTooLong: 'ルーチン間隔が{days}日と長すぎます',

@@ -14,8 +14,8 @@ describe('TaskValidator', () => {
 
       expect(result.warnings).toContainEqual({
         code: 'ROUTINE_STALE_TARGET_DATE',
-        message: 'target_date(2025-09-19) is before routine_start(2025-09-24). The task will not appear.',
-        suggestion: 'Remove target_date.',
+        message: 'target_date(2025-09-19) is before routine_start(2025-09-24). The routine will show on the target date, but normal repetitions start at routine_start.',
+        suggestion: 'Clear target_date to cancel the snooze.',
         severity: 'high'
       });
     });
@@ -61,8 +61,8 @@ describe('TaskValidator', () => {
 
       expect(result.warnings).toContainEqual({
         code: 'ROUTINE_FUTURE_TARGET_DATE',
-        message: `target_date(${tomorrowStr}) is in the future. It will not appear until that date.`,
-        suggestion: 'Remove target_date if you want it to appear today.',
+        message: `target_date(${tomorrowStr}) is in the future. The routine is snoozed until then and will appear on that day.`,
+        suggestion: 'Clear target_date if you need it today.',
         severity: 'medium'
       });
     });

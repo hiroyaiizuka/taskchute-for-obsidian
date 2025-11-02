@@ -368,12 +368,14 @@ export const en = {
     validator: {
       invalidChars: "Task name contains invalid characters: {chars}",
       routineTargetBeforeStart:
-        'target_date({targetDate}) is before routine_start({routineStart}). The task will not appear.',
-      routineTargetPast: 'target_date({targetDate}) is in the past. It will not appear today.',
-      routineTargetFuture: 'target_date({targetDate}) is in the future. It will not appear until that date.',
-      suggestionRemoveTargetDate: 'Remove target_date.',
-      suggestionRemoveTargetDateNonCross: 'Remove target_date unless this is a cross-day move.',
-      suggestionRemoveTargetDateToday: 'Remove target_date if you want it to appear today.',
+        'target_date({targetDate}) is before routine_start({routineStart}). The routine will show on the target date, but normal repetitions start at routine_start.',
+      routineTargetPast:
+        'target_date({targetDate}) is in the past. It already appeared on that day and the routine has resumed normally.',
+      routineTargetFuture:
+        'target_date({targetDate}) is in the future. The routine is snoozed until then and will appear on that day.',
+      suggestionRemoveTargetDate: 'Clear target_date to cancel the snooze.',
+      suggestionRemoveTargetDateNonCross: 'Clear target_date unless this is a cross-day move.',
+      suggestionRemoveTargetDateToday: 'Clear target_date if you need it today.',
       nonRoutineStale: 'This task has been idle for {days} days.',
       suggestionReviewOrDelete: 'Run the task or consider deleting it.',
       routineIntervalTooLong: 'Routine interval of {days} days is unusually long.',

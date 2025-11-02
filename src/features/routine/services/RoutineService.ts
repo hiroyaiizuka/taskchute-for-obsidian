@@ -78,13 +78,27 @@ export class RoutineService {
     if (!rule) return false;
     if (!rule.enabled) return false;
 
-    // target_date override: if provided, show only on that date
-    if (movedTargetDate) {
-      return movedTargetDate === dateStr;
-    }
-
     const date = this.#parseDate(dateStr);
     if (!date) return false;
+
+    // target_date (or equivalent) override: snooze until the specified date,
+    // force visibility on that date, then resume the normal cadence afterwards.
+    if (movedTargetDate) {
+      const moved = this.#parseDate(movedTargetDate);
+      if (!moved) {
+        return false;
+      }
+
+      const diff = this.#compareDate(date, moved);
+      if (diff < 0) {
+        return false; // still snoozed
+      }
+
+      if (diff === 0) {
+        return true; // force visibility on the moved day
+      }
+      // diff > 0 → fall through to normal routine evaluation
+    }
 
     // Range guard
     if (rule.start) {
