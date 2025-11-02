@@ -220,4 +220,21 @@ describe('ProjectController', () => {
     disposer()
     expect(instance?.close).toHaveBeenCalled()
   })
+
+  test('showProjectModal includes files without status metadata', async () => {
+    const { controller, inst, app } = createController()
+    const projectFile = new TFile()
+    projectFile.path = 'PROJ/Project - Beta.md'
+    projectFile.basename = 'Project - Beta'
+    ;(app.vault.getMarkdownFiles as jest.Mock).mockReturnValue([projectFile])
+
+    MockedProjectSettingsModal.mockClear()
+
+    await controller.showProjectModal(inst)
+
+    expect(MockedProjectSettingsModal).toHaveBeenCalledTimes(1)
+    const [, modalOptions] = MockedProjectSettingsModal.mock.calls[0] as [unknown, { projectFiles: TFile[] }]
+    expect(modalOptions.projectFiles).toHaveLength(1)
+    expect(modalOptions.projectFiles[0].path).toBe(projectFile.path)
+  })
 })

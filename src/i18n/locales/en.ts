@@ -82,6 +82,7 @@ export const en = {
     validation: {
       invalidPath: "Invalid path",
       missingDateToken: "Pattern must include {{date}}",
+      missingFolder: "Folder was not found: {path}",
     },
     openFailed: "Unable to open TaskChute settings",
   },
@@ -250,8 +251,7 @@ export const en = {
       fileMissing: 'Task file "{title}.md" not found',
       fileMissingPath: 'Project file not found: {path}',
       settingsSaved: "Project settings saved",
-      noFiles: "No project files found.",
-      addTagHint: "Add the #project tag to your project files.",
+      noFiles: "No project files found in the configured folder.",
       selectLabel: "Select project:",
       instructionsLinked: 'Select another project or choose "Remove project" to clear the assignment.',
       instructionsUnlinked: 'Assigning a project lets you review related tasks from the project page.',

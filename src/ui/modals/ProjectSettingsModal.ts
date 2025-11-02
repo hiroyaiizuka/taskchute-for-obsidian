@@ -49,11 +49,7 @@ export default class ProjectSettingsModal extends Modal {
 
     if (this.projectFiles.length === 0) {
       body.createEl('p', {
-        text: this.tv('project.noFiles', 'No project files found.'),
-        cls: 'form-description',
-      })
-      body.createEl('p', {
-        text: this.tv('project.addTagHint', 'Add the #project tag to your project files.'),
+        text: this.tv('project.noFiles', 'No project files found in the configured folder.'),
         cls: 'form-description',
       })
       const footer = this.renderFooter(contentEl)
