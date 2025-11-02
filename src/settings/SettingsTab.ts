@@ -1,7 +1,8 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile, TFolder } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile, TFolder, AbstractInputSuggest } from 'obsidian';
 import type { TextComponent } from 'obsidian';
 import { TaskChuteSettings, PathManagerLike } from '../types';
 import { t } from '../i18n';
+import { FolderPathFieldController } from './folderPathFieldController';
 
 interface PluginWithSettings extends Plugin {
   app: App;
@@ -154,6 +155,11 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     );
   }
 
+  private folderExists(path: string): boolean {
+    const abstract = this.app.vault.getAbstractFileByPath(path);
+    return abstract instanceof TFolder;
+  }
+
   private renderStorageSection(container: HTMLElement): void {
     new Setting(container)
       .setName(t('settings.heading', 'TaskChute file paths'))
@@ -212,29 +218,46 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           ),
         )
         .addText((text) => {
-          const value = this.plugin.settings.specifiedFolder ?? '';
+          const controller = new FolderPathFieldController({
+            text,
+            getStoredValue: () => this.plugin.settings.specifiedFolder,
+            setStoredValue: (next) => {
+              this.plugin.settings.specifiedFolder = next ?? undefined;
+            },
+            saveSettings: () => this.plugin.saveSettings(),
+            validatePath: (path) => this.plugin.pathManager.validatePath(path),
+            folderExists: (path) => this.folderExists(path),
+            makeMissingNotice: (path) =>
+              t(
+                'settings.validation.missingFolder',
+                'Folder was not found: {path}',
+                { path },
+              ),
+            notice: (message) => new Notice(message),
+            emptyValue: undefined,
+          });
+
           text
-            .setValue(value)
+            .setValue(this.plugin.settings.specifiedFolder ?? '')
             .onChange(async (raw) => {
-              const v = raw.trim();
-              const validation = this.plugin.pathManager.validatePath(v);
-              if (validation.valid || v === '') {
-                this.plugin.settings.specifiedFolder = v || undefined;
-                await this.plugin.saveSettings();
-              } else {
-                new Notice(
-                  validation.error ||
-                    t('settings.validation.invalidPath', 'Invalid path'),
-                );
-                text.setValue(this.plugin.settings.specifiedFolder ?? '');
-              }
+              await controller.handleInputChange(raw);
             });
-          text.inputEl.addEventListener('blur', async () => {
-            const base = this.plugin.settings.specifiedFolder?.trim();
-            if (!base) return;
-            try {
-              await this.plugin.pathManager.ensureFolderExists(base);
-            } catch {}
+
+          const suggest = new FolderPathSuggest(
+            this.app,
+            text.inputEl,
+            async (folderPath) => {
+              await controller.handleSuggestionSelect(folderPath);
+            },
+          );
+
+          text.inputEl.addEventListener('focus', () => {
+            suggest.setValue(text.getValue());
+            suggest.open();
+          });
+
+          text.inputEl.addEventListener('blur', () => {
+            void controller.handleBlur();
           });
         });
     }
@@ -266,6 +289,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
 
     let projectFolderInput: TextComponent | null = null;
+    let projectFolderController: FolderPathFieldController | null = null;
+    let projectFolderSuggest: FolderPathSuggest | null = null;
     const folderSetting = new Setting(container)
       .setName(
         t('settings.projectCandidates.folderName', 'Project files location'),
@@ -280,33 +305,51 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     folderSetting
       .addText((text) => {
         projectFolderInput = text;
-        const value = this.plugin.settings.projectsFolder ?? '';
-        text
-          .setValue(value)
-          .onChange(async (raw) => {
-            const trimmed = raw.trim();
-            if (!trimmed) {
+        projectFolderController = new FolderPathFieldController({
+          text,
+          getStoredValue: () => this.plugin.settings.projectsFolder ?? undefined,
+          setStoredValue: (next) => {
+            if (next === null || next === undefined || next === '') {
               this.plugin.settings.projectsFolder = null;
-              await this.plugin.saveSettings();
-              return;
+            } else {
+              this.plugin.settings.projectsFolder = next;
             }
-            const validation = this.plugin.pathManager.validatePath(trimmed);
-            if (!validation.valid) {
-              new Notice(
-                validation.error ||
-                  t('settings.validation.invalidPath', 'Invalid path'),
-              );
-              text.setValue(this.plugin.settings.projectsFolder ?? '');
-              return;
-            }
-            this.plugin.settings.projectsFolder = trimmed;
-            await this.plugin.saveSettings();
-            try {
-              await this.plugin.pathManager.ensureFolderExists(trimmed);
-            } catch (error) {
-              console.warn('[TaskChute] ensureFolderExists failed', error);
-            }
+          },
+          saveSettings: () => this.plugin.saveSettings(),
+          validatePath: (path) => this.plugin.pathManager.validatePath(path),
+          folderExists: (path) => this.folderExists(path),
+          makeMissingNotice: (path) =>
+            t(
+              'settings.validation.missingFolder',
+              'Folder was not found: {path}',
+              { path },
+            ),
+          notice: (message) => new Notice(message),
+          emptyValue: null,
+        });
+
+        text
+          .setValue(this.plugin.settings.projectsFolder ?? '')
+          .onChange(async (raw) => {
+            await projectFolderController?.handleInputChange(raw);
           });
+
+        projectFolderSuggest = new FolderPathSuggest(
+          this.app,
+          text.inputEl,
+          async (folderPath) => {
+            await projectFolderController?.handleSuggestionSelect(folderPath);
+          },
+        );
+
+        text.inputEl.addEventListener('focus', () => {
+          projectFolderSuggest?.setValue(text.getValue());
+          projectFolderSuggest?.open();
+        });
+
+        text.inputEl.addEventListener('blur', () => {
+          void projectFolderController?.handleBlur();
+        });
       })
       .addExtraButton((btn) => {
         btn
@@ -318,13 +361,19 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             ),
           )
           .onClick(() => {
-            const modal = new ProjectFolderSuggestModal(this.app, (folder) => {
-              const normalized = folder.path;
-              this.plugin.settings.projectsFolder = normalized;
-              void this.plugin.saveSettings();
-              projectFolderInput?.setValue(normalized);
-            });
-            modal.open();
+            if (projectFolderInput) {
+              projectFolderInput.inputEl.focus();
+            }
+            if (projectFolderSuggest) {
+              projectFolderSuggest.setValue(projectFolderInput?.getValue() ?? '');
+              projectFolderSuggest.open();
+            } else {
+              const modal = new ProjectFolderSuggestModal(this.app, (folder) => {
+                const normalized = folder.path;
+                void projectFolderController?.handleSuggestionSelect(normalized);
+              });
+              modal.open();
+            }
           });
       })
       .addExtraButton((btn) => {
@@ -332,9 +381,13 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           .setIcon('x')
           .setTooltip(t('common.clear', 'Clear'))
           .onClick(async () => {
-            this.plugin.settings.projectsFolder = null;
-            await this.plugin.saveSettings();
-            projectFolderInput?.setValue('');
+            if (projectFolderController) {
+              await projectFolderController.handleSuggestionSelect('');
+            } else {
+              this.plugin.settings.projectsFolder = null;
+              await this.plugin.saveSettings();
+              projectFolderInput?.setValue('');
+            }
           });
       });
 
@@ -535,6 +588,32 @@ class ProjectTemplateSuggestModal extends SuggestModal<TFile> {
 
   onChooseSuggestion(file: TFile): void {
     this.onChoose(file);
+    this.close();
+  }
+}
+
+class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
+  private readonly onChoose: (folderPath: string) => void;
+
+  constructor(app: App, inputEl: HTMLInputElement, onChoose: (folderPath: string) => void) {
+    super(app, inputEl);
+    this.onChoose = onChoose;
+  }
+
+  protected getSuggestions(query: string): TFolder[] {
+    const lower = query.toLowerCase();
+    return this.app.vault
+      .getAllLoadedFiles()
+      .filter((file): file is TFolder => file instanceof TFolder)
+      .filter((folder) => folder.path.toLowerCase().includes(lower));
+  }
+
+  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+    el.setText(folder.path);
+  }
+
+  selectSuggestion(folder: TFolder): void {
+    void this.onChoose(folder.path);
     this.close();
   }
 }

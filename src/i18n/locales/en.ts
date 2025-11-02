@@ -82,6 +82,7 @@ export const en = {
     validation: {
       invalidPath: "Invalid path",
       missingDateToken: "Pattern must include {{date}}",
+      missingFolder: "Folder was not found: {path}",
     },
     openFailed: "Unable to open TaskChute settings",
   },

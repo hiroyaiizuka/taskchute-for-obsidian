@@ -43,12 +43,112 @@ const PluginSettingTab = jest.fn().mockImplementation(() => ({
 
 const SettingInstances = []
 
+class TextComponent {
+  constructor(containerEl) {
+    this.inputEl = createMockElement('input')
+    this.inputElListeners = {}
+    this.inputEl.addEventListener = jest.fn((type, handler) => {
+      if (!this.inputElListeners[type]) {
+        this.inputElListeners[type] = []
+      }
+      this.inputElListeners[type].push(handler)
+      return undefined
+    })
+    this.inputEl.dispatchEvent = jest.fn((event) => {
+      const listeners = this.inputElListeners[event.type] || []
+      listeners.forEach((listener) => listener(event))
+    })
+    this._onChange = null
+    this._onBlur = null
+    this.containerEl = containerEl
+    containerEl?.appendChild?.(this.inputEl)
+  }
+
+  setPlaceholder() {
+    return this
+  }
+
+  setValue(value) {
+    this.inputEl.value = value
+    return this
+  }
+
+  getValue() {
+    return this.inputEl.value
+  }
+
+  onChange(callback) {
+    this._onChange = callback
+    return this
+  }
+
+  async __triggerChange(value) {
+    this.setValue(value)
+    if (this._onChange) {
+      await this._onChange(value)
+    }
+  }
+
+  async __triggerEvent(type) {
+    const listeners = this.inputElListeners[type] || []
+    for (const listener of listeners) {
+      await listener({ type, target: this.inputEl })
+    }
+  }
+}
+
+class AbstractInputSuggest {
+  constructor(app, inputEl) {
+    this.app = app
+    this.inputEl = inputEl
+    this.onSelectCallback = null
+    this.limit = 100
+  }
+
+  setValue(value) {
+    this.inputEl.value = value
+  }
+
+  getValue() {
+    return this.inputEl.value
+  }
+
+  async selectSuggestion(value, evt = new MouseEvent('click')) {
+    if (this.onSelectCallback) {
+      await this.onSelectCallback(value, evt)
+    }
+  }
+
+  onSelect(callback) {
+    this.onSelectCallback = callback
+    return this
+  }
+
+  open() {}
+
+  close() {}
+
+  setSuggestions() {}
+
+  renderSuggestion() {}
+}
+
 const Setting = jest.fn().mockImplementation(() => {
   const settingInstance = {
     setName: jest.fn().mockReturnThis(),
     setDesc: jest.fn().mockReturnThis(),
     addToggle: jest.fn().mockReturnThis(),
-    addText: jest.fn().mockReturnThis(),
+    addText: jest.fn().mockImplementation(function (callback) {
+      if (!this.__textComponents) {
+        this.__textComponents = []
+      }
+      const text = new TextComponent(createMockElement('div'))
+      this.__textComponents.push(text)
+      if (typeof callback === 'function') {
+        callback(text)
+      }
+      return this
+    }),
     addTextArea: jest.fn().mockReturnThis(),
     addButton: jest.fn().mockReturnThis(),
     addDropdown: jest.fn().mockReturnThis(),
@@ -221,6 +321,7 @@ const mockLeaf = {
 const mockApp = {
   vault: {
     getMarkdownFiles: jest.fn().mockReturnValue([]),
+    getAllLoadedFiles: jest.fn().mockReturnValue([]),
     read: jest.fn().mockResolvedValue(""),
     create: jest.fn().mockResolvedValue(null),
     modify: jest.fn().mockResolvedValue(null),
@@ -280,6 +381,8 @@ module.exports = {
   TFolder,
   Modal,
   SuggestModal,
+  TextComponent,
+  AbstractInputSuggest,
   Notice,
   PluginSettingTab,
   Setting,

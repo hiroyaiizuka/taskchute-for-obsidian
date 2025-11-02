@@ -82,6 +82,7 @@ export const ja = {
     validation: {
       invalidPath: "無効なパスです",
       missingDateToken: "パターンには {{date}} を含める必要があります",
+      missingFolder: "フォルダが見つかりません: {path}",
     },
     openFailed: "TaskChuteの設定を開けませんでした",
   },
