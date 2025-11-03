@@ -1,8 +1,9 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, SuggestModal, TFile, TFolder, AbstractInputSuggest } from 'obsidian';
-import type { TextComponent } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest } from 'obsidian';
 import { TaskChuteSettings, PathManagerLike } from '../types';
 import { t } from '../i18n';
 import { FolderPathFieldController } from './folderPathFieldController';
+import { FilePathFieldController } from './filePathFieldController';
+import { FilePathSuggest } from './filePathSuggest';
 
 interface PluginWithSettings extends Plugin {
   app: App;
@@ -54,8 +55,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           });
       });
 
-    let templatePathInput: TextComponent | null = null;
-
     const pathSetting = new Setting(container)
       .setName(t('settings.reviewTemplate.pathName', 'Template file'))
       .setDesc(
@@ -65,99 +64,65 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         ),
       );
 
+    let reviewTemplateController: FilePathFieldController | null = null;
+    let reviewTemplateSuggest: FilePathSuggest | null = null;
+
     pathSetting.addText((text) => {
-      templatePathInput = text;
-      const current = this.plugin.settings.reviewTemplatePath ?? '';
-      text
-        .setPlaceholder('TaskChute/Templates/DailyReview.md')
-        .setValue(current)
-        .onChange(async (raw) => {
-          const trimmed = raw.trim();
-          if (!trimmed) {
+      reviewTemplateController = new FilePathFieldController({
+        text,
+        getStoredValue: () => this.plugin.settings.reviewTemplatePath ?? null,
+        setStoredValue: (next) => {
+          if (!next) {
             this.plugin.settings.reviewTemplatePath = null;
-            await this.plugin.saveSettings();
-            return;
+          } else {
+            this.plugin.settings.reviewTemplatePath = next;
           }
+        },
+        saveSettings: () => this.plugin.saveSettings(),
+        validatePath: (path) => this.plugin.pathManager.validatePath(path),
+        fileExists: (path) => this.fileExists(path),
+        makeMissingNotice: (path) =>
+          t(
+            'notices.reviewTemplateMissing',
+            'Review template file was not found: {path}',
+            { path },
+          ),
+        notice: (message) => new Notice(message),
+        emptyValue: null,
+      });
 
-          const validation = this.plugin.pathManager.validatePath(trimmed);
-          if (!validation.valid) {
-            new Notice(
-              validation.error ||
-                t('settings.validation.invalidPath', 'Invalid path'),
-            );
-            text.setValue(this.plugin.settings.reviewTemplatePath ?? '');
-            return;
-          }
+      reviewTemplateSuggest = new FilePathSuggest(
+        this.app,
+        text.inputEl,
+        async (filePath) => {
+          await reviewTemplateController?.handleSuggestionSelect(filePath);
+        },
+      );
 
-          this.plugin.settings.reviewTemplatePath = trimmed;
-          await this.plugin.saveSettings();
-        });
+      text.setValue(this.plugin.settings.reviewTemplatePath ?? '').onChange(async (raw) => {
+        await reviewTemplateController?.handleInputChange(raw);
+      });
+
+      text.inputEl.addEventListener('focus', () => {
+        reviewTemplateSuggest?.setValue(text.getValue());
+        reviewTemplateSuggest?.open();
+      });
 
       text.inputEl.addEventListener('blur', () => {
-        const path = this.plugin.settings.reviewTemplatePath?.trim();
-        if (!path) return;
-        const abstract = this.plugin.app.vault.getAbstractFileByPath(path);
-        if (!(abstract instanceof TFile)) {
-          this.notifyMissingTemplate(path);
-        }
+        void reviewTemplateController?.handleBlur();
       });
     });
 
-    pathSetting.addExtraButton((btn) => {
-      btn
-        .setIcon('magnifying-glass')
-        .setTooltip(
-          t(
-            'settings.reviewTemplate.pick',
-            'Select file from vault',
-          ),
-        )
-        .onClick(() => {
-          const modal = new ReviewTemplateSuggestModal(this.app, (file) => {
-            const normalized = file.path;
-            this.plugin.settings.reviewTemplatePath = normalized;
-            void this.plugin.saveSettings();
-            templatePathInput?.setValue(normalized);
-          });
-          modal.open();
-        });
-    });
-
-    pathSetting.addExtraButton((btn) => {
-      btn
-        .setIcon('x')
-        .setTooltip(t('common.clear', 'Clear'))
-        .onClick(async () => {
-          this.plugin.settings.reviewTemplatePath = null;
-          await this.plugin.saveSettings();
-          templatePathInput?.setValue('');
-        });
-    });
+    // Extra buttons removed per new design (no magnifier or clear icon).
   }
-
-  private notifyMissingTemplate(path: string): void {
-    new Notice(
-      t(
-        'notices.reviewTemplateMissing',
-        'Review template file was not found: {path}',
-        { path },
-      ),
-    );
-  }
-
-  private notifyMissingProjectTemplate(path: string): void {
-    new Notice(
-      t(
-        'notices.projectTemplateMissing',
-        'Project template file was not found: {path}',
-        { path },
-      ),
-    );
-  }
-
   private folderExists(path: string): boolean {
     const abstract = this.app.vault.getAbstractFileByPath(path);
     return abstract instanceof TFolder;
+  }
+
+  private fileExists(path: string): boolean {
+    const abstract = this.app.vault.getAbstractFileByPath(path);
+    return abstract instanceof TFile;
   }
 
   private renderStorageSection(container: HTMLElement): void {
@@ -279,16 +244,12 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       )
       .addText((text) => {
         const value = this.plugin.settings.projectTitlePrefix ?? 'Project - '
-        text
-          .setPlaceholder('Project - ')
-          .setValue(value)
-          .onChange(async (raw) => {
-            this.plugin.settings.projectTitlePrefix = raw
-            await this.plugin.saveSettings()
-          })
+        text.setValue(value).onChange(async (raw) => {
+          this.plugin.settings.projectTitlePrefix = raw
+          await this.plugin.saveSettings()
+        })
       })
 
-    let projectFolderInput: TextComponent | null = null;
     let projectFolderController: FolderPathFieldController | null = null;
     let projectFolderSuggest: FolderPathSuggest | null = null;
     const folderSetting = new Setting(container)
@@ -304,7 +265,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     folderSetting
       .addText((text) => {
-        projectFolderInput = text;
         projectFolderController = new FolderPathFieldController({
           text,
           getStoredValue: () => this.plugin.settings.projectsFolder ?? undefined,
@@ -350,48 +310,10 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         text.inputEl.addEventListener('blur', () => {
           void projectFolderController?.handleBlur();
         });
-      })
-      .addExtraButton((btn) => {
-        btn
-          .setIcon('magnifying-glass')
-          .setTooltip(
-            t(
-              'settings.projectCandidates.folderPick',
-              'Select folder from vault',
-            ),
-          )
-          .onClick(() => {
-            if (projectFolderInput) {
-              projectFolderInput.inputEl.focus();
-            }
-            if (projectFolderSuggest) {
-              projectFolderSuggest.setValue(projectFolderInput?.getValue() ?? '');
-              projectFolderSuggest.open();
-            } else {
-              const modal = new ProjectFolderSuggestModal(this.app, (folder) => {
-                const normalized = folder.path;
-                void projectFolderController?.handleSuggestionSelect(normalized);
-              });
-              modal.open();
-            }
-          });
-      })
-      .addExtraButton((btn) => {
-        btn
-          .setIcon('x')
-          .setTooltip(t('common.clear', 'Clear'))
-          .onClick(async () => {
-            if (projectFolderController) {
-              await projectFolderController.handleSuggestionSelect('');
-            } else {
-              this.plugin.settings.projectsFolder = null;
-              await this.plugin.saveSettings();
-              projectFolderInput?.setValue('');
-            }
-          });
       });
 
-    let templateInput: TextComponent | null = null;
+    let projectTemplateController: FilePathFieldController | null = null;
+    let projectTemplateSuggest: FilePathSuggest | null = null;
     const templateSetting = new Setting(container)
       .setName(
         t('settings.projectCandidates.templateName', 'Template file'),
@@ -405,72 +327,50 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     templateSetting
       .addText((text) => {
-        templateInput = text;
-        const value = this.plugin.settings.projectTemplatePath ?? '';
-        text
-          .setPlaceholder('Projects/Template.md')
-          .setValue(value)
-          .onChange(async (raw) => {
-            const trimmed = raw.trim();
-            if (!trimmed) {
+        projectTemplateController = new FilePathFieldController({
+          text,
+          getStoredValue: () => this.plugin.settings.projectTemplatePath ?? null,
+          setStoredValue: (next) => {
+            if (!next) {
               this.plugin.settings.projectTemplatePath = null;
-              await this.plugin.saveSettings();
-              return;
+            } else {
+              this.plugin.settings.projectTemplatePath = next;
             }
-            const validation = this.plugin.pathManager.validatePath(trimmed);
-            if (!validation.valid) {
-              new Notice(
-                validation.error ||
-                  t('settings.validation.invalidPath', 'Invalid path'),
-              );
-              text.setValue(this.plugin.settings.projectTemplatePath ?? '');
-              return;
-            }
-            this.plugin.settings.projectTemplatePath = trimmed;
-            await this.plugin.saveSettings();
-          });
+          },
+          saveSettings: () => this.plugin.saveSettings(),
+          validatePath: (path) => this.plugin.pathManager.validatePath(path),
+          fileExists: (path) => this.fileExists(path),
+          makeMissingNotice: (path) =>
+            t(
+              'notices.projectTemplateMissing',
+              'Project template file was not found: {path}',
+              { path },
+            ),
+          notice: (message) => new Notice(message),
+          emptyValue: null,
+        });
+
+        projectTemplateSuggest = new FilePathSuggest(
+          this.app,
+          text.inputEl,
+          async (filePath) => {
+            await projectTemplateController?.handleSuggestionSelect(filePath);
+          },
+        );
+
+        const value = this.plugin.settings.projectTemplatePath ?? '';
+        text.setValue(value).onChange(async (raw) => {
+          await projectTemplateController?.handleInputChange(raw);
+        });
 
         text.inputEl.addEventListener('blur', () => {
-          const path = this.plugin.settings.projectTemplatePath?.trim();
-          if (!path) return;
-          const file = this.plugin.app.vault.getAbstractFileByPath(path);
-          if (!(file instanceof TFile)) {
-            this.notifyMissingProjectTemplate(path);
-          }
+          void projectTemplateController?.handleBlur();
         });
-      })
-      .addExtraButton((btn) => {
-        btn
-          .setIcon('magnifying-glass')
-          .setTooltip(
-            t(
-              'settings.projectCandidates.templatePick',
-              'Select template file from vault',
-            ),
-          )
-          .onClick(() => {
-            const modal = new ProjectTemplateSuggestModal(
-              this.app,
-              this.plugin.settings.projectsFolder ?? undefined,
-              (file) => {
-                const normalized = file.path;
-                this.plugin.settings.projectTemplatePath = normalized;
-                void this.plugin.saveSettings();
-                templateInput?.setValue(normalized);
-              },
-            );
-            modal.open();
-          });
-      })
-      .addExtraButton((btn) => {
-        btn
-          .setIcon('x')
-          .setTooltip(t('common.clear', 'Clear'))
-          .onClick(async () => {
-            this.plugin.settings.projectTemplatePath = null;
-            await this.plugin.saveSettings();
-            templateInput?.setValue('');
-          });
+
+        text.inputEl.addEventListener('focus', () => {
+          projectTemplateSuggest?.setValue(text.getValue());
+          projectTemplateSuggest?.open();
+        });
       });
   }
 
@@ -491,113 +391,16 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 }
 
-class ReviewTemplateSuggestModal extends SuggestModal<TFile> {
-  private readonly onChoose: (file: TFile) => void;
-
-  constructor(app: App, onChoose: (file: TFile) => void) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder(
-      t(
-        'settings.reviewTemplate.suggestPlaceholder',
-        'Type to search review template files',
-      ),
-    );
-  }
-
-  getSuggestions(query: string): TFile[] {
-    const lower = query.toLowerCase();
-    return this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => file.path.toLowerCase().includes(lower));
-  }
-
-  renderSuggestion(file: TFile, el: HTMLElement): void {
-    const target = el as HTMLElement & { setText?: (value: string) => void };
-    if (typeof target.setText === 'function') {
-      target.setText(file.path);
-    } else {
-      target.textContent = file.path;
-    }
-  }
-
-  onChooseSuggestion(file: TFile): void {
-    this.onChoose(file);
-    this.close();
-  }
-}
-
-class ProjectFolderSuggestModal extends SuggestModal<TFolder> {
-  private readonly onChoose: (folder: TFolder) => void;
-
-  constructor(app: App, onChoose: (folder: TFolder) => void) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder(
-      t(
-        'settings.projectCandidates.folderSuggestPlaceholder',
-        'Type to search folders',
-      ),
-    );
-  }
-
-  getSuggestions(query: string): TFolder[] {
-    const lower = query.toLowerCase();
-    return this.app.vault
-      .getAllLoadedFiles()
-      .filter((file): file is TFolder => file instanceof TFolder)
-      .filter((folder) => folder.path.toLowerCase().includes(lower));
-  }
-
-  renderSuggestion(folder: TFolder, el: HTMLElement): void {
-    el.setText(folder.path);
-  }
-
-  onChooseSuggestion(folder: TFolder): void {
-    this.onChoose(folder);
-    this.close();
-  }
-}
-
-class ProjectTemplateSuggestModal extends SuggestModal<TFile> {
-  private readonly baseFolder?: string;
-  private readonly onChoose: (file: TFile) => void;
-
-  constructor(app: App, baseFolder: string | undefined, onChoose: (file: TFile) => void) {
-    super(app);
-    this.baseFolder = baseFolder;
-    this.onChoose = onChoose;
-    this.setPlaceholder(
-      t(
-        'settings.projectCandidates.templateSuggestPlaceholder',
-        'Type to search project templates',
-      ),
-    );
-  }
-
-  getSuggestions(query: string): TFile[] {
-    const lower = query.toLowerCase();
-    return this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => file.path.toLowerCase().includes(lower));
-  }
-
-  renderSuggestion(file: TFile, el: HTMLElement): void {
-    el.setText(file.path);
-  }
-
-  onChooseSuggestion(file: TFile): void {
-    this.onChoose(file);
-    this.close();
-  }
-}
-
 class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
   private readonly onChoose: (folderPath: string) => void;
 
   constructor(app: App, inputEl: HTMLInputElement, onChoose: (folderPath: string) => void) {
     super(app, inputEl);
     this.onChoose = onChoose;
+  }
+
+  setValue(value: string): void {
+    this.inputEl.value = value;
   }
 
   protected getSuggestions(query: string): TFolder[] {

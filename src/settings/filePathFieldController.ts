@@ -1,0 +1,96 @@
+type StoredValue = string | null | undefined
+
+interface TextLike {
+  setValue(value: string): unknown
+  getValue(): string
+}
+
+interface FilePathFieldControllerOptions {
+  text: TextLike
+  getStoredValue(): StoredValue
+  setStoredValue(next: StoredValue): void
+  saveSettings(): Promise<void>
+  validatePath(path: string): { valid: boolean; error?: string }
+  fileExists(path: string): boolean
+  makeMissingNotice(path: string): string
+  notice?: (message: string) => void
+  emptyValue: StoredValue
+}
+
+export class FilePathFieldController {
+  private readonly text: TextLike
+  private readonly getStoredValue: () => StoredValue
+  private readonly setStoredValue: (next: StoredValue) => void
+  private readonly saveSettings: () => Promise<void>
+  private readonly validatePath: (path: string) => { valid: boolean; error?: string }
+  private readonly fileExists: (path: string) => boolean
+  private readonly makeMissingNotice: (path: string) => string
+  private readonly notice: (message: string) => void
+  private readonly emptyValue: StoredValue
+
+  constructor(options: FilePathFieldControllerOptions) {
+    this.text = options.text
+    this.getStoredValue = options.getStoredValue
+    this.setStoredValue = options.setStoredValue
+    this.saveSettings = options.saveSettings
+    this.validatePath = options.validatePath
+    this.fileExists = options.fileExists
+    this.makeMissingNotice = options.makeMissingNotice
+    this.notice = options.notice ?? (() => {})
+    this.emptyValue = options.emptyValue
+  }
+
+  private getCommittedValue(): string {
+    const stored = this.getStoredValue()
+    if (stored === null || stored === undefined) {
+      return ''
+    }
+    return stored
+  }
+
+  private revertToCommitted(): void {
+    this.text.setValue(this.getCommittedValue())
+  }
+
+  async handleInputChange(raw: string): Promise<void> {
+    const trimmed = raw.trim()
+
+    if (!trimmed) {
+      this.setStoredValue(this.emptyValue)
+      this.text.setValue('')
+      await this.saveSettings()
+      return
+    }
+
+    const validation = this.validatePath(trimmed)
+    if (!validation.valid) {
+      if (validation.error) {
+        this.notice(validation.error)
+      }
+      this.revertToCommitted()
+      return
+    }
+
+    this.setStoredValue(trimmed)
+    this.text.setValue(trimmed)
+    await this.saveSettings()
+  }
+
+  async handleBlur(): Promise<void> {
+    const stored = this.getStoredValue()
+    if (!stored) {
+      return
+    }
+
+    if (!this.fileExists(stored)) {
+      this.notice(this.makeMissingNotice(stored))
+    }
+  }
+
+  async handleSuggestionSelect(path: string): Promise<void> {
+    const trimmed = path.trim()
+    this.text.setValue(trimmed)
+    await this.handleInputChange(trimmed)
+  }
+}
+
