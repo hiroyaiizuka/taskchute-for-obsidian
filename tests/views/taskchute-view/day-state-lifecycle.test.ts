@@ -1587,6 +1587,64 @@ describe('TaskChuteView onClose cleanup', () => {
   });
 });
 
+describe('TaskChuteView cross-day start handling', () => {
+  test('persists existing running records alongside new routine instance', async () => {
+    const { view } = createView();
+    const existingRecord = {
+      date: '2025-01-02',
+      taskTitle: 'Existing Routine',
+      taskPath: 'TASKS/existing.md',
+      startTime: new Date('2025-01-02T08:00:00.000Z').toISOString(),
+      slotKey: '8:00-12:00',
+      instanceId: 'existing-inst',
+      isRoutine: true,
+    };
+
+    const saveSpy = jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([existingRecord]);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    const refreshSpy = jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+
+    const routineTask = createTaskData({
+      path: 'TASKS/new-routine.md',
+      name: 'New Routine',
+      isRoutine: true,
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      slotKey: '8:00-12:00',
+      startTime: new Date('2025-01-02T10:00:00.000Z'),
+      instanceId: 'new-inst',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    const [saved] = saveSpy.mock.calls[0];
+    expect(saved).toHaveLength(2);
+    const paths = saved.map((inst) => inst.task.path);
+    expect(paths).toContain('TASKS/existing.md');
+    expect(paths).toContain('TASKS/new-routine.md');
+    expect(view.currentDate.getFullYear()).toBe(2025);
+    expect(view.currentDate.getMonth()).toBe(0);
+    expect(view.currentDate.getDate()).toBe(2);
+    expect(refreshSpy).toHaveBeenCalled();
+  });
+});
+
 describe('TaskChuteView keyboard shortcuts', () => {
   afterEach(() => {
     jest.clearAllMocks();

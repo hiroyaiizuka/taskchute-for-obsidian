@@ -1,8 +1,13 @@
 import { Notice, App, TFile } from 'obsidian'
 import { getCurrentTimeSlot } from '../../../utils/time'
 import { HeatmapService } from '../../log/services/HeatmapService'
-import type { TaskInstance } from '../../../types'
-import type { TaskChutePluginLike } from '../../../types'
+import type { TaskInstance, TaskChutePluginLike } from '../../../types'
+
+export interface CrossDayStartPayload {
+  instance: TaskInstance
+  today: Date
+  todayKey: string
+}
 
 export interface TaskExecutionHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -25,6 +30,7 @@ export interface TaskExecutionHost {
   getCurrentInstance(): TaskInstance | null
   hasRunningInstances(): boolean
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
+  handleCrossDayStart?: (payload: CrossDayStartPayload) => Promise<void> | void
 }
 
 export const calculateCrossDayDuration = (startTime?: Date, stopTime?: Date): number => {
@@ -71,25 +77,51 @@ export class TaskExecutionService {
       inst.startTime = new Date()
       this.host.setCurrentInstance(inst)
 
-      try {
-        if (!inst.task.isRoutine && viewDate.getTime() !== today.getTime()) {
-          const file = this.host.app.vault.getAbstractFileByPath(inst.task.path)
-          if (file instanceof TFile) {
-            const y = today.getFullYear()
-            const m = String(today.getMonth() + 1).padStart(2, '0')
-            const d = String(today.getDate()).toString().padStart(2, '0')
-            await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-              frontmatter.target_date = `${y}-${m}-${d}`
-              return frontmatter
-            })
+      const isCrossDayStart = viewDate.getTime() !== today.getTime()
+      let crossDayPayload: CrossDayStartPayload | null = null
+      if (isCrossDayStart) {
+        const y = today.getFullYear()
+        const m = String(today.getMonth() + 1).padStart(2, '0')
+        const d = String(today.getDate()).toString().padStart(2, '0')
+        const todayKey = `${y}-${m}-${d}`
+        if (!inst.task.isRoutine) {
+          try {
+            const file = this.host.app.vault.getAbstractFileByPath(inst.task.path)
+            if (file instanceof TFile) {
+              await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+                frontmatter.target_date = todayKey
+                return frontmatter
+              })
+            }
+          } catch {
+            /* target date update best effort */
           }
         }
-      } catch {
-        /* target date update best effort */
+        inst.date = todayKey
+        crossDayPayload = {
+          instance: inst,
+          today: new Date(today),
+          todayKey,
+        }
       }
 
-      await this.host.saveRunningTasksState()
-      this.host.renderTaskList()
+      let handledCrossDay = false
+      if (crossDayPayload && typeof this.host.handleCrossDayStart === 'function') {
+        try {
+          await this.host.handleCrossDayStart(crossDayPayload)
+          handledCrossDay = true
+        } catch (error) {
+          console.error('[TaskExecutionService] handleCrossDayStart failed', error)
+          this.host.renderTaskList()
+        }
+        if (handledCrossDay) {
+          await this.host.saveRunningTasksState()
+        }
+      } else {
+        await this.host.saveRunningTasksState()
+        this.host.renderTaskList()
+      }
+
       this.host.startGlobalTimer()
       this.host.restartTimerService()
 

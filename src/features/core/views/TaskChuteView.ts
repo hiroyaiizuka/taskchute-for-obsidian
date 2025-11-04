@@ -29,8 +29,10 @@ import { getCurrentLocale, t } from "../../../i18n"
 import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
 import type { TaskReloadCoordinatorHost } from "../../../features/core/services/TaskReloadCoordinator"
 import TaskExecutionService, {
+  CrossDayStartPayload,
   calculateCrossDayDuration,
 } from "../../../features/core/services/TaskExecutionService"
+import type { RunningTaskRecord } from "../../../features/core/services/RunningTasksService"
 import NavigationController from "../../../ui/navigation/NavigationController"
 import ProjectController from "../../../ui/project/ProjectController"
 import TaskDragController from "../../../ui/tasklist/TaskDragController"
@@ -712,6 +714,19 @@ export class TaskChuteView
     this.timerService?.restart()
   }
 
+  public async handleCrossDayStart(payload: CrossDayStartPayload): Promise<void> {
+    const { today, todayKey, instance } = payload
+    await this.persistCrossDayRunningTasks(todayKey, instance)
+    const next = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    )
+    this.currentDate = next
+    await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+    this.taskHeaderController.refreshDateLabel()
+  }
+
   public calculateCrossDayDuration(startTime?: Date, stopTime?: Date): number {
     return calculateCrossDayDuration(startTime, stopTime)
   }
@@ -804,6 +819,61 @@ export class TaskChuteView
       console.error(
         "[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:",
         e,
+      )
+    }
+  }
+
+  private createRunningInstanceFromRecord(record: RunningTaskRecord): TaskInstance {
+    const task: TaskData = {
+      file: null,
+      frontmatter: {},
+      path: record.taskPath,
+      name: record.taskTitle,
+      displayTitle: record.taskTitle,
+      isRoutine: record.isRoutine === true,
+    }
+    if (record.taskDescription) {
+      ;(task as TaskData & { description?: string }).description =
+        record.taskDescription
+    }
+    const instanceId =
+      record.instanceId ??
+      this.generateInstanceId(task, record.date ?? this.getCurrentDateString())
+    return {
+      task,
+      instanceId,
+      state: "running",
+      slotKey: record.slotKey ?? "none",
+      originalSlotKey: record.originalSlotKey,
+      startTime: record.startTime ? new Date(record.startTime) : undefined,
+      date: record.date,
+    }
+  }
+
+  private async persistCrossDayRunningTasks(
+    todayKey: string,
+    instance: TaskInstance,
+  ): Promise<void> {
+    try {
+      const existing = await this.runningTasksService.loadForDate(todayKey)
+      const preserved = existing
+        .filter((record) => record.instanceId !== instance.instanceId)
+        .map((record) => this.createRunningInstanceFromRecord(record))
+
+      const instanceForSave: TaskInstance = {
+        ...instance,
+        state: "running",
+        startTime: instance.startTime ?? new Date(),
+        slotKey: instance.slotKey ?? "none",
+        originalSlotKey: instance.originalSlotKey,
+        date: todayKey,
+      }
+
+      await this.runningTasksService.save([...preserved, instanceForSave])
+    } catch (error) {
+      console.error(
+        "[TaskChuteView] Failed to persist cross-day running task",
+        error,
       )
     }
   }
