@@ -22,12 +22,20 @@ export class TaskNameAutocomplete {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private blurTimer: ReturnType<typeof setTimeout> | null = null;
   private isVisible: boolean = false;
+  private suppressNextShow: boolean = false;
   private fileEventRefs: EventRef[] = [];
   private view?: TaskChuteView;
 
-  private handleInput = () => {
+  private handleInput = (event: Event) => {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
+    }
+
+    if (this.suppressNextShow) {
+      if (!event.isTrusted) {
+        return;
+      }
+      this.suppressNextShow = false;
     }
 
     this.debounceTimer = setTimeout(() => {
@@ -39,6 +47,11 @@ export class TaskNameAutocomplete {
     if (this.blurTimer) {
       clearTimeout(this.blurTimer);
       this.blurTimer = null;
+    }
+
+    if (this.suppressNextShow) {
+      this.suppressNextShow = false;
+      return;
     }
 
     this.showSuggestions();
@@ -252,6 +265,10 @@ export class TaskNameAutocomplete {
         this.updateSelection(this.suggestionsElement!.querySelectorAll('.suggestion-item'))
       })
 
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+      })
+
       item.addEventListener('click', (e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -349,6 +366,7 @@ export class TaskNameAutocomplete {
     }
 
     this.inputElement.value = text
+    this.suppressNextShow = true
     this.hideSuggestions()
     // Trigger input and change events to align with spec
     this.inputElement.dispatchEvent(new Event('input', { bubbles: true }))

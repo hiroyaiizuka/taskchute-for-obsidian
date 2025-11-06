@@ -1064,15 +1064,27 @@ export class TaskChuteView
     const width = this.containerEl.clientWidth
     const classList = this.containerEl.classList
 
-    classList.remove("narrow", "medium", "wide")
+    const layoutClasses = [
+      "taskchute-very-narrow",
+      "taskchute-narrow",
+      "taskchute-medium",
+      "taskchute-wide",
+    ]
 
-    if (width < 400) {
-      classList.add("narrow")
-    } else if (width < 600) {
-      classList.add("medium")
-    } else {
-      classList.add("wide")
+    classList.remove(...layoutClasses)
+    this.taskListElement?.classList.remove(...layoutClasses)
+
+    let layoutClassesToAdd: string[] = ["taskchute-wide"]
+    if (width < 520) {
+      layoutClassesToAdd = ["taskchute-narrow", "taskchute-very-narrow"]
+    } else if (width < 780) {
+      layoutClassesToAdd = ["taskchute-narrow"]
+    } else if (width < 980) {
+      layoutClassesToAdd = ["taskchute-medium"]
     }
+
+    classList.add(...layoutClassesToAdd)
+    this.taskListElement?.classList.add(...layoutClassesToAdd)
   }
 
   private setupResizeObserver(): void {

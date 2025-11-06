@@ -1,3 +1,5 @@
+import { attachCloseButtonIcon } from './iconUtils'
+
 export interface NameModalOptions {
   title: string
   label: string
@@ -60,6 +62,7 @@ export function createNameModal(options: NameModalOptions): NameModalHandle {
       type: 'button',
     },
   })
+  attachCloseButtonIcon(closeButton)
 
   const form = appendEl<HTMLFormElement>(content, 'form', { cls: 'task-form' })
   const inputGroup = appendEl<HTMLDivElement>(form, 'div', { cls: 'form-group' })
