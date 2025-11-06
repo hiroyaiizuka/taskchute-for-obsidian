@@ -3607,58 +3607,53 @@ select.form-input {
 }
 
 /* レスポンシブ対応 - コンテナベースの調整 */
-/* 中間の幅（800px以下相当） */
 .taskchute-narrow .task-item {
-  /* グリッドレイアウトを調整 - プロジェクトと時間を縮小 */
-  grid-template-columns: 20px 40px minmax(150px, 1fr) 120px 80px 40px 30px 30px 30px;
-  gap: 4px;
+  grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
+  gap: 6px;
+  padding-right: 12px;
 }
 
 .taskchute-narrow .task-name {
-  min-width: 150px;
+  margin-right: 0;
+  white-space: normal;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
-.taskchute-narrow .taskchute-project-display {
-  max-width: 120px;
-  margin-right: 4px;
+.taskchute-narrow .task-item > *:nth-child(4),
+.taskchute-narrow .task-item > *:nth-child(5),
+.taskchute-narrow .task-item > *:nth-child(6),
+.taskchute-narrow .task-item > *:nth-child(7) {
+  display: none;
 }
 
-.taskchute-narrow .taskchute-project-name {
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.taskchute-narrow .task-time-range {
-  font-size: 11px;
-}
-
-.taskchute-narrow .routine-button,
+.taskchute-narrow .taskchute-project-display,
+.taskchute-narrow .taskchute-project-placeholder,
+.taskchute-narrow .task-time-range,
+.taskchute-narrow .task-duration,
+.taskchute-narrow .task-timer-display,
+.taskchute-narrow .task-duration-placeholder,
 .taskchute-narrow .comment-button {
-  font-size: 13px;
+  display: none;
 }
 
-/* さらに狭い幅（600px以下相当） */
 .taskchute-very-narrow .task-item {
-  /* タスク名を最優先にし、必要なボタンのみ表示 */
-  grid-template-columns: 20px 40px 1fr 30px 30px;
-  gap: 2px;
+  grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
+  gap: 4px;
+  padding-right: 10px;
 }
 
-/* 表示する要素を限定 */
-.taskchute-very-narrow .task-item > *:nth-child(n + 6) {
+.taskchute-very-narrow .task-item > *:nth-child(8) {
   display: none;
 }
 
-/* プロジェクト、時間表示、実行時間を非表示 */
-.taskchute-very-narrow .taskchute-project-display,
-.taskchute-very-narrow .task-time-range,
-.taskchute-very-narrow .task-duration {
-  display: none;
+.taskchute-very-narrow .task-name {
+  margin-right: 0;
+  white-space: normal;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
-/* 日跨ぎタスクのスタイル */
 .task-duration.cross-day {
   color: var(--text-accent);
   font-weight: 500;
@@ -3670,18 +3665,6 @@ select.form-input {
   font-size: 0.8em;
   margin-left: 4px;
   opacity: 0.7;
-}
-
-/* タスク名を最大限表示 */
-.taskchute-very-narrow .task-name {
-  min-width: 80px;
-}
-
-/* ルーチンボタンと設定ボタンのみ表示 */
-.taskchute-very-narrow .task-item > *:nth-child(7),  /* ルーチンボタン */
-.taskchute-very-narrow .task-item > *:nth-child(9) {
-  /* 設定ボタン */
-  display: flex;
 }
 
 /* ルーチン設定モーダルの新しいスタイル */
@@ -3806,42 +3789,43 @@ select.form-input {
   margin-top: 4px;
 }
 
-@container taskchute-list (max-width: 640px) {
+@container taskchute-list (max-width: 900px) {
   .task-item {
-    grid-template-columns:
-      18px 32px minmax(0, 1fr) 0 minmax(52px, 0.7fr)
-      minmax(44px, 0.6fr) 26px 26px 26px;
+    grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
     gap: 6px;
+    padding-right: 12px;
   }
 
   .task-item .taskchute-project-display,
-  .task-item .taskchute-project-placeholder {
-    display: none;
-  }
-}
-
-@container taskchute-list (max-width: 560px) {
-  .task-item {
-    grid-template-columns: 18px 30px minmax(0, 1fr) 0 0 0 26px 26px 26px;
-    gap: 6px;
-  }
-
+  .task-item .taskchute-project-placeholder,
   .task-item .task-time-range,
   .task-item .task-duration,
   .task-item .task-timer-display,
-  .task-item .task-duration-placeholder {
+  .task-item .task-duration-placeholder,
+  .task-item .comment-button {
     display: none;
   }
 }
 
-@container taskchute-list (max-width: 480px) {
+@container taskchute-list (max-width: 640px) {
   .task-item {
-    grid-template-columns: 18px 30px minmax(0, 1fr) 0 0 0 0 0 0;
+    grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
     gap: 4px;
+    padding-right: 10px;
   }
 
-  .task-item .comment-button,
-  .task-item .routine-button,
+  .task-item .routine-button {
+    display: none;
+  }
+}
+
+@container taskchute-list (max-width: 520px) {
+  .task-item {
+    grid-template-columns: 18px 32px minmax(0, 1fr);
+    gap: 4px;
+    padding-right: 8px;
+  }
+
   .task-item .settings-task-button {
     display: none;
   }
