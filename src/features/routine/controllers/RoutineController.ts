@@ -7,6 +7,7 @@ import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../..
 import type { RoutineWeek } from '../../../types/TaskFields'
 import type { RoutineTaskShape } from '../../../types/Routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
+import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
@@ -65,6 +66,7 @@ export default class RoutineController {
         type: 'button',
       },
     }) as HTMLButtonElement
+    attachCloseButtonIcon(closeButton)
 
     const form = modalContent.createEl('form', { cls: 'task-form' })
     const typeGroup = form.createEl('div', { cls: 'form-group' })
