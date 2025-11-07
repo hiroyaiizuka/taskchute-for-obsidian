@@ -154,13 +154,6 @@ export default class RoutineController {
       }) as HTMLInputElement
       weekdayCheckboxes.push(checkbox)
       label.createEl('span', { text: day.label })
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) {
-          weekdayCheckboxes.forEach((cb) => {
-            if (cb !== checkbox) cb.checked = false
-          })
-        }
-      })
     })
     deriveWeeklySelection(task as TaskData).forEach((day) => {
       const checkbox = weekdayCheckboxes[day]
@@ -283,10 +276,11 @@ export default class RoutineController {
       }
 
       if (routineType === 'weekly') {
-        detailPayload.weekdays = weekdayCheckboxes
+        const picked = weekdayCheckboxes
           .filter((cb) => cb.checked)
           .map((cb) => Number.parseInt(cb.value, 10))
           .filter((value) => Number.isInteger(value))
+        detailPayload.weekdays = this.normalizeWeekdaySelection(picked)
       } else if (routineType === 'monthly') {
         if (weekSelect.value === 'last') {
           detailPayload.monthly_week = 'last'
@@ -381,8 +375,18 @@ export default class RoutineController {
         delete cleaned.routine_week
         delete cleaned.routine_weekday
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
-        if (routineType === 'weekly' && details.weekdays?.length) {
-          routineFrontmatter.routine_weekday = details.weekdays[0]
+        if (routineType === 'weekly') {
+          const weekdays = this.normalizeWeekdaySelection(details.weekdays)
+          if (weekdays.length > 1) {
+            routineFrontmatter.weekdays = weekdays
+          } else {
+            delete routineFrontmatter.weekdays
+          }
+          if (weekdays.length > 0) {
+            routineFrontmatter.routine_weekday = weekdays[0]
+          } else {
+            delete routineFrontmatter.routine_weekday
+          }
         } else if (routineType === 'monthly') {
           let routineWeek: RoutineWeek | undefined
           if (details.monthly_week === 'last') {
@@ -503,9 +507,7 @@ export default class RoutineController {
     details: RoutineDetailsInput,
   ): void {
     if (routineType === 'weekly') {
-      const selected = Array.isArray(details.weekdays)
-        ? details.weekdays.filter((value) => Number.isInteger(value))
-        : []
+      const selected = this.normalizeWeekdaySelection(details.weekdays)
       task.weekdays = selected
       if (selected.length > 0) {
         task.weekday = selected[0]
@@ -578,15 +580,13 @@ export default class RoutineController {
         tooltip += this.tv('lists.weekendsOnlySuffix', ' - Weekends only')
         break
       case 'weekly': {
-        if (details.weekdays?.length) {
-          const dayNames = this.getWeekdayNames()
-          const selectedDay =
-            typeof details.weekdays[0] === 'number'
-              ? dayNames[details.weekdays[0]]
-              : this.tv('labels.routineDayUnset', 'No weekday set')
+        const weekdays = this.normalizeWeekdaySelection(details.weekdays?.length ? details.weekdays : task.weekdays)
+        if (weekdays.length) {
+          const dayList =
+            this.formatWeekdayList(weekdays) ?? this.tv('labels.routineDayUnset', 'No weekday set')
           tooltip += ` - ${this.tv('labels.routineWeeklyLabel', 'Every {interval} week(s) on {day}', {
             interval: intervalValue,
-            day: selectedDay,
+            day: dayList,
           })}`
         }
         break
@@ -617,6 +617,31 @@ export default class RoutineController {
         break
     }
     return tooltip
+  }
+
+  private normalizeWeekdaySelection(values?: number[]): number[] {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<number>()
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      .filter((value) => {
+        if (seen.has(value)) return false
+        seen.add(value)
+        return true
+      })
+      .sort((a, b) => a - b)
+  }
+
+  private formatWeekdayList(weekdays?: number[]): string | undefined {
+    if (!Array.isArray(weekdays) || weekdays.length === 0) return undefined
+    const names = this.getWeekdayNames()
+    const labels = weekdays
+      .map((index) => names[index])
+      .filter((label): label is string => typeof label === 'string' && label.length > 0)
+    if (!labels.length) return undefined
+    const joiner = this.tv('lists.weekdayJoiner', ' / ')
+    return labels.join(joiner)
   }
 
   private ensureDomHelpers(): void {

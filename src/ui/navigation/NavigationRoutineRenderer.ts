@@ -79,6 +79,15 @@ export default class NavigationRoutineRenderer {
       case 'daily':
         return this.host.tv('labels.routineDailyLabel', 'Every {interval} day(s)', { interval })
       case 'weekly': {
+        const weekdaySet = this.normalizeWeekdayArray(task.weekdays)
+        if (weekdaySet.length > 0) {
+          const joined =
+            this.formatWeekdayList(weekdaySet) ?? this.host.tv('labels.routineDayUnset', 'No weekday set')
+          return this.host.tv('labels.routineWeeklyLabel', 'Every {interval} week(s) on {day}', {
+            interval,
+            day: joined,
+          })
+        }
         const weekday = task.weekday ?? task.routine_weekday
         const dayLabel =
           typeof weekday === 'number'
@@ -108,5 +117,30 @@ export default class NavigationRoutineRenderer {
       default:
         return this.host.tv('labels.routineDailyLabel', 'Every {interval} day(s)', { interval })
     }
+  }
+
+  private normalizeWeekdayArray(values?: number[]): number[] {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<number>()
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      .filter((value) => {
+        if (seen.has(value)) return false
+        seen.add(value)
+        return true
+      })
+      .sort((a, b) => a - b)
+  }
+
+  private formatWeekdayList(weekdays: number[]): string | undefined {
+    if (!weekdays.length) return undefined
+    const names = this.host.getWeekdayNames()
+    const labels = weekdays
+      .map((value) => names[value])
+      .filter((label): label is string => typeof label === 'string' && label.length > 0)
+    if (!labels.length) return undefined
+    const joiner = this.host.tv('lists.weekdayJoiner', ' / ')
+    return labels.join(joiner)
   }
 }

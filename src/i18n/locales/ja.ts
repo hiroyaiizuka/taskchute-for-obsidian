@@ -145,6 +145,7 @@ export const ja = {
       completed: "完了済みタスク",
       weekdaysOnlySuffix: " - 平日のみ",
       weekendsOnlySuffix: " - 週末のみ",
+      weekdayJoiner: "・",
     },
     buttons: {
       start: "スタート",

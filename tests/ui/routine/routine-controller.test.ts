@@ -136,4 +136,23 @@ describe('RoutineController', () => {
     expect(button.classList.contains('active')).toBe(true)
     expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: true })
   })
+
+  it('persists multiple weekdays when weekly routine has more than one selection', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '07:30', 'weekly', {
+      weekdays: [1, 3, 5],
+      interval: 1,
+      enabled: true,
+    })
+
+    const fm = frontmatterStore.get(task.path!)
+    expect(Array.isArray(fm?.weekdays)).toBe(true)
+    expect(fm?.weekdays).toEqual([1, 3, 5])
+    expect(fm?.routine_weekday).toBe(1)
+    expect(task.weekdays).toEqual([1, 3, 5])
+  })
 })

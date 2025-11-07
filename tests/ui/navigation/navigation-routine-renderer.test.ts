@@ -61,6 +61,27 @@ describe('NavigationRoutineRenderer', () => {
     expect(edit?.textContent).toBe('Edit')
   })
 
+  it('renders multiple weekdays for weekly routines', () => {
+    const renderer = new NavigationRoutineRenderer(
+      { tv: createTranslator(), getWeekdayNames },
+      {
+        onToggle: jest.fn(),
+        onEdit: jest.fn(),
+      },
+    )
+
+    const task = createTask({
+      routine_type: 'weekly',
+      routine_interval: 1,
+      weekdays: [1, 3, 5],
+    })
+
+    const row = renderer.createRow(task)
+    const badge = row.querySelector('.routine-type-badge')
+
+    expect(badge?.textContent).toBe('Every 1 week(s) on Mon / Wed / Fri')
+  })
+
   it('invokes callbacks when toggling and editing, updating badge label', async () => {
     const onToggle = jest.fn(async (task: RoutineTaskWithFile, enabled: boolean) => {
       task.routine_type = 'monthly'

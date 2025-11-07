@@ -338,6 +338,9 @@ async function createRoutineTask(
     routine_end: metadata.routine_end,
     routine_week: metadata.routine_week,
     routine_weekday: metadata.routine_weekday,
+    weekdays: Array.isArray(metadata.weekdays)
+      ? metadata.weekdays.filter((value): value is number => Number.isInteger(value))
+      : undefined,
     scheduledTime: getScheduledTime(metadata) || undefined,
   }
 

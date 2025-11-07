@@ -145,6 +145,7 @@ export const en = {
       completed: "Completed tasks",
       weekdaysOnlySuffix: " - Weekdays only",
       weekendsOnlySuffix: " - Weekends only",
+      weekdayJoiner: " / ",
     },
     buttons: {
       start: "Start",
