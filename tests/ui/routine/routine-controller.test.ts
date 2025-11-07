@@ -155,4 +155,28 @@ describe('RoutineController', () => {
     expect(fm?.routine_weekday).toBe(1)
     expect(task.weekdays).toEqual([1, 3, 5])
   })
+
+  it('persists multiple weeks and weekdays for monthly routines', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '08:15', 'monthly', {
+      monthly_weeks: [1, 3, 'last'],
+      monthly_weekdays: [1, 4],
+      interval: 2,
+      enabled: true,
+    })
+
+    const fm = frontmatterStore.get(task.path!)
+    expect(fm?.routine_weeks).toEqual([1, 3, 'last'])
+    expect(fm?.routine_weekdays).toEqual([1, 4])
+    expect(task.routine_week).toBeUndefined()
+    expect(task.routine_weekday).toBeUndefined()
+    expect(task.monthly_week).toBeUndefined()
+    expect(task.monthly_weekday).toBeUndefined()
+    expect(task.routine_weeks).toEqual([1, 3, 'last'])
+    expect(task.routine_weekdays).toEqual([1, 4])
+  })
 })

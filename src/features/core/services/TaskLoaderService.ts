@@ -11,6 +11,7 @@ import {
   TaskData,
   TaskInstance,
 } from '../../../types'
+import type { RoutineWeek } from '../../../types/TaskFields'
 import DayStateStoreService from './DayStateStoreService'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
@@ -307,6 +308,66 @@ async function createNonRoutineTask(
   }
 }
 
+function normalizeRoutineWeeks(metadata: TaskFrontmatterWithLegacy): RoutineWeek[] | undefined {
+  const routineWeeksRaw = (metadata as Record<string, unknown>).routine_weeks
+  const monthlyWeeksRaw = (metadata as Record<string, unknown>).monthly_weeks
+  const seen = new Set<string>()
+  const result: RoutineWeek[] = []
+
+  const pushWeek = (week: RoutineWeek): void => {
+    const key = String(week)
+    if (seen.has(key)) return
+    seen.add(key)
+    result.push(week)
+  }
+
+  if (Array.isArray(routineWeeksRaw)) {
+    routineWeeksRaw.forEach((value) => {
+      if (value === 'last') {
+        pushWeek('last')
+      } else {
+        const num = Number(value)
+        if (Number.isInteger(num) && num >= 1 && num <= 5) {
+          pushWeek(num as RoutineWeek)
+        }
+      }
+    })
+  } else if (Array.isArray(monthlyWeeksRaw)) {
+    monthlyWeeksRaw.forEach((value) => {
+      if (value === 'last') {
+        pushWeek('last')
+      } else {
+        const num = Number(value)
+        if (Number.isInteger(num)) {
+          const normalized = (num + 1) as number
+          if (normalized >= 1 && normalized <= 5) {
+            pushWeek(normalized as RoutineWeek)
+          }
+        }
+      }
+    })
+  }
+
+  return result.length ? result : undefined
+}
+
+function normalizeRoutineWeekdays(metadata: TaskFrontmatterWithLegacy): number[] | undefined {
+  const routineWeekdaysRaw = (metadata as Record<string, unknown>).routine_weekdays
+  const monthlyWeekdaysRaw = (metadata as Record<string, unknown>).monthly_weekdays
+  const raw = Array.isArray(routineWeekdaysRaw) ? routineWeekdaysRaw : Array.isArray(monthlyWeekdaysRaw) ? monthlyWeekdaysRaw : undefined
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<number>()
+  const result: number[] = []
+  raw.forEach((value) => {
+    const num = Number(value)
+    if (Number.isInteger(num) && num >= 0 && num <= 6 && !seen.has(num)) {
+      seen.add(num)
+      result.push(num)
+    }
+  })
+  return result.length ? result : undefined
+}
+
 async function createRoutineTask(
   context: TaskLoaderHost,
   file: TFile,
@@ -341,6 +402,8 @@ async function createRoutineTask(
     weekdays: Array.isArray(metadata.weekdays)
       ? metadata.weekdays.filter((value): value is number => Number.isInteger(value))
       : undefined,
+    routine_weeks: normalizeRoutineWeeks(metadata),
+    routine_weekdays: normalizeRoutineWeekdays(metadata),
     scheduledTime: getScheduledTime(metadata) || undefined,
   }
 

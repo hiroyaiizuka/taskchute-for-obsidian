@@ -3875,9 +3875,68 @@ select.form-input {
 .routine-form__weekly,
 .routine-form__monthly {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.routine-chip-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary-alt);
+}
+
+.routine-chip-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.routine-chip-fieldset + .routine-chip-fieldset {
+  margin-top: 10px;
+}
+
+.routine-chip-fieldset__label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.routine-chip-fieldset__chips {
+  display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+}
+
+.routine-chip {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.routine-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.routine-chip__text {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  font-size: 0.9rem;
+  color: var(--text-normal);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.routine-chip input:checked + .routine-chip__text {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 
 .routine-editor__buttons {

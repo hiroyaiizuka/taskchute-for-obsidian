@@ -50,6 +50,8 @@ export function deriveWeeklySelection(task: TaskData): number[] {
 export interface MonthlySelection {
   week?: number | 'last';
   weekday?: number;
+  weekSet?: Array<number | 'last'>;
+  weekdaySet?: number[];
 }
 
 /**
@@ -57,6 +59,30 @@ export interface MonthlySelection {
  */
 export function deriveMonthlySelection(task: TaskData): MonthlySelection {
   const frontmatter = task.frontmatter || {};
+  const normalizeWeek = (value: unknown): number | 'last' | undefined => {
+    if (value === 'last') return 'last';
+    const num = Number(value);
+    if (Number.isInteger(num) && num >= 1 && num <= 5) return num;
+    return undefined;
+  };
+
+  const normalizeWeekArray = (value: unknown): Array<number | 'last'> => {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const result: Array<number | 'last'> = [];
+    value.forEach((candidate) => {
+      const normalized = normalizeWeek(candidate);
+      if (normalized !== undefined) {
+        const key = String(normalized);
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(normalized);
+        }
+      }
+    });
+    return result;
+  };
+
   const sources: Array<number | 'last' | undefined> = [
     task.routine_week as number | 'last' | undefined,
     typeof task.monthly_week === 'number' ? (task.monthly_week + 1) : undefined,
@@ -99,5 +125,17 @@ export function deriveMonthlySelection(task: TaskData): MonthlySelection {
     }
   }
 
-  return { week, weekday };
+  const weekSet = normalizeWeekArray(
+    task.routine_weeks ?? frontmatter.routine_weeks ?? frontmatter.monthly_weeks,
+  );
+
+  const weekdaySet = Array.isArray(task.routine_weekdays)
+    ? task.routine_weekdays.filter(VALID_WEEKDAY)
+    : Array.isArray(frontmatter.routine_weekdays)
+      ? frontmatter.routine_weekdays.filter(VALID_WEEKDAY)
+      : Array.isArray(frontmatter.monthly_weekdays)
+        ? frontmatter.monthly_weekdays.filter(VALID_WEEKDAY)
+        : undefined;
+
+  return { week, weekday, weekSet: weekSet.length ? weekSet : undefined, weekdaySet };
 }

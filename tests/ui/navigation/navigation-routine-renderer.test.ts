@@ -32,6 +32,8 @@ describe('NavigationRoutineRenderer', () => {
       monthly_weekday: undefined,
       routine_week: undefined,
       routine_weekday: undefined,
+      routine_weeks: undefined,
+      routine_weekdays: undefined,
       projectPath: undefined,
       projectTitle: undefined,
       ...overrides,
@@ -82,12 +84,35 @@ describe('NavigationRoutineRenderer', () => {
     expect(badge?.textContent).toBe('Every 1 week(s) on Mon / Wed / Fri')
   })
 
+  it('renders multiple weeks and weekdays for monthly routines', () => {
+    const renderer = new NavigationRoutineRenderer(
+      { tv: createTranslator(), getWeekdayNames },
+      {
+        onToggle: jest.fn(),
+        onEdit: jest.fn(),
+      },
+    )
+
+    const task = createTask({
+      routine_type: 'monthly',
+      routine_interval: 1,
+      routine_weeks: [1, 3, 'last'],
+      routine_weekdays: [1, 5],
+    })
+
+    const row = renderer.createRow(task)
+    const badge = row.querySelector('.routine-type-badge')
+
+    expect(badge?.textContent).toBe('Every Week 1 / Week 3 / Last on Mon / Fri')
+  })
+
   it('invokes callbacks when toggling and editing, updating badge label', async () => {
     const onToggle = jest.fn(async (task: RoutineTaskWithFile, enabled: boolean) => {
       task.routine_type = 'monthly'
       task.routine_interval = 1
       task.monthly_week = 1
       task.monthly_weekday = 4
+      task.routine_weekday = 4
       task.routine_enabled = enabled
     })
     const onEdit = jest.fn()

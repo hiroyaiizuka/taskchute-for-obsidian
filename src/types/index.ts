@@ -100,6 +100,8 @@ export interface TaskData {
   routine_weekday?: number
   // Monthly: week index (1..5 or 'last') + weekday
   routine_week?: number | "last"
+  routine_weeks?: (number | "last")[]
+  routine_weekdays?: number[]
   routine_day?: string
   flexible_schedule?: boolean
   scheduledTime?: string
@@ -306,4 +308,6 @@ export interface RoutineRule {
   // monthly
   week?: number | "last" // 1..5 | 'last'
   monthWeekday?: number // 0..6
+  weekSet?: (number | 'last')[]
+  monthWeekdaySet?: number[]
 }

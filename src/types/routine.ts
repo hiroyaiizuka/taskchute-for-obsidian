@@ -12,6 +12,8 @@ export type RoutineTaskShape = Pick<
   | 'weekday'
   | 'monthly_week'
   | 'monthly_weekday'
+  | 'routine_weeks'
+  | 'routine_weekdays'
   | 'displayTitle'
   | 'name'
   | 'title'
@@ -22,5 +24,7 @@ export type RoutineTaskShape = Pick<
   開始時刻?: string
   projectPath?: string
   projectTitle?: string
+  routine_weeks?: (number | 'last')[]
+  routine_weekdays?: number[]
   [key: string]: unknown
 }

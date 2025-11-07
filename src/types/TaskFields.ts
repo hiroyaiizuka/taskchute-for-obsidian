@@ -102,6 +102,12 @@ export interface RoutineTaskFields {
 
   /** Week of month for monthly routines */
   routine_week?: RoutineWeek;
+
+  /** Multiple weeks of month for monthly routines */
+  routine_weeks?: RoutineWeek[];
+
+  /** Multiple weekdays for monthly routines */
+  routine_weekdays?: number[];
 }
 
 // ============================================================================
