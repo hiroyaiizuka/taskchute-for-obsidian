@@ -97,6 +97,25 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances).toHaveLength(0)
   })
 
+  it('restores routine records when deletion entry targets another duplicated instance', async () => {
+    const record = createRecord({ instanceId: 'original-instance' })
+    const deleted: DeletedInstance = {
+      instanceId: 'duplicate-instance',
+      path: record.taskPath,
+      deletionType: 'temporary',
+      timestamp: Date.now(),
+    }
+
+    const { result, instances } = await runRestore({
+      records: [record],
+      deletedInstances: [deleted],
+    })
+
+    expect(result).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].instanceId).toBe('original-instance')
+  })
+
   it('restores records when not hidden or deleted', async () => {
     const record = createRecord({ slotKey: '0900' })
 

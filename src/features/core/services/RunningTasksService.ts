@@ -176,8 +176,8 @@ export class RunningTasksService {
     const isDeletedRecord = (record: RunningTaskRecord): boolean => {
       return deletedEntries.some((entry) => {
         if (!entry) return false
-        const instanceMatches =
-          entry.instanceId && record.instanceId && entry.instanceId === record.instanceId
+        const hasInstanceId = typeof entry.instanceId === 'string' && entry.instanceId.length > 0
+        const instanceMatches = hasInstanceId && record.instanceId && entry.instanceId === record.instanceId
         if (instanceMatches) {
           return true
         }
@@ -187,8 +187,12 @@ export class RunningTasksService {
           return false
         }
 
-        if (entry.instanceId && !record.instanceId) {
-          return true
+        if (hasInstanceId) {
+          // Instance-scoped deletions should not suppress other instances for the same path
+          if (!record.instanceId) {
+            return true
+          }
+          return false
         }
 
         if (entry.deletionType === 'permanent') {
