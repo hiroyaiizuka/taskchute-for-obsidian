@@ -669,7 +669,8 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  max-height: 200px;
+  max-height: 320px;
+  max-height: min(320px, 60vh);
   overflow-y: auto;
   z-index: 1000;
 }
@@ -693,15 +694,11 @@ select.form-input {
 }
 
 .suggestion-title {
-  font-weight: 500;
-}
-
-.suggestion-meta {
-  font-size: 12px;
-  color: var(--text-muted);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  font-weight: 500;
 }
 
 .suggestion-badge {
@@ -3661,52 +3658,78 @@ select.form-input {
   background: var(--background-modifier-border-hover);
 }
 
-/* レスポンシブ対応 - コンテナベースの調整 */
-.taskchute-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
-  gap: 6px;
+/* レスポンシブ対応 - 表示優先度の調整 */
+
+.taskchute-medium .task-item {
+  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+  gap: 8px;
   padding-right: 12px;
 }
 
-.taskchute-narrow .task-name {
-  margin-right: 0;
-  white-space: normal;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.taskchute-narrow .task-item > *:nth-child(4),
-.taskchute-narrow .task-item > *:nth-child(5),
-.taskchute-narrow .task-item > *:nth-child(6),
-.taskchute-narrow .task-item > *:nth-child(7) {
+.taskchute-medium .taskchute-project-display,
+.taskchute-medium .taskchute-project-placeholder {
   display: none;
 }
 
-.taskchute-narrow .taskchute-project-display,
-.taskchute-narrow .taskchute-project-placeholder,
-.taskchute-narrow .task-time-range,
-.taskchute-narrow .task-duration,
-.taskchute-narrow .task-timer-display,
-.taskchute-narrow .task-duration-placeholder,
-.taskchute-narrow .comment-button {
-  display: none;
-}
-
-.taskchute-very-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
-  gap: 4px;
-  padding-right: 10px;
-}
-
-.taskchute-very-narrow .task-item > *:nth-child(8) {
-  display: none;
-}
-
+.taskchute-medium .task-name,
+.taskchute-narrow .task-name,
 .taskchute-very-narrow .task-name {
   margin-right: 0;
   white-space: normal;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+
+.taskchute-narrow .task-item {
+  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.taskchute-narrow .task-time-range {
+  justify-content: flex-start;
+  padding-left: 4px;
+}
+
+.taskchute-narrow .settings-task-button {
+  width: auto;
+  min-width: 26px;
+  margin-left: 8px;
+  margin-right: 0;
+}
+
+.taskchute-narrow .comment-button,
+.taskchute-narrow .routine-button {
+  display: none;
+}
+
+.taskchute-very-narrow .task-item {
+  grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
+  gap: 6px;
+  padding-right: 12px;
+}
+
+.taskchute-very-narrow .task-duration,
+.taskchute-very-narrow .task-duration-placeholder,
+.taskchute-very-narrow .task-timer-display {
+  display: none;
+}
+
+.taskchute-very-narrow .task-time-range {
+  font-size: 11px;
+  justify-content: flex-start;
+  padding-left: 4px;
+}
+
+.taskchute-very-narrow .settings-task-button {
+  justify-self: flex-end;
+  width: auto;
+  min-width: 24px;
+  font-size: 13px;
+  margin-left: 10px;
+  margin-right: 0;
+  padding: 2px 4px;
 }
 
 .task-duration.cross-day {
@@ -3846,43 +3869,69 @@ select.form-input {
 
 @container taskchute-list (max-width: 900px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
-    gap: 6px;
+    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+    gap: 8px;
     padding-right: 12px;
   }
 
   .task-item .taskchute-project-display,
-  .task-item .taskchute-project-placeholder,
-  .task-item .task-time-range,
-  .task-item .task-duration,
-  .task-item .task-timer-display,
-  .task-item .task-duration-placeholder,
-  .task-item .comment-button {
+  .task-item .taskchute-project-placeholder {
     display: none;
   }
 }
 
 @container taskchute-list (max-width: 640px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
-    gap: 4px;
-    padding-right: 10px;
+    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
+    gap: 8px;
+    padding-right: 12px;
   }
 
+  .task-item .comment-button,
   .task-item .routine-button {
     display: none;
+  }
+
+  .task-item .task-time-range {
+    justify-content: flex-start;
+    padding-left: 4px;
+  }
+
+  .task-item .settings-task-button {
+    width: auto;
+    min-width: 26px;
+    margin-left: 8px;
+    margin-right: 0;
   }
 }
 
 @container taskchute-list (max-width: 520px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr);
-    gap: 4px;
-    padding-right: 8px;
+    grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
+    gap: 6px;
+    padding-right: 12px;
+  }
+
+  .task-item .task-duration,
+  .task-item .task-duration-placeholder,
+  .task-item .task-timer-display {
+    display: none;
+  }
+
+  .task-item .task-time-range {
+    font-size: 11px;
+    justify-content: flex-start;
+    padding-left: 4px;
   }
 
   .task-item .settings-task-button {
-    display: none;
+    justify-self: flex-end;
+    width: auto;
+    min-width: 24px;
+    font-size: 13px;
+    margin-left: 10px;
+    margin-right: 0;
+    padding: 2px 4px;
   }
 }
 

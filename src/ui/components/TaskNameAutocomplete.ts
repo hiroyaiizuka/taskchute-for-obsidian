@@ -131,7 +131,16 @@ export class TaskNameAutocomplete {
     this.hideSuggestions();
   };
 
-  private handleWindowScroll = () => {
+  private handleWindowScroll = (event: Event) => {
+    if (!this.suggestionsElement) {
+      return;
+    }
+
+    const target = event.target instanceof Node ? event.target : null;
+    if (target && this.suggestionsElement.contains(target)) {
+      return;
+    }
+
     this.hideSuggestions();
   };
 
@@ -291,7 +300,7 @@ export class TaskNameAutocomplete {
       return bMod - aMod;
     });
 
-    const matches: AutocompleteMatch[] = filtered.slice(0, 10).map((suggestion) => ({
+    const matches: AutocompleteMatch[] = filtered.slice(0, 15).map((suggestion) => ({
       suggestion,
       displayText: `${prefix}${suggestion.name}`,
     }));
@@ -316,30 +325,19 @@ export class TaskNameAutocomplete {
 
       const title = document.createElement('div');
       title.className = 'suggestion-title';
-      title.textContent = match.displayText;
-      item.appendChild(title);
 
-      const meta = document.createElement('div');
-      meta.className = 'suggestion-meta';
+      const titleLabel = document.createElement('span');
+      titleLabel.textContent = match.displayText;
+      title.appendChild(titleLabel);
 
-      const badge = document.createElement('span');
-      badge.className = 'suggestion-badge';
-      if (match.suggestion.type === 'task') {
-        badge.textContent = t('addTask.suggestionHistoryBadge', 'History');
-        meta.appendChild(badge);
-        const metaText = document.createElement('span');
-        metaText.textContent = match.suggestion.targetDate
-          ? t('addTask.suggestionLastShown', 'Last shown: {date}', {
-              date: match.suggestion.targetDate,
-            })
-          : t('addTask.suggestionNoTargetDate', 'No target date');
-        meta.appendChild(metaText);
-      } else {
+      if (match.suggestion.type === 'project') {
+        const badge = document.createElement('span');
+        badge.className = 'suggestion-badge';
         badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
-        meta.appendChild(badge);
+        title.appendChild(badge);
       }
 
-      item.appendChild(meta);
+      item.appendChild(title);
 
       item.addEventListener('mouseenter', () => {
         this.selectedIndex = index;

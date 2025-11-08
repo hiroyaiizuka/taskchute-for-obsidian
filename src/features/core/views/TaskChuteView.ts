@@ -1106,10 +1106,10 @@ export class TaskChuteView
 
     let layoutClassesToAdd: string[] = ["taskchute-wide"]
     if (width < 520) {
-      layoutClassesToAdd = ["taskchute-narrow", "taskchute-very-narrow"]
-    } else if (width < 780) {
-      layoutClassesToAdd = ["taskchute-narrow"]
-    } else if (width < 980) {
+      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow", "taskchute-very-narrow"]
+    } else if (width < 640) {
+      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow"]
+    } else if (width < 900) {
       layoutClassesToAdd = ["taskchute-medium"]
     }
 
