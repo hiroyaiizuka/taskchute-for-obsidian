@@ -383,9 +383,11 @@ export class RoutineManagerModal extends Modal {
     }
 
     if (fm.routine_type === 'monthly') {
-      const weekday = this.getMonthlyWeekday(fm);
-      if (typeof weekday === 'number') {
-        return `${this.getWeekdayLabel(weekday)}${this.tv('labels.weekdaySuffix', ' weekday')}`;
+      const weekdaySet = this.getMonthlyWeekdaySet(fm);
+      if (weekdaySet.length > 0) {
+        return weekdaySet
+          .map((weekday) => `${this.getWeekdayLabel(weekday)}${this.tv('labels.weekdaySuffix', ' weekday')}`)
+          .join(', ');
       }
     }
 
@@ -394,10 +396,15 @@ export class RoutineManagerModal extends Modal {
 
   private weekLabel(fm: RoutineFrontmatter): string {
     if (fm.routine_type !== 'monthly') return '-';
-    const week = this.getMonthlyWeek(fm);
-    if (week === 'last') return this.tv('labels.weekLast', 'Last');
-    if (typeof week === 'number') {
-      return this.tv('labels.weekNth', `Week ${week}`, { week });
+    const weekSet = this.getMonthlyWeekSet(fm);
+    if (weekSet.length > 0) {
+      return weekSet
+        .map((week) =>
+          week === 'last'
+            ? this.tv('labels.weekLast', 'Last')
+            : this.tv('labels.weekNth', `Week ${week}`, { week }),
+        )
+        .join(', ');
     }
     return '-';
   }
@@ -423,6 +430,32 @@ export class RoutineManagerModal extends Modal {
       return fm.monthly_weekday;
     }
     return undefined;
+  }
+
+  private getMonthlyWeekSet(fm: RoutineFrontmatter): RoutineWeek[] {
+    if (Array.isArray(fm.routine_weeks) && fm.routine_weeks.length) {
+      return fm.routine_weeks.filter((value): value is RoutineWeek => value === 'last' || (typeof value === 'number' && value >= 1 && value <= 5));
+    }
+    const legacy = (fm as Record<string, unknown>).monthly_weeks;
+    if (Array.isArray(legacy)) {
+      return legacy
+        .map((value) => (value === 'last' ? 'last' : typeof value === 'number' ? (value + 1) as RoutineWeek : undefined))
+        .filter((value): value is RoutineWeek => value === 'last' || typeof value === 'number');
+    }
+    const single = this.getMonthlyWeek(fm);
+    return single ? [single] : [];
+  }
+
+  private getMonthlyWeekdaySet(fm: RoutineFrontmatter): number[] {
+    if (Array.isArray(fm.routine_weekdays) && fm.routine_weekdays.length) {
+      return fm.routine_weekdays.filter((value) => Number.isInteger(value));
+    }
+    const legacy = (fm as Record<string, unknown>).monthly_weekdays;
+    if (Array.isArray(legacy)) {
+      return legacy.filter((value) => Number.isInteger(value));
+    }
+    const single = this.getMonthlyWeekday(fm);
+    return typeof single === 'number' ? [single] : [];
   }
 
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {

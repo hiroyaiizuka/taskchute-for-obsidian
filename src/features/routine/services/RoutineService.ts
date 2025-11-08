@@ -1,4 +1,5 @@
 import { RoutineRule } from '../../../types';
+import type { RoutineWeek } from '../../../types/TaskFields';
 
 /**
  * RoutineService
@@ -68,6 +69,15 @@ export class RoutineService {
       const weekday = this.#toWeekday(fm.routine_weekday ?? fm.monthly_weekday);
       if (week !== undefined) rule.week = week;
       if (weekday !== undefined) rule.monthWeekday = weekday;
+
+      const weekSet = this.#toWeekSet((fm as Record<string, unknown>).routine_weeks ?? (fm as Record<string, unknown>).monthly_weeks);
+      if (weekSet.length > 0) {
+        rule.weekSet = weekSet;
+      }
+      const weekdaySet = this.#toWeekdaySet((fm as Record<string, unknown>).routine_weekdays ?? (fm as Record<string, unknown>).monthly_weekdays);
+      if (weekdaySet.length > 0) {
+        rule.monthWeekdaySet = weekdaySet;
+      }
     }
 
     return rule;
@@ -133,13 +143,6 @@ export class RoutineService {
   }
 
   static #isWeeklyDue(date: Date, rule: RoutineRule): boolean {
-    // Backward-compat: weekdaySet (multi-day weekly) – ignore interval beyond 1 for now
-    const { weekdaySet } = rule;
-    if (weekdaySet && Array.isArray(weekdaySet) && weekdaySet.length > 0) {
-      return weekdaySet.includes(date.getDay());
-    }
-    const { weekday } = rule;
-    if (weekday === undefined) return false;
     const interval = Math.max(1, rule.interval || 1);
     const start = rule.start ? this.#parseDate(rule.start)! : undefined;
 
@@ -147,13 +150,32 @@ export class RoutineService {
     const anchor = start ? this.#weekStart(start) : this.#weekStart(new Date(1970, 0, 4));
     const currentWeekStart = this.#weekStart(date);
     const wdiff = Math.floor((currentWeekStart.getTime() - anchor.getTime()) / (7 * 24 * 60 * 60 * 1000));
-    return wdiff >= 0 && wdiff % interval === 0 && date.getDay() === weekday;
+    if (wdiff < 0 || wdiff % interval !== 0) {
+      return false;
+    }
+
+    const { weekdaySet } = rule;
+    if (weekdaySet && Array.isArray(weekdaySet) && weekdaySet.length > 0) {
+      return weekdaySet.includes(date.getDay());
+    }
+
+    const { weekday } = rule;
+    if (weekday === undefined) return false;
+    return date.getDay() === weekday;
   }
 
   static #isMonthlyDue(date: Date, rule: RoutineRule): boolean {
-    const week = rule.week;
-    const weekday = rule.monthWeekday;
-    if (week === undefined || weekday === undefined) return false;
+    const weekCandidates = (rule.weekSet && rule.weekSet.length > 0)
+      ? rule.weekSet
+      : rule.week !== undefined
+        ? [rule.week]
+        : [];
+    const weekdayCandidates = (rule.monthWeekdaySet && rule.monthWeekdaySet.length > 0)
+      ? rule.monthWeekdaySet
+      : rule.monthWeekday !== undefined
+        ? [rule.monthWeekday]
+        : [];
+    if (weekCandidates.length === 0 || weekdayCandidates.length === 0) return false;
     const interval = Math.max(1, rule.interval || 1);
 
     // Interval guard by month difference
@@ -164,14 +186,16 @@ export class RoutineService {
     }
 
     // Find the target date inside this month
-    if (week === 'last') {
-      const nextWeek = new Date(date);
-      nextWeek.setDate(date.getDate() + 7);
-      const isLast = nextWeek.getMonth() !== date.getMonth();
-      return isLast && date.getDay() === weekday;
-    }
+    const nextWeek = new Date(date);
+    nextWeek.setDate(date.getDate() + 7);
+    const isLast = nextWeek.getMonth() !== date.getMonth();
     const occurrence = Math.floor((date.getDate() - 1) / 7) + 1; // 1-based
-    return occurrence === week && date.getDay() === weekday;
+
+    const matchesWeek = weekCandidates.some((candidate) =>
+      candidate === 'last' ? isLast : occurrence === candidate,
+    );
+    const matchesWeekday = weekdayCandidates.includes(date.getDay());
+    return matchesWeek && matchesWeekday;
   }
 
   // ---------- Helpers ----------
@@ -184,6 +208,44 @@ export class RoutineService {
   static #toWeekday(value: unknown): number | undefined {
     const n = Number(value);
     return this.#isValidWeekday(n) ? n : undefined;
+  }
+
+  static #toWeekdaySet(value: unknown): number[] {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<number>();
+    return value
+      .map((candidate) => this.#toWeekday(candidate))
+      .filter((weekday): weekday is number => typeof weekday === 'number')
+      .filter((weekday) => {
+        if (seen.has(weekday)) return false;
+        seen.add(weekday);
+        return true;
+      })
+      .sort((a, b) => a - b);
+  }
+
+  static #toWeekSet(value: unknown): Array<number | 'last'> {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const result: Array<number | 'last'> = [];
+    for (const candidate of value) {
+      if (candidate === 'last') {
+        if (!seen.has('last')) {
+          seen.add('last');
+          result.push('last');
+        }
+        continue;
+      }
+      const parsed = this.#toPositiveInt(candidate, undefined);
+      if (parsed && parsed >= 1 && parsed <= 5) {
+        const key = String(parsed);
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(parsed as RoutineWeek);
+        }
+      }
+    }
+    return result;
   }
 
   static #isValidWeekday(n: number): n is number {

@@ -111,6 +111,15 @@ export default class NavigationRoutineController {
     const weekdays = Array.isArray(rawFrontmatter.weekdays)
       ? (rawFrontmatter.weekdays.filter((value): value is number => typeof value === 'number') ?? undefined)
       : undefined
+    const routineWeekdaysArray = Array.isArray(rawFrontmatter.routine_weekdays)
+      ? rawFrontmatter.routine_weekdays.filter((value): value is number => typeof value === 'number')
+      : undefined
+    const routineWeeksArray = Array.isArray(rawFrontmatter.routine_weeks)
+      ? rawFrontmatter.routine_weeks.filter(
+          (value): value is RoutineTaskShape['routine_week'] =>
+            value === 'last' || typeof value === 'number',
+        )
+      : undefined
     const routineWeekday =
       typeof rawFrontmatter.routine_weekday === 'number'
         ? rawFrontmatter.routine_weekday
@@ -156,6 +165,8 @@ export default class NavigationRoutineController {
       monthly_weekday: monthlyWeekday,
       routine_week: routineWeek,
       routine_weekday: routineWeekday,
+      routine_weeks: routineWeeksArray,
+      routine_weekdays: routineWeekdaysArray,
       projectPath: typeof rawFrontmatter.project_path === 'string' ? rawFrontmatter.project_path : undefined,
       projectTitle: typeof rawFrontmatter.project === 'string' ? rawFrontmatter.project : undefined,
     } as RoutineTaskShape

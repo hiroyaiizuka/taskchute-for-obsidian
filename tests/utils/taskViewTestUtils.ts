@@ -99,6 +99,10 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
     }),
     getHidden: jest.fn(() => dayState.hiddenRoutines),
     getDeleted: jest.fn(() => dayState.deletedInstances),
+    setDeleted: jest.fn((entries: DeletedInstance[]) => {
+      dayState.deletedInstances = [...entries];
+      return dayState.deletedInstances;
+    }),
     isHidden: jest.fn(({ instanceId, path }: { instanceId?: string; path?: string }) => {
       if (!instanceId && !path) return false;
       return dayState.hiddenRoutines.some((hidden) => {
@@ -272,6 +276,7 @@ export interface NonRoutineContextOptions {
   duplicatedInstances?: Array<DuplicatedInstance & { slotKey?: string; originalSlotKey?: string }>;
   deletedInstances?: DeletedInstance[];
   dayStateOverrides?: Partial<DayState>;
+  fileStat?: { ctime?: number; mtime?: number };
 }
 
 export function createNonRoutineLoadContext(options: NonRoutineContextOptions = {}) {
@@ -283,6 +288,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     duplicatedInstances,
     deletedInstances,
     dayStateOverrides,
+    fileStat,
   } = options;
 
   const taskPath = 'TASKS/non-routine.md';
@@ -340,7 +346,9 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     },
   };
 
-  const ctime = new Date(date).getTime();
+  const defaultCtime = new Date(date).getTime();
+  const statCtime = fileStat?.ctime ?? fileStat?.mtime ?? defaultCtime;
+  const statMtime = fileStat?.mtime ?? fileStat?.ctime ?? defaultCtime;
   const nonRoutineDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
 
   const context = {
@@ -361,8 +369,8 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
         getMarkdownFiles: jest.fn(() => []),
         adapter: {
           stat: jest.fn(async () => ({
-            ctime,
-            mtime: ctime,
+            ctime: statCtime,
+            mtime: statMtime,
           })),
         },
       },

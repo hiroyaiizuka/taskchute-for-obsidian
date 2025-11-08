@@ -153,56 +153,52 @@ export default class RoutineEditModal extends Modal {
 
     // Weekly controls
     const weeklyGroup = form.createEl('div', {
-      cls: 'form-group routine-form__weekly',
+      cls: 'form-group routine-form__weekly routine-chip-panel',
       attr: { 'data-kind': 'weekly' },
     });
-    weeklyGroup.createEl('div', {
-      text: this.tv('fields.weekdaysLabel', 'Weekdays (multi-select):'),
-    });
-    const weekdayInputs: HTMLInputElement[] = [];
     const weekdayLabels = this.getWeekdayLabels();
-    for (let i = 0; i < weekdayLabels.length; i++) {
-      const checkboxLabel = weeklyGroup.createEl('label');
-      checkboxLabel.classList.add('routine-form__checkbox-label');
-      const checkbox = checkboxLabel.createEl('input', {
-        type: 'checkbox',
-        attr: { value: String(i) },
-      }) as HTMLInputElement;
-      checkboxLabel.appendChild(document.createTextNode(` ${weekdayLabels[i]}`));
-      weekdayInputs.push(checkbox);
-    }
+    const weekdayInputs = this.createChipFieldset(
+      weeklyGroup,
+      this.tv('fields.weekdaysLabel', 'Weekdays (multi-select):'),
+      weekdayLabels.map((label, index) => ({ value: String(index), label })),
+    );
     this.applyWeeklySelection(weekdayInputs, frontmatter);
 
     // Monthly controls
+    const monthlyLabel = form.createEl('label', {
+      text: this.tv('fields.monthlySettings', 'Monthly settings:'),
+      cls: 'form-label routine-monthly-group__heading',
+    });
+    monthlyLabel.classList.add('is-hidden');
     const monthlyGroup = form.createEl('div', {
-      cls: 'form-group routine-form__monthly',
+      cls: 'form-group routine-form__monthly routine-chip-panel',
       attr: { 'data-kind': 'monthly' },
     });
-    monthlyGroup.createEl('label', {
-      text: this.tv('fields.monthWeekLabel', 'Week:'),
-    });
-    const weekSelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    this.getWeekOptions().forEach(({ value, label }) => {
-      weekSelect.add(new Option(label, value === 'last' ? 'last' : String(value)));
-    });
-    monthlyGroup.createEl('label', {
-      text: this.tv('fields.monthWeekSuffix', ' of '),
-    });
-    const monthWeekdaySelect = monthlyGroup.createEl('select') as HTMLSelectElement;
-    weekdayLabels.forEach((day, index) => {
-      monthWeekdaySelect.add(
-        new Option(
-          `${day}${this.tv('fields.monthWeekdaySuffix', ' weekday')}`,
-          String(index),
-        ),
-      );
-    });
-    this.applyMonthlySelection(weekSelect, monthWeekdaySelect, frontmatter);
+    const weekOptions = this.getWeekOptions();
+    const monthlyWeekInputs = this.createChipFieldset(
+      monthlyGroup,
+      this.tv('fields.monthWeeksLabel', 'Weeks (multi-select):'),
+      weekOptions.map(({ value, label }) => ({
+        value: value === 'last' ? 'last' : String(value),
+        label,
+      })),
+    );
+
+    const monthlyWeekdayInputs = this.createChipFieldset(
+      monthlyGroup,
+      this.tv('fields.monthWeekdaysLabel', 'Weekdays (multi-select):'),
+      weekdayLabels.map((label, index) => ({ value: String(index), label })),
+    );
+
+    this.applyMonthlySelection(monthlyWeekInputs, monthlyWeekdayInputs, frontmatter);
 
     const updateVisibility = () => {
       const selected = this.normalizeRoutineType(typeSelect.value);
-      weeklyGroup.classList.toggle('is-hidden', selected !== 'weekly');
-      monthlyGroup.classList.toggle('is-hidden', selected !== 'monthly');
+      const isWeekly = selected === 'weekly';
+      const isMonthly = selected === 'monthly';
+      weeklyGroup.classList.toggle('is-hidden', !isWeekly);
+      monthlyLabel.classList.toggle('is-hidden', !isMonthly);
+      monthlyGroup.classList.toggle('is-hidden', !isMonthly);
     };
     updateVisibility();
     typeSelect.addEventListener('change', updateVisibility);
@@ -240,26 +236,17 @@ export default class RoutineEditModal extends Modal {
       }
 
       const weeklyDays = this.getCheckedDays(weekdayInputs);
-      let monthlyWeek: RoutineWeek | undefined;
-      let monthlyWeekday: number | undefined;
+      const monthlyWeeks = this.getCheckedWeeks(monthlyWeekInputs);
+      const monthlyWeekdays = this.getCheckedDays(monthlyWeekdayInputs);
 
       if (routineType === 'weekly' && weeklyDays.length === 0) {
         errors.push(this.tv('errors.weeklyRequiresDay', 'Select at least one weekday.'));
       } else if (routineType === 'monthly') {
-        if (weekSelect.value === 'last') {
-          monthlyWeek = 'last';
-        } else {
-          const parsedWeek = Number.parseInt(weekSelect.value, 10);
-          if (!Number.isNaN(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 5) {
-            monthlyWeek = parsedWeek as RoutineWeek;
-          }
+        if (monthlyWeeks.length === 0) {
+          errors.push(this.tv('errors.monthlyRequiresWeek', 'Select at least one week.'));
         }
-        const parsedWeekday = Number.parseInt(monthWeekdaySelect.value, 10);
-        if (!Number.isNaN(parsedWeekday) && parsedWeekday >= 0 && parsedWeekday <= 6) {
-          monthlyWeekday = parsedWeekday;
-        }
-        if (monthlyWeek === undefined || monthlyWeekday === undefined) {
-          errors.push(this.tv('errors.monthlyRequiresSelection', 'Choose an "Nth + weekday" combination.'));
+        if (monthlyWeekdays.length === 0) {
+          errors.push(this.tv('errors.monthlyRequiresWeekday', 'Select at least one weekday.'));
         }
       }
 
@@ -323,11 +310,29 @@ export default class RoutineEditModal extends Modal {
             fm.weekdays = weeklyDays;
           }
         } else if (routineType === 'monthly') {
-          if (monthlyWeek) {
-            fm.routine_week = monthlyWeek;
+          const normalizedWeeks = this.normalizeWeekSelection(monthlyWeeks);
+          const normalizedWeekdays = monthlyWeekdays;
+
+          if (normalizedWeeks.length > 0) {
+            fm.routine_weeks = normalizedWeeks;
+            if (normalizedWeeks.length === 1) {
+              fm.routine_week = normalizedWeeks[0];
+            } else {
+              delete fm.routine_week;
+            }
+          } else {
+            delete fm.routine_weeks;
           }
-          if (typeof monthlyWeekday === 'number' && Number.isFinite(monthlyWeekday)) {
-            fm.routine_weekday = monthlyWeekday;
+
+          if (normalizedWeekdays.length > 0) {
+            fm.routine_weekdays = normalizedWeekdays;
+            if (normalizedWeekdays.length === 1) {
+              fm.routine_weekday = normalizedWeekdays[0];
+            } else {
+              delete fm.routine_weekday;
+            }
+          } else {
+            delete fm.routine_weekdays;
           }
         }
 
@@ -386,17 +391,38 @@ export default class RoutineEditModal extends Modal {
   }
 
   private applyMonthlySelection(
-    weekSelect: HTMLSelectElement,
-    weekdaySelect: HTMLSelectElement,
+    weekInputs: HTMLInputElement[],
+    weekdayInputs: HTMLInputElement[],
     fm: RoutineFrontmatter,
   ): void {
-    const week = this.getMonthlyWeek(fm);
-    const weekday = this.getMonthlyWeekday(fm);
-    weekSelect.value = week === 'last' ? 'last' : String(week ?? 1);
-    weekdaySelect.value = String(typeof weekday === 'number' ? weekday : 1);
+    const weekSet = this.normalizeWeekSelection(this.getMonthlyWeekSet(fm));
+    if (weekSet.length === 0 && typeof fm.routine_week === 'number') {
+      weekSet.push(fm.routine_week);
+    }
+    weekInputs.forEach((input) => {
+      input.checked = weekSet.some((week) =>
+        week === 'last' ? input.value === 'last' : input.value === String(week),
+      );
+    });
+
+    const weekdaySet = this.getMonthlyWeekdaySet(fm);
+    weekdayInputs.forEach((input, index) => {
+      input.checked = weekdaySet.includes(index);
+    });
   }
 
-  private getMonthlyWeek(fm: RoutineFrontmatter): RoutineWeek | undefined {
+  private getMonthlyWeekSet(fm: RoutineFrontmatter): Array<RoutineWeek> {
+    if (Array.isArray(fm.routine_weeks) && fm.routine_weeks.length) {
+      return this.normalizeWeekSelection(fm.routine_weeks);
+    }
+    if (Array.isArray((fm as Record<string, unknown>).monthly_weeks)) {
+      return this.normalizeWeekSelection((fm as Record<string, unknown>).monthly_weeks as RoutineWeek[]);
+    }
+    const single = this.getLegacyMonthlyWeek(fm);
+    return single ? [single] : [];
+  }
+
+  private getLegacyMonthlyWeek(fm: RoutineFrontmatter): RoutineWeek | undefined {
     if (fm.routine_week === 'last' || typeof fm.routine_week === 'number') {
       return fm.routine_week;
     }
@@ -409,14 +435,70 @@ export default class RoutineEditModal extends Modal {
     return undefined;
   }
 
-  private getMonthlyWeekday(fm: RoutineFrontmatter): number | undefined {
+  private getMonthlyWeekdaySet(fm: RoutineFrontmatter): number[] {
+    const raw = Array.isArray(fm.routine_weekdays)
+      ? fm.routine_weekdays
+      : Array.isArray((fm as Record<string, unknown>).monthly_weekdays)
+        ? ((fm as Record<string, unknown>).monthly_weekdays as number[])
+        : undefined;
+    if (Array.isArray(raw)) {
+      return raw
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+    }
     if (typeof fm.routine_weekday === 'number') {
-      return fm.routine_weekday;
+      return [fm.routine_weekday];
     }
     if (typeof fm.monthly_weekday === 'number') {
-      return fm.monthly_weekday;
+      return [fm.monthly_weekday];
     }
-    return undefined;
+    return [];
+  }
+
+  private normalizeWeekSelection(values: Array<RoutineWeek | number>): Array<RoutineWeek> {
+    const seen = new Set<string>();
+    const result: Array<RoutineWeek> = [];
+    values.forEach((value) => {
+      if (value === 'last') {
+        if (!seen.has('last')) {
+          seen.add('last');
+          result.push('last');
+        }
+        return;
+      }
+      const num = Number(value);
+      if (Number.isInteger(num) && num >= 1 && num <= 5) {
+          const key = String(num);
+          if (!seen.has(key)) {
+            seen.add(key);
+            result.push(num as RoutineWeek);
+          }
+      }
+    });
+    return result;
+  }
+
+  private createChipFieldset(
+    parent: HTMLElement,
+    labelText: string,
+    options: Array<{ value: string; label: string }>,
+  ): HTMLInputElement[] {
+    const fieldset = parent.createEl('div', { cls: 'routine-chip-fieldset' });
+    fieldset.createEl('div', { cls: 'routine-chip-fieldset__label', text: labelText });
+    const chipContainer = fieldset.createEl('div', { cls: 'routine-chip-fieldset__chips' });
+    return options.map(({ value, label }) => {
+      const chip = chipContainer.createEl('label', { cls: 'routine-chip' });
+      const checkbox = chip.createEl('input', { type: 'checkbox', attr: { value } }) as HTMLInputElement;
+      chip.createEl('span', { text: label, cls: 'routine-chip__text' });
+      return checkbox;
+    });
+  }
+
+  private getCheckedWeeks(checkboxes: HTMLInputElement[]): Array<RoutineWeek | number> {
+    return checkboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => (checkbox.value === 'last' ? 'last' : Number.parseInt(checkbox.value, 10)))
+      .filter((value): value is RoutineWeek | number => value === 'last' || Number.isInteger(value));
   }
 
   private getCheckedDays(checkboxes: HTMLInputElement[]): number[] {

@@ -79,6 +79,15 @@ export default class NavigationRoutineRenderer {
       case 'daily':
         return this.host.tv('labels.routineDailyLabel', 'Every {interval} day(s)', { interval })
       case 'weekly': {
+        const weekdaySet = this.normalizeWeekdayArray(task.weekdays)
+        if (weekdaySet.length > 0) {
+          const joined =
+            this.formatWeekdayList(weekdaySet) ?? this.host.tv('labels.routineDayUnset', 'No weekday set')
+          return this.host.tv('labels.routineWeeklyLabel', 'Every {interval} week(s) on {day}', {
+            interval,
+            day: joined,
+          })
+        }
         const weekday = task.weekday ?? task.routine_weekday
         const dayLabel =
           typeof weekday === 'number'
@@ -90,16 +99,29 @@ export default class NavigationRoutineRenderer {
         })
       }
       case 'monthly': {
-        const week = task.monthly_week ?? task.routine_week
-        const weekLabel =
-          week === 'last'
-            ? this.host.tv('labels.routineWeekLast', 'Last')
-            : this.host.tv('labels.routineWeekLabel', 'Week {week}', { week: Number(week ?? 0) + 1 })
-        const weekday = task.monthly_weekday ?? task.routine_weekday
+        const weekSet = this.normalizeWeekArray(
+          task.routine_weeks ?? (task.routine_week ? [task.routine_week] : undefined),
+        )
+        if (weekSet.length === 0 && task.monthly_week !== undefined) {
+          const converted =
+            task.monthly_week === 'last'
+              ? 'last'
+              : (Number(task.monthly_week) + 1) as number
+          if (converted === 'last' || (typeof converted === 'number' && converted >= 1 && converted <= 5)) {
+            weekSet.push(converted)
+          }
+        }
+        const weekLabel = this.formatWeekList(weekSet) ?? this.host.tv('labels.routineWeekLabel', 'Week {week}', { week: 1 })
+
+        const weekdaySet = this.normalizeWeekdayArray(
+          task.routine_weekdays ?? (typeof task.routine_weekday === 'number' ? [task.routine_weekday] : undefined),
+        )
+        if (weekdaySet.length === 0 && typeof task.monthly_weekday === 'number') {
+          weekdaySet.push(task.monthly_weekday)
+        }
         const dayLabel =
-          typeof weekday === 'number'
-            ? dayNames[weekday]
-            : this.host.tv('labels.routineDayUnset', 'No weekday set')
+          this.formatWeekdayList(weekdaySet) ?? this.host.tv('labels.routineDayUnset', 'No weekday set')
+
         return this.host.tv('labels.routineMonthlyLabel', 'Every {week} on {day}', {
           week: weekLabel,
           day: dayLabel,
@@ -108,5 +130,63 @@ export default class NavigationRoutineRenderer {
       default:
         return this.host.tv('labels.routineDailyLabel', 'Every {interval} day(s)', { interval })
     }
+  }
+
+  private normalizeWeekdayArray(values?: number[]): number[] {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<number>()
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      .filter((value) => {
+        if (seen.has(value)) return false
+        seen.add(value)
+        return true
+      })
+      .sort((a, b) => a - b)
+  }
+
+  private formatWeekdayList(weekdays: number[]): string | undefined {
+    if (!weekdays.length) return undefined
+    const names = this.host.getWeekdayNames()
+    const labels = weekdays
+      .map((value) => names[value])
+      .filter((label): label is string => typeof label === 'string' && label.length > 0)
+    if (!labels.length) return undefined
+    const joiner = this.host.tv('lists.weekdayJoiner', ' / ')
+    return labels.join(joiner)
+  }
+
+  private normalizeWeekArray(values?: Array<number | 'last'>): Array<number | 'last'> {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<string>()
+    return values
+      .map((value) => (value === 'last' ? 'last' : Number(value)))
+      .filter((value): value is number | 'last' => {
+        if (value === 'last') return true
+        return Number.isInteger(value) && value >= 1 && value <= 5
+      })
+      .filter((value) => {
+        const key = String(value)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => {
+        if (a === 'last') return 1
+        if (b === 'last') return -1
+        return (a as number) - (b as number)
+      })
+  }
+
+  private formatWeekList(weeks: Array<number | 'last'>): string | undefined {
+    if (!weeks.length) return undefined
+    const joiner = this.host.tv('lists.weekLabelJoiner', ' / ')
+    const labels = weeks.map((week) =>
+      week === 'last'
+        ? this.host.tv('labels.routineWeekLast', 'Last')
+        : this.host.tv('labels.routineWeekLabel', 'Week {week}', { week }),
+    )
+    return labels.join(joiner)
   }
 }

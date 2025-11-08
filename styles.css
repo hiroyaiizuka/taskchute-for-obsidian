@@ -669,30 +669,82 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  max-height: 200px;
+  max-height: 320px;
+  max-height: min(320px, 60vh);
   overflow-y: auto;
   z-index: 1000;
 }
 
-.taskchute-autocomplete-item {
+.suggestion-item {
   padding: 8px 12px;
   cursor: pointer;
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.taskchute-autocomplete-item:hover,
-.taskchute-autocomplete-item.selected {
+.suggestion-item + .suggestion-item {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.suggestion-item-selected,
+.suggestion-item:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.taskchute-autocomplete-title {
+.suggestion-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-weight: 500;
 }
 
-.taskchute-autocomplete-project {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
+.suggestion-badge {
+  background-color: var(--interactive-accent-hover);
+  color: var(--background-primary);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-mode-group {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-secondary);
+}
+
+.task-mode-group.hidden {
+  display: none;
+}
+
+.task-mode-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.task-mode-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.task-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.task-mode-option input[type="radio"] {
+  margin: 0;
 }
 
 /* 日付ピッカー */
@@ -3606,52 +3658,78 @@ select.form-input {
   background: var(--background-modifier-border-hover);
 }
 
-/* レスポンシブ対応 - コンテナベースの調整 */
-.taskchute-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
-  gap: 6px;
+/* レスポンシブ対応 - 表示優先度の調整 */
+
+.taskchute-medium .task-item {
+  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+  gap: 8px;
   padding-right: 12px;
 }
 
-.taskchute-narrow .task-name {
-  margin-right: 0;
-  white-space: normal;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.taskchute-narrow .task-item > *:nth-child(4),
-.taskchute-narrow .task-item > *:nth-child(5),
-.taskchute-narrow .task-item > *:nth-child(6),
-.taskchute-narrow .task-item > *:nth-child(7) {
+.taskchute-medium .taskchute-project-display,
+.taskchute-medium .taskchute-project-placeholder {
   display: none;
 }
 
-.taskchute-narrow .taskchute-project-display,
-.taskchute-narrow .taskchute-project-placeholder,
-.taskchute-narrow .task-time-range,
-.taskchute-narrow .task-duration,
-.taskchute-narrow .task-timer-display,
-.taskchute-narrow .task-duration-placeholder,
-.taskchute-narrow .comment-button {
-  display: none;
-}
-
-.taskchute-very-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
-  gap: 4px;
-  padding-right: 10px;
-}
-
-.taskchute-very-narrow .task-item > *:nth-child(8) {
-  display: none;
-}
-
+.taskchute-medium .task-name,
+.taskchute-narrow .task-name,
 .taskchute-very-narrow .task-name {
   margin-right: 0;
   white-space: normal;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+
+.taskchute-narrow .task-item {
+  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+.taskchute-narrow .task-time-range {
+  justify-content: flex-start;
+  padding-left: 4px;
+}
+
+.taskchute-narrow .settings-task-button {
+  width: auto;
+  min-width: 26px;
+  margin-left: 8px;
+  margin-right: 0;
+}
+
+.taskchute-narrow .comment-button,
+.taskchute-narrow .routine-button {
+  display: none;
+}
+
+.taskchute-very-narrow .task-item {
+  grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
+  gap: 6px;
+  padding-right: 12px;
+}
+
+.taskchute-very-narrow .task-duration,
+.taskchute-very-narrow .task-duration-placeholder,
+.taskchute-very-narrow .task-timer-display {
+  display: none;
+}
+
+.taskchute-very-narrow .task-time-range {
+  font-size: 11px;
+  justify-content: flex-start;
+  padding-left: 4px;
+}
+
+.taskchute-very-narrow .settings-task-button {
+  justify-self: flex-end;
+  width: auto;
+  min-width: 24px;
+  font-size: 13px;
+  margin-left: 10px;
+  margin-right: 0;
+  padding: 2px 4px;
 }
 
 .task-duration.cross-day {
@@ -3791,43 +3869,69 @@ select.form-input {
 
 @container taskchute-list (max-width: 900px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 28px 28px;
-    gap: 6px;
+    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+    gap: 8px;
     padding-right: 12px;
   }
 
   .task-item .taskchute-project-display,
-  .task-item .taskchute-project-placeholder,
-  .task-item .task-time-range,
-  .task-item .task-duration,
-  .task-item .task-timer-display,
-  .task-item .task-duration-placeholder,
-  .task-item .comment-button {
+  .task-item .taskchute-project-placeholder {
     display: none;
   }
 }
 
 @container taskchute-list (max-width: 640px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 28px;
-    gap: 4px;
-    padding-right: 10px;
+    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
+    gap: 8px;
+    padding-right: 12px;
   }
 
+  .task-item .comment-button,
   .task-item .routine-button {
     display: none;
+  }
+
+  .task-item .task-time-range {
+    justify-content: flex-start;
+    padding-left: 4px;
+  }
+
+  .task-item .settings-task-button {
+    width: auto;
+    min-width: 26px;
+    margin-left: 8px;
+    margin-right: 0;
   }
 }
 
 @container taskchute-list (max-width: 520px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr);
-    gap: 4px;
-    padding-right: 8px;
+    grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
+    gap: 6px;
+    padding-right: 12px;
+  }
+
+  .task-item .task-duration,
+  .task-item .task-duration-placeholder,
+  .task-item .task-timer-display {
+    display: none;
+  }
+
+  .task-item .task-time-range {
+    font-size: 11px;
+    justify-content: flex-start;
+    padding-left: 4px;
   }
 
   .task-item .settings-task-button {
-    display: none;
+    justify-self: flex-end;
+    width: auto;
+    min-width: 24px;
+    font-size: 13px;
+    margin-left: 10px;
+    margin-right: 0;
+    padding: 2px 4px;
   }
 }
 
@@ -3875,9 +3979,68 @@ select.form-input {
 .routine-form__weekly,
 .routine-form__monthly {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.routine-chip-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary-alt);
+}
+
+.routine-chip-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.routine-chip-fieldset + .routine-chip-fieldset {
+  margin-top: 10px;
+}
+
+.routine-chip-fieldset__label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.routine-chip-fieldset__chips {
+  display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+}
+
+.routine-chip {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.routine-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.routine-chip__text {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  font-size: 0.9rem;
+  color: var(--text-normal);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.routine-chip input:checked + .routine-chip__text {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
 }
 
 .routine-editor__buttons {

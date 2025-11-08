@@ -62,18 +62,20 @@ export default class TaskMutationService {
 
   async duplicateInstance(
     inst: TaskInstance,
-    options: { returnInstance?: boolean } = {},
+    options: { returnInstance?: boolean; slotKey?: string } = {},
   ): Promise<TaskInstance | void> {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const dateKey = this.host.getCurrentDateString()
       const createdMillis = Date.now()
+      const slotKey = options.slotKey ?? inst.slotKey ?? 'none'
+      const originalSlotKey = inst.slotKey ?? slotKey
       const newInstance: TaskInstance = {
         task: inst.task,
         instanceId: this.host.generateInstanceId(inst.task, dateKey),
         state: 'idle',
-        slotKey: inst.slotKey,
-        originalSlotKey: inst.slotKey,
+        slotKey,
+        originalSlotKey,
         createdMillis,
       }
 
@@ -86,7 +88,7 @@ export default class TaskMutationService {
           instanceId: newInstance.instanceId,
           originalPath: inst.task.path,
           slotKey: newInstance.slotKey,
-          originalSlotKey: inst.slotKey,
+          originalSlotKey,
           timestamp: createdMillis,
           createdMillis,
         })
@@ -150,6 +152,8 @@ export default class TaskMutationService {
       }
       const timestamp = Date.now()
 
+      const wasDuplicate = isDuplicate
+
       if (isDuplicate) {
         deletedEntries.push({
           instanceId: inst.instanceId,
@@ -190,7 +194,13 @@ export default class TaskMutationService {
       await this.host.persistDayState(dateKey)
 
       if (!inst.task.isRoutine) {
-        this.handleTaskFileDeletion(inst)
+        if (!wasDuplicate) {
+          this.handleTaskFileDeletion(inst)
+        } else {
+          new Notice(
+            this.host.tv('notices.taskRemovedFromToday', 'Removed task from today.'),
+          )
+        }
       } else {
         new Notice(
           this.host.tv(
@@ -349,18 +359,20 @@ export default class TaskMutationService {
 
   private assignDuplicateOrder(newInst: TaskInstance, originalInst: TaskInstance): void {
     try {
-      const slot = originalInst.slotKey || 'none'
+      const targetSlot = newInst.slotKey || originalInst.slotKey || 'none'
       const normalizedState = this.host.normalizeState(originalInst.state)
       const peers = this.host.taskInstances.filter(
         (task) =>
           task !== newInst &&
-          (task.slotKey || 'none') === slot &&
+          (task.slotKey || 'none') === targetSlot &&
           this.host.normalizeState(task.state) === normalizedState,
       )
       const sortedPeers = [...peers].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      const originalIndex = sortedPeers.indexOf(originalInst)
+      const originalSlot = originalInst.slotKey || 'none'
+      const originalIndex =
+        targetSlot === originalSlot ? sortedPeers.indexOf(originalInst) : -1
       const insertIndex = originalIndex >= 0 ? originalIndex + 1 : sortedPeers.length
-      newInst.slotKey = slot
+      newInst.slotKey = targetSlot
       newInst.order = this.host.calculateSimpleOrder(insertIndex, peers)
     } catch (error) {
       console.warn('[TaskMutationService] assignDuplicateOrder fallback', error)

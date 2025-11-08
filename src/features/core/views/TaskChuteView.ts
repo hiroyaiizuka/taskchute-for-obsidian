@@ -25,6 +25,7 @@ import TaskOrderManager from "../../../features/core/services/TaskOrderManager"
 import { TaskLoaderService } from "../../../features/core/services/TaskLoaderService"
 import type { TaskLoaderHost } from "../../../features/core/services/TaskLoaderService"
 import { TaskCreationService } from "../../../features/core/services/TaskCreationService"
+import { TaskReuseService } from "../../../features/core/services/TaskReuseService"
 import { getCurrentLocale, t } from "../../../i18n"
 import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
 import type { TaskReloadCoordinatorHost } from "../../../features/core/services/TaskReloadCoordinator"
@@ -72,6 +73,7 @@ export class TaskChuteView
   public readonly runningTasksService: RunningTasksService
   public readonly executionLogService: ExecutionLogService
   public readonly taskCreationService: TaskCreationService
+  public readonly taskReuseService: TaskReuseService
   public readonly taskLoader: TaskLoaderService
   public readonly taskReloadCoordinator: TaskReloadCoordinator
   public readonly navigationController: NavigationController
@@ -201,6 +203,7 @@ export class TaskChuteView
     this.runningTasksService = new RunningTasksService(this.plugin)
     this.executionLogService = new ExecutionLogService(this.plugin)
     this.taskCreationService = new TaskCreationService(this.plugin)
+    this.taskReuseService = new TaskReuseService(this.plugin)
     this.taskLoader = new TaskLoaderService()
     this.taskReloadCoordinator = new TaskReloadCoordinator(this)
     this.navigationController = new NavigationController(this)
@@ -275,6 +278,10 @@ export class TaskChuteView
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       getTaskNameValidator: () => this.getTaskNameValidator(),
       taskCreationService: this.taskCreationService,
+      taskReuseService: this.taskReuseService,
+      hasInstanceForPathToday: (path) => this.hasInstanceForPathToday(path),
+      duplicateInstanceForPath: (path) => this.duplicateInstanceForPath(path),
+      invalidateDayStateCache: (dateKey) => this.invalidateDayStateCache(dateKey),
       registerAutocompleteCleanup: (cleanup) =>
         this.registerAutocompleteCleanup(cleanup),
       reloadTasksAndRestore: (options) => this.reloadTasksAndRestore(options),
@@ -677,10 +684,33 @@ export class TaskChuteView
   private async duplicateInstance(
     inst: TaskInstance,
     returnOnly: boolean = false,
+    slotKey?: string,
   ): Promise<TaskInstance | void> {
     return this.taskMutationService.duplicateInstance(inst, {
       returnInstance: returnOnly,
+      slotKey,
     })
+  }
+
+  private hasInstanceForPathToday(path: string): boolean {
+    if (!path) return false
+    return this.taskInstances.some((inst) => inst.task?.path === path)
+  }
+
+  private async duplicateInstanceForPath(path: string): Promise<boolean> {
+    if (!path) return false
+    const existing = this.taskInstances.find((inst) => inst.task?.path === path)
+    if (!existing) return false
+    await this.duplicateInstance(existing, true, 'none')
+    return true
+  }
+
+  private invalidateDayStateCache(dateKey: string): void {
+    try {
+      this.dayStateManager.clear(dateKey)
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to invalidate day state cache', error)
+    }
   }
 
   public calculateSimpleOrder(
@@ -1076,10 +1106,10 @@ export class TaskChuteView
 
     let layoutClassesToAdd: string[] = ["taskchute-wide"]
     if (width < 520) {
-      layoutClassesToAdd = ["taskchute-narrow", "taskchute-very-narrow"]
-    } else if (width < 780) {
-      layoutClassesToAdd = ["taskchute-narrow"]
-    } else if (width < 980) {
+      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow", "taskchute-very-narrow"]
+    } else if (width < 640) {
+      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow"]
+    } else if (width < 900) {
       layoutClassesToAdd = ["taskchute-medium"]
     }
 

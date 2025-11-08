@@ -28,6 +28,8 @@ interface RoutineDetailsInput {
   weekdays?: number[]
   monthly_week?: number | 'last'
   monthly_weekday?: number
+  monthly_weeks?: Array<number | 'last'>
+  monthly_weekdays?: number[]
   interval?: number
   enabled?: boolean
 }
@@ -131,96 +133,87 @@ export default class RoutineController {
     enabledToggle.checked = task.routine_enabled !== false
 
     const weeklyGroup = form.createEl('div', {
-      cls: 'form-group routine-weekly-group',
+      cls: 'form-group routine-weekly-group routine-chip-panel',
     })
     weeklyGroup.classList.add('is-hidden')
-    weeklyGroup.createEl('label', {
-      text: this.tv('forms.selectWeekdays', 'Select weekdays:'),
-      cls: 'form-label',
-    })
-    const weekdayContainer = weeklyGroup.createEl('div', {
-      cls: 'weekday-checkboxes',
-    })
-
     const weekdays = this.getWeekdayNames().map((label, value) => ({ value, label }))
-    const weekdayCheckboxes: HTMLInputElement[] = []
-    weekdays.forEach((day) => {
-      const label = weekdayContainer.createEl('label', {
-        cls: 'weekday-checkbox-label',
-      })
-      const checkbox = label.createEl('input', {
-        type: 'checkbox',
-        value: String(day.value),
-      }) as HTMLInputElement
-      weekdayCheckboxes.push(checkbox)
-      label.createEl('span', { text: day.label })
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) {
-          weekdayCheckboxes.forEach((cb) => {
-            if (cb !== checkbox) cb.checked = false
-          })
-        }
-      })
-    })
+    const weekdayCheckboxes = this.createChipFieldset(
+      weeklyGroup,
+      this.tv('forms.selectWeekdays', 'Select weekdays:'),
+      weekdays.map((day) => ({ value: String(day.value), label: day.label })),
+    )
     deriveWeeklySelection(task as TaskData).forEach((day) => {
       const checkbox = weekdayCheckboxes[day]
       if (checkbox) checkbox.checked = true
     })
 
+    const monthlyLabel = form.createEl('label', {
+      text: this.tv('forms.monthlySettings', 'Monthly settings:'),
+      cls: 'form-label routine-monthly-group__heading',
+    })
+    monthlyLabel.classList.add('is-hidden')
     const monthlyGroup = form.createEl('div', {
-      cls: 'form-group routine-monthly-group',
+      cls: 'form-group routine-monthly-group routine-chip-panel',
     })
     monthlyGroup.classList.add('is-hidden')
-    monthlyGroup.createEl('label', {
-      text: this.tv('forms.monthlySettings', 'Monthly settings:'),
-      cls: 'form-label',
-    })
-    const monthlyContainer = monthlyGroup.createEl('div', {
-      cls: 'monthly-settings',
-    })
-    monthlyContainer.createEl('span', {
-      text: this.tv('forms.nth', 'Nth'),
-    })
-    const weekSelect = monthlyContainer.createEl('select', {
-      cls: 'form-input monthly-settings__week',
-    }) as HTMLSelectElement
-    for (let i = 1; i <= 5; i++) {
-      weekSelect.createEl('option', {
-        value: String(i - 1),
-        text: String(i),
+
+    const monthWeekCheckboxes = this.createChipFieldset(
+      monthlyGroup,
+      this.tv('forms.selectMonthWeeks', 'Select weeks:'),
+      [...[1, 2, 3, 4, 5].map((week) => ({
+        value: String(week),
+        label: this.tv('labels.routineWeekNth', 'Week {week}', { week }),
+      })),
+      { value: 'last', label: this.tv('labels.routineWeekLast', 'Last week') }],
+    )
+    const monthlyWeekdayCheckboxes = this.createChipFieldset(
+      monthlyGroup,
+      this.tv('forms.selectMonthWeekdays', 'Select weekdays:'),
+      weekdays.map((day) => ({ value: String(day.value), label: day.label })),
+    )
+
+    const {
+      week: initialMonthWeek,
+      weekday: initialMonthWeekday,
+      weekSet: initialWeekSet,
+      weekdaySet: initialMonthWeekdaySet,
+    } = deriveMonthlySelection(task as TaskData)
+
+    const normalizedWeekSet = initialWeekSet?.length
+      ? initialWeekSet
+      : initialMonthWeek !== undefined
+        ? [initialMonthWeek]
+        : []
+    normalizedWeekSet.forEach((weekValue) => {
+      monthWeekCheckboxes.forEach((checkbox) => {
+        if (
+          (weekValue === 'last' && checkbox.value === 'last') ||
+          (typeof weekValue === 'number' && checkbox.value === String(weekValue))
+        ) {
+          checkbox.checked = true
+        }
       })
-    }
-    weekSelect.createEl('option', {
-      value: 'last',
-      text: this.tv('forms.lastWeek', 'Last'),
     })
-    monthlyContainer.createEl('span', {
-      text: this.tv('forms.weekOf', ' week'),
+
+    const normalizedWeekdaySet = initialMonthWeekdaySet?.length
+      ? initialMonthWeekdaySet
+      : typeof initialMonthWeekday === 'number'
+        ? [initialMonthWeekday]
+        : []
+    normalizedWeekdaySet.forEach((weekdayValue) => {
+      const checkbox = monthlyWeekdayCheckboxes[weekdayValue]
+      if (checkbox) {
+        checkbox.checked = true
+      }
     })
-    const monthlyWeekdaySelect = monthlyContainer.createEl('select', {
-      cls: 'form-input monthly-settings__weekday',
-    }) as HTMLSelectElement
-    weekdays.forEach((day) => {
-      monthlyWeekdaySelect.createEl('option', {
-        value: String(day.value),
-        text: `${day.label}${this.tv('forms.weekdaySuffix', ' weekday')}`,
-      })
-    })
-    const { week: initialMonthWeek, weekday: initialMonthWeekday } = deriveMonthlySelection(task as TaskData)
-    if (initialMonthWeek === 'last') {
-      weekSelect.value = 'last'
-    } else if (typeof initialMonthWeek === 'number') {
-      const zeroBased = Math.max(0, Math.min(4, initialMonthWeek - 1))
-      weekSelect.value = String(zeroBased)
-    }
-    if (typeof initialMonthWeekday === 'number') {
-      monthlyWeekdaySelect.value = String(initialMonthWeekday)
-    }
 
     const syncVisibility = () => {
       const selectedType = typeSelect.value
-      weeklyGroup.classList.toggle('is-hidden', selectedType !== 'weekly')
-      monthlyGroup.classList.toggle('is-hidden', selectedType !== 'monthly')
+      const isWeekly = selectedType === 'weekly'
+      const isMonthly = selectedType === 'monthly'
+      weeklyGroup.classList.toggle('is-hidden', !isWeekly)
+      monthlyLabel.classList.toggle('is-hidden', !isMonthly)
+      monthlyGroup.classList.toggle('is-hidden', !isMonthly)
     }
     syncVisibility()
     typeSelect.addEventListener('change', syncVisibility)
@@ -277,30 +270,48 @@ export default class RoutineController {
           return
         }
       }
+      if (routineType === 'monthly') {
+        const selectedWeeks = monthWeekCheckboxes.filter((cb) => cb.checked)
+        if (selectedWeeks.length === 0) {
+          new Notice(this.tv('forms.selectMonthWeeksPrompt', 'Select at least one week'))
+          return
+        }
+        const selectedWeekdays = monthlyWeekdayCheckboxes.filter((cb) => cb.checked)
+        if (selectedWeekdays.length === 0) {
+          new Notice(this.tv('forms.selectMonthWeekdaysPrompt', 'Select at least one weekday'))
+          return
+        }
+      }
       const detailPayload: RoutineDetailsInput = {
         interval,
         enabled,
       }
 
       if (routineType === 'weekly') {
-        detailPayload.weekdays = weekdayCheckboxes
+        const picked = weekdayCheckboxes
           .filter((cb) => cb.checked)
           .map((cb) => Number.parseInt(cb.value, 10))
           .filter((value) => Number.isInteger(value))
+        detailPayload.weekdays = this.normalizeWeekdaySelection(picked)
       } else if (routineType === 'monthly') {
-        if (weekSelect.value === 'last') {
-          detailPayload.monthly_week = 'last'
+        const pickedWeeks = monthWeekCheckboxes
+          .filter((cb) => cb.checked)
+          .map((cb) => (cb.value === 'last' ? 'last' : Number.parseInt(cb.value, 10)))
+        const normalizedWeeks = this.normalizeWeekSelection(pickedWeeks)
+        detailPayload.monthly_weeks = normalizedWeeks
+        if (normalizedWeeks.length === 1) {
+          const onlyWeek = normalizedWeeks[0]
+          detailPayload.monthly_week = onlyWeek === 'last' ? 'last' : (onlyWeek as number) - 1
         } else {
-          const parsedWeek = Number.parseInt(weekSelect.value, 10)
-          if (!Number.isNaN(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 5) {
-            detailPayload.monthly_week = parsedWeek - 1
-          }
+          detailPayload.monthly_week = undefined
         }
 
-        const parsedWeekday = Number.parseInt(monthlyWeekdaySelect.value, 10)
-        if (!Number.isNaN(parsedWeekday) && parsedWeekday >= 0 && parsedWeekday <= 6) {
-          detailPayload.monthly_weekday = parsedWeekday
-        }
+        const pickedWeekdays = monthlyWeekdayCheckboxes
+          .filter((cb) => cb.checked)
+          .map((cb) => Number.parseInt(cb.value, 10))
+        const normalizedWeekdays = this.normalizeWeekdaySelection(pickedWeekdays)
+        detailPayload.monthly_weekdays = normalizedWeekdays
+        detailPayload.monthly_weekday = normalizedWeekdays.length === 1 ? normalizedWeekdays[0] : undefined
       }
 
       await this.setRoutineTaskWithDetails(task, anchor ?? modalContent, scheduledTime, routineType, detailPayload)
@@ -381,25 +392,59 @@ export default class RoutineController {
         delete cleaned.routine_week
         delete cleaned.routine_weekday
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
-        if (routineType === 'weekly' && details.weekdays?.length) {
-          routineFrontmatter.routine_weekday = details.weekdays[0]
-        } else if (routineType === 'monthly') {
-          let routineWeek: RoutineWeek | undefined
-          if (details.monthly_week === 'last') {
-            routineWeek = 'last'
-          } else if (typeof details.monthly_week === 'number') {
-            const normalizedWeek = details.monthly_week + 1
-            if (normalizedWeek >= 1 && normalizedWeek <= 5) {
-              routineWeek = normalizedWeek as RoutineWeek
-            }
-          }
-          if (routineWeek) {
-            routineFrontmatter.routine_week = routineWeek
+        if (routineType === 'weekly') {
+          const weekdays = this.normalizeWeekdaySelection(details.weekdays)
+          if (weekdays.length > 1) {
+            routineFrontmatter.weekdays = weekdays
           } else {
+            delete routineFrontmatter.weekdays
+          }
+          if (weekdays.length > 0) {
+            routineFrontmatter.routine_weekday = weekdays[0]
+          } else {
+            delete routineFrontmatter.routine_weekday
+          }
+        } else if (routineType === 'monthly') {
+          const normalizedWeeks = this.normalizeWeekSelection(
+            Array.isArray(details.monthly_weeks) && details.monthly_weeks.length
+              ? details.monthly_weeks
+              : details.monthly_week !== undefined
+                ? [
+                    details.monthly_week === 'last'
+                      ? 'last'
+                      : (details.monthly_week as number) + 1,
+                  ]
+                : [],
+          )
+          if (normalizedWeeks.length > 0) {
+            routineFrontmatter.routine_weeks = normalizedWeeks
+            if (normalizedWeeks.length === 1) {
+              routineFrontmatter.routine_week = normalizedWeeks[0]
+            } else {
+              delete routineFrontmatter.routine_week
+            }
+          } else {
+            delete routineFrontmatter.routine_weeks
             delete routineFrontmatter.routine_week
           }
-          if (typeof details.monthly_weekday === 'number') {
-            routineFrontmatter.routine_weekday = details.monthly_weekday
+
+          const normalizedWeekdays = this.normalizeWeekdaySelection(
+            Array.isArray(details.monthly_weekdays) && details.monthly_weekdays.length
+              ? details.monthly_weekdays
+              : typeof details.monthly_weekday === 'number'
+                ? [details.monthly_weekday]
+                : [],
+          )
+          if (normalizedWeekdays.length > 0) {
+            routineFrontmatter.routine_weekdays = normalizedWeekdays
+            if (normalizedWeekdays.length === 1) {
+              routineFrontmatter.routine_weekday = normalizedWeekdays[0]
+            } else {
+              delete routineFrontmatter.routine_weekday
+            }
+          } else {
+            delete routineFrontmatter.routine_weekdays
+            delete routineFrontmatter.routine_weekday
           }
         }
         return routineFrontmatter
@@ -503,9 +548,7 @@ export default class RoutineController {
     details: RoutineDetailsInput,
   ): void {
     if (routineType === 'weekly') {
-      const selected = Array.isArray(details.weekdays)
-        ? details.weekdays.filter((value) => Number.isInteger(value))
-        : []
+      const selected = this.normalizeWeekdaySelection(details.weekdays)
       task.weekdays = selected
       if (selected.length > 0) {
         task.weekday = selected[0]
@@ -517,28 +560,46 @@ export default class RoutineController {
       delete task.routine_week
       delete task.monthly_week
       delete task.monthly_weekday
+      delete task.routine_weeks
+      delete task.routine_weekdays
     } else if (routineType === 'monthly') {
-      if (details.monthly_week !== undefined) {
-        if (details.monthly_week === 'last') {
+      const normalizedWeeks = this.normalizeWeekSelection(
+        Array.isArray(details.monthly_weeks) && details.monthly_weeks.length
+          ? details.monthly_weeks
+          : details.monthly_week !== undefined
+            ? [
+                details.monthly_week === 'last'
+                  ? 'last'
+                  : (details.monthly_week as number) + 1,
+              ]
+            : [],
+      )
+      task.routine_weeks = normalizedWeeks
+      if (normalizedWeeks.length === 1) {
+        const singleWeek = normalizedWeeks[0]
+        if (singleWeek === 'last') {
           task.monthly_week = 'last'
           task.routine_week = 'last'
-        } else if (typeof details.monthly_week === 'number') {
-          const normalizedWeek = details.monthly_week + 1
-          if (normalizedWeek >= 1 && normalizedWeek <= 5) {
-            task.monthly_week = normalizedWeek as RoutineWeek
-            task.routine_week = normalizedWeek as RoutineWeek
-          } else {
-            delete task.monthly_week
-            delete task.routine_week
-          }
+        } else if (typeof singleWeek === 'number') {
+          task.monthly_week = (singleWeek - 1) as RoutineWeek
+          task.routine_week = singleWeek
         }
       } else {
         delete task.monthly_week
         delete task.routine_week
       }
-      if (typeof details.monthly_weekday === 'number') {
-        task.monthly_weekday = details.monthly_weekday
-        task.routine_weekday = details.monthly_weekday
+
+      const normalizedWeekdays = this.normalizeWeekdaySelection(
+        Array.isArray(details.monthly_weekdays) && details.monthly_weekdays.length
+          ? details.monthly_weekdays
+          : typeof details.monthly_weekday === 'number'
+            ? [details.monthly_weekday]
+            : [],
+      )
+      task.routine_weekdays = normalizedWeekdays
+      if (normalizedWeekdays.length === 1) {
+        task.monthly_weekday = normalizedWeekdays[0]
+        task.routine_weekday = normalizedWeekdays[0]
       } else {
         delete task.monthly_weekday
         delete task.routine_weekday
@@ -552,6 +613,8 @@ export default class RoutineController {
       delete task.monthly_weekday
       delete task.routine_week
       delete task.routine_weekday
+      delete task.routine_weeks
+      delete task.routine_weekdays
     }
   }
 
@@ -578,45 +641,139 @@ export default class RoutineController {
         tooltip += this.tv('lists.weekendsOnlySuffix', ' - Weekends only')
         break
       case 'weekly': {
-        if (details.weekdays?.length) {
-          const dayNames = this.getWeekdayNames()
-          const selectedDay =
-            typeof details.weekdays[0] === 'number'
-              ? dayNames[details.weekdays[0]]
-              : this.tv('labels.routineDayUnset', 'No weekday set')
+        const weekdays = this.normalizeWeekdaySelection(details.weekdays?.length ? details.weekdays : task.weekdays)
+        if (weekdays.length) {
+          const dayList =
+            this.formatWeekdayList(weekdays) ?? this.tv('labels.routineDayUnset', 'No weekday set')
           tooltip += ` - ${this.tv('labels.routineWeeklyLabel', 'Every {interval} week(s) on {day}', {
             interval: intervalValue,
-            day: selectedDay,
+            day: dayList,
           })}`
         }
         break
       }
       case 'monthly': {
-        if (details.monthly_week !== undefined && details.monthly_weekday !== undefined) {
-          const dayNames = this.getWeekdayNames()
-          const weekLabel =
-            details.monthly_week === 'last'
-              ? this.tv('labels.routineWeekLast', 'Last week')
-              : this.tv('labels.routineWeekNth', 'Week {week}', {
-                  week: (details.monthly_week as number) + 1,
-                })
-          const dayLabel =
-            typeof details.monthly_weekday === 'number'
-              ? dayNames[details.monthly_weekday]
-              : this.tv('labels.routineDayUnset', 'No weekday set')
-          const monthlyLabel = this.tv('labels.routineMonthlyLabel', 'Every {interval} month(s) on {week} {day}', {
-            interval: intervalValue,
-            week: weekLabel,
-            day: dayLabel,
-          })
-          tooltip += ` - ${monthlyLabel.replace(/\s{2,}/g, ' ').trim()}`
-        }
+        const weekSet = this.normalizeWeekSelection(
+          Array.isArray(details.monthly_weeks) && details.monthly_weeks.length
+            ? details.monthly_weeks
+            : Array.isArray(task.routine_weeks) && task.routine_weeks.length
+              ? task.routine_weeks
+              : details.monthly_week !== undefined
+                ? [
+                    details.monthly_week === 'last'
+                      ? 'last'
+                      : (details.monthly_week as number) + 1,
+                  ]
+                : task.routine_week
+                  ? [task.routine_week]
+                  : [],
+        )
+        const weekdaySet = this.normalizeWeekdaySelection(
+          Array.isArray(details.monthly_weekdays) && details.monthly_weekdays.length
+            ? details.monthly_weekdays
+            : Array.isArray(task.routine_weekdays) && task.routine_weekdays.length
+              ? task.routine_weekdays
+              : typeof details.monthly_weekday === 'number'
+                ? [details.monthly_weekday]
+                : typeof task.routine_weekday === 'number'
+                  ? [task.routine_weekday]
+                  : [],
+        )
+        const dayLabel =
+          this.formatWeekdayList(weekdaySet) ?? this.tv('labels.routineDayUnset', 'No weekday set')
+        const weekLabel = this.formatWeekList(weekSet) ??
+          (weekSet.length === 1 && weekSet[0] === 'last'
+            ? this.tv('labels.routineWeekLast', 'Last week')
+            : this.tv('labels.routineWeekNth', 'Week {week}', { week: weekSet[0] ?? 1 }))
+        const monthlyLabel = this.tv('labels.routineMonthlyLabel', 'Every {interval} month(s) on {week} {day}', {
+          interval: intervalValue,
+          week: weekLabel,
+          day: dayLabel,
+        })
+        tooltip += ` - ${monthlyLabel.replace(/\s{2,}/g, ' ').trim()}`
         break
       }
       default:
         break
     }
     return tooltip
+  }
+
+  private normalizeWeekdaySelection(values?: number[]): number[] {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<number>()
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      .filter((value) => {
+        if (seen.has(value)) return false
+        seen.add(value)
+        return true
+      })
+      .sort((a, b) => a - b)
+  }
+
+  private formatWeekdayList(weekdays?: number[]): string | undefined {
+    if (!Array.isArray(weekdays) || weekdays.length === 0) return undefined
+    const names = this.getWeekdayNames()
+    const labels = weekdays
+      .map((index) => names[index])
+      .filter((label): label is string => typeof label === 'string' && label.length > 0)
+    if (!labels.length) return undefined
+    const joiner = this.tv('lists.weekdayJoiner', ' / ')
+    return labels.join(joiner)
+  }
+
+  private normalizeWeekSelection(values?: Array<number | 'last'>): Array<number | 'last'> {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<string>()
+    return values
+      .map((value) => (value === 'last' ? 'last' : Number(value)))
+      .filter((value): value is number | 'last' => {
+        if (value === 'last') return true
+        return Number.isInteger(value) && value >= 1 && value <= 5
+      })
+      .filter((value) => {
+        const key = String(value)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => {
+        if (a === 'last') return 1
+        if (b === 'last') return -1
+        return (a as number) - (b as number)
+      })
+  }
+
+  private formatWeekList(weeks?: Array<number | 'last'>): string | undefined {
+    if (!Array.isArray(weeks) || weeks.length === 0) return undefined
+    const joiner = this.tv('lists.weekLabelJoiner', ' / ')
+    const labels = weeks.map((week) =>
+      week === 'last'
+        ? this.tv('labels.routineWeekLast', 'Last week')
+        : this.tv('labels.routineWeekNth', 'Week {week}', { week }),
+    )
+    return labels.join(joiner)
+  }
+
+  private createChipFieldset(
+    parent: HTMLElement,
+    labelText: string,
+    options: Array<{ value: string; label: string }>,
+  ): HTMLInputElement[] {
+    const fieldset = parent.createEl('div', { cls: 'routine-chip-fieldset' })
+    fieldset.createEl('div', { cls: 'routine-chip-fieldset__label', text: labelText })
+    const chipContainer = fieldset.createEl('div', { cls: 'routine-chip-fieldset__chips' })
+    return options.map((option) => {
+      const chip = chipContainer.createEl('label', { cls: 'routine-chip' })
+      const checkbox = chip.createEl('input', {
+        type: 'checkbox',
+        value: option.value,
+      }) as HTMLInputElement
+      chip.createEl('span', { text: option.label, cls: 'routine-chip__text' })
+      return checkbox
+    })
   }
 
   private ensureDomHelpers(): void {

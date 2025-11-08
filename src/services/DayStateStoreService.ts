@@ -48,6 +48,20 @@ export class DayStateStoreService {
     return this.setCurrent(key, emptyState);
   }
 
+  clear(dateKey?: string): void {
+    if (dateKey) {
+      this.cache.delete(dateKey);
+      if (this.currentKey === dateKey) {
+        this.currentKey = null;
+        this.currentState = null;
+      }
+      return;
+    }
+    this.cache.clear();
+    this.currentKey = null;
+    this.currentState = null;
+  }
+
   getCurrentKey(): string | null {
     return this.currentKey;
   }

@@ -92,4 +92,41 @@ describe('RoutineService.isDue', () => {
     expect(rule).not.toBeNull();
     expect(RoutineService.isDue('2025-09-20', rule)).toBe(false);
   });
+
+  test('weekly routines respect interval when multiple weekdays are set', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'weekly',
+      routine_interval: 2,
+      routine_start: '2025-09-01', // Monday
+      weekdays: [1, 3], // Monday & Wednesday
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-01', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-09-03', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-09-08', rule)).toBe(false);
+    expect(RoutineService.isDue('2025-09-10', rule)).toBe(false);
+    expect(RoutineService.isDue('2025-09-15', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-09-17', rule)).toBe(true);
+  });
+
+  test('monthly routines support multiple weeks and weekdays', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly',
+      routine_interval: 1,
+      routine_start: '2025-01-01',
+      routine_weeks: [1, 3, 'last'],
+      routine_weekdays: [1, 5],
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-01', rule)).toBe(true); // 1st Monday
+    expect(RoutineService.isDue('2025-09-05', rule)).toBe(true); // 1st Friday
+    expect(RoutineService.isDue('2025-09-17', rule)).toBe(false); // 3rd Wednesday
+    expect(RoutineService.isDue('2025-09-19', rule)).toBe(true); // 3rd Friday
+    expect(RoutineService.isDue('2025-09-29', rule)).toBe(true); // Last Monday
+    expect(RoutineService.isDue('2025-09-30', rule)).toBe(false); // Last Tuesday
+  });
 });

@@ -148,6 +148,29 @@ describe('TaskMutationService', () => {
     expect(record?.createdMillis).toBe(result.createdMillis)
   })
 
+  test('duplicateInstance allows overriding slot key', async () => {
+    const task = createTask('TASKS/base.md')
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'instance-1',
+      state: 'idle',
+      slotKey: '8:00-12:00',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [instance], tasks: [task] })
+    const service = new TaskMutationService(host)
+
+    const result = (await service.duplicateInstance(instance, {
+      returnInstance: true,
+      slotKey: 'none',
+    })) as TaskInstance
+
+    expect(result.slotKey).toBe('none')
+    expect(result.originalSlotKey).toBe('8:00-12:00')
+    const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)
+    expect(record?.slotKey).toBe('none')
+    expect(record?.originalSlotKey).toBe('8:00-12:00')
+  })
+
   test('deleteInstance on duplicate does not mark base task permanent', async () => {
     const task = createTask('TASKS/base.md')
     const base: TaskInstance = {
@@ -184,6 +207,30 @@ describe('TaskMutationService', () => {
         (entry) => entry.deletionType === 'permanent' && entry.path === task.path,
       ),
     ).toBeUndefined()
+  })
+
+  test('deleting duplicated non-routine instance does not trash original file', async () => {
+    const taskFile = createMockTFile('TASKS/base.md')
+    const task = createTask('TASKS/base.md', { file: taskFile })
+    const duplicate: TaskInstance = {
+      task,
+      instanceId: 'dup-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const host = createHost({ taskInstances: [duplicate], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-1',
+      originalPath: task.path,
+      slotKey: 'none',
+    })
+    const service = new TaskMutationService(host)
+
+    await service.deleteTask(duplicate)
+
+    expect(host.app.fileManager.trashFile).not.toHaveBeenCalled()
+    expect(host.dayState.duplicatedInstances).toHaveLength(0)
   })
 
   test('deleteInstance marks permanent when duplicate metadata missing', async () => {

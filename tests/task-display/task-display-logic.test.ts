@@ -51,5 +51,30 @@ describe('Task display logic', () => {
       expect(context.taskInstances).toHaveLength(1);
       expect(context.tasks).toHaveLength(1);
     });
+
+    test('permanent deletion is ignored once the file is recreated later the same day', async () => {
+      const deletedAt = Date.now();
+      const { context, load } = createNonRoutineLoadContext({
+        deletedInstances: [
+          {
+            path: 'TASKS/non-routine.md',
+            deletionType: 'permanent',
+            timestamp: deletedAt,
+          },
+        ],
+        metadataOverrides: {
+          target_date: '2025-09-24',
+        },
+        fileStat: {
+          ctime: deletedAt + 60_000,
+          mtime: deletedAt + 120_000,
+        },
+      });
+
+      await load();
+
+      expect(context.taskInstances).toHaveLength(1);
+      expect(context.tasks).toHaveLength(1);
+    });
   });
 });

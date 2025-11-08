@@ -1,9 +1,14 @@
 import { Notice, App } from "obsidian"
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
-import { TaskNameAutocomplete } from "../components/TaskNameAutocomplete"
+import {
+  TaskNameAutocomplete,
+  TaskNameSelectionDetail,
+  TaskNameSuggestion,
+} from "../components/TaskNameAutocomplete"
 import { createNameModal } from "../components/NameModal"
 import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
+import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
 import type { TaskChutePluginLike, TaskNameValidator } from "../../types"
 
 export interface TaskCreationControllerHost {
@@ -14,6 +19,10 @@ export interface TaskCreationControllerHost {
   ) => string
   getTaskNameValidator: () => TaskNameValidator
   taskCreationService: TaskCreationService
+  taskReuseService: TaskReuseService
+  hasInstanceForPathToday: (path: string) => boolean
+  duplicateInstanceForPath: (path: string) => Promise<boolean>
+  invalidateDayStateCache: (dateKey: string) => void
   registerAutocompleteCleanup: (cleanup: () => void) => void
   reloadTasksAndRestore: (options?: {
     runBoundaryCheck?: boolean
@@ -22,6 +31,8 @@ export interface TaskCreationControllerHost {
   app: Pick<App, "metadataCache">
   plugin: TaskChutePluginLike
 }
+
+type CreationMode = "reuse" | "copy"
 
 export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
@@ -37,6 +48,80 @@ export default class TaskCreationController {
     })
 
     const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
+    const buttonGroup = form.querySelector(".form-button-group")
+
+    const modeGroup = document.createElement("div")
+    modeGroup.className = "task-mode-group hidden"
+
+    const modeLabel = document.createElement("div")
+    modeLabel.className = "task-mode-label"
+    modeLabel.textContent = this.host.tv("addTask.modeLabel", "Mode")
+    modeGroup.appendChild(modeLabel)
+
+    const modeOptions = document.createElement("div")
+    modeOptions.className = "task-mode-options"
+
+    const buildModeOption = (
+      value: CreationMode,
+      labelText: string,
+      checked: boolean,
+    ) => {
+      const wrapper = document.createElement("label")
+      wrapper.className = "task-mode-option"
+      const radio = document.createElement("input")
+      radio.type = "radio"
+      radio.name = "taskCreationMode"
+      radio.value = value
+      radio.checked = checked
+      const span = document.createElement("span")
+      span.textContent = labelText
+      wrapper.appendChild(radio)
+      wrapper.appendChild(span)
+      return { wrapper, radio }
+    }
+
+    const reuseOption = buildModeOption(
+      "reuse",
+      this.host.tv("addTask.modeReuse", "Reuse existing task"),
+      true,
+    )
+    const copyOption = buildModeOption(
+      "copy",
+      this.host.tv("addTask.modeCopy", "Create new copy"),
+      false,
+    )
+
+    modeOptions.appendChild(reuseOption.wrapper)
+    modeOptions.appendChild(copyOption.wrapper)
+    modeGroup.appendChild(modeOptions)
+
+    form.insertBefore(modeGroup, buttonGroup ?? null)
+
+    let selectedSuggestion: TaskNameSuggestion | null = null
+    let selectedValue = ""
+
+    const hasReusableSelection = (): boolean =>
+      Boolean(
+        selectedSuggestion &&
+          selectedSuggestion.type === "task" &&
+          selectedSuggestion.path,
+      )
+
+    const updateModeGroupVisibility = () => {
+      if (hasReusableSelection()) {
+        modeGroup.classList.remove("hidden")
+      } else {
+        modeGroup.classList.add("hidden")
+        reuseOption.radio.checked = true
+      }
+    }
+
+    const resolveCreationMode = (): CreationMode => {
+      if (!hasReusableSelection()) {
+        return "copy"
+      }
+      return reuseOption.radio.checked ? "reuse" : "copy"
+    }
 
     let cleanupAutocomplete: (() => void) | null = null
     try {
@@ -71,12 +156,29 @@ export default class TaskCreationController {
       validationControls.dispose()
     })
 
-    nameInput.addEventListener("autocomplete-selected", () => {
-      validationControls.runValidation()
+    nameInput.addEventListener("input", () => {
+      if (selectedSuggestion && nameInput.value.trim() !== selectedValue) {
+        selectedSuggestion = null
+        selectedValue = ""
+        updateModeGroupVisibility()
+      }
     })
 
+    nameInput.addEventListener(
+      "autocomplete-selected",
+      (event: Event & { detail?: TaskNameSelectionDetail }) => {
+        const detail = (event as CustomEvent<TaskNameSelectionDetail>).detail
+        selectedSuggestion = detail?.suggestion ?? null
+        selectedValue = detail?.value ?? detail?.suggestion?.name ?? ""
+        validationControls.runValidation()
+        updateModeGroupVisibility()
+      },
+    )
+
     nameInput.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return
+      if (event.key !== "Enter") {
+        return
+      }
       event.preventDefault()
       const validation = this.host
         .getTaskNameValidator()
@@ -103,7 +205,18 @@ export default class TaskCreationController {
         return
       }
 
-      const created = await this.createNewTask(taskName, 30)
+      const creationMode = resolveCreationMode()
+
+      let created = false
+      if (
+        creationMode === "reuse" &&
+        selectedSuggestion?.type === "task" &&
+        selectedSuggestion.path
+      ) {
+        created = await this.reuseExistingTask(selectedSuggestion.path)
+      } else {
+        created = await this.createNewTask(taskName, 30)
+      }
       if (created) {
         close()
       } else {
@@ -144,6 +257,27 @@ export default class TaskCreationController {
         )
       }
       new Notice(errorMessage)
+      return false
+    }
+  }
+
+  private async reuseExistingTask(filePath: string): Promise<boolean> {
+    try {
+      const dateStr = this.host.getCurrentDateString()
+      const alreadyVisible = this.host.hasInstanceForPathToday(filePath)
+      if (alreadyVisible) {
+        await this.host.duplicateInstanceForPath(filePath)
+      } else {
+        await this.host.taskReuseService.reuseTaskAtDate(filePath, dateStr)
+        this.host.invalidateDayStateCache(dateStr)
+      }
+      await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      return true
+    } catch (error) {
+      console.error("[TaskCreationController] Failed to reuse task", error)
+      new Notice(
+        this.host.tv("addTask.reuseFailure", "Failed to reuse task"),
+      )
       return false
     }
   }
