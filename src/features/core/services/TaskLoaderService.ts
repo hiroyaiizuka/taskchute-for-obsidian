@@ -44,8 +44,8 @@ interface DuplicatedRecord extends DuplicatedInstance {
 }
 
 interface VaultStat {
-  ctime?: number
-  mtime?: number
+  ctime?: number | Date
+  mtime?: number | Date
 }
 
 export interface TaskLoaderHost {
@@ -444,9 +444,71 @@ async function shouldShowNonRoutineTask(
   metadata: TaskFrontmatterWithLegacy | undefined,
   dateKey: string,
 ): Promise<boolean> {
-  const deleted = getDeletedInstancesForDate(context, dateKey)
-    .some((entry) => entry.deletionType === 'permanent' && entry.path === file.path)
-  if (deleted) return false
+  const deletedEntries = getDeletedInstancesForDate(context, dateKey)
+  const permanentDeletions = deletedEntries.filter(
+    (entry) => entry.deletionType === 'permanent' && entry.path === file.path,
+  )
+
+  let missingDeletionTimestamp = false
+  let latestDeletionTimestamp: number | undefined
+  for (const entry of permanentDeletions) {
+    if (typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)) {
+      latestDeletionTimestamp =
+        latestDeletionTimestamp === undefined
+          ? entry.timestamp
+          : Math.max(latestDeletionTimestamp, entry.timestamp)
+    } else {
+      missingDeletionTimestamp = true
+    }
+  }
+
+  let cachedCreatedMillis: number | null | undefined
+  const resolveFileCreatedMillis = async (): Promise<number | null> => {
+    if (cachedCreatedMillis !== undefined) {
+      return cachedCreatedMillis
+    }
+    try {
+      const stats = await context.app.vault.adapter.stat(file.path)
+      if (!stats) {
+        cachedCreatedMillis = null
+        return cachedCreatedMillis
+      }
+      const raw = stats.ctime ?? stats.mtime
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        cachedCreatedMillis = raw
+        return cachedCreatedMillis
+      }
+      if (raw instanceof Date && Number.isFinite(raw.getTime())) {
+        cachedCreatedMillis = raw.getTime()
+        return cachedCreatedMillis
+      }
+      cachedCreatedMillis = null
+      return cachedCreatedMillis
+    } catch (error) {
+      console.warn('Failed to determine task visibility', error)
+      cachedCreatedMillis = null
+      return cachedCreatedMillis
+    }
+  }
+
+  if (permanentDeletions.length > 0) {
+    if (missingDeletionTimestamp) {
+      return false
+    }
+    const createdMillis = await resolveFileCreatedMillis()
+    if (createdMillis === null) {
+      return false
+    }
+    if (latestDeletionTimestamp === undefined || createdMillis <= latestDeletionTimestamp) {
+      return false
+    }
+    const remainingEntries = deletedEntries.filter(
+      (entry) => !(entry.deletionType === 'permanent' && entry.path === file.path),
+    )
+    if (remainingEntries.length !== deletedEntries.length) {
+      context.dayStateManager.setDeleted(remainingEntries, dateKey)
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (metadata?.target_date) {
@@ -454,17 +516,12 @@ async function shouldShowNonRoutineTask(
     return metadata.target_date === dateKey
   }
 
-  try {
-    const stats = await context.app.vault.adapter.stat(file.path)
-    if (!stats) return false
-
-    const created = new Date(stats.ctime ?? stats.mtime ?? Date.now())
-    const createdKey = formatDate(created)
-    return createdKey === dateKey
-  } catch (error) {
-    console.warn('Failed to determine task visibility', error)
+  const createdMillis = await resolveFileCreatedMillis()
+  if (createdMillis === null) {
     return false
   }
+  const createdKey = formatDate(new Date(createdMillis))
+  return createdKey === dateKey
 }
 
 async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string): Promise<void> {
