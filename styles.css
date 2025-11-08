@@ -674,25 +674,80 @@ select.form-input {
   z-index: 1000;
 }
 
-.taskchute-autocomplete-item {
+.suggestion-item {
   padding: 8px 12px;
   cursor: pointer;
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.taskchute-autocomplete-item:hover,
-.taskchute-autocomplete-item.selected {
+.suggestion-item + .suggestion-item {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.suggestion-item-selected,
+.suggestion-item:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.taskchute-autocomplete-title {
+.suggestion-title {
   font-weight: 500;
 }
 
-.taskchute-autocomplete-project {
+.suggestion-meta {
   font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-badge {
+  background-color: var(--interactive-accent-hover);
+  color: var(--background-primary);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-mode-group {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-secondary);
+}
+
+.task-mode-group.hidden {
+  display: none;
+}
+
+.task-mode-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.task-mode-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.task-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.task-mode-option input[type="radio"] {
+  margin: 0;
 }
 
 /* 日付ピッカー */

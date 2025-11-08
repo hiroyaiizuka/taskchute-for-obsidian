@@ -101,6 +101,10 @@ describe('TaskCreationController', () => {
       manifest: { id: 'taskchute-plus' },
     }
 
+    const taskReuseService = {
+      reuseTaskAtDate: jest.fn().mockResolvedValue(new (TFile as typeof TFile)()),
+    }
+
     const host: TaskCreationControllerHost = {
       tv: (_key, fallback, vars) => {
         if (vars) {
@@ -113,6 +117,7 @@ describe('TaskCreationController', () => {
       },
       getTaskNameValidator: () => validator,
       taskCreationService: taskCreationService as unknown as TaskCreationControllerHost['taskCreationService'],
+      taskReuseService: taskReuseService as unknown as TaskCreationControllerHost['taskReuseService'],
       registerAutocompleteCleanup: jest.fn(),
       reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),
       getCurrentDateString: () => '2025-10-09',
@@ -122,9 +127,12 @@ describe('TaskCreationController', () => {
         },
       },
       plugin: pluginStub,
+      hasInstanceForPathToday: jest.fn(() => false),
+      duplicateInstanceForPath: jest.fn().mockResolvedValue(true),
+      invalidateDayStateCache: jest.fn(),
     }
 
-    return { host, taskCreationService }
+    return { host, taskCreationService, taskReuseService }
   }
 
   beforeEach(() => {
@@ -151,5 +159,32 @@ describe('TaskCreationController', () => {
     expect(taskCreationService.createTaskFile).toHaveBeenCalledWith('New Task', '2025-10-09')
     expect(host.reloadTasksAndRestore).toHaveBeenCalled()
     expect(document.querySelector('.task-modal-overlay')).toBeNull()
+  })
+
+  test('reuseExistingTask records duplicate via reuse service and invalidates cache', async () => {
+    const { host } = createHost()
+    host.hasInstanceForPathToday = jest.fn(() => false)
+    const controller = new TaskCreationController(host)
+
+    const result = await (controller as unknown as { reuseExistingTask: (path: string) => Promise<boolean> }).reuseExistingTask('TaskChute/Task/sample.md')
+
+    expect(result).toBe(true)
+    expect(host.taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith('TaskChute/Task/sample.md', '2025-10-09')
+    expect(host.invalidateDayStateCache).toHaveBeenCalledWith('2025-10-09')
+    expect(host.duplicateInstanceForPath).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).toHaveBeenCalled()
+  })
+
+  test('reuseExistingTask duplicates locally when already visible', async () => {
+    const { host } = createHost()
+    host.hasInstanceForPathToday = jest.fn(() => true)
+    const controller = new TaskCreationController(host)
+
+    const result = await (controller as unknown as { reuseExistingTask: (path: string) => Promise<boolean> }).reuseExistingTask('TaskChute/Task/sample.md')
+
+    expect(result).toBe(true)
+    expect(host.duplicateInstanceForPath).toHaveBeenCalledWith('TaskChute/Task/sample.md')
+    expect(host.taskReuseService.reuseTaskAtDate).not.toHaveBeenCalled()
+    expect(host.invalidateDayStateCache).not.toHaveBeenCalled()
   })
 })

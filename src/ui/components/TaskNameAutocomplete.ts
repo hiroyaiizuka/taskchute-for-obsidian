@@ -3,6 +3,21 @@ import { t } from '../../i18n';
 import type { TaskNameValidator } from '../../types';
 import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
 
+export type TaskNameSuggestionType = 'task' | 'project';
+
+export interface TaskNameSuggestion {
+  type: TaskNameSuggestionType;
+  name: string;
+  path?: string;
+  targetDate?: string;
+  modified?: number;
+}
+
+export interface TaskNameSelectionDetail {
+  value: string;
+  suggestion: TaskNameSuggestion | null;
+}
+
 interface Plugin {
   app: App;
   pathManager: {
@@ -11,12 +26,18 @@ interface Plugin {
   };
 }
 
+interface AutocompleteMatch {
+  suggestion: TaskNameSuggestion;
+  displayText: string;
+}
+
 export class TaskNameAutocomplete {
   private plugin: Plugin;
   private inputElement: HTMLInputElement;
   private containerElement: HTMLElement;
-  private taskNames: string[] = [];
-  private projectNames: string[] = [];
+  private taskSuggestions: TaskNameSuggestion[] = [];
+  private projectSuggestions: TaskNameSuggestion[] = [];
+  private visibleMatches: AutocompleteMatch[] = [];
   private selectedIndex: number = -1;
   private suggestionsElement: HTMLElement | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -134,13 +155,23 @@ export class TaskNameAutocomplete {
     
     if (!(taskFolder instanceof TFolder)) return;
     
-    const taskNames = new Set<string>();
-    
+    const suggestions: TaskNameSuggestion[] = [];
+
     const processFolder = (folder: TFolder) => {
       for (const child of folder.children) {
         if (child instanceof TFile && child.extension === 'md') {
-          const name = child.basename;
-          taskNames.add(name);
+          const cache = this.plugin.app.metadataCache.getFileCache(child);
+          const targetDate =
+            typeof cache?.frontmatter?.target_date === 'string'
+              ? cache.frontmatter.target_date
+              : undefined;
+          suggestions.push({
+            type: 'task',
+            name: child.basename,
+            path: child.path,
+            targetDate,
+            modified: child.stat?.mtime ?? child.stat?.ctime ?? undefined,
+          });
         } else if (child instanceof TFolder) {
           processFolder(child);
         }
@@ -148,23 +179,27 @@ export class TaskNameAutocomplete {
     };
     
     processFolder(taskFolder);
-    this.taskNames = Array.from(taskNames).sort();
+    this.taskSuggestions = suggestions;
   }
 
   private async loadProjectNames(): Promise<void> {
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
-    if (!projectFolderPath) { this.projectNames = []; return; }
+    if (!projectFolderPath) { this.projectSuggestions = []; return; }
     const projectFolder = this.plugin.app.vault.getAbstractFileByPath(projectFolderPath);
     
-    if (!(projectFolder instanceof TFolder)) { this.projectNames = []; return; }
+    if (!(projectFolder instanceof TFolder)) { this.projectSuggestions = []; return; }
     
-    const projectNames = new Set<string>();
+    const suggestions: TaskNameSuggestion[] = [];
     
     const processFolder = (folder: TFolder) => {
       for (const child of folder.children) {
         if (child instanceof TFile && child.extension === 'md') {
-          const name = child.basename;
-          projectNames.add(name);
+          suggestions.push({
+            type: 'project',
+            name: child.basename,
+            path: child.path,
+            modified: child.stat?.mtime ?? child.stat?.ctime ?? undefined,
+          });
         } else if (child instanceof TFolder) {
           processFolder(child);
         }
@@ -172,7 +207,7 @@ export class TaskNameAutocomplete {
     };
     
     processFolder(projectFolder);
-    this.projectNames = Array.from(projectNames).sort();
+    this.projectSuggestions = suggestions;
   }
 
   private setupEventListeners(): void {
@@ -218,77 +253,123 @@ export class TaskNameAutocomplete {
   }
 
   private showSuggestions(): void {
-    const inputValue = this.inputElement.value.trim().toLowerCase();
-    
-    if (!inputValue) {
+    const rawValue = this.inputElement.value.trim();
+    const lowerValue = rawValue.toLowerCase();
+
+    if (!lowerValue) {
       this.hideSuggestions();
       return;
     }
-    
-    // Check if input contains project marker
-    const isProjectSearch = inputValue.includes('@');
-    let searchTerm = inputValue;
+
+    const isProjectSearch = rawValue.includes('@');
+    let searchTerm = lowerValue;
     let prefix = '';
-    
+
     if (isProjectSearch) {
-      const parts = inputValue.split('@');
-      searchTerm = parts[1] || '';
-      prefix = parts[0] + '@';
+      const [beforeAt, afterAt] = rawValue.split('@');
+      prefix = `${beforeAt}@`;
+      searchTerm = (afterAt || '').toLowerCase();
     }
-    
-    // Get matching suggestions
-    const source = isProjectSearch ? this.projectNames : this.taskNames;
-    const matches = source.filter(name => 
-      name.toLowerCase().includes(searchTerm)
-    ).slice(0, 10);
-    
+
+    const source = isProjectSearch
+      ? this.projectSuggestions
+      : this.taskSuggestions;
+
+    const filtered = source.filter((suggestion) =>
+      suggestion.name.toLowerCase().includes(searchTerm),
+    );
+
+    filtered.sort((a, b) => {
+      if (isProjectSearch) {
+        return a.name.localeCompare(b.name);
+      }
+      const aMod = a.modified ?? 0;
+      const bMod = b.modified ?? 0;
+      if (aMod === bMod) {
+        return a.name.localeCompare(b.name);
+      }
+      return bMod - aMod;
+    });
+
+    const matches: AutocompleteMatch[] = filtered.slice(0, 10).map((suggestion) => ({
+      suggestion,
+      displayText: `${prefix}${suggestion.name}`,
+    }));
+
     if (matches.length === 0) {
       this.hideSuggestions();
       return;
     }
-    
-    // Create or update suggestions element
+
+    this.visibleMatches = matches;
+    this.selectedIndex = -1;
+
     if (this.suggestionsElement) {
       this.suggestionsElement.remove();
     }
     this.suggestionsElement = document.createElement('div');
     this.suggestionsElement.className = 'taskchute-autocomplete-suggestions';
-    
-    // Clear and populate suggestions
+
     matches.forEach((match, index) => {
-      const item = document.createElement('div')
-      item.className = 'suggestion-item'
-      item.textContent = prefix + match
+      const item = document.createElement('div');
+      item.className = 'suggestion-item';
+
+      const title = document.createElement('div');
+      title.className = 'suggestion-title';
+      title.textContent = match.displayText;
+      item.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'suggestion-meta';
+
+      const badge = document.createElement('span');
+      badge.className = 'suggestion-badge';
+      if (match.suggestion.type === 'task') {
+        badge.textContent = t('addTask.suggestionHistoryBadge', 'History');
+        meta.appendChild(badge);
+        const metaText = document.createElement('span');
+        metaText.textContent = match.suggestion.targetDate
+          ? t('addTask.suggestionLastShown', 'Last shown: {date}', {
+              date: match.suggestion.targetDate,
+            })
+          : t('addTask.suggestionNoTargetDate', 'No target date');
+        meta.appendChild(metaText);
+      } else {
+        badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
+        meta.appendChild(badge);
+      }
+
+      item.appendChild(meta);
 
       item.addEventListener('mouseenter', () => {
-        this.selectedIndex = index
-        this.updateSelection(this.suggestionsElement!.querySelectorAll('.suggestion-item'))
-      })
+        this.selectedIndex = index;
+        this.updateSelection(
+          this.suggestionsElement!.querySelectorAll('.suggestion-item'),
+        );
+      });
 
       item.addEventListener('mousedown', (e) => {
-        e.preventDefault()
-      })
+        e.preventDefault();
+      });
 
       item.addEventListener('click', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        this.applySuggestionFromText(prefix + match)
-      })
+        e.preventDefault();
+        e.stopPropagation();
+        this.applySuggestionForMatch(match);
+      });
 
-      this.suggestionsElement!.appendChild(item)
-    })
-    
-    // Position suggestions
+      this.suggestionsElement!.appendChild(item);
+    });
+
     const rect = this.inputElement.getBoundingClientRect();
     this.suggestionsElement.style.top = `${rect.bottom + 2}px`;
     this.suggestionsElement.style.left = `${rect.left}px`;
     this.suggestionsElement.style.width = `${rect.width}px`;
 
-    // Append to body so absolute coordinates match viewport
-    document.body.appendChild(this.suggestionsElement)
+    document.body.appendChild(this.suggestionsElement);
 
     this.isVisible = true;
-    }
+  }
 
   private hideSuggestions(): void {
     if (this.suggestionsElement) {
@@ -297,6 +378,7 @@ export class TaskNameAutocomplete {
     }
     this.isVisible = false;
     this.selectedIndex = -1;
+    this.visibleMatches = [];
   }
 
   private selectNext(): void {
@@ -330,18 +412,14 @@ export class TaskNameAutocomplete {
   }
 
   private applySuggestion(): void {
-    if (!this.suggestionsElement || this.selectedIndex < 0) return;
-    
-    const items = this.suggestionsElement.querySelectorAll('.suggestion-item');
-    const selectedItem = items[this.selectedIndex] as HTMLElement;
-
-    if (selectedItem) {
-      const text = selectedItem.textContent || ''
-      this.applySuggestionFromText(text)
+    if (this.selectedIndex < 0) return;
+    const match = this.visibleMatches[this.selectedIndex];
+    if (match) {
+      this.applySuggestionForMatch(match);
     }
   }
 
-  private applySuggestionFromText(text: string): void {
+  private applySuggestionForMatch(match: AutocompleteMatch): void {
     if (this.view) {
       const validator: TaskNameValidator | null =
         typeof this.view.getTaskNameValidator === 'function'
@@ -349,7 +427,7 @@ export class TaskNameAutocomplete {
           : null
 
       if (validator && typeof validator.validate === 'function') {
-        const validation = validator.validate(text);
+        const validation = validator.validate(match.displayText);
         if (!validation.isValid) {
           const message =
             typeof validator.getErrorMessage === 'function'
@@ -365,17 +443,20 @@ export class TaskNameAutocomplete {
       }
     }
 
-    this.inputElement.value = text
+    const value = match.displayText
+    this.inputElement.value = value
     this.suppressNextShow = true
     this.hideSuggestions()
     // Trigger input and change events to align with spec
     this.inputElement.dispatchEvent(new Event('input', { bubbles: true }))
     this.inputElement.dispatchEvent(new Event('change', { bubbles: true }))
     // Custom event to notify selection
-    this.inputElement.dispatchEvent(new CustomEvent('autocomplete-selected', {
-      detail: { taskName: text },
-      bubbles: true,
-    }))
+    this.inputElement.dispatchEvent(
+      new CustomEvent<TaskNameSelectionDetail>('autocomplete-selected', {
+        detail: { value, suggestion: match.suggestion },
+        bubbles: true,
+      }),
+    )
     // Keep focus on input
     this.inputElement.focus()
   }
