@@ -25,7 +25,14 @@
   overflow-y: auto;
 }
 
-.modal-header {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -34,13 +41,27 @@
   position: relative;
 }
 
-.modal-header h3 {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-header h3 {
   margin: 0;
   color: var(--text-normal);
 }
 
-.modal-close-button,
-.tooltip-close-button {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-close-button,
+.taskchute-tooltip .tooltip-close-button {
   background: none;
   border: none;
   font-size: 0;
@@ -55,21 +76,43 @@
   border-radius: 4px;
   transition: all 0.2s ease;
 }
-
-.modal-header .modal-close-button {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  )
+  .modal-header
+  .modal-close-button {
   position: absolute;
   top: 12px;
   right: 20px;
 }
 
-.modal-close-button:hover,
-.tooltip-close-button:hover {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-close-button:hover,
+.taskchute-tooltip .tooltip-close-button:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
 
-.modal-close-button svg,
-.tooltip-close-button svg {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-close-button svg,
+.taskchute-tooltip .tooltip-close-button svg {
   width: 18px;
   height: 18px;
   stroke: currentColor;
@@ -77,10 +120,24 @@
   stroke-width: 1.75;
 }
 
-.modal-close-button svg line,
-.modal-close-button svg path,
-.tooltip-close-button svg line,
-.tooltip-close-button svg path {
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-close-button svg line,
+:where(
+    .task-modal-content,
+    .taskchute-confirm-modal,
+    .scheduled-time-modal,
+    .time-edit-modal,
+    .project-settings-modal-content,
+    .project-create-modal
+  ) .modal-close-button svg path,
+.taskchute-tooltip .tooltip-close-button svg line,
+.taskchute-tooltip .tooltip-close-button svg path {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -675,7 +732,7 @@ select.form-input {
   z-index: 1000;
 }
 
-.suggestion-item {
+.taskchute-autocomplete-suggestions .suggestion-item {
   padding: 8px 12px;
   cursor: pointer;
   font-size: 14px;
@@ -684,16 +741,16 @@ select.form-input {
   gap: 4px;
 }
 
-.suggestion-item + .suggestion-item {
+.taskchute-autocomplete-suggestions .suggestion-item + .suggestion-item {
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.suggestion-item-selected,
-.suggestion-item:hover {
+.taskchute-autocomplete-suggestions .suggestion-item-selected,
+.taskchute-autocomplete-suggestions .suggestion-item:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.suggestion-title {
+.taskchute-autocomplete-suggestions .suggestion-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -701,7 +758,7 @@ select.form-input {
   font-weight: 500;
 }
 
-.suggestion-badge {
+.taskchute-autocomplete-suggestions .suggestion-badge {
   background-color: var(--interactive-accent-hover);
   color: var(--background-primary);
   border-radius: 999px;
@@ -2113,37 +2170,6 @@ select.form-input {
 }
 
 /* TASK-012: タスク名自動補完のスタイル */
-.task-name-suggestions {
-  position: absolute;
-  z-index: 1000;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  max-height: 200px;
-  overflow-y: auto;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-top: 2px;
-}
-
-.suggestion-item {
-  padding: 8px 12px;
-  cursor: pointer;
-  transition: background-color 0.1s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.suggestion-item:hover,
-.suggestion-item-selected {
-  background-color: var(--background-modifier-hover);
-}
-
-.suggestion-item-selected {
-  background-color: var(--background-modifier-hover);
-  font-weight: 500;
-}
-
 /* Main Container Layout */
 .main-container {
   display: flex;
