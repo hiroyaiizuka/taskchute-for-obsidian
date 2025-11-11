@@ -3,6 +3,12 @@ import { t } from '../../i18n';
 import type { TaskNameValidator } from '../../types';
 import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
 
+export interface TaskNameAutocompleteOptions {
+  view?: TaskChuteView;
+  doc?: Document;
+  win?: Window & typeof globalThis;
+}
+
 export type TaskNameSuggestionType = 'task' | 'project';
 
 export interface TaskNameSuggestion {
@@ -46,10 +52,12 @@ export class TaskNameAutocomplete {
   private suppressNextShow: boolean = false;
   private fileEventRefs: EventRef[] = [];
   private view?: TaskChuteView;
+  private doc: Document;
+  private win: Window & typeof globalThis;
 
   private handleInput = (event: Event) => {
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.win.clearTimeout(this.debounceTimer);
     }
 
     if (this.suppressNextShow) {
@@ -59,14 +67,14 @@ export class TaskNameAutocomplete {
       this.suppressNextShow = false;
     }
 
-    this.debounceTimer = setTimeout(() => {
+    this.debounceTimer = this.win.setTimeout(() => {
       this.showSuggestions();
     }, 100);
   };
 
   private handleFocus = () => {
     if (this.blurTimer) {
-      clearTimeout(this.blurTimer);
+      this.win.clearTimeout(this.blurTimer);
       this.blurTimer = null;
     }
 
@@ -80,15 +88,15 @@ export class TaskNameAutocomplete {
 
   private handleBlur = () => {
     if (this.blurTimer) {
-      clearTimeout(this.blurTimer);
+      this.win.clearTimeout(this.blurTimer);
     }
 
-    this.blurTimer = setTimeout(() => {
+    this.blurTimer = this.win.setTimeout(() => {
       this.blurTimer = null;
 
       if (
         this.suggestionsElement &&
-        this.suggestionsElement.contains(document.activeElement)
+        this.suggestionsElement.contains(this.doc.activeElement)
       ) {
         return;
       }
@@ -136,7 +144,11 @@ export class TaskNameAutocomplete {
       return;
     }
 
-    const target = event.target instanceof Node ? event.target : null;
+    const NodeCtor: typeof Node | undefined = this.win.Node ??
+      (typeof Node !== 'undefined' ? Node : undefined);
+    const target = NodeCtor && event.target instanceof NodeCtor
+      ? (event.target as Node)
+      : null;
     if (target && this.suggestionsElement.contains(target)) {
       return;
     }
@@ -144,11 +156,18 @@ export class TaskNameAutocomplete {
     this.hideSuggestions();
   };
 
-  constructor(plugin: Plugin, inputElement: HTMLInputElement, containerElement: HTMLElement, view?: TaskChuteView) {
+  constructor(
+    plugin: Plugin,
+    inputElement: HTMLInputElement,
+    containerElement: HTMLElement,
+    options?: TaskNameAutocompleteOptions,
+  ) {
     this.plugin = plugin;
     this.inputElement = inputElement;
     this.containerElement = containerElement;
-    this.view = view;
+    this.view = options?.view;
+    this.doc = options?.doc ?? document;
+    this.win = options?.win ?? window;
   }
 
   async initialize(): Promise<void> {
@@ -225,8 +244,8 @@ export class TaskNameAutocomplete {
     this.inputElement.addEventListener('blur', this.handleBlur);
     this.inputElement.addEventListener('keydown', this.handleKeydown);
 
-    window.addEventListener('resize', this.handleWindowResize);
-    window.addEventListener('scroll', this.handleWindowScroll, true);
+    this.win.addEventListener('resize', this.handleWindowResize as EventListener);
+    this.win.addEventListener('scroll', this.handleWindowScroll, true);
   }
 
   private setupFileEventListeners(): void {
@@ -316,22 +335,22 @@ export class TaskNameAutocomplete {
     if (this.suggestionsElement) {
       this.suggestionsElement.remove();
     }
-    this.suggestionsElement = document.createElement('div');
+    this.suggestionsElement = this.doc.createElement('div');
     this.suggestionsElement.className = 'taskchute-autocomplete-suggestions';
 
     matches.forEach((match, index) => {
-      const item = document.createElement('div');
+      const item = this.doc.createElement('div');
       item.className = 'suggestion-item';
 
-      const title = document.createElement('div');
+      const title = this.doc.createElement('div');
       title.className = 'suggestion-title';
 
-      const titleLabel = document.createElement('span');
+      const titleLabel = this.doc.createElement('span');
       titleLabel.textContent = match.displayText;
       title.appendChild(titleLabel);
 
       if (match.suggestion.type === 'project') {
-        const badge = document.createElement('span');
+        const badge = this.doc.createElement('span');
         badge.className = 'suggestion-badge';
         badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
         title.appendChild(badge);
@@ -364,7 +383,8 @@ export class TaskNameAutocomplete {
     this.suggestionsElement.style.left = `${rect.left}px`;
     this.suggestionsElement.style.width = `${rect.width}px`;
 
-    document.body.appendChild(this.suggestionsElement);
+    const body = this.doc.body ?? document.body;
+    body.appendChild(this.suggestionsElement);
 
     this.isVisible = true;
   }
@@ -469,12 +489,12 @@ export class TaskNameAutocomplete {
 
   destroy(): void {
     if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+      this.win.clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
 
     if (this.blurTimer) {
-      clearTimeout(this.blurTimer);
+      this.win.clearTimeout(this.blurTimer);
       this.blurTimer = null;
     }
 
@@ -482,8 +502,8 @@ export class TaskNameAutocomplete {
     this.inputElement.removeEventListener('focus', this.handleFocus);
     this.inputElement.removeEventListener('blur', this.handleBlur);
     this.inputElement.removeEventListener('keydown', this.handleKeydown);
-    window.removeEventListener('resize', this.handleWindowResize);
-    window.removeEventListener('scroll', this.handleWindowScroll, true);
+    this.win.removeEventListener('resize', this.handleWindowResize as EventListener);
+    this.win.removeEventListener('scroll', this.handleWindowScroll, true);
 
     this.fileEventRefs.forEach((ref) => {
       this.plugin.app.vault.offref(ref);

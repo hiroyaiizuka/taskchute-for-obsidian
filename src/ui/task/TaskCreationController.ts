@@ -30,6 +30,10 @@ export interface TaskCreationControllerHost {
   getCurrentDateString: () => string
   app: Pick<App, "metadataCache">
   plugin: TaskChutePluginLike
+  getDocumentContext?: () => {
+    doc: Document
+    win: Window & typeof globalThis
+  }
 }
 
 type CreationMode = "reuse" | "copy"
@@ -38,6 +42,10 @@ export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
 
   async showAddTaskModal(): Promise<void> {
+    const context = this.host.getDocumentContext?.()
+    const doc = context?.doc ?? document
+    const win = context?.win ?? window
+
     const modal = createNameModal({
       title: this.host.tv("addTask.title", "Add new task"),
       label: this.host.tv("addTask.nameLabel", "Task name:"),
@@ -45,20 +53,21 @@ export default class TaskCreationController {
       submitText: this.host.tv("buttons.save", "Save"),
       cancelText: t("common.cancel", "Cancel"),
       closeLabel: this.host.tv("common.close", "Close"),
+      context: { doc, win },
     })
 
     const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
     const buttonGroup = form.querySelector(".form-button-group")
 
-    const modeGroup = document.createElement("div")
+    const modeGroup = doc.createElement("div")
     modeGroup.className = "task-mode-group hidden"
 
-    const modeLabel = document.createElement("div")
+    const modeLabel = doc.createElement("div")
     modeLabel.className = "task-mode-label"
     modeLabel.textContent = this.host.tv("addTask.modeLabel", "Mode")
     modeGroup.appendChild(modeLabel)
 
-    const modeOptions = document.createElement("div")
+    const modeOptions = doc.createElement("div")
     modeOptions.className = "task-mode-options"
 
     const buildModeOption = (
@@ -66,14 +75,14 @@ export default class TaskCreationController {
       labelText: string,
       checked: boolean,
     ) => {
-      const wrapper = document.createElement("label")
+      const wrapper = doc.createElement("label")
       wrapper.className = "task-mode-option"
-      const radio = document.createElement("input")
+      const radio = doc.createElement("input")
       radio.type = "radio"
       radio.name = "taskCreationMode"
       radio.value = value
       radio.checked = checked
-      const span = document.createElement("span")
+      const span = doc.createElement("span")
       span.textContent = labelText
       wrapper.appendChild(radio)
       wrapper.appendChild(span)
@@ -129,7 +138,7 @@ export default class TaskCreationController {
         this.host.plugin,
         nameInput,
         nameGroup,
-        undefined,
+        { doc, win },
       )
       await autocomplete.initialize()
       cleanupAutocomplete = () => {

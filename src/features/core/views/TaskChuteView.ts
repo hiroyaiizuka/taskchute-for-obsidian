@@ -288,6 +288,14 @@ export class TaskChuteView
       getCurrentDateString: () => this.getCurrentDateString(),
       app: this.app,
       plugin: this.plugin,
+      getDocumentContext: () => {
+        const doc = this.containerEl?.ownerDocument ?? document
+        const defaultView = (doc.defaultView as (Window & typeof globalThis) | null) ?? null
+        return {
+          doc,
+          win: defaultView ?? window,
+        }
+      },
     })
     this.taskScheduleController = new TaskScheduleController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
