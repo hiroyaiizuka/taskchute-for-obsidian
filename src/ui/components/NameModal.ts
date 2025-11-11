@@ -7,6 +7,10 @@ export interface NameModalOptions {
   submitText: string
   cancelText: string
   closeLabel: string
+  context?: {
+    doc?: Document
+    win?: Window & typeof globalThis
+  }
 }
 
 export interface NameModalHandle {
@@ -23,12 +27,17 @@ export interface NameModalHandle {
   onClose: (handler: () => void) => void
 }
 
-function appendEl<T extends HTMLElement>(parent: HTMLElement, tag: string, options: {
+function appendEl<T extends HTMLElement>(
+  doc: Document,
+  parent: HTMLElement,
+  tag: string,
+  options: {
   cls?: string
   text?: string
   attr?: Record<string, string>
-} = {}): T {
-  const element = document.createElement(tag) as T
+} = {},
+): T {
+  const element = doc.createElement(tag) as T
   if (options.cls) {
     element.classList.add(...options.cls.split(' ').filter(Boolean))
   }
@@ -47,14 +56,19 @@ function appendEl<T extends HTMLElement>(parent: HTMLElement, tag: string, optio
 }
 
 export function createNameModal(options: NameModalOptions): NameModalHandle {
-  const overlay = document.createElement('div')
+  const doc = options.context?.doc ?? document
+  const overlay = doc.createElement('div')
   overlay.className = 'task-modal-overlay'
 
-  const content = appendEl<HTMLDivElement>(overlay, 'div', { cls: 'task-modal-content' })
+  const content = appendEl<HTMLDivElement>(doc, overlay, 'div', {
+    cls: 'task-modal-content',
+  })
 
-  const header = appendEl<HTMLDivElement>(content, 'div', { cls: 'modal-header' })
-  appendEl<HTMLHeadingElement>(header, 'h3', { text: options.title })
-  const closeButton = appendEl<HTMLButtonElement>(header, 'button', {
+  const header = appendEl<HTMLDivElement>(doc, content, 'div', {
+    cls: 'modal-header',
+  })
+  appendEl<HTMLHeadingElement>(doc, header, 'h3', { text: options.title })
+  const closeButton = appendEl<HTMLButtonElement>(doc, header, 'button', {
     cls: 'modal-close-button',
     attr: {
       'aria-label': options.closeLabel,
@@ -64,29 +78,35 @@ export function createNameModal(options: NameModalOptions): NameModalHandle {
   })
   attachCloseButtonIcon(closeButton)
 
-  const form = appendEl<HTMLFormElement>(content, 'form', { cls: 'task-form' })
-  const inputGroup = appendEl<HTMLDivElement>(form, 'div', { cls: 'form-group' })
-  appendEl<HTMLLabelElement>(inputGroup, 'label', {
+  const form = appendEl<HTMLFormElement>(doc, content, 'form', {
+    cls: 'task-form',
+  })
+  const inputGroup = appendEl<HTMLDivElement>(doc, form, 'div', {
+    cls: 'form-group',
+  })
+  appendEl<HTMLLabelElement>(doc, inputGroup, 'label', {
     text: options.label,
     cls: 'form-label',
   })
-  const input = appendEl<HTMLInputElement>(inputGroup, 'input', {
+  const input = appendEl<HTMLInputElement>(doc, inputGroup, 'input', {
     cls: 'form-input',
     attr: { type: 'text', placeholder: options.placeholder },
   })
 
-  const warning = appendEl<HTMLDivElement>(inputGroup, 'div', {
+  const warning = appendEl<HTMLDivElement>(doc, inputGroup, 'div', {
     cls: 'task-name-warning hidden',
     attr: { role: 'alert', 'aria-live': 'polite' },
   })
 
-  const buttonGroup = appendEl<HTMLDivElement>(form, 'div', { cls: 'form-button-group' })
-  const cancelButton = appendEl<HTMLButtonElement>(buttonGroup, 'button', {
+  const buttonGroup = appendEl<HTMLDivElement>(doc, form, 'div', {
+    cls: 'form-button-group',
+  })
+  const cancelButton = appendEl<HTMLButtonElement>(doc, buttonGroup, 'button', {
     cls: 'form-button cancel',
     text: options.cancelText,
     attr: { type: 'button' },
   })
-  const submitButton = appendEl<HTMLButtonElement>(buttonGroup, 'button', {
+  const submitButton = appendEl<HTMLButtonElement>(doc, buttonGroup, 'button', {
     cls: 'form-button create',
     text: options.submitText,
     attr: { type: 'submit' },
@@ -122,7 +142,8 @@ export function createNameModal(options: NameModalOptions): NameModalHandle {
     }
   })
 
-  document.body.appendChild(overlay)
+  const targetBody = doc.body ?? document.body
+  targetBody.appendChild(overlay)
   input.focus()
 
   return {

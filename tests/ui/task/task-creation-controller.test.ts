@@ -1,5 +1,6 @@
 import { Notice, TFile } from 'obsidian'
 import TaskCreationController, { TaskCreationControllerHost } from '../../../src/ui/task/TaskCreationController'
+import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
 import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
 import type { App } from 'obsidian'
 
@@ -130,6 +131,7 @@ describe('TaskCreationController', () => {
       hasInstanceForPathToday: jest.fn(() => false),
       duplicateInstanceForPath: jest.fn().mockResolvedValue(true),
       invalidateDayStateCache: jest.fn(),
+      getDocumentContext: undefined,
     }
 
     return { host, taskCreationService, taskReuseService }
@@ -138,6 +140,7 @@ describe('TaskCreationController', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     ;(Notice as unknown as jest.Mock).mockClear()
+    ;(TaskNameAutocomplete as unknown as jest.Mock).mockClear()
   })
 
   test('showAddTaskModal creates task on submit', async () => {
@@ -186,5 +189,33 @@ describe('TaskCreationController', () => {
     expect(host.duplicateInstanceForPath).toHaveBeenCalledWith('TaskChute/Task/sample.md')
     expect(host.taskReuseService.reuseTaskAtDate).not.toHaveBeenCalled()
     expect(host.invalidateDayStateCache).not.toHaveBeenCalled()
+  })
+
+  test('showAddTaskModal injects host-provided document/window context', async () => {
+    const { host } = createHost()
+    const popoutDoc = document.implementation.createHTMLDocument('popout')
+    const fakeWindow = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      setTimeout: window.setTimeout.bind(window),
+      clearTimeout: window.clearTimeout.bind(window),
+    } as unknown as Window & typeof globalThis
+    host.getDocumentContext = () => ({ doc: popoutDoc, win: fakeWindow })
+
+    const controller = new TaskCreationController(host)
+    await controller.showAddTaskModal()
+
+    expect(popoutDoc.body.querySelector('.task-modal-overlay')).not.toBeNull()
+    expect(document.body.querySelector('.task-modal-overlay')).toBeNull()
+
+    const modeGroup = popoutDoc.querySelector('.task-mode-group') as HTMLElement | null
+    expect(modeGroup).not.toBeNull()
+    expect(modeGroup?.ownerDocument).toBe(popoutDoc)
+
+    const autocompleteMock = TaskNameAutocomplete as unknown as jest.Mock
+    expect(autocompleteMock).toHaveBeenCalled()
+    const ctorArgs = autocompleteMock.mock.calls[0]
+    expect(ctorArgs[3]?.doc).toBe(popoutDoc)
+    expect(ctorArgs[3]?.win).toBe(fakeWindow)
   })
 })
