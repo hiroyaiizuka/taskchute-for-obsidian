@@ -70,7 +70,19 @@ export default class RoutineController {
     }) as HTMLButtonElement
     attachCloseButtonIcon(closeButton)
 
-    const form = modalContent.createEl('form', { cls: 'task-form' })
+    const form = modalContent.createEl('form', { cls: 'task-form' }) as HTMLFormElement
+
+    const preventInputEnterSubmit = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter') {
+        return
+      }
+      const target = event.target
+      if (target instanceof HTMLButtonElement) {
+        return
+      }
+      event.preventDefault()
+    }
+    form.addEventListener('keydown', preventInputEnterSubmit)
     const typeGroup = form.createEl('div', { cls: 'form-group' })
     typeGroup.createEl('label', {
       text: this.tv('forms.routineType', 'Routine type:'),
