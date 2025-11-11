@@ -179,4 +179,37 @@ describe('RoutineController', () => {
     expect(task.routine_weeks).toEqual([1, 3, 'last'])
     expect(task.routine_weekdays).toEqual([1, 4])
   })
+
+  it('prevents Enter key presses inside routine modal inputs from closing the modal', () => {
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay') as HTMLElement | null
+    expect(overlay).not.toBeNull()
+
+    const targets: HTMLElement[] = []
+    const timeInput = overlay?.querySelector('input[type="time"]') as HTMLElement | null
+    const intervalInput = overlay?.querySelector('input[type="number"]') as HTMLElement | null
+    const typeSelect = overlay?.querySelector('select') as HTMLElement | null
+    ;[timeInput, intervalInput, typeSelect].forEach((element) => {
+      if (element) targets.push(element)
+    })
+
+    expect(targets.length).toBeGreaterThan(0)
+
+    targets.forEach((element) => {
+      const enterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      })
+      element.dispatchEvent(enterEvent)
+      expect(enterEvent.defaultPrevented).toBe(true)
+    })
+
+    expect(document.body.contains(overlay!)).toBe(true)
+  })
 })
