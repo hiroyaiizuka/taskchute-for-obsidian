@@ -159,7 +159,10 @@ export class ProjectBoardView extends ItemView {
     const header = container.createEl('div', { cls: 'project-board-view__header' })
     header.createEl('h2', { text: this.translate('projectBoard.heading', 'Project list') })
 
-    const body = container.createEl('div', { cls: 'project-board-view__body' })
+    const body = container.createEl('div', {
+      cls: 'project-board-view__body',
+      attr: { 'data-layout': 'fixed' },
+    })
     const columnsWrapper = body.createEl('div', { cls: 'project-board-columns' })
 
     this.statusDefs.forEach((definition) => {
@@ -188,7 +191,10 @@ export class ProjectBoardView extends ItemView {
   }
 
   private renderColumnCards(parent: HTMLElement, status: ProjectBoardStatus): void {
-    const list = parent.createEl('div', { cls: 'project-board-column__cards' })
+    const list = parent.createEl('div', {
+      cls: 'project-board-column__cards',
+      attr: { 'data-scroll-region': 'cards' },
+    })
     list.addEventListener('dragover', (event) => this.handleDragOver(event, status, list))
     list.addEventListener('dragleave', (event) => this.handleColumnDragLeave(event, list))
     list.addEventListener('drop', (event) => this.handleDrop(event, status, list))

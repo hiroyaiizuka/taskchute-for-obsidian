@@ -304,6 +304,8 @@ export class TaskChuteView
       app: this.app,
       getCurrentDate: () => new Date(this.currentDate),
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      removeDuplicateInstanceFromCurrentDate: (inst) =>
+        this.removeDuplicateInstanceFromCurrentDate(inst),
     })
     this.taskCompletionController = new TaskCompletionController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -718,6 +720,38 @@ export class TaskChuteView
       this.dayStateManager.clear(dateKey)
     } catch (error) {
       console.warn('[TaskChuteView] Failed to invalidate day state cache', error)
+    }
+  }
+
+  private async removeDuplicateInstanceFromCurrentDate(inst: TaskInstance): Promise<void> {
+    try {
+      await this.ensureDayStateForCurrentDate()
+      const dayState = this.getCurrentDayState()
+      const duplicates = Array.isArray(dayState.duplicatedInstances)
+        ? dayState.duplicatedInstances
+        : []
+      if (!duplicates.length) {
+        return
+      }
+      const dateKey = this.getCurrentDateString()
+      const instanceId = inst.instanceId
+      const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+      const filtered = duplicates.filter((entry) => {
+        if (!entry) return true
+        if (instanceId && entry.instanceId === instanceId) {
+          return false
+        }
+        if (!instanceId && taskPath && entry.originalPath === taskPath) {
+          return false
+        }
+        return true
+      })
+      if (filtered.length !== duplicates.length) {
+        dayState.duplicatedInstances = filtered
+        await this.persistDayState(dateKey)
+      }
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to remove duplicate entry for moved task', error)
     }
   }
 

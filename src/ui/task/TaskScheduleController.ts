@@ -10,6 +10,7 @@ export interface TaskScheduleControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
   getInstanceDisplayTitle: (inst: TaskInstance) => string
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
+  removeDuplicateInstanceFromCurrentDate?: (inst: TaskInstance) => Promise<void>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -113,6 +114,9 @@ export default class TaskScheduleController {
           date: dateStr,
         }),
       )
+      if (this.host.removeDuplicateInstanceFromCurrentDate) {
+        await this.host.removeDuplicateInstanceFromCurrentDate(inst)
+      }
       await this.host.reloadTasksAndRestore()
     } catch (error) {
       console.error('[TaskScheduleController] Failed to move task', error)
