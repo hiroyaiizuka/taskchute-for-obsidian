@@ -188,4 +188,28 @@ describe('ProjectBoardView', () => {
     expect(cardsAfter.length).toBe(12)
     expect(view.containerEl.querySelector('.project-board-column__load-more')).toBeNull()
   })
+
+  test('reserves fixed-height body and scrollable card regions', () => {
+    const items = Array.from({ length: 15 }, (_, index) => createItem('in-progress', `Project ${index + 1}`))
+    const { view } = createView({ items })
+    const mutable = view as MutableView
+    mutable.items = items
+    mutable.statusDefs = [
+      { id: 'todo', label: 'To Do' },
+      { id: 'in-progress', label: 'In Progress' },
+      { id: 'done', label: 'Done' },
+    ]
+
+    mutable.render()
+
+    const body = view.containerEl.querySelector('.project-board-view__body') as HTMLElement
+    expect(body).not.toBeNull()
+    expect(body?.getAttribute('data-layout')).toBe('fixed')
+
+    const columns = Array.from(view.containerEl.querySelectorAll('.project-board-column__cards'))
+    expect(columns.length).toBeGreaterThan(0)
+    columns.forEach((list) => {
+      expect(list.getAttribute('data-scroll-region')).toBe('cards')
+    })
+  })
 })
