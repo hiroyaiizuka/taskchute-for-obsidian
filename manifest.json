@@ -5,5 +5,5 @@
   "minAppVersion": "1.6.7",
   "author": "Hiroya Iizuka",
   "description": "Task-based time tracker that lists task notes, records start and stop times, and writes each session to your daily note.",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }
