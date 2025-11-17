@@ -1,5 +1,6 @@
 import { TFile } from 'obsidian';
 import { ExecutionLogService } from '../../src/features/log/services/ExecutionLogService';
+import { DEVICE_ID_STORAGE_KEY } from '../../src/services/DeviceIdentityService';
 import type { TaskInstance, TaskChutePluginLike } from '../../src/types';
 
 type StoredLogFile = {
@@ -18,6 +19,7 @@ function createTFile(path: string) {
 
 function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
   const store = new Map<string, StoredLogFile>();
+  const deltaStore = new Map<string, string>();
 
   const pathManager = {
     getTaskFolderPath: () => 'TASKS',
@@ -30,6 +32,18 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
       .fn()
       .mockImplementation(async (year: string | number) => `LOGS/${year}`),
     validatePath: () => ({ valid: true }),
+  };
+
+  const adapter = {
+    append: jest.fn(async (path: string, data: string) => {
+      const prev = deltaStore.get(path) ?? '';
+      deltaStore.set(path, prev + data);
+    }),
+    read: jest.fn(async (path: string) => deltaStore.get(path) ?? ''),
+    write: jest.fn(async (path: string, data: string) => {
+      deltaStore.set(path, data);
+    }),
+    exists: jest.fn(async (path: string) => deltaStore.has(path)),
   };
 
   const vault = {
@@ -52,6 +66,7 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
       const parsed = JSON.parse(content) as StoredLogFile;
       store.set(file.path, parsed);
     }),
+    adapter,
   };
   if (!options.disableGetFiles) {
     (vault as { getFiles?: () => TFile[] }).getFiles = jest.fn(() =>
@@ -83,8 +98,21 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
     },
   };
 
-  return { plugin, store, pathManager, vault };
+  return { plugin, store, pathManager, vault, deltaStore, adapter };
 }
+
+function primeDeviceId(id: string | null): void {
+  if (typeof window === 'undefined' || !window.localStorage) return
+  if (id === null) {
+    window.localStorage.removeItem(DEVICE_ID_STORAGE_KEY)
+  } else {
+    window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, id)
+  }
+}
+
+beforeEach(() => {
+  primeDeviceId(null)
+})
 
 function createInstance(overrides: Partial<TaskInstance> = {}): TaskInstance {
   const start = overrides.startTime ?? new Date('2025-09-24T08:00:00');
@@ -96,6 +124,7 @@ function createInstance(overrides: Partial<TaskInstance> = {}): TaskInstance {
       name: 'Sample Task',
       path: 'Tasks/sample.md',
       isRoutine: false,
+      taskId: 'tc-task-sample',
     },
     instanceId: 'inst-1',
     state: 'done',
@@ -151,6 +180,9 @@ describe('ExecutionLogService.saveTaskLog', () => {
     expect(data.taskExecutions['2025-09-24'][0]).toEqual(
       expect.objectContaining({ instanceId: 'inst-1', slotKey: '8:00-12:00' }),
     );
+    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
+      expect.objectContaining({ taskId: 'tc-task-sample' }),
+    );
 
     const updated = createInstance({
       instanceId: 'inst-1',
@@ -166,6 +198,82 @@ describe('ExecutionLogService.saveTaskLog', () => {
       expect.objectContaining({ instanceId: 'inst-1', slotKey: '12:00-16:00' }),
     );
     expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
+  });
+
+  test('writes delta record with device id metadata', async () => {
+    primeDeviceId('device-alpha')
+    const { plugin, deltaStore } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    const inst = createInstance({
+      instanceId: 'inst-delta',
+      startTime: new Date('2025-10-01T06:00:00Z'),
+      stopTime: new Date('2025-10-01T06:30:00Z'),
+    });
+
+    await service.saveTaskLog(inst, 1800);
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-10.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const [line] = raw!.trim().split('\n');
+    const record = JSON.parse(line);
+    expect(record).toEqual(
+      expect.objectContaining({
+        deviceId: 'device-alpha',
+        monthKey: '2025-10',
+        dateKey: '2025-10-01',
+        op: 'upsert',
+      }),
+    );
+    expect(record.payload).toEqual(
+      expect.objectContaining({ instanceId: 'inst-delta', taskId: 'tc-task-sample' }),
+    );
+  });
+});
+
+describe('ExecutionLogService.removeTaskLogForInstanceOnDate', () => {
+  test('emits delete delta and requests reconciliation without mutating snapshot directly', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, store, deltaStore } = createPluginStub();
+    const logPath = 'LOGS/2025-09-tasks.json';
+    store.set(logPath, {
+      taskExecutions: {
+        '2025-09-24': [
+          { instanceId: 'inst-keep', taskId: 'tc-task-keep', durationSec: 600, stopTime: '09:10' },
+          { instanceId: 'inst-drop', taskId: 'tc-task-drop', durationSec: 900, stopTime: '09:30' },
+        ],
+      },
+      dailySummary: {
+        '2025-09-24': {
+          totalMinutes: 25,
+          totalTasks: 2,
+          completedTasks: 2,
+          procrastinatedTasks: 0,
+          completionRate: 1,
+        },
+      },
+    });
+
+    const service = new ExecutionLogService(plugin);
+    const enqueueSpy = jest.spyOn(service as unknown as { enqueueReconcile(): void }, 'enqueueReconcile');
+    enqueueSpy.mockClear();
+
+    const snapshotBefore = JSON.parse(JSON.stringify(store.get(logPath)));
+
+    await service.removeTaskLogForInstanceOnDate('inst-drop', '2025-09-24', 'tc-task-drop', 'TASKS/drop.md');
+
+    expect(store.get(logPath)).toEqual(snapshotBefore);
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-09.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const record = JSON.parse(raw!.trim().split('\n').pop()!);
+    expect(record.op).toBe('delete');
+    expect(record.payload).toEqual(
+      expect.objectContaining({ instanceId: 'inst-drop', taskId: 'tc-task-drop', taskPath: 'TASKS/drop.md' }),
+    );
+    expect(enqueueSpy).toHaveBeenCalled();
   });
 });
 

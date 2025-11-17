@@ -16,7 +16,7 @@ export interface TaskTimeControllerHost {
   }
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
   saveRunningTasksState: () => Promise<void>
-  removeTaskLogForInstanceOnCurrentDate: (instanceId: string) => Promise<void>
+  removeTaskLogForInstanceOnCurrentDate: (instanceId: string, taskId?: string) => Promise<void>
   getCurrentDate: () => Date
 }
 
@@ -62,7 +62,7 @@ export default class TaskTimeController {
       inst.stopTime = undefined
 
       if (inst.instanceId) {
-        await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId)
+        await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)
       }
 
       await this.host.saveRunningTasksState()
@@ -136,7 +136,7 @@ export default class TaskTimeController {
     const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10))
 
     if (inst.instanceId) {
-      await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId)
+      await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)
     }
 
     inst.state = 'running'

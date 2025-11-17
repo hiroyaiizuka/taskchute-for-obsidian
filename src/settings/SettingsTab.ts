@@ -26,9 +26,68 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     containerEl.classList.add('taskchute-settings-pane');
 
     this.renderStorageSection(containerEl);
+    this.renderLogBackupSection(containerEl);
     this.renderReviewTemplateSection(containerEl);
     this.renderProjectCandidateSection(containerEl);
     this.renderFeaturesSection(containerEl);
+  }
+
+  private renderLogBackupSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t('settings.logBackup.heading', 'Log'))
+      .setHeading();
+
+    const intervalSetting = new Setting(container)
+      .setName(t('settings.logBackup.intervalName', 'Backup interval (hours)'))
+      .setDesc(
+        t(
+          'settings.logBackup.intervalDesc',
+          'Only create JSON backups if the previous backup is older than this many hours.',
+        ),
+      )
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.step = '1';
+        const current = this.plugin.settings.backupIntervalHours ?? 24;
+        text
+          .setPlaceholder('24')
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw);
+            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 24;
+            this.plugin.settings.backupIntervalHours = normalized;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    intervalSetting.controlEl?.addClass('taskchute-number-input');
+
+    const retentionSetting = new Setting(container)
+      .setName(t('settings.logBackup.retentionName', 'Backup retention (days)'))
+      .setDesc(
+        t(
+          'settings.logBackup.retentionDesc',
+          'Older backups will be deleted automatically after reconciliation.',
+        ),
+      )
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.step = '1';
+        const current = this.plugin.settings.backupRetentionDays ?? 30;
+        text
+          .setPlaceholder('30')
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw);
+            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 30;
+            this.plugin.settings.backupRetentionDays = normalized;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    retentionSetting.controlEl?.addClass('taskchute-number-input');
   }
 
   private renderReviewTemplateSection(container: HTMLElement): void {

@@ -1,14 +1,15 @@
-import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian'
+import { App, Notice, TFile, WorkspaceLeaf, normalizePath } from 'obsidian'
 
 import { getCurrentLocale, t } from '../../../i18n'
 
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../../types'
 import { HeatmapService } from '../services/HeatmapService'
+import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 
 interface LogPathManager {
   getLogDataPath(): string;
   getLogYearPath(year: number | string): string;
-  ensureYearFolder(year: number | string): Promise<string>;
+  ensureFolderExists(path: string): Promise<void>;
   getReviewDataPath(): string;
 }
 
@@ -180,10 +181,15 @@ export class LogView {
 
   private async removeCachedYearFile(year: number): Promise<void> {
     try {
-      const yearPath = this.plugin.pathManager.getLogYearPath(year)
-      const file = this.plugin.app.vault.getAbstractFileByPath(`${yearPath}/yearly-heatmap.json`)
-      if (file instanceof TFile) {
-        await this.plugin.app.fileManager.trashFile(file)
+      const logBase = this.plugin.pathManager.getLogDataPath()
+      const visiblePath = normalizePath(`${logBase}/${LOG_HEATMAP_FOLDER}/${year}/yearly-heatmap.json`)
+      const hiddenPath = normalizePath(`${logBase}/${LOG_HEATMAP_LEGACY_FOLDER}/${year}/yearly-heatmap.json`)
+      const legacyPath = normalizePath(`${this.plugin.pathManager.getLogYearPath(year)}/yearly-heatmap.json`)
+      for (const targetPath of [visiblePath, hiddenPath, legacyPath]) {
+        const file = this.plugin.app.vault.getAbstractFileByPath(targetPath)
+        if (file instanceof TFile) {
+          await this.plugin.app.fileManager.trashFile(file)
+        }
       }
     } catch (error) {
       console.warn('Failed to delete cached heatmap file', error)
@@ -229,7 +235,6 @@ export class LogView {
     const cached = this.dataCache.get(year);
     if (cached) return cached;
 
-    await this.plugin.pathManager.ensureYearFolder(year);
     const data = await this.heatmapService.loadYearlyData(year);
     this.dataCache.set(year, data);
     return data;

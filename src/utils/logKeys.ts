@@ -1,4 +1,5 @@
 export interface ExecutionKeySource {
+  taskId?: unknown
   taskPath?: unknown
   taskName?: unknown
   taskTitle?: unknown
@@ -26,6 +27,16 @@ export const computeExecutionInstanceKey = (entry: ExecutionKeySource): string =
   const instanceId = toStringOrNull(entry.instanceId)
   if (instanceId) {
     return instanceId
+  }
+
+  const taskId = toStringOrNull(entry.taskId)
+  if (taskId) {
+    const start = toStringOrNull(entry.startTime)
+    const stop = toStringOrNull(entry.stopTime)
+    if (start && stop) {
+      return `${taskId}::${start}-${stop}`
+    }
+    return taskId
   }
 
   const base =

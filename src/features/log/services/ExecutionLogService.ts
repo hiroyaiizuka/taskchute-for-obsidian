@@ -1,6 +1,7 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../../../types';
 import type { TaskInstance } from '../../../types';
+import { DeviceIdentityService } from '../../../services/DeviceIdentityService';
 import { computeExecutionInstanceKey } from '../../../utils/logKeys';
 import {
   createEmptyTaskLogSnapshot,
@@ -9,9 +10,25 @@ import {
   parseTaskLogSnapshot,
 } from '../../../utils/executionLogUtils';
 import type { TaskLogEntry, TaskLogSnapshot } from '../../../types/ExecutionLog';
+import { ExecutionLogDeltaWriter, type ExecutionLogDeltaOperation } from './ExecutionLogDeltaWriter';
+import { RecordsRebuilder, type RecordsRebuildStats } from './RecordsRebuilder';
+import { LogReconciler } from './LogReconciler';
 
 export class ExecutionLogService {
-  constructor(private plugin: TaskChutePluginLike) {}
+  private readonly deviceIdentity: DeviceIdentityService;
+  private readonly deltaWriter: ExecutionLogDeltaWriter;
+  private readonly logReconciler: LogReconciler;
+  private readonly recordsRebuilder: RecordsRebuilder;
+  private reconcilePromise: Promise<void> | null = null;
+  private reconcilePending = false;
+
+  constructor(private plugin: TaskChutePluginLike) {
+    this.deviceIdentity = new DeviceIdentityService(plugin);
+    this.deltaWriter = new ExecutionLogDeltaWriter(plugin, this.deviceIdentity);
+    this.logReconciler = new LogReconciler(plugin);
+    this.recordsRebuilder = new RecordsRebuilder(plugin);
+    this.enqueueReconcile();
+  }
 
   private toHMS(d: Date): string {
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -46,6 +63,7 @@ export class ExecutionLogService {
 
   async saveTaskLog(inst: TaskInstance, durationSec: number): Promise<void> {
     if (!inst.startTime || !inst.stopTime) return;
+    const deviceId = await this.deviceIdentity.getOrCreateDeviceId();
     const start = new Date(inst.startTime);
     const monthKey = this.getMonthKey(start);
     const dateKey = this.getDateKey(start);
@@ -78,11 +96,13 @@ export class ExecutionLogService {
     const exec: TaskLogEntry = {
       taskTitle: this.resolveTaskTitle(inst),
       taskPath: inst.task.path,
+      taskId: inst.task.taskId,
       instanceId: inst.instanceId,
       slotKey: inst.slotKey,
       startTime: this.toHMS(start),
       stopTime: this.toHMS(inst.stopTime!),
       durationSec,
+      deviceId,
     };
 
     const arr: TaskLogEntry[] = json.taskExecutions[dateKey];
@@ -113,57 +133,52 @@ export class ExecutionLogService {
       completionRate,
     };
 
-    if (!file) {
-      return;
+    if (file) {
+      await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
     }
-    await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
+
+    await this.appendDeltaRecord({ monthKey, dateKey, entry: exec });
+    this.enqueueReconcile();
   }
 
-  async removeTaskLogForInstanceOnDate(instanceId: string, dateKey: string): Promise<void> {
+  async rebuildFromRecords(): Promise<RecordsRebuildStats> {
+    const stats = await this.recordsRebuilder.rebuildAllFromRecords();
+    await this.ensureReconciled();
+    return stats;
+  }
+
+  async removeTaskLogForInstanceOnDate(
+    instanceId: string,
+    dateKey: string,
+    taskId?: string,
+    taskPath?: string,
+  ): Promise<void> {
+    if (!instanceId && !taskId) {
+      return
+    }
     try {
-      const [y, m] = dateKey.split('-');
-      const monthKey = `${y}-${m}`;
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-
-      const maybeFile = this.plugin.app.vault.getAbstractFileByPath(logPath);
-      if (!maybeFile || !(maybeFile instanceof TFile)) return;
-
-      const raw = await this.plugin.app.vault.read(maybeFile);
-      if (!raw) return;
-
-      const json = parseTaskLogSnapshot(raw);
-      const dayEntries = json.taskExecutions[dateKey];
-      if (!Array.isArray(dayEntries)) return;
-
-      const filtered = dayEntries.filter((entry) => entry.instanceId !== instanceId);
-      json.taskExecutions[dateKey] = filtered;
-
-      const totalMinutes = minutesFromLogEntries(filtered);
-      const completedSet = new Set<string>();
-      for (const entry of filtered) {
-        if (isExecutionLogEntryCompleted(entry)) {
-          completedSet.add(computeExecutionInstanceKey(entry));
-        }
+      const [y, m] = dateKey.split('-')
+      const monthKey = `${y}-${m}`
+      const entry: TaskLogEntry = {}
+      if (instanceId) {
+        entry.instanceId = instanceId
       }
-      const completedTasks = completedSet.size;
-      const prev = json.dailySummary[dateKey] ?? {};
-      const totalTasks = typeof prev.totalTasks === 'number' ? prev.totalTasks : Math.max(completedTasks, 0);
-      const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
-      const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
+      if (taskId) {
+        entry.taskId = taskId
+      }
+      if (taskPath) {
+        entry.taskPath = taskPath
+      }
 
-      json.dailySummary[dateKey] = {
-        ...prev,
-        totalMinutes,
-        totalTasks,
-        completedTasks,
-        procrastinatedTasks,
-        completionRate,
-      };
-
-      await this.plugin.app.vault.modify(maybeFile, JSON.stringify(json, null, 2));
+      await this.appendDeltaRecord({
+        monthKey,
+        dateKey,
+        entry,
+        operation: 'delete',
+      })
+      this.enqueueReconcile()
     } catch (error) {
-      console.warn('[ExecutionLogService] Failed to remove task log entry', error);
+      console.warn('[ExecutionLogService] Failed to remove task log entry', error)
     }
   }
 
@@ -330,5 +345,56 @@ export class ExecutionLogService {
       }
     }
     return files;
+  }
+
+  private async appendDeltaRecord(payload: {
+    monthKey: string;
+    dateKey: string;
+    entry: TaskLogEntry;
+    operation?: ExecutionLogDeltaOperation;
+  }): Promise<void> {
+    try {
+      await this.deltaWriter.appendEntry({
+        monthKey: payload.monthKey,
+        dateKey: payload.dateKey,
+        entry: payload.entry,
+        operation: payload.operation,
+      });
+    } catch (error) {
+      console.warn('[ExecutionLogService] Failed to append delta record', error);
+    }
+  }
+
+  private enqueueReconcile(): void {
+    if (this.reconcilePromise) {
+      this.reconcilePending = true;
+      return;
+    }
+    this.reconcilePromise = this.logReconciler
+      .reconcilePendingDeltas()
+      .catch((error) => {
+        console.warn('[ExecutionLogService] Failed to reconcile logs', error);
+      })
+      .finally(() => {
+        this.reconcilePromise = null;
+        if (this.reconcilePending) {
+          this.reconcilePending = false;
+          this.enqueueReconcile();
+        }
+      });
+  }
+
+  async ensureReconciled(): Promise<void> {
+    if (!this.reconcilePromise) {
+      this.enqueueReconcile();
+      if (!this.reconcilePromise) {
+        return;
+      }
+    }
+    try {
+      await this.reconcilePromise;
+    } catch {
+      // already logged in enqueueReconcile
+    }
   }
 }

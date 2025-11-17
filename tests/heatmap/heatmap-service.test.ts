@@ -9,6 +9,35 @@ function createTFile(path: string) {
   return file
 }
 
+function createPathManager() {
+  return {
+    getLogDataPath: () => 'LOGS',
+    getLogYearPath: (year: number | string) => `LOGS/${year}`,
+    ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
+    ensureFolderExists: jest.fn(async () => undefined),
+    getReviewDataPath: () => 'REVIEWS',
+  }
+}
+
+function createVault(store: Map<string, string>) {
+  return {
+    getAbstractFileByPath: jest.fn((path: string) => {
+      if (store.has(path)) {
+        return createTFile(path)
+      }
+      return null
+    }),
+    read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+    create: jest.fn(async (path: string, content: string) => {
+      store.set(path, content)
+      return createTFile(path)
+    }),
+    modify: jest.fn(async (file: TFile, content: string) => {
+      store.set(file.path, content)
+    }),
+  }
+}
+
 describe('HeatmapService', () => {
   beforeAll(() => {
     jest.useFakeTimers()
@@ -25,29 +54,9 @@ describe('HeatmapService', () => {
   test('omits future days from yearly data', async () => {
     const store = new Map<string, string>()
 
-    const pathManager = {
-      getLogDataPath: () => 'LOGS',
-      getLogYearPath: (year: number | string) => `LOGS/${year}`,
-      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
-      getReviewDataPath: () => 'REVIEWS',
-    }
+    const pathManager = createPathManager()
 
-    const vault = {
-      getAbstractFileByPath: jest.fn((path: string) => {
-        if (store.has(path)) {
-          return createTFile(path)
-        }
-        return null
-      }),
-      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
-      create: jest.fn(async (path: string, content: string) => {
-        store.set(path, content)
-        return createTFile(path)
-      }),
-      modify: jest.fn(async (file: TFile, content: string) => {
-        store.set(file.path, content)
-      }),
-    }
+    const vault = createVault(store)
 
     const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
     const service = new HeatmapService(plugin)
@@ -68,37 +77,69 @@ describe('HeatmapService', () => {
     expect(data.days['2025-09-25']).toBeDefined()
     expect(data.days['2025-09-27']).toBeUndefined()
 
-    const yearlyPath = 'LOGS/2025/yearly-heatmap.json'
+    const yearlyPath = 'LOGS/heatmap/2025/yearly-heatmap.json'
     const written = JSON.parse(store.get(yearlyPath) ?? '{}')
     expect(written.days?.['2025-09-27']).toBeUndefined()
+  })
+
+  test('loadYearlyData migrates legacy `.heatmap` cache into visible folder', async () => {
+    const store = new Map<string, string>()
+    const pathManager = createPathManager()
+    const vault = createVault(store)
+    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const service = new HeatmapService(plugin)
+
+    const legacyPath = 'LOGS/.heatmap/2024/yearly-heatmap.json'
+    const legacyPayload = {
+      year: 2024,
+      days: {
+        '2024-01-01': { totalTasks: 1, completedTasks: 1, procrastinatedTasks: 0, completionRate: 1 },
+      },
+      metadata: { version: '1.0', lastUpdated: '2024-01-02T00:00:00.000Z' },
+    }
+    store.set(legacyPath, JSON.stringify(legacyPayload))
+
+    const data = await service.loadYearlyData(2024)
+    expect(data.days['2024-01-01']?.totalTasks).toBe(1)
+
+    const visiblePath = 'LOGS/heatmap/2024/yearly-heatmap.json'
+    expect(store.has(visiblePath)).toBe(true)
+    const migrated = JSON.parse(store.get(visiblePath) ?? '{}')
+    expect(migrated.days?.['2024-01-01']?.completedTasks).toBe(1)
+  })
+
+  test('loadYearlyData migrates legacy year-folder cache into heatmap folder', async () => {
+    const store = new Map<string, string>()
+    const pathManager = createPathManager()
+    const vault = createVault(store)
+    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const service = new HeatmapService(plugin)
+
+    const legacyPath = 'LOGS/2023/yearly-heatmap.json'
+    store.set(
+      legacyPath,
+      JSON.stringify({
+        year: 2023,
+        days: { '2023-02-02': { totalTasks: 2, completedTasks: 1, procrastinatedTasks: 1, completionRate: 0.5 } },
+        metadata: { version: '1.0' },
+      }),
+    )
+
+    const data = await service.loadYearlyData(2023)
+    expect(data.days['2023-02-02']?.totalTasks).toBe(2)
+
+    const visiblePath = 'LOGS/heatmap/2023/yearly-heatmap.json'
+    expect(store.has(visiblePath)).toBe(true)
+    const migrated = JSON.parse(store.get(visiblePath) ?? '{}')
+    expect(migrated.days?.['2023-02-02']?.procrastinatedTasks).toBe(1)
   })
 
   test('recalculates completed tasks from executions when summary is stale', async () => {
     const store = new Map<string, string>()
 
-    const pathManager = {
-      getLogDataPath: () => 'LOGS',
-      getLogYearPath: (year: number | string) => `LOGS/${year}`,
-      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
-      getReviewDataPath: () => 'REVIEWS',
-    }
+    const pathManager = createPathManager()
 
-    const vault = {
-      getAbstractFileByPath: jest.fn((path: string) => {
-        if (store.has(path)) {
-          return createTFile(path)
-        }
-        return null
-      }),
-      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
-      create: jest.fn(async (path: string, content: string) => {
-        store.set(path, content)
-        return createTFile(path)
-      }),
-      modify: jest.fn(async (file: TFile, content: string) => {
-        store.set(file.path, content)
-      }),
-    }
+    const vault = createVault(store)
 
     const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
     const service = new HeatmapService(plugin)
@@ -154,12 +195,7 @@ describe('HeatmapService', () => {
   })
 
   test('calculateDailyStats distinguishes incomplete tasks', () => {
-    const pathManager = {
-      getLogDataPath: () => 'LOGS',
-      getLogYearPath: (year: number | string) => `LOGS/${year}`,
-      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
-      getReviewDataPath: () => 'REVIEWS',
-    }
+    const pathManager = createPathManager()
 
     const vault = {
       getAbstractFileByPath: jest.fn(),
@@ -212,29 +248,9 @@ describe('HeatmapService', () => {
   test('loadDayDetail returns satisfaction, averages, and sorted executions', async () => {
     const store = new Map<string, string>()
 
-    const pathManager = {
-      getLogDataPath: () => 'LOGS',
-      getLogYearPath: (year: number | string) => `LOGS/${year}`,
-      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
-      getReviewDataPath: () => 'REVIEWS',
-    }
+    const pathManager = createPathManager()
 
-    const vault = {
-      getAbstractFileByPath: jest.fn((path: string) => {
-        if (store.has(path)) {
-          return createTFile(path)
-        }
-        return null
-      }),
-      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
-      create: jest.fn(async (path: string, content: string) => {
-        store.set(path, content)
-        return createTFile(path)
-      }),
-      modify: jest.fn(async (file: TFile, content: string) => {
-        store.set(file.path, content)
-      }),
-    }
+    const vault = createVault(store)
 
     const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
     const service = new HeatmapService(plugin)
@@ -307,12 +323,7 @@ describe('HeatmapService', () => {
   })
 
   test('loadDayDetail returns null for future dates', async () => {
-    const pathManager = {
-      getLogDataPath: () => 'LOGS',
-      getLogYearPath: (year: number | string) => `LOGS/${year}`,
-      ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
-      getReviewDataPath: () => 'REVIEWS',
-    }
+    const pathManager = createPathManager()
 
     const vault = {
       getAbstractFileByPath: jest.fn(() => null),

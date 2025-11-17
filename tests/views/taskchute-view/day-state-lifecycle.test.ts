@@ -8,6 +8,7 @@ import {
   TaskInstance,
 } from '../../../src/types';
 import { WorkspaceLeaf, TFile } from 'obsidian';
+import DayStateStoreService from '../../../src/services/DayStateStoreService';
 import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal';
 import { ReviewService } from '../../../src/features/review/services/ReviewService';
 import { LogView } from '../../../src/features/log/views/LogView';
@@ -167,13 +168,16 @@ function createView() {
 }
 
 function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
+  const defaultPath = typeof overrides.path === 'string' ? overrides.path : 'TASKS/base.md'
+  const defaultTaskId = typeof overrides.taskId === 'string' ? overrides.taskId : `tc-task-${defaultPath.replace(/[^a-z0-9]/gi, '-')}`
   return {
     file: null,
     frontmatter: {},
-    path: 'TASKS/base.md',
+    path: defaultPath,
     name: 'Base Task',
     displayTitle: 'Base Task',
     isRoutine: false,
+    taskId: defaultTaskId,
     ...overrides,
   } as TaskData;
 }
@@ -658,6 +662,7 @@ describe('TaskChuteView persistSlotAssignment', () => {
     (view as unknown as { persistSlotAssignment: (inst: TaskInstance) => void }).persistSlotAssignment(instance);
 
     expect(dayState.slotOverrides[routineTask.path]).toBeUndefined();
+    expect(dayState.slotOverrides[routineTask.taskId!]).toBeUndefined();
   });
 
   test('persists non-routine slot assignment into plugin settings', async () => {
@@ -672,7 +677,8 @@ describe('TaskChuteView persistSlotAssignment', () => {
 
     (view as unknown as { persistSlotAssignment: (inst: TaskInstance) => void }).persistSlotAssignment(instance);
 
-    expect(plugin.settings.slotKeys[task.path]).toBe('12:00-16:00');
+    expect(plugin.settings.slotKeys[task.taskId!]).toBe('12:00-16:00');
+    expect(plugin.settings.slotKeys[task.path]).toBeUndefined();
     expect(plugin.saveSettings).toHaveBeenCalled();
   });
 
@@ -1422,6 +1428,9 @@ describe('TaskChuteView execution log integration', () => {
       stopTime: new Date('2025-01-01T05:00:00.000Z'),
     });
 
+    view.taskInstances = [instance];
+    view.currentInstance = instance;
+
     const removeTaskLogForInstanceOnDate = jest.fn().mockResolvedValue(undefined);
     (view as Mutable<TaskChuteView>).executionLogService = {
       saveTaskLog: jest.fn(),
@@ -1440,7 +1449,12 @@ describe('TaskChuteView execution log integration', () => {
     expect(instance.state).toBe('idle');
     expect(instance.startTime).toBeUndefined();
     expect(instance.stopTime).toBeUndefined();
-    expect(removeTaskLogForInstanceOnDate).toHaveBeenCalledWith('idle-reset', '2025-01-01');
+    expect(removeTaskLogForInstanceOnDate).toHaveBeenCalledWith(
+      'idle-reset',
+      '2025-01-01',
+      task.taskId,
+      task.path,
+    );
     expect(saveRunningSpy).toHaveBeenCalled();
     expect(renderSpy).toHaveBeenCalled();
   });
@@ -1767,5 +1781,68 @@ describe('TaskChuteView keyboard shortcuts', () => {
 
     const event = createShortcutEvent('c', { ctrl: true });
     expect(keyboardController.shouldIgnore(event)).toBe(true);
+  })
+})
+
+describe('TaskChuteView restoreDeletedTask', () => {
+  test('removes matching entry and reloads view', async () => {
+    const { view } = createView()
+    const task = createTaskData({ taskId: 'tc-task-restore', displayTitle: 'Restore me' })
+    view.tasks = [task]
+
+    const deletedEntry = { taskId: 'tc-task-restore', deletionType: 'permanent' }
+    const setDeleted = jest.fn()
+    const persist = jest.fn().mockResolvedValue(undefined)
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [deletedEntry])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      persist,
+      getCurrent: jest.fn(() => createDayState()),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
+
+    expect(restored).toBe(true)
+    expect(setDeleted).toHaveBeenCalledWith([], '2025-01-01')
+    expect(persist).toHaveBeenCalledWith('2025-01-01')
+    expect(view.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: false })
+  })
+
+  test('returns false when entry is missing', async () => {
+    const { view } = createView()
+    const setDeleted = jest.fn()
+    const persist = jest.fn()
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [
+      { taskId: 'tc-task-other', deletionType: 'permanent' },
+    ])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      persist,
+      getCurrent: jest.fn(() => createDayState()),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const restored = await view.restoreDeletedTask(
+      { taskId: 'tc-task-missing', deletionType: 'permanent' },
+      '2025-01-01',
+    )
+
+    expect(restored).toBe(false)
+    expect(setDeleted).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+    expect(view.reloadTasksAndRestore).not.toHaveBeenCalled()
   })
 })

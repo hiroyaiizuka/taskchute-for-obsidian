@@ -39,14 +39,16 @@ describe('TaskReuseService', () => {
       slotOverrides: {},
     }
 
+    const metadataCacheMock = {
+      getFileCache: jest.fn().mockReturnValue({ frontmatter: { taskId: 'tc-task-sample' } }),
+    }
+
     return {
       app: {
         vault: {
           getAbstractFileByPath: jest.fn().mockReturnValue(file),
         },
-        metadataCache: {
-          getFileCache: jest.fn(),
-        },
+        metadataCache: metadataCacheMock,
         fileManager: {
           processFrontMatter: jest.fn(),
           trashFile: jest.fn(),
@@ -82,6 +84,7 @@ describe('TaskReuseService', () => {
     expect(dayState.duplicatedInstances[0]).toMatchObject({
       originalPath: 'TaskChute/Task/sample.md',
       slotKey: 'none',
+      originalTaskId: 'tc-task-sample',
     })
     expect(plugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled()
     expect(dateService.saveDay).toHaveBeenCalled()

@@ -1,4 +1,10 @@
+// Execution log sync redesign introduces delta metadata (entryId/deviceId/recordedAt).
+// Additional fields (e.g., deltaRevision) can be added later if reconciliation requires it.
 export interface TaskLogEntry {
+  entryId?: string
+  deviceId?: string
+  recordedAt?: string
+  taskId?: string
   taskTitle?: string
   taskName?: string
   taskPath?: string
@@ -28,5 +34,14 @@ export interface TaskLogSnapshot {
   taskExecutions: Record<string, TaskLogEntry[]>
   dailySummary: Record<string, DailySummaryEntry>
   totalTasks?: number
+  meta?: TaskLogSnapshotMeta
+  [key: string]: unknown
+}
+
+export interface TaskLogSnapshotMeta {
+  revision?: number
+  lastProcessedAt?: string
+  processedCursor?: Record<string, number>
+  lastBackupAt?: string
   [key: string]: unknown
 }

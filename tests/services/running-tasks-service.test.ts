@@ -21,6 +21,7 @@ describe('RunningTasksService.restoreForDate', () => {
     path: overrides.path ?? 'TASKS/routine.md',
     name: overrides.name ?? 'Routine Task',
     isRoutine: overrides.isRoutine ?? true,
+    taskId: overrides.taskId ?? `tc-task-${(overrides.path ?? 'TASKS/routine.md').replace(/[^a-z0-9]/gi, '-')}`,
   })
 
   const createRecord = (overrides: Partial<RunningTaskRecord> = {}): RunningTaskRecord => ({

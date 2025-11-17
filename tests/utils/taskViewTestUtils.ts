@@ -17,6 +17,7 @@ const DEFAULT_ROUTINE_METADATA = {
   routine_enabled: true,
   routine_start: '2025-09-24',
   開始時刻: '08:00',
+  taskId: 'tc-task-routine',
 };
 
 function createMockTFile(path: string, basename: string, extension: string): TFile {
@@ -72,7 +73,7 @@ interface TaskChuteViewContextStub {
   getDayStateSnapshot: jest.Mock<DayState, []>;
   getDeletedInstances: jest.Mock<DayState['deletedInstances'], []>;
   isInstanceHidden: jest.Mock<boolean, [string?, string?, string?]>;
-  isInstanceDeleted: jest.Mock<boolean, [string?, string?, string?]>;
+  isInstanceDeleted: jest.Mock<boolean, [string?, string?, string?, string?]>;
   generateInstanceId: jest.Mock<string, []>;
   dayStateManager?: DayStateStoreService;
   taskLoader: TaskLoaderService;
@@ -100,7 +101,31 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
     getHidden: jest.fn(() => dayState.hiddenRoutines),
     getDeleted: jest.fn(() => dayState.deletedInstances),
     setDeleted: jest.fn((entries: DeletedInstance[]) => {
-      dayState.deletedInstances = [...entries];
+      const normalized = entries
+        .filter(Boolean)
+        .map((entry) => {
+          if (!entry) return entry
+          const trimmedId = typeof entry.taskId === 'string' ? entry.taskId.trim() : ''
+          if (trimmedId.length > 0 && entry.taskId !== trimmedId) {
+            return { ...entry, taskId: trimmedId }
+          }
+          return entry
+        }) as DeletedInstance[]
+
+      const deduped: DeletedInstance[] = []
+      const seen = new Set<string>()
+      for (const entry of normalized) {
+        if (!entry) continue
+        if (entry.taskId && entry.deletionType === 'permanent') {
+          if (seen.has(entry.taskId)) {
+            continue
+          }
+          seen.add(entry.taskId)
+        }
+        deduped.push(entry)
+      }
+
+      dayState.deletedInstances = deduped
       return dayState.deletedInstances;
     }),
     isHidden: jest.fn(({ instanceId, path }: { instanceId?: string; path?: string }) => {
@@ -112,10 +137,13 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
         return false;
       });
     }),
-    isDeleted: jest.fn(({ instanceId, path }: { instanceId?: string; path?: string }) => {
-      if (!instanceId && !path) return false;
+    isDeleted: jest.fn(({ instanceId, path, taskId }: { taskId?: string; instanceId?: string; path?: string }) => {
+      if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
         if (entry.instanceId && entry.instanceId === instanceId) return true;
+        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+          return true;
+        }
         if (entry.deletionType === 'permanent' && entry.path === path) return true;
         return false;
       });
@@ -156,9 +184,14 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     ...DEFAULT_ROUTINE_METADATA,
     ...(targetDate ? { target_date: targetDate } : {}),
     ...(metadataOverrides ?? {}),
-  };
+  } as Record<string, unknown> & { taskId?: string };
 
-  const slotOverrides = slotOverride ? { [routinePath]: slotOverride } : {};
+  if (typeof metadata.taskId !== 'string' || metadata.taskId.trim().length === 0) {
+    metadata.taskId = `tc-task-routine-${date}`;
+  }
+
+  const slotOverrideKey = metadata.taskId as string;
+  const slotOverrides = slotOverride ? { [slotOverrideKey]: slotOverride } : {};
   const dayState = createDayState({
     slotOverrides,
     ...(dayStateOverrides ?? {}),
@@ -244,10 +277,13 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
         return false;
       });
     }),
-    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string) => {
-      if (!instanceId && !path) return false;
+    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
+      if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
         if (entry.instanceId && entry.instanceId === instanceId) return true;
+        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+          return true;
+        }
         if (entry.deletionType === 'permanent' && entry.path === path) return true;
         return false;
       });
@@ -300,16 +336,23 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
   const metadata = {
     estimatedMinutes: 30,
     project: null,
+    taskId: 'tc-task-non-routine',
     ...(metadataOverrides ?? {}),
-  };
+  } as Record<string, unknown> & { taskId?: string };
+
+  if (metadata.taskId === undefined || metadata.taskId === null || metadata.taskId === '') {
+    delete metadata.taskId;
+  }
 
   const timestamp = Date.now();
   const dayState = createDayState(dayStateOverrides);
+  const deletionTaskId = typeof metadata.taskId === 'string' ? (metadata.taskId as string) : undefined;
   if (deletionType === 'permanent') {
     dayState.deletedInstances.push({
       path: taskPath,
       deletionType: 'permanent',
       timestamp,
+      taskId: deletionTaskId,
     });
   } else if (deletionType === 'temporary') {
     dayState.deletedInstances.push({
@@ -317,6 +360,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
       path: taskPath,
       deletionType: 'temporary',
       timestamp,
+      taskId: deletionTaskId,
     });
   }
   if (hiddenRoutines) {
@@ -401,10 +445,13 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
         return false;
       });
     }),
-    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string) => {
-      if (!instanceId && !path) return false;
+    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
+      if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
         if (entry.instanceId && entry.instanceId === instanceId) return true;
+        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+          return true;
+        }
         if (entry.deletionType === 'permanent' && entry.path === path) return true;
         return false;
       });
@@ -580,10 +627,13 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
         return false;
       });
     }),
-    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string) => {
-      if (!instanceId && !path) return false;
+    isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
+      if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
         if (entry.instanceId && entry.instanceId === instanceId) return true;
+        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+          return true;
+        }
         if (entry.deletionType === 'permanent' && entry.path === path) return true;
         return false;
       });

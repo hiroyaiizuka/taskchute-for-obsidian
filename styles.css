@@ -804,6 +804,31 @@ select.form-input {
   margin: 0;
 }
 
+.task-restore-banner {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-secondary-alt);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-restore-banner.hidden {
+  display: none;
+}
+
+.task-restore-message {
+  font-size: 13px;
+  flex: 1;
+}
+
+.task-restore-button {
+  margin-left: auto;
+}
+
 /* 日付ピッカー */
 .taskchute-date-picker {
   position: absolute;

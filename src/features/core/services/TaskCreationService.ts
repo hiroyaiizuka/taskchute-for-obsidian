@@ -1,5 +1,6 @@
 import { App, Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
+import { generateTaskId } from '../../../services/TaskIdManager'
 
 interface PluginLike {
   app: App
@@ -7,6 +8,11 @@ interface PluginLike {
     getTaskFolderPath(): string
     ensureFolderExists?: (path: string) => Promise<void>
   }
+}
+
+export interface CreateTaskFileOptions {
+  taskId?: string
+  basename?: string
 }
 
 export class TaskCreationService {
@@ -38,19 +44,28 @@ export class TaskCreationService {
    * - Keeps H1 heading as original taskName (basename may include suffix)
    * Returns the created TFile.
    */
-  async createTaskFile(taskName: string, dateStr: string, scheduledTime?: string): Promise<TFile> {
+  async createTaskFile(
+    taskName: string,
+    dateStr: string,
+    scheduledTime?: string,
+    options?: CreateTaskFileOptions,
+  ): Promise<TFile> {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
     // Ensure folder exists if the API is available
     if (typeof this.plugin.pathManager.ensureFolderExists === 'function') {
       await this.plugin.pathManager.ensureFolderExists(taskFolderPath)
     }
 
-    const uniqueBase = this.ensureUniqueBasename(taskName)
+    const preferredBase = options?.basename?.trim()
+    const uniqueBase = preferredBase && preferredBase.length > 0 ? preferredBase : this.ensureUniqueBasename(taskName)
     const filePath = `${taskFolderPath}/${uniqueBase}.md`
 
+    const providedTaskId = options?.taskId?.trim()
+    const taskId = providedTaskId && providedTaskId.length > 0 ? providedTaskId : generateTaskId()
     const frontmatterLines = [
       '---',
       `target_date: "${dateStr}"`,
+      `taskId: "${taskId}"`,
     ]
 
     // Add scheduled_time if provided

@@ -13,10 +13,13 @@ import {
 } from '../../../types'
 import type { RoutineWeek } from '../../../types/TaskFields'
 import DayStateStoreService from './DayStateStoreService'
+import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
   target_date?: string
+  taskId?: string
+  taskchuteId?: string
 }
 
 interface TaskExecutionEntry {
@@ -72,10 +75,86 @@ export interface TaskLoaderHost {
   getCurrentDateString: () => string
   generateInstanceId: (task: TaskData, dateKey: string) => string
   isInstanceHidden?: (instanceId?: string, path?: string, dateKey?: string) => boolean
-  isInstanceDeleted?: (instanceId?: string, path?: string, dateKey?: string) => boolean
+  isInstanceDeleted?: (instanceId?: string, path?: string, dateKey?: string, taskId?: string) => boolean
 }
 
 const DEFAULT_SLOT_KEY = 'none'
+
+function resolveTaskId(metadata?: TaskFrontmatterWithLegacy | undefined): string | undefined {
+  return extractTaskIdFromFrontmatter(metadata as Record<string, unknown> | undefined)
+}
+
+function promoteDeletedEntriesToTaskId(
+  entries: DeletedInstance[],
+  taskId: string,
+  path: string,
+): DeletedInstance[] | null {
+  if (!taskId || !path) {
+    return null
+  }
+  let mutated = false
+  const promoted = entries.map((entry) => {
+    if (!entry) return entry
+    if (entry.taskId || entry.path !== path || entry.deletionType !== 'permanent') {
+      return entry
+    }
+    mutated = true
+    return { ...entry, taskId }
+  }) as DeletedInstance[]
+
+  if (!mutated) {
+    return null
+  }
+
+  const seen = new Set<string>()
+  const deduped: DeletedInstance[] = []
+  for (const entry of promoted) {
+    if (!entry) continue
+    if (entry.taskId && entry.deletionType === 'permanent') {
+      if (seen.has(entry.taskId)) {
+        continue
+      }
+      seen.add(entry.taskId)
+    }
+    deduped.push(entry)
+  }
+  return deduped
+}
+
+function getSlotOverrideValue(
+  overrides: Record<string, string> | undefined,
+  taskId: string | undefined,
+  path: string,
+): { value?: string; migrated: boolean } {
+  if (!overrides) {
+    return { migrated: false }
+  }
+  if (taskId && typeof overrides[taskId] === 'string') {
+    return { value: overrides[taskId], migrated: false }
+  }
+  const legacy = overrides[path]
+  if (legacy === undefined) {
+    return { migrated: false }
+  }
+  if (taskId) {
+    overrides[taskId] = legacy
+    delete overrides[path]
+    return { value: overrides[taskId], migrated: true }
+  }
+  return { value: legacy, migrated: false }
+}
+
+function getStoredSlotKey(
+  slotKeys: Record<string, string> | undefined,
+  taskId: string | undefined,
+  path: string,
+): string | undefined {
+  if (!slotKeys) return undefined
+  if (taskId && typeof slotKeys[taskId] === 'string') {
+    return slotKeys[taskId]
+  }
+  return slotKeys[path]
+}
 
 function resolveCreatedMillis(file: TFile | null | undefined, fallback?: number): number | undefined {
   if (!file) {
@@ -223,6 +302,7 @@ async function createTaskFromExecutions(
   const templateName = file?.basename ?? executions[0]!.taskTitle
   const derivedPath = file?.path ?? executions[0]!.taskPath ?? `${templateName}.md`
   const createdMillis = resolveCreatedMillis(file, resolveExecutionCreatedMillis(executions, dateKey))
+  const taskId = resolveTaskId(metadata)
 
   const taskData: TaskData = {
     file,
@@ -239,6 +319,7 @@ async function createTaskFromExecutions(
     routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
     routine_enabled: metadata?.routine_enabled,
     scheduledTime: getScheduledTime(metadata) || undefined,
+    taskId,
   }
 
   let created = 0
@@ -255,7 +336,7 @@ async function createTaskFromExecutions(
       createdMillis,
     }
 
-    if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey)) {
+    if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey, taskData.taskId)) {
       context.taskInstances.push(instance)
       created += 1
     }
@@ -276,6 +357,7 @@ async function createNonRoutineTask(
 ): Promise<void> {
   const projectInfo = resolveProjectInfo(context, metadata)
   const createdMillis = resolveCreatedMillis(file, Date.now())
+  const taskId = resolveTaskId(metadata)
   const taskData: TaskData = {
     file,
     frontmatter: metadata ?? {},
@@ -288,11 +370,12 @@ async function createNonRoutineTask(
     isRoutine: false,
     createdMillis,
     scheduledTime: getScheduledTime(metadata) || undefined,
+    taskId,
   }
 
   context.tasks.push(taskData)
 
-  const storedSlot = context.plugin.settings.slotKeys?.[file.path]
+  const storedSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
   const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
@@ -303,7 +386,7 @@ async function createNonRoutineTask(
     createdMillis,
   }
 
-  if (isVisibleInstance(context, instance.instanceId, file.path, dateKey)) {
+  if (isVisibleInstance(context, instance.instanceId, file.path, dateKey, taskData.taskId)) {
     context.taskInstances.push(instance)
   }
 }
@@ -380,6 +463,7 @@ async function createRoutineTask(
   const dayState = await ensureDayState(context, dateKey)
   const projectInfo = resolveProjectInfo(context, metadata)
   const createdMillis = resolveCreatedMillis(file, Date.now())
+  const taskId = resolveTaskId(metadata)
 
   const taskData: TaskData = {
     file,
@@ -405,11 +489,12 @@ async function createRoutineTask(
     routine_weeks: normalizeRoutineWeeks(metadata),
     routine_weekdays: normalizeRoutineWeekdays(metadata),
     scheduledTime: getScheduledTime(metadata) || undefined,
+    taskId,
   }
 
   context.tasks.push(taskData)
 
-  const storedSlot = dayState.slotOverrides?.[file.path]
+  const { value: storedSlot } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
   const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
@@ -420,7 +505,7 @@ async function createRoutineTask(
     createdMillis,
   }
 
-  if (isVisibleInstance(context, instance.instanceId, file.path, dateKey)) {
+  if (isVisibleInstance(context, instance.instanceId, file.path, dateKey, taskData.taskId)) {
     context.taskInstances.push(instance)
   }
 }
@@ -444,14 +529,33 @@ async function shouldShowNonRoutineTask(
   metadata: TaskFrontmatterWithLegacy | undefined,
   dateKey: string,
 ): Promise<boolean> {
-  const deletedEntries = getDeletedInstancesForDate(context, dateKey)
-  const permanentDeletions = deletedEntries.filter(
-    (entry) => entry.deletionType === 'permanent' && entry.path === file.path,
+  const originalEntries = getDeletedInstancesForDate(context, dateKey)
+  const taskId = resolveTaskId(metadata)
+
+  let deletedEntries = originalEntries
+  if (taskId) {
+    const promoted = promoteDeletedEntriesToTaskId(originalEntries, taskId, file.path)
+    if (promoted) {
+      deletedEntries = promoted
+      context.dayStateManager.setDeleted(promoted, dateKey)
+    }
+
+    const hasTaskIdDeletion = deletedEntries.some(
+      (entry) => entry.deletionType === 'permanent' && entry.taskId === taskId,
+    )
+
+    if (hasTaskIdDeletion) {
+      return false
+    }
+  }
+
+  const legacyPathDeletions = deletedEntries.filter(
+    (entry) => entry.deletionType === 'permanent' && !entry.taskId && entry.path === file.path,
   )
 
   let missingDeletionTimestamp = false
   let latestDeletionTimestamp: number | undefined
-  for (const entry of permanentDeletions) {
+  for (const entry of legacyPathDeletions) {
     if (typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)) {
       latestDeletionTimestamp =
         latestDeletionTimestamp === undefined
@@ -491,7 +595,7 @@ async function shouldShowNonRoutineTask(
     }
   }
 
-  if (permanentDeletions.length > 0) {
+  if (legacyPathDeletions.length > 0) {
     if (missingDeletionTimestamp) {
       return false
     }
@@ -502,11 +606,18 @@ async function shouldShowNonRoutineTask(
     if (latestDeletionTimestamp === undefined || createdMillis <= latestDeletionTimestamp) {
       return false
     }
-    const remainingEntries = deletedEntries.filter(
-      (entry) => !(entry.deletionType === 'permanent' && entry.path === file.path),
-    )
+    const remainingEntries = deletedEntries.filter((entry) => {
+      if (entry.deletionType !== 'permanent') {
+        return true
+      }
+      if (entry.taskId) {
+        return true
+      }
+      return entry.path !== file.path
+    })
     if (remainingEntries.length !== deletedEntries.length) {
       context.dayStateManager.setDeleted(remainingEntries, dateKey)
+      deletedEntries = remainingEntries
     }
   }
 
@@ -558,6 +669,7 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
               projectTitle: projectInfo?.title,
               isRoutine: metadata.isRoutine === true,
               scheduledTime: getScheduledTime(metadata) || undefined,
+              taskId: record.originalTaskId ?? resolveTaskId(metadata),
             }
           }
         }
@@ -572,7 +684,12 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
           name: fallbackName,
           displayTitle: deriveDisplayTitle(null, undefined, fallbackName),
           isRoutine: false,
+          taskId: record.originalTaskId,
         }
+      }
+
+      if (!taskData.taskId && record.originalTaskId) {
+        taskData.taskId = record.originalTaskId
       }
 
       context.tasks.push(taskData)
@@ -586,7 +703,7 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
         createdMillis,
       }
 
-      if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey)) {
+      if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey, taskData.taskId)) {
         context.taskInstances.push(instance)
       }
     }
@@ -611,16 +728,22 @@ function getDeletedInstancesForDate(context: TaskLoaderHost, dateKey: string): D
   return []
 }
 
-function isVisibleInstance(context: TaskLoaderHost, instanceId: string, path: string, dateKey: string): boolean {
+function isVisibleInstance(
+  context: TaskLoaderHost,
+  instanceId: string,
+  path: string,
+  dateKey: string,
+  taskId?: string,
+): boolean {
   const manager = context.dayStateManager
-  if (manager?.isDeleted({ instanceId, path, dateKey })) {
+  if (manager?.isDeleted({ instanceId, path, dateKey, taskId })) {
     return false
   }
   if (manager?.isHidden({ instanceId, path, dateKey })) {
     return false
   }
 
-  if (context.isInstanceDeleted?.(instanceId, path, dateKey)) {
+  if (context.isInstanceDeleted?.(instanceId, path, dateKey, taskId)) {
     return false
   }
   if (context.isInstanceHidden?.(instanceId, path, dateKey)) {
