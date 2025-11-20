@@ -46,12 +46,17 @@ function detachChild(target: FolderNode | FileNode): void {
 }
 
 function createPrunerContext(retentionDays = 30) {
-  const backupRoot = createFolder('LOGS/.backups')
+  const backupRoot = createFolder('LOGS/backups')
+  const legacyRoot = createFolder('LOGS/.backups')
   const vault = {
     adapter: {
       stat: jest.fn(),
     },
-    getAbstractFileByPath: jest.fn((path: string) => (path === 'LOGS/.backups' ? backupRoot : null)),
+    getAbstractFileByPath: jest.fn((path: string) => {
+      if (path === 'LOGS/backups') return backupRoot
+      if (path === 'LOGS/.backups') return legacyRoot
+      return null
+    }),
     delete: jest.fn(async (target: FolderNode | FileNode) => {
       detachChild(target)
     }),
@@ -82,16 +87,16 @@ function createPrunerContext(retentionDays = 30) {
     },
   }
 
-  return { plugin, backupRoot }
+  return { plugin, backupRoot, legacyRoot }
 }
 
 describe('BackupPruner', () => {
-  test('removes backup files older than retention window', async () => {
+  test('removes backup files older than retention window in new folder', async () => {
     const { plugin, backupRoot } = createPrunerContext(30)
-    const monthFolder = createFolder('LOGS/.backups/2025-10')
+    const monthFolder = createFolder('LOGS/backups/2025-10')
     attachChild(backupRoot, monthFolder)
-    const oldFile = createFile('LOGS/.backups/2025-10/old.json', Date.now() - 40 * DAY)
-    const recentFile = createFile('LOGS/.backups/2025-10/recent.json', Date.now() - 5 * DAY)
+    const oldFile = createFile('LOGS/backups/2025-10/old.json', Date.now() - 40 * DAY)
+    const recentFile = createFile('LOGS/backups/2025-10/recent.json', Date.now() - 5 * DAY)
     attachChild(monthFolder, oldFile)
     attachChild(monthFolder, recentFile)
 
@@ -103,18 +108,18 @@ describe('BackupPruner', () => {
     expect(monthFolder.children).toContain(recentFile)
   })
 
-  test('deletes empty month folder after pruning files', async () => {
-    const { plugin, backupRoot } = createPrunerContext(7)
-    const monthFolder = createFolder('LOGS/.backups/2025-09')
-    attachChild(backupRoot, monthFolder)
+  test('also prunes legacy .backups folders', async () => {
+    const { plugin, legacyRoot } = createPrunerContext(7)
+    const legacyMonth = createFolder('LOGS/.backups/2025-09')
+    attachChild(legacyRoot, legacyMonth)
     const expired = createFile('LOGS/.backups/2025-09/old.json', Date.now() - 60 * DAY)
-    attachChild(monthFolder, expired)
+    attachChild(legacyMonth, expired)
 
     const pruner = new BackupPruner(plugin)
     await pruner.prune()
 
     expect(plugin.app.vault.delete).toHaveBeenCalledWith(expired)
-    expect(plugin.app.vault.delete).toHaveBeenCalledWith(monthFolder)
-    expect(backupRoot.children).toHaveLength(0)
+    expect(plugin.app.vault.delete).toHaveBeenCalledWith(legacyMonth)
+    expect(legacyRoot.children).toHaveLength(0)
   })
 })

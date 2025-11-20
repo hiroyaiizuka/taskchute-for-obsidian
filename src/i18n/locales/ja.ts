@@ -40,7 +40,7 @@ export const ja = {
       intervalName: "バックアップ間隔（時間）",
       intervalDesc: "前回のバックアップから指定時間が経過した場合のみ JSON バックアップを作成します。",
       retentionName: "保持期間（日）",
-      retentionDesc: "指定日数より古いバックアップは自動で削除されます。",
+      retentionDesc: "この日数より古いバックアップは再計算時に自動削除されます。",
     },
     features: {
       heading: "外部ツール連携",

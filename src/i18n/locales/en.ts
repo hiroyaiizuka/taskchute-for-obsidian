@@ -40,7 +40,7 @@ export const en = {
       intervalName: "Backup interval (hours)",
       intervalDesc: "Only create JSON backups if the previous backup is older than this many hours.",
       retentionName: "Backup retention (days)",
-      retentionDesc: "Backups older than this will be deleted automatically once they exceed this window.",
+      retentionDesc: "Backups older than this window are deleted automatically during reconciliation.",
     },
     features: {
       heading: "External tools",

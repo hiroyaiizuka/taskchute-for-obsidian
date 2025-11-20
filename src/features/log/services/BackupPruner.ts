@@ -1,5 +1,6 @@
 import { normalizePath, TFile, TFolder } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
+import { LOG_BACKUP_FOLDER, LOG_BACKUP_LEGACY_FOLDER } from '../constants'
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000
 
@@ -13,16 +14,28 @@ export class BackupPruner {
         return
       }
       const cutoff = Date.now() - retentionDays * DAY_IN_MS
-      const logBase = this.plugin.pathManager.getLogDataPath()
-      const backupRoot = normalizePath(`${logBase}/.backups`)
-      const root = this.plugin.app.vault.getAbstractFileByPath(backupRoot)
-      if (!root || !(root instanceof TFolder)) {
-        return
+      for (const root of this.getBackupRoots()) {
+        await this.pruneRoot(root, cutoff)
       }
-      await this.pruneFolder(root, cutoff)
     } catch (error) {
       console.warn('[BackupPruner] Failed to prune backups', error)
     }
+  }
+
+  private getBackupRoots(): TFolder[] {
+    const roots: TFolder[] = []
+    const base = this.plugin.pathManager.getLogDataPath()
+    const paths = new Set<string>([
+      normalizePath(`${base}/${LOG_BACKUP_FOLDER}`),
+      normalizePath(`${base}/${LOG_BACKUP_LEGACY_FOLDER}`),
+    ])
+    for (const path of paths) {
+      const file = this.plugin.app.vault.getAbstractFileByPath(path)
+      if (file && file instanceof TFolder) {
+        roots.push(file)
+      }
+    }
+    return roots
   }
 
   private getRetentionDays(): number {
@@ -33,42 +46,36 @@ export class BackupPruner {
     return value
   }
 
-  private async pruneFolder(folder: TFolder, cutoff: number): Promise<void> {
+  private async pruneRoot(folder: TFolder, cutoff: number): Promise<void> {
     const children = [...folder.children]
     for (const child of children) {
       if (child instanceof TFolder) {
-        await this.pruneFolder(child, cutoff)
+        await this.pruneRoot(child, cutoff)
         if (child.children.length === 0) {
-          try {
-            const fileManager = this.plugin.app.fileManager
-            if (fileManager?.trashFile) {
-              await fileManager.trashFile(child, true)
-            } else {
-              // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
-              await this.plugin.app.vault.delete(child)
-            }
-          } catch (error) {
-            console.warn('[BackupPruner] Failed to delete empty backup folder', child.path, error)
-          }
+          await this.deleteEntry(child)
         }
         continue
       }
       if (child instanceof TFile && child.extension === 'json') {
         const shouldDelete = await this.shouldDeleteFile(child, cutoff)
         if (shouldDelete) {
-          try {
-            const fileManager = this.plugin.app.fileManager
-            if (fileManager?.trashFile) {
-              await fileManager.trashFile(child, true)
-            } else {
-              // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
-              await this.plugin.app.vault.delete(child)
-            }
-          } catch (error) {
-            console.warn('[BackupPruner] Failed to delete backup file', child.path, error)
-          }
+          await this.deleteEntry(child)
         }
       }
+    }
+  }
+
+  private async deleteEntry(entry: TFolder | TFile): Promise<void> {
+    try {
+      const fileManager = this.plugin.app.fileManager
+      if (fileManager?.trashFile) {
+        await fileManager.trashFile(entry, true)
+      } else {
+        // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
+        await this.plugin.app.vault.delete(entry)
+      }
+    } catch (error) {
+      console.warn('[BackupPruner] Failed to delete backup entry', entry.path, error)
     }
   }
 

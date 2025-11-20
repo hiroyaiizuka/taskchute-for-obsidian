@@ -96,8 +96,8 @@ Access plugin settings through: Settings → Community Plugins → TaskChute Plu
 - **Fireworks/Confetti**: Individual effect controls
 
 ### Execution Log Backups
-- **Backup interval (hours)**: Minimum time between automatic JSON snapshot backups (`TaskChute/Log/.backups/<YYYY-MM>/...`). Default is 24 hours; you can shorten or lengthen this depending on how frequently your log changes.
-- **Backup retention (days)**: Old backup files beyond this window are purged automatically during reconciliation (default: 30 days). Set to a larger number if you want a deeper safety net.
+- **Backup interval (hours)**: Minimum time between automatic JSON snapshot backups (`TaskChute/Log/backups/<YYYY-MM>/...`, legacy `.backups` folders are still read). Default is 24 hours; you can shorten or lengthen this depending on how frequently your log changes.
+- **Backup retention (days)**: Backups older than this window are deleted automatically during reconciliation (default: 30 days). Lower the value if you want to keep the vault lean.
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -126,9 +126,9 @@ GitHub-style contribution graph showing:
 ## 🛡 Execution Log Resilience
 
 - **Device-aware delta logs**: Every device receives a stable `deviceId` (persisted to the device's local storage, never synced) and writes append-only JSONL delta files under `TaskChute/Log/inbox/<deviceId>/<YYYY-MM>.jsonl` (legacy vaults with `.inbox/` are still read automatically). Old clients can never overwrite the canonical snapshot because they only append.
-- **Automatic reconciliation**: The reconciler merges unprocessed delta rows, recomputes daily summaries, writes month-level backups to `TaskChute/Log/.backups/<YYYY-MM>/` (respecting the configured backup interval), and bumps `meta.revision` so that each client can detect drift.
+- **Automatic reconciliation**: The reconciler merges unprocessed delta rows, recomputes daily summaries, writes month-level backups to `TaskChute/Log/backups/<YYYY-MM>/` (respecting the configured backup interval), and bumps `meta.revision` so that each client can detect drift.
 - **Records Markdown**: Each mutated day produces `TaskChute/Log/records/<YYYY>/<YYYY-MM-DD>.md` with YAML frontmatter that mirrors the canonical entries (including `entryId`, `deviceId`, and `processedCursor`). Even if JSON snapshots vanish, these record notes remain human-readable backups.
-- **Backups housekeeping**: After each reconciliation we prune `.backups` entries older than the retention window so Sync stays lean even on mobile vaults.
+- **Backups housekeeping**: Backups older than the configured retention window are pruned automatically so Sync overhead stays low.
 - Year-by-year comparison (2020-present)
 
 ### Project Progress Monitoring
@@ -145,7 +145,7 @@ GitHub-style contribution graph showing:
 
 ### Data Storage
 - **Execution logs**: `TaskChute/Log/YYYY-MM-DD.md`
-- **Snapshot backups**: `TaskChute/Log/.backups/<YYYY-MM>/<timestamp>.json` (auto-created only when the backup interval elapses; older files cleaned up after the configured retention period)
+- **Snapshot backups**: `TaskChute/Log/backups/<YYYY-MM>/<timestamp>.json` (auto-created only when the backup interval elapses; legacy `.backups` folders are still read)
 - **Task states**: `.obsidian/plugins/taskchute-plus/data/`
 - **Yearly heatmaps**: `TaskChute/Log/heatmap/YYYY/yearly-heatmap.json` (legacy `.heatmap/` + `<year>/yearly-heatmap.json` も読み込み互換)
 - **Settings**: Obsidian plugin configuration

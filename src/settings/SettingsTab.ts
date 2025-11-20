@@ -68,26 +68,26 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setDesc(
         t(
           'settings.logBackup.retentionDesc',
-          'Older backups will be deleted automatically after reconciliation.',
+          'Backups older than this window are deleted automatically during reconciliation.',
         ),
       )
       .addText((text) => {
-        text.inputEl.type = 'number';
-        text.inputEl.min = '1';
-        text.inputEl.step = '1';
-        const current = this.plugin.settings.backupRetentionDays ?? 30;
+        text.inputEl.type = 'number'
+        text.inputEl.min = '1'
+        text.inputEl.step = '1'
+        const current = this.plugin.settings.backupRetentionDays ?? 30
         text
           .setPlaceholder('30')
           .setValue(String(current))
           .onChange(async (raw) => {
-            const parsed = Number(raw);
-            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 30;
-            this.plugin.settings.backupRetentionDays = normalized;
-            await this.plugin.saveSettings();
-          });
-      });
+            const parsed = Number(raw)
+            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 30
+            this.plugin.settings.backupRetentionDays = normalized
+            await this.plugin.saveSettings()
+          })
+      })
 
-    retentionSetting.controlEl?.addClass('taskchute-number-input');
+    retentionSetting.controlEl?.addClass('taskchute-number-input')
   }
 
   private renderReviewTemplateSection(container: HTMLElement): void {

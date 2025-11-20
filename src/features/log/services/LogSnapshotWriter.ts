@@ -1,6 +1,7 @@
 import { normalizePath, TFile } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
 import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
+import { LOG_BACKUP_FOLDER } from '../constants'
 
 export interface SnapshotWriteOptions {
   existingFile?: TFile | null
@@ -70,7 +71,7 @@ export class LogSnapshotWriter {
   private async writeBackup(monthKey: string, contents: string): Promise<void> {
     try {
       const logBase = this.plugin.pathManager.getLogDataPath()
-      const backupRoot = normalizePath(`${logBase}/.backups`)
+      const backupRoot = normalizePath(`${logBase}/${LOG_BACKUP_FOLDER}`)
       await this.plugin.pathManager.ensureFolderExists(backupRoot)
       const monthFolder = normalizePath(`${backupRoot}/${monthKey}`)
       await this.plugin.pathManager.ensureFolderExists(monthFolder)
@@ -80,6 +81,7 @@ export class LogSnapshotWriter {
       if (adapter && typeof adapter.write === 'function') {
         await adapter.write(backupPath, contents)
       }
+      // ensure legacy folder is kept for backwards compatibility if it already exists
     } catch (error) {
       console.warn('[LogSnapshotWriter] Failed to write backup', error)
     }
