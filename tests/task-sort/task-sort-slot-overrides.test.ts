@@ -75,6 +75,7 @@ describe('Task sort slot overrides', () => {
           path: 'Tasks/routine.md',
           isRoutine: true,
           scheduledTime: '08:00',
+          taskId: 'tc-task-routine',
         } as TaskData,
         slotKey: '16:00-0:00',
         instanceId: 'routine-1',
@@ -85,7 +86,7 @@ describe('Task sort slot overrides', () => {
 
       service.persistSlotAssignment(inst);
 
-      expect(dayState.slotOverrides['Tasks/routine.md']).toBe('16:00-0:00');
+      expect(dayState.slotOverrides[inst.task.taskId!]).toBe('16:00-0:00');
       expect(plugin.settings.slotKeys).toEqual({});
       expect(plugin.saveSettings).not.toHaveBeenCalled();
     });
@@ -99,6 +100,7 @@ describe('Task sort slot overrides', () => {
           path: 'Tasks/routine.md',
           isRoutine: true,
           scheduledTime: '08:00',
+          taskId: 'tc-task-routine',
         } as TaskData,
         slotKey: '8:00-12:00',
         instanceId: 'routine-1',
@@ -109,7 +111,7 @@ describe('Task sort slot overrides', () => {
 
       service.persistSlotAssignment(inst);
 
-      expect(dayState.slotOverrides['Tasks/routine.md']).toBeUndefined();
+      expect(dayState.slotOverrides[inst.task.taskId!]).toBeUndefined();
     });
 
     test('stores non-routine overrides in plugin settings', () => {
@@ -120,6 +122,7 @@ describe('Task sort slot overrides', () => {
         task: {
           path: 'Tasks/one-off.md',
           isRoutine: false,
+          taskId: 'tc-task-one-off',
         } as TaskData,
         slotKey: '12:00-16:00',
         instanceId: 'non-routine-1',
@@ -130,7 +133,7 @@ describe('Task sort slot overrides', () => {
 
       service.persistSlotAssignment(inst);
 
-      expect(plugin.settings.slotKeys['Tasks/one-off.md']).toBe('12:00-16:00');
+      expect(plugin.settings.slotKeys[inst.task.taskId!]).toBe('12:00-16:00');
       expect(plugin.saveSettings).toHaveBeenCalled();
     });
   });

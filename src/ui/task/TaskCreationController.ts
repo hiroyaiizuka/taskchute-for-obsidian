@@ -9,7 +9,13 @@ import {
 import { createNameModal } from "../components/NameModal"
 import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
 import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
-import type { TaskChutePluginLike, TaskNameValidator } from "../../types"
+import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
+
+export interface DeletedTaskRestoreCandidate {
+  entry: DeletedInstance
+  displayTitle: string
+  fileExists: boolean
+}
 
 export interface TaskCreationControllerHost {
   tv: (
@@ -34,6 +40,8 @@ export interface TaskCreationControllerHost {
     doc: Document
     win: Window & typeof globalThis
   }
+  findDeletedTaskRestoreCandidate?: (taskName: string) => DeletedTaskRestoreCandidate | null
+  restoreDeletedTaskCandidate?: (candidate: DeletedTaskRestoreCandidate) => Promise<boolean>
 }
 
 type CreationMode = "reuse" | "copy"
@@ -104,10 +112,23 @@ export default class TaskCreationController {
     modeOptions.appendChild(copyOption.wrapper)
     modeGroup.appendChild(modeOptions)
 
-    form.insertBefore(modeGroup, buttonGroup ?? null)
+    const restoreBanner = doc.createElement("div")
+    restoreBanner.className = "task-restore-banner hidden"
+    const restoreMessage = doc.createElement("div")
+    restoreMessage.className = "task-restore-message"
+    const restoreButton = doc.createElement("button")
+    restoreButton.type = "button"
+    restoreButton.className = "task-restore-button"
+    restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+    restoreBanner.appendChild(restoreMessage)
+    restoreBanner.appendChild(restoreButton)
+
+    form.insertBefore(restoreBanner, buttonGroup ?? null)
+    form.insertBefore(modeGroup, restoreBanner)
 
     let selectedSuggestion: TaskNameSuggestion | null = null
     let selectedValue = ""
+    let restoreCandidate: DeletedTaskRestoreCandidate | null = null
 
     const hasReusableSelection = (): boolean =>
       Boolean(
@@ -171,6 +192,7 @@ export default class TaskCreationController {
         selectedValue = ""
         updateModeGroupVisibility()
       }
+      updateRestoreCandidate()
     })
 
     nameInput.addEventListener(
@@ -181,6 +203,7 @@ export default class TaskCreationController {
         selectedValue = detail?.value ?? detail?.suggestion?.name ?? ""
         validationControls.runValidation()
         updateModeGroupVisibility()
+        updateRestoreCandidate()
       },
     )
 
@@ -233,6 +256,56 @@ export default class TaskCreationController {
         validationControls.runValidation()
       }
     })
+
+    const hideRestoreBanner = () => {
+      restoreCandidate = null
+      restoreBanner.classList.add("hidden")
+      restoreButton.disabled = false
+      restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+    }
+
+    const updateRestoreCandidate = () => {
+      if (typeof this.host.findDeletedTaskRestoreCandidate !== "function") {
+        hideRestoreBanner()
+        return
+      }
+      const candidate = this.host.findDeletedTaskRestoreCandidate(nameInput.value.trim())
+      if (!candidate) {
+        hideRestoreBanner()
+        return
+      }
+      restoreCandidate = candidate
+      restoreMessage.textContent = this.host.tv(
+        "addTask.restoreBanner",
+        "Deleted task \"{title}\" is available to restore.",
+        { title: candidate.displayTitle },
+      )
+      restoreBanner.classList.remove("hidden")
+      restoreButton.disabled = false
+      restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+    }
+
+    restoreButton.addEventListener("click", async () => {
+      if (!restoreCandidate || typeof this.host.restoreDeletedTaskCandidate !== "function") {
+        return
+      }
+      restoreButton.disabled = true
+      restoreButton.textContent = this.host.tv("addTask.restoreButtonWorking", "Restoring...")
+      try {
+        const restored = await this.host.restoreDeletedTaskCandidate(restoreCandidate)
+        if (restored) {
+          await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+          close()
+          return
+        }
+      } catch (error) {
+        console.error("[TaskCreationController] restoreDeletedTaskCandidate failed", error)
+      }
+      restoreButton.disabled = false
+      restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+    })
+
+    updateRestoreCandidate()
   }
 
   private async createNewTask(

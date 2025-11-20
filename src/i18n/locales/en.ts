@@ -35,6 +35,13 @@ export const en = {
       pick: "Select file from vault",
       suggestPlaceholder: "Type to search review template files",
     },
+    logBackup: {
+      heading: "Log",
+      intervalName: "Backup interval (hours)",
+      intervalDesc: "Only create JSON backups if the previous backup is older than this many hours.",
+      retentionName: "Backup retention (days)",
+      retentionDesc: "Backups older than this window are deleted automatically during reconciliation.",
+    },
     features: {
       heading: "External tools",
       robotButton: "Show Terminal button",
@@ -187,6 +194,7 @@ export const en = {
       taskDuplicateFailed: "Failed to duplicate task",
       taskDeleteFailed: "Failed to delete task",
       taskResetFailed: "Failed to reset task",
+      deletedTaskRestored: "Restored \"{title}\" for {date}.",
       taskStartFailed: "Failed to start task",
       taskStopFailed: "Failed to stop task",
       taskMoveFailed: "Failed to move task",
@@ -223,6 +231,21 @@ export const en = {
       taskRemovedFromTodayWithTitle: 'Removed "{title}" from today.',
       taskMoveCleared: 'Cleared destination for "{title}"',
       routineDetached: "Detached from routine",
+    },
+    restoreModal: {
+      heading: "Restore deleted tasks for {date}",
+      empty: "No permanently deleted tasks for this day.",
+      restoreButton: "Restore",
+      restoring: "Restoring...",
+      restored: "Deletion flag cleared. Reloading...",
+      restoredButton: "Restored",
+      notFound: "The deletion entry no longer exists.",
+      error: "Failed to restore. Check console for details.",
+      status: {
+        fileExists: "Task file is present",
+        fileMissing: "Task file is missing",
+      },
+      unknownTask: "Unknown task",
     },
     tooltips: {
       dragToMove: "Drag to move",
@@ -289,6 +312,9 @@ export const en = {
       suggestionTemplateBadge: 'Template',
       suggestionLastShown: 'Last shown: {date}',
       suggestionNoTargetDate: 'No target date',
+      restoreBanner: 'Deleted task "{title}" is available to restore.',
+      restoreButton: 'Restore',
+      restoreButtonWorking: 'Restoring…',
     },
     forms: {
       taskSettings: "Task settings",

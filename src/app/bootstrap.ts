@@ -15,6 +15,7 @@ import {
   createPluginContext,
   type PluginContext,
 } from "./context/PluginContext"
+import { TaskIdManager } from "../services/TaskIdManager"
 
 export async function prepareSettings(
   plugin: TaskChutePlugin,
@@ -86,6 +87,13 @@ export async function bootstrapPlugin(
     await initializeServices(plugin)
 
   await ensureRequiredFolders(pathManager)
+
+  try {
+    const taskIdManager = new TaskIdManager(plugin)
+    await taskIdManager.ensureAllTaskIds()
+  } catch (error) {
+    plugin._log?.("warn", "Failed to assign task IDs", error)
+  }
 
   try {
     plugin.addSettingTab(new TaskChuteSettingTab(plugin.app, plugin))

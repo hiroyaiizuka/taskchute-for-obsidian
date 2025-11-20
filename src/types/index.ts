@@ -34,6 +34,10 @@ export interface TaskChuteSettings {
   // Field migration settings
   preferNewFieldFormat?: boolean // Use scheduled_time for new tasks
   autoMigrateOnLoad?: boolean // Auto-migrate old fields when loading
+
+  // Execution log backups
+  backupIntervalHours?: number
+  backupRetentionDays?: number
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
@@ -77,6 +81,7 @@ export interface TaskData {
   path: string
   name: string
   displayTitle?: string
+  taskId?: string
   startTime?: string
   endTime?: string
   actualMinutes?: number
@@ -137,6 +142,7 @@ export interface DeletedInstance {
   path?: string
   deletionType?: "temporary" | "permanent"
   timestamp?: number
+  taskId?: string
 }
 
 export interface HiddenRoutine {
@@ -149,6 +155,7 @@ export interface DuplicatedInstance {
   originalPath: string
   timestamp?: number
   createdMillis?: number
+  originalTaskId?: string
 }
 
 export interface DayState {

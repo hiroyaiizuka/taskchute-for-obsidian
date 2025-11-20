@@ -2,6 +2,7 @@ import { Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
 import type { TaskChutePluginLike } from '../../../types'
 import type { DayState } from '../../../types'
+import { TaskIdManager, extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 
 export class TaskReuseService {
   constructor(private readonly plugin: TaskChutePluginLike) {}
@@ -34,12 +35,23 @@ export class TaskReuseService {
     }
 
     const timestamp = Date.now()
+    const metadata = this.plugin.app.metadataCache.getFileCache(file)
+    let taskId = extractTaskIdFromFrontmatter(metadata?.frontmatter as Record<string, unknown> | undefined)
+    if (!taskId) {
+      try {
+        const manager = new TaskIdManager(this.plugin)
+        taskId = (await manager.ensureTaskIdForFile(file)) ?? undefined
+      } catch (error) {
+        this.plugin._log?.('warn', '[TaskReuseService] Failed to ensure taskId for duplicate', error)
+      }
+    }
     dayState.duplicatedInstances.push({
       instanceId: this.generateInstanceId(file.basename, dateStr),
       originalPath: file.path,
       slotKey,
       timestamp,
       createdMillis: timestamp,
+      originalTaskId: taskId,
     })
 
     await this.plugin.dayStateService.saveDay(date, dayState)

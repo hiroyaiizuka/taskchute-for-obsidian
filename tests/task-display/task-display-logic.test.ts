@@ -52,7 +52,7 @@ describe('Task display logic', () => {
       expect(context.tasks).toHaveLength(1);
     });
 
-    test('permanent deletion is ignored once the file is recreated later the same day', async () => {
+    test('permanent deletion is ignored once the file is recreated when taskId is missing', async () => {
       const deletedAt = Date.now();
       const { context, load } = createNonRoutineLoadContext({
         deletedInstances: [
@@ -63,6 +63,7 @@ describe('Task display logic', () => {
           },
         ],
         metadataOverrides: {
+          taskId: undefined,
           target_date: '2025-09-24',
         },
         fileStat: {
@@ -75,6 +76,29 @@ describe('Task display logic', () => {
 
       expect(context.taskInstances).toHaveLength(1);
       expect(context.tasks).toHaveLength(1);
+    });
+
+    test('permanent deletion persists when taskId matches even if file is recreated', async () => {
+      const deletedAt = Date.now();
+      const { context, load } = createNonRoutineLoadContext({
+        deletedInstances: [
+          {
+            path: 'TASKS/non-routine.md',
+            deletionType: 'permanent',
+            timestamp: deletedAt,
+            taskId: 'tc-task-non-routine',
+          },
+        ],
+        fileStat: {
+          ctime: deletedAt + 60_000,
+          mtime: deletedAt + 120_000,
+        },
+      });
+
+      await load();
+
+      expect(context.taskInstances).toHaveLength(0);
+      expect(context.tasks).toHaveLength(0);
     });
   });
 });

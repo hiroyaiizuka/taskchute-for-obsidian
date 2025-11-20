@@ -1,14 +1,24 @@
-import type { TaskLogEntry, TaskLogSnapshot } from '../types/ExecutionLog'
+import type { TaskLogEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '../types/ExecutionLog'
 
 export const EMPTY_TASK_LOG_SNAPSHOT: TaskLogSnapshot = {
   taskExecutions: {},
   dailySummary: {},
+  meta: {
+    revision: 0,
+    processedCursor: {},
+    lastBackupAt: undefined,
+  },
 }
 
 export function createEmptyTaskLogSnapshot(): TaskLogSnapshot {
   return {
     taskExecutions: {},
     dailySummary: {},
+    meta: {
+      revision: 0,
+      processedCursor: {},
+      lastBackupAt: undefined,
+    },
   }
 }
 
@@ -19,10 +29,20 @@ export function parseTaskLogSnapshot(raw: string | null | undefined): TaskLogSna
 
   try {
     const parsed = JSON.parse(raw) as Partial<TaskLogSnapshot>
+    const meta: TaskLogSnapshotMeta = {
+      revision: typeof parsed.meta?.revision === 'number' ? parsed.meta.revision : 0,
+      lastProcessedAt: typeof parsed.meta?.lastProcessedAt === 'string' ? parsed.meta.lastProcessedAt : undefined,
+      processedCursor: parsed.meta?.processedCursor && typeof parsed.meta.processedCursor === 'object'
+        ? { ...parsed.meta.processedCursor }
+        : {},
+      lastBackupAt: typeof parsed.meta?.lastBackupAt === 'string' ? parsed.meta.lastBackupAt : undefined,
+    }
+
     return {
+      ...parsed,
       taskExecutions: parsed.taskExecutions ?? {},
       dailySummary: parsed.dailySummary ?? {},
-      ...parsed,
+      meta,
     }
   } catch (error) {
     console.warn('[executionLogUtils] Failed to parse task log snapshot', error)

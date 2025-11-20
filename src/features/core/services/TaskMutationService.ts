@@ -19,6 +19,7 @@ type DuplicatedEntry = {
   originalSlotKey?: string
   timestamp?: number
   createdMillis?: number
+  originalTaskId?: string
 }
 
 interface MutationDayState {
@@ -91,6 +92,7 @@ export default class TaskMutationService {
           originalSlotKey,
           timestamp: createdMillis,
           createdMillis,
+          originalTaskId: inst.task.taskId,
         })
         await this.host.persistDayState(dateKey)
       }
@@ -125,6 +127,7 @@ export default class TaskMutationService {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
+      const taskId = inst.task.taskId
       const hadSiblingWithSamePath = this.host.taskInstances.some(
         (candidate) => candidate !== inst && candidate.task?.path === inst.task.path,
       )
@@ -160,6 +163,7 @@ export default class TaskMutationService {
           path: inst.task.path,
           deletionType: 'temporary',
           timestamp,
+          taskId,
         })
         dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
           (entry) =>
@@ -172,6 +176,7 @@ export default class TaskMutationService {
             path: inst.task.path,
             deletionType: 'permanent',
             timestamp,
+            taskId,
           })
         } else {
           deletedEntries.push({
@@ -179,6 +184,7 @@ export default class TaskMutationService {
             path: inst.task.path,
             deletionType: 'temporary',
             timestamp,
+            taskId,
           })
         }
       } else {
@@ -187,6 +193,7 @@ export default class TaskMutationService {
           path: inst.task.path,
           deletionType: 'temporary',
           timestamp,
+          taskId,
         })
       }
 
@@ -252,22 +259,34 @@ export default class TaskMutationService {
   persistSlotAssignment(inst: TaskInstance): void {
     const dayState = this.host.getCurrentDayState()
     const taskPath = inst.task.path
+    const taskId = typeof inst.task.taskId === 'string' ? inst.task.taskId : undefined
+    const slotKeyValue = inst.slotKey || 'none'
     const scheduledTime = this.getScheduledTime(inst.task)
 
-    if (taskPath) {
+    const overrideKey = taskId ?? taskPath
+
+    if (overrideKey) {
       if (inst.task.isRoutine) {
-        const updatedSlot = inst.slotKey || 'none'
         const defaultSlot = scheduledTime ? getSlotFromTime(scheduledTime) : 'none'
-        if (updatedSlot === defaultSlot) {
-          delete dayState.slotOverrides[taskPath]
+        if (slotKeyValue === defaultSlot) {
+          delete dayState.slotOverrides[overrideKey]
+          if (taskId && taskPath && overrideKey !== taskPath) {
+            delete dayState.slotOverrides[taskPath]
+          }
         } else {
-          dayState.slotOverrides[taskPath] = updatedSlot
+          dayState.slotOverrides[overrideKey] = slotKeyValue
+          if (taskId && taskPath && overrideKey !== taskPath) {
+            delete dayState.slotOverrides[taskPath]
+          }
         }
       } else {
         if (!this.host.plugin.settings.slotKeys) {
           this.host.plugin.settings.slotKeys = {}
         }
-        this.host.plugin.settings.slotKeys[taskPath] = inst.slotKey || 'none'
+        this.host.plugin.settings.slotKeys[overrideKey] = slotKeyValue
+        if (taskId && taskPath && overrideKey !== taskPath) {
+          delete this.host.plugin.settings.slotKeys[taskPath]
+        }
         void this.host.plugin.saveSettings()
       }
     }

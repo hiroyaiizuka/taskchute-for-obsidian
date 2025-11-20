@@ -78,6 +78,7 @@ describe('TaskSettingsTooltipController', () => {
       path: 'Tasks/sample.md',
       isRoutine: false,
       name: 'Sample task',
+      taskId: 'tc-task-sample',
     },
     ...overrides,
   }) as TaskInstance
@@ -259,7 +260,7 @@ const createTimeController = () => {
     await flush()
 
     expect(saveRunningTasksState).toHaveBeenCalledTimes(1)
-    expect(removeTaskLog).toHaveBeenCalledWith(instance.instanceId)
+    expect(removeTaskLog).toHaveBeenCalledWith(instance.instanceId, instance.task?.taskId)
     expect(timeHost.renderTaskList).toHaveBeenCalledTimes(1)
     expect(instance.state).toBe('idle')
     expect(instance.startTime).toBeUndefined()

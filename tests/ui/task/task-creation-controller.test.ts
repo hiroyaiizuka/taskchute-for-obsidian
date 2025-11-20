@@ -1,5 +1,8 @@
 import { Notice, TFile } from 'obsidian'
-import TaskCreationController, { TaskCreationControllerHost } from '../../../src/ui/task/TaskCreationController'
+import TaskCreationController, {
+  TaskCreationControllerHost,
+  DeletedTaskRestoreCandidate,
+} from '../../../src/ui/task/TaskCreationController'
 import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
 import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
 import type { App } from 'obsidian'
@@ -132,6 +135,8 @@ describe('TaskCreationController', () => {
       duplicateInstanceForPath: jest.fn().mockResolvedValue(true),
       invalidateDayStateCache: jest.fn(),
       getDocumentContext: undefined,
+      findDeletedTaskRestoreCandidate: jest.fn(() => null),
+      restoreDeletedTaskCandidate: jest.fn().mockResolvedValue(true),
     }
 
     return { host, taskCreationService, taskReuseService }
@@ -217,5 +222,68 @@ describe('TaskCreationController', () => {
     const ctorArgs = autocompleteMock.mock.calls[0]
     expect(ctorArgs[3]?.doc).toBe(popoutDoc)
     expect(ctorArgs[3]?.win).toBe(fakeWindow)
+  })
+
+  test('shows inline restore banner when deleted task candidate is found', async () => {
+    const { host } = createHost()
+    const candidate: DeletedTaskRestoreCandidate = {
+      entry: { path: 'TaskChute/Task/Restore me.md', deletionType: 'permanent', taskId: 'tc-task-restore' },
+      displayTitle: 'Restore me',
+      fileExists: false,
+    }
+    host.findDeletedTaskRestoreCandidate = jest.fn((name: string) =>
+      name.trim() === 'Restore me' ? candidate : null,
+    )
+
+    const controller = new TaskCreationController(host)
+    await controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const input = modal.querySelector('input') as HTMLInputElement
+
+    input.value = 'Restore me'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await Promise.resolve()
+
+    const banner = modal.querySelector('.task-restore-banner') as HTMLElement
+    expect(banner).not.toBeNull()
+    expect(banner.classList.contains('hidden')).toBe(false)
+    expect(host.findDeletedTaskRestoreCandidate).toHaveBeenCalledWith('Restore me')
+
+    const button = banner.querySelector('button') as HTMLButtonElement
+    button.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(host.restoreDeletedTaskCandidate).toHaveBeenCalledWith(candidate)
+    expect(host.reloadTasksAndRestore).toHaveBeenCalled()
+    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+  })
+
+  test('hides restore banner when candidate disappears', async () => {
+    const { host } = createHost()
+    const candidate: DeletedTaskRestoreCandidate = {
+      entry: { path: 'TaskChute/Task/Recover.md', deletionType: 'permanent' },
+      displayTitle: 'Recover',
+      fileExists: true,
+    }
+    host.findDeletedTaskRestoreCandidate = jest
+      .fn()
+      .mockImplementation((name: string) => (name.trim() === 'Recover' ? candidate : null))
+
+    const controller = new TaskCreationController(host)
+    await controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const input = modal.querySelector('input') as HTMLInputElement
+
+    input.value = 'Recover'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await Promise.resolve()
+    const banner = modal.querySelector('.task-restore-banner') as HTMLElement
+    expect(banner?.classList.contains('hidden')).toBe(false)
+
+    input.value = 'Different'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await Promise.resolve()
+
+    expect(banner.classList.contains('hidden')).toBe(true)
   })
 })

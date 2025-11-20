@@ -89,6 +89,7 @@ describe('TaskTimeController', () => {
         path: 'TASKS/sample.md',
         frontmatter: {},
         name: 'sample',
+        taskId: 'tc-task-sample',
       },
       instanceId: 'inst-1',
       state: 'done',
@@ -102,7 +103,7 @@ describe('TaskTimeController', () => {
     expect(instance.state).toBe('idle')
     expect(instance.startTime).toBeUndefined()
     expect(instance.stopTime).toBeUndefined()
-    expect(host.removeTaskLogForInstanceOnCurrentDate).toHaveBeenCalledWith('inst-1')
+    expect(host.removeTaskLogForInstanceOnCurrentDate).toHaveBeenCalledWith('inst-1', 'tc-task-sample')
     expect(host.saveRunningTasksState).toHaveBeenCalled()
     expect(host.renderTaskList).toHaveBeenCalled()
     expect(Notice).toHaveBeenCalled()
@@ -176,6 +177,7 @@ describe('TaskTimeController', () => {
         path: 'Tasks/sample.md',
         frontmatter: {},
         name: 'sample',
+        taskId: 'tc-task-sample',
       },
     } as TaskInstance
 
@@ -197,6 +199,7 @@ describe('TaskTimeController', () => {
         path: 'TASKS/sample.md',
         frontmatter: {},
         name: 'sample',
+        taskId: 'tc-task-sample',
       },
       state: 'done',
       slotKey: 'evening',

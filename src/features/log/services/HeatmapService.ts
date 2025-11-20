@@ -1,5 +1,6 @@
 import { App, TFile, normalizePath, parseYaml } from 'obsidian'
 import { t } from '../../../i18n'
+import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import {
   HeatmapDayDetail,
   HeatmapDayStats,
@@ -34,6 +35,7 @@ export interface HeatmapServicePluginLike {
     getLogDataPath(): string
     getLogYearPath(year: number | string): string
     ensureYearFolder(year: number | string): Promise<string>
+    ensureFolderExists(path: string): Promise<void>
     getReviewDataPath(): string
   }
 }
@@ -43,6 +45,85 @@ export class HeatmapService {
 
   constructor(plugin: HeatmapServicePluginLike) {
     this.plugin = plugin
+  }
+
+  private getHeatmapBaseFolder(): string {
+    const logBase = this.plugin.pathManager.getLogDataPath()
+    return normalizePath(`${logBase}/${LOG_HEATMAP_FOLDER}`)
+  }
+
+  private getModernHeatmapFolder(year: number | string): string {
+    return normalizePath(`${this.getHeatmapBaseFolder()}/${year}`)
+  }
+
+  private getModernHeatmapFile(year: number | string): string {
+    return normalizePath(`${this.getModernHeatmapFolder(year)}/yearly-heatmap.json`)
+  }
+
+  private getHiddenLegacyHeatmapFile(year: number | string): string {
+    const logBase = this.plugin.pathManager.getLogDataPath()
+    return normalizePath(`${logBase}/${LOG_HEATMAP_LEGACY_FOLDER}/${year}/yearly-heatmap.json`)
+  }
+
+  private getLegacyHeatmapFile(year: number | string): string {
+    const yearPath = this.plugin.pathManager.getLogYearPath(year)
+    return normalizePath(`${yearPath}/yearly-heatmap.json`)
+  }
+
+  private async ensureModernHeatmapFolder(year: number | string): Promise<string> {
+    const base = this.getHeatmapBaseFolder()
+    await this.plugin.pathManager.ensureFolderExists(base)
+    const folder = this.getModernHeatmapFolder(year)
+    await this.plugin.pathManager.ensureFolderExists(folder)
+    return folder
+  }
+
+  private async readHeatmapFile(path: string): Promise<HeatmapYearData | null> {
+    if (!path) return null
+    const file = this.plugin.app.vault.getAbstractFileByPath(path)
+    if (!file || !(file instanceof TFile)) {
+      return null
+    }
+    try {
+      const content = await this.plugin.app.vault.read(file)
+      const data = JSON.parse(content) as HeatmapYearData
+      if (!data || typeof data !== 'object' || typeof data.year !== 'number' || !data.days) {
+        return null
+      }
+      return data
+    } catch {
+      return null
+    }
+  }
+
+  private async loadExistingYearlyData(year: number): Promise<HeatmapYearData | null> {
+    const modern = await this.readHeatmapFile(this.getModernHeatmapFile(year))
+    if (modern) {
+      return modern
+    }
+    const hiddenLegacy = await this.readHeatmapFile(this.getHiddenLegacyHeatmapFile(year))
+    if (hiddenLegacy) {
+      await this.persistYearlyData(year, hiddenLegacy)
+      return hiddenLegacy
+    }
+    const legacy = await this.readHeatmapFile(this.getLegacyHeatmapFile(year))
+    if (legacy) {
+      await this.persistYearlyData(year, legacy)
+      return legacy
+    }
+    return null
+  }
+
+  private async persistYearlyData(year: number, yearlyData: HeatmapYearData): Promise<void> {
+    const folder = await this.ensureModernHeatmapFolder(year)
+    const targetPath = normalizePath(`${folder}/yearly-heatmap.json`)
+    const file = this.plugin.app.vault.getAbstractFileByPath(targetPath)
+    const content = JSON.stringify(yearlyData, null, 2)
+    if (file && file instanceof TFile) {
+      await this.plugin.app.vault.modify(file, content)
+    } else {
+      await this.plugin.app.vault.create(targetPath, content)
+    }
   }
 
   private toNumber(value: unknown): number {
@@ -92,24 +173,10 @@ export class HeatmapService {
   }
 
   async loadYearlyData(year: number): Promise<HeatmapYearData> {
-    const yearPath = this.plugin.pathManager.getLogYearPath(year)
-    const heatmapPath = normalizePath(`${yearPath}/yearly-heatmap.json`)
-
-    const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
-    if (file && file instanceof TFile) {
-      try {
-        const content = await this.plugin.app.vault.read(file)
-        const data: HeatmapYearData = JSON.parse(content)
-        if (!data || typeof data !== 'object' || !data.year || !data.days) {
-          throw new Error('Invalid yearly heatmap data')
-        }
-        return data
-      } catch {
-        // fallthrough to regeneration
-      }
+    const existing = await this.loadExistingYearlyData(year)
+    if (existing) {
+      return existing
     }
-
-    // Generate if not present
     return await this.generateYearlyData(year)
   }
 
@@ -239,15 +306,7 @@ export class HeatmapService {
       }
 
       // Save generated file
-      const yearPath = await this.plugin.pathManager.ensureYearFolder(String(year))
-      const heatmapPath = normalizePath(`${yearPath}/yearly-heatmap.json`)
-      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
-      const content = JSON.stringify(yearlyData, null, 2)
-      if (file && file instanceof TFile) {
-        await this.plugin.app.vault.modify(file, content)
-      } else {
-        await this.plugin.app.vault.create(heatmapPath, content)
-      }
+      await this.persistYearlyData(year, yearlyData)
     } catch {
       // ignore generation errors; return current yearlyData (may be partial)
     }
@@ -670,28 +729,23 @@ export class HeatmapService {
 
   private async updateYearlyData(dateString: string, stats: HeatmapDayStats): Promise<void> {
     try {
-      const [year] = dateString.split('-')
-      const yearPath = await this.plugin.pathManager.ensureYearFolder(year)
-      const heatmapPath = normalizePath(`${yearPath}/yearly-heatmap.json`)
-      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
-      let yearly: HeatmapYearData
-      if (file && file instanceof TFile) {
-        const content = await this.plugin.app.vault.read(file)
-        yearly = JSON.parse(content)
-      } else {
-        yearly = { year: parseInt(year, 10), days: {}, metadata: { version: '1.0' } }
+      const [yearString] = dateString.split('-')
+      const year = Number(yearString)
+      if (!Number.isFinite(year)) {
+        return
       }
+      const yearly: HeatmapYearData =
+        (await this.loadExistingYearlyData(year)) ?? {
+          year,
+          days: {},
+          metadata: { version: '1.0' },
+        }
 
       yearly.days[dateString] = stats
       if (!yearly.metadata) yearly.metadata = { version: '1.0' }
       yearly.metadata.lastUpdated = new Date().toISOString()
 
-      const out = JSON.stringify(yearly, null, 2)
-      if (file && file instanceof TFile) {
-        await this.plugin.app.vault.modify(file, out)
-      } else {
-        await this.plugin.app.vault.create(heatmapPath, out)
-      }
+      await this.persistYearlyData(year, yearly)
     } catch {
       // ignore
     }
@@ -715,22 +769,16 @@ export class HeatmapService {
       if (!Number.isFinite(year)) {
         return
       }
-      const yearPath = this.plugin.pathManager.getLogYearPath(year)
-      const heatmapPath = normalizePath(`${yearPath}/yearly-heatmap.json`)
-      const file = this.plugin.app.vault.getAbstractFileByPath(heatmapPath)
-      if (!file || !(file instanceof TFile)) return
-
-      const content = await this.plugin.app.vault.read(file)
-      if (!content) return
-
-      const yearly = JSON.parse(content) as HeatmapYearData
-      if (!yearly.days || !yearly.days[dateString]) return
+      const yearly = await this.loadExistingYearlyData(year)
+      if (!yearly || !yearly.days || !yearly.days[dateString]) {
+        return
+      }
 
       delete yearly.days[dateString]
       yearly.metadata = yearly.metadata ?? { version: '1.0' }
       yearly.metadata.lastUpdated = new Date().toISOString()
 
-      await this.plugin.app.vault.modify(file, JSON.stringify(yearly, null, 2))
+      await this.persistYearlyData(year, yearly)
     } catch {
       // ignore removal errors
     }

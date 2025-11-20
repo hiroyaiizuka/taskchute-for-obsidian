@@ -28,7 +28,6 @@ type TestPlugin = {
     getReviewDataPath: () => string
     ensureFolderExists: (path: string) => Promise<void>
     getLogYearPath: (year: number | string) => string
-    ensureYearFolder: (year: number | string) => Promise<string>
     validatePath: (path: string) => { valid: boolean; error?: string }
   }
 }
@@ -141,7 +140,6 @@ beforeAll(() => {
         getReviewDataPath: () => 'REVIEWS',
         ensureFolderExists: jest.fn().mockResolvedValue(undefined),
         getLogYearPath: (year: number | string) => `LOGS/${year}`,
-        ensureYearFolder: jest.fn(async (year: number | string) => `LOGS/${year}`),
         validatePath: () => ({ valid: true }),
       },
     }

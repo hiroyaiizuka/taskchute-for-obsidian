@@ -15,6 +15,7 @@ import {
   AutocompleteInstance,
   DayState,
   TaskChutePluginLike,
+  DeletedInstance,
 } from "../../../types"
 import { TimerService } from "../../../services/TimerService"
 import { loadTasksRefactored } from "../helpers"
@@ -43,7 +44,9 @@ import TaskListRenderer from "../../../ui/tasklist/TaskListRenderer"
 import type { TaskListRendererHost } from "../../../ui/tasklist/TaskListRenderer"
 import TaskContextMenuController from "../../../ui/tasklist/TaskContextMenuController"
 import TaskTimeController from "../../../ui/time/TaskTimeController"
-import TaskCreationController from "../../../ui/task/TaskCreationController"
+import TaskCreationController, {
+  DeletedTaskRestoreCandidate,
+} from "../../../ui/task/TaskCreationController"
 import TaskScheduleController from "../../../ui/task/TaskScheduleController"
 import TaskCompletionController from "../../../ui/task/TaskCompletionController"
 import TaskSettingsTooltipController from "../../../ui/task/TaskSettingsTooltipController"
@@ -270,8 +273,8 @@ export class TaskChuteView
       calculateCrossDayDuration: (start, stop) =>
         this.calculateCrossDayDuration(start, stop),
       saveRunningTasksState: () => this.saveRunningTasksState(),
-      removeTaskLogForInstanceOnCurrentDate: (instanceId) =>
-        this.removeTaskLogForInstanceOnCurrentDate(instanceId),
+      removeTaskLogForInstanceOnCurrentDate: (instanceId, taskId) =>
+        this.removeTaskLogForInstanceOnCurrentDate(instanceId, taskId),
       getCurrentDate: () => new Date(this.currentDate),
     })
     this.taskCreationController = new TaskCreationController({
@@ -296,6 +299,10 @@ export class TaskChuteView
           win: defaultView ?? window,
         }
       },
+      findDeletedTaskRestoreCandidate: (taskName) =>
+        this.findDeletedTaskRestoreCandidate(taskName),
+      restoreDeletedTaskCandidate: (candidate) =>
+        this.restoreDeletedTaskCandidate(candidate),
     })
     this.taskScheduleController = new TaskScheduleController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -626,8 +633,11 @@ export class TaskChuteView
     const isDuplicate = dayState.duplicatedInstances.some(
       (dup) => dup?.instanceId && dup.instanceId === inst.instanceId,
     )
-    if (isDuplicate || !inst.task?.path) {
+    if (isDuplicate || (!inst.task?.taskId && !inst.task?.path)) {
       return inst.instanceId ? `${inst.instanceId}::${slot}` : null
+    }
+    if (inst.task?.taskId) {
+      return `${inst.task.taskId}::${slot}`
     }
     if (inst.task?.path) {
       return `${inst.task.path}::${slot}`
@@ -655,9 +665,41 @@ export class TaskChuteView
   // ===========================================
 
   async loadTasks(): Promise<void> {
+    await this.executionLogService.ensureReconciled()
     // Use the refactored implementation
     await this.ensureDayStateForCurrentDate()
     await loadTasksRefactored.call(this)
+  }
+
+  public async restoreDeletedTask(
+    entry: DeletedInstance,
+    dateKey?: string,
+  ): Promise<boolean> {
+    const targetDate = dateKey ?? this.getCurrentDateString()
+    await this.ensureDayStateForDate(targetDate)
+    const deleted = [...this.dayStateManager.getDeleted(targetDate)]
+    const next = deleted.filter((candidate) => !this.isSameDeletedEntry(candidate, entry))
+    if (next.length === deleted.length) {
+      return false
+    }
+    this.dayStateManager.setDeleted(next, targetDate)
+    await this.persistDayState(targetDate)
+    const title = this.resolveDeletedTaskTitle(entry)
+    if (typeof this.plugin._log === "function") {
+      this.plugin._log("info", "Deleted task restored", {
+        taskId: entry.taskId,
+        path: entry.path,
+        date: targetDate,
+      })
+    }
+    new Notice(
+      this.tv("notices.deletedTaskRestored", 'Restored "{title}" for {date}.', {
+        title,
+        date: targetDate,
+      }),
+    )
+    await this.reloadTasksAndRestore({ runBoundaryCheck: false })
+    return true
   }
 
   public generateInstanceId(task: TaskData, dateStr: string): string {
@@ -879,13 +921,23 @@ export class TaskChuteView
    */
   private async removeTaskLogForInstanceOnCurrentDate(
     instanceId: string,
+    taskId?: string,
   ): Promise<void> {
     try {
       if (!instanceId) return
       const dateStr = this.getCurrentDateString()
+      const resolvedTaskId =
+        taskId ??
+        this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.taskId ??
+        this.currentInstance?.task?.taskId
+      const resolvedPath =
+        this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.path ??
+        this.currentInstance?.task?.path
       await this.executionLogService.removeTaskLogForInstanceOnDate(
         instanceId,
         dateStr,
+        resolvedTaskId,
+        resolvedPath,
       )
     } catch (e) {
       console.error(
@@ -1302,6 +1354,111 @@ export class TaskChuteView
       console.warn("[TaskChuteView] hasExecutionHistory failed", error)
       return false
     }
+  }
+
+  private resolveDeletedTaskTitle(entry: DeletedInstance): string {
+    if (entry.taskId) {
+      const match = this.tasks.find((task) => task?.taskId === entry.taskId)
+      if (match) {
+        return (
+          match.displayTitle ??
+          match.name ??
+          this.extractNameFromPath(match.path)
+        )
+      }
+    }
+    if (entry.path) {
+      return this.extractNameFromPath(entry.path)
+    }
+    if (entry.instanceId) {
+      return entry.instanceId
+    }
+    if (entry.taskId) {
+      return entry.taskId
+    }
+    return this.tv("restoreModal.unknownTask", "Unknown task")
+  }
+
+  private extractNameFromPath(path?: string): string {
+    if (!path) {
+      return this.tv("restoreModal.unknownTask", "Unknown task")
+    }
+    const filename = path.split("/").pop() ?? path
+    return filename.replace(/\.md$/i, "")
+  }
+
+  private buildTaskPathFromName(taskName: string): string | null {
+    const trimmed = taskName.trim()
+    if (!trimmed) {
+      return null
+    }
+    const validation = this.getTaskNameValidator().validate(trimmed)
+    if (!validation.isValid) {
+      return null
+    }
+    const folder = this.plugin.pathManager.getTaskFolderPath?.() ?? "TaskChute/Task"
+    const normalizedFolder = folder.endsWith("/") ? folder.slice(0, -1) : folder
+    return `${normalizedFolder}/${trimmed}.md`
+  }
+
+  private findDeletedTaskRestoreCandidate(taskName: string): DeletedTaskRestoreCandidate | null {
+    const path = this.buildTaskPathFromName(taskName)
+    if (!path) {
+      return null
+    }
+    const dateKey = this.getCurrentDateString()
+    const deletedEntries = this.dayStateManager.getDeleted(dateKey)
+    const match = deletedEntries.find(
+      (entry) => entry?.deletionType === "permanent" && entry.path === path,
+    )
+    if (!match) {
+      return null
+    }
+    const fileExists = Boolean(this.app.vault.getAbstractFileByPath(path))
+    return {
+      entry: match,
+      displayTitle: this.extractNameFromPath(path),
+      fileExists,
+    }
+  }
+
+  private async restoreDeletedTaskCandidate(candidate: DeletedTaskRestoreCandidate): Promise<boolean> {
+    await this.ensureDayStateForCurrentDate()
+    const dateKey = this.getCurrentDateString()
+    const restored = await this.restoreDeletedTask(candidate.entry, dateKey)
+    if (!restored) {
+      return false
+    }
+    const path = candidate.entry.path
+    if (path) {
+      const existing = this.app.vault.getAbstractFileByPath(path)
+      if (!existing || !(existing instanceof TFile)) {
+        const taskName = this.extractNameFromPath(path)
+        const basename = this.extractNameFromPath(path)
+        try {
+          await this.taskCreationService.createTaskFile(taskName, dateKey, undefined, {
+            taskId: candidate.entry.taskId,
+            basename,
+          })
+        } catch (error) {
+          console.warn("[TaskChuteView] Failed to recreate task file during restore", error)
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  private isSameDeletedEntry(a: DeletedInstance, b: DeletedInstance): boolean {
+    if (a.taskId && b.taskId && a.taskId === b.taskId) return true
+    if (a.instanceId && b.instanceId && a.instanceId === b.instanceId) return true
+    if (a.path && b.path && a.path === b.path) {
+      if (a.timestamp && b.timestamp) {
+        return a.timestamp === b.timestamp
+      }
+      return true
+    }
+    return false
   }
 
   private async handleFileRename(

@@ -35,6 +35,13 @@ export const ja = {
       pick: "保管庫からファイルを選択",
       suggestPlaceholder: "テンプレートファイル名で検索",
     },
+    logBackup: {
+      heading: "ログ",
+      intervalName: "バックアップ間隔（時間）",
+      intervalDesc: "前回のバックアップから指定時間が経過した場合のみ JSON バックアップを作成します。",
+      retentionName: "保持期間（日）",
+      retentionDesc: "この日数より古いバックアップは再計算時に自動削除されます。",
+    },
     features: {
       heading: "外部ツール連携",
       robotButton: "Terminalボタンを表示",
@@ -188,6 +195,7 @@ export const ja = {
       taskDuplicateFailed: "タスクの複製に失敗しました",
       taskDeleteFailed: "タスクの削除に失敗しました",
       taskResetFailed: "タスクのリセットに失敗しました",
+      deletedTaskRestored: '「{title}」の削除フラグを {date} 分として解除しました',
       taskStartFailed: "タスクの開始に失敗しました",
       taskStopFailed: "タスクの停止に失敗しました",
       taskMoveFailed: "タスクの移動に失敗しました",
@@ -224,6 +232,21 @@ export const ja = {
       taskRemovedFromTodayWithTitle: "「{title}」を本日のリストから削除しました。",
       taskMoveCleared: "タスク「{title}」の移動先を解除しました",
       routineDetached: "ルーチンを外しました",
+    },
+    restoreModal: {
+      heading: "{date} の削除済みタスクを復元",
+      empty: "この日には復元できる削除済みタスクがありません",
+      restoreButton: "復元",
+      restoring: "復元中...",
+      restored: "削除フラグを解除しました。再読み込み中...",
+      restoredButton: "復元済み",
+      notFound: "削除フラグが見つかりませんでした",
+      error: "復元に失敗しました。コンソールを確認してください",
+      status: {
+        fileExists: "タスクファイルあり",
+        fileMissing: "タスクファイルなし",
+      },
+      unknownTask: "名称未設定のタスク",
     },
     tooltips: {
       dragToMove: "ドラッグして移動",
@@ -290,6 +313,9 @@ export const ja = {
       suggestionTemplateBadge: "テンプレ",
       suggestionLastShown: "表示日: {date}",
       suggestionNoTargetDate: "target_dateなし",
+      restoreBanner: '削除済みタスク「{title}」を復元できます',
+      restoreButton: "復元",
+      restoreButtonWorking: "復元中…",
     },
     forms: {
       taskSettings: "タスク設定",

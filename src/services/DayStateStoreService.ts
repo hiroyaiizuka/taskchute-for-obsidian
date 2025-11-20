@@ -126,15 +126,46 @@ export class DayStateStoreService {
 
   setDeleted(entries: DeletedInstance[], dateKey?: string): void {
     const state = this.getStateFor(dateKey);
-    state.deletedInstances = entries.filter(Boolean);
+    const normalized = entries
+      .filter(Boolean)
+      .map((entry) => {
+        if (!entry) return entry;
+        const trimmedId = typeof entry.taskId === 'string' ? entry.taskId.trim() : '';
+        if (trimmedId.length > 0 && entry.taskId !== trimmedId) {
+          return { ...entry, taskId: trimmedId };
+        }
+        return entry;
+      }) as DeletedInstance[];
+
+    const deduped: DeletedInstance[] = [];
+    const seenPermanentTaskIds = new Set<string>();
+    for (const entry of normalized) {
+      if (!entry) continue;
+      if (
+        entry.taskId &&
+        entry.deletionType === 'permanent' &&
+        seenPermanentTaskIds.has(entry.taskId)
+      ) {
+        continue;
+      }
+      if (entry.taskId && entry.deletionType === 'permanent') {
+        seenPermanentTaskIds.add(entry.taskId);
+      }
+      deduped.push(entry);
+    }
+
+    state.deletedInstances = deduped;
     this.persistAsync(dateKey);
   }
 
-  isDeleted(target: { instanceId?: string; path?: string; dateKey?: string }): boolean {
-    const { instanceId, path } = target;
+  isDeleted(target: { taskId?: string; instanceId?: string; path?: string; dateKey?: string }): boolean {
+    const { taskId, instanceId, path } = target;
     const deleted = this.getDeleted(target.dateKey);
     return deleted.some((entry) => {
       if (entry.instanceId && entry.instanceId === instanceId) return true;
+      if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+        return true;
+      }
       if (entry.deletionType === 'permanent' && entry.path === path) return true;
       return false;
     });

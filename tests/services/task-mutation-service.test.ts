@@ -18,6 +18,7 @@ function createTask(path: string, overrides: Partial<TaskData> = {}): TaskData {
     path,
     name: path.split('/').pop() ?? 'Task',
     isRoutine: false,
+    taskId: overrides.taskId ?? `tc-task-${path.replace(/[^a-z0-9]/gi, '-')}`,
     ...overrides,
   } as TaskData
 }
@@ -209,6 +210,31 @@ describe('TaskMutationService', () => {
     ).toBeUndefined()
   })
 
+  test('deleteInstance stores taskId on permanent deletions', async () => {
+    const task = createTask('TASKS/sample.md', { taskId: 'tc-task-xyz' })
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'inst-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const host = createHost({ taskInstances: [instance], tasks: [task] })
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(instance)
+
+    expect(host.dayState.deletedInstances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'TASKS/sample.md',
+          deletionType: 'permanent',
+          taskId: 'tc-task-xyz',
+        }),
+      ]),
+    )
+  })
+
   test('deleting duplicated non-routine instance does not trash original file', async () => {
     const taskFile = createMockTFile('TASKS/base.md')
     const task = createTask('TASKS/base.md', { file: taskFile })
@@ -350,14 +376,18 @@ describe('TaskMutationService', () => {
   })
 
   test('persistSlotAssignment stores overrides for routine and settings for non-routine', () => {
-    const routineTask = createTask('TASKS/routine.md', { isRoutine: true, scheduledTime: '08:00' })
+    const routineTask = createTask('TASKS/routine.md', {
+      isRoutine: true,
+      scheduledTime: '08:00',
+      taskId: 'tc-task-routine',
+    })
     const routineInstance: TaskInstance = {
       task: routineTask,
       instanceId: 'routine-1',
       slotKey: '12:00-16:00',
       state: 'idle',
     } as TaskInstance
-    const nonRoutineTask = createTask('TASKS/non.md')
+    const nonRoutineTask = createTask('TASKS/non.md', { taskId: 'tc-task-non' })
     const nonRoutineInstance: TaskInstance = {
       task: nonRoutineTask,
       instanceId: 'non-1',
@@ -370,8 +400,8 @@ describe('TaskMutationService', () => {
     service.persistSlotAssignment(routineInstance)
     service.persistSlotAssignment(nonRoutineInstance)
 
-    expect(host.dayState.slotOverrides['TASKS/routine.md']).toBe('12:00-16:00')
-    expect(host.plugin.settings.slotKeys?.['TASKS/non.md']).toBe('16:00-0:00')
+    expect(host.dayState.slotOverrides[routineTask.taskId!]).toBe('12:00-16:00')
+    expect(host.plugin.settings.slotKeys?.[nonRoutineTask.taskId!]).toBe('16:00-0:00')
   })
 
   test('moveInstanceToSlot updates slot, order, and persists metadata', async () => {
