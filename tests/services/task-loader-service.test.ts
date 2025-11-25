@@ -1,5 +1,5 @@
 import type { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
-import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
+import { TaskLoaderService, isTaskFile } from '../../src/features/core/services/TaskLoaderService';
 import {
   createNonRoutineLoadContext,
   createRoutineLoadContext,
@@ -75,5 +75,37 @@ describe('TaskLoaderService', () => {
 
     expect(context.taskInstances.length).toBe(0);
     expect(context.tasks.length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('isTaskFile', () => {
+  test('returns true when content contains #task tag (legacy)', () => {
+    expect(isTaskFile('#task\n# My Task', undefined)).toBe(true);
+    expect(isTaskFile('Some text\n#task', undefined)).toBe(true);
+  });
+
+  test('returns true when frontmatter tags array contains task', () => {
+    expect(isTaskFile('# My Task', { tags: ['task'] })).toBe(true);
+    expect(isTaskFile('# My Task', { tags: ['other', 'task'] })).toBe(true);
+  });
+
+  test('returns true when frontmatter tags is string task', () => {
+    expect(isTaskFile('# My Task', { tags: 'task' })).toBe(true);
+  });
+
+  test('returns true when frontmatter has estimatedMinutes (legacy)', () => {
+    expect(isTaskFile('# My Task', { estimatedMinutes: 30 })).toBe(true);
+  });
+
+  test('returns false when no task indicators present', () => {
+    expect(isTaskFile('# Regular Note', undefined)).toBe(false);
+    expect(isTaskFile('# Regular Note', {})).toBe(false);
+    expect(isTaskFile('# Regular Note', { tags: ['other'] })).toBe(false);
+    expect(isTaskFile('# Regular Note', { tags: 'other' })).toBe(false);
+  });
+
+  test('returns false for empty content and frontmatter', () => {
+    expect(isTaskFile('', undefined)).toBe(false);
+    expect(isTaskFile('', {})).toBe(false);
   });
 });

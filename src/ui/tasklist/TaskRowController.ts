@@ -1,5 +1,6 @@
 import { Notice } from 'obsidian'
 import type { TaskInstance } from '../../types'
+import { ReminderIconRenderer } from '../../features/reminder/ui/ReminderIconRenderer'
 
 export interface TaskRowControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -7,6 +8,7 @@ export interface TaskRowControllerHost {
   stopInstance: (inst: TaskInstance) => Promise<void> | void
   duplicateAndStartInstance: (inst: TaskInstance) => Promise<void> | void
   showTimeEditModal: (inst: TaskInstance) => void
+  showReminderSettingsModal: (inst: TaskInstance) => void
   calculateCrossDayDuration: (start: Date, stop: Date) => number
   app: {
     workspace: {
@@ -75,7 +77,12 @@ export default class TaskRowController {
       return inst.task.name ?? this.host.tv('labels.untitledTask', 'Untitled Task')
     })()
 
-    const taskName = taskItem.createEl('span', {
+    // Container for task name and reminder icon
+    const taskNameContainer = taskItem.createEl('span', {
+      cls: 'task-name-container',
+    })
+
+    const taskName = taskNameContainer.createEl('span', {
       cls: 'task-name task-name--accent',
       text: displayName,
     })
@@ -92,6 +99,15 @@ export default class TaskRowController {
         new Notice(this.host.tv('notices.taskFileOpenFailed', 'Failed to open task file'))
       }
     })
+
+    // Render reminder icon after task name
+    const reminderIconRenderer = new ReminderIconRenderer({
+      tv: this.host.tv,
+      onClick: (instance) => {
+        this.host.showReminderSettingsModal(instance)
+      },
+    })
+    reminderIconRenderer.render(taskNameContainer, inst)
   }
 
   renderTimeRangeDisplay(taskItem: HTMLElement, inst: TaskInstance): void {

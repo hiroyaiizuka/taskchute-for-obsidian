@@ -448,6 +448,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         })
       })
   }
+
 }
 
 class FolderPathSuggest extends AbstractInputSuggest<TFolder> {

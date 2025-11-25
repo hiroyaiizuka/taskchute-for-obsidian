@@ -56,6 +56,7 @@ import RoutineController from "../../routine/controllers/RoutineController"
 import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
+import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "review" | "log" | "settings" | null = null
@@ -336,6 +337,7 @@ export class TaskChuteView
       deleteNonRoutineTask: (inst) => this.deleteNonRoutineTask(inst),
       hasExecutionHistory: (path) => this.hasExecutionHistory(path),
       showDeleteConfirmDialog: (inst) => this.showDeleteConfirmDialog(inst),
+      showReminderSettingsDialog: (inst) => this.showReminderSettingsDialog(inst),
     })
     this.taskHeaderController = new TaskHeaderController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -447,6 +449,7 @@ export class TaskChuteView
       calculateCrossDayDuration: (start, stop) =>
         view.calculateCrossDayDuration(start, stop),
       showTimeEditModal: (inst) => view.showTimeEditModal(inst),
+      showReminderSettingsModal: (inst) => view.showReminderSettingsModal(inst),
       updateTotalTasksCount: () => view.updateTotalTasksCount(),
       showProjectModal: (inst) => view.projectController.showProjectModal(inst),
       showUnifiedProjectModal: (inst) =>
@@ -669,6 +672,56 @@ export class TaskChuteView
     // Use the refactored implementation
     await this.ensureDayStateForCurrentDate()
     await loadTasksRefactored.call(this)
+
+    // Build reminder schedules after loading tasks
+    this.buildReminderSchedules()
+  }
+
+  /**
+   * Build reminder schedules from loaded task instances.
+   * Called after loadTasks to populate the reminder system with today's schedules.
+   * Only builds schedules when viewing today's date to avoid scheduling
+   * reminders from past/future dates to fire today.
+   */
+  private buildReminderSchedules(): void {
+    const reminderManager = this.plugin.reminderManager
+    if (!reminderManager) {
+      return
+    }
+
+    // Only build schedules when viewing today's date
+    const viewingDate = this.getCurrentDateString()
+    const todayDate = this.getActualTodayString()
+    if (viewingDate !== todayDate) {
+      return
+    }
+
+    // Prepare task data for reminder system
+    const tasksWithReminders = this.taskInstances
+      .filter((inst) => inst.task.reminder_time)
+      .map((inst) => ({
+        filePath: inst.task.path,
+        task: {
+          name: inst.task.name || inst.task.displayTitle || 'Task',
+          scheduledTime: inst.task.scheduledTime || '',
+          reminder_time: inst.task.reminder_time,
+          isRoutine: inst.task.isRoutine,
+        },
+      }))
+
+    reminderManager.buildTodaySchedules(tasksWithReminders)
+  }
+
+  /**
+   * Get the actual today's date as YYYY-MM-DD string.
+   * Unlike getCurrentDateString(), this always returns today regardless of navigation.
+   */
+  private getActualTodayString(): string {
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = (now.getMonth() + 1).toString().padStart(2, '0')
+    const d = now.getDate().toString().padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
 
   public async restoreDeletedTask(
@@ -1021,6 +1074,78 @@ export class TaskChuteView
 
   private showTimeEditModal(inst: TaskInstance): void {
     this.taskTimeController.showTimeEditModal(inst)
+  }
+
+  private showReminderSettingsModal(inst: TaskInstance): void {
+    this.showReminderSettingsDialog(inst)
+  }
+
+  private showReminderSettingsDialog(inst: TaskInstance): void {
+    const currentTime = inst.task.reminder_time
+    const scheduledTime = inst.task.scheduledTime
+    const defaultMinutesBefore = this.plugin.settings.defaultReminderMinutes ?? 5
+
+    const modal = new ReminderSettingsModal(this.app, {
+      currentTime: currentTime || undefined,
+      scheduledTime: scheduledTime || undefined,
+      defaultMinutesBefore,
+      onSave: async (time: string) => {
+        await this.updateTaskReminderTime(inst, time)
+      },
+      onClear: async () => {
+        await this.updateTaskReminderTime(inst, null)
+      },
+    })
+    modal.open()
+  }
+
+  private async updateTaskReminderTime(inst: TaskInstance, time: string | null): Promise<void> {
+    const file = inst.task.file
+    if (!file) {
+      new Notice(this.tv('errors.taskFileNotFound', 'Task file not found'))
+      return
+    }
+
+    try {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        if (time === null) {
+          delete frontmatter.reminder_time
+        } else {
+          frontmatter.reminder_time = time
+        }
+      })
+
+      // Update the in-memory task data
+      if (time === null) {
+        delete inst.task.reminder_time
+      } else {
+        inst.task.reminder_time = time
+      }
+
+      // Update the reminder schedule only when viewing today
+      // (editing reminders for other dates should not schedule them for today)
+      const viewingDate = this.getCurrentDateString()
+      const todayDate = this.getActualTodayString()
+      if (viewingDate === todayDate) {
+        this.plugin.reminderManager?.onTaskReminderTimeChanged(
+          inst.task.path,
+          time,
+          inst.task.name || inst.task.displayTitle || 'Task',
+          inst.task.scheduledTime || ''
+        )
+      }
+
+      // Re-render to show the reminder icon
+      await this.renderTaskList()
+
+      const message = time === null
+        ? this.tv('messages.reminderCleared', 'Reminder cleared')
+        : this.tv('messages.reminderSet', 'Reminder set for {time}', { time })
+      new Notice(message)
+    } catch (error) {
+      console.error('[TaskChute] Failed to update reminder:', error)
+      new Notice(this.tv('errors.reminderUpdateFailed', 'Failed to update reminder'))
+    }
   }
 
   private stopGlobalTimer(): void {}

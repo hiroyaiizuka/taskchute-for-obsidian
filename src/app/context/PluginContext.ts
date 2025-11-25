@@ -4,6 +4,7 @@ import type { RoutineAliasService } from "../../features/routine/services/Routin
 import type DayStatePersistenceService from "../../services/DayStatePersistenceService";
 import type { TaskChuteViewController } from "../taskchute/TaskChuteViewController";
 import type { CommandRegistrar } from "../../types/Commands";
+import type { ReminderSystemManager } from "../../features/reminder/services/ReminderSystemManager";
 
 export interface RibbonController {
   updateLabel(): void;
@@ -21,6 +22,7 @@ export interface PluginContext {
   commandRegistrar: CommandRegistrar;
   ribbonManager: RibbonController;
   localeCoordinator: LocaleCoordinatorHandle;
+  reminderManager?: ReminderSystemManager;
 }
 
 export function createPluginContext(context: PluginContext): PluginContext {

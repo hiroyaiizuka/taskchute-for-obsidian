@@ -6,6 +6,7 @@ import type { RoutineAliasService } from "./features/routine/services/RoutineAli
 import type DayStatePersistenceService from "./services/DayStatePersistenceService"
 import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
+import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -19,6 +20,8 @@ export default class TaskChutePlusPlugin extends Plugin {
   globalTimerInterval?: ReturnType<typeof setInterval> | null
   private viewController!: TaskChuteViewController
   private localeCoordinator?: LocaleCoordinatorHandle
+  /** Reminder manager for notification scheduling (exposed for TaskChuteView) */
+  reminderManager?: ReminderSystemManager
 
   // Simple logger/notification wrapper
   _log(level: keyof Console | undefined, ...args: unknown[]): void {
@@ -49,6 +52,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     const context: PluginContext = await bootstrapPlugin(this)
     this.viewController = context.viewController
     this.localeCoordinator = context.localeCoordinator
+    this.reminderManager = context.reminderManager
   }
 
   async onunload(): Promise<void> {
@@ -59,6 +63,9 @@ export default class TaskChutePlusPlugin extends Plugin {
     }
 
     this.localeCoordinator?.dispose()
+
+    // Dispose reminder system
+    this.reminderManager?.dispose()
 
     // Clear boundary check timeout
     const view = this.viewController?.getView?.()

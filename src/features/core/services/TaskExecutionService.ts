@@ -174,6 +174,9 @@ export class TaskExecutionService {
       )
       await this.host.executionLogService.saveTaskLog(inst, durationSec)
 
+      // Remove reminder schedule for completed task
+      this.host.plugin.reminderManager?.onTaskComplete(inst.task.path)
+
       await this.host.saveRunningTasksState()
 
       const heatmap = new HeatmapService({

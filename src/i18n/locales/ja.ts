@@ -48,6 +48,18 @@ export const ja = {
       robotButtonDesc:
         "Terminal から AI 連携が可能になります（Terminal プラグインが必要です）。",
     },
+    reminder: {
+      heading: "リマインダー",
+      enabledName: "リマインダー機能を有効化",
+      enabledDesc: "タスクの開始予定時刻前に通知を表示します。",
+      defaultMinutesName: "デフォルトのリマインダー時間（分）",
+      defaultMinutesDesc: "新規リマインダー設定時のデフォルト値です。",
+      advancedHeading: "詳細設定",
+      checkIntervalName: "チェック間隔（秒）",
+      checkIntervalDesc: "リマインダーをチェックする間隔です。変更後はプラグインの再起動が必要です。",
+      editDetectionName: "編集検出時間（秒）",
+      editDetectionDesc: "この時間内にキー入力があると、リマインダー通知を一時的にスキップします。0で無効化。",
+    },
     projectCandidates: {
       heading: "プロジェクト",
       titlePrefixName: "ファイル名の接頭辞",

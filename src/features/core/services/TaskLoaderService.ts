@@ -20,6 +20,8 @@ interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   target_date?: string
   taskId?: string
   taskchuteId?: string
+  tags?: string | string[]
+  reminder_time?: string
 }
 
 interface TaskExecutionEntry {
@@ -370,6 +372,7 @@ async function createNonRoutineTask(
     isRoutine: false,
     createdMillis,
     scheduledTime: getScheduledTime(metadata) || undefined,
+    reminder_time: metadata?.reminder_time,
     taskId,
   }
 
@@ -489,6 +492,7 @@ async function createRoutineTask(
     routine_weeks: normalizeRoutineWeeks(metadata),
     routine_weekdays: normalizeRoutineWeekdays(metadata),
     scheduledTime: getScheduledTime(metadata) || undefined,
+    reminder_time: metadata.reminder_time,
     taskId,
   }
 
@@ -792,8 +796,16 @@ function getFrontmatter(context: TaskLoaderHost, file: TFile): TaskFrontmatterWi
   return cache?.frontmatter as TaskFrontmatterWithLegacy | undefined
 }
 
-function isTaskFile(content: string, frontmatter: TaskFrontmatterWithLegacy | undefined): boolean {
+export function isTaskFile(content: string, frontmatter: TaskFrontmatterWithLegacy | undefined): boolean {
+  // Check for #task tag in content (legacy support)
   if (content.includes('#task')) return true
+  // Check for 'task' in frontmatter tags (new format)
+  if (frontmatter?.tags) {
+    const tags = frontmatter.tags
+    if (Array.isArray(tags) && tags.includes('task')) return true
+    if (typeof tags === 'string' && tags === 'task') return true
+  }
+  // Legacy: check for estimatedMinutes
   if (frontmatter?.estimatedMinutes) return true
   return false
 }

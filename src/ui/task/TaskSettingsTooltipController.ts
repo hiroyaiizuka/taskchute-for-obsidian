@@ -11,6 +11,7 @@ export interface TaskSettingsTooltipHost {
   deleteNonRoutineTask: (inst: TaskInstance) => Promise<void>
   hasExecutionHistory: (path: string) => Promise<boolean>
   showDeleteConfirmDialog: (inst: TaskInstance) => Promise<boolean>
+  showReminderSettingsDialog?: (inst: TaskInstance) => void
 }
 
 export default class TaskSettingsTooltipController {
@@ -32,6 +33,28 @@ export default class TaskSettingsTooltipController {
         type: 'button',
       },
     }) as HTMLButtonElement
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '14')
+    svg.setAttribute('height', '14')
+    svg.setAttribute('viewBox', '0 0 24 24')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '2')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('stroke-linejoin', 'round')
+    const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    line1.setAttribute('x1', '18')
+    line1.setAttribute('y1', '6')
+    line1.setAttribute('x2', '6')
+    line1.setAttribute('y2', '18')
+    const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    line2.setAttribute('x1', '6')
+    line2.setAttribute('y1', '6')
+    line2.setAttribute('x2', '18')
+    line2.setAttribute('y2', '18')
+    svg.appendChild(line1)
+    svg.appendChild(line2)
+    closeButton.appendChild(svg)
     const dismiss = (event?: Event) => {
       event?.stopPropagation()
       tooltip.remove()
@@ -40,6 +63,7 @@ export default class TaskSettingsTooltipController {
 
     this.appendReset(inst, tooltip)
     this.appendStartTime(inst, tooltip)
+    this.appendReminder(inst, tooltip)
     this.appendMove(inst, tooltip, anchor)
     this.appendDuplicate(inst, tooltip)
     void this.appendDelete(inst, tooltip)
@@ -96,6 +120,42 @@ export default class TaskSettingsTooltipController {
       event.stopPropagation()
       tooltip.remove()
       await this.host.showScheduledTimeEditModal(inst)
+    })
+  }
+
+  private appendReminder(inst: TaskInstance, tooltip: HTMLElement): void {
+    // Skip if host doesn't support reminder settings
+    if (!this.host.showReminderSettingsDialog) {
+      return
+    }
+
+    const reminderTime = inst.task.reminder_time
+    const hasReminder = typeof reminderTime === 'string' && reminderTime.length > 0
+
+    let label: string
+    if (hasReminder) {
+      label = this.host.tv('buttons.reminderSet', `⏰ リマインダー (${reminderTime})`, {
+        time: reminderTime,
+      })
+    } else {
+      label = this.host.tv('buttons.setReminder', '⏰ リマインダーを設定')
+    }
+
+    const item = tooltip.createEl('div', {
+      cls: 'tooltip-item',
+      text: label,
+      attr: {
+        title: this.host.tv(
+          'forms.reminderDescription',
+          'Set a reminder notification time'
+        ),
+      },
+    })
+
+    item.addEventListener('click', (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.showReminderSettingsDialog!(inst)
     })
   }
 

@@ -38,6 +38,9 @@ export interface TaskChuteSettings {
   // Execution log backups
   backupIntervalHours?: number
   backupRetentionDays?: number
+
+  // Reminder settings
+  defaultReminderMinutes?: number // default: 5 (used for initial value calculation)
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
@@ -73,7 +76,10 @@ export type TaskChutePluginLike = Pick<
   | "_log"
   | "_notify"
   | "manifest"
->
+> & {
+  /** Optional reminder manager for notification scheduling */
+  reminderManager?: ReminderManagerLike
+}
 
 export interface TaskData {
   file: TFile | null
@@ -111,6 +117,8 @@ export interface TaskData {
   flexible_schedule?: boolean
   scheduledTime?: string
   title?: string
+  // Reminder field (time in HH:mm format when notification should fire)
+  reminder_time?: string
   [key: string]: unknown
 }
 
@@ -317,4 +325,36 @@ export interface RoutineRule {
   monthWeekday?: number // 0..6
   weekSet?: (number | 'last')[]
   monthWeekdaySet?: number[]
+}
+
+/**
+ * Interface for ReminderSystemManager that can be used in TaskChuteView
+ * to avoid circular dependencies with the full ReminderSystemManager class.
+ */
+export interface ReminderManagerLike {
+  /**
+   * Build reminder schedules for today's tasks.
+   * Should be called after loading tasks.
+   */
+  buildTodaySchedules(tasks: unknown[]): void
+
+  /**
+   * Called when a task's reminder time is changed via UI.
+   * @param taskPath The file path of the task
+   * @param newReminderTime The new reminder time in HH:mm format, or null to clear
+   * @param taskName Optional task name for creating new schedules
+   * @param scheduledTime Optional scheduled time for creating new schedules
+   */
+  onTaskReminderTimeChanged(
+    taskPath: string,
+    newReminderTime: string | null,
+    taskName?: string,
+    scheduledTime?: string
+  ): void
+
+  /**
+   * Called when a task is completed.
+   * Removes the reminder schedule for the task.
+   */
+  onTaskComplete(taskPath: string): void
 }

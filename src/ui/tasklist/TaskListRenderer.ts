@@ -32,6 +32,7 @@ export type TaskListRendererHost = {
   showTaskContextMenu: (e: MouseEvent, inst: TaskInstance) => void
   calculateCrossDayDuration: (start: Date, stop: Date) => number
   showTimeEditModal: (inst: TaskInstance) => void
+  showReminderSettingsModal: (inst: TaskInstance) => void
   updateTotalTasksCount: () => void
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
@@ -62,6 +63,7 @@ export default class TaskListRenderer {
       stopInstance: (inst) => this.host.stopInstance(inst),
       duplicateAndStartInstance: (inst) => this.host.duplicateAndStartInstance(inst),
       showTimeEditModal: (inst) => this.host.showTimeEditModal(inst),
+      showReminderSettingsModal: (inst) => this.host.showReminderSettingsModal(inst),
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })

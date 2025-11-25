@@ -358,8 +358,8 @@ select.form-input {
     minmax(60px, 0.9fr) minmax(52px, 0.8fr) 28px 28px 28px;
   gap: 8px;
   align-items: center;
-  padding: 2px 20px 2px 15px;
-  margin: 2px 0;
+  padding: 4px 25px 4px 10px;
+  margin: 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 .task-item:last-child {
@@ -414,9 +414,13 @@ select.form-input {
   transition: color 0.2s;
   color: #3498db;
   padding: 2px;
+  padding-top: 4px;
   border-radius: 4px;
   width: 100%;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .play-stop-button.stop {
   color: #e74c3c;
@@ -538,7 +542,12 @@ select.form-input {
   opacity: 0.7;
   transition: all 0.2s ease;
   padding: 2px;
+  padding-top: 4px;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .comment-button:hover,
 .settings-task-button:hover,
@@ -669,6 +678,10 @@ select.form-input {
 }
 .drawer-toggle-icon {
   font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 2px;
 }
 .navigation-overlay {
   position: fixed;
@@ -2383,8 +2396,26 @@ select.form-input {
 
 .future-task-button {
   background-color: var(--background-modifier-border) !important;
-  color: var(--text-muted) !important;
+  color: transparent !important;
   cursor: not-allowed !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding-top: 0;
+  padding-bottom: 0;
+  position: relative;
+}
+
+.future-task-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 2px;
+  background-color: var(--text-muted);
 }
 
 .task-list-container {
@@ -2460,8 +2491,8 @@ select.form-input {
   grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
   gap: 8px;
   align-items: center;
-  padding: 2px 10px 2px 15px;
-  margin: 2px 0;
+  padding: 4px 15px 4px 10px;
+  margin: 0;
 }
 
 /* ドラッグハンドルのスタイル */
@@ -2558,9 +2589,9 @@ select.form-input {
   color: var(--text-muted);
   font-family: monospace;
   white-space: nowrap;
-  text-align: right;
+  text-align: left;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   min-width: 0;
   overflow: hidden;
@@ -2617,11 +2648,15 @@ select.form-input {
   font-size: 14px;
   cursor: pointer;
   padding: 2px;
+  padding-top: 4px;
   border-radius: 4px;
   transition: all 0.2s ease;
   opacity: 0.4;
   width: 100%;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .routine-button:hover {
@@ -2642,11 +2677,15 @@ select.form-input {
   cursor: pointer;
   color: var(--text-muted);
   padding: 2px;
+  padding-top: 4px;
   border-radius: 4px;
   transition: all 0.2s ease;
   opacity: 0;
   width: 100%;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   visibility: visible; /* デフォルトは表示 */
 }
 
@@ -3045,9 +3084,13 @@ select.form-input {
   transition: color 0.2s;
   color: #3498db;
   padding: 2px;
+  padding-top: 4px;
   border-radius: 4px;
   width: 100%;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .play-stop-button.stop {
   color: #e74c3c;
@@ -3102,7 +3145,7 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px 0;
+  padding: 4px 0 11px 0;
   min-width: 140px;
   font-size: 13px;
   z-index: 1000;
@@ -3133,12 +3176,12 @@ select.form-input {
 .tooltip-close-button {
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3152,12 +3195,13 @@ select.form-input {
 }
 
 .tooltip-item {
-  padding: 8px 12px;
+  padding: 6px 12px;
   cursor: pointer;
   transition: background-color 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 13px;
 }
 
 .tooltip-item:hover {
@@ -3732,14 +3776,17 @@ select.form-input {
 }
 
 
+/* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
-  gap: 8px;
-  padding-right: 12px;
+  grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
+  gap: 6px;
+  padding-left: 6px;
+  padding-right: 16px;
 }
 
 .taskchute-narrow .task-time-range {
   justify-content: flex-start;
+  text-align: left;
   padding-left: 4px;
 }
 
@@ -3750,26 +3797,27 @@ select.form-input {
   margin-right: 0;
 }
 
-.taskchute-narrow .comment-button,
-.taskchute-narrow .routine-button {
+/* narrow時は経過時間を非表示にし、コメント・ルーチンは表示を維持 */
+.taskchute-narrow .task-duration,
+.taskchute-narrow .task-duration-placeholder,
+.taskchute-narrow .task-timer-display {
   display: none;
 }
 
+/* very-narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-very-narrow .task-item {
-  grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
-  gap: 6px;
+  grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+  gap: 4px;
+  padding-left: 4px;
   padding-right: 12px;
 }
 
-.taskchute-very-narrow .task-duration,
-.taskchute-very-narrow .task-duration-placeholder,
-.taskchute-very-narrow .task-timer-display {
-  display: none;
-}
+/* very-narrow時もコメント・ルーチンは表示を維持（経過時間はnarrowで既に非表示） */
 
 .taskchute-very-narrow .task-time-range {
   font-size: 11px;
   justify-content: flex-start;
+  text-align: left;
   padding-left: 4px;
 }
 
@@ -3932,35 +3980,12 @@ select.form-input {
 }
 
 @container taskchute-list (max-width: 640px) {
+  /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(120px, auto) minmax(60px, auto) auto;
-    gap: 8px;
-    padding-right: 12px;
-  }
-
-  .task-item .comment-button,
-  .task-item .routine-button {
-    display: none;
-  }
-
-  .task-item .task-time-range {
-    justify-content: flex-start;
-    padding-left: 4px;
-  }
-
-  .task-item .settings-task-button {
-    width: auto;
-    min-width: 26px;
-    margin-left: 8px;
-    margin-right: 0;
-  }
-}
-
-@container taskchute-list (max-width: 520px) {
-  .task-item {
-    grid-template-columns: 18px 28px minmax(0, 1fr) minmax(72px, auto) auto;
+    grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
     gap: 6px;
-    padding-right: 12px;
+    padding-left: 6px;
+    padding-right: 16px;
   }
 
   .task-item .task-duration,
@@ -3970,8 +3995,30 @@ select.form-input {
   }
 
   .task-item .task-time-range {
+    justify-content: flex-start;
+    text-align: left;
+    padding-left: 4px;
+  }
+
+  .task-item .settings-task-button {
+    width: auto;
+    min-width: 26px;
+  }
+}
+
+@container taskchute-list (max-width: 520px) {
+  /* 520px以下: さらにコンパクト */
+  .task-item {
+    grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+    gap: 4px;
+    padding-left: 4px;
+    padding-right: 12px;
+  }
+
+  .task-item .task-time-range {
     font-size: 11px;
     justify-content: flex-start;
+    text-align: left;
     padding-left: 4px;
   }
 
@@ -4719,4 +4766,210 @@ select.form-input {
   .project-board-columns {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
+}
+
+/* ===== Reminder Notification Modal ===== */
+.taskchute-reminder-modal .modal-content {
+  padding: 20px;
+}
+
+.reminder-modal-header {
+  padding: 0 0 16px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+.reminder-modal-header h3 {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: 1.2em;
+}
+
+.reminder-modal-content {
+  padding: 0 0 20px 0;
+}
+
+.reminder-task-name {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0 0 8px 0;
+}
+
+.reminder-message {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.reminder-button-group {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.reminder-button-group .form-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.reminder-button-group .form-button.create {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.reminder-button-group .form-button.create:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.reminder-button-group .form-button.cancel {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.reminder-button-group .form-button.cancel:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+/* ===== Reminder Settings Modal ===== */
+.taskchute-reminder-settings-modal .modal-content {
+  padding: 20px;
+}
+
+.reminder-settings-header {
+  padding: 0 0 12px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+.reminder-settings-header h3 {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: 1.1em;
+}
+
+.reminder-settings-task {
+  margin-bottom: 16px;
+}
+
+.reminder-settings-task-name {
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0;
+}
+
+.reminder-settings-input-section {
+  margin-bottom: 20px;
+}
+
+.reminder-settings-input-section label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.reminder-input-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reminder-input-container input[type="number"] {
+  width: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+}
+
+.reminder-input-container input[type="number"]:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.reminder-input-suffix {
+  color: var(--text-muted);
+}
+
+.reminder-settings-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.reminder-settings-buttons .form-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.reminder-settings-buttons .form-button.create {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.reminder-settings-buttons .form-button.create:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.reminder-settings-buttons .form-button.cancel {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.reminder-settings-buttons .form-button.cancel:hover {
+  background: var(--background-modifier-border-hover);
+}
+
+.reminder-settings-buttons .form-button.danger {
+  background: var(--text-error);
+  color: white;
+}
+
+.reminder-settings-buttons .form-button.danger:hover {
+  opacity: 0.9;
+}
+
+/* ===== Reminder Icon in Task Row ===== */
+.reminder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  color: #f5c842;
+  cursor: default;
+  opacity: 0.9;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.reminder-icon:hover {
+  opacity: 1;
+}
+
+.reminder-icon--clickable {
+  cursor: pointer;
+}
+
+.reminder-icon--clickable:hover {
+  color: #ffd700;
+  transform: scale(1.15);
+}
+
+.reminder-icon-svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Position reminder icon after task name */
+.task-item .task-name + .reminder-icon {
+  margin-left: 6px;
 }

@@ -16,6 +16,7 @@ import {
   type PluginContext,
 } from "./context/PluginContext"
 import { TaskIdManager } from "../services/TaskIdManager"
+import { ReminderSystemManager } from "../features/reminder/services/ReminderSystemManager"
 
 export async function prepareSettings(
   plugin: TaskChutePlugin,
@@ -130,6 +131,28 @@ export async function bootstrapPlugin(
   ribbonManager.initialize()
   commandRegistrar.initialize()
 
+  // Initialize reminder system (always enabled)
+  let reminderManager: ReminderSystemManager | undefined
+  try {
+    reminderManager = new ReminderSystemManager({
+      app: plugin.app,
+      settings: plugin.settings,
+      registerInterval: (callback, intervalMs) =>
+        window.setInterval(callback, intervalMs),
+      registerEvent: (eventRef) => {
+        plugin.registerEvent(eventRef)
+        return eventRef
+      },
+    })
+
+    reminderManager.registerEditorEvents()
+    reminderManager.startPeriodicTask()
+
+    plugin._log?.("debug", "[TaskChute] Reminder system initialized")
+  } catch (error) {
+    plugin._log?.("warn", "[TaskChute] Failed to initialize reminder system:", error)
+  }
+
   const context = createPluginContext({
     pathManager,
     dayStateService,
@@ -138,6 +161,7 @@ export async function bootstrapPlugin(
     commandRegistrar,
     ribbonManager,
     localeCoordinator,
+    reminderManager,
   })
 
   attachPluginContext(plugin, context)
