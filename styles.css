@@ -2396,8 +2396,26 @@ select.form-input {
 
 .future-task-button {
   background-color: var(--background-modifier-border) !important;
-  color: var(--text-muted) !important;
+  color: transparent !important;
   cursor: not-allowed !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding-top: 0;
+  padding-bottom: 0;
+  position: relative;
+}
+
+.future-task-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 2px;
+  background-color: var(--text-muted);
 }
 
 .task-list-container {
@@ -3127,7 +3145,7 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px 0;
+  padding: 4px 0 11px 0;
   min-width: 140px;
   font-size: 13px;
   z-index: 1000;
@@ -3158,12 +3176,12 @@ select.form-input {
 .tooltip-close-button {
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
