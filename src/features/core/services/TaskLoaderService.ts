@@ -21,6 +21,7 @@ interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   taskId?: string
   taskchuteId?: string
   tags?: string | string[]
+  reminder_time?: string
 }
 
 interface TaskExecutionEntry {
@@ -371,6 +372,7 @@ async function createNonRoutineTask(
     isRoutine: false,
     createdMillis,
     scheduledTime: getScheduledTime(metadata) || undefined,
+    reminder_time: metadata?.reminder_time,
     taskId,
   }
 
@@ -490,6 +492,7 @@ async function createRoutineTask(
     routine_weeks: normalizeRoutineWeeks(metadata),
     routine_weekdays: normalizeRoutineWeekdays(metadata),
     scheduledTime: getScheduledTime(metadata) || undefined,
+    reminder_time: metadata.reminder_time,
     taskId,
   }
 

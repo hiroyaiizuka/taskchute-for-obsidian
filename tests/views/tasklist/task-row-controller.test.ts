@@ -1,21 +1,25 @@
 import TaskRowController from '../../../src/ui/tasklist/TaskRowController'
 import type { TaskInstance } from '../../../src/types'
 
-const createTaskElement = () => {
-  const element = document.createElement('div') as HTMLElement & {
-    createEl: <K extends keyof HTMLElementTagNameMap>(
-      tag: K,
-      options?: {
-        cls?: string
-        text?: string
-        attr?: Record<string, string>
-      },
-    ) => HTMLElementTagNameMap[K]
-  }
+type CreateElFn = <K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  options?: {
+    cls?: string
+    text?: string
+    attr?: Record<string, string>
+  },
+) => HTMLElementTagNameMap[K]
 
-  element.createEl = (tag, options = {}) => {
+const addCreateEl = (element: HTMLElement): HTMLElement & { createEl: CreateElFn } => {
+  const augmentedElement = element as HTMLElement & { createEl: CreateElFn };
+  augmentedElement.createEl = (tag, options = {}) => {
     const child = document.createElement(tag)
-    if (options.cls) child.className = options.cls
+    if (options.cls) {
+      const classes = options.cls.split(' ').filter(c => c.length > 0)
+      if (classes.length > 0) {
+        child.classList.add(...classes)
+      }
+    }
     if (options.text) child.textContent = options.text
     if (options.attr) {
       Object.entries(options.attr).forEach(([key, value]) => {
@@ -23,10 +27,15 @@ const createTaskElement = () => {
       })
     }
     element.appendChild(child)
-    return child
+    // Recursively add createEl to child elements
+    return addCreateEl(child)
   }
+  return augmentedElement
+}
 
-  return element
+const createTaskElement = () => {
+  const element = document.createElement('div')
+  return addCreateEl(element)
 }
 
 describe('TaskRowController.renderTaskName', () => {
@@ -36,6 +45,7 @@ describe('TaskRowController.renderTaskName', () => {
     stopInstance: jest.fn(),
     duplicateAndStartInstance: jest.fn(),
     showTimeEditModal: jest.fn(),
+    showReminderSettingsModal: jest.fn(),
     calculateCrossDayDuration: jest.fn(),
     app: {
       workspace: {

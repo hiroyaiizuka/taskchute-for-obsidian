@@ -48,6 +48,18 @@ export const en = {
       robotButtonDesc:
         "Enable AI integration via Terminal (requires Terminal plugin).",
     },
+    reminder: {
+      heading: "Reminders",
+      enabledName: "Enable reminders",
+      enabledDesc: "Show notifications before scheduled task start times.",
+      defaultMinutesName: "Default reminder time (minutes)",
+      defaultMinutesDesc: "Default value when setting a new reminder.",
+      advancedHeading: "Advanced",
+      checkIntervalName: "Check interval (seconds)",
+      checkIntervalDesc: "How often to check for reminders. Requires plugin restart after change.",
+      editDetectionName: "Edit detection time (seconds)",
+      editDetectionDesc: "Skip notifications if keypress within this time. Set to 0 to disable.",
+    },
     projectCandidates: {
       heading: "Projects",
       titlePrefixName: "File name prefix",

@@ -11,6 +11,7 @@ export interface TaskSettingsTooltipHost {
   deleteNonRoutineTask: (inst: TaskInstance) => Promise<void>
   hasExecutionHistory: (path: string) => Promise<boolean>
   showDeleteConfirmDialog: (inst: TaskInstance) => Promise<boolean>
+  showReminderSettingsDialog?: (inst: TaskInstance) => void
 }
 
 export default class TaskSettingsTooltipController {
@@ -62,6 +63,7 @@ export default class TaskSettingsTooltipController {
 
     this.appendReset(inst, tooltip)
     this.appendStartTime(inst, tooltip)
+    this.appendReminder(inst, tooltip)
     this.appendMove(inst, tooltip, anchor)
     this.appendDuplicate(inst, tooltip)
     void this.appendDelete(inst, tooltip)
@@ -118,6 +120,42 @@ export default class TaskSettingsTooltipController {
       event.stopPropagation()
       tooltip.remove()
       await this.host.showScheduledTimeEditModal(inst)
+    })
+  }
+
+  private appendReminder(inst: TaskInstance, tooltip: HTMLElement): void {
+    // Skip if host doesn't support reminder settings
+    if (!this.host.showReminderSettingsDialog) {
+      return
+    }
+
+    const reminderTime = inst.task.reminder_time
+    const hasReminder = typeof reminderTime === 'string' && reminderTime.length > 0
+
+    let label: string
+    if (hasReminder) {
+      label = this.host.tv('buttons.reminderSet', `⏰ リマインダー (${reminderTime})`, {
+        time: reminderTime,
+      })
+    } else {
+      label = this.host.tv('buttons.setReminder', '⏰ リマインダーを設定')
+    }
+
+    const item = tooltip.createEl('div', {
+      cls: 'tooltip-item',
+      text: label,
+      attr: {
+        title: this.host.tv(
+          'forms.reminderDescription',
+          'Set a reminder notification time'
+        ),
+      },
+    })
+
+    item.addEventListener('click', (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.showReminderSettingsDialog!(inst)
     })
   }
 
