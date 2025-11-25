@@ -66,6 +66,8 @@ export class TaskCreationService {
       '---',
       `target_date: "${dateStr}"`,
       `taskId: "${taskId}"`,
+      'tags:',
+      '  - task',
     ]
 
     // Add scheduled_time if provided
@@ -77,8 +79,6 @@ export class TaskCreationService {
 
     const content = [
       ...frontmatterLines,
-      '',
-      '#task',
       '',
       `# ${taskName}`,
       '',
