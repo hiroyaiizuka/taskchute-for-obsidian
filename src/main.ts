@@ -55,7 +55,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.reminderManager = context.reminderManager
   }
 
-  async onunload(): Promise<void> {
+  onunload(): void {
     // Clear timer intervals
     if (this.globalTimerInterval) {
       clearInterval(this.globalTimerInterval)

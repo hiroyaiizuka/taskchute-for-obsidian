@@ -102,7 +102,7 @@ function promoteDeletedEntriesToTaskId(
     }
     mutated = true
     return { ...entry, taskId }
-  }) as DeletedInstance[]
+  })
 
   if (!mutated) {
     return null
@@ -267,7 +267,7 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
     } | null
 
     const entries = Array.isArray(parsed?.taskExecutions?.[dateKey])
-      ? parsed!.taskExecutions![dateKey]!
+      ? parsed.taskExecutions[dateKey]
       : []
 
     return entries.map((entry): NormalizedExecution => {
@@ -289,20 +289,20 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
   }
 }
 
-async function createTaskFromExecutions(
+function createTaskFromExecutions(
   context: TaskLoaderHost,
   executions: NormalizedExecution[],
   file: TFile | null,
   dateKey: string,
-): Promise<boolean> {
+): boolean {
   if (executions.length === 0) {
     return false
   }
 
   const metadata = file ? getFrontmatter(context, file) : undefined
   const projectInfo = resolveProjectInfo(context, metadata)
-  const templateName = file?.basename ?? executions[0]!.taskTitle
-  const derivedPath = file?.path ?? executions[0]!.taskPath ?? `${templateName}.md`
+  const templateName = file?.basename ?? executions[0].taskTitle
+  const derivedPath = file?.path ?? executions[0].taskPath ?? `${templateName}.md`
   const createdMillis = resolveCreatedMillis(file, resolveExecutionCreatedMillis(executions, dateKey))
   const taskId = resolveTaskId(metadata)
 
@@ -351,12 +351,12 @@ async function createTaskFromExecutions(
   return created > 0
 }
 
-async function createNonRoutineTask(
+function createNonRoutineTask(
   context: TaskLoaderHost,
   file: TFile,
   metadata: TaskFrontmatterWithLegacy | undefined,
   dateKey: string,
-): Promise<void> {
+): void {
   const projectInfo = resolveProjectInfo(context, metadata)
   const createdMillis = resolveCreatedMillis(file, Date.now())
   const taskId = resolveTaskId(metadata)
@@ -425,7 +425,7 @@ function normalizeRoutineWeeks(metadata: TaskFrontmatterWithLegacy): RoutineWeek
       } else {
         const num = Number(value)
         if (Number.isInteger(num)) {
-          const normalized = (num + 1) as number
+          const normalized = (num + 1)
           if (normalized >= 1 && normalized <= 5) {
             pushWeek(normalized as RoutineWeek)
           }
@@ -518,9 +518,10 @@ function shouldShowRoutineTask(
   metadata: TaskFrontmatterWithLegacy,
   dateKey: string,
 ): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  // target_date is deprecated but still used for backwards compatibility with existing data
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
   const movedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
     ? metadata.target_date
     : undefined
   const rule = RoutineService.parseFrontmatter(metadata)
@@ -625,9 +626,10 @@ async function shouldShowNonRoutineTask(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  // target_date is deprecated but still used for backwards compatibility with existing data
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
   if (metadata?.target_date) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
     return metadata.target_date === dateKey
   }
 
@@ -719,7 +721,7 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
 async function ensureDayState(context: TaskLoaderHost, dateKey: string): Promise<DayState> {
   const manager = context.dayStateManager
   if (manager) {
-    return manager.ensure(dateKey)
+    return await manager.ensure(dateKey)
   }
   return createEmptyDayState()
 }
@@ -823,7 +825,7 @@ function deriveDisplayTitle(
   return 'Untitled Task'
 }
 
-async function getTaskFiles(context: TaskLoaderHost): Promise<TFile[]> {
+function getTaskFiles(context: TaskLoaderHost): TFile[] {
   const folderPath = context.plugin.pathManager.getTaskFolderPath()
   const abstract = context.app.vault.getAbstractFileByPath(folderPath)
 

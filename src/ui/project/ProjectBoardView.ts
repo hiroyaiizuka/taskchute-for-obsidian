@@ -95,20 +95,20 @@ export class ProjectBoardView extends ItemView {
         : 'Projects'
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): void {
     this.containerEl.empty()
     this.containerEl.addClass('project-board-view')
 
-    await this.loadData()
+    this.loadData()
     this.render()
   }
 
-  async onClose(): Promise<void> {
+  onClose(): void {
     this.containerEl.empty()
     this.containerEl.removeClass('project-board-view')
   }
 
-  private async loadData(): Promise<void> {
+  private loadData(): void {
     this.loadError = null
     this.items = []
 
@@ -186,7 +186,7 @@ export class ProjectBoardView extends ItemView {
       cls: 'project-board-button project-board-button--add',
       text: '+',
       attr: { 'aria-label': this.translate('projectBoard.actions.addProject', 'Add new project') },
-    }) as HTMLButtonElement
+    })
     addButton.addEventListener('click', () => this.handleCreateProject(definition.id))
   }
 
@@ -217,7 +217,7 @@ export class ProjectBoardView extends ItemView {
           'data-status': item.status,
           'data-path': item.path,
         },
-      }) as HTMLButtonElement
+      })
       card.textContent = item.displayTitle
       card.draggable = true
       card.addEventListener('dragstart', (event) => this.handleDragStart(event, item.path))
@@ -236,7 +236,7 @@ export class ProjectBoardView extends ItemView {
         cls: 'project-board-column__load-more',
         text: this.translate('projectBoard.loadMore', 'Load more'),
         attr: { type: 'button' },
-      }) as HTMLButtonElement
+      })
       loadMoreButton.addEventListener('click', () => this.handleLoadMore(status))
     }
   }
@@ -247,7 +247,7 @@ export class ProjectBoardView extends ItemView {
       cls: 'project-board-column__new',
       text: this.translate('projectBoard.newProject', '＋ New project'),
       attr: { 'data-status': status },
-    }) as HTMLButtonElement
+    })
     newButton.addEventListener('click', () => this.handleCreateProject(status))
   }
 
@@ -269,7 +269,7 @@ export class ProjectBoardView extends ItemView {
     wrapper.createEl('p', { text: error.message })
   }
 
-  private async handleCreateProject(status: ProjectBoardStatus): Promise<void> {
+  private handleCreateProject(status: ProjectBoardStatus): void {
     const submitLabel = this.translate('projectCreate.create', 'Create')
     const modal = createNameModal({
       title: this.translate('projectCreate.heading', 'Create project'),
@@ -287,7 +287,7 @@ export class ProjectBoardView extends ItemView {
       submitButton.textContent = submitLabel
     }
 
-    form.addEventListener('submit', async (event) => {
+    form.addEventListener('submit', (event) => {
       event.preventDefault()
       const title = input.value.trim()
 
@@ -299,19 +299,18 @@ export class ProjectBoardView extends ItemView {
 
       submitButton.disabled = true
 
-      try {
-        await this.boardService.createProject({
-          title,
-          status,
-        })
-        await this.reloadItemsPreservingState()
+      this.boardService.createProject({
+        title,
+        status,
+      }).then(() => {
+        this.reloadItemsPreservingState()
         close()
         this.render()
-      } catch (error) {
+      }).catch((error: unknown) => {
         console.error('[ProjectBoard] Failed to create project', error)
         new Notice(this.translate('projectCreate.error', 'Failed to create project'))
         resetButton()
-      }
+      })
     })
   }
 
@@ -346,7 +345,7 @@ export class ProjectBoardView extends ItemView {
     this.render()
   }
 
-  private async reloadItemsPreservingState(): Promise<boolean> {
+  private reloadItemsPreservingState(): boolean {
     try {
       const loaded = this.boardService.loadProjectItems()
       let mutated = false
@@ -377,7 +376,7 @@ export class ProjectBoardView extends ItemView {
         }
 
         if (optimistic.completed === undefined && merged.frontmatter && 'completed' in merged.frontmatter) {
-          delete (merged.frontmatter as Record<string, unknown>).completed
+          delete (merged.frontmatter).completed
         }
 
         return merged
@@ -471,7 +470,7 @@ export class ProjectBoardView extends ItemView {
       this.dropHint && this.dropHint.status === status
         ? this.dropHint
         : (() => {
-            const lastCard = target.querySelector('.project-board-card:last-of-type') as HTMLElement | null
+            const lastCard = target.querySelector('.project-board-card:last-of-type')
             const anchorPath = lastCard?.getAttribute('data-path') ?? null
             return { status, anchorPath, position: anchorPath ? 'after' : 'empty' as const }
           })()

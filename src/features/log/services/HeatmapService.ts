@@ -255,7 +255,7 @@ export class HeatmapService {
           const existingSummarySource = summaryRecord[dateString]
           const summarySource =
             existingSummarySource && typeof existingSummarySource === 'object'
-              ? (existingSummarySource as Record<string, unknown>)
+              ? (existingSummarySource)
               : {}
 
           const prevTotal = this.toNumber(summarySource.totalTasks)

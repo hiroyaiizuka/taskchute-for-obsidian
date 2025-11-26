@@ -67,10 +67,10 @@ export default class RoutineController {
         title: this.tv('common.close', 'Close'),
         type: 'button',
       },
-    }) as HTMLButtonElement
+    })
     attachCloseButtonIcon(closeButton)
 
-    const form = modalContent.createEl('form', { cls: 'task-form' }) as HTMLFormElement
+    const form = modalContent.createEl('form', { cls: 'task-form' })
 
     const preventInputEnterSubmit = (event: KeyboardEvent) => {
       if (event.key !== 'Enter') {
@@ -90,7 +90,7 @@ export default class RoutineController {
     })
     const typeSelect = typeGroup.createEl('select', {
       cls: 'form-input',
-    }) as HTMLSelectElement
+    })
 
     const options = [
       { value: 'daily', text: this.tv('forms.routineDaily', 'Daily') },
@@ -120,7 +120,7 @@ export default class RoutineController {
       type: 'time',
       cls: 'form-input',
       value: this.resolveScheduledTimeValue(task),
-    }) as HTMLInputElement
+    })
 
     const intervalGroup = form.createEl('div', { cls: 'form-group' })
     intervalGroup.createEl('label', {
@@ -132,7 +132,7 @@ export default class RoutineController {
       cls: 'form-input',
       attr: { min: '1', step: '1' },
       value: String(task.routine_interval ?? 1),
-    }) as HTMLInputElement
+    })
 
     const enabledGroup = form.createEl('div', { cls: 'form-group' })
     enabledGroup.createEl('label', {
@@ -141,7 +141,7 @@ export default class RoutineController {
     })
     const enabledToggle = enabledGroup.createEl('input', {
       type: 'checkbox',
-    }) as HTMLInputElement
+    })
     enabledToggle.checked = task.routine_enabled !== false
 
     const weeklyGroup = form.createEl('div', {
@@ -247,7 +247,7 @@ export default class RoutineController {
         type: 'button',
         cls: 'form-button cancel',
         text: this.tv('buttons.removeRoutine', 'Remove from routine'),
-      }) as HTMLButtonElement
+      })
     }
 
     const closeModal = () => {
@@ -313,7 +313,7 @@ export default class RoutineController {
         detailPayload.monthly_weeks = normalizedWeeks
         if (normalizedWeeks.length === 1) {
           const onlyWeek = normalizedWeeks[0]
-          detailPayload.monthly_week = onlyWeek === 'last' ? 'last' : (onlyWeek as number) - 1
+          detailPayload.monthly_week = onlyWeek === 'last' ? 'last' : (onlyWeek) - 1
         } else {
           detailPayload.monthly_week = undefined
         }
@@ -424,7 +424,7 @@ export default class RoutineController {
                 ? [
                     details.monthly_week === 'last'
                       ? 'last'
-                      : (details.monthly_week as number) + 1,
+                      : (details.monthly_week) + 1,
                   ]
                 : [],
           )
@@ -582,7 +582,7 @@ export default class RoutineController {
             ? [
                 details.monthly_week === 'last'
                   ? 'last'
-                  : (details.monthly_week as number) + 1,
+                  : (details.monthly_week) + 1,
               ]
             : [],
       )
@@ -674,7 +674,7 @@ export default class RoutineController {
                 ? [
                     details.monthly_week === 'last'
                       ? 'last'
-                      : (details.monthly_week as number) + 1,
+                      : (details.monthly_week) + 1,
                   ]
                 : task.routine_week
                   ? [task.routine_week]
@@ -754,7 +754,7 @@ export default class RoutineController {
       .sort((a, b) => {
         if (a === 'last') return 1
         if (b === 'last') return -1
-        return (a as number) - (b as number)
+        return (a) - (b)
       })
   }
 
@@ -782,7 +782,7 @@ export default class RoutineController {
       const checkbox = chip.createEl('input', {
         type: 'checkbox',
         value: option.value,
-      }) as HTMLInputElement
+      })
       chip.createEl('span', { text: option.label, cls: 'routine-chip__text' })
       return checkbox
     })
@@ -828,7 +828,7 @@ export default class RoutineController {
     if (typeof task.scheduledTime === 'string' && task.scheduledTime.length > 0) {
       return task.scheduledTime
     }
-    const frontmatter = task.frontmatter as Record<string, unknown>
+    const frontmatter = task.frontmatter
     const legacy = frontmatter?.['開始時刻']
     if (typeof legacy === 'string' && legacy.length > 0) {
       return legacy

@@ -147,7 +147,7 @@ export class TaskNameAutocomplete {
     const NodeCtor: typeof Node | undefined = this.win.Node ??
       (typeof Node !== 'undefined' ? Node : undefined);
     const target = NodeCtor && event.target instanceof NodeCtor
-      ? (event.target as Node)
+      ? (event.target)
       : null;
     if (target && this.suggestionsElement.contains(target)) {
       return;
@@ -170,19 +170,19 @@ export class TaskNameAutocomplete {
     this.win = options?.win ?? window;
   }
 
-  async initialize(): Promise<void> {
-    await this.loadTaskNames();
-    await this.loadProjectNames();
+  initialize(): void {
+    this.loadTaskNames();
+    this.loadProjectNames();
     this.setupEventListeners();
     this.setupFileEventListeners();
   }
 
-  private async loadTaskNames(): Promise<void> {
+  private loadTaskNames(): void {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
     const taskFolder = this.plugin.app.vault.getAbstractFileByPath(taskFolderPath);
-    
+
     if (!(taskFolder instanceof TFolder)) return;
-    
+
     const suggestions: TaskNameSuggestion[] = [];
 
     const processFolder = (folder: TFolder) => {
@@ -205,12 +205,12 @@ export class TaskNameAutocomplete {
         }
       }
     };
-    
+
     processFolder(taskFolder);
     this.taskSuggestions = suggestions;
   }
 
-  private async loadProjectNames(): Promise<void> {
+  private loadProjectNames(): void {
     const projectFolderPath = this.plugin.pathManager.getProjectFolderPath();
     if (!projectFolderPath) { this.projectSuggestions = []; return; }
     const projectFolder = this.plugin.app.vault.getAbstractFileByPath(projectFolderPath);

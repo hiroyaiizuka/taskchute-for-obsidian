@@ -267,7 +267,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       cls: "taskchute-move-calendar__day",
       attr: { "data-date": isoDate },
       text: String(date.getDate()),
-    }) as HTMLButtonElement
+    })
 
     if (!inCurrentMonth) {
       button.classList.add("is-outside")

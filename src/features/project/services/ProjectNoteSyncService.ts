@@ -16,7 +16,7 @@ export class ProjectNoteSyncService {
   }
 
   // プロジェクトノートパスを取得
-  async getProjectNotePath(inst: TaskInstance): Promise<string | null> {
+  getProjectNotePath(inst: TaskInstance): string | null {
     if (!inst?.task?.projectPath && !inst?.task?.projectTitle) return null
 
     if (inst.task.projectPath) {
@@ -31,7 +31,7 @@ export class ProjectNoteSyncService {
   }
 
   // ログセクションを検出または作成
-  async ensureLogSection(content: string): Promise<{ exists: boolean; position: number; content: string }> {
+  ensureLogSection(content: string): { exists: boolean; position: number; content: string } {
     // #ログ、##ログ、# Log、## Log などのバリエーションに対応
     const logSectionRegex = /^#{1,2}\s+(ログ|log|Log|LOG)\s*$/im
     const match = content.match(logSectionRegex)

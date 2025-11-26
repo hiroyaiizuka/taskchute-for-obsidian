@@ -396,7 +396,7 @@ export class DayStatePersistenceService {
     }
   }
 
-  async clearCache(): Promise<void> {
+  clearCache(): void {
     this.cache.clear();
   }
 

@@ -32,7 +32,7 @@ export default class TaskSettingsTooltipController {
         title: t('common.close', 'Close'),
         type: 'button',
       },
-    }) as HTMLButtonElement
+    })
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('width', '14')
     svg.setAttribute('height', '14')
@@ -189,25 +189,26 @@ export default class TaskSettingsTooltipController {
     })
   }
 
-  private async appendDelete(inst: TaskInstance, tooltip: HTMLElement): Promise<void> {
+  private appendDelete(inst: TaskInstance, tooltip: HTMLElement): void {
     const item = tooltip.createEl('div', {
       cls: 'tooltip-item delete-item',
       text: this.host.tv('buttons.deleteTask', '🗑️ Delete task'),
     })
-    item.addEventListener('click', async (event) => {
+    item.addEventListener('click', (event) => {
       event.stopPropagation()
       tooltip.remove()
-      const confirmed = await this.host.showDeleteConfirmDialog(inst)
-      if (!confirmed) {
-        return
-      }
+      void this.host.showDeleteConfirmDialog(inst).then(async (confirmed) => {
+        if (!confirmed) {
+          return
+        }
 
-      const hasHistory = await this.host.hasExecutionHistory(inst.task.path ?? '')
-      if (inst.task.isRoutine || hasHistory) {
-        await this.host.deleteRoutineTask(inst)
-      } else {
-        await this.host.deleteNonRoutineTask(inst)
-      }
+        const hasHistory = await this.host.hasExecutionHistory(inst.task.path ?? '')
+        if (inst.task.isRoutine || hasHistory) {
+          await this.host.deleteRoutineTask(inst)
+        } else {
+          await this.host.deleteNonRoutineTask(inst)
+        }
+      })
     })
   }
 }

@@ -91,7 +91,7 @@ describe('NavigationSectionController', () => {
       splitActiveLeaf: jest.fn(() => ({} as WorkspaceLeaf)),
       getLeavesOfType: jest.fn(() => [] as WorkspaceLeaf[]),
       getLeaf: jest.fn(() => ({
-        setViewState: jest.fn(),
+        setViewState: jest.fn().mockResolvedValue(undefined),
         openFile: jest.fn(),
       } as unknown as WorkspaceLeaf)),
       setActiveLeaf: jest.fn(),

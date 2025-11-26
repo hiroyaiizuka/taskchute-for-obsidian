@@ -135,7 +135,7 @@ export class DayStateStoreService {
           return { ...entry, taskId: trimmedId };
         }
         return entry;
-      }) as DeletedInstance[];
+      });
 
     const deduped: DeletedInstance[] = [];
     const seenPermanentTaskIds = new Set<string>();

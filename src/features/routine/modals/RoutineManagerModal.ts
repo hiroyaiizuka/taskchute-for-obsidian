@@ -128,7 +128,7 @@ export class RoutineManagerModal extends Modal {
       attr: {
         placeholder: this.tv('dialog.searchPlaceholder', 'Search (title / path)'),
       },
-    }) as HTMLInputElement;
+    });
     this.searchInput.addEventListener('input', () => this.applyFilters());
 
     const body = contentEl.createEl('div', { cls: 'routine-manager__body' });
@@ -279,7 +279,7 @@ export class RoutineManagerModal extends Modal {
       text: isEnabled ? '✓' : '×',
       cls: 'routine-table__toggle',
       attr: { title: this.tv('tooltips.toggleEnable', 'Toggle enabled state') },
-    }) as HTMLButtonElement;
+    });
 
     toggle.addEventListener('click', async (evt) => {
       evt.preventDefault();
@@ -480,7 +480,7 @@ export class RoutineManagerModal extends Modal {
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- cleaning up legacy Japanese field name for backwards compatibility
       delete frontmatter['開始時刻'];
       success = true;
       return frontmatter;
@@ -492,11 +492,11 @@ export class RoutineManagerModal extends Modal {
     return success;
   }
 
-  private async refreshRow(
+  private refreshRow(
     file: TFile,
     expectedEnabled?: boolean,
     frontmatterOverride?: RoutineFrontmatter,
-  ): Promise<void> {
+  ): void {
     const fresh = frontmatterOverride ?? this.getRoutineFrontmatter(file);
     if (!fresh) return;
 
@@ -522,7 +522,7 @@ export class RoutineManagerModal extends Modal {
     this.filtered = this.filtered.filter((row) => row.file.path !== path);
   }
 
-  private async reloadAll(): Promise<void> {
+  private reloadAll(): void {
     this.loadRows();
     this.applyFilters();
     this.refreshActiveView();

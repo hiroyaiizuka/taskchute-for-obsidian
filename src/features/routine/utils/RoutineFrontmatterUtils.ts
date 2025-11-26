@@ -19,21 +19,22 @@ export function applyRoutineFrontmatterMerge(
   const cleanedSet = new Set(cleanedKeys);
 
   // Remove keys that are no longer present
-  Object.keys(frontmatter).forEach((key) => {
+  // Using Record<string, unknown> to allow dynamic key access on frontmatter object
+  const frontmatterRecord = frontmatter as Record<string, unknown>;
+  const cleanedRecord = cleaned as Record<string, unknown>;
+  Object.keys(frontmatterRecord).forEach((key) => {
     if (!cleanedSet.has(key)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (frontmatter as any)[key];
+      delete frontmatterRecord[key];
     }
   });
 
   // Apply updated values
   cleanedKeys.forEach((key) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (frontmatter as any)[key] = cleaned[key];
+    frontmatterRecord[key] = cleanedRecord[key];
   });
 
   // Ensure move-related metadata are cleared regardless of previous state
-  delete (frontmatter as RoutineFrontmatter).temporary_move_date;
-  delete (frontmatter as RoutineFrontmatter).target_date;
-  delete (frontmatter as RoutineFrontmatter)['\u958b\u59cb\u6642\u523b'];
+  delete (frontmatter).temporary_move_date;
+  delete (frontmatter).target_date;
+  delete (frontmatter)['\u958b\u59cb\u6642\u523b'];
 }

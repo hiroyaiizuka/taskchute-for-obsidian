@@ -74,7 +74,7 @@ export default class TimeEditModal extends Modal {
       type: 'time',
       cls: 'form-input',
       value: toHM(instance.startTime),
-    }) as HTMLInputElement
+    })
 
     preventEnterSubmit(startInput)
 
@@ -99,7 +99,7 @@ export default class TimeEditModal extends Modal {
         type: 'time',
         cls: 'form-input',
         value: toHM(instance.stopTime),
-      }) as HTMLInputElement
+      })
 
       preventEnterSubmit(stopInput)
 

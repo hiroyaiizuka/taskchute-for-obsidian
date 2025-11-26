@@ -50,7 +50,7 @@ export default class NavigationSectionController {
       dependencies.logController ??
       new NavigationLogController({
         plugin: this.host.plugin,
-        leaf: this.host.leaf as WorkspaceLeaf,
+        leaf: this.host.leaf,
         navigationState: this.host.navigationState,
       })
     this.reviewController =
@@ -120,30 +120,33 @@ export default class NavigationSectionController {
     new Notice(this.host.tv('notices.sectionWip', '{section} is under construction', { section: label }))
   }
 
-  async renderRoutineList(): Promise<void> {
-    await this.routineController.renderRoutineList()
+  renderRoutineList(): void {
+    this.routineController.renderRoutineList()
   }
 
-  private async openProjectBoard(): Promise<void> {
-    try {
-      const workspace = this.host.app.workspace
-      const existing = workspace.getLeavesOfType(VIEW_TYPE_PROJECT_BOARD)
-      const leaf = existing.length > 0 ? existing[0] : workspace.getLeaf(true)
-      if (!leaf) {
-        throw new Error('No workspace leaf available')
-      }
-      await leaf.setViewState({ type: VIEW_TYPE_PROJECT_BOARD, active: true })
+  private openProjectBoard(): void {
+    const workspace = this.host.app.workspace
+    const existing = workspace.getLeavesOfType(VIEW_TYPE_PROJECT_BOARD)
+    const leaf = existing.length > 0 ? existing[0] : workspace.getLeaf(true)
+    if (!leaf) {
+      console.error('[Navigation] No workspace leaf available')
+      new Notice(
+        this.host.tv('projectBoard.errors.genericTitle', 'Unable to load projects'),
+      )
+      return
+    }
+    void leaf.setViewState({ type: VIEW_TYPE_PROJECT_BOARD, active: true }).then(() => {
       if (typeof workspace.revealLeaf === 'function') {
-        workspace.revealLeaf(leaf)
+        void workspace.revealLeaf(leaf)
       } else {
         workspace.setActiveLeaf(leaf)
       }
-    } catch (error) {
+    }).catch((error: unknown) => {
       console.error('[Navigation] Failed to open project board view:', error)
       new Notice(
         this.host.tv('projectBoard.errors.genericTitle', 'Unable to load projects'),
       )
-    }
+    })
   }
 
 }

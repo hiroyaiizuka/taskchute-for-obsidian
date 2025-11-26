@@ -51,7 +51,7 @@ export default class ScheduledTimeModal extends Modal {
       type: 'time',
       cls: 'form-input',
       value: current || '',
-    }) as HTMLInputElement
+    })
 
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {

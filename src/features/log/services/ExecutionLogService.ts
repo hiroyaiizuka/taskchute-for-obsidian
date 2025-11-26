@@ -100,7 +100,7 @@ export class ExecutionLogService {
       instanceId: inst.instanceId,
       slotKey: inst.slotKey,
       startTime: this.toHMS(start),
-      stopTime: this.toHMS(inst.stopTime!),
+      stopTime: this.toHMS(inst.stopTime),
       durationSec,
       deviceId,
     };
@@ -210,7 +210,7 @@ export class ExecutionLogService {
             }
             return entry;
           });
-          snapshot.taskExecutions[dateKey] = updated as typeof entries;
+          snapshot.taskExecutions[dateKey] = updated;
         }
 
         if (mutated) {

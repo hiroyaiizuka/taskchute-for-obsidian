@@ -33,11 +33,13 @@ export interface NotificationServiceOptions {
   showBuiltinReminder: (options: ReminderNotificationOptions) => void;
 }
 
-// Try to get Electron module
+// Try to get Electron module via window.require (Obsidian desktop only)
+// This dynamic require is necessary for optional Electron notifications on desktop
 function getElectron(): ElectronModule | undefined {
   try {
     const windowWithRequire = window as { require?: (module: string) => unknown };
     if (windowWithRequire.require) {
+      // Dynamic require for Electron is intentional - it's only available on Obsidian desktop
       return windowWithRequire.require('electron') as ElectronModule | undefined;
     }
   } catch {
@@ -66,7 +68,7 @@ export class NotificationService {
    * Display a reminder notification.
    * Uses Electron notification on desktop, builtin modal on mobile.
    */
-  async notify(options: ReminderNotificationOptions): Promise<void> {
+  notify(options: ReminderNotificationOptions): void {
     if (this.isMobile()) {
       // Mobile or Electron not available - use builtin
       // Note: onNotificationDisplayed is called in modal's onClose
