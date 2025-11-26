@@ -287,7 +287,7 @@ export class LogReconciler {
   ): number {
     let applied = 0
     for (const record of records) {
-      const payloadEntry = record.payload as TaskLogEntry
+      const payloadEntry = record.payload
       const normalizedEntry: TaskLogEntry = {
         ...payloadEntry,
         entryId: payloadEntry.entryId ?? record.entryId,
@@ -306,7 +306,7 @@ export class LogReconciler {
       if (!Array.isArray(snapshot.taskExecutions[dateKey])) {
         snapshot.taskExecutions[dateKey] = []
       }
-      const entries = snapshot.taskExecutions[dateKey] as TaskLogEntry[]
+      const entries = snapshot.taskExecutions[dateKey]
       const idx = this.findMatchingEntryIndex(entries, normalizedEntry)
       if (idx >= 0) {
         entries[idx] = { ...entries[idx], ...normalizedEntry }
@@ -326,7 +326,7 @@ export class LogReconciler {
     }
     const targetInstanceId = entry.instanceId
     const targetTaskId = typeof entry.taskId === 'string' ? entry.taskId : undefined
-    const entries = snapshot.taskExecutions[dateKey] as TaskLogEntry[]
+    const entries = snapshot.taskExecutions[dateKey]
     const filtered = entries.filter((existing) => {
       if (!existing) return false
       if (targetInstanceId && existing.instanceId === targetInstanceId) {
@@ -426,7 +426,7 @@ export class LogReconciler {
     const meta = this.ensureMeta(context.snapshot.meta)
     const canonicalRevision = meta.revision ?? 0
     for (const dateKey of context.mutatedDates) {
-      const entries = (context.snapshot.taskExecutions[dateKey] ?? []) as TaskLogEntry[]
+      const entries = (context.snapshot.taskExecutions[dateKey] ?? [])
       await this.recordsWriter.writeDay({
         dateKey,
         entries,

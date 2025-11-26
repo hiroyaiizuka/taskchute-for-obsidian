@@ -103,7 +103,7 @@ export default class RoutineEditModal extends Modal {
     typeGroup.createEl('label', {
       text: this.tv('fields.typeLabel', 'Type:'),
     });
-    const typeSelect = typeGroup.createEl('select') as HTMLSelectElement;
+    const typeSelect = typeGroup.createEl('select');
     this.getTypeOptions().forEach(({ value, label }) => {
       typeSelect.add(new Option(label, value));
     });
@@ -114,7 +114,7 @@ export default class RoutineEditModal extends Modal {
     timeGroup.createEl('label', {
       text: this.tv('fields.startTimeLabel', 'Scheduled time:'),
     });
-    const timeInput = timeGroup.createEl('input', { type: 'time' }) as HTMLInputElement;
+    const timeInput = timeGroup.createEl('input', { type: 'time' });
     timeInput.value = getScheduledTime(frontmatter) || '';
 
     // Interval
@@ -125,7 +125,7 @@ export default class RoutineEditModal extends Modal {
     const intervalInput = intervalGroup.createEl('input', {
       type: 'number',
       attr: { min: '1', step: '1' },
-    }) as HTMLInputElement;
+    });
     intervalInput.value = String(Math.max(1, Number(frontmatter.routine_interval ?? 1)));
 
     // Enabled toggle
@@ -134,7 +134,7 @@ export default class RoutineEditModal extends Modal {
       text: this.tv('fields.enabledLabel', 'Enabled:'),
     });
     enabledLabel.classList.add('routine-form__inline-label');
-    const enabledToggle = enabledGroup.createEl('input', { type: 'checkbox' }) as HTMLInputElement;
+    const enabledToggle = enabledGroup.createEl('input', { type: 'checkbox' });
     enabledToggle.checked = frontmatter.routine_enabled !== false;
 
     // Start / End dates
@@ -142,13 +142,13 @@ export default class RoutineEditModal extends Modal {
     datesGroup.createEl('label', {
       text: this.tv('fields.startDateLabel', 'Start date:'),
     });
-    const startInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
+    const startInput = datesGroup.createEl('input', { type: 'date' });
     startInput.value = typeof frontmatter.routine_start === 'string' ? frontmatter.routine_start : '';
     const endLabel = datesGroup.createEl('label', {
       text: this.tv('fields.endDateLabel', 'End date:'),
     });
     endLabel.classList.add('routine-form__inline-label', 'routine-form__inline-label--gap');
-    const endInput = datesGroup.createEl('input', { type: 'date' }) as HTMLInputElement;
+    const endInput = datesGroup.createEl('input', { type: 'date' });
     endInput.value = typeof frontmatter.routine_end === 'string' ? frontmatter.routine_end : '';
 
     // Weekly controls
@@ -276,7 +276,7 @@ export default class RoutineEditModal extends Modal {
         if (end) changes.routine_end = end;
 
         // Apply cleanup to remove target_date if routine settings changed
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- checking legacy target_date for backwards compatibility cleanup
         const hadTargetDate = !!fm.target_date;
         const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes);
         const hadTemporaryMoveDate = !!fm.temporary_move_date;
@@ -488,7 +488,7 @@ export default class RoutineEditModal extends Modal {
     const chipContainer = fieldset.createEl('div', { cls: 'routine-chip-fieldset__chips' });
     return options.map(({ value, label }) => {
       const chip = chipContainer.createEl('label', { cls: 'routine-chip' });
-      const checkbox = chip.createEl('input', { type: 'checkbox', attr: { value } }) as HTMLInputElement;
+      const checkbox = chip.createEl('input', { type: 'checkbox', attr: { value } });
       chip.createEl('span', { text: label, cls: 'routine-chip__text' });
       return checkbox;
     });

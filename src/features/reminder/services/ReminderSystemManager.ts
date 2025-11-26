@@ -296,7 +296,7 @@ export class ReminderSystemManager {
       scheduledTime: schedule.scheduledTime,
       taskPath: schedule.taskPath,
       onOpenFile: () => {
-        this.app.workspace.openLinkText(schedule.taskPath, '', false);
+        void this.app.workspace.openLinkText(schedule.taskPath, '', false);
       },
       onNotificationDisplayed: () => {
         // Desktop notification shown - process next immediately

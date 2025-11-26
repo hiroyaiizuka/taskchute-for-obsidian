@@ -71,7 +71,8 @@ export class BackupPruner {
       if (fileManager?.trashFile) {
         await fileManager.trashFile(entry, true)
       } else {
-        // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file
+        // Fallback for older Obsidian versions that don't have trashFile
+        // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- trashFile is not available, using vault.delete as fallback
         await this.plugin.app.vault.delete(entry)
       }
     } catch (error) {

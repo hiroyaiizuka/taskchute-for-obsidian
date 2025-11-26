@@ -40,7 +40,7 @@ export default class NavigationRoutineController {
     )
   }
 
-  async renderRoutineList(): Promise<void> {
+  renderRoutineList(): void {
     const container = this.host.navigationContent
     if (!container) return
     container.empty()

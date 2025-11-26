@@ -74,10 +74,10 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
       if (key.startsWith(`${oldPath}::`)) {
         const slot = key.slice(oldPath.length + 2)
         const newKey = `${newPath}::${slot}`
-        updated[newKey] = value as number
+        updated[newKey] = value
         mutated = true
       } else {
-        updated[key] = value as number
+        updated[key] = value
       }
     }
     state.orders = updated

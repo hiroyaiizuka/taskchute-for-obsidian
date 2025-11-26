@@ -1,7 +1,6 @@
 import { Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
 import type { TaskChutePluginLike } from '../../../types'
-import type { DayState } from '../../../types'
 import { TaskIdManager, extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 
 export class TaskReuseService {
@@ -29,7 +28,7 @@ export class TaskReuseService {
 
   private async recordDuplicateForDate(file: TFile, dateStr: string, slotKey: string): Promise<void> {
     const date = this.plugin.dayStateService.getDateFromKey(dateStr)
-    const dayState = (await this.plugin.dayStateService.loadDay(date)) as DayState
+    const dayState = (await this.plugin.dayStateService.loadDay(date))
     if (!Array.isArray(dayState.duplicatedInstances)) {
       dayState.duplicatedInstances = []
     }

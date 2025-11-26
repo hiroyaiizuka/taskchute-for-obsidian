@@ -106,7 +106,7 @@ export default class NavigationRoutineRenderer {
           const converted =
             task.monthly_week === 'last'
               ? 'last'
-              : (Number(task.monthly_week) + 1) as number
+              : (Number(task.monthly_week) + 1)
           if (converted === 'last' || (typeof converted === 'number' && converted >= 1 && converted <= 5)) {
             weekSet.push(converted)
           }
@@ -175,7 +175,7 @@ export default class NavigationRoutineRenderer {
       .sort((a, b) => {
         if (a === 'last') return 1
         if (b === 'last') return -1
-        return (a as number) - (b as number)
+        return (a) - (b)
       })
   }
 

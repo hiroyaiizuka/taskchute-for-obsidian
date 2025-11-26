@@ -123,7 +123,7 @@ export default class ProjectController {
     }
   }
 
-  async getProjectFiles(): Promise<TFile[]> {
+  getProjectFiles(): TFile[] {
     const projectFolderPath = this.host.plugin.pathManager.getProjectFolderPath()
     if (!projectFolderPath) return []
 
@@ -194,10 +194,10 @@ export default class ProjectController {
   updateProjectDisplay(inst: TaskInstance): void {
     const taskList = this.host.getTaskListElement()
     if (!taskList) return
-    const taskItem = taskList.querySelector(`[data-task-path="${inst.task.path}"]`) as HTMLElement | null
+    const taskItem = taskList.querySelector(`[data-task-path="${inst.task.path}"]`)
     if (!taskItem) return
 
-    const projectDisplay = taskItem.querySelector('.taskchute-project-display') as HTMLElement | null
+    const projectDisplay = taskItem.querySelector('.taskchute-project-display')
     if (!projectDisplay) return
 
     projectDisplay.empty()

@@ -95,7 +95,7 @@ export default class TaskCompletionController {
         'comment.placeholder',
         'Share any thoughts, learnings, or improvements for next time...',
       ),
-    }) as HTMLTextAreaElement
+    })
     if (existingComment?.executionComment) {
       commentInput.value = existingComment.executionComment
     }
@@ -311,7 +311,7 @@ export default class TaskCompletionController {
       (inst.task?.projectPath || inst.task?.projectTitle) &&
       this.hasCommentChanged(previousEntry, payload)
     ) {
-      await this.syncCommentToProject(inst, payload.executionComment as string)
+      await this.syncCommentToProject(inst, payload.executionComment)
     }
 
     if (!snapshot.dailySummary[dateKey]) {

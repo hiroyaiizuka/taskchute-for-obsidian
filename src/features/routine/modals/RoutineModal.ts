@@ -34,8 +34,8 @@ export function deriveWeeklySelection(task: TaskData): number[] {
   const candidates: unknown[] = [
     task.routine_weekday,
     task.weekday,
-    (task.frontmatter?.routine_weekday as unknown),
-    (task.frontmatter?.weekday as unknown),
+    (task.frontmatter?.routine_weekday),
+    (task.frontmatter?.weekday),
   ];
 
   for (const candidate of candidates) {
@@ -84,7 +84,7 @@ export function deriveMonthlySelection(task: TaskData): MonthlySelection {
   };
 
   const sources: Array<number | 'last' | undefined> = [
-    task.routine_week as number | 'last' | undefined,
+    task.routine_week,
     typeof task.monthly_week === 'number' ? (task.monthly_week + 1) : undefined,
     (frontmatter.routine_week as number | 'last' | undefined),
     (frontmatter.monthly_week as number | 'last' | undefined),
@@ -113,8 +113,8 @@ export function deriveMonthlySelection(task: TaskData): MonthlySelection {
     task.routine_weekday,
     task.monthly_weekday,
     task.weekday,
-    (frontmatter.routine_weekday as unknown),
-    (frontmatter.monthly_weekday as unknown),
+    (frontmatter.routine_weekday),
+    (frontmatter.monthly_weekday),
   ];
 
   let weekday: number | undefined;

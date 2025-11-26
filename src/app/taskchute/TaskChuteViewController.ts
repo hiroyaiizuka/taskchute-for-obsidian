@@ -104,9 +104,9 @@ export class TaskChuteViewController {
 
   applyLocaleToActiveView(): void {
     const view = this.getView();
-    if (view && typeof (view as Partial<TaskChuteView> & { applyLocale?: () => void }).applyLocale === "function") {
+    if (view && typeof (view).applyLocale === "function") {
       try {
-        (view as TaskChuteView & { applyLocale: () => void }).applyLocale();
+        (view).applyLocale();
       } catch (error) {
         console.warn("Failed to apply locale to TaskChuteView", error);
       }

@@ -98,7 +98,7 @@ export class TaskItemActionController {
       await this.host.showTaskCompletionModal(inst)
     })
 
-    this.host.hasCommentData(inst).then((hasComment) => {
+    void this.host.hasCommentData(inst).then((hasComment) => {
       if (hasComment) {
         button.classList.add('active')
       } else {

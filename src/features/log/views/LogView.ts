@@ -139,7 +139,7 @@ export class LogView {
     });
 
     const controls = header.createEl('div', { cls: 'log-controls' })
-    const yearSelector = controls.createEl('select', { cls: 'year-selector' }) as HTMLSelectElement
+    const yearSelector = controls.createEl('select', { cls: 'year-selector' })
     const currentYear = new Date().getFullYear()
 
     for (let year = currentYear + 1; year >= 2020; year -= 1) {

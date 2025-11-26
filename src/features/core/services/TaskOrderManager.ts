@@ -140,7 +140,7 @@ export class TaskOrderManager {
       if (inst.order === undefined || inst.order === null) return;
       const key = this.options.getOrderKey(inst);
       if (!key) return;
-      orders[key] = inst.order as number;
+      orders[key] = inst.order;
     });
 
     if (Array.isArray(dayState.duplicatedInstances) && dayState.duplicatedInstances.length > 0) {
@@ -185,8 +185,8 @@ export class TaskOrderManager {
         return 0;
       }
 
-      const tA = a.task?.scheduledTime as string | undefined;
-      const tB = b.task?.scheduledTime as string | undefined;
+      const tA = a.task?.scheduledTime;
+      const tB = b.task?.scheduledTime;
       if (!tA && !tB) return 0;
       if (!tA) return 1;
       if (!tB) return -1;

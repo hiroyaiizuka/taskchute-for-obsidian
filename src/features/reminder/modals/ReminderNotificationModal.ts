@@ -97,7 +97,7 @@ export class ReminderNotificationModal extends Modal {
 
     // Clear existing content
     if (typeof (contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
-      (contentEl as HTMLElement & { empty?: () => void }).empty!();
+      (contentEl as HTMLElement & { empty?: () => void }).empty();
     } else {
       while (contentEl.firstChild) {
         contentEl.removeChild(contentEl.firstChild);
@@ -149,7 +149,7 @@ export class ReminderNotificationModal extends Modal {
 
     // Clear content
     if (typeof (this.contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
-      (this.contentEl as HTMLElement & { empty?: () => void }).empty!();
+      (this.contentEl as HTMLElement & { empty?: () => void }).empty();
     } else {
       while (this.contentEl.firstChild) {
         this.contentEl.removeChild(this.contentEl.firstChild);
@@ -166,6 +166,6 @@ export class ReminderNotificationModal extends Modal {
    * Open the task file in Obsidian.
    */
   private openTaskFile(): void {
-    this.app.workspace.openLinkText(this.taskPath, '', false);
+    void this.app.workspace.openLinkText(this.taskPath, '', false);
   }
 }

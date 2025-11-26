@@ -202,7 +202,7 @@ export default class TaskMutationService {
 
       if (!inst.task.isRoutine) {
         if (!wasDuplicate) {
-          this.handleTaskFileDeletion(inst)
+          void this.handleTaskFileDeletion(inst)
         } else {
           new Notice(
             this.host.tv('notices.taskRemovedFromToday', 'Removed task from today.'),

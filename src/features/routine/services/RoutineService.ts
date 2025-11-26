@@ -70,11 +70,11 @@ export class RoutineService {
       if (week !== undefined) rule.week = week;
       if (weekday !== undefined) rule.monthWeekday = weekday;
 
-      const weekSet = this.#toWeekSet((fm as Record<string, unknown>).routine_weeks ?? (fm as Record<string, unknown>).monthly_weeks);
+      const weekSet = this.#toWeekSet((fm).routine_weeks ?? (fm).monthly_weeks);
       if (weekSet.length > 0) {
         rule.weekSet = weekSet;
       }
-      const weekdaySet = this.#toWeekdaySet((fm as Record<string, unknown>).routine_weekdays ?? (fm as Record<string, unknown>).monthly_weekdays);
+      const weekdaySet = this.#toWeekdaySet((fm).routine_weekdays ?? (fm).monthly_weekdays);
       if (weekdaySet.length > 0) {
         rule.monthWeekdaySet = weekdaySet;
       }

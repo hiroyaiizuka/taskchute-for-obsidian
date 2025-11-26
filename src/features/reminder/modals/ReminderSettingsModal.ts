@@ -115,7 +115,7 @@ export class ReminderSettingsModal extends Modal {
 
     // Clear existing content
     if (typeof (contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
-      (contentEl as HTMLElement & { empty?: () => void }).empty!();
+      (contentEl as HTMLElement & { empty?: () => void }).empty();
     } else {
       while (contentEl.firstChild) {
         contentEl.removeChild(contentEl.firstChild);
@@ -146,7 +146,7 @@ export class ReminderSettingsModal extends Modal {
       attr: {
         id: 'reminder-time-input',
       },
-    }) as HTMLInputElement;
+    });
 
     // Show scheduled time info if available
     if (this.scheduledTime) {
@@ -196,7 +196,7 @@ export class ReminderSettingsModal extends Modal {
   onClose(): void {
     // Clear content
     if (typeof (this.contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
-      (this.contentEl as HTMLElement & { empty?: () => void }).empty!();
+      (this.contentEl as HTMLElement & { empty?: () => void }).empty();
     } else {
       while (this.contentEl.firstChild) {
         this.contentEl.removeChild(this.contentEl.firstChild);

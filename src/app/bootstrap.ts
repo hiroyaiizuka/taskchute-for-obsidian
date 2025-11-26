@@ -37,7 +37,7 @@ export async function prepareSettings(
   if (!settings.locationMode) {
     try {
       const legacy = loaded as Record<string, unknown>
-      const getStr = (key: string) => (typeof legacy[key] === 'string' ? (legacy[key] as string) : '')
+      const getStr = (key: string) => (typeof legacy[key] === 'string' ? (legacy[key]) : '')
       const task = getStr('taskFolderPath')
       const log = getStr('logDataPath')
       const review = getStr('reviewDataPath')
@@ -56,7 +56,7 @@ export async function prepareSettings(
         extractBase(task, 'Task'),
         extractBase(log, 'Log'),
         extractBase(review, 'Review'),
-      ].filter((b) => b !== null) as string[]
+      ].filter((b) => b !== null)
 
       if (bases.length > 0) {
         // If all extracted bases are equal

@@ -7,13 +7,13 @@ interface TextLike {
 
 interface FolderPathFieldControllerOptions {
   text: TextLike
-  getStoredValue(): StoredValue
-  setStoredValue(next: StoredValue): void
-  saveSettings(): Promise<void>
-  validatePath(path: string): { valid: boolean; error?: string }
-  folderExists(path: string): boolean
-  makeMissingNotice(path: string): string
-  notice?: (message: string) => void
+  getStoredValue: (this: void) => StoredValue
+  setStoredValue: (this: void, next: StoredValue) => void
+  saveSettings: (this: void) => Promise<void>
+  validatePath: (this: void, path: string) => { valid: boolean; error?: string }
+  folderExists: (this: void, path: string) => boolean
+  makeMissingNotice: (this: void, path: string) => string
+  notice?: (this: void, message: string) => void
   emptyValue: StoredValue
 }
 
@@ -76,7 +76,7 @@ export class FolderPathFieldController {
     await this.saveSettings()
   }
 
-  async handleBlur(): Promise<void> {
+  handleBlur(): void {
     const stored = this.getStoredValue()
     if (!stored) {
       return

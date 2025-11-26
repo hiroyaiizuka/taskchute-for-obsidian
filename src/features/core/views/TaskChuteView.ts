@@ -2,7 +2,6 @@ import {
   ItemView,
   WorkspaceLeaf,
   Notice,
-  App,
   EventRef,
   TAbstractFile,
   TFile,
@@ -187,7 +186,7 @@ export class TaskChuteView
   constructor(leaf: WorkspaceLeaf, plugin: TaskChutePluginLike) {
     super(leaf)
     this.plugin = plugin
-    this.app = plugin.app as App
+    this.app = plugin.app
 
     // Initialize current date
     const today = new Date()
@@ -255,7 +254,7 @@ export class TaskChuteView
     this.taskKeyboardController = new TaskKeyboardController({
       registerManagedDomEvent: (target, event, handler) =>
         this.registerManagedDomEvent(
-          target as Document | HTMLElement,
+          target,
           event as keyof DocumentEventMap | keyof HTMLElementEventMap,
           handler as EventListener,
         ),
@@ -294,7 +293,7 @@ export class TaskChuteView
       plugin: this.plugin,
       getDocumentContext: () => {
         const doc = this.containerEl?.ownerDocument ?? document
-        const defaultView = (doc.defaultView as (Window & typeof globalThis) | null) ?? null
+        const defaultView = (doc.defaultView) ?? null
         return {
           doc,
           win: defaultView ?? window,
@@ -405,7 +404,8 @@ export class TaskChuteView
   }
 
   private createTaskListRendererHost(): TaskListRendererHost {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // Using this-alias to capture view reference for use in object literal getters below
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- required for object literal getters that need consistent 'this' reference
     const view = this
     return {
       get taskList() {
@@ -554,7 +554,7 @@ export class TaskChuteView
     return content
   }
 
-  async onClose(): Promise<void> {
+  onClose(): void {
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -567,7 +567,7 @@ export class TaskChuteView
   // UI Setup Methods
   // ===========================================
 
-  private async setupUI(container: HTMLElement): Promise<void> {
+  private setupUI(container: HTMLElement): void {
     const { taskListElement } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
   }
@@ -1223,7 +1223,7 @@ export class TaskChuteView
     this.taskHeaderController.refreshDateLabel()
 
     // タスクリストを再読み込みし、実行中タスクも復元
-    this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
+    void this.reloadTasksAndRestore({ runBoundaryCheck: true }).then(() => {
       new Notice(this.tv("notices.showToday", "Showing today's tasks"))
     })
   }

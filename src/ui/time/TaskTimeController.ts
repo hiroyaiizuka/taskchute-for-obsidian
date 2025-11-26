@@ -23,7 +23,7 @@ export interface TaskTimeControllerHost {
 export default class TaskTimeController {
   constructor(private readonly host: TaskTimeControllerHost) {}
 
-  async showScheduledTimeEditModal(inst: TaskInstance): Promise<void> {
+  showScheduledTimeEditModal(inst: TaskInstance): void {
     const modal = new ScheduledTimeModal({ host: this.host, instance: inst })
     modal.open()
   }
