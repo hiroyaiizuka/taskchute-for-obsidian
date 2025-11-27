@@ -100,10 +100,7 @@ jest.mock('../../../src/utils/fieldMigration', () => {
   }
 })
 
-const { getScheduledTime, setScheduledTime } = jest.requireMock('../../../src/utils/fieldMigration') as {
-  getScheduledTime: jest.Mock<string, [Record<string, unknown>]>
-  setScheduledTime: jest.Mock<void, [Record<string, unknown>, string | undefined, { preferNew: boolean }]>
-}
+const { getScheduledTime, setScheduledTime } = jest.requireMock('../../../src/utils/fieldMigration')
 
 const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 

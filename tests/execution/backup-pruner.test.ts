@@ -36,11 +36,11 @@ function createFile(path: string, mtime: number): FileNode {
 
 function attachChild(parent: FolderNode, child: FolderNode | FileNode): void {
   parent.children.push(child)
-  ;(child as FolderNode | FileNode).parent = parent
+  ;(child).parent = parent
 }
 
 function detachChild(target: FolderNode | FileNode): void {
-  const parent = (target as FolderNode | FileNode).parent
+  const parent = (target).parent
   if (!parent) return
   parent.children = parent.children.filter((entry) => entry !== target)
 }
@@ -62,8 +62,14 @@ function createPrunerContext(retentionDays = 30) {
     }),
   }
 
+  const fileManager = {
+    trashFile: jest.fn(async (target: FolderNode | FileNode) => {
+      detachChild(target)
+    }),
+  }
+
   const plugin: TaskChutePluginLike = {
-    app: { vault } as TaskChutePluginLike['app'],
+    app: { vault, fileManager } as TaskChutePluginLike['app'],
     pathManager: {
       getLogDataPath: () => 'LOGS',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
@@ -103,8 +109,8 @@ describe('BackupPruner', () => {
     const pruner = new BackupPruner(plugin)
     await pruner.prune()
 
-    expect(plugin.app.vault.delete).toHaveBeenCalledWith(oldFile)
-    expect(plugin.app.vault.delete).not.toHaveBeenCalledWith(recentFile)
+    expect(plugin.app.fileManager.trashFile).toHaveBeenCalledWith(oldFile)
+    expect(plugin.app.fileManager.trashFile).not.toHaveBeenCalledWith(recentFile)
     expect(monthFolder.children).toContain(recentFile)
   })
 
@@ -118,8 +124,8 @@ describe('BackupPruner', () => {
     const pruner = new BackupPruner(plugin)
     await pruner.prune()
 
-    expect(plugin.app.vault.delete).toHaveBeenCalledWith(expired)
-    expect(plugin.app.vault.delete).toHaveBeenCalledWith(legacyMonth)
+    expect(plugin.app.fileManager.trashFile).toHaveBeenCalledWith(expired)
+    expect(plugin.app.fileManager.trashFile).toHaveBeenCalledWith(legacyMonth)
     expect(legacyRoot.children).toHaveLength(0)
   })
 })

@@ -21,7 +21,7 @@ import { ReminderSystemManager } from "../features/reminder/services/ReminderSys
 export async function prepareSettings(
   plugin: TaskChutePlugin,
 ): Promise<TaskChuteSettings> {
-  const loaded = (await plugin.loadData()) ?? {}
+  const loaded = (await plugin.loadData() as Record<string, unknown> | undefined) ?? {}
   const settings = Object.assign(
     {},
     DEFAULT_SETTINGS,
@@ -36,7 +36,7 @@ export async function prepareSettings(
   // Lightweight migration from legacy individual paths -> new base model
   if (!settings.locationMode) {
     try {
-      const legacy = loaded as Record<string, unknown>
+      const legacy = loaded
       const getStr = (key: string) => (typeof legacy[key] === 'string' ? (legacy[key]) : '')
       const task = getStr('taskFolderPath')
       const log = getStr('logDataPath')

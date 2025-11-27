@@ -109,7 +109,7 @@ describe('TaskRowController', () => {
     controller.renderTaskName(container, createInstance())
     const nameEl = container.querySelector('.task-name') as HTMLElement
     expect(nameEl).toBeTruthy()
-    await nameEl.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    nameEl.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(openLinkText).toHaveBeenCalled()
     errorSpy.mockRestore()
   })

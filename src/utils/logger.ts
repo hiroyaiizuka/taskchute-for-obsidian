@@ -9,7 +9,9 @@ export class Logger {
       const normalizedLevel = typeof level === 'string' ? level : String(level)
       const target = record[normalizedLevel] ?? record[normalizedLevel.toLowerCase()]
       target?.(...args);
-    } catch {}
+    } catch {
+      // Intentionally empty - logging should never throw
+    }
   }
 
   static notify(message: string, timeout?: number): void {

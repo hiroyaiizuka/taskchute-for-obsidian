@@ -1,4 +1,4 @@
-import type { RoutineTaskShape } from '../../types/Routine'
+import type { RoutineTaskShape } from '../../types/routine'
 import type { TFile } from 'obsidian'
 
 export type RoutineTaskWithFile = RoutineTaskShape & { file: TFile }
@@ -49,9 +49,11 @@ export default class NavigationRoutineRenderer {
     toggle.type = 'checkbox'
     toggle.checked = task.routine_enabled !== false
     toggle.title = this.host.tv('tooltips.toggleRoutine', 'Toggle enabled state')
-    toggle.addEventListener('change', async () => {
-      await this.callbacks.onToggle(task, toggle.checked)
-      badge.textContent = this.getRoutineTypeLabel(task)
+    toggle.addEventListener('change', () => {
+      void (async () => {
+        await this.callbacks.onToggle(task, toggle.checked)
+        badge.textContent = this.getRoutineTypeLabel(task)
+      })()
     })
     wrapper.appendChild(toggle)
     return wrapper
@@ -157,7 +159,7 @@ export default class NavigationRoutineRenderer {
     return labels.join(joiner)
   }
 
-  private normalizeWeekArray(values?: Array<number | 'last'>): Array<number | 'last'> {
+  private normalizeWeekArray(values?: unknown[]): Array<number | 'last'> {
     if (!Array.isArray(values)) return []
     const seen = new Set<string>()
     return values

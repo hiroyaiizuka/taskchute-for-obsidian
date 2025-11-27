@@ -52,7 +52,7 @@ interface TaskChuteViewContextStub {
   };
   app: {
     vault: {
-      getAbstractFileByPath: jest.Mock<unknown | null, [string]>;
+      getAbstractFileByPath: jest.Mock<unknown, [string]>;
       read: jest.Mock<Promise<string>, [unknown?]>;
       getMarkdownFiles: jest.Mock<unknown[], []>;
       adapter: {
@@ -110,7 +110,7 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
             return { ...entry, taskId: trimmedId }
           }
           return entry
-        }) as DeletedInstance[]
+        })
 
       const deduped: DeletedInstance[] = []
       const seen = new Set<string>()
@@ -190,7 +190,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     metadata.taskId = `tc-task-routine-${date}`;
   }
 
-  const slotOverrideKey = metadata.taskId as string;
+  const slotOverrideKey = metadata.taskId;
   const slotOverrides = slotOverride ? { [slotOverrideKey]: slotOverride } : {};
   const dayState = createDayState({
     slotOverrides,
@@ -346,7 +346,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
 
   const timestamp = Date.now();
   const dayState = createDayState(dayStateOverrides);
-  const deletionTaskId = typeof metadata.taskId === 'string' ? (metadata.taskId as string) : undefined;
+  const deletionTaskId = typeof metadata.taskId === 'string' ? (metadata.taskId) : undefined;
   if (deletionType === 'permanent') {
     dayState.deletedInstances.push({
       path: taskPath,

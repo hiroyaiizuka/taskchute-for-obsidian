@@ -108,19 +108,21 @@ export default class ProjectSettingsModal extends Modal {
     const cancelButton = footer.querySelector('.form-button.cancel') as HTMLButtonElement
     const submitButton = footer.querySelector('.form-button.create') as HTMLButtonElement
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      submitButton.disabled = true
-      cancelButton.disabled = true
-      try {
-        await this.onSubmit(projectSelect.value)
-        this.close()
-      } catch (error) {
-        console.error('[ProjectSettingsModal] Failed to save project', error)
-        new Notice(this.tv('notices.projectSetFailed', 'Failed to set project'))
-        submitButton.disabled = false
-        cancelButton.disabled = false
-      }
+    form.addEventListener('submit', (event) => {
+      void (async () => {
+        event.preventDefault()
+        submitButton.disabled = true
+        cancelButton.disabled = true
+        try {
+          await this.onSubmit(projectSelect.value)
+          this.close()
+        } catch (error) {
+          console.error('[ProjectSettingsModal] Failed to save project', error)
+          new Notice(this.tv('notices.projectSetFailed', 'Failed to set project'))
+          submitButton.disabled = false
+          cancelButton.disabled = false
+        }
+      })()
     })
 
     cancelButton.addEventListener('click', () => this.close())

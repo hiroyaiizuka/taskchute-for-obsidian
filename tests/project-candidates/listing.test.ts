@@ -71,7 +71,7 @@ describe('ProjectController getProjectFiles', () => {
       return { frontmatter: map[file.path] ? { status: map[file.path] } : {} }
     })
 
-    const files = await controller.getProjectFiles()
+    const files = controller.getProjectFiles()
     expect(files.map((file) => file.path)).toEqual([
       'Projects/Alpha.md',
       'Projects/Sub/Delta.md',
@@ -96,7 +96,7 @@ describe('ProjectController getProjectFiles', () => {
       return { frontmatter: map[file.path] ? { status: map[file.path] } : {} }
     })
 
-    const files = await controller.getProjectFiles()
+    const files = controller.getProjectFiles()
     expect(files.map((file) => file.path)).toEqual([
       'Projects/Sub/Nested/Two.md',
       'Projects/Sub/One.md',

@@ -40,7 +40,7 @@ export default class ProjectController {
         return
       }
 
-      await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
         if (projectName) {
           frontmatter.project = `[[${projectName}]]`
         } else {
@@ -74,11 +74,11 @@ export default class ProjectController {
     }
   }
 
-  async showProjectModal(inst: TaskInstance): Promise<void> {
-    await this.showUnifiedProjectModal(inst)
+  showProjectModal(inst: TaskInstance): void {
+    this.showUnifiedProjectModal(inst)
   }
 
-  async showUnifiedProjectModal(inst: TaskInstance): Promise<void> {
+  showUnifiedProjectModal(inst: TaskInstance): void {
     try {
       const projectsFolder = this.host.plugin.pathManager.getProjectFolderPath()
       if (!projectsFolder) {
@@ -102,7 +102,7 @@ export default class ProjectController {
       }
 
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
-      const projectFiles = await this.getProjectFiles()
+      const projectFiles = this.getProjectFiles()
       const modal = new ProjectSettingsModal(this.host.app, {
         app: this.host.app,
         plugin: this.host.plugin,
@@ -136,7 +136,7 @@ export default class ProjectController {
 
     const filtered = inScope.filter((file) => {
       const cache = this.host.app.metadataCache.getFileCache(file)
-      const statusValue = cache?.frontmatter?.status
+      const statusValue = cache?.frontmatter?.status as unknown
       const status = normalizeProjectModalStatus(statusValue)
       return status === 'todo' || status === 'in-progress'
     })
@@ -153,7 +153,7 @@ export default class ProjectController {
         return
       }
 
-      await this.host.app.fileManager.processFrontMatter(task.file, (frontmatter) => {
+      await this.host.app.fileManager.processFrontMatter(task.file, (frontmatter: Record<string, unknown>) => {
         if (projectPath) {
           const projectFile = this.host.app.vault.getAbstractFileByPath(projectPath)
         if (projectFile instanceof TFile) {
@@ -219,9 +219,9 @@ export default class ProjectController {
       })
       projectButton.createEl('span', { cls: 'taskchute-project-icon', text: '📁' })
       projectButton.createEl('span', { cls: 'taskchute-project-name', text: displayName })
-      projectButton.addEventListener('click', async (event) => {
+      projectButton.addEventListener('click', (event) => {
         event.stopPropagation()
-        await this.showUnifiedProjectModal(inst)
+        this.showUnifiedProjectModal(inst)
       })
 
       const externalLink = projectDisplay.createEl('span', {
@@ -229,11 +229,13 @@ export default class ProjectController {
         text: '🔗',
         attr: { title: this.host.tv('project.openNote', 'Open project note') },
       })
-      externalLink.addEventListener('click', async (event) => {
-        event.stopPropagation()
-        if (inst.task.projectPath) {
-          await this.openProjectInSplit(inst.task.projectPath)
-        }
+      externalLink.addEventListener('click', (event) => {
+        void (async () => {
+          event.stopPropagation()
+          if (inst.task.projectPath) {
+            await this.openProjectInSplit(inst.task.projectPath)
+          }
+        })()
       })
     } else {
       const placeholderLabel = this.host.tv('project.clickToSet', 'Click to set project')
@@ -242,9 +244,9 @@ export default class ProjectController {
         text: placeholderLabel,
         attr: { title: placeholderLabel },
       })
-      placeholder.addEventListener('click', async (event) => {
+      placeholder.addEventListener('click', (event) => {
         event.stopPropagation()
-        await this.showProjectModal(inst)
+        this.showProjectModal(inst)
       })
     }
   }

@@ -96,7 +96,7 @@ describe('FilePathFieldController', () => {
       notice,
     })
 
-    await controller.handleBlur()
+    controller.handleBlur()
 
     expect(fileExists).toHaveBeenCalledWith('Missing.md')
     expect(notice).toHaveBeenCalledWith('Missing: Missing.md')

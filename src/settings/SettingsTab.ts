@@ -153,8 +153,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       reviewTemplateSuggest = new FilePathSuggest(
         this.app,
         text.inputEl,
-        async (filePath) => {
-          await reviewTemplateController?.handleSuggestionSelect(filePath);
+        (filePath) => {
+          void reviewTemplateController?.handleSuggestionSelect(filePath);
         },
       );
 
@@ -270,8 +270,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           const suggest = new FolderPathSuggest(
             this.app,
             text.inputEl,
-            async (folderPath) => {
-              await controller.handleSuggestionSelect(folderPath);
+            (folderPath) => {
+              void controller.handleSuggestionSelect(folderPath);
             },
           );
 
@@ -356,8 +356,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         projectFolderSuggest = new FolderPathSuggest(
           this.app,
           text.inputEl,
-          async (folderPath) => {
-            await projectFolderController?.handleSuggestionSelect(folderPath);
+          (folderPath) => {
+            void projectFolderController?.handleSuggestionSelect(folderPath);
           },
         );
 
@@ -412,8 +412,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         projectTemplateSuggest = new FilePathSuggest(
           this.app,
           text.inputEl,
-          async (filePath) => {
-            await projectTemplateController?.handleSuggestionSelect(filePath);
+          (filePath) => {
+            void projectTemplateController?.handleSuggestionSelect(filePath);
           },
         );
 
@@ -453,14 +453,16 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
 class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
   private readonly onChoose: (folderPath: string) => void;
+  private readonly textInputEl: HTMLInputElement;
 
   constructor(app: App, inputEl: HTMLInputElement, onChoose: (folderPath: string) => void) {
     super(app, inputEl);
+    this.textInputEl = inputEl;
     this.onChoose = onChoose;
   }
 
   setValue(value: string): void {
-    this.inputEl.value = value;
+    this.textInputEl.value = value;
   }
 
   protected getSuggestions(query: string): TFolder[] {

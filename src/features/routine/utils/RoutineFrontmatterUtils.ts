@@ -1,4 +1,4 @@
-import type { RoutineFrontmatter } from '../types';
+import type { RoutineFrontmatter } from '../../../types';
 
 export interface RoutineFrontmatterMergeOptions {
   hadTargetDate?: boolean;
@@ -21,7 +21,7 @@ export function applyRoutineFrontmatterMerge(
   // Remove keys that are no longer present
   // Using Record<string, unknown> to allow dynamic key access on frontmatter object
   const frontmatterRecord = frontmatter as Record<string, unknown>;
-  const cleanedRecord = cleaned as Record<string, unknown>;
+  const cleanedRecord = cleaned;
   Object.keys(frontmatterRecord).forEach((key) => {
     if (!cleanedSet.has(key)) {
       delete frontmatterRecord[key];
@@ -34,7 +34,8 @@ export function applyRoutineFrontmatterMerge(
   });
 
   // Ensure move-related metadata are cleared regardless of previous state
-  delete (frontmatter).temporary_move_date;
-  delete (frontmatter).target_date;
-  delete (frontmatter)['\u958b\u59cb\u6642\u523b'];
+  // Using frontmatterRecord to avoid deprecated field warnings
+  delete frontmatterRecord['temporary_move_date'];
+  delete frontmatterRecord['target_date'];
+  delete frontmatterRecord['開始時刻'];
 }

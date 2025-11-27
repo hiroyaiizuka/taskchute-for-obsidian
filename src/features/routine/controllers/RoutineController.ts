@@ -5,7 +5,7 @@ import { applyRoutineFrontmatterMerge } from '../utils/RoutineFrontmatterUtils'
 import { TaskValidator } from '../../core/services/TaskValidator'
 import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
 import type { RoutineWeek } from '../../../types/TaskFields'
-import type { RoutineTaskShape } from '../../../types/Routine'
+import type { RoutineTaskShape } from '../../../types/routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
 import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import {
@@ -257,15 +257,18 @@ export default class RoutineController {
     cancelButton.addEventListener('click', closeModal)
 
     if (removeButton) {
-      removeButton.addEventListener('click', async (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        await this.toggleRoutine(task, anchor ?? removeButton)
-        closeModal()
+      removeButton.addEventListener('click', (event) => {
+        void (async () => {
+          event.preventDefault()
+          event.stopPropagation()
+          await this.toggleRoutine(task, anchor ?? removeButton)
+          closeModal()
+        })()
       })
     }
 
-    form.addEventListener('submit', async (event) => {
+    form.addEventListener('submit', (event) => {
+      void (async () => {
       event.preventDefault()
       const scheduledTime = timeInput.value
       const routineType = this.normalizeRoutineType(typeSelect.value)
@@ -328,6 +331,7 @@ export default class RoutineController {
 
       await this.setRoutineTaskWithDetails(task, anchor ?? modalContent, scheduledTime, routineType, detailPayload)
       closeModal()
+      })()
     })
 
     document.body.appendChild(modal)
@@ -342,7 +346,7 @@ export default class RoutineController {
           this.notifyFileMissing(task)
           return
         }
-        await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
           const today = this.formatCurrentDate()
           frontmatter.routine_end = today
           frontmatter.isRoutine = false
@@ -736,12 +740,12 @@ export default class RoutineController {
     return labels.join(joiner)
   }
 
-  private normalizeWeekSelection(values?: Array<number | 'last'>): Array<number | 'last'> {
+  private normalizeWeekSelection(values?: unknown[]): RoutineWeek[] {
     if (!Array.isArray(values)) return []
     const seen = new Set<string>()
     return values
       .map((value) => (value === 'last' ? 'last' : Number(value)))
-      .filter((value): value is number | 'last' => {
+      .filter((value): value is RoutineWeek => {
         if (value === 'last') return true
         return Number.isInteger(value) && value >= 1 && value <= 5
       })
@@ -754,7 +758,7 @@ export default class RoutineController {
       .sort((a, b) => {
         if (a === 'last') return 1
         if (b === 'last') return -1
-        return (a) - (b)
+        return (a as number) - (b as number)
       })
   }
 

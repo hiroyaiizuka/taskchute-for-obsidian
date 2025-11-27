@@ -67,14 +67,7 @@ export class BackupPruner {
 
   private async deleteEntry(entry: TFolder | TFile): Promise<void> {
     try {
-      const fileManager = this.plugin.app.fileManager
-      if (fileManager?.trashFile) {
-        await fileManager.trashFile(entry, true)
-      } else {
-        // Fallback for older Obsidian versions that don't have trashFile
-        // eslint-disable-next-line obsidianmd/prefer-file-manager-trash-file -- trashFile is not available, using vault.delete as fallback
-        await this.plugin.app.vault.delete(entry)
-      }
+      await this.plugin.app.fileManager.trashFile(entry)
     } catch (error) {
       console.warn('[BackupPruner] Failed to delete backup entry', entry.path, error)
     }

@@ -2,9 +2,7 @@ import { ReviewService } from '../../src/features/review/services/ReviewService'
 import type { TaskChutePluginLike } from '../../src/types'
 import type { TFile } from 'obsidian'
 
-const { TFile: TFileMock } = jest.requireMock('obsidian') as {
-  TFile: { prototype: TFile }
-}
+const { TFile: TFileMock } = jest.requireMock('obsidian')
 
 const createMockTFile = (path: string): TFile => {
   const file = Object.create(TFileMock.prototype) as TFile & {

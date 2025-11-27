@@ -96,7 +96,7 @@ describe('FolderPathFieldController', () => {
       notice,
     })
 
-    await controller.handleBlur()
+    controller.handleBlur()
 
     expect(folderExists).toHaveBeenCalledWith('Missing')
     expect(notice).toHaveBeenCalledWith('Missing: Missing')

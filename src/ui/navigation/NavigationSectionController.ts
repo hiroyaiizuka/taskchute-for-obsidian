@@ -6,7 +6,7 @@ import NavigationReviewController from './NavigationReviewController'
 import NavigationRoutineController from './NavigationRoutineController'
 import NavigationSettingsController from './NavigationSettingsController'
 import { VIEW_TYPE_PROJECT_BOARD } from '../../types'
-import type { RoutineTaskShape } from '../../types/Routine'
+import type { RoutineTaskShape } from '../../types/routine'
 
 export interface NavigationSectionHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -86,7 +86,7 @@ export default class NavigationSectionController {
 
   async handleNavigationItemClick(section: NavigationSection): Promise<void> {
     if (section === 'projects') {
-      await this.openProjectBoard()
+      this.openProjectBoard()
       this.callbacks.closeNavigation()
       return
     }
@@ -105,7 +105,7 @@ export default class NavigationSectionController {
         new RoutineManagerModal(this.host.app, this.host.plugin).open()
       } catch (error) {
         console.error('[Navigation] Failed to open RoutineManagerModal:', error)
-        await this.renderRoutineList()
+        this.renderRoutineList()
         this.callbacks.openNavigation()
       }
       this.callbacks.closeNavigation()
@@ -116,7 +116,8 @@ export default class NavigationSectionController {
       this.callbacks.closeNavigation()
       return
     }
-    const label = this.host.tv(`navigation.${section}`, section)
+    const sectionKey = section as string
+    const label = this.host.tv(`navigation.${sectionKey}`, sectionKey)
     new Notice(this.host.tv('notices.sectionWip', '{section} is under construction', { section: label }))
   }
 

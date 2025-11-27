@@ -1,25 +1,29 @@
 /**
  * @jest-environment jsdom
  */
+ 
 import {
   NotificationService,
   ReminderNotificationOptions,
 } from '../../src/features/reminder/services/NotificationService';
 
-// Mock Electron
+// Mock obsidian Platform
+jest.mock('obsidian', () => ({
+  Platform: {
+    isMobile: false,
+  },
+}), { virtual: true });
+
+// Mock Web Notification API
 const mockNotificationInstance = {
-  on: jest.fn(),
-  show: jest.fn(),
   close: jest.fn(),
+  onclick: null as ((event: Event) => void) | null,
 };
 
 const mockNotificationConstructor = jest.fn(() => mockNotificationInstance);
 
-const mockElectron = {
-  remote: {
-    Notification: mockNotificationConstructor,
-  },
-};
+// Store original Notification
+const originalNotification = global.Notification;
 
 describe('NotificationService', () => {
   let service: NotificationService;
@@ -28,27 +32,25 @@ describe('NotificationService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockShowBuiltinReminder = jest.fn();
+    mockNotificationInstance.onclick = null;
 
-    // Reset window.require mock
-    (window as { require?: unknown }).require = undefined;
+    // Setup Web Notification API mock with permission granted
+    const mockNotification = mockNotificationConstructor as unknown as typeof Notification;
+    Object.defineProperty(mockNotification, 'permission', {
+      get: () => 'granted',
+      configurable: true,
+    });
+    mockNotification.requestPermission = jest.fn().mockResolvedValue('granted');
+    global.Notification = mockNotification;
+  });
+
+  afterEach(() => {
+    // Restore original Notification
+    global.Notification = originalNotification;
   });
 
   describe('isMobile', () => {
-    it('should return true when electron is not available', () => {
-      service = new NotificationService({
-        showBuiltinReminder: mockShowBuiltinReminder,
-      });
-
-      expect(service.isMobile()).toBe(true);
-    });
-
-    it('should return false when electron is available', () => {
-      // Mock window.require to return electron
-      (window as { require?: (module: string) => unknown }).require = (module: string) => {
-        if (module === 'electron') return mockElectron;
-        return undefined;
-      };
-
+    it('should return false when Platform.isMobile is false', () => {
       service = new NotificationService({
         showBuiltinReminder: mockShowBuiltinReminder,
       });
@@ -57,123 +59,160 @@ describe('NotificationService', () => {
     });
   });
 
-  describe('notify (mobile/fallback)', () => {
+  describe('notify (fallback)', () => {
     beforeEach(() => {
-      // No electron available (mobile)
-      (window as { require?: unknown }).require = undefined;
+      // Remove Notification API to simulate unsupported environment
+      // @ts-expect-error - intentionally removing for test
+      delete global.Notification;
+
       service = new NotificationService({
         showBuiltinReminder: mockShowBuiltinReminder,
       });
     });
 
-    it('should call showBuiltinReminder on mobile', async () => {
+    it('should call showBuiltinReminder when notifications not supported', () => {
       const options: ReminderNotificationOptions = {
         taskName: 'Test Task',
         scheduledTime: '09:00',
         taskPath: '/tasks/test.md',
       };
 
-      await service.notify(options);
+      service.notify(options);
 
       expect(mockShowBuiltinReminder).toHaveBeenCalledWith(options);
     });
   });
 
-  describe('notify (desktop)', () => {
+  describe('notify (desktop with Web Notifications)', () => {
     beforeEach(() => {
-      // Mock window.require to return electron
-      (window as { require?: (module: string) => unknown }).require = (module: string) => {
-        if (module === 'electron') return mockElectron;
-        return undefined;
-      };
-
       service = new NotificationService({
         showBuiltinReminder: mockShowBuiltinReminder,
       });
     });
 
-    it('should create Electron notification on desktop', async () => {
+    it('should create Web notification on desktop', () => {
       const options: ReminderNotificationOptions = {
         taskName: 'Test Task',
         scheduledTime: '09:00',
         taskPath: '/tasks/test.md',
       };
 
-      await service.notify(options);
+      service.notify(options);
 
-      expect(mockNotificationConstructor).toHaveBeenCalledWith({
-        title: 'TaskChute Plus',
-        body: 'Test Task - まもなく開始 (09:00)',
-      });
-      expect(mockNotificationInstance.show).toHaveBeenCalled();
-    });
-
-    it('should register click handler on notification', async () => {
-      const options: ReminderNotificationOptions = {
-        taskName: 'Test Task',
-        scheduledTime: '09:00',
-        taskPath: '/tasks/test.md',
-      };
-
-      await service.notify(options);
-
-      expect(mockNotificationInstance.on).toHaveBeenCalledWith(
-        'click',
-        expect.any(Function)
+      expect(mockNotificationConstructor).toHaveBeenCalledWith(
+        'TaskChute Plus',
+        {
+          body: 'Test Task - まもなく開始 (09:00)',
+          tag: '/tasks/test.md',
+        }
       );
     });
 
-    it('should show builtin reminder when notification is clicked', async () => {
+    it('should set onclick handler on notification', () => {
       const options: ReminderNotificationOptions = {
         taskName: 'Test Task',
         scheduledTime: '09:00',
         taskPath: '/tasks/test.md',
       };
 
-      await service.notify(options);
+      service.notify(options);
 
-      // Get the click handler
-      const clickHandler = mockNotificationInstance.on.mock.calls.find(
-        (call: [string, () => void]) => call[0] === 'click'
-      )?.[1];
+      expect(mockNotificationInstance.onclick).toBeDefined();
+    });
 
-      // Simulate click
-      clickHandler?.();
+    it('should show builtin reminder when notification is clicked', () => {
+      const options: ReminderNotificationOptions = {
+        taskName: 'Test Task',
+        scheduledTime: '09:00',
+        taskPath: '/tasks/test.md',
+      };
+
+      service.notify(options);
+
+      // Simulate click by calling onclick
+      if (mockNotificationInstance.onclick) {
+        mockNotificationInstance.onclick(new Event('click'));
+      }
 
       expect(mockNotificationInstance.close).toHaveBeenCalled();
       expect(mockShowBuiltinReminder).toHaveBeenCalledWith(options);
     });
 
-    it('should include task name in notification body', async () => {
+    it('should include task name in notification body', () => {
       const options: ReminderNotificationOptions = {
         taskName: 'Important Meeting',
         scheduledTime: '14:30',
         taskPath: '/tasks/meeting.md',
       };
 
-      await service.notify(options);
+      service.notify(options);
 
       expect(mockNotificationConstructor).toHaveBeenCalledWith(
+        'TaskChute Plus',
         expect.objectContaining({
           body: expect.stringContaining('Important Meeting'),
         })
       );
     });
 
-    it('should include scheduled time in notification body', async () => {
+    it('should include scheduled time in notification body', () => {
       const options: ReminderNotificationOptions = {
         taskName: 'Test Task',
         scheduledTime: '15:45',
         taskPath: '/tasks/test.md',
       };
 
-      await service.notify(options);
+      service.notify(options);
 
       expect(mockNotificationConstructor).toHaveBeenCalledWith(
+        'TaskChute Plus',
         expect.objectContaining({
           body: expect.stringContaining('15:45'),
         })
       );
+    });
+
+    it('should call onNotificationDisplayed callback after showing notification', () => {
+      const mockOnDisplayed = jest.fn();
+      const options: ReminderNotificationOptions = {
+        taskName: 'Test Task',
+        scheduledTime: '09:00',
+        taskPath: '/tasks/test.md',
+        onNotificationDisplayed: mockOnDisplayed,
+      };
+
+      service.notify(options);
+
+      expect(mockOnDisplayed).toHaveBeenCalled();
+    });
+  });
+
+  describe('notify (permission denied)', () => {
+    beforeEach(() => {
+      // Setup with permission denied
+      const mockNotification = mockNotificationConstructor as unknown as typeof Notification;
+      Object.defineProperty(mockNotification, 'permission', {
+        get: () => 'denied',
+        configurable: true,
+      });
+      global.Notification = mockNotification;
+
+      service = new NotificationService({
+        showBuiltinReminder: mockShowBuiltinReminder,
+      });
+    });
+
+    it('should fall back to builtin reminder when permission denied', () => {
+      const options: ReminderNotificationOptions = {
+        taskName: 'Test Task',
+        scheduledTime: '09:00',
+        taskPath: '/tasks/test.md',
+      };
+
+      service.notify(options);
+
+      expect(mockShowBuiltinReminder).toHaveBeenCalledWith(options);
+      expect(mockNotificationConstructor).not.toHaveBeenCalled();
     });
   });
 

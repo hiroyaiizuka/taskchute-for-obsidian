@@ -135,7 +135,7 @@ describe('NavigationRoutineController', () => {
     const host = createHost({ frontmatter, files: [routineFile], nonRoutineFiles: [nonRoutineFile] })
     const controller = new NavigationRoutineController(host)
 
-    await controller.renderRoutineList()
+    controller.renderRoutineList()
 
     const header = host.navigationContent.querySelector('.routine-list-header h3')
     const rows = host.navigationContent.querySelectorAll('.routine-row')
@@ -154,7 +154,7 @@ describe('NavigationRoutineController', () => {
     const host = createHost({ frontmatter, files: [routineFile] })
     const controller = new NavigationRoutineController(host)
 
-    await controller.renderRoutineList()
+    controller.renderRoutineList()
 
     const toggle = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
     expect(toggle).not.toBeNull()
@@ -179,7 +179,7 @@ describe('NavigationRoutineController', () => {
     const host = createHost({ frontmatter, files: [routineFile] })
     const controller = new NavigationRoutineController(host)
 
-    await controller.renderRoutineList()
+    controller.renderRoutineList()
 
     const editButton = host.navigationContent.querySelector<HTMLButtonElement>('.routine-edit-btn')
     expect(editButton).not.toBeNull()

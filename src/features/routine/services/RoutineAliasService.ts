@@ -29,7 +29,7 @@ export class RoutineAliasService {
       const file = this.plugin.app.vault.getAbstractFileByPath(path);
       if (file instanceof TFile) {
         const content = await this.plugin.app.vault.read(file);
-        this.aliasCache = JSON.parse(content) ?? {};
+        this.aliasCache = (JSON.parse(content) as Record<string, string> | null) ?? {};
       }
     } catch {
       const message = t(

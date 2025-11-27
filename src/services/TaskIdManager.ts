@@ -14,9 +14,8 @@ function readTaskIdValue(frontmatter: Record<string, unknown>, key: string): str
 function syncTaskIdFrontmatter(frontmatter: Record<string, unknown>, taskId: string): void {
   frontmatter[TASK_ID_FRONTMATTER_KEY] = taskId
   for (const legacyKey of LEGACY_TASK_ID_KEYS) {
-    if (legacyKey !== TASK_ID_FRONTMATTER_KEY) {
-      delete frontmatter[legacyKey]
-    }
+    // Remove legacy keys (always different from current key by design)
+    delete frontmatter[legacyKey]
   }
 }
 

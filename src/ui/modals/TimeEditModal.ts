@@ -159,80 +159,82 @@ export default class TimeEditModal extends Modal {
 
     cancelButton.addEventListener('click', () => closeModal())
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      const startStr = (startInput.value || '').trim()
-      const stopStr = (stopInput?.value || '').trim()
+    form.addEventListener('submit', (event) => {
+      void (async () => {
+        event.preventDefault()
+        const startStr = (startInput.value || '').trim()
+        const stopStr = (stopInput?.value || '').trim()
 
-      if (instance.state === 'running') {
-        if (!startStr) {
-          await callbacks.resetTaskToIdle()
-          closeModal()
-          return
-        }
-        await callbacks.updateRunningInstanceStartTime(startStr)
-        closeModal()
-        return
-      }
-
-      if (instance.state === 'done') {
-        if (!startStr && !stopStr) {
-          await callbacks.resetTaskToIdle()
+        if (instance.state === 'running') {
+          if (!startStr) {
+            await callbacks.resetTaskToIdle()
+            closeModal()
+            return
+          }
+          await callbacks.updateRunningInstanceStartTime(startStr)
           closeModal()
           return
         }
 
-        if (startStr && !stopStr) {
-          await callbacks.transitionToRunningWithStart(startStr)
-          closeModal()
-          return
-        }
-
-        if (!startStr && stopStr) {
-          new Notice(host.tv('forms.startTimeRequired', 'Start time is required'))
-          return
-        }
-
-        if (startStr && stopStr) {
-          const startMinutes = toMinutes(startStr)
-          const stopMinutes = toMinutes(stopStr)
-
-          if (startMinutes === stopMinutes) {
-            new Notice(
-              host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
-            )
+        if (instance.state === 'done') {
+          if (!startStr && !stopStr) {
+            await callbacks.resetTaskToIdle()
+            closeModal()
             return
           }
 
-          const originalCrossDay = Boolean(
-            instance.startTime &&
-              instance.stopTime &&
-              !isSameDay(instance.startTime, instance.stopTime),
-          )
+          if (startStr && !stopStr) {
+            await callbacks.transitionToRunningWithStart(startStr)
+            closeModal()
+            return
+          }
 
-          if (startMinutes > stopMinutes && !originalCrossDay) {
-            const confirmed = await showConfirmModal(this.app, {
-              title: host.tv('forms.confirmStopNextDayTitle', 'Treat stop time as next day?'),
-              message: host.tv(
-                'forms.confirmStopNextDayMessage',
-                'The stop time you entered is earlier than the start time. Save it as next day?',
-              ),
-              confirmText: host.tv('buttons.save', t('common.save', 'Save')),
-              cancelText: host.tv('buttons.cancel', t('common.cancel', 'Cancel')),
-            })
-            if (!confirmed) {
+          if (!startStr && stopStr) {
+            new Notice(host.tv('forms.startTimeRequired', 'Start time is required'))
+            return
+          }
+
+          if (startStr && stopStr) {
+            const startMinutes = toMinutes(startStr)
+            const stopMinutes = toMinutes(stopStr)
+
+            if (startMinutes === stopMinutes) {
               new Notice(
                 host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
               )
               return
             }
-          }
 
-          await callbacks.updateInstanceTimes(startStr, stopStr)
-          closeModal()
-          return
+            const originalCrossDay = Boolean(
+              instance.startTime &&
+                instance.stopTime &&
+                !isSameDay(instance.startTime, instance.stopTime),
+            )
+
+            if (startMinutes > stopMinutes && !originalCrossDay) {
+              const confirmed = await showConfirmModal(this.app, {
+                title: host.tv('forms.confirmStopNextDayTitle', 'Treat stop time as next day?'),
+                message: host.tv(
+                  'forms.confirmStopNextDayMessage',
+                  'The stop time you entered is earlier than the start time. Save it as next day?',
+                ),
+                confirmText: host.tv('buttons.save', t('common.save', 'Save')),
+                cancelText: host.tv('buttons.cancel', t('common.cancel', 'Cancel')),
+              })
+              if (!confirmed) {
+                new Notice(
+                  host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
+                )
+                return
+              }
+            }
+
+            await callbacks.updateInstanceTimes(startStr, stopStr)
+            closeModal()
+            return
+          }
         }
-      }
+      })()
     })
 
     startInput.focus()

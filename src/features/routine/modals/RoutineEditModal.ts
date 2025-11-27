@@ -214,7 +214,8 @@ export default class RoutineEditModal extends Modal {
     });
     cancelButton.classList.add('routine-editor__button');
 
-    saveButton.addEventListener('click', async () => {
+    saveButton.addEventListener('click', () => {
+      void (async () => {
       const errors: string[] = [];
       const routineType = this.normalizeRoutineType(typeSelect.value);
       const interval = Math.max(1, Number(intervalInput.value || 1));
@@ -276,8 +277,9 @@ export default class RoutineEditModal extends Modal {
         if (end) changes.routine_end = end;
 
         // Apply cleanup to remove target_date if routine settings changed
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- checking legacy target_date for backwards compatibility cleanup
-        const hadTargetDate = !!fm.target_date;
+        // Using record access to check legacy target_date field
+        const fmRecord = fm as Record<string, unknown>;
+        const hadTargetDate = !!fmRecord['target_date'];
         const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes);
         const hadTemporaryMoveDate = !!fm.temporary_move_date;
 
@@ -343,6 +345,7 @@ export default class RoutineEditModal extends Modal {
       await this.handlePostSave(updatedFrontmatter);
       new Notice(this.tv('notices.saved', 'Saved.'), 1500);
       this.close();
+      })()
     });
 
     cancelButton.addEventListener('click', () => this.close());
@@ -455,7 +458,7 @@ export default class RoutineEditModal extends Modal {
     return [];
   }
 
-  private normalizeWeekSelection(values: Array<RoutineWeek | number>): Array<RoutineWeek> {
+  private normalizeWeekSelection(values: Array<number | 'last'>): Array<RoutineWeek> {
     const seen = new Set<string>();
     const result: Array<RoutineWeek> = [];
     values.forEach((value) => {
@@ -494,11 +497,11 @@ export default class RoutineEditModal extends Modal {
     });
   }
 
-  private getCheckedWeeks(checkboxes: HTMLInputElement[]): Array<RoutineWeek | number> {
+  private getCheckedWeeks(checkboxes: HTMLInputElement[]): Array<number | 'last'> {
     return checkboxes
       .filter((checkbox) => checkbox.checked)
       .map((checkbox) => (checkbox.value === 'last' ? 'last' : Number.parseInt(checkbox.value, 10)))
-      .filter((value): value is RoutineWeek | number => value === 'last' || Number.isInteger(value));
+      .filter((value): value is number | 'last' => value === 'last' || Number.isInteger(value));
   }
 
   private getCheckedDays(checkboxes: HTMLInputElement[]): number[] {

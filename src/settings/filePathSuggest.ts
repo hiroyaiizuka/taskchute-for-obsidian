@@ -4,14 +4,16 @@ type ChooseHandler = (path: string) => void
 
 export class FilePathSuggest extends AbstractInputSuggest<TFile> {
   private readonly onChoose: ChooseHandler
+  private readonly textInputEl: HTMLInputElement
 
   constructor(app: App, inputEl: HTMLInputElement, onChoose: ChooseHandler) {
     super(app, inputEl)
+    this.textInputEl = inputEl
     this.onChoose = onChoose
   }
 
   setValue(value: string): void {
-    this.inputEl.value = value
+    this.textInputEl.value = value
   }
 
   protected getSuggestions(query: string): TFile[] {

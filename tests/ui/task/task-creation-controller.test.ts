@@ -72,7 +72,7 @@ describe('TaskCreationController', () => {
 
   const createHost = () => {
     const taskCreationService = {
-      createTaskFile: jest.fn().mockResolvedValue(new (TFile as typeof TFile)()),
+      createTaskFile: jest.fn().mockResolvedValue(new (TFile)()),
     }
 
     const pluginStub: TaskChutePluginLike = {
@@ -106,7 +106,7 @@ describe('TaskCreationController', () => {
     }
 
     const taskReuseService = {
-      reuseTaskAtDate: jest.fn().mockResolvedValue(new (TFile as typeof TFile)()),
+      reuseTaskAtDate: jest.fn().mockResolvedValue(new (TFile)()),
     }
 
     const host: TaskCreationControllerHost = {
@@ -152,7 +152,7 @@ describe('TaskCreationController', () => {
     const { host, taskCreationService } = createHost()
     const controller = new TaskCreationController(host)
 
-    await controller.showAddTaskModal()
+    controller.showAddTaskModal()
     const modal = document.querySelector('.task-modal-overlay') as HTMLElement
     expect(modal).toBeTruthy()
 
@@ -208,12 +208,12 @@ describe('TaskCreationController', () => {
     host.getDocumentContext = () => ({ doc: popoutDoc, win: fakeWindow })
 
     const controller = new TaskCreationController(host)
-    await controller.showAddTaskModal()
+    controller.showAddTaskModal()
 
     expect(popoutDoc.body.querySelector('.task-modal-overlay')).not.toBeNull()
     expect(document.body.querySelector('.task-modal-overlay')).toBeNull()
 
-    const modeGroup = popoutDoc.querySelector('.task-mode-group') as HTMLElement | null
+    const modeGroup = popoutDoc.querySelector('.task-mode-group')
     expect(modeGroup).not.toBeNull()
     expect(modeGroup?.ownerDocument).toBe(popoutDoc)
 
@@ -236,7 +236,7 @@ describe('TaskCreationController', () => {
     )
 
     const controller = new TaskCreationController(host)
-    await controller.showAddTaskModal()
+    controller.showAddTaskModal()
     const modal = document.querySelector('.task-modal-overlay') as HTMLElement
     const input = modal.querySelector('input') as HTMLInputElement
 
@@ -270,7 +270,7 @@ describe('TaskCreationController', () => {
       .mockImplementation((name: string) => (name.trim() === 'Recover' ? candidate : null))
 
     const controller = new TaskCreationController(host)
-    await controller.showAddTaskModal()
+    controller.showAddTaskModal()
     const modal = document.querySelector('.task-modal-overlay') as HTMLElement
     const input = modal.querySelector('input') as HTMLInputElement
 

@@ -91,34 +91,36 @@ export default class ScheduledTimeModal extends Modal {
 
     cancelButton.addEventListener('click', () => close())
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      const value = input.value.trim()
-      try {
-        const path = instance.task.path
-        if (!path) {
-          new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-          return
+    form.addEventListener('submit', (event) => {
+      void (async () => {
+        event.preventDefault()
+        const value = input.value.trim()
+        try {
+          const path = instance.task.path
+          if (!path) {
+            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+            return
+          }
+          const file = host.app.vault.getAbstractFileByPath(path)
+          if (!(file instanceof TFile)) {
+            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+            return
+          }
+          await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+            setScheduledTime(frontmatter, value || undefined, { preferNew: true })
+          })
+          await host.reloadTasksAndRestore({ runBoundaryCheck: true })
+          new Notice(
+            value
+              ? host.tv('forms.startTimeUpdated', 'Scheduled start time set to {time}', { time: value })
+              : host.tv('forms.startTimeDeleted', 'Removed scheduled start time'),
+          )
+          close()
+        } catch (error) {
+          console.error('[ScheduledTimeModal] Failed to update scheduled time', error)
+          new Notice(host.tv('forms.startTimeUpdateFailed', 'Failed to update scheduled start time'))
         }
-        const file = host.app.vault.getAbstractFileByPath(path)
-        if (!(file instanceof TFile)) {
-          new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-          return
-        }
-        await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-          setScheduledTime(frontmatter, value || undefined, { preferNew: true })
-        })
-        await host.reloadTasksAndRestore({ runBoundaryCheck: true })
-        new Notice(
-          value
-            ? host.tv('forms.startTimeUpdated', 'Scheduled start time set to {time}', { time: value })
-            : host.tv('forms.startTimeDeleted', 'Removed scheduled start time'),
-        )
-        close()
-      } catch (error) {
-        console.error('[ScheduledTimeModal] Failed to update scheduled time', error)
-        new Notice(host.tv('forms.startTimeUpdateFailed', 'Failed to update scheduled start time'))
-      }
+      })()
     })
   }
 }

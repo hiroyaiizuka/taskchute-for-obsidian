@@ -63,7 +63,7 @@ describe('TaskCompletionController', () => {
     const vault = {
       getAbstractFileByPath: jest.fn((path: string) => {
         if (!storage.has(path)) return null
-        const file = new (TFile as typeof TFile)()
+        const file = new (TFile)()
         file.path = path
         file.basename = path.split('/').pop() ?? ''
         return file

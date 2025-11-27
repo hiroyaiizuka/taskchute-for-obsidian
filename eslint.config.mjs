@@ -49,6 +49,17 @@ const jestGlobals = {
   test: "readonly",
 };
 
+// Filter recommendedTypeChecked to only apply to TS files
+const typeCheckedConfigs = tseslint.configs.recommendedTypeChecked.map(config => {
+  if (config.rules) {
+    return {
+      ...config,
+      files: ["**/*.ts", "**/*.tsx"],
+    };
+  }
+  return config;
+});
+
 export default [
   {
     ignores: [
@@ -63,6 +74,8 @@ export default [
     ],
   },
   ...obsidianmd.configs.recommended,
+  // Add type-checked rules from typescript-eslint (matches Obsidian review system)
+  ...typeCheckedConfigs,
   {
     files: ["src/**/*.{ts,tsx,js}"],
     languageOptions: {
@@ -84,17 +97,30 @@ export default [
       },
       globals: { ...sharedGlobals, ...jestGlobals },
     },
+    rules: {
+      // Relax some rules for test files - tests often need flexible mocking
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/unbound-method": "off",
+      "@typescript-eslint/require-await": "off",
+    },
   },
   {
-    files: ["src/**/*.{ts,tsx,js}", "tests/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"],
+    files: ["src/**/*.{ts,tsx,js}"],
     rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
+      // Minimal overrides
       "@typescript-eslint/no-unused-vars": ["warn", { args: "none", varsIgnorePattern: "^_" }],
-      "no-empty": ["warn", { allowEmptyCatch: true }],
-      "no-alert": "warn",
-      "no-restricted-globals": "warn",
-      "obsidianmd/no-static-styles-assignment": "warn",
-      "obsidianmd/prefer-file-manager-trash-file": "warn",
+      // Ensure type-aware rules are strict (matches Obsidian review)
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/await-thenable": "error",
+      "@typescript-eslint/no-unnecessary-type-assertion": "error",
+      "@typescript-eslint/no-redundant-type-constituents": "error",
+      "@typescript-eslint/require-await": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+      "@typescript-eslint/unbound-method": "error",
     },
   },
 ];

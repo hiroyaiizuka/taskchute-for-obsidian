@@ -20,7 +20,7 @@ const mockCreateEl = (tag: string, options?: Record<string, unknown>): HTMLEleme
   const el = document.createElement(tag);
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
-    (el as HTMLElement).classList.add(...(classes as string[]));
+    (el).classList.add(...(classes as string[]));
   }
   if (options?.text !== undefined) {
     el.textContent = options.text as string;

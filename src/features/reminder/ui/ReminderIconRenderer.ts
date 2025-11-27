@@ -84,7 +84,8 @@ export class ReminderIconRenderer {
     ).createEl;
 
     if (typeof maybeCreateEl === 'function') {
-      return maybeCreateEl.call(parent, tag, options as Record<string, unknown>);
+      const result: HTMLElement = maybeCreateEl.call(parent, tag, options as Record<string, unknown> | undefined) as HTMLElement;
+      return result;
     }
 
     // Fallback for non-Obsidian environments
@@ -122,7 +123,8 @@ export class ReminderIconRenderer {
     ).createSvg;
 
     if (typeof maybeCreateSvg === 'function') {
-      return maybeCreateSvg.call(parent, tag, options as Record<string, unknown>);
+      const result: SVGElement = maybeCreateSvg.call(parent, tag, options as Record<string, unknown> | undefined) as SVGElement;
+      return result;
     }
 
     // Fallback for non-Obsidian environments

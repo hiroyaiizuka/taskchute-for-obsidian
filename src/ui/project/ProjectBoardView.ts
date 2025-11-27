@@ -1,4 +1,4 @@
-import { EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
+import { App, EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
 import type { TaskChutePluginLike } from '../../types'
 import {
@@ -89,13 +89,15 @@ export class ProjectBoardView extends ItemView {
   }
 
   getDisplayText(): string {
-    return this.plugin?.app?.i18n?.translate?.('navigation.projects')
+    const appWithI18n = this.plugin?.app as App & { i18n?: { translate?: (key: string) => string | undefined } }
+    return appWithI18n?.i18n?.translate?.('navigation.projects')
       ?? this.plugin?.settings?.languageOverride === 'ja'
         ? 'プロジェクト'
         : 'Projects'
   }
 
-  onOpen(): void {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async onOpen(): Promise<void> {
     this.containerEl.empty()
     this.containerEl.addClass('project-board-view')
 
@@ -103,7 +105,8 @@ export class ProjectBoardView extends ItemView {
     this.render()
   }
 
-  onClose(): void {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async onClose(): Promise<void> {
     this.containerEl.empty()
     this.containerEl.removeClass('project-board-view')
   }
@@ -322,10 +325,11 @@ export class ProjectBoardView extends ItemView {
       }
 
       const workspace = this.app.workspace
-      const splitFunction = (workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null }).splitActiveLeaf
-      const rightLeaf =
+      const workspaceWithSplit = workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null }
+      const splitFunction = workspaceWithSplit.splitActiveLeaf
+      const rightLeaf: WorkspaceLeaf | null =
         typeof splitFunction === 'function'
-          ? splitFunction.call(workspace, 'vertical')
+          ? (splitFunction.call(workspace, 'vertical') as WorkspaceLeaf | null)
           : workspace.getLeaf('split')
 
       if (!rightLeaf) {
@@ -472,7 +476,8 @@ export class ProjectBoardView extends ItemView {
         : (() => {
             const lastCard = target.querySelector('.project-board-card:last-of-type')
             const anchorPath = lastCard?.getAttribute('data-path') ?? null
-            return { status, anchorPath, position: anchorPath ? 'after' : 'empty' as const }
+            const position: 'before' | 'after' | 'empty' = anchorPath ? 'after' : 'empty'
+            return { status, anchorPath, position }
           })()
     this.clearDropState()
     void this.handleStatusChange(path, status, hint)
@@ -737,22 +742,17 @@ export class ProjectBoardView extends ItemView {
         if (this.metadataSyncWaits.get(path) === promise) {
           this.metadataSyncWaits.delete(path)
         }
-        void this.reloadItemsPreservingState()
-          .then(() => {
-            this.render()
-            if (this.optimisticItems.has(path)) {
-              // Metadata still not updated; attempt again with slight delay
-              window.setTimeout(() => {
-                this.metadataSyncWaits.delete(path)
-                this.scheduleMetadataRefresh(path, status)
-              }, 150)
-            } else {
-              this.metadataSyncAttempts.delete(path)
-            }
-          })
-          .catch(() => {
-            this.render()
-          })
+        this.reloadItemsPreservingState()
+        this.render()
+        if (this.optimisticItems.has(path)) {
+          // Metadata still not updated; attempt again with slight delay
+          window.setTimeout(() => {
+            this.metadataSyncWaits.delete(path)
+            this.scheduleMetadataRefresh(path, status)
+          }, 150)
+        } else {
+          this.metadataSyncAttempts.delete(path)
+        }
       })
   }
 
@@ -834,7 +834,7 @@ export class ProjectBoardView extends ItemView {
         leavingDone,
       })
       this.render()
-      void this.reloadItemsPreservingState().catch(() => {})
+      this.reloadItemsPreservingState()
       this.scheduleMetadataRefresh(path, status)
     } catch (error) {
       console.error('[ProjectBoard] Failed to move project', error)
