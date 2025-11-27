@@ -271,7 +271,7 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
       : []
 
     return entries.map((entry): NormalizedExecution => {
-      const taskTitle = toStringField(entry.taskTitle ?? entry.taskName) ?? 'Untitled Task'
+      const taskTitle = toStringField(entry.taskTitle ?? entry.taskName) ?? 'Untitled task'
       const taskPath = toStringField(entry.taskPath) ?? ''
       const slotKey = toStringField(entry.slotKey) ?? calculateSlotKeyFromTime(entry.startTime) ?? DEFAULT_SLOT_KEY
       return {
@@ -820,7 +820,7 @@ function deriveDisplayTitle(
   if (file) return file.basename
   const executionTitle = toStringField(fallbackTitle)
   if (executionTitle) return executionTitle
-  return 'Untitled Task'
+  return 'Untitled task'
 }
 
 function getTaskFiles(context: TaskLoaderHost): TFile[] {

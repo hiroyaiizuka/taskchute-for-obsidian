@@ -96,19 +96,19 @@ export class ProjectBoardView extends ItemView {
         : 'Projects'
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async onOpen(): Promise<void> {
     this.containerEl.empty()
     this.containerEl.addClass('project-board-view')
 
     this.loadData()
     this.render()
+    await Promise.resolve()
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async onClose(): Promise<void> {
     this.containerEl.empty()
     this.containerEl.removeClass('project-board-view')
+    await Promise.resolve()
   }
 
   private loadData(): void {
@@ -123,8 +123,8 @@ export class ProjectBoardView extends ItemView {
     }
 
     this.statusDefs = [
-      { id: 'todo', label: this.translate('projectBoard.status.todo', 'To Do') },
-      { id: 'in-progress', label: this.translate('projectBoard.status.inProgress', 'In Progress') },
+      { id: 'todo', label: this.translate('projectBoard.status.todo', 'To do') },
+      { id: 'in-progress', label: this.translate('projectBoard.status.inProgress', 'In progress') },
       { id: 'done', label: this.translate('projectBoard.status.done', 'Done') },
     ]
   }

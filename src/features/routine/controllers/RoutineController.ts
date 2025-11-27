@@ -518,7 +518,7 @@ export default class RoutineController {
         }
       }
     }
-    return 'Untitled Task'
+    return 'Untitled task'
   }
 
   private resolveTaskFile(task: RoutineTaskShape): TFile | null {

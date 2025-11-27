@@ -15,7 +15,7 @@ export const en = {
     heading: "TaskChute file paths",
     storage: {
       baseLocationName: "Default storage location",
-      baseLocationDesc: "Save Task/Log/Review under the selected base.",
+      baseLocationDesc: "Save task/log/review under the selected base.",
       baseOptions: {
         vaultRoot: "Vault root (TaskChute/...)",
         specifiedFolder: "Below specified folder",
@@ -44,7 +44,7 @@ export const en = {
     },
     features: {
       heading: "External tools",
-      robotButton: "Show Terminal button",
+      robotButton: "Show terminal button",
       robotButtonDesc:
         "Enable AI integration via Terminal (requires Terminal plugin).",
     },
@@ -453,8 +453,8 @@ export const en = {
       restore: "Show {status}",
     },
     status: {
-      todo: "To Do",
-      inProgress: "In Progress",
+      todo: "To do",
+      inProgress: "In progress",
       done: "Done",
     },
     errors: {

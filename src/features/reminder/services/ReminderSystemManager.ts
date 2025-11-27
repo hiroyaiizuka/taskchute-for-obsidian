@@ -247,7 +247,7 @@ export class ReminderSystemManager {
 
       const schedule: ReminderSchedule = {
         taskPath: task.filePath,
-        taskName: task.task.name ?? 'Untitled Task',
+        taskName: task.task.name ?? 'Untitled task',
         scheduledTime: task.task.scheduledTime ?? '',
         reminderTime: reminderDate,
         fired: false,

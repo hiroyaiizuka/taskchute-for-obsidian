@@ -558,7 +558,6 @@ export class TaskChuteView
     return content
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async onClose(): Promise<void> {
     this.disposeManagedEvents()
     // Clean up autocomplete instances
@@ -566,6 +565,7 @@ export class TaskChuteView
 
     // Clean up timers
     this.cleanupTimers()
+    await Promise.resolve()
   }
 
   // ===========================================

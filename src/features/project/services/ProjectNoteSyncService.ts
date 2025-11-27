@@ -70,7 +70,7 @@ export class ProjectNoteSyncService {
         }
       }
     }
-    return 'Untitled Task'
+    return 'Untitled task'
   }
 
   private splitLogSection(content: string, sectionPos: number) {

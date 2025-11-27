@@ -200,7 +200,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setDesc(
         t(
           'settings.storage.baseLocationDesc',
-          'Save Task/Log/Review under the selected base.',
+          'Save task/log/review under the selected base.',
         ),
       )
       .addDropdown((dd) => {
@@ -439,7 +439,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setHeading();
 
     new Setting(container)
-      .setName(t('settings.features.robotButton', 'Show Terminal button'))
+      .setName(t('settings.features.robotButton', 'Show terminal button'))
       .setDesc(t('settings.features.robotButtonDesc', 'Enable AI integration via Terminal (requires Terminal plugin).'))
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.aiRobotButtonEnabled ?? false).onChange(async (v) => {
