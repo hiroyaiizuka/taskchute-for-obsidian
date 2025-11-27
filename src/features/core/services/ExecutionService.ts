@@ -49,7 +49,7 @@ export class ExecutionService {
       const dayExecutions = monthlyLog.taskExecutions?.[dateString] ?? [];
 
       return dayExecutions.map((exec: RawExecutionEntry) => {
-        const taskTitle = exec.taskTitle ?? exec.taskName ?? 'Untitled Task'
+        const taskTitle = exec.taskTitle ?? exec.taskName ?? 'Untitled task'
         const taskPath = exec.taskPath ?? ''
         const startTime = exec.startTime
         const stopTime = exec.stopTime

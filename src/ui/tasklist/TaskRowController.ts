@@ -76,7 +76,7 @@ export default class TaskRowController {
       if (displayTitle.length > 0) {
         return displayTitle
       }
-      return inst.task.name ?? this.host.tv('labels.untitledTask', 'Untitled Task')
+      return inst.task.name ?? this.host.tv('labels.untitledTask', 'Untitled task')
     })()
 
     // Container for task name and reminder icon

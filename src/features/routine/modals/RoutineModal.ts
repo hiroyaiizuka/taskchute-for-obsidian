@@ -20,7 +20,7 @@ export function deriveRoutineModalTitle(task: TaskData): string {
   if (typeof fileBase === 'string' && fileBase.trim().length > 0) {
     return fileBase.trim();
   }
-  return 'Untitled Task';
+  return 'Untitled task';
 }
 
 /**

@@ -58,7 +58,7 @@ export class ExecutionLogService {
         }
       }
     }
-    return 'Untitled Task';
+    return 'Untitled task';
   }
 
   async saveTaskLog(inst: TaskInstance, durationSec: number): Promise<void> {
