@@ -20,7 +20,7 @@ const mockCreateEl = (tag: string, options?: Record<string, unknown>): HTMLEleme
       .flatMap(c => c.split(' '))
       .filter(c => c.length > 0);
     if (classes.length > 0) {
-      (el as HTMLElement).classList.add(...classes);
+      (el).classList.add(...classes);
     }
   }
   if (options?.text !== undefined) {

@@ -231,7 +231,7 @@ export class ProjectNoteSyncService {
     }
 
     let content = await this.app.vault.read(file)
-    const sectionResult = await this.ensureLogSection(content)
+    const sectionResult = this.ensureLogSection(content)
     content = sectionResult.content
 
     const taskDate = inst.startTime ? new Date(inst.startTime) : new Date()

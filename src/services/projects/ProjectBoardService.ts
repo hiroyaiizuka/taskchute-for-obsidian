@@ -153,7 +153,7 @@ export class ProjectBoardService {
 
     const file = await this.plugin.app.vault.create(filePath, initialContent)
 
-    await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       delete frontmatter.title
       frontmatter.status = input.status
       delete frontmatter.priority
@@ -229,7 +229,7 @@ export class ProjectBoardService {
   ): Promise<void> {
     const snapshot = this.toSnapshot(file)
     mutate(snapshot)
-    await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       frontmatter.status = snapshot.status
       delete frontmatter.priority
       if (snapshot.order !== null && snapshot.order !== undefined) {

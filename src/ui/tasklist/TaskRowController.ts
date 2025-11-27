@@ -48,19 +48,21 @@ export default class TaskRowController {
       button.disabled = true
     }
 
-    button.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      if (isFutureTask) {
-        new Notice(this.host.tv('notices.futureTaskPreventedWithPeriod', 'Cannot start a future task.'), 2000)
-        return
-      }
-      if (inst.state === 'running') {
-        await this.host.stopInstance(inst)
-      } else if (inst.state === 'idle') {
-        await this.host.startInstance(inst)
-      } else if (inst.state === 'done') {
-        await this.host.duplicateAndStartInstance(inst)
-      }
+    button.addEventListener('click', (e) => {
+      void (async () => {
+        e.stopPropagation()
+        if (isFutureTask) {
+          new Notice(this.host.tv('notices.futureTaskPreventedWithPeriod', 'Cannot start a future task.'), 2000)
+          return
+        }
+        if (inst.state === 'running') {
+          await this.host.stopInstance(inst)
+        } else if (inst.state === 'idle') {
+          await this.host.startInstance(inst)
+        } else if (inst.state === 'done') {
+          await this.host.duplicateAndStartInstance(inst)
+        }
+      })()
     })
   }
 
@@ -87,17 +89,19 @@ export default class TaskRowController {
       text: displayName,
     })
 
-    taskName.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      if (!inst.task.path) {
-        return
-      }
-      try {
-        await this.host.app.workspace.openLinkText(inst.task.path, '', false)
-      } catch (error) {
-        console.error('Failed to open task file', error)
-        new Notice(this.host.tv('notices.taskFileOpenFailed', 'Failed to open task file'))
-      }
+    taskName.addEventListener('click', (e) => {
+      void (async () => {
+        e.stopPropagation()
+        if (!inst.task.path) {
+          return
+        }
+        try {
+          await this.host.app.workspace.openLinkText(inst.task.path, '', false)
+        } catch (error) {
+          console.error('Failed to open task file', error)
+          new Notice(this.host.tv('notices.taskFileOpenFailed', 'Failed to open task file'))
+        }
+      })()
     })
 
     // Render reminder icon after task name

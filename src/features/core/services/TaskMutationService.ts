@@ -8,7 +8,7 @@ import {
   DeletedInstance,
 } from '../../../types'
 import { parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
-import type DayStateStoreService from './DayStateStoreService'
+import type DayStateStoreService from '../../../services/DayStateStoreService'
 
 type HiddenRoutineEntry = HiddenRoutine | string
 

@@ -1,24 +1,11 @@
 /**
  * NotificationService - Handles reminder notifications
  *
- * Displays system notifications on desktop (via Electron) and
- * falls back to builtin modal on mobile or when Electron is unavailable.
+ * Displays system notifications on desktop (via Web Notifications API) and
+ * falls back to builtin modal on mobile or when notifications are unavailable.
  */
 
-// Electron type for TypeScript
-interface ElectronRemote {
-  Notification: new (options: { title: string; body: string }) => ElectronNotification;
-}
-
-interface ElectronNotification {
-  on(event: 'click', handler: () => void): void;
-  show(): void;
-  close(): void;
-}
-
-interface ElectronModule {
-  remote: ElectronRemote;
-}
+import { Platform } from 'obsidian';
 
 export interface ReminderNotificationOptions {
   taskName: string;
@@ -33,67 +20,83 @@ export interface NotificationServiceOptions {
   showBuiltinReminder: (options: ReminderNotificationOptions) => void;
 }
 
-// Try to get Electron module via window.require (Obsidian desktop only)
-// This dynamic require is necessary for optional Electron notifications on desktop
-function getElectron(): ElectronModule | undefined {
-  try {
-    const windowWithRequire = window as { require?: (module: string) => unknown };
-    if (windowWithRequire.require) {
-      // Dynamic require for Electron is intentional - it's only available on Obsidian desktop
-      return windowWithRequire.require('electron') as ElectronModule | undefined;
-    }
-  } catch {
-    // Electron not available
-  }
-  return undefined;
-}
-
 export class NotificationService {
-  private electron: ElectronModule | undefined;
   private showBuiltinReminder: (options: ReminderNotificationOptions) => void;
+  private notificationsSupported: boolean;
 
   constructor(options: NotificationServiceOptions) {
-    this.electron = getElectron();
     this.showBuiltinReminder = options.showBuiltinReminder;
+    // Web Notifications API is available on desktop only
+    // Platform.isMobile may be undefined in test environments
+    const isMobile = Platform?.isMobile ?? false;
+    this.notificationsSupported = !isMobile && typeof Notification !== 'undefined';
   }
 
   /**
-   * Check if running on mobile (Electron not available).
+   * Check if running on mobile.
    */
   isMobile(): boolean {
-    return this.electron === undefined;
+    return Platform?.isMobile ?? false;
   }
 
   /**
    * Display a reminder notification.
-   * Uses Electron notification on desktop, builtin modal on mobile.
+   * Uses Web Notifications API on desktop, builtin modal on mobile.
    */
   notify(options: ReminderNotificationOptions): void {
-    if (this.isMobile()) {
-      // Mobile or Electron not available - use builtin
+    if (this.isMobile() || !this.notificationsSupported) {
+      // Mobile or notifications not available - use builtin
       // Note: onNotificationDisplayed is called in modal's onClose
       this.showBuiltinReminder(options);
       return;
     }
 
-    // Desktop - use Electron notification
-    try {
-      const Notification = this.electron!.remote.Notification;
-      const notification = new Notification({
-        title: 'TaskChute Plus',
-        body: this.formatNotificationBody(options.taskName, options.scheduledTime),
-      });
+    // Desktop - use Web Notifications API
+    this.showWebNotification(options);
+  }
 
-      notification.on('click', () => {
-        notification.close();
+  private showWebNotification(options: ReminderNotificationOptions): void {
+    // Check permission
+    if (Notification.permission === 'denied') {
+      this.showBuiltinReminder(options);
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      this.createNotification(options);
+      return;
+    }
+
+    // Request permission
+    Notification.requestPermission()
+      .then((permission) => {
+        if (permission === 'granted') {
+          this.createNotification(options);
+        } else {
+          this.showBuiltinReminder(options);
+        }
+      })
+      .catch(() => {
         this.showBuiltinReminder(options);
       });
+  }
 
-      notification.show();
+  private createNotification(options: ReminderNotificationOptions): void {
+    try {
+      const notification = new Notification('TaskChute Plus', {
+        body: this.formatNotificationBody(options.taskName, options.scheduledTime),
+        tag: options.taskPath,
+      });
+
+      notification.onclick = () => {
+        notification.close();
+        this.showBuiltinReminder(options);
+      };
+
       // Desktop notification shown - signal to process next in queue
       options.onNotificationDisplayed?.();
     } catch {
-      // Fallback to builtin if Electron notification fails
+      // Fallback to builtin if notification fails
       // Note: onNotificationDisplayed is called in modal's onClose
       this.showBuiltinReminder(options);
     }

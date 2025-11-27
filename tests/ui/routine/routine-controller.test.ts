@@ -100,7 +100,7 @@ describe('RoutineController', () => {
     button.classList.add('active')
     await controller.toggleRoutine(task, button)
     expect(fileManager.processFrontMatter).toHaveBeenCalled()
-    const fm = frontmatterStore.get(task.path!)
+    const fm = frontmatterStore.get(task.path)
     expect(fm?.isRoutine).toBe(false)
     expect(task.isRoutine).toBe(false)
     expect(button.classList.contains('active')).toBe(false)
@@ -113,7 +113,7 @@ describe('RoutineController', () => {
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
     const button = createButton()
-    const spy = jest.spyOn(controller as RoutineController, 'showRoutineEditModal')
+    const spy = jest.spyOn(controller, 'showRoutineEditModal')
     await controller.toggleRoutine(task, button)
     expect(spy).toHaveBeenCalledWith(task, button)
   })
@@ -128,7 +128,7 @@ describe('RoutineController', () => {
       interval: 2,
       enabled: true,
     })
-    const fm = frontmatterStore.get(task.path!)
+    const fm = frontmatterStore.get(task.path)
     expect(fm?.isRoutine).toBe(true)
     expect(fm?.routine_type).toBe('weekly')
     expect(task.isRoutine).toBe(true)
@@ -149,7 +149,7 @@ describe('RoutineController', () => {
       enabled: true,
     })
 
-    const fm = frontmatterStore.get(task.path!)
+    const fm = frontmatterStore.get(task.path)
     expect(Array.isArray(fm?.weekdays)).toBe(true)
     expect(fm?.weekdays).toEqual([1, 3, 5])
     expect(fm?.routine_weekday).toBe(1)
@@ -169,7 +169,7 @@ describe('RoutineController', () => {
       enabled: true,
     })
 
-    const fm = frontmatterStore.get(task.path!)
+    const fm = frontmatterStore.get(task.path)
     expect(fm?.routine_weeks).toEqual([1, 3, 'last'])
     expect(fm?.routine_weekdays).toEqual([1, 4])
     expect(task.routine_week).toBeUndefined()
@@ -187,7 +187,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay') as HTMLElement | null
+    const overlay = document.body.querySelector('.task-modal-overlay')
     expect(overlay).not.toBeNull()
 
     const targets: HTMLElement[] = []
@@ -210,6 +210,6 @@ describe('RoutineController', () => {
       expect(enterEvent.defaultPrevented).toBe(true)
     })
 
-    expect(document.body.contains(overlay!)).toBe(true)
+    expect(document.body.contains(overlay)).toBe(true)
   })
 })

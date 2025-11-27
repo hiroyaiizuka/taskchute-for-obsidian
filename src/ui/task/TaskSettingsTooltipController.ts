@@ -101,10 +101,12 @@ export default class TaskSettingsTooltipController {
       return
     }
     item.setAttribute('title', this.host.tv('forms.feedbackDescription', 'Reset the task to its pre-start state'))
-    item.addEventListener('click', async (event) => {
-      event.stopPropagation()
-      tooltip.remove()
-      await this.host.resetTaskToIdle(inst)
+    item.addEventListener('click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        tooltip.remove()
+        await this.host.resetTaskToIdle(inst)
+      })()
     })
   }
 
@@ -116,10 +118,12 @@ export default class TaskSettingsTooltipController {
         title: this.host.tv('forms.startTimeInfo', 'Set the scheduled start time. Leave empty to clear it.'),
       },
     })
-    item.addEventListener('click', async (event) => {
-      event.stopPropagation()
-      tooltip.remove()
-      await this.host.showScheduledTimeEditModal(inst)
+    item.addEventListener('click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        tooltip.remove()
+        await this.host.showScheduledTimeEditModal(inst)
+      })()
     })
   }
 
@@ -182,10 +186,12 @@ export default class TaskSettingsTooltipController {
         title: this.host.tv('forms.duplicateDescription', 'Insert a duplicate task below'),
       },
     })
-    item.addEventListener('click', async (event) => {
-      event.stopPropagation()
-      tooltip.remove()
-      await this.host.duplicateInstance(inst)
+    item.addEventListener('click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        tooltip.remove()
+        await this.host.duplicateInstance(inst)
+      })()
     })
   }
 

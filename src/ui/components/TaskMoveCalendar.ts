@@ -250,10 +250,12 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       cls: "taskchute-move-calendar__action taskchute-move-calendar__action--today",
       text: t('taskChuteView.moveCalendar.today', 'Today'),
     })
-    todayButton.addEventListener("click", async () => {
-      const todayIso = toISODate(this.today)
-      await this.onSelect(todayIso)
-      this.close()
+    todayButton.addEventListener("click", () => {
+      void (async () => {
+        const todayIso = toISODate(this.today)
+        await this.onSelect(todayIso)
+        this.close()
+      })()
     })
   }
 
@@ -284,10 +286,12 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       button.classList.add("is-selected")
     }
 
-    button.addEventListener("click", async () => {
-      this.selectedDate = cloneDate(date)
-      await this.onSelect(isoDate)
-      this.close()
+    button.addEventListener("click", () => {
+      void (async () => {
+        this.selectedDate = cloneDate(date)
+        await this.onSelect(isoDate)
+        this.close()
+      })()
     })
   }
 

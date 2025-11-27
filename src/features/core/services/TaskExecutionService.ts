@@ -88,7 +88,7 @@ export class TaskExecutionService {
           try {
             const file = this.host.app.vault.getAbstractFileByPath(inst.task.path)
             if (file instanceof TFile) {
-              await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+              await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
                 frontmatter.target_date = todayKey
                 return frontmatter
               })

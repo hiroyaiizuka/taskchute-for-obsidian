@@ -12,7 +12,7 @@ export interface ConfirmModalOptions {
 type CreateElOptions = {
   cls?: string | string[]
   text?: string
-  type?: string
+  type?: 'button' | 'reset' | 'submit'
   attr?: Record<string, string>
 }
 

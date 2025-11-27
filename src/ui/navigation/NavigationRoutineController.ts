@@ -1,7 +1,7 @@
 
 import { App, Notice, TFile } from 'obsidian'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
-import type { RoutineTaskShape } from '../../types/Routine'
+import type { RoutineTaskShape } from '../../types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
 
 export interface NavigationRoutineHost {
@@ -77,7 +77,7 @@ export default class NavigationRoutineController {
   }
 
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
-    await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       frontmatter.routine_enabled = enabled
       return frontmatter
     })
@@ -86,7 +86,7 @@ export default class NavigationRoutineController {
   }
 
   async updateRoutineSchedule(file: TFile, scheduledTime: string): Promise<void> {
-    await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       setScheduledTime(frontmatter, scheduledTime, { preferNew: true })
       return frontmatter
     })

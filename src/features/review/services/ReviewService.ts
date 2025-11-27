@@ -41,10 +41,11 @@ export class ReviewService {
   async openInSplit(file: TFile, leftLeaf: WorkspaceLeaf): Promise<void> {
     try {
       const { workspace } = this.plugin.app;
-      const splitFunction = (workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null }).splitActiveLeaf;
-      const rightLeaf =
+      const workspaceWithSplit = workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null };
+      const splitFunction = workspaceWithSplit.splitActiveLeaf;
+      const rightLeaf: WorkspaceLeaf | null =
         typeof splitFunction === 'function'
-          ? splitFunction.call(workspace, 'vertical')
+          ? (splitFunction.call(workspace, 'vertical') as WorkspaceLeaf | null)
           : workspace.getLeaf('split');
 
       if (!rightLeaf) {

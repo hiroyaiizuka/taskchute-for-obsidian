@@ -44,6 +44,16 @@ export default class TaskListRenderer {
   private readonly rowController: TaskRowController
 
   constructor(private readonly host: TaskListRendererHost) {
+    const showProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showProjectModal
+      ? (this.host.showProjectModal.bind(this.host) as (inst: TaskInstance) => Promise<void> | void)
+      : undefined
+    const showUnifiedProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showUnifiedProjectModal
+      ? (this.host.showUnifiedProjectModal.bind(this.host) as (inst: TaskInstance) => Promise<void> | void)
+      : undefined
+    const openProjectInSplitBound: ((projectPath: string) => Promise<void> | void) | undefined = this.host.openProjectInSplit
+      ? (this.host.openProjectInSplit.bind(this.host) as (projectPath: string) => Promise<void> | void)
+      : undefined
+
     this.actions = new TaskItemActionController({
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
       app: this.host.app,
@@ -53,9 +63,9 @@ export default class TaskListRenderer {
       showRoutineEditModal: (task, element) => this.host.showRoutineEditModal(task, element),
       toggleRoutine: (task, element) => this.host.toggleRoutine(task, element),
       showTaskSettingsTooltip: (inst, element) => this.host.showTaskSettingsTooltip(inst, element),
-      showProjectModal: this.host.showProjectModal?.bind(this.host),
-      showUnifiedProjectModal: this.host.showUnifiedProjectModal?.bind(this.host),
-      openProjectInSplit: this.host.openProjectInSplit?.bind(this.host),
+      showProjectModal: showProjectModalBound,
+      showUnifiedProjectModal: showUnifiedProjectModalBound,
+      openProjectInSplit: openProjectInSplitBound,
     })
     this.rowController = new TaskRowController({
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),

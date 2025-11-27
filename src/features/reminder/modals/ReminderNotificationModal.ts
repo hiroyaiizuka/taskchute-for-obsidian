@@ -17,7 +17,7 @@ export interface ReminderNotificationModalOptions {
 type CreateElOptions = {
   cls?: string | string[];
   text?: string;
-  type?: string;
+  type?: 'button' | 'reset' | 'submit';
 };
 
 const createElCompat = <K extends keyof HTMLElementTagNameMap>(

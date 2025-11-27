@@ -46,8 +46,8 @@ export class TaskNameAutocomplete {
   private visibleMatches: AutocompleteMatch[] = [];
   private selectedIndex: number = -1;
   private suggestionsElement: HTMLElement | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private blurTimer: ReturnType<typeof setTimeout> | null = null;
+  private debounceTimer: number | null = null;
+  private blurTimer: number | null = null;
   private isVisible: boolean = false;
   private suppressNextShow: boolean = false;
   private fileEventRefs: EventRef[] = [];

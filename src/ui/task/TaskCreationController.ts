@@ -49,7 +49,7 @@ type CreationMode = "reuse" | "copy"
 export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
 
-  async showAddTaskModal(): Promise<void> {
+  showAddTaskModal(): void {
     const context = this.host.getDocumentContext?.()
     const doc = context?.doc ?? document
     const win = context?.win ?? window
@@ -161,7 +161,7 @@ export default class TaskCreationController {
         nameGroup,
         { doc, win },
       )
-      await autocomplete.initialize()
+      autocomplete.initialize()
       cleanupAutocomplete = () => {
         if (typeof autocomplete.destroy === "function") {
           autocomplete.destroy()
@@ -220,41 +220,43 @@ export default class TaskCreationController {
       }
     })
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault()
-      const taskName = nameInput.value.trim()
+    form.addEventListener("submit", (event) => {
+      void (async () => {
+        event.preventDefault()
+        const taskName = nameInput.value.trim()
 
-      if (!taskName) {
-        new Notice(
-          this.host.tv("forms.nameRequired", "Please enter a task name"),
-        )
-        return
-      }
+        if (!taskName) {
+          new Notice(
+            this.host.tv("forms.nameRequired", "Please enter a task name"),
+          )
+          return
+        }
 
-      if (!this.validateTaskNameBeforeSubmit(nameInput)) {
-        this.highlightWarning(warningMessage)
-        validationControls.runValidation()
-        return
-      }
+        if (!this.validateTaskNameBeforeSubmit(nameInput)) {
+          this.highlightWarning(warningMessage)
+          validationControls.runValidation()
+          return
+        }
 
-      const creationMode = resolveCreationMode()
+        const creationMode = resolveCreationMode()
 
-      let created = false
-      if (
-        creationMode === "reuse" &&
-        selectedSuggestion?.type === "task" &&
-        selectedSuggestion.path
-      ) {
-        created = await this.reuseExistingTask(selectedSuggestion.path)
-      } else {
-        created = await this.createNewTask(taskName, 30)
-      }
-      if (created) {
-        close()
-      } else {
-        this.highlightWarning(warningMessage)
-        validationControls.runValidation()
-      }
+        let created = false
+        if (
+          creationMode === "reuse" &&
+          selectedSuggestion?.type === "task" &&
+          selectedSuggestion.path
+        ) {
+          created = await this.reuseExistingTask(selectedSuggestion.path)
+        } else {
+          created = await this.createNewTask(taskName, 30)
+        }
+        if (created) {
+          close()
+        } else {
+          this.highlightWarning(warningMessage)
+          validationControls.runValidation()
+        }
+      })()
     })
 
     const hideRestoreBanner = () => {
@@ -285,24 +287,26 @@ export default class TaskCreationController {
       restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
     }
 
-    restoreButton.addEventListener("click", async () => {
-      if (!restoreCandidate || typeof this.host.restoreDeletedTaskCandidate !== "function") {
-        return
-      }
-      restoreButton.disabled = true
-      restoreButton.textContent = this.host.tv("addTask.restoreButtonWorking", "Restoring...")
-      try {
-        const restored = await this.host.restoreDeletedTaskCandidate(restoreCandidate)
-        if (restored) {
-          await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
-          close()
+    restoreButton.addEventListener("click", () => {
+      void (async () => {
+        if (!restoreCandidate || typeof this.host.restoreDeletedTaskCandidate !== "function") {
           return
         }
-      } catch (error) {
-        console.error("[TaskCreationController] restoreDeletedTaskCandidate failed", error)
-      }
-      restoreButton.disabled = false
-      restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+        restoreButton.disabled = true
+        restoreButton.textContent = this.host.tv("addTask.restoreButtonWorking", "Restoring...")
+        try {
+          const restored = await this.host.restoreDeletedTaskCandidate(restoreCandidate)
+          if (restored) {
+            await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+            close()
+            return
+          }
+        } catch (error) {
+          console.error("[TaskCreationController] restoreDeletedTaskCandidate failed", error)
+        }
+        restoreButton.disabled = false
+        restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
+      })()
     })
 
     updateRestoreCandidate()

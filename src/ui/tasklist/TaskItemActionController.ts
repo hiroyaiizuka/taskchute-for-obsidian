@@ -92,10 +92,12 @@ export class TaskItemActionController {
       button.setAttribute('disabled', 'true')
     }
 
-    this.host.registerManagedDomEvent(button, 'click', async (event) => {
-      event.stopPropagation()
-      if (inst.state !== 'done') return
-      await this.host.showTaskCompletionModal(inst)
+    this.host.registerManagedDomEvent(button, 'click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        if (inst.state !== 'done') return
+        await this.host.showTaskCompletionModal(inst)
+      })()
     })
 
     void this.host.hasCommentData(inst).then((hasComment) => {

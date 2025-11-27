@@ -9,6 +9,7 @@ import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 interface LogPathManager {
   getLogDataPath(): string;
   getLogYearPath(year: number | string): string;
+  ensureYearFolder(year: number | string): Promise<string>;
   ensureFolderExists(path: string): Promise<void>;
   getReviewDataPath(): string;
 }
@@ -160,22 +161,26 @@ export class LogView {
       },
     })
 
-    refreshButton.addEventListener('click', async () => {
-      this.dataCache.delete(this.currentYear)
-      await this.removeCachedYearFile(this.currentYear)
-      await this.reloadCurrentYear(
-        this.tv('header.recalculating', 'データを再計算中...'),
-        true,
-      )
+    refreshButton.addEventListener('click', () => {
+      void (async () => {
+        this.dataCache.delete(this.currentYear)
+        await this.removeCachedYearFile(this.currentYear)
+        await this.reloadCurrentYear(
+          this.tv('header.recalculating', 'データを再計算中...'),
+          true,
+        )
+      })()
     })
 
-    yearSelector.addEventListener('change', async (event) => {
-      const target = event.currentTarget as HTMLSelectElement
-      this.currentYear = Number.parseInt(target.value, 10)
-      await this.reloadCurrentYear(
-        this.tv('header.loading', 'データを読み込み中...'),
-        false,
-      )
+    yearSelector.addEventListener('change', (event) => {
+      void (async () => {
+        const target = event.currentTarget as HTMLSelectElement
+        this.currentYear = Number.parseInt(target.value, 10)
+        await this.reloadCurrentYear(
+          this.tv('header.loading', 'データを読み込み中...'),
+          false,
+        )
+      })()
     })
   }
 
@@ -858,16 +863,20 @@ export class LogView {
   private addCellEventListeners(cell: HTMLElement, dateKey: string): void {
     cell.addEventListener('mouseenter', () => this.showTooltip(cell));
     cell.addEventListener('mouseleave', () => this.hideTooltip());
-    cell.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      await this.selectDate(dateKey);
-    });
-    cell.addEventListener('keydown', async (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
+    cell.addEventListener('click', (event) => {
+      void (async () => {
+        event.stopPropagation();
         event.preventDefault();
-        await this.selectDate(dateKey, { focusCell: false });
-      }
+        await this.selectDate(dateKey);
+      })()
+    });
+    cell.addEventListener('keydown', (event) => {
+      void (async () => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          await this.selectDate(dateKey, { focusCell: false });
+        }
+      })()
     });
   }
 

@@ -12,7 +12,7 @@ import {
   TaskInstance,
 } from '../../../types'
 import type { RoutineWeek } from '../../../types/TaskFields'
-import DayStateStoreService from './DayStateStoreService'
+import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
@@ -82,7 +82,7 @@ export interface TaskLoaderHost {
 
 const DEFAULT_SLOT_KEY = 'none'
 
-function resolveTaskId(metadata?: TaskFrontmatterWithLegacy | undefined): string | undefined {
+function resolveTaskId(metadata?: TaskFrontmatterWithLegacy): string | undefined {
   return extractTaskIdFromFrontmatter(metadata as Record<string, unknown> | undefined)
 }
 
@@ -200,7 +200,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
 
   try {
     const executions = await loadTodayExecutions(context, dateKey)
-    const taskFiles = await getTaskFiles(context)
+    const taskFiles = getTaskFiles(context)
 
     const processedTitles = new Set<string>()
     const processedPaths = new Set<string>()
@@ -214,7 +214,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
       ) ?? null
 
       const groupedExecutions = executions.filter((entry) => entry.taskTitle === execution.taskTitle)
-      const hadVisibleInstance = await createTaskFromExecutions(context, groupedExecutions, matchedFile, dateKey)
+      const hadVisibleInstance = createTaskFromExecutions(context, groupedExecutions, matchedFile, dateKey)
       if (hadVisibleInstance && matchedFile) {
         processedPaths.add(matchedFile.path)
       }
@@ -234,7 +234,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
       } else {
         const shouldShow = await shouldShowNonRoutineTask(context, file, frontmatter, dateKey)
         if (shouldShow) {
-          await createNonRoutineTask(context, file, frontmatter, dateKey)
+          createNonRoutineTask(context, file, frontmatter, dateKey)
         }
       }
     }
@@ -519,10 +519,11 @@ function shouldShowRoutineTask(
   dateKey: string,
 ): boolean {
   // target_date is deprecated but still used for backwards compatibility with existing data
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
-  const movedTargetDate = metadata.target_date && metadata.target_date !== metadata.routine_start
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
-    ? metadata.target_date
+  // Using record access to read legacy target_date field
+  const metaRecord = metadata as Record<string, unknown>
+  const targetDateValue = metaRecord['target_date'] as string | undefined
+  const movedTargetDate = targetDateValue && targetDateValue !== metadata.routine_start
+    ? targetDateValue
     : undefined
   const rule = RoutineService.parseFrontmatter(metadata)
   return RoutineService.isDue(dateKey, rule, movedTargetDate)
@@ -587,10 +588,6 @@ async function shouldShowNonRoutineTask(
         cachedCreatedMillis = raw
         return cachedCreatedMillis
       }
-      if (raw instanceof Date && Number.isFinite(raw.getTime())) {
-        cachedCreatedMillis = raw.getTime()
-        return cachedCreatedMillis
-      }
       cachedCreatedMillis = null
       return cachedCreatedMillis
     } catch (error) {
@@ -627,10 +624,11 @@ async function shouldShowNonRoutineTask(
   }
 
   // target_date is deprecated but still used for backwards compatibility with existing data
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
-  if (metadata?.target_date) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility with legacy target_date field
-    return metadata.target_date === dateKey
+  // Using record access to read legacy target_date field
+  const nonRoutineMetaRecord = metadata as Record<string, unknown> | undefined
+  const nonRoutineTargetDate = nonRoutineMetaRecord?.['target_date'] as string | undefined
+  if (nonRoutineTargetDate) {
+    return nonRoutineTargetDate === dateKey
   }
 
   const createdMillis = await resolveFileCreatedMillis()

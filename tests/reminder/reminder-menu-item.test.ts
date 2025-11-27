@@ -76,9 +76,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
     } as TaskInstance;
 
     anchor = document.createElement('button');
-    anchor.style.position = 'fixed';
-    anchor.style.top = '100px';
-    anchor.style.left = '100px';
+    anchor.classList.add('test-anchor-fixed');
     document.body.appendChild(anchor);
 
     // Mock getBoundingClientRect

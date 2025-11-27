@@ -35,7 +35,7 @@ describe('TaskScheduleController', () => {
     const vault = {
       getAbstractFileByPath: jest.fn((path: string) => {
         if (path === 'TASKS/sample.md') {
-          const file = new (TFile as typeof TFile)()
+          const file = new (TFile)()
           file.path = path
           return file
         }

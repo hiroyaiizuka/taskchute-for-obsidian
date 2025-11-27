@@ -84,7 +84,7 @@ export class RoutineService {
   }
 
   /** Determine if a routine is due on the given date (YYYY-MM-DD). */
-  static isDue(dateStr: string, rule: RoutineRule | null, movedTargetDate?: string | undefined): boolean {
+  static isDue(dateStr: string, rule: RoutineRule | null, movedTargetDate?: string): boolean {
     if (!rule) return false;
     if (!rule.enabled) return false;
 

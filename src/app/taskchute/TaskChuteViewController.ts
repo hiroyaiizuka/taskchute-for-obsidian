@@ -4,7 +4,7 @@ import { t } from "../../i18n";
 import { VIEW_TYPE_TASKCHUTE } from "../../types";
 
 import type { TaskChutePluginLike } from "../../types";
-import type { TaskChuteView } from "../TaskChuteView";
+import type { TaskChuteView } from "../../features/core/views/TaskChuteView";
 
 export class TaskChuteViewController {
   constructor(private readonly plugin: TaskChutePluginLike) {}
@@ -104,9 +104,10 @@ export class TaskChuteViewController {
 
   applyLocaleToActiveView(): void {
     const view = this.getView();
-    if (view && typeof (view).applyLocale === "function") {
+    const viewWithLocale = view as TaskChuteView & { applyLocale?: () => void };
+    if (viewWithLocale && typeof viewWithLocale.applyLocale === "function") {
       try {
-        (view).applyLocale();
+        viewWithLocale.applyLocale();
       } catch (error) {
         console.warn("Failed to apply locale to TaskChuteView", error);
       }

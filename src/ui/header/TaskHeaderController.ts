@@ -91,18 +91,22 @@ export default class TaskHeaderController {
     this.dateLabelEl = dateLabel
     this.refreshDateLabel()
 
-    this.host.registerManagedDomEvent(leftBtn, 'click', async (event) => {
-      event.stopPropagation()
-      this.host.adjustCurrentDate(-1)
-      this.refreshDateLabel()
-      await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+    this.host.registerManagedDomEvent(leftBtn, 'click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        this.host.adjustCurrentDate(-1)
+        this.refreshDateLabel()
+        await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      })()
     })
 
-    this.host.registerManagedDomEvent(rightBtn, 'click', async (event) => {
-      event.stopPropagation()
-      this.host.adjustCurrentDate(1)
-      this.refreshDateLabel()
-      await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+    this.host.registerManagedDomEvent(rightBtn, 'click', (event) => {
+      void (async () => {
+        event.stopPropagation()
+        this.host.adjustCurrentDate(1)
+        this.refreshDateLabel()
+        await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      })()
     })
 
     this.attachCalendarButton(calendarBtn)
@@ -138,32 +142,34 @@ export default class TaskHeaderController {
           'aria-label': this.host.tv('header.openTerminal', 'Open terminal'),
         },
       })
-      this.host.registerManagedDomEvent(robotButton, 'click', async (event) => {
-        event.stopPropagation()
-        const commandsApi = this.host.app.commands as unknown as {
-          executeCommandById?: (id: string) => boolean | void | Promise<void>
-          commands?: Record<string, unknown>
-        }
-        const commandExists = Boolean(commandsApi.commands?.[TERMINAL_COMMAND_ID])
-        if (!commandExists) {
-          new Notice(
-            this.host.tv('header.terminalPluginMissing', 'Terminal plugin not found. Please install it.'),
-          )
-          return
-        }
-        try {
-          const result = commandsApi.executeCommandById?.(TERMINAL_COMMAND_ID)
-          if (result instanceof Promise) {
-            await result
+      this.host.registerManagedDomEvent(robotButton, 'click', (event) => {
+        void (async () => {
+          event.stopPropagation()
+          const commandsApi = this.host.app.commands as unknown as {
+            executeCommandById?: (id: string) => boolean | void | Promise<void>
+            commands?: Record<string, unknown>
           }
-        } catch (error) {
-          const message = this.host.tv(
-            'header.terminalOpenFailed',
-            'Failed to open terminal: {message}',
-            { message: error instanceof Error ? error.message : String(error) },
-          )
-          new Notice(message)
-        }
+          const commandExists = Boolean(commandsApi.commands?.[TERMINAL_COMMAND_ID])
+          if (!commandExists) {
+            new Notice(
+              this.host.tv('header.terminalPluginMissing', 'Terminal plugin not found. Please install it.'),
+            )
+            return
+          }
+          try {
+            const result = commandsApi.executeCommandById?.(TERMINAL_COMMAND_ID)
+            if (result instanceof Promise) {
+              await result
+            }
+          } catch (error) {
+            const message = this.host.tv(
+              'header.terminalOpenFailed',
+              'Failed to open terminal: {message}',
+              { message: error instanceof Error ? error.message : String(error) },
+            )
+            new Notice(message)
+          }
+        })()
       })
     }
   }

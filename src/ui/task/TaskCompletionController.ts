@@ -135,16 +135,18 @@ export default class TaskCompletionController {
     }
 
     cancelButton.addEventListener('click', closeModal)
-    saveButton.addEventListener('click', async () => {
-      const focusValue = parseInt(focusRating.getAttribute('data-rating') || '0', 10)
-      const energyValue = parseInt(energyRating.getAttribute('data-rating') || '0', 10)
-      await this.saveTaskComment(inst, {
-        comment: commentInput.value,
-        energy: energyValue,
-        focus: focusValue,
-      })
-      closeModal()
-      this.host.renderTaskList()
+    saveButton.addEventListener('click', () => {
+      void (async () => {
+        const focusValue = parseInt(focusRating.getAttribute('data-rating') || '0', 10)
+        const energyValue = parseInt(energyRating.getAttribute('data-rating') || '0', 10)
+        await this.saveTaskComment(inst, {
+          comment: commentInput.value,
+          energy: energyValue,
+          focus: focusValue,
+        })
+        closeModal()
+        this.host.renderTaskList()
+      })()
     })
 
     document.addEventListener('keydown', handleEsc)
@@ -336,7 +338,7 @@ export default class TaskCompletionController {
         this.host.app as unknown as App,
         this.host.plugin.pathManager as unknown as PathManagerLike,
       )
-      const projectPath = await syncManager.getProjectNotePath(inst)
+      const projectPath = syncManager.getProjectNotePath(inst)
       if (!projectPath) {
         return
       }

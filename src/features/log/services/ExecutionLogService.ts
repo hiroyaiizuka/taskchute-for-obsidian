@@ -265,7 +265,7 @@ export class ExecutionLogService {
     const logDataPath = this.plugin.pathManager.getLogDataPath();
     const logPath = `${logDataPath}/${monthKey}-tasks.json`;
     const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
-    let file = abstract instanceof TFile ? abstract : null;
+    const file = abstract instanceof TFile ? abstract : null;
 
     let snapshot: TaskLogSnapshot = createEmptyTaskLogSnapshot();
     if (file) {
@@ -372,6 +372,7 @@ export class ExecutionLogService {
     }
     this.reconcilePromise = this.logReconciler
       .reconcilePendingDeltas()
+      .then(() => { /* return void */ })
       .catch((error) => {
         console.warn('[ExecutionLogService] Failed to reconcile logs', error);
       })

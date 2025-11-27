@@ -1,6 +1,9 @@
-import { DayState, MonthlyDayStateFile } from '../../types'
+import { DayState, HiddenRoutine, MonthlyDayStateFile } from '../../types'
 
 const isString = (value: unknown): value is string => typeof value === 'string'
+
+// Legacy hidden routines may be stored as plain strings (path only)
+type LegacyHiddenRoutineEntry = HiddenRoutine | string
 
 const normalizeString = (value: unknown): string | undefined => {
   if (!isString(value)) return undefined
@@ -16,14 +19,13 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
   let mutated = false
 
   if (Array.isArray(state.hiddenRoutines)) {
-    state.hiddenRoutines = state.hiddenRoutines.map((entry) => {
-      if (!entry) return entry
+    const legacyEntries = state.hiddenRoutines as LegacyHiddenRoutineEntry[]
+    const mapped = legacyEntries.map((entry): HiddenRoutine => {
+      if (!entry) return entry as unknown as HiddenRoutine
       if (typeof entry === 'string') {
-        if (entry === oldPath) {
-          mutated = true
-          return newPath
-        }
-        return entry
+        const newPath_ = entry === oldPath ? newPath : entry
+        if (entry === oldPath) mutated = true
+        return { path: newPath_ }
       }
       if (entry.path === oldPath) {
         mutated = true
@@ -31,6 +33,7 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
       }
       return entry
     })
+    state.hiddenRoutines = mapped.filter((e): e is HiddenRoutine => e != null)
   }
 
   if (Array.isArray(state.deletedInstances)) {

@@ -172,10 +172,13 @@ export class TaskValidator {
     // ルーチンタスクの場合のみクリーンアップ
     if (metadata.isRoutine) {
       // ルーチン設定が変更されたらtarget_dateを削除
-      const hasTimeChange =
-        getScheduledTime(changes) !== undefined ||
-        Object.prototype.hasOwnProperty.call(changes, '開始時刻') ||
-        Object.prototype.hasOwnProperty.call(changes, 'scheduled_time')
+      const scheduledTimeValue = getScheduledTime(changes)
+      const has開始時刻 = Boolean(Object.prototype.hasOwnProperty.call(changes, '開始時刻'))
+      const hasScheduledTime = Boolean(Object.prototype.hasOwnProperty.call(changes, 'scheduled_time'))
+      const hasTimeChange: boolean =
+        scheduledTimeValue !== undefined ||
+        has開始時刻 ||
+        hasScheduledTime
 
       if (changes.routine_start !== undefined ||
           hasTimeChange ||

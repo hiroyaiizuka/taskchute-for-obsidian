@@ -233,7 +233,7 @@ describe('NavigationSectionController', () => {
     const [pluginArg, containerArg] = MockedLogView.mock.calls[0]
     expect(pluginArg).toBe(host.plugin)
     expect(containerArg).toBeInstanceOf(HTMLElement)
-    expect((containerArg as HTMLElement).classList.contains('taskchute-log-modal-content')).toBe(true)
+    expect((containerArg).classList.contains('taskchute-log-modal-content')).toBe(true)
     expect(host.closeNavigation).toHaveBeenCalled()
     expect(document.querySelector('.taskchute-log-modal-overlay')).not.toBeNull()
   })

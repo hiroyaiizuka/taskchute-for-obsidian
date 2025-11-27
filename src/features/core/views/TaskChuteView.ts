@@ -130,7 +130,7 @@ export class TaskChuteView
   private TaskNameValidator: TaskNameValidator = {
     INVALID_CHARS_PATTERN: new RegExp("[:|/\\#^]", "g"),
 
-    validate(taskName: string) {
+    validate(this: TaskNameValidator, taskName: string) {
       const invalidChars = taskName.match(this.INVALID_CHARS_PATTERN)
       return {
         isValid: !invalidChars,
@@ -434,14 +434,18 @@ export class TaskChuteView
       handleSlotDrop: (event, slot) => view.handleSlotDrop(event, slot),
       startInstance: (inst) => view.startInstance(inst),
       stopInstance: (inst) => view.stopInstance(inst),
-      duplicateAndStartInstance: (inst) => view.duplicateAndStartInstance(inst),
+      duplicateAndStartInstance: (inst) => {
+        void view.duplicateAndStartInstance(inst)
+      },
       showTaskCompletionModal: (inst) =>
         view.taskCompletionController.showTaskCompletionModal(inst),
       hasCommentData: (inst) =>
         view.taskCompletionController.hasCommentData(inst),
       showRoutineEditModal: (task, element) =>
         view.showRoutineEditModal(task, element),
-      toggleRoutine: (task, element) => view.toggleRoutine(task, element),
+      toggleRoutine: (task, element) => {
+        void view.toggleRoutine(task, element)
+      },
       showTaskSettingsTooltip: (inst, element) =>
         view.taskSettingsTooltipController.show(inst, element),
       showTaskContextMenu: (event, inst) =>
@@ -535,7 +539,7 @@ export class TaskChuteView
     const container = this.getContentContainer()
     container.empty()
 
-    await this.setupUI(container)
+    this.setupUI(container)
     await this.reloadTasksAndRestore({ runBoundaryCheck: true })
 
     // Styles are now provided via styles.css (no dynamic CSS injection)
@@ -554,7 +558,8 @@ export class TaskChuteView
     return content
   }
 
-  onClose(): void {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async onClose(): Promise<void> {
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -1068,8 +1073,8 @@ export class TaskChuteView
   // Time Edit Modal (開始/終了時刻の編集)
   // ===========================================
 
-  private async showScheduledTimeEditModal(inst: TaskInstance): Promise<void> {
-    await this.taskTimeController.showScheduledTimeEditModal(inst)
+  private showScheduledTimeEditModal(inst: TaskInstance): void {
+    this.taskTimeController.showScheduledTimeEditModal(inst)
   }
 
   private showTimeEditModal(inst: TaskInstance): void {
@@ -1089,11 +1094,11 @@ export class TaskChuteView
       currentTime: currentTime || undefined,
       scheduledTime: scheduledTime || undefined,
       defaultMinutesBefore,
-      onSave: async (time: string) => {
-        await this.updateTaskReminderTime(inst, time)
+      onSave: (time: string) => {
+        void this.updateTaskReminderTime(inst, time)
       },
-      onClear: async () => {
-        await this.updateTaskReminderTime(inst, null)
+      onClear: () => {
+        void this.updateTaskReminderTime(inst, null)
       },
     })
     modal.open()
@@ -1107,7 +1112,7 @@ export class TaskChuteView
     }
 
     try {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
         if (time === null) {
           delete frontmatter.reminder_time
         } else {
@@ -1136,7 +1141,7 @@ export class TaskChuteView
       }
 
       // Re-render to show the reminder icon
-      await this.renderTaskList()
+      this.renderTaskList()
 
       const message = time === null
         ? this.tv('messages.reminderCleared', 'Reminder cleared')

@@ -233,9 +233,11 @@ export class RoutineManagerModal extends Modal {
       attr: { href: '#' },
       cls: 'routine-table__link',
     });
-    link.addEventListener('click', async (evt) => {
-      evt.preventDefault();
-      await this.openRoutineFile(file);
+    link.addEventListener('click', (evt) => {
+      void (async () => {
+        evt.preventDefault();
+        await this.openRoutineFile(file);
+      })()
     });
 
     rowEl.createEl('div', {
@@ -281,15 +283,17 @@ export class RoutineManagerModal extends Modal {
       attr: { title: this.tv('tooltips.toggleEnable', 'Toggle enabled state') },
     });
 
-    toggle.addEventListener('click', async (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      const newValue = !this.getRowEnabled(file.path);
-      this.updateCachedEnabledState(file.path, newValue);
-      this.renderTable();
-      await this.updateRoutineEnabled(file, newValue);
-      window.setTimeout(() => void this.refreshRow(file, newValue), 200);
-      this.refreshActiveView();
+    toggle.addEventListener('click', (evt) => {
+      void (async () => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const newValue = !this.getRowEnabled(file.path);
+        this.updateCachedEnabledState(file.path, newValue);
+        this.renderTable();
+        await this.updateRoutineEnabled(file, newValue);
+        window.setTimeout(() => void this.refreshRow(file, newValue), 200);
+        this.refreshActiveView();
+      })()
     });
 
     const actionsCell = rowEl.createEl('div', {
@@ -312,23 +316,25 @@ export class RoutineManagerModal extends Modal {
       }).open();
     });
 
-    deleteBtn.addEventListener('click', async () => {
-      const message = this.tv(
-        'confirm.removeMessage',
-        this.tv('confirm.removeMessage', 'Remove "{name}" from routines?', {
-          name: file.basename,
-        }),
-        { name: file.basename },
-      );
-      const confirmed = await new RoutineConfirmModal(this.app, message).openAndWait();
-      if (!confirmed) return;
-      const removed = await this.removeRoutine(file);
-      if (removed) {
-        this.pendingRemovalPaths.add(file.path);
-        this.removeRowFromCaches(file.path);
-        this.renderTable();
-        window.setTimeout(() => void this.reloadAll(), 250);
-      }
+    deleteBtn.addEventListener('click', () => {
+      void (async () => {
+        const message = this.tv(
+          'confirm.removeMessage',
+          this.tv('confirm.removeMessage', 'Remove "{name}" from routines?', {
+            name: file.basename,
+          }),
+          { name: file.basename },
+        );
+        const confirmed = await new RoutineConfirmModal(this.app, message).openAndWait();
+        if (!confirmed) return;
+        const removed = await this.removeRoutine(file);
+        if (removed) {
+          this.pendingRemovalPaths.add(file.path);
+          this.removeRowFromCaches(file.path);
+          this.renderTable();
+          window.setTimeout(() => void this.reloadAll(), 250);
+        }
+      })()
     });
 
     return rowEl;
@@ -448,11 +454,11 @@ export class RoutineManagerModal extends Modal {
 
   private getMonthlyWeekdaySet(fm: RoutineFrontmatter): number[] {
     if (Array.isArray(fm.routine_weekdays) && fm.routine_weekdays.length) {
-      return fm.routine_weekdays.filter((value) => Number.isInteger(value));
+      return fm.routine_weekdays.filter((value): value is number => Number.isInteger(value));
     }
     const legacy = (fm as Record<string, unknown>).monthly_weekdays;
     if (Array.isArray(legacy)) {
-      return legacy.filter((value) => Number.isInteger(value));
+      return legacy.filter((value): value is number => Number.isInteger(value));
     }
     const single = this.getMonthlyWeekday(fm);
     return typeof single === 'number' ? [single] : [];
@@ -480,8 +486,9 @@ export class RoutineManagerModal extends Modal {
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- cleaning up legacy Japanese field name for backwards compatibility
-      delete frontmatter['開始時刻'];
+      // Clean up legacy Japanese field name using record access
+      const fmRecord = frontmatter as Record<string, unknown>;
+      delete fmRecord['開始時刻'];
       success = true;
       return frontmatter;
     });

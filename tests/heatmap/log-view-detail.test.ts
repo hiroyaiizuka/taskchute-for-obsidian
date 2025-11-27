@@ -32,7 +32,7 @@ type TestPlugin = {
   }
 }
 
-const flushMicrotasks = () => new Promise<void>((resolve) => Promise.resolve().then(() => resolve()))
+const flushMicrotasks = () => new Promise<void>((resolve) => { void Promise.resolve().then(() => resolve()) })
 
 const ensureObsidianDomHelpers = () => {
   type ObsidianPrototype = typeof HTMLElement.prototype & {

@@ -41,6 +41,9 @@ export interface TaskChuteSettings {
 
   // Reminder settings
   defaultReminderMinutes?: number // default: 5 (used for initial value calculation)
+
+  // Device identity (legacy, migrated to localStorage)
+  deviceId?: string
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const

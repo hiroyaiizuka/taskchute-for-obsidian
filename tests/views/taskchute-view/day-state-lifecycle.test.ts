@@ -18,8 +18,6 @@ import {
   createRoutineLoadContext,
 } from '../../utils/taskViewTestUtils';
 import { HeatmapService } from '../../../src/features/log/services/HeatmapService';
-import TaskSelectionController from '../../../src/ui/task/TaskSelectionController';
-
 jest.mock('obsidian');
 jest.mock('../../../src/features/log/services/HeatmapService', () => {
   const updateDailyStats = jest.fn().mockResolvedValue(undefined);
@@ -1325,7 +1323,7 @@ describe('TaskChuteView navigation commands', () => {
 describe('TaskChuteView keyboard selection helpers', () => {
   test('selectTaskForKeyboard marks instance and element', () => {
     const { view } = createView();
-    const selection = view['taskSelectionController'] as TaskSelectionController;
+    const selection = view['taskSelectionController'];
     const task = createTaskData({ path: 'TASKS/keyboard.md' });
     const instance = createTaskInstance(task, { instanceId: 'keyboard-1' });
 
@@ -1341,7 +1339,7 @@ describe('TaskChuteView keyboard selection helpers', () => {
 
   test('clear removes highlight and resets selection', () => {
     const { view } = createView();
-    const selection = view['taskSelectionController'] as TaskSelectionController;
+    const selection = view['taskSelectionController'];
     const first = document.createElement('div');
     first.classList.add('task-item');
     const second = document.createElement('div');
@@ -1666,7 +1664,7 @@ describe('TaskChuteView keyboard shortcuts', () => {
   });
 
   const getSelectionController = (view: TaskChuteView) =>
-    view['taskSelectionController'] as TaskSelectionController;
+    view['taskSelectionController'];
 
   function createShortcutEvent(
     key: string,

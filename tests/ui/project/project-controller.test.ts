@@ -187,7 +187,7 @@ describe('ProjectController', () => {
 
     MockedProjectSettingsModal.mockClear()
 
-    await controller.showProjectModal(inst)
+    controller.showProjectModal(inst)
 
     expect(MockedProjectSettingsModal).toHaveBeenCalledTimes(1)
     const [modalAppArg, modalOptions] = MockedProjectSettingsModal.mock.calls[0] as [
@@ -211,7 +211,7 @@ describe('ProjectController', () => {
     expect(updateSpy).toHaveBeenCalledWith(inst)
 
     expect(controllerOptions.registerDisposer).toHaveBeenCalledTimes(1)
-    const disposer = (controllerOptions.registerDisposer as jest.Mock).mock.calls[0][0] as () => void
+    const disposer = (controllerOptions.registerDisposer).mock.calls[0][0] as () => void
     const instance = MockedProjectSettingsModal.mock.results[0]?.value as {
       open: jest.Mock
       close?: jest.Mock
@@ -230,7 +230,7 @@ describe('ProjectController', () => {
 
     MockedProjectSettingsModal.mockClear()
 
-    await controller.showProjectModal(inst)
+    controller.showProjectModal(inst)
 
     expect(MockedProjectSettingsModal).toHaveBeenCalledTimes(1)
     const [, modalOptions] = MockedProjectSettingsModal.mock.calls[0] as [unknown, { projectFiles: TFile[] }]

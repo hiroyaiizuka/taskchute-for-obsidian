@@ -119,8 +119,8 @@ export default class NavigationController {
     await this.sectionController.handleNavigationItemClick(section)
   }
 
-  async renderRoutineList(): Promise<void> {
-    await this.sectionController.renderRoutineList()
+  renderRoutineList(): void {
+    this.sectionController.renderRoutineList()
   }
 
 }
