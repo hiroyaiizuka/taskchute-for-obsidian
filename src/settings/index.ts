@@ -14,8 +14,8 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   aiRobotButtonEnabled: false,
   reviewTemplatePath: null,
   reviewFileNamePattern: 'Daily - {{date}}.md',
-  backupIntervalHours: 24,
-  backupRetentionDays: 30,
+  backupIntervalHours: 6,
+  backupRetentionDays: 1,
 
   // Reminder defaults
   defaultReminderMinutes: 5,
