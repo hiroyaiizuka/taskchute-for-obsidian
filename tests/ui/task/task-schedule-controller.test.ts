@@ -135,4 +135,75 @@ describe('TaskScheduleController', () => {
     expect(handles[0]?.close).toHaveBeenCalled()
     expect(handles[1]?.open).toHaveBeenCalled()
   })
+
+  describe('duplicate instance move behavior', () => {
+    test('moveTaskToDate for duplicate instance should NOT modify frontmatter, only call moveDuplicateInstanceToDate', async () => {
+      const moveDuplicateInstanceToDate = jest.fn().mockResolvedValue(undefined)
+      const isDuplicateInstance = jest.fn().mockReturnValue(true)
+      const { host, fileManager } = createHost({
+        isDuplicateInstance,
+        moveDuplicateInstanceToDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({ instanceId: 'dup-123' })
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      // frontmatter should NOT be modified for duplicate instances
+      expect(fileManager.processFrontMatter).not.toHaveBeenCalled()
+      // moveDuplicateInstanceToDate should be called instead
+      expect(moveDuplicateInstanceToDate).toHaveBeenCalledWith(instance, '2025-10-10')
+      expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
+    })
+
+    test('moveTaskToDate for non-duplicate instance should modify frontmatter as before', async () => {
+      const moveDuplicateInstanceToDate = jest.fn().mockResolvedValue(undefined)
+      const isDuplicateInstance = jest.fn().mockReturnValue(false)
+      const { host, fileManager } = createHost({
+        isDuplicateInstance,
+        moveDuplicateInstanceToDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance()
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      // frontmatter should be modified for non-duplicate instances
+      expect(fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
+      // moveDuplicateInstanceToDate should NOT be called
+      expect(moveDuplicateInstanceToDate).not.toHaveBeenCalled()
+      expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
+    })
+
+    test('moveTaskToDate for duplicate instance should remove it from current date duplicatedInstances', async () => {
+      const removeDuplicateInstanceFromCurrentDate = jest.fn().mockResolvedValue(undefined)
+      const moveDuplicateInstanceToDate = jest.fn().mockResolvedValue(undefined)
+      const isDuplicateInstance = jest.fn().mockReturnValue(true)
+      const { host, fileManager } = createHost({
+        isDuplicateInstance,
+        moveDuplicateInstanceToDate,
+        removeDuplicateInstanceFromCurrentDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({ instanceId: 'dup-123' })
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      expect(fileManager.processFrontMatter).not.toHaveBeenCalled()
+      expect(removeDuplicateInstanceFromCurrentDate).toHaveBeenCalledWith(instance)
+      expect(moveDuplicateInstanceToDate).toHaveBeenCalledWith(instance, '2025-10-10')
+    })
+
+    test('moveTaskToDate without isDuplicateInstance should fallback to frontmatter modification (backward compatibility)', async () => {
+      // When host does not provide isDuplicateInstance, treat as non-duplicate
+      const { host, fileManager } = createHost()
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance()
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      expect(fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
+      expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
+    })
+  })
 })

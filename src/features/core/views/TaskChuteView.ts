@@ -313,6 +313,9 @@ export class TaskChuteView
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       removeDuplicateInstanceFromCurrentDate: (inst) =>
         this.removeDuplicateInstanceFromCurrentDate(inst),
+      isDuplicateInstance: (inst) => this.taskMutationService.isDuplicatedTask(inst),
+      moveDuplicateInstanceToDate: (inst, dateStr) =>
+        this.moveDuplicateInstanceToDate(inst, dateStr),
     })
     this.taskCompletionController = new TaskCompletionController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -852,6 +855,43 @@ export class TaskChuteView
       }
     } catch (error) {
       console.warn('[TaskChuteView] Failed to remove duplicate entry for moved task', error)
+    }
+  }
+
+  /**
+   * Move a duplicate instance to a different date by adding it to the target date's dayState.
+   * This does NOT modify the original task file's frontmatter.
+   */
+  private async moveDuplicateInstanceToDate(
+    inst: TaskInstance,
+    dateStr: string,
+  ): Promise<void> {
+    try {
+      // Ensure dayState for target date exists
+      await this.ensureDayStateForDate(dateStr)
+      const targetDayState = this.dayStateManager.getStateFor(dateStr)
+
+      // Create a new duplicate entry for the target date
+      const newEntry = {
+        instanceId: this.generateInstanceId(inst.task, dateStr),
+        originalPath: inst.task.path,
+        slotKey: inst.slotKey ?? 'none',
+        originalSlotKey: inst.originalSlotKey ?? inst.slotKey ?? 'none',
+        timestamp: Date.now(),
+        createdMillis: Date.now(),
+        originalTaskId: inst.task.taskId,
+      }
+
+      // Add to target date's duplicatedInstances
+      if (!Array.isArray(targetDayState.duplicatedInstances)) {
+        targetDayState.duplicatedInstances = []
+      }
+      targetDayState.duplicatedInstances.push(newEntry)
+
+      // Persist the target date's dayState
+      await this.persistDayState(dateStr)
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to move duplicate instance to date', error)
     }
   }
 
