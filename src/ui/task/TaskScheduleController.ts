@@ -11,6 +11,10 @@ export interface TaskScheduleControllerHost {
   getInstanceDisplayTitle: (inst: TaskInstance) => string
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
   removeDuplicateInstanceFromCurrentDate?: (inst: TaskInstance) => Promise<void>
+  /** Check if the instance is a duplicate (exists in dayState.duplicatedInstances) */
+  isDuplicateInstance?: (inst: TaskInstance) => boolean
+  /** Move a duplicate instance to a different date without modifying the original file */
+  moveDuplicateInstanceToDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -101,12 +105,27 @@ export default class TaskScheduleController {
 
   async moveTaskToDate(inst: TaskInstance, dateStr: string): Promise<void> {
     try {
-      const file = this.resolveTaskFile(inst.task)
-      if (file instanceof TFile) {
-        await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-          frontmatter.target_date = dateStr
-          return frontmatter
-        })
+      // Check if this is a duplicate instance
+      const isDuplicate = this.host.isDuplicateInstance?.(inst) ?? false
+
+      if (isDuplicate && this.host.moveDuplicateInstanceToDate) {
+        // For duplicate instances, move via dayState without modifying the original file
+        if (this.host.removeDuplicateInstanceFromCurrentDate) {
+          await this.host.removeDuplicateInstanceFromCurrentDate(inst)
+        }
+        await this.host.moveDuplicateInstanceToDate(inst, dateStr)
+      } else {
+        // For non-duplicate instances, modify the file's frontmatter (original behavior)
+        const file = this.resolveTaskFile(inst.task)
+        if (file instanceof TFile) {
+          await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+            frontmatter.target_date = dateStr
+            return frontmatter
+          })
+        }
+        if (this.host.removeDuplicateInstanceFromCurrentDate) {
+          await this.host.removeDuplicateInstanceFromCurrentDate(inst)
+        }
       }
 
       new Notice(
@@ -114,9 +133,6 @@ export default class TaskScheduleController {
           date: dateStr,
         }),
       )
-      if (this.host.removeDuplicateInstanceFromCurrentDate) {
-        await this.host.removeDuplicateInstanceFromCurrentDate(inst)
-      }
       await this.host.reloadTasksAndRestore()
     } catch (error) {
       console.error('[TaskScheduleController] Failed to move task', error)
