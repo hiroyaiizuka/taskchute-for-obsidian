@@ -358,7 +358,9 @@ export class ProjectBoardView extends ItemView {
         const optimistic = this.optimisticItems.get(item.path)
         if (!optimistic) return item
 
-        if (item.status === optimistic.status) {
+        const statusMatches = item.status === optimistic.status
+        const orderMatches = item.order === optimistic.order
+        if (statusMatches && orderMatches) {
           this.optimisticItems.delete(item.path)
           return item
         }

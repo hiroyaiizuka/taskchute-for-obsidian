@@ -212,4 +212,147 @@ describe('ProjectBoardView', () => {
       expect(list.getAttribute('data-scroll-region')).toBe('cards')
     })
   })
+
+  describe('reloadItemsPreservingState', () => {
+    type ReloadableView = ProjectBoardView & {
+      items: ProjectBoardItem[]
+      optimisticItems: Map<string, { status: ProjectBoardStatus; order: number; updated: string; completed?: string }>
+      reloadItemsPreservingState: () => boolean
+    }
+
+    function createItemWithOrder(
+      status: ProjectBoardStatus,
+      title: string,
+      order: number | null,
+    ): ProjectBoardItem {
+      const file = new TFile()
+      file.path = `Projects/${title}.md`
+      file.basename = title
+      return {
+        file,
+        path: file.path,
+        basename: file.basename,
+        title,
+        displayTitle: title,
+        status,
+        order,
+        frontmatter: { status, order },
+      }
+    }
+
+    test('preserves optimistic order when status matches but order differs', () => {
+      // Scenario: User drags project E before project D within same status column
+      // - Initial state: items have order [1000, 2000, 3000, 4000, 5000] (A, B, C, D, E)
+      // - User drags E to position before D
+      // - optimisticItems stores new order for E (e.g., 3500)
+      // - metadataCache hasn't updated yet, so loadProjectItems returns old order (5000)
+      // - reloadItemsPreservingState should preserve the optimistic order (3500)
+
+      const itemA = createItemWithOrder('in-progress', 'A', 1000)
+      const itemB = createItemWithOrder('in-progress', 'B', 2000)
+      const itemC = createItemWithOrder('in-progress', 'C', 3000)
+      const itemD = createItemWithOrder('in-progress', 'D', 4000)
+      const itemE = createItemWithOrder('in-progress', 'E', 5000)
+
+      const initialItems = [itemA, itemB, itemC, itemD, itemE]
+
+      // Service returns items with OLD order (metadataCache not yet updated)
+      const loadProjectItems = jest.fn(() => [
+        createItemWithOrder('in-progress', 'A', 1000),
+        createItemWithOrder('in-progress', 'B', 2000),
+        createItemWithOrder('in-progress', 'C', 3000),
+        createItemWithOrder('in-progress', 'D', 4000),
+        createItemWithOrder('in-progress', 'E', 5000), // Still old order
+      ])
+
+      const service = {
+        loadProjectItems,
+        createProject: jest.fn(),
+        updateProjectStatus: jest.fn(),
+      } as unknown as ProjectBoardService
+
+      const plugin = {
+        app: {
+          vault: { getAbstractFileByPath: jest.fn() },
+          workspace: {
+            splitActiveLeaf: jest.fn(),
+            getLeaf: jest.fn(),
+            setActiveLeaf: jest.fn(),
+          },
+          i18n: { translate: jest.fn((key: string) => key) },
+        },
+        settings: { projectsFolder: 'Projects' },
+        pathManager: { getProjectFolderPath: () => 'Projects' },
+      } as unknown as TaskChutePluginLike
+
+      const leaf = { containerEl: document.createElement('div') } as unknown as WorkspaceLeaf
+      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as ReloadableView
+
+      // Set initial items
+      view.items = initialItems
+
+      // Simulate optimistic update: E moved to order 3500 (between C and D)
+      const newOrderForE = 3500
+      view.optimisticItems.set(itemE.path, {
+        status: 'in-progress', // Same status
+        order: newOrderForE,
+        updated: new Date().toISOString(),
+      })
+
+      // Call reloadItemsPreservingState
+      view.reloadItemsPreservingState()
+
+      // Find item E in the reloaded items
+      const reloadedE = view.items.find((item) => item.title === 'E')
+
+      // The order should be preserved from optimisticItems, not the old metadataCache value
+      expect(reloadedE?.order).toBe(newOrderForE)
+    })
+
+    test('clears optimisticItems only when both status and order match', () => {
+      // When metadataCache catches up (both status AND order match), optimisticItems should be cleared
+
+      const itemE = createItemWithOrder('in-progress', 'E', 3500)
+
+      // Service returns item with UPDATED order (metadataCache has caught up)
+      const loadProjectItems = jest.fn(() => [createItemWithOrder('in-progress', 'E', 3500)])
+
+      const service = {
+        loadProjectItems,
+        createProject: jest.fn(),
+        updateProjectStatus: jest.fn(),
+      } as unknown as ProjectBoardService
+
+      const plugin = {
+        app: {
+          vault: { getAbstractFileByPath: jest.fn() },
+          workspace: {
+            splitActiveLeaf: jest.fn(),
+            getLeaf: jest.fn(),
+            setActiveLeaf: jest.fn(),
+          },
+          i18n: { translate: jest.fn((key: string) => key) },
+        },
+        settings: { projectsFolder: 'Projects' },
+        pathManager: { getProjectFolderPath: () => 'Projects' },
+      } as unknown as TaskChutePluginLike
+
+      const leaf = { containerEl: document.createElement('div') } as unknown as WorkspaceLeaf
+      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as ReloadableView
+
+      view.items = [itemE]
+
+      // Optimistic state matches what metadataCache will return
+      view.optimisticItems.set(itemE.path, {
+        status: 'in-progress',
+        order: 3500,
+        updated: new Date().toISOString(),
+      })
+
+      view.reloadItemsPreservingState()
+
+      // optimisticItems should be cleared since metadataCache has caught up
+      expect(view.optimisticItems.has(itemE.path)).toBe(false)
+    })
+  })
 })
