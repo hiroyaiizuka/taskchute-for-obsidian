@@ -25,6 +25,28 @@
   overflow-y: auto;
 }
 
+.is-mobile .task-modal-overlay {
+  align-items: flex-start !important;
+  padding-top: 70px !important;
+}
+
+.is-mobile .task-modal-overlay .task-modal-content {
+  max-height: 50vh !important;
+}
+
+.is-mobile .task-modal-overlay .task-modal-content .modal-header {
+  padding-left: 16px !important;
+}
+
+.is-mobile .taskchute-comment-modal {
+  align-items: flex-start !important;
+  padding-top: 70px !important;
+}
+
+.is-mobile .taskchute-comment-modal .taskchute-comment-content {
+  max-height: 50vh !important;
+}
+
 :where(
     .task-modal-content,
     .taskchute-confirm-modal,
@@ -32,7 +54,8 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-header {
+  )
+  .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -48,7 +71,9 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-header h3 {
+  )
+  .modal-header
+  h3 {
   margin: 0;
   color: var(--text-normal);
 }
@@ -60,7 +85,8 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-close-button,
+  )
+  .modal-close-button,
 .taskchute-tooltip .tooltip-close-button {
   background: none;
   border: none;
@@ -98,7 +124,8 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-close-button:hover,
+  )
+  .modal-close-button:hover,
 .taskchute-tooltip .tooltip-close-button:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
@@ -111,7 +138,9 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-close-button svg,
+  )
+  .modal-close-button
+  svg,
 .taskchute-tooltip .tooltip-close-button svg {
   width: 18px;
   height: 18px;
@@ -127,7 +156,10 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-close-button svg line,
+  )
+  .modal-close-button
+  svg
+  line,
 :where(
     .task-modal-content,
     .taskchute-confirm-modal,
@@ -135,7 +167,10 @@
     .time-edit-modal,
     .project-settings-modal-content,
     .project-create-modal
-  ) .modal-close-button svg path,
+  )
+  .modal-close-button
+  svg
+  path,
 .taskchute-tooltip .tooltip-close-button svg line,
 .taskchute-tooltip .tooltip-close-button svg path {
   stroke-linecap: round;
@@ -2408,7 +2443,7 @@ select.form-input {
 }
 
 .future-task-button::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -3756,7 +3791,9 @@ select.form-input {
 /* レスポンシブ対応 - 表示優先度の調整 */
 
 .taskchute-medium .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+  grid-template-columns:
+    18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+    50px 30px 30px;
   gap: 8px;
   padding-right: 12px;
 }
@@ -3774,7 +3811,6 @@ select.form-input {
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
-
 
 /* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-narrow .task-item {
@@ -3968,7 +4004,9 @@ select.form-input {
 
 @container taskchute-list (max-width: 900px) {
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto) 50px 30px 30px;
+    grid-template-columns:
+      18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+      50px 30px 30px;
     gap: 8px;
     padding-right: 12px;
   }
@@ -4541,7 +4579,7 @@ select.form-input {
 }
 
 .project-board-column__cards--drop-target-empty::after {
-  content: '＋';
+  content: "＋";
   position: absolute;
   left: 8px;
   top: calc(50% - 10px);
@@ -4555,7 +4593,7 @@ select.form-input {
 }
 
 .project-board-column__cards--drop-target-empty::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 12px;
   right: 12px;
@@ -4599,7 +4637,7 @@ select.form-input {
 .project-board-card--drop-after::after {
   position: absolute;
   pointer-events: none;
-  content: '';
+  content: "";
 }
 
 .project-board-card--drop-before::before,
@@ -4621,7 +4659,7 @@ select.form-input {
 
 .project-board-card--drop-before::after,
 .project-board-card--drop-after::after {
-  content: '＋';
+  content: "＋";
   font-size: 14px;
   font-weight: 600;
   color: var(--interactive-accent);
@@ -4671,7 +4709,7 @@ select.form-input {
 }
 
 .project-board-column__load-more::before {
-  content: '↓';
+  content: "↓";
   font-size: 12px;
   line-height: 1;
   color: var(--interactive-accent);
@@ -4691,7 +4729,8 @@ select.form-input {
   justify-content: center;
   gap: 6px;
   font-weight: 600;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 .project-board-column__new:hover {
@@ -4703,11 +4742,19 @@ select.form-input {
 
 @supports (background: color-mix(in srgb, red 10%, transparent)) {
   .project-board-column__new {
-    background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary));
+    background: color-mix(
+      in srgb,
+      var(--interactive-accent) 16%,
+      var(--background-primary)
+    );
   }
 
   .project-board-column__new:hover {
-    background: color-mix(in srgb, var(--interactive-accent) 80%, var(--background-primary));
+    background: color-mix(
+      in srgb,
+      var(--interactive-accent) 80%,
+      var(--background-primary)
+    );
   }
 }
 
