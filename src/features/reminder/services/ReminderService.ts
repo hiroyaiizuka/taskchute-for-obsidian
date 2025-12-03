@@ -17,8 +17,12 @@ export interface ReminderServiceOptions {
   onNotify: (schedule: ReminderSchedule) => void;
 }
 
-/** Maximum age (in ms) for a reminder to still be considered valid for firing */
-const MAX_REMINDER_AGE_MS = 60 * 1000; // 1 minute
+/**
+ * Maximum age (in ms) for a reminder to still be considered valid for firing.
+ * Extended to tolerate startup delays or timer throttling (e.g., after app
+ * reload or when the window was backgrounded).
+ */
+const MAX_REMINDER_AGE_MS = 60 * 60 * 1000; // 60 minutes (tolerate long suspensions)
 
 export class ReminderService {
   private scheduleManager: ReminderScheduleManager;

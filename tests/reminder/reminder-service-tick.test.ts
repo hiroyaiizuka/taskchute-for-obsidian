@@ -122,19 +122,19 @@ describe('ReminderService tick logic', () => {
       // Set current time to 09:10
       jest.setSystemTime(new Date('2025-01-15T09:10:00'));
 
-      // Add a schedule for 09:00 (10 minutes in the past)
+      // Add a schedule for 07:50 (over 1 hour in the past; exceeds 60min staleness window)
       service.addScheduleDirectly({
         taskPath: '/tasks/test.md',
         taskName: 'Test Task',
         scheduledTime: '09:05',
-        reminderTime: new Date('2025-01-15T09:00:00'),
+        reminderTime: new Date('2025-01-15T07:50:00'),
         fired: false,
         beingDisplayed: false,
       });
 
       service.tick();
 
-      // Should not fire for reminders more than 1 minute in the past
+      // Should not fire for reminders more than the staleness threshold in the past
       expect(notifyCallback).not.toHaveBeenCalled();
     });
 

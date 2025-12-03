@@ -172,7 +172,7 @@ describe('NotificationService', () => {
       );
     });
 
-    it('should call onNotificationDisplayed callback after showing notification', () => {
+    it('should always show builtin reminder alongside desktop notification', () => {
       const mockOnDisplayed = jest.fn();
       const options: ReminderNotificationOptions = {
         taskName: 'Test Task',
@@ -183,7 +183,9 @@ describe('NotificationService', () => {
 
       service.notify(options);
 
-      expect(mockOnDisplayed).toHaveBeenCalled();
+      expect(mockShowBuiltinReminder).toHaveBeenCalled();
+      // onNotificationDisplayed is intentionally not called when we rely on the modal to advance the queue.
+      expect(mockOnDisplayed).not.toHaveBeenCalled();
     });
   });
 
