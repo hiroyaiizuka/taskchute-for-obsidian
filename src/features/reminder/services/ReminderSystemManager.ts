@@ -122,6 +122,9 @@ export class ReminderSystemManager {
   startPeriodicTask(): void {
     const intervalMs = DEFAULT_CHECK_INTERVAL_SEC * 1000;
 
+    // Run once immediately to avoid missing near-future reminders right after startup.
+    this.tick();
+
     this.intervalId = this.registerInterval(() => {
       this.tick();
     }, intervalMs);
@@ -291,7 +294,7 @@ export class ReminderSystemManager {
     this.isShowingNotification = true;
     const schedule = this.pendingNotifications.shift()!;
 
-    this.notificationService.notify({
+   this.notificationService.notify({
       taskName: schedule.taskName,
       scheduledTime: schedule.scheduledTime,
       taskPath: schedule.taskPath,
@@ -309,6 +312,8 @@ export class ReminderSystemManager {
    * Show builtin reminder modal.
    */
   private showBuiltinReminderModal(options: ReminderNotificationOptions): void {
+    this.playReminderSound();
+
     const modal = new ReminderNotificationModal(this.app, {
       taskName: options.taskName,
       scheduledTime: options.scheduledTime,
@@ -320,6 +325,43 @@ export class ReminderSystemManager {
     });
 
     modal.open();
+  }
+
+  /**
+   * Play a short beep when showing the in-app reminder modal.
+   * Uses Web Audio API; fails silently if unavailable.
+   */
+  private playReminderSound(): void {
+    try {
+      const AudioCtx = (window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = 880; // A5 tone
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+        if (typeof ctx.close === 'function') {
+          void ctx.close();
+        }
+      };
+    } catch {
+      // Ignore audio failures to keep reminder flow uninterrupted.
+    }
   }
 
   /**

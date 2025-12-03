@@ -44,15 +44,21 @@ export class NotificationService {
    * Uses Web Notifications API on desktop, builtin modal on mobile.
    */
   notify(options: ReminderNotificationOptions): void {
-    if (this.isMobile() || !this.notificationsSupported) {
-      // Mobile or notifications not available - use builtin
+    const useBuiltinOnly = this.isMobile() || !this.notificationsSupported;
+
+    if (useBuiltinOnly) {
+      // Mobile or notifications not available - use builtin only
       // Note: onNotificationDisplayed is called in modal's onClose
       this.showBuiltinReminder(options);
       return;
     }
 
-    // Desktop - use Web Notifications API
-    this.showWebNotification(options);
+    // Desktop - show both Web Notification and builtin modal to guarantee visibility.
+    // We intentionally do NOT rely on onNotificationDisplayed to advance the queue;
+    // the builtin modal's onClose will process the next notification.
+    const { onNotificationDisplayed: _ignored, ...rest } = options;
+    this.showWebNotification(rest);
+    this.showBuiltinReminder(rest);
   }
 
   private showWebNotification(options: ReminderNotificationOptions): void {
