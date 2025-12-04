@@ -1,6 +1,7 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest } from 'obsidian';
 import { TaskChuteSettings, PathManagerLike } from '../types';
 import { t } from '../i18n';
+import { TERMINAL_NAME } from '../constants';
 import { FolderPathFieldController } from './folderPathFieldController';
 import { FilePathFieldController } from './filePathFieldController';
 import { FilePathSuggest } from './filePathSuggest';
@@ -440,7 +441,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     new Setting(container)
       .setName(t('settings.features.robotButton', 'Show terminal button'))
-      .setDesc(t('settings.features.robotButtonDesc', 'Enable AI integration via Terminal (requires Terminal plugin).'))
+      .setDesc(t('settings.features.robotButtonDesc', `Enable AI integration via ${TERMINAL_NAME} (requires ${TERMINAL_NAME} plugin).`))
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.aiRobotButtonEnabled ?? false).onChange(async (v) => {
           this.plugin.settings.aiRobotButtonEnabled = v

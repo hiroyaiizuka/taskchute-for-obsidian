@@ -79,7 +79,7 @@ const obsidianmdRecommendedRules = {
   "obsidianmd/sample-names": "error",
   "obsidianmd/validate-manifest": "error",
   "obsidianmd/validate-license": "error",
-  "obsidianmd/ui/sentence-case": ["error", { enforceCamelCaseLower: true, brands: ["TaskChute"] }],
+  "obsidianmd/ui/sentence-case": ["error", { enforceCamelCaseLower: true }],
 };
 
 // General rules from obsidianmd recommended config
@@ -221,7 +221,7 @@ export default [
       obsidianmd,
     },
     rules: {
-      "obsidianmd/ui/sentence-case-locale-module": ["error", { brands: ["TaskChute", "Terminal"], acronyms: ["YYYY", "MM", "DD", "JSON", "AI"], enforceCamelCaseLower: false }],
+      "obsidianmd/ui/sentence-case-locale-module": ["error", { enforceCamelCaseLower: false }],
     },
   },
   // Test files config

@@ -1,3 +1,5 @@
+import { TERMINAL_NAME, DATE_FORMAT_DISPLAY } from "../../constants"
+
 export const en = {
   common: {
     close: "Close",
@@ -31,7 +33,7 @@ export const en = {
       prefixName: "File name prefix",
       prefixDesc: "Example: daily -",
       pathName: "Template file",
-      pathDesc: "Path to the markdown file used as the review template.",
+      pathDesc: "Path to the Markdown file used as the review template.",
       pick: "Select file from vault",
       suggestPlaceholder: "Type to search review template files",
     },
@@ -44,9 +46,9 @@ export const en = {
     },
     features: {
       heading: "External tools",
-      robotButton: "Show Terminal button",
+      robotButton: `Show ${TERMINAL_NAME} button`,
       robotButtonDesc:
-        "Enable AI integration via Terminal (requires Terminal plugin).",
+        `Enable AI integration via ${TERMINAL_NAME} (requires ${TERMINAL_NAME} plugin).`,
     },
     reminder: {
       heading: "Reminders",
@@ -69,7 +71,7 @@ export const en = {
       folderPick: "Select folder from vault",
       folderSuggestPlaceholder: "Type to search folders",
       templateName: "Template file",
-      templateDesc: "Optional markdown template applied when creating new projects.",
+      templateDesc: "Optional Markdown template applied when creating new projects.",
       templatePick: "Select template file from vault",
       templateSuggestPlaceholder: "Type to search project templates",
     },
@@ -145,7 +147,7 @@ export const en = {
       openNavigation: "Open navigation",
       openCalendar: "Open calendar",
       addTask: "Add new task",
-      openTerminal: "Open Terminal",
+      openTerminal: `Open ${TERMINAL_NAME}`,
       terminalOpenFailed: "Failed to open terminal: {message}",
       terminalPluginMissing: "Terminal plugin not found. Please install it.",
     },
@@ -619,8 +621,8 @@ export const en = {
     },
     errors: {
       intervalInvalid: 'Interval must be an integer of 1 or greater.',
-      startDateFormat: 'Start date must use YYYY-MM-DD format.',
-      endDateFormat: 'End date must use YYYY-MM-DD format.',
+      startDateFormat: `Start date must use ${DATE_FORMAT_DISPLAY} format.`,
+      endDateFormat: `End date must use ${DATE_FORMAT_DISPLAY} format.`,
       endBeforeStart: 'End date must be on or after the start date.',
       weeklyRequiresDay: 'Select at least one weekday.',
       monthlyRequiresSelection: 'Choose an "nth + weekday" combination.',
