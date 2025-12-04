@@ -38,8 +38,6 @@ Traditional task management is like a map - it shows you where to go but leaves 
 ### 📊 **Visual Progress & Reflection**
 - **Daily Review**: Focus/fatigue graphs with task comments
 - **Procrastination Heatmap**: GitHub-style visualization of task procrastination
-- **Project Progress**: Monitor project advancement with time-based calculations
-- **Celebration Effects**: Fireworks and confetti when all tasks are completed 🎉
 
 ### 🔄 **Smart Routine Management**
 - **Flexible scheduling**: Daily, weekly, monthly patterns with specific day selection
@@ -90,26 +88,18 @@ Access plugin settings through: Settings → Community Plugins → TaskChute Plu
 - **Project folder**: Project files location (default: `TaskChute/Project/`)
 - **Log folder**: Execution history storage (default: `TaskChute/Log/`)
 
-### Display Options
-- **Celebration effects**: Enable/disable completion animations
-- **Sound effects**: Toggle completion sounds
-- **Fireworks/Confetti**: Individual effect controls
-
 ### Execution Log Backups
-- **Backup interval (hours)**: Minimum time between automatic JSON snapshot backups (`TaskChute/Log/backups/<YYYY-MM>/...`, legacy `.backups` folders are still read). Default is 24 hours; you can shorten or lengthen this depending on how frequently your log changes.
-- **Backup retention (days)**: Backups older than this window are deleted automatically during reconciliation (default: 30 days). Lower the value if you want to keep the vault lean.
-
-## ⌨️ Keyboard Shortcuts
-
-### Global
-- **Option+T** (Mac) / **Alt+T** (Win/Linux): Show today's tasks
-
-### Task Operations
-- **Ctrl+C**: Duplicate selected task
-- **Ctrl+D**: Delete selected task (with confirmation)
-- **Ctrl+U**: Reset task to pending state
+- **Backup interval (hours)**: Minimum time between automatic JSON snapshot backups. Default is 24 hours.
+- **Backup retention (days)**: Backups older than this window are deleted automatically (default: 30 days).
 
 ## 📈 Advanced Features
+
+### Reminders
+Get notified before your scheduled tasks begin:
+- **Customizable timing**: Set reminder notifications minutes before task start time
+- **Per-task settings**: Configure individual reminder times for each task
+- **Smart detection**: Automatically skips notifications when you're actively working (typing)
+- **System notifications**: Desktop notifications to keep you on track
 
 ### Daily Review
 Requires Dataview and Obsidian Charts plugins for visualization:
@@ -123,36 +113,6 @@ GitHub-style contribution graph showing:
 - Special blue animation for zero-procrastination days
 - Click navigation to specific dates
 
-## 🛡 Execution Log Resilience
-
-- **Device-aware delta logs**: Every device receives a stable `deviceId` (persisted to the device's local storage, never synced) and writes append-only JSONL delta files under `TaskChute/Log/inbox/<deviceId>/<YYYY-MM>.jsonl` (legacy vaults with `.inbox/` are still read automatically). Old clients can never overwrite the canonical snapshot because they only append.
-- **Automatic reconciliation**: The reconciler merges unprocessed delta rows, recomputes daily summaries, writes month-level backups to `TaskChute/Log/backups/<YYYY-MM>/` (respecting the configured backup interval), and bumps `meta.revision` so that each client can detect drift.
-- **Records Markdown**: Each mutated day produces `TaskChute/Log/records/<YYYY>/<YYYY-MM-DD>.md` with YAML frontmatter that mirrors the canonical entries (including `entryId`, `deviceId`, and `processedCursor`). Even if JSON snapshots vanish, these record notes remain human-readable backups.
-- **Backups housekeeping**: Backups older than the configured retention window are pruned automatically so Sync overhead stays low.
-- Year-by-year comparison (2020-present)
-
-### Project Progress Monitoring
-- Real-time progress tracking
-- Comparison with similar past projects
-- Time-based completion estimates
-- Visual progress indicators
-
-## 🏗️ Technical Details
-
-### Requirements
-- **Obsidian**: v0.12.0 or higher
-- **Platform**: Desktop and mobile support
-
-### Data Storage
-- **Execution logs**: `TaskChute/Log/YYYY-MM-DD.md`
-- **Snapshot backups**: `TaskChute/Log/backups/<YYYY-MM>/<timestamp>.json` (auto-created only when the backup interval elapses; legacy `.backups` folders are still read)
-- **Task states**: `.obsidian/plugins/taskchute-plus/data/`
-- **Yearly heatmaps**: `TaskChute/Log/heatmap/YYYY/yearly-heatmap.json` (legacy `.heatmap/` + `<year>/yearly-heatmap.json` も読み込み互換)
-- **Settings**: Obsidian plugin configuration
-
-## 📚 Documentation
-
-For detailed documentation, visit our [Docusaurus site](taskchute-docs/).
 
 ## 🤝 Community & Support
 
