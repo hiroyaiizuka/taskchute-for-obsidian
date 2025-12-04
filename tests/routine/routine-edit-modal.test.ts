@@ -25,10 +25,10 @@ describe('applyRoutineFrontmatterMerge', () => {
       hadTemporaryMoveDate: true,
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+     
     expect(frontmatter.target_date).toBeUndefined();
     expect(frontmatter.temporary_move_date).toBeUndefined();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+     
     expect(frontmatter['\u958b\u59cb\u6642\u523b']).toBeUndefined();
   });
 });
