@@ -27,6 +27,7 @@ import type { TaskLoaderHost } from "../../../features/core/services/TaskLoaderS
 import { TaskCreationService } from "../../../features/core/services/TaskCreationService"
 import { TaskReuseService } from "../../../features/core/services/TaskReuseService"
 import { getCurrentLocale, t } from "../../../i18n"
+import { TASKCHUTE_NAME } from "../../../constants"
 import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
 import type { TaskReloadCoordinatorHost } from "../../../features/core/services/TaskReloadCoordinator"
 import TaskExecutionService, {
@@ -527,7 +528,7 @@ export class TaskChuteView
   }
 
   getDisplayText(): string {
-    return "TaskChute"
+    return TASKCHUTE_NAME
   }
 
   getIcon(): string {

@@ -1,6 +1,7 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian"
 
 import { t } from "../../../i18n"
+import { DATE_FORMAT_DISPLAY } from "../../../constants"
 
 import {
   RoutineFrontmatter,
@@ -277,7 +278,7 @@ export default class RoutineEditModal extends Modal {
           errors.push(
             this.tv(
               "errors.startDateFormat",
-              "Start date must use YYYY-MM-DD format.",
+              `Start date must use ${DATE_FORMAT_DISPLAY} format.`,
             ),
           )
         }
@@ -285,7 +286,7 @@ export default class RoutineEditModal extends Modal {
           errors.push(
             this.tv(
               "errors.endDateFormat",
-              "End date must use YYYY-MM-DD format.",
+              `End date must use ${DATE_FORMAT_DISPLAY} format.`,
             ),
           )
         }

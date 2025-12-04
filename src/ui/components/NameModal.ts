@@ -136,11 +136,6 @@ export function createNameModal(options: NameModalOptions): NameModalHandle {
 
   closeButton.addEventListener('click', close)
   cancelButton.addEventListener('click', close)
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) {
-      close()
-    }
-  })
 
   const targetBody = doc.body ?? document.body
   targetBody.appendChild(overlay)
