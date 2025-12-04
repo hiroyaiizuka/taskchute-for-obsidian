@@ -119,17 +119,11 @@ export default class TaskCompletionController {
       if (modalClosed) return
       modalClosed = true
       document.removeEventListener('keydown', handleEsc)
-      modal.removeEventListener('click', handleBackdrop)
       modal.remove()
     }
 
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        closeModal()
-      }
-    }
-    const handleBackdrop = (event: MouseEvent) => {
-      if (event.target === modal) {
         closeModal()
       }
     }
@@ -150,7 +144,6 @@ export default class TaskCompletionController {
     })
 
     document.addEventListener('keydown', handleEsc)
-    modal.addEventListener('click', handleBackdrop)
     document.body.appendChild(modal)
     commentInput.focus()
   }
