@@ -337,7 +337,6 @@ export class ProjectBoardView extends ItemView {
       }
 
       await rightLeaf.openFile(file)
-      workspace.setActiveLeaf(this.leaf)
     } catch (error) {
       console.error('[ProjectBoard] Failed to open project file:', error)
       new Notice(this.translate('projectBoard.errors.genericTitle', 'Unable to load projects'))
