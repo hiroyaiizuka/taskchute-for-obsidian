@@ -268,7 +268,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     getCurrentDayState: jest.fn(() => dayState),
     getDayStateSnapshot: jest.fn(() => dayState),
     getDeletedInstances: jest.fn(() => dayState.deletedInstances),
-    isInstanceHidden: jest.fn((instanceId?: string, path?: string, _date?: string) => {
+    isInstanceHidden: jest.fn((instanceId?: string, path?: string) => {
       if (!instanceId && !path) return false;
       return dayState.hiddenRoutines.some((hidden) => {
         if (!hidden) return false;
@@ -436,7 +436,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     getCurrentDayState: jest.fn(() => dayState),
     getDayStateSnapshot: jest.fn(() => dayState),
     getDeletedInstances: jest.fn(() => dayState.deletedInstances),
-    isInstanceHidden: jest.fn((instanceId?: string, path?: string, _date?: string) => {
+    isInstanceHidden: jest.fn((instanceId?: string, path?: string) => {
       if (!instanceId && !path) return false;
       return dayState.hiddenRoutines.some((hidden) => {
         if (!hidden) return false;
@@ -618,7 +618,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
     getCurrentDayState: jest.fn(() => dayState),
     getDayStateSnapshot: jest.fn(() => dayState),
     getDeletedInstances: jest.fn(() => dayState.deletedInstances),
-    isInstanceHidden: jest.fn((instanceId?: string, path?: string, _date?: string) => {
+    isInstanceHidden: jest.fn((instanceId?: string, path?: string) => {
       if (!instanceId && !path) return false;
       return dayState.hiddenRoutines.some((hidden) => {
         if (!hidden) return false;

@@ -215,7 +215,7 @@ describe('ReminderService tick logic', () => {
       });
 
       // Change scheduled time from 09:05 to 10:05
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
+       
       service.onTaskTimeChanged('/tasks/test.md', '10:05', 5);
 
       const schedule = service.getScheduleByPath('/tasks/test.md');
@@ -234,7 +234,7 @@ describe('ReminderService tick logic', () => {
         beingDisplayed: false,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
+       
       service.onTaskTimeChanged('/tasks/test.md', '10:05', 5);
 
       const schedule = service.getScheduleByPath('/tasks/test.md');

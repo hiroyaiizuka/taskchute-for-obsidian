@@ -10,7 +10,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "husky",
-    "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\" manifest.json"
+    "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\""
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
