@@ -1,7 +1,7 @@
 {
   "id": "taskchute-plus",
   "name": "TaskChute Plus",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "minAppVersion": "1.6.7",
   "author": "Hiroya Iizuka",
   "description": "Execute TaskChute that slots today's tasks, tracks projects, adds comments, and keeps you focused on now.",
