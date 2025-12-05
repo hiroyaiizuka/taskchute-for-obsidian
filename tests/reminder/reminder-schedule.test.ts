@@ -83,6 +83,60 @@ describe('ReminderScheduleManager', () => {
         expect(schedules[0].taskPath).toBe('/tasks/test.md');
       });
 
+      it('should preserve fired flag when re-adding same task with same time', () => {
+        // First, add and fire the schedule
+        manager.addSchedule({
+          taskPath: '/tasks/test.md',
+          taskName: 'Test Task',
+          scheduledTime: '09:00',
+          reminderTime: new Date('2025-01-15T08:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+        manager.markAsFired('/tasks/test.md');
+
+        // Re-add the same schedule (simulating view refresh / rebuildSchedulesFromTasks)
+        manager.addSchedule({
+          taskPath: '/tasks/test.md',
+          taskName: 'Test Task',
+          scheduledTime: '09:00',
+          reminderTime: new Date('2025-01-15T08:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        // The fired flag should be preserved
+        const schedule = manager.getScheduleByPath('/tasks/test.md');
+        expect(schedule?.fired).toBe(true);
+      });
+
+      it('should reset fired flag when re-adding same task with different time', () => {
+        // First, add and fire the schedule
+        manager.addSchedule({
+          taskPath: '/tasks/test.md',
+          taskName: 'Test Task',
+          scheduledTime: '09:00',
+          reminderTime: new Date('2025-01-15T08:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+        manager.markAsFired('/tasks/test.md');
+
+        // Re-add with different time (user changed the reminder time)
+        manager.addSchedule({
+          taskPath: '/tasks/test.md',
+          taskName: 'Test Task',
+          scheduledTime: '10:00',
+          reminderTime: new Date('2025-01-15T09:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        // The fired flag should be reset since time changed
+        const schedule = manager.getScheduleByPath('/tasks/test.md');
+        expect(schedule?.fired).toBe(false);
+      });
+
       it('should allow multiple schedules', () => {
         manager.addSchedule({
           taskPath: '/tasks/task1.md',

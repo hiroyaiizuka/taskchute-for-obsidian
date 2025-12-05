@@ -67,10 +67,22 @@ export class ReminderScheduleManager {
 
   /**
    * Add a schedule to the manager.
+   * If a schedule for the same task path already exists and the reminder time
+   * is unchanged, the fired flag is preserved to prevent duplicate notifications.
    */
   addSchedule(schedule: ReminderSchedule): void {
-    // Remove existing schedule for the same task path if any
-    this.removeSchedule(schedule.taskPath);
+    const existing = this.getScheduleByPath(schedule.taskPath);
+
+    if (existing) {
+      // Preserve fired flag if reminder time is unchanged
+      const sameTime =
+        existing.reminderTime.getTime() === schedule.reminderTime.getTime();
+      if (sameTime && existing.fired) {
+        schedule.fired = true;
+      }
+      this.removeSchedule(schedule.taskPath);
+    }
+
     this.schedules.push(schedule);
   }
 
