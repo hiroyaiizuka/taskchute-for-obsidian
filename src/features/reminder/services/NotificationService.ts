@@ -56,7 +56,12 @@ export class NotificationService {
     // Desktop - show both Web Notification and builtin modal to guarantee visibility.
     // We intentionally do NOT rely on onNotificationDisplayed to advance the queue;
     // the builtin modal's onClose will process the next notification.
-    const { onNotificationDisplayed: _, ...rest } = options;
+    const rest: ReminderNotificationOptions = {
+      taskName: options.taskName,
+      scheduledTime: options.scheduledTime,
+      taskPath: options.taskPath,
+      onOpenFile: options.onOpenFile,
+    };
     this.showWebNotification(rest);
     this.showBuiltinReminder(rest);
   }
