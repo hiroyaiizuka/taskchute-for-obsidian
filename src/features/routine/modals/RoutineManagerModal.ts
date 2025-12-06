@@ -1,6 +1,6 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { getCurrentLocale, t } from '../../../i18n';
+import { t } from '../../../i18n';
 
 import {
   RoutineFrontmatter,
@@ -171,11 +171,9 @@ export class RoutineManagerModal extends Modal {
 
   private loadRows(): void {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-    const locale = getCurrentLocale() === 'ja' ? 'ja' : 'en';
     const files = this.app.vault
       .getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
-      .sort((a, b) => a.basename.localeCompare(b.basename, locale));
+      .filter((file) => file.path.startsWith(`${taskFolderPath}/`));
 
     this.rows = files
       .map((file) => {
@@ -193,7 +191,8 @@ export class RoutineManagerModal extends Modal {
 
         return frontmatter?.isRoutine === true ? { file, fm: frontmatter } : null;
       })
-      .filter((row): row is RoutineRow => row !== null);
+      .filter((row): row is RoutineRow => row !== null)
+      .sort((a, b) => b.file.stat.ctime - a.file.stat.ctime);
   }
 
   private applyFilters(): void {
