@@ -4261,7 +4261,7 @@ select.form-input {
 }
 
 .routine-table {
-  min-width: 100%;
+  min-width: 900px;
   display: flex;
   flex-direction: column;
 }
@@ -4269,16 +4269,16 @@ select.form-input {
 .routine-table__row {
   display: grid;
   grid-template-columns:
-    minmax(0, 1.3fr)
-    minmax(96px, 0.6fr)
-    minmax(64px, 0.4fr)
-    minmax(0, 0.8fr)
-    minmax(64px, 0.4fr)
+    minmax(160px, 1.3fr)
+    minmax(80px, 0.6fr)
+    minmax(56px, 0.4fr)
+    minmax(56px, 0.8fr)
+    minmax(56px, 0.4fr)
     minmax(88px, 0.7fr)
-    minmax(112px, 0.7fr)
-    minmax(112px, 0.7fr)
-    minmax(64px, 0.45fr)
-    minmax(120px, 0.6fr);
+    minmax(96px, 0.7fr)
+    minmax(96px, 0.7fr)
+    minmax(56px, 0.45fr)
+    minmax(100px, 0.6fr);
   gap: 6px;
   align-items: center;
   padding: 6px 10px;
