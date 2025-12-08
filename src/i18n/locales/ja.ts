@@ -486,8 +486,13 @@ export const ja = {
       title: "タスク実行ログ",
       reloadButton: "🔄 データ更新",
       reloadTooltip: "キャッシュをクリアして再計算",
+      restoreButton: "🔄 データを復元",
+      restoreTooltip: "バックアップからログデータを復元",
       loading: "データを読み込み中...",
       recalculating: "データを再計算中...",
+    },
+    restore: {
+      success: "ログデータを復元しました",
     },
     notices: {
       reloadSuccess: "{year}年のデータを更新しました",

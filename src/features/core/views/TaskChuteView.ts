@@ -639,6 +639,10 @@ export class TaskChuteView
     await this.dayStateManager.persist(dateStr)
   }
 
+  public async removeRunningTaskRecord(params: { instanceId?: string; taskPath?: string; taskId?: string }): Promise<void> {
+    await this.runningTasksService.deleteByInstanceOrPath(params)
+  }
+
   public getOrderKey(inst: TaskInstance): string | null {
     const slot = inst.slotKey || "none"
     const dayState = this.getCurrentDayState()

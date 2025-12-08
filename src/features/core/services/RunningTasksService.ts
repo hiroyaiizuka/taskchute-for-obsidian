@@ -18,6 +18,7 @@ export interface RunningTaskRecord {
   instanceId?: string;
   taskDescription?: string;
   isRoutine?: boolean;
+  taskId?: string;
 }
 
 export class RunningTasksService {
@@ -56,6 +57,7 @@ export class RunningTasksService {
         instanceId: inst.instanceId,
         taskDescription,
         isRoutine: inst.task.isRoutine === true,
+        taskId: inst.task.taskId,
       };
     });
 
@@ -66,6 +68,50 @@ export class RunningTasksService {
       dataPath,
       JSON.stringify(records, null, 2)
     );
+  }
+
+  async deleteByInstanceOrPath(options: {
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }): Promise<number> {
+    const { instanceId, taskPath, taskId } = options
+    if (!instanceId && !taskPath && !taskId) return 0
+
+    try {
+      const logDataPath = this.plugin.pathManager.getLogDataPath();
+      const dataPath = `${logDataPath}/running-task.json`;
+      const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
+      if (!file || !(file instanceof TFile)) return 0;
+
+      const raw = await this.plugin.app.vault.read(file);
+      if (!raw) return 0;
+
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return 0;
+
+      const records = parsed as RunningTaskRecord[];
+      const filtered = records.filter((record) => {
+        if (!record || typeof record !== 'object') return false;
+        const matchesInstance = instanceId && record.instanceId === instanceId;
+        const matchesPath = taskPath && record.taskPath === taskPath;
+        const matchesTaskId = taskId && record.taskId === taskId;
+        return !(matchesInstance || matchesPath || matchesTaskId);
+      });
+
+      if (filtered.length === records.length) {
+        return 0;
+      }
+
+      await this.plugin.app.vault.modify(
+        file,
+        JSON.stringify(filtered, null, 2),
+      );
+      return records.length - filtered.length;
+    } catch (error) {
+      console.warn('[RunningTasksService] Failed to delete running task record', error);
+      return 0;
+    }
   }
 
   async loadForDate(dateString: string): Promise<RunningTaskRecord[]> {

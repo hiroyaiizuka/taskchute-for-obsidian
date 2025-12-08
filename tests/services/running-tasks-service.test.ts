@@ -156,6 +156,48 @@ describe('RunningTasksService.restoreForDate', () => {
 
     expect(result).toHaveLength(1)
   })
+
+  it('deletes running-task records by instanceId or path', async () => {
+    const store: { content: string } = {
+      content: JSON.stringify(
+        [
+          createRecord({ instanceId: 'keep-me', taskPath: 'TASKS/keep.md' }),
+          createRecord({ instanceId: 'to-delete', taskPath: 'TASKS/delete-me.md' }),
+        ],
+        null,
+        2,
+      ),
+    }
+
+    const pathManager = { getLogDataPath: () => 'LOGS' }
+    const dataPath = 'LOGS/running-task.json'
+    const file = new TFile()
+    file.path = dataPath
+    Object.setPrototypeOf(file, TFile.prototype)
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === dataPath ? file : null)),
+          read: jest.fn(async () => store.content),
+          modify: jest.fn(async (_file: TFile, content: string) => {
+            store.content = content
+          }),
+          adapter: {
+            write: jest.fn(),
+          },
+        },
+      },
+      pathManager,
+    } as unknown as TaskChutePluginLike
+
+    const bound = new RunningTasksService(plugin)
+    await bound.deleteByInstanceOrPath({ instanceId: 'to-delete', taskPath: 'TASKS/delete-me.md' })
+
+    const updated = JSON.parse(store.content) as RunningTaskRecord[]
+    expect(updated).toHaveLength(1)
+    expect(updated[0]?.instanceId).toBe('keep-me')
+  })
 })
 
 describe('RunningTasksService.renameTaskPath', () => {

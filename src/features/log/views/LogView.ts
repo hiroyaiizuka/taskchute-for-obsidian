@@ -5,6 +5,8 @@ import { getCurrentLocale, t } from '../../../i18n'
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../../types'
 import { HeatmapService } from '../services/HeatmapService'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
+import { BackupRestoreService } from '../services/BackupRestoreService'
+import { BackupRestoreModal } from '../modals/BackupRestoreModal'
 
 interface LogPathManager {
   getLogDataPath(): string;
@@ -153,23 +155,16 @@ export class LogView {
       }
     }
 
-    const refreshButton = controls.createEl('button', {
-      cls: 'refresh-button',
-      text: this.tv('header.reloadButton', '🔄 データ更新'),
+    const restoreButton = controls.createEl('button', {
+      cls: 'restore-button',
+      text: this.tv('header.restoreButton', '🔄 データを復元'),
       attr: {
-        title: this.tv('header.reloadTooltip', 'キャッシュをクリアして再計算'),
+        title: this.tv('header.restoreTooltip', 'バックアップからログデータを復元'),
       },
     })
 
-    refreshButton.addEventListener('click', () => {
-      void (async () => {
-        this.dataCache.delete(this.currentYear)
-        await this.removeCachedYearFile(this.currentYear)
-        await this.reloadCurrentYear(
-          this.tv('header.recalculating', 'データを再計算中...'),
-          true,
-        )
-      })()
+    restoreButton.addEventListener('click', () => {
+      void this.openRestoreModal()
     })
 
     yearSelector.addEventListener('change', (event) => {
@@ -260,6 +255,15 @@ export class LogView {
     const grid = this.createHeatmapGrid(this.heatmapData.year);
     gridSection.appendChild(grid);
 
+    // Legend outside of scroll area, centered
+    const legend = layout.createEl('div', { cls: 'heatmap-legend' });
+    legend.createEl('span', { cls: 'legend-label', text: 'Less' });
+    const legendScale = legend.createEl('div', { cls: 'legend-scale' });
+    for (let level = 0; level <= 4; level++) {
+      legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(level) } });
+    }
+    legend.createEl('span', { cls: 'legend-label', text: 'More' });
+
     this.dayDetailContainer = layout.createEl('div', {
       cls: 'heatmap-detail-section',
     });
@@ -299,6 +303,15 @@ export class LogView {
       delete cell.dataset.level;
       cell.dataset.tooltip = this.tv('labels.tooltipNoData', 'データなし');
     });
+
+    // Legend outside of scroll area, centered
+    const legend = layout.createEl('div', { cls: 'heatmap-legend' });
+    legend.createEl('span', { cls: 'legend-label', text: 'Less' });
+    const legendScale = legend.createEl('div', { cls: 'legend-scale' });
+    for (let level = 0; level <= 4; level++) {
+      legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(level) } });
+    }
+    legend.createEl('span', { cls: 'legend-label', text: 'More' });
 
     this.dayDetailContainer = layout.createEl('div', {
       cls: 'heatmap-detail-section',
@@ -374,14 +387,6 @@ export class LogView {
         weekIndex += 1;
       }
     }
-
-    const legend = container.createEl('div', { cls: 'heatmap-legend' });
-    legend.createEl('span', { cls: 'legend-label', text: 'Less' });
-    const legendScale = legend.createEl('div', { cls: 'legend-scale' });
-    for (let level = 0; level <= 4; level++) {
-      legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(level) } });
-    }
-    legend.createEl('span', { cls: 'legend-label', text: 'More' });
 
     return container;
   }
@@ -597,21 +602,6 @@ export class LogView {
       this.tv('labels.completedTasks', '完了'),
       String(detail.summary.completedTasks),
     );
-    this.createSummaryItem(
-      summary,
-      this.tv('labels.postponedTasks', '先送り'),
-      String(detail.summary.procrastinatedTasks),
-    );
-    this.createSummaryItem(
-      summary,
-      this.tv('labels.totalTime', '合計時間'),
-      this.formatMinutesValue(detail.summary.totalMinutes),
-    );
-    this.createSummaryItem(
-      summary,
-      this.tv('labels.completionRate', '完了率'),
-      this.formatCompletionRate(detail.summary.completionRate),
-    );
     if (detail.executions.length === 0) {
       this.dayDetailContainer.createEl('div', {
         cls: 'heatmap-detail-empty',
@@ -625,18 +615,19 @@ export class LogView {
     });
     const thead = table.createEl('thead');
     const headerRow = thead.createEl('tr');
-    const columns = [
-      this.tv('labels.tableHeaders.taskNameWithCount', `タスク名 (${detail.executions.length})`, {
-        count: detail.executions.length,
-      }),
-      this.tv('labels.tableHeaders.executionTime', '実行時間'),
-      this.tv('labels.tableHeaders.duration', '所要時間'),
-      this.tv('labels.tableHeaders.focus', '集中度'),
-      this.tv('labels.tableHeaders.energy', '元気度'),
-      this.tv('labels.tableHeaders.comment', 'コメント'),
+    const columns: Array<{ label: string; cls?: string }> = [
+      {
+        label: this.tv('labels.tableHeaders.taskNameWithCount', `タスク名 (${detail.executions.length})`, {
+          count: detail.executions.length,
+        }),
+      },
+      { label: this.tv('labels.tableHeaders.executionTime', '実行時間') },
+      { label: this.tv('labels.tableHeaders.focus', '集中度'), cls: 'heatmap-col-focus' },
+      { label: this.tv('labels.tableHeaders.energy', '元気度'), cls: 'heatmap-col-energy' },
+      { label: this.tv('labels.tableHeaders.comment', 'コメント') },
     ];
-    columns.forEach((label) => {
-      headerRow.createEl('th', { text: label, attr: { scope: 'col' } });
+    columns.forEach((col) => {
+      headerRow.createEl('th', { text: col.label, cls: col.cls, attr: { scope: 'col' } });
     });
 
     const tbody = table.createEl('tbody');
@@ -662,17 +653,12 @@ export class LogView {
       });
 
       row.createEl('td', {
-        cls: 'heatmap-detail-duration',
-        text: this.formatDuration(entry.durationSec),
-      });
-
-      row.createEl('td', {
-        cls: 'heatmap-detail-rating',
+        cls: 'heatmap-detail-rating heatmap-col-focus',
         text: this.formatRating(entry.focusLevel, 'focus'),
       });
 
       row.createEl('td', {
-        cls: 'heatmap-detail-rating',
+        cls: 'heatmap-detail-rating heatmap-col-energy',
         text: this.formatRating(entry.energyLevel, 'energy'),
       });
 
@@ -774,8 +760,8 @@ export class LogView {
   }
 
   private formatExecutionTime(start?: string, stop?: string): string {
-    const startText = start?.trim();
-    const stopText = stop?.trim();
+    const startText = this.formatTimeWithoutSeconds(start);
+    const stopText = this.formatTimeWithoutSeconds(stop);
     if (startText && stopText) {
       return `${startText} - ${stopText}`;
     }
@@ -786,6 +772,18 @@ export class LogView {
       return `- ${stopText}`;
     }
     return '-';
+  }
+
+  /** Convert HH:MM:SS to HH:MM */
+  private formatTimeWithoutSeconds(time?: string): string | null {
+    const trimmed = time?.trim();
+    if (!trimmed) return null;
+    // Match HH:MM:SS or HH:MM format
+    const match = trimmed.match(/^(\d{1,2}:\d{2})(:\d{2})?$/);
+    if (match) {
+      return match[1];
+    }
+    return trimmed;
   }
 
   private calculateLevel(stats: HeatmapDayStats): 0 | 1 | 2 | 3 | 4 | null {
@@ -964,6 +962,35 @@ export class LogView {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private openRestoreModal(): void {
+    // Close the parent log modal overlay first
+    const logModalOverlay = document.querySelector('.taskchute-log-modal-overlay')
+    logModalOverlay?.remove()
+
+    // BackupRestoreService expects TaskChutePluginLike, but LogPlugin has compatible structure
+    const restoreService = new BackupRestoreService(
+      this.plugin as unknown as Parameters<typeof BackupRestoreService['prototype']['restoreFromBackup']> extends never
+        ? never
+        : ConstructorParameters<typeof BackupRestoreService>[0]
+    )
+    const backups = restoreService.listBackups()
+
+    const modal = new BackupRestoreModal(
+      this.plugin.app,
+      backups,
+      {
+        onRestore: async (monthKey: string, backupPath: string) => {
+          await restoreService.restoreFromBackup(monthKey, backupPath)
+          new Notice(this.tv('restore.success', 'ログデータを復元しました'))
+        },
+        getPreview: async (backupPath: string, targetDate?: string) => {
+          return restoreService.getBackupPreview(backupPath, targetDate)
+        },
+      }
+    )
+    modal.open()
   }
 }
 

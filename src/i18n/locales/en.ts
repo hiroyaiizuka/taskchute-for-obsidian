@@ -485,8 +485,13 @@ export const en = {
       title: "Task execution log",
       reloadButton: "🔄 refresh data",
       reloadTooltip: "Clear cache and recalculate",
+      restoreButton: "🔄 restore data",
+      restoreTooltip: "Restore log data from backup",
       loading: "Loading data...",
       recalculating: "Recalculating data...",
+    },
+    restore: {
+      success: "Log data restored successfully",
     },
     notices: {
       reloadSuccess: "Updated data for {year}",

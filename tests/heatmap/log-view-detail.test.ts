@@ -222,7 +222,7 @@ beforeAll(() => {
     expect(rows[0]?.textContent).toContain('朝のルーティン')
   })
 
-  test('selecting another day updates detail and open button navigates', async () => {
+  test('selecting another day updates detail panel', async () => {
     const { plugin, container } = createPlugin()
     const view = new LogView(plugin, container)
 
@@ -288,18 +288,6 @@ beforeAll(() => {
     const detailCell = container.querySelector('.heatmap-detail-name')
     expect(detailCell?.textContent).toContain('✅')
     expect(detailCell?.textContent).toContain('プロジェクト作業')
-
-    const navigableView = view as unknown as {
-      navigateToDate: (dateKey: string) => Promise<void>
-    }
-    const navigateSpy = jest
-      .spyOn(navigableView, 'navigateToDate')
-      .mockResolvedValue(undefined)
-    const openButton = container.querySelector<HTMLButtonElement>('.heatmap-detail-open-button')
-    openButton?.click()
-    await flushMicrotasks()
-
-    expect(navigateSpy).toHaveBeenCalledWith('2025-09-25')
   })
 
   test('calculateLevel maps completion rate into five buckets', () => {

@@ -1812,7 +1812,8 @@ select.form-input {
   height: 20px;
   margin-bottom: 8px;
   width: var(--heatmap-total-width);
-  padding-left: calc(var(--heatmap-weekday-column-width) + 10px);
+  margin-left: auto;
+  margin-right: auto;
   box-sizing: border-box;
 }
 
@@ -1822,6 +1823,7 @@ select.form-input {
   color: var(--text-muted);
   position: absolute;
   top: 0;
+  left: calc(var(--heatmap-weekday-column-width) + 10px);
   text-align: left;
   transform: translateX(
     calc(var(--heatmap-month-index) * var(--heatmap-week-width))
@@ -1938,13 +1940,15 @@ select.form-input {
 .heatmap-legend {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  margin-top: 10px;
+  margin-top: 0;
+  margin-bottom: 12px;
   margin-left: 0;
   margin-right: 0;
   font-size: 12px;
   color: var(--text-muted);
-  align-self: center;
+  width: 100%;
 }
 
 .legend-scale {
@@ -2117,15 +2121,15 @@ select.form-input {
 }
 
 .heatmap-detail-name {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  /* No special styling needed - content flows naturally */
 }
 
 .heatmap-detail-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: inline;
+}
+
+.heatmap-detail-status {
+  margin-right: 3px;
 }
 
 .heatmap-detail-title {
@@ -2203,6 +2207,143 @@ select.form-input {
   .heatmap-detail-table th,
   .heatmap-detail-table td {
     font-size: 12px;
+  }
+}
+
+/* Mobile-specific styles for log detail section */
+@media (max-width: 600px) {
+  /* Prevent horizontal scroll on the entire modal/view */
+  .heatmap-container,
+  .heatmap-modal-body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  /* Heatmap section: bordered box with horizontal scroll inside */
+  .heatmap-grid-section {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    padding: 12px;
+    align-items: flex-start;
+  }
+
+  /* Left-align heatmap elements on mobile for proper scroll */
+  .heatmap-months,
+  .heatmap-weekdays-container {
+    margin-left: 0;
+    margin-right: auto;
+  }
+
+  /* Detail section: fixed width within viewport, no horizontal scroll */
+  .heatmap-detail-section {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    padding: 10px 8px;
+    box-sizing: border-box;
+  }
+
+  /* Compact summary stats for mobile */
+  .heatmap-detail-summary {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .heatmap-detail-summary > * {
+    font-size: 12px;
+    min-width: auto;
+  }
+
+  /* Compact table for mobile - prevent horizontal scroll */
+  .heatmap-detail-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .heatmap-detail-table th,
+  .heatmap-detail-table td {
+    padding: 6px 2px;
+    font-size: 11px;
+  }
+
+  /* Hide rating columns (focus/energy) on mobile */
+  .heatmap-detail-table th.heatmap-col-focus,
+  .heatmap-detail-table td.heatmap-col-focus,
+  .heatmap-detail-table th.heatmap-col-energy,
+  .heatmap-detail-table td.heatmap-col-energy {
+    display: none;
+  }
+
+  /* Task name column: 35% */
+  .heatmap-detail-name {
+    word-break: break-word;
+    width: 35%;
+  }
+
+  .heatmap-detail-title {
+    font-size: 11px;
+  }
+
+  /* Time column: 25% */
+  .heatmap-detail-time {
+    font-size: 10px;
+    white-space: nowrap;
+    width: 25%;
+  }
+
+  /* Comment column: 40% */
+  .heatmap-detail-comment {
+    font-size: 10px;
+    word-break: break-word;
+    width: 40%;
+  }
+
+  /* Header adjustments - row layout with button on right */
+  .heatmap-detail-header {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .heatmap-detail-heading {
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .heatmap-detail-date {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .heatmap-detail-satisfaction {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .heatmap-detail-actions {
+    flex-shrink: 0;
+  }
+
+  .heatmap-detail-open-button {
+    font-size: 10px;
+    padding: 4px 8px;
   }
 }
 
@@ -5019,4 +5160,292 @@ select.form-input {
 /* Position reminder icon after task name */
 .task-item .task-name + .reminder-icon {
   margin-left: 6px;
+}
+
+/* ===== Backup Restore Modal ===== */
+.backup-restore-modal {
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+}
+
+.backup-restore-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.backup-restore-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.backup-restore-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.backup-restore-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.backup-cancel-button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.backup-cancel-button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.backup-restore-button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.backup-restore-button:hover:not(:disabled) {
+  background: var(--interactive-accent-hover);
+}
+
+.backup-restore-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.backup-restore-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.backup-list-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.backup-entry {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.backup-entry:hover {
+  background: var(--background-modifier-hover);
+}
+
+.backup-entry.selected {
+  background: var(--background-modifier-hover);
+  border-left-color: var(--interactive-accent);
+}
+
+.backup-entry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.backup-entry-date {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.backup-entry-relative {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.backup-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.backup-empty-state p {
+  margin: 4px 0;
+  color: var(--text-muted);
+}
+
+.backup-empty-hint {
+  font-size: 12px;
+}
+
+/* ===== Backup Confirm Modal ===== */
+.backup-confirm-modal {
+  width: 450px;
+  max-width: 90vw;
+}
+
+.backup-confirm-modal .modal-content {
+  padding: 0;
+}
+
+.backup-confirm-title {
+  margin: 0 0 16px 0;
+  padding: 16px 20px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.backup-confirm-warning {
+  padding: 0 20px;
+  margin-bottom: 16px;
+}
+
+.backup-confirm-warning p {
+  margin: 0 0 8px 0;
+  line-height: 1.5;
+}
+
+.backup-confirm-caution {
+  color: var(--text-error);
+  font-weight: 500;
+}
+
+.backup-confirm-info {
+  padding: 12px 20px;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.backup-confirm-date {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.backup-preview {
+  padding: 16px 20px;
+}
+
+.backup-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.backup-preview-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  flex: 1;
+  text-align: center;
+}
+
+.backup-preview-nav-button {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 10px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.backup-preview-nav-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.backup-preview-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.backup-preview-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.backup-preview-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.backup-preview-task-list {
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.backup-preview-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.backup-preview-task:last-child {
+  border-bottom: none;
+}
+
+.backup-preview-time-range {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  min-width: 90px;
+}
+
+.backup-preview-task-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-normal);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.backup-confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.backup-confirm-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.backup-confirm-button:hover {
+  background: var(--interactive-accent-hover);
 }
