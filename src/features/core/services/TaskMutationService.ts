@@ -56,6 +56,7 @@ export interface TaskMutationHost {
   sortTaskInstancesByTimeOrder: () => void
   getOrderKey: (inst: TaskInstance) => string | null
   dayStateManager: DayStateStoreService
+  removeRunningTaskRecord?: (params: { instanceId?: string; taskPath?: string; taskId?: string }) => Promise<unknown>
 }
 
 export default class TaskMutationService {
@@ -199,6 +200,14 @@ export default class TaskMutationService {
 
       this.host.dayStateManager.setDeleted(deletedEntries, dateKey)
       await this.host.persistDayState(dateKey)
+
+      if (typeof this.host.removeRunningTaskRecord === 'function') {
+        await this.host.removeRunningTaskRecord({
+          instanceId: inst.instanceId,
+          taskPath: inst.task.path,
+          taskId: inst.task.taskId,
+        })
+      }
 
       if (!inst.task.isRoutine) {
         if (!wasDuplicate) {

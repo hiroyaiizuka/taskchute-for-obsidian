@@ -559,19 +559,6 @@ async function shouldShowNonRoutineTask(
     (entry) => entry.deletionType === 'permanent' && !entry.taskId && entry.path === file.path,
   )
 
-  let missingDeletionTimestamp = false
-  let latestDeletionTimestamp: number | undefined
-  for (const entry of legacyPathDeletions) {
-    if (typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)) {
-      latestDeletionTimestamp =
-        latestDeletionTimestamp === undefined
-          ? entry.timestamp
-          : Math.max(latestDeletionTimestamp, entry.timestamp)
-    } else {
-      missingDeletionTimestamp = true
-    }
-  }
-
   let cachedCreatedMillis: number | null | undefined
   const resolveFileCreatedMillis = async (): Promise<number | null> => {
     if (cachedCreatedMillis !== undefined) {
@@ -598,29 +585,7 @@ async function shouldShowNonRoutineTask(
   }
 
   if (legacyPathDeletions.length > 0) {
-    if (missingDeletionTimestamp) {
-      return false
-    }
-    const createdMillis = await resolveFileCreatedMillis()
-    if (createdMillis === null) {
-      return false
-    }
-    if (latestDeletionTimestamp === undefined || createdMillis <= latestDeletionTimestamp) {
-      return false
-    }
-    const remainingEntries = deletedEntries.filter((entry) => {
-      if (entry.deletionType !== 'permanent') {
-        return true
-      }
-      if (entry.taskId) {
-        return true
-      }
-      return entry.path !== file.path
-    })
-    if (remainingEntries.length !== deletedEntries.length) {
-      context.dayStateManager.setDeleted(remainingEntries, dateKey)
-      deletedEntries = remainingEntries
-    }
+    return false
   }
 
   // target_date is deprecated but still used for backwards compatibility with existing data

@@ -49,6 +49,7 @@ type HostStub = TaskMutationHost & {
     orders: Record<string, number>
   }
   logSnapshot: { taskExecutions: Record<string, unknown[]>; dailySummary: Record<string, Record<string, unknown>> }
+  removeRunningTaskRecord?: jest.Mock
 }
 
 function createHost(overrides: Partial<HostStub> = {}): HostStub {
@@ -112,6 +113,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
         dayState.deletedInstances = entries
       }),
     } as unknown as DayStateStoreService,
+    removeRunningTaskRecord: overrides.removeRunningTaskRecord ?? jest.fn(async () => {}),
     persistSlotAssignment: jest.fn(),
     tasks,
     taskInstances,
@@ -233,6 +235,32 @@ describe('TaskMutationService', () => {
         }),
       ]),
     )
+  })
+
+  test('deleteInstance removes running-task record', async () => {
+    const task = createTask('TASKS/running.md', { taskId: 'tc-task-run' })
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'inst-run',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+
+    const removeRunningTaskRecord = jest.fn(async () => {})
+    const host = createHost({
+      taskInstances: [instance],
+      tasks: [task],
+      removeRunningTaskRecord,
+    })
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(instance)
+
+    expect(removeRunningTaskRecord).toHaveBeenCalledWith({
+      instanceId: 'inst-run',
+      taskPath: 'TASKS/running.md',
+      taskId: 'tc-task-run',
+    })
   })
 
   test('deleting duplicated non-routine instance does not trash original file', async () => {
