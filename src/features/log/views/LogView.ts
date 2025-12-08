@@ -5,6 +5,8 @@ import { getCurrentLocale, t } from '../../../i18n'
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../../types'
 import { HeatmapService } from '../services/HeatmapService'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
+import { BackupRestoreService } from '../services/BackupRestoreService'
+import { BackupRestoreModal } from '../modals/BackupRestoreModal'
 
 interface LogPathManager {
   getLogDataPath(): string;
@@ -153,23 +155,16 @@ export class LogView {
       }
     }
 
-    const refreshButton = controls.createEl('button', {
-      cls: 'refresh-button',
-      text: this.tv('header.reloadButton', '🔄 データ更新'),
+    const restoreButton = controls.createEl('button', {
+      cls: 'restore-button',
+      text: this.tv('header.restoreButton', '🔄 データを復元'),
       attr: {
-        title: this.tv('header.reloadTooltip', 'キャッシュをクリアして再計算'),
+        title: this.tv('header.restoreTooltip', 'バックアップからログデータを復元'),
       },
     })
 
-    refreshButton.addEventListener('click', () => {
-      void (async () => {
-        this.dataCache.delete(this.currentYear)
-        await this.removeCachedYearFile(this.currentYear)
-        await this.reloadCurrentYear(
-          this.tv('header.recalculating', 'データを再計算中...'),
-          true,
-        )
-      })()
+    restoreButton.addEventListener('click', () => {
+      void this.openRestoreModal()
     })
 
     yearSelector.addEventListener('change', (event) => {
@@ -964,6 +959,35 @@ export class LogView {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private openRestoreModal(): void {
+    // Close the parent log modal overlay first
+    const logModalOverlay = document.querySelector('.taskchute-log-modal-overlay')
+    logModalOverlay?.remove()
+
+    // BackupRestoreService expects TaskChutePluginLike, but LogPlugin has compatible structure
+    const restoreService = new BackupRestoreService(
+      this.plugin as unknown as Parameters<typeof BackupRestoreService['prototype']['restoreFromBackup']> extends never
+        ? never
+        : ConstructorParameters<typeof BackupRestoreService>[0]
+    )
+    const backups = restoreService.listBackups()
+
+    const modal = new BackupRestoreModal(
+      this.plugin.app,
+      backups,
+      {
+        onRestore: async (monthKey: string, backupPath: string) => {
+          await restoreService.restoreFromBackup(monthKey, backupPath)
+          new Notice(this.tv('restore.success', 'ログデータを復元しました'))
+        },
+        getPreview: async (backupPath: string, targetDate?: string) => {
+          return restoreService.getBackupPreview(backupPath, targetDate)
+        },
+      }
+    )
+    modal.open()
   }
 }
 
