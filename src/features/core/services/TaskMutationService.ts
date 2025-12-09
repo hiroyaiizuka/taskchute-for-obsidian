@@ -204,8 +204,6 @@ export default class TaskMutationService {
       if (typeof this.host.removeRunningTaskRecord === 'function') {
         await this.host.removeRunningTaskRecord({
           instanceId: inst.instanceId,
-          taskPath: inst.task.path,
-          taskId: inst.task.taskId,
         })
       }
 

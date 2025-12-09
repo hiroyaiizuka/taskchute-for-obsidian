@@ -258,8 +258,6 @@ describe('TaskMutationService', () => {
 
     expect(removeRunningTaskRecord).toHaveBeenCalledWith({
       instanceId: 'inst-run',
-      taskPath: 'TASKS/running.md',
-      taskId: 'tc-task-run',
     })
   })
 

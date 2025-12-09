@@ -1,6 +1,6 @@
 import { ReviewService } from '../../src/features/review/services/ReviewService'
 import type { TaskChutePluginLike } from '../../src/types'
-import type { TFile } from 'obsidian'
+import type { TFile, WorkspaceLeaf } from 'obsidian'
 
 const { TFile: TFileMock } = jest.requireMock('obsidian')
 
@@ -32,7 +32,7 @@ describe('ReviewService', () => {
     }
 
     const plugin = {
-      app: { vault },
+      app: { vault } as { vault: typeof vault; workspace?: unknown },
       settings: {
         reviewTemplatePath: 'Templates/review.md',
         reviewFileNamePattern: 'Daily - {{date}}.md',
@@ -46,7 +46,7 @@ describe('ReviewService', () => {
       _log: jest.fn(),
       _notify: jest.fn(),
       manifest: { id: 'taskchute-plus' },
-    } as unknown as TaskChutePluginLike & { app: { vault: typeof vault } }
+    } as unknown as TaskChutePluginLike & { app: { vault: typeof vault; workspace?: unknown } }
 
     return { plugin, vault, pathManager }
   }
@@ -126,5 +126,46 @@ describe('ReviewService', () => {
     const fileName = service.getReviewFileName('2025-10-17')
 
     expect(fileName).toBe('Review-2025-10-17.md')
+  })
+
+  test('openInSplit focuses the review leaf when revealLeaf is available', async () => {
+    const { plugin } = createPluginStub()
+    const rightLeaf = { openFile: jest.fn() } as unknown as WorkspaceLeaf
+    const workspace = {
+      splitActiveLeaf: jest.fn().mockReturnValue(rightLeaf),
+      getLeaf: jest.fn(),
+      revealLeaf: jest.fn(),
+      setActiveLeaf: jest.fn(),
+    }
+    plugin.app.workspace = workspace
+
+    const service = new ReviewService(plugin)
+    const reviewFile = createMockTFile('TaskChute/Review/Daily - 2025-10-18.md')
+
+    await service.openInSplit(reviewFile, {} as WorkspaceLeaf)
+
+    expect(workspace.splitActiveLeaf).toHaveBeenCalledWith('vertical')
+    expect(rightLeaf.openFile).toHaveBeenCalledWith(reviewFile)
+    expect(workspace.revealLeaf).toHaveBeenCalledWith(rightLeaf)
+    expect(workspace.setActiveLeaf).not.toHaveBeenCalled()
+  })
+
+  test('openInSplit falls back to setActiveLeaf when revealLeaf is unavailable', async () => {
+    const { plugin } = createPluginStub()
+    const rightLeaf = { openFile: jest.fn() } as unknown as WorkspaceLeaf
+    const workspace = {
+      getLeaf: jest.fn().mockReturnValue(rightLeaf),
+      setActiveLeaf: jest.fn(),
+    }
+    plugin.app.workspace = workspace
+
+    const service = new ReviewService(plugin)
+    const reviewFile = createMockTFile('TaskChute/Review/Daily - 2025-10-19.md')
+
+    await service.openInSplit(reviewFile, {} as WorkspaceLeaf)
+
+    expect(workspace.getLeaf).toHaveBeenCalledWith('split')
+    expect(rightLeaf.openFile).toHaveBeenCalledWith(reviewFile)
+    expect(workspace.setActiveLeaf).toHaveBeenCalledWith(rightLeaf)
   })
 })

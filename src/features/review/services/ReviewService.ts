@@ -38,7 +38,7 @@ export class ReviewService {
     return created;
   }
 
-  async openInSplit(file: TFile, leftLeaf: WorkspaceLeaf): Promise<void> {
+  async openInSplit(file: TFile, _leftLeaf: WorkspaceLeaf): Promise<void> {
     try {
       const { workspace } = this.plugin.app;
       const workspaceWithSplit = workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null };
@@ -53,8 +53,11 @@ export class ReviewService {
       }
 
       await rightLeaf.openFile(file);
-      // Return focus to the left TaskChute view
-      workspace.setActiveLeaf(leftLeaf);
+      if (typeof (workspace as { revealLeaf?: (leaf: WorkspaceLeaf) => void }).revealLeaf === 'function') {
+        void workspace.revealLeaf(rightLeaf);
+      } else {
+        workspace.setActiveLeaf(rightLeaf);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       new Notice(

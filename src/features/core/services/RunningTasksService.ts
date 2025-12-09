@@ -91,13 +91,14 @@ export class RunningTasksService {
       if (!Array.isArray(parsed)) return 0;
 
       const records = parsed as RunningTaskRecord[];
-      const filtered = records.filter((record) => {
-        if (!record || typeof record !== 'object') return false;
-        const matchesInstance = instanceId && record.instanceId === instanceId;
-        const matchesPath = taskPath && record.taskPath === taskPath;
-        const matchesTaskId = taskId && record.taskId === taskId;
-        return !(matchesInstance || matchesPath || matchesTaskId);
-      });
+      let filtered: RunningTaskRecord[] = records;
+      if (instanceId) {
+        filtered = records.filter((record) => record?.instanceId !== instanceId);
+      } else if (taskId) {
+        filtered = records.filter((record) => record?.taskId !== taskId);
+      } else if (taskPath) {
+        filtered = records.filter((record) => record?.taskPath !== taskPath);
+      }
 
       if (filtered.length === records.length) {
         return 0;

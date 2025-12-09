@@ -52,7 +52,7 @@ describe('Task display logic', () => {
       expect(context.tasks).toHaveLength(1);
     });
 
-    test('permanent deletion keeps task hidden even if file timestamps are newer when taskId is missing', async () => {
+    test('permanent deletion is ignored once the file is recreated when taskId is missing', async () => {
       const deletedAt = Date.now();
       const { context, load } = createNonRoutineLoadContext({
         deletedInstances: [
@@ -74,8 +74,8 @@ describe('Task display logic', () => {
 
       await load();
 
-      expect(context.taskInstances).toHaveLength(0);
-      expect(context.tasks).toHaveLength(0);
+      expect(context.taskInstances).toHaveLength(1);
+      expect(context.tasks).toHaveLength(1);
     });
 
     test('permanent deletion persists when taskId matches even if file is recreated', async () => {

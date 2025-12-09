@@ -180,6 +180,7 @@ class BackupConfirmModal extends Modal {
   private currentDate: string
   private currentPreview: BackupPreview
   private previewContainer: HTMLElement | null = null
+  private resolved = false
 
   constructor(
     app: App,
@@ -229,7 +230,7 @@ class BackupConfirmModal extends Modal {
       cls: 'backup-cancel-button',
     })
     cancelButton.addEventListener('click', () => {
-      this.resolve(false)
+      this.safeResolve(false)
       this.close()
     })
 
@@ -238,13 +239,20 @@ class BackupConfirmModal extends Modal {
       cls: 'backup-confirm-button',
     })
     confirmButton.addEventListener('click', () => {
-      this.resolve(true)
+      this.safeResolve(true)
       this.close()
     })
   }
 
   onClose(): void {
     this.contentEl.empty()
+    this.safeResolve(false)
+  }
+
+  private safeResolve(value: boolean): void {
+    if (this.resolved) return
+    this.resolved = true
+    this.resolve(value)
   }
 
   private renderPreview(): void {
