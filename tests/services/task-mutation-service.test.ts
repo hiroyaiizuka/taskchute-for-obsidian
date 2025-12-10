@@ -551,7 +551,9 @@ describe('TaskMutationService', () => {
 
     expect(host.taskInstances).toHaveLength(0)
     expect(host.tasks).toHaveLength(0)
-    expect(NoticeMock).toHaveBeenCalledWith(host.tv('notices.taskRemovedFromToday', 'Removed task from today.'))
+    expect(NoticeMock).toHaveBeenCalledWith(
+      host.tv('notices.taskRemovedFromToday', 'Removed task from the list.'),
+    )
   })
 
   test('deleteTask surfaces notice when deletion flow throws', async () => {

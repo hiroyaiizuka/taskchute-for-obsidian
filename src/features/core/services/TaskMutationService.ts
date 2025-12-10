@@ -212,14 +212,14 @@ export default class TaskMutationService {
           void this.handleTaskFileDeletion(inst)
         } else {
           new Notice(
-            this.host.tv('notices.taskRemovedFromToday', 'Removed task from today.'),
+            this.host.tv('notices.taskRemovedFromToday', 'Removed task from the list.'),
           )
         }
       } else {
         new Notice(
           this.host.tv(
             'notices.taskRemovedFromTodayWithTitle',
-            'Removed "{title}" from today.',
+            'Removed "{title}" from the list.',
             { title: displayTitle },
           ),
         )
@@ -410,7 +410,7 @@ export default class TaskMutationService {
     if (!inst.task.path) return
     const remaining = this.host.taskInstances.filter((candidate) => candidate.task.path === inst.task.path)
     if (remaining.length > 0) {
-      new Notice(this.host.tv('notices.taskRemovedFromToday', 'Removed task from today.'))
+      new Notice(this.host.tv('notices.taskRemovedFromToday', 'Removed task from the list.'))
       return
     }
 
@@ -425,7 +425,7 @@ export default class TaskMutationService {
         console.warn('[TaskMutationService] trashFile failed', error)
       }
     }
-    new Notice(this.host.tv('notices.taskRemovedFromToday', 'Removed task from today.'))
+    new Notice(this.host.tv('notices.taskRemovedFromToday', 'Removed task from the list.'))
   }
 
   private getScheduledTime(task: TaskData): string | undefined {
