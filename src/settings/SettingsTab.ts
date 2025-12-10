@@ -50,13 +50,13 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         text.inputEl.type = 'number';
         text.inputEl.min = '1';
         text.inputEl.step = '1';
-        const current = this.plugin.settings.backupIntervalHours ?? 24;
+        const current = this.plugin.settings.backupIntervalHours ?? 2;
         text
-          .setPlaceholder('24')
+          .setPlaceholder('2')
           .setValue(String(current))
           .onChange(async (raw) => {
             const parsed = Number(raw);
-            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 24;
+            const normalized = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 2;
             this.plugin.settings.backupIntervalHours = normalized;
             await this.plugin.saveSettings();
           });
@@ -96,20 +96,20 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setName(t('settings.reviewTemplate.heading', 'Review'))
       .setHeading();
 
-    const pattern = this.plugin.settings.reviewFileNamePattern ?? 'Daily - {{date}}.md';
+    const pattern = this.plugin.settings.reviewFileNamePattern ?? 'Review - {{date}}.md';
     const prefix = pattern.endsWith('{{date}}.md')
       ? pattern.slice(0, -'{{date}}.md'.length)
       : pattern;
 
     new Setting(container)
       .setName(t('settings.reviewTemplate.prefixName', 'File name prefix'))
-      .setDesc(t('settings.reviewTemplate.prefixDesc', 'Example: Daily - '))
+      .setDesc(t('settings.reviewTemplate.prefixDesc', 'Example: Review - '))
       .addText((text) => {
         text
-          .setPlaceholder('Daily - ')
+          .setPlaceholder('Review - ')
           .setValue(prefix)
           .onChange(async (raw) => {
-            const base = raw.trim() || 'Daily - ';
+            const base = raw.trim() || 'Review - ';
             this.plugin.settings.reviewFileNamePattern = `${base}{{date}}.md`;
             await this.plugin.saveSettings();
           });

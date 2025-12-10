@@ -38,6 +38,18 @@ export interface HeatmapServicePluginLike {
     ensureFolderExists(path: string): Promise<void>
     getReviewDataPath(): string
   }
+  settings?: {
+    reviewFileNamePattern?: string
+  }
+}
+
+function replaceDateTokens(template: string, dateStr: string): string {
+  const [year = '', month = '', day = ''] = dateStr.split('-')
+  return template
+    .replaceAll('{{date}}', dateStr)
+    .replaceAll('{{year}}', year)
+    .replaceAll('{{month}}', month)
+    .replaceAll('{{day}}', day)
 }
 
 export class HeatmapService {
@@ -483,8 +495,7 @@ export class HeatmapService {
 
   private async loadSatisfaction(dateString: string): Promise<number | null> {
     try {
-      const reviewPath = this.plugin.pathManager.getReviewDataPath()
-      const reviewFilePath = normalizePath(`${reviewPath}/Daily - ${dateString}.md`)
+      const reviewFilePath = this.getReviewFilePath(dateString)
       const file = this.plugin.app.vault.getAbstractFileByPath(reviewFilePath)
       if (!file || !(file instanceof TFile)) {
         return null
@@ -504,6 +515,19 @@ export class HeatmapService {
     } catch {
       return null
     }
+  }
+
+  private getReviewFilePath(dateString: string): string {
+    const reviewFolder = this.plugin.pathManager.getReviewDataPath()
+    const fileName = this.getReviewFileName(dateString)
+    return normalizePath(`${reviewFolder}/${fileName}`)
+  }
+
+  private getReviewFileName(dateString: string): string {
+    const rawPattern = this.plugin.settings?.reviewFileNamePattern ?? 'Review - {{date}}.md'
+    const pattern = rawPattern.trim() || 'Review - {{date}}.md'
+    const replaced = replaceDateTokens(pattern, dateString)
+    return replaced.endsWith('.md') ? replaced : `${replaced}.md`
   }
 
   private extractSatisfactionFromFrontmatter(content: string): number | null {

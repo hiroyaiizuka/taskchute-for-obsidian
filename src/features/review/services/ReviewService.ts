@@ -10,7 +10,7 @@ export class ReviewService {
   }
 
   getReviewFileName(dateStr: string): string {
-    const pattern = this.plugin.settings.reviewFileNamePattern?.trim() || 'Daily - {{date}}.md';
+    const pattern = this.plugin.settings.reviewFileNamePattern?.trim() || 'Review - {{date}}.md';
     const replaced = replaceDateTokens(pattern, dateStr);
     const fileName = replaced.endsWith('.md') ? replaced : `${replaced}.md`;
     return fileName;

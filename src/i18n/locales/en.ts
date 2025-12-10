@@ -31,7 +31,7 @@ export const en = {
     reviewTemplate: {
       heading: "Review",
       prefixName: "File name prefix",
-      prefixDesc: "Example: daily -",
+      prefixDesc: "Example: review - ",
       pathName: "Template file",
       pathDesc: "Path to the Markdown file used as the review template.",
       pick: "Select file from vault",

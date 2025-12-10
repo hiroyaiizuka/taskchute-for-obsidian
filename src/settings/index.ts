@@ -13,8 +13,8 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   languageOverride: 'auto',
   aiRobotButtonEnabled: false,
   reviewTemplatePath: null,
-  reviewFileNamePattern: 'Daily - {{date}}.md',
-  backupIntervalHours: 6,
+  reviewFileNamePattern: 'Review - {{date}}.md',
+  backupIntervalHours: 2,
   backupRetentionDays: 1,
 
   // Reminder defaults

@@ -78,7 +78,7 @@ function createPrunerContext(retentionDays = 30) {
       useOrderBasedSort: true,
       slotKeys: {},
       backupRetentionDays: retentionDays,
-      backupIntervalHours: 24,
+      backupIntervalHours: 2,
     },
     routineAliasService: {} as TaskChutePluginLike['routineAliasService'],
     dayStateService: {} as TaskChutePluginLike['dayStateService'],

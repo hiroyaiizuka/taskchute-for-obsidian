@@ -182,6 +182,7 @@ export class TaskExecutionService {
       const heatmap = new HeatmapService({
         app: this.host.app,
         pathManager: this.host.plugin.pathManager,
+        settings: this.host.plugin.settings,
       })
       try {
         const start = inst.startTime || new Date()

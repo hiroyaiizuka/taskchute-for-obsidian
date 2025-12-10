@@ -29,7 +29,7 @@ export const ja = {
     reviewTemplate: {
       heading: "レビュー",
       prefixName: "ファイルの接頭辞",
-      prefixDesc: "例: Daily - ",
+      prefixDesc: "例: Review - ",
       pathName: "テンプレートファイルの場所",
       pathDesc: "レビュー用テンプレートとして使用するMarkdownファイルのパス",
       pick: "保管庫からファイルを選択",
