@@ -56,7 +56,7 @@ function createWriterTestContext(): WriterTestContext {
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},
-      backupIntervalHours: 24,
+      backupIntervalHours: 2,
       backupRetentionDays: 30,
     },
     routineAliasService: {} as TaskChutePluginLike['routineAliasService'],

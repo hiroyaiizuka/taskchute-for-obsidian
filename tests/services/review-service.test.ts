@@ -35,7 +35,7 @@ describe('ReviewService', () => {
       app: { vault } as { vault: typeof vault; workspace?: unknown },
       settings: {
         reviewTemplatePath: 'Templates/review.md',
-        reviewFileNamePattern: 'Daily - {{date}}.md',
+        reviewFileNamePattern: 'Review - {{date}}.md',
         useOrderBasedSort: true,
         slotKeys: {},
       },
@@ -58,10 +58,10 @@ describe('ReviewService', () => {
   test('uses the custom template when available', async () => {
     const { plugin, vault } = createPluginStub()
     const templateFile = createMockTFile('Templates/review.md')
-    const createdFile = createMockTFile('TaskChute/Review/Daily - 2025-10-13.md')
+    const createdFile = createMockTFile('TaskChute/Review/Review - 2025-10-13.md')
 
     vault.getAbstractFileByPath.mockImplementation((path: string) => {
-      if (path === 'TaskChute/Review/Daily - 2025-10-13.md') return null
+      if (path === 'TaskChute/Review/Review - 2025-10-13.md') return null
       if (path === 'Templates/review.md') return templateFile
       return null
     })
@@ -73,11 +73,11 @@ describe('ReviewService', () => {
 
     expect(file).toBe(createdFile)
     expect(vault.create).toHaveBeenCalledWith(
-      'TaskChute/Review/Daily - 2025-10-13.md',
+      'TaskChute/Review/Review - 2025-10-13.md',
       expect.stringContaining('2025-10-13'),
     )
     expect(vault.create).toHaveBeenCalledWith(
-      'TaskChute/Review/Daily - 2025-10-13.md',
+      'TaskChute/Review/Review - 2025-10-13.md',
       expect.stringContaining('TaskChute/Log'),
     )
     expect(vault.read).toHaveBeenCalledWith(templateFile)
@@ -86,10 +86,10 @@ describe('ReviewService', () => {
 
   test('falls back to default template when custom file is missing', async () => {
     const { plugin, vault } = createPluginStub()
-    const createdFile = createMockTFile('TaskChute/Review/Daily - 2025-10-14.md')
+    const createdFile = createMockTFile('TaskChute/Review/Review - 2025-10-14.md')
 
     vault.getAbstractFileByPath.mockImplementation((path: string) => {
-      if (path === 'TaskChute/Review/Daily - 2025-10-14.md') return null
+      if (path === 'TaskChute/Review/Review - 2025-10-14.md') return null
       return null
     })
     vault.create.mockResolvedValue(createdFile)
@@ -100,7 +100,7 @@ describe('ReviewService', () => {
     expect(file).toBe(createdFile)
     expect(vault.read).not.toHaveBeenCalled()
     expect(vault.create).toHaveBeenCalledWith(
-      'TaskChute/Review/Daily - 2025-10-14.md',
+      'TaskChute/Review/Review - 2025-10-14.md',
       '',
     )
     expect(plugin._notify).toHaveBeenCalledWith(
@@ -140,7 +140,7 @@ describe('ReviewService', () => {
     plugin.app.workspace = workspace
 
     const service = new ReviewService(plugin)
-    const reviewFile = createMockTFile('TaskChute/Review/Daily - 2025-10-18.md')
+    const reviewFile = createMockTFile('TaskChute/Review/Review - 2025-10-18.md')
 
     await service.openInSplit(reviewFile, {} as WorkspaceLeaf)
 
@@ -160,7 +160,7 @@ describe('ReviewService', () => {
     plugin.app.workspace = workspace
 
     const service = new ReviewService(plugin)
-    const reviewFile = createMockTFile('TaskChute/Review/Daily - 2025-10-19.md')
+    const reviewFile = createMockTFile('TaskChute/Review/Review - 2025-10-19.md')
 
     await service.openInSplit(reviewFile, {} as WorkspaceLeaf)
 

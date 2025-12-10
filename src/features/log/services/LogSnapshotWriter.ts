@@ -107,7 +107,7 @@ export class LogSnapshotWriter {
   }
 
   private getBackupIntervalMillis(): number {
-    const hours = this.plugin.settings.backupIntervalHours ?? 24
+    const hours = this.plugin.settings.backupIntervalHours ?? 2
     if (!Number.isFinite(hours) || hours <= 0) {
       return 0
     }

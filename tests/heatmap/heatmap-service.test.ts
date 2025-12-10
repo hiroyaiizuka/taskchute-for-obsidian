@@ -298,7 +298,7 @@ describe('HeatmapService', () => {
       }),
     )
 
-    const reviewPath = 'REVIEWS/Daily - 2025-09-23.md'
+    const reviewPath = 'REVIEWS/Review - 2025-09-23.md'
     store.set(
       reviewPath,
       ['---', 'satisfaction: 4', 'mood: good', '---', '', 'notes: great day'].join('\n'),
