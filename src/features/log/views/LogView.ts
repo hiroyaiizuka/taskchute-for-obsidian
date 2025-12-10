@@ -2,7 +2,7 @@ import { App, Notice, TFile, WorkspaceLeaf, normalizePath } from 'obsidian'
 
 import { getCurrentLocale, t } from '../../../i18n'
 
-import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../../types'
+import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '../../../types'
 import { HeatmapService } from '../services/HeatmapService'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import { BackupRestoreService } from '../services/BackupRestoreService'
@@ -19,6 +19,7 @@ interface LogPathManager {
 interface LogPlugin {
   app: App;
   pathManager: LogPathManager;
+   settings?: TaskChuteSettings;
 }
 
 interface TaskChuteViewLike {
@@ -71,7 +72,11 @@ export class LogView {
     this.plugin = plugin
     this.container = container
     this.currentYear = new Date().getFullYear()
-    this.heatmapService = new HeatmapService(plugin)
+    this.heatmapService = new HeatmapService({
+      app: plugin.app,
+      pathManager: plugin.pathManager,
+      settings: plugin.settings,
+    })
   }
 
   private tv(

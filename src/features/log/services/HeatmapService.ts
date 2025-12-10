@@ -495,12 +495,13 @@ export class HeatmapService {
 
   private async loadSatisfaction(dateString: string): Promise<number | null> {
     try {
-      const reviewFilePath = this.getReviewFilePath(dateString)
-      const file = this.plugin.app.vault.getAbstractFileByPath(reviewFilePath)
-      if (!file || !(file instanceof TFile)) {
+      const primaryPath = this.getReviewFilePath(dateString)
+      const primaryFile = this.plugin.app.vault.getAbstractFileByPath(primaryPath)
+      const targetFile = this.resolveReviewFile(primaryFile, dateString)
+      if (!targetFile) {
         return null
       }
-      const content = await this.plugin.app.vault.read(file)
+      const content = await this.plugin.app.vault.read(targetFile)
       const fromFrontmatter = this.extractSatisfactionFromFrontmatter(content)
       if (fromFrontmatter !== null) {
         return fromFrontmatter
@@ -517,6 +518,18 @@ export class HeatmapService {
     }
   }
 
+  private resolveReviewFile(primary: TFile | null, dateString: string): TFile | null {
+    if (primary && primary instanceof TFile) {
+      return primary
+    }
+    const legacyPath = this.getLegacyReviewFilePath(dateString)
+    if (!legacyPath) {
+      return null
+    }
+    const legacyFile = this.plugin.app.vault.getAbstractFileByPath(legacyPath)
+    return legacyFile && legacyFile instanceof TFile ? legacyFile : null
+  }
+
   private getReviewFilePath(dateString: string): string {
     const reviewFolder = this.plugin.pathManager.getReviewDataPath()
     const fileName = this.getReviewFileName(dateString)
@@ -528,6 +541,17 @@ export class HeatmapService {
     const pattern = rawPattern.trim() || 'Review - {{date}}.md'
     const replaced = replaceDateTokens(pattern, dateString)
     return replaced.endsWith('.md') ? replaced : `${replaced}.md`
+  }
+
+  private getLegacyReviewFilePath(dateString: string): string | null {
+    const configured = this.plugin.settings?.reviewFileNamePattern?.trim()
+    if (configured && configured.length > 0 && configured !== 'Review - {{date}}.md') {
+      return null
+    }
+    const legacyName = replaceDateTokens('Daily - {{date}}.md', dateString)
+    const fileName = legacyName.endsWith('.md') ? legacyName : `${legacyName}.md`
+    const reviewFolder = this.plugin.pathManager.getReviewDataPath()
+    return normalizePath(`${reviewFolder}/${fileName}`)
   }
 
   private extractSatisfactionFromFrontmatter(content: string): number | null {
