@@ -118,6 +118,16 @@ describe('ReviewService', () => {
     expect(fileName).toBe('Review 20251016.md')
   })
 
+  test('preserves surrounding spaces in review file name pattern', () => {
+    const { plugin } = createPluginStub()
+    plugin.settings.reviewFileNamePattern = ' Review - {{date}}.md '
+
+    const service = new ReviewService(plugin)
+    const fileName = service.getReviewFileName('2025-10-20')
+
+    expect(fileName).toBe(' Review - 2025-10-20.md ')
+  })
+
   test('auto-appends extension when pattern omits .md', async () => {
     const { plugin } = createPluginStub()
     plugin.settings.reviewFileNamePattern = 'Review-{{date}}'

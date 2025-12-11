@@ -338,4 +338,21 @@ describe('HeatmapService', () => {
     const result = await service.loadDayDetail('2099-01-01')
     expect(result).toBeNull()
   })
+
+  test('getReviewFileName preserves spacing in the pattern', () => {
+    const store = new Map<string, string>()
+    const pathManager = createPathManager()
+    const vault = createVault(store)
+    const plugin: HeatmapServicePluginLike = {
+      app: { vault },
+      pathManager,
+      settings: { reviewFileNamePattern: ' Review - {{date}}.md ' },
+    }
+
+    const service = new HeatmapService(plugin)
+    const getReviewFileName = service as unknown as { getReviewFileName: (date: string) => string }
+
+    const fileName = getReviewFileName.getReviewFileName('2025-09-24')
+    expect(fileName).toBe(' Review - 2025-09-24.md ')
+  })
 })

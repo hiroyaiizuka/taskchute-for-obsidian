@@ -538,14 +538,16 @@ export class HeatmapService {
 
   private getReviewFileName(dateString: string): string {
     const rawPattern = this.plugin.settings?.reviewFileNamePattern ?? 'Review - {{date}}.md'
-    const pattern = rawPattern.trim() || 'Review - {{date}}.md'
+    const pattern = rawPattern.trim().length === 0 ? 'Review - {{date}}.md' : rawPattern
     const replaced = replaceDateTokens(pattern, dateString)
-    return replaced.endsWith('.md') ? replaced : `${replaced}.md`
+    const hasExtension = replaced.trimEnd().toLowerCase().endsWith('.md')
+    return hasExtension ? replaced : `${replaced}.md`
   }
 
   private getLegacyReviewFilePath(dateString: string): string | null {
-    const configured = this.plugin.settings?.reviewFileNamePattern?.trim()
-    if (configured && configured.length > 0 && configured !== 'Review - {{date}}.md') {
+    const configured = this.plugin.settings?.reviewFileNamePattern
+    const normalized = configured?.trim()
+    if (normalized && normalized.length > 0 && normalized !== 'Review - {{date}}.md') {
       return null
     }
     const legacyName = replaceDateTokens('Daily - {{date}}.md', dateString)
