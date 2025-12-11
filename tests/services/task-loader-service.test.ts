@@ -76,6 +76,35 @@ describe('TaskLoaderService', () => {
     expect(context.taskInstances.length).toBe(0);
     expect(context.tasks.length).toBeGreaterThanOrEqual(0);
   });
+
+  test('restores duplicated routine even when base routine is hidden by path', async () => {
+    const hiddenRoutines = [
+      {
+        instanceId: null,
+        path: 'TASKS/routine.md',
+      },
+    ];
+    const duplicatedInstances = [
+      {
+        instanceId: 'dup-reuse',
+        originalPath: 'TASKS/routine.md',
+        slotKey: 'none',
+        timestamp: 1_700_000_123_000,
+      },
+    ];
+    const { context } = createRoutineLoadContext({
+      hiddenRoutines,
+      duplicatedInstances,
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const instances = context.taskInstances.filter((inst) => inst.task?.path === 'TASKS/routine.md');
+    expect(instances).toHaveLength(1);
+    expect(instances[0]?.instanceId).toBe('dup-reuse');
+    expect(instances[0]?.slotKey).toBe('none');
+  });
 });
 
 describe('isTaskFile', () => {

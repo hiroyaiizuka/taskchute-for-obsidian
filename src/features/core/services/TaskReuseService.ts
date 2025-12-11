@@ -32,6 +32,9 @@ export class TaskReuseService {
     if (!Array.isArray(dayState.duplicatedInstances)) {
       dayState.duplicatedInstances = []
     }
+    if (!Array.isArray(dayState.hiddenRoutines)) {
+      dayState.hiddenRoutines = []
+    }
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)

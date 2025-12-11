@@ -90,4 +90,25 @@ describe('TaskReuseService', () => {
     expect(dateService.saveDay).toHaveBeenCalled()
     expect(NoticeMock).toHaveBeenCalled()
   })
+
+  test('reuseTaskAtDate keeps hidden routine entry but still records duplicate', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+    dayState.hiddenRoutines.push({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: null,
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    expect(dayState.hiddenRoutines).toHaveLength(1)
+    expect(dayState.hiddenRoutines[0]).toMatchObject({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: null,
+    })
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+    expect(dateService.saveDay).toHaveBeenCalled()
+  })
 })
