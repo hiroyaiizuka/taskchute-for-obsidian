@@ -97,9 +97,10 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setHeading();
 
     const pattern = this.plugin.settings.reviewFileNamePattern ?? 'Review - {{date}}.md';
-    const prefix = pattern.endsWith('{{date}}.md')
-      ? pattern.slice(0, -'{{date}}.md'.length)
-      : pattern;
+    const normalizedPattern = pattern.trim().length === 0 ? 'Review - {{date}}.md' : pattern;
+    const prefix = normalizedPattern.endsWith('{{date}}.md')
+      ? normalizedPattern.slice(0, -'{{date}}.md'.length)
+      : normalizedPattern;
 
     new Setting(container)
       .setName(t('settings.reviewTemplate.prefixName', 'File name prefix'))
@@ -109,7 +110,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           .setPlaceholder('Review - ')
           .setValue(prefix)
           .onChange(async (raw) => {
-            const base = raw.trim() || 'Review - ';
+            const base = raw.trim().length === 0 ? 'Review - ' : raw;
             this.plugin.settings.reviewFileNamePattern = `${base}{{date}}.md`;
             await this.plugin.saveSettings();
           });
