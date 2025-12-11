@@ -707,7 +707,16 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
         createdMillis,
       }
 
-      if (isVisibleInstance(context, instance.instanceId, taskData.path, dateKey, taskData.taskId)) {
+      if (
+        isVisibleInstance(
+          context,
+          instance.instanceId,
+          taskData.path,
+          dateKey,
+          taskData.taskId,
+          { ignorePathHidden: true },
+        )
+      ) {
         context.taskInstances.push(instance)
       }
     }
@@ -738,19 +747,33 @@ function isVisibleInstance(
   path: string,
   dateKey: string,
   taskId?: string,
+  options: { ignorePathHidden?: boolean } = {},
 ): boolean {
   const manager = context.dayStateManager
   if (manager?.isDeleted({ instanceId, path, dateKey, taskId })) {
     return false
   }
-  if (manager?.isHidden({ instanceId, path, dateKey })) {
-    return false
+
+  if (manager) {
+    const hiddenEntries = typeof manager.getHidden === 'function' ? manager.getHidden(dateKey) : null
+    if (Array.isArray(hiddenEntries)) {
+      const hasInstanceHidden = hiddenEntries.some((entry) => entry?.instanceId === instanceId)
+      if (hasInstanceHidden) {
+        return false
+      }
+      const hasPathHidden = hiddenEntries.some((entry) => entry?.instanceId === null && entry.path === path)
+      if (hasPathHidden && !options.ignorePathHidden) {
+        return false
+      }
+    } else if (manager.isHidden({ instanceId, path, dateKey })) {
+      return false
+    }
   }
 
   if (context.isInstanceDeleted?.(instanceId, path, dateKey, taskId)) {
     return false
   }
-  if (context.isInstanceHidden?.(instanceId, path, dateKey)) {
+  if (!options.ignorePathHidden && context.isInstanceHidden?.(instanceId, path, dateKey)) {
     return false
   }
   return true
