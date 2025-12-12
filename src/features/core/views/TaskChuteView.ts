@@ -327,6 +327,8 @@ export class TaskChuteView
       getCurrentDate: () => new Date(this.currentDate),
       app: this.app,
       plugin: this.plugin,
+      appendCommentDelta: (dateKey, entry) =>
+        this.executionLogService.appendCommentDelta(dateKey, entry),
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),

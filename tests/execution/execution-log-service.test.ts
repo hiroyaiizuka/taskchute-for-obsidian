@@ -230,6 +230,39 @@ describe('ExecutionLogService.saveTaskLog', () => {
       expect.objectContaining({ instanceId: 'inst-delta', taskId: 'tc-task-sample' }),
     );
   });
+
+  test('appendCommentDelta writes executionComment into delta inbox', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, deltaStore } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    await service.appendCommentDelta('2025-12-11', {
+      instanceId: 'inst-comment',
+      taskId: 'tc-task-comment',
+      taskPath: 'TASKS/sample.md',
+      taskTitle: 'Sample Task',
+      executionComment: '集中できた',
+      focusLevel: 4,
+      energyLevel: 3,
+      startTime: '08:00',
+      stopTime: '09:00',
+      durationSec: 3600,
+    });
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-12.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const record = JSON.parse(raw!.trim().split('\n').pop()!);
+    expect(record.dateKey).toBe('2025-12-11');
+    expect(record.payload).toEqual(
+      expect.objectContaining({
+        instanceId: 'inst-comment',
+        executionComment: '集中できた',
+        focusLevel: 4,
+        energyLevel: 3,
+      }),
+    );
+  });
 });
 
 describe('ExecutionLogService.removeTaskLogForInstanceOnDate', () => {
