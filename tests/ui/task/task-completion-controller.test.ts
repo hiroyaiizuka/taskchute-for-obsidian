@@ -60,6 +60,7 @@ describe('TaskCompletionController', () => {
 
   const createHost = () => {
     const storage = new Map<string, string>()
+    const appendCommentDelta = jest.fn().mockResolvedValue(undefined)
     const vault = {
       getAbstractFileByPath: jest.fn((path: string) => {
         if (!storage.has(path)) return null
@@ -112,9 +113,10 @@ describe('TaskCompletionController', () => {
           validatePath: jest.fn(() => ({ valid: true })),
         },
       },
+      appendCommentDelta,
     }
 
-    return { host, storage, vault }
+    return { host, storage, vault, appendCommentDelta }
   }
 
   beforeEach(() => {
@@ -123,7 +125,7 @@ describe('TaskCompletionController', () => {
   })
 
   test('hasCommentData returns true after comment saved', async () => {
-    const { host, storage } = createHost()
+    const { host, storage, appendCommentDelta } = createHost()
     const controller = new TaskCompletionController(host)
     const inst = {
       instanceId: 'inst-1',
@@ -150,6 +152,10 @@ describe('TaskCompletionController', () => {
 
     expect(storage.has('LOGS/2025-10-tasks.json')).toBe(true)
     expect(await controller.hasCommentData(inst)).toBe(true)
+    expect(appendCommentDelta).toHaveBeenCalledWith(
+      '2025-10-09',
+      expect.objectContaining({ executionComment: 'Great work', focusLevel: 5, energyLevel: 4 }),
+    )
   })
 
   test('showTaskCompletionModal wires save handler and emits notice', async () => {

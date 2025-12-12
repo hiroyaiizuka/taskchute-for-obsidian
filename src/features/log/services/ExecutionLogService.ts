@@ -141,6 +141,18 @@ export class ExecutionLogService {
     this.enqueueReconcile();
   }
 
+  async appendCommentDelta(dateKey: string, entry: TaskLogEntry): Promise<void> {
+    if (!dateKey || typeof dateKey !== 'string') {
+      return;
+    }
+    const [year, month] = dateKey.split('-');
+    if (!year || !month) {
+      return;
+    }
+    const monthKey = `${year}-${month}`;
+    await this.appendDeltaRecord({ monthKey, dateKey, entry, operation: 'upsert' });
+  }
+
   async rebuildFromRecords(): Promise<RecordsRebuildStats> {
     const stats = await this.recordsRebuilder.rebuildAllFromRecords();
     await this.ensureReconciled();

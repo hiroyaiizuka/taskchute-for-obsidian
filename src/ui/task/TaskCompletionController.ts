@@ -15,6 +15,7 @@ export interface TaskCompletionControllerHost {
   plugin: {
     pathManager: Pick<PathManagerLike, 'getLogDataPath' | 'ensureFolderExists' | 'getProjectFolderPath' | 'getTaskFolderPath' | 'getReviewDataPath' | 'getLogYearPath' | 'ensureYearFolder' | 'validatePath'>
   }
+  appendCommentDelta?: (dateKey: string, entry: TaskLogEntry) => Promise<void>
 }
 
 export default class TaskCompletionController {
@@ -311,6 +312,14 @@ export default class TaskCompletionController {
 
     if (!snapshot.dailySummary[dateKey]) {
       snapshot.dailySummary[dateKey] = {}
+    }
+
+    if (this.host.appendCommentDelta) {
+      try {
+        await this.host.appendCommentDelta(dateKey, payload)
+      } catch (error) {
+        console.warn('[TaskCompletionController] Failed to append comment delta', error)
+      }
     }
 
     new Notice(this.host.tv('comment.saved', 'Comment saved'))
