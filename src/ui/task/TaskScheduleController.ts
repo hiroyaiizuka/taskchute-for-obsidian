@@ -15,6 +15,8 @@ export interface TaskScheduleControllerHost {
   isDuplicateInstance?: (inst: TaskInstance) => boolean
   /** Move a duplicate instance to a different date without modifying the original file */
   moveDuplicateInstanceToDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
+  /** Temporarily hide routine instance on a specific date (used for past move and old target date cleanup) */
+  hideRoutineInstanceForDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -107,6 +109,15 @@ export default class TaskScheduleController {
     try {
       // Check if this is a duplicate instance
       const isDuplicate = this.host.isDuplicateInstance?.(inst) ?? false
+      const isPastDate = this.isPastDateString(dateStr, this.host.getCurrentDate())
+      const shouldHideRoutineToday = inst.task?.isRoutine === true && isPastDate
+      const previousTargetDate = this.parseTargetDateString(
+        (inst.task?.frontmatter as Record<string, unknown> | undefined)?.target_date,
+      )
+      const shouldHidePreviousTarget =
+        inst.task?.isRoutine === true &&
+        !!previousTargetDate &&
+        previousTargetDate !== dateStr
 
       if (isDuplicate && this.host.moveDuplicateInstanceToDate) {
         // For duplicate instances, move via dayState without modifying the original file
@@ -122,6 +133,13 @@ export default class TaskScheduleController {
             frontmatter.target_date = dateStr
             return frontmatter
           })
+        }
+        if (shouldHideRoutineToday && this.host.hideRoutineInstanceForDate) {
+          const currentDateKey = this.formatDateKey(this.host.getCurrentDate())
+          await this.host.hideRoutineInstanceForDate(inst, currentDateKey)
+        }
+        if (shouldHidePreviousTarget && this.host.hideRoutineInstanceForDate && previousTargetDate) {
+          await this.host.hideRoutineInstanceForDate(inst, previousTargetDate)
         }
         if (this.host.removeDuplicateInstanceFromCurrentDate) {
           await this.host.removeDuplicateInstanceFromCurrentDate(inst)
@@ -165,5 +183,32 @@ export default class TaskScheduleController {
       }
     }
     return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate())
+  }
+
+  private parseTargetDateString(targetDate: unknown): string | undefined {
+    if (typeof targetDate !== 'string') return undefined
+    const match = targetDate.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+    if (!match) return undefined
+    return targetDate
+  }
+
+  private isPastDateString(target: string, base: Date): boolean {
+    const match = target.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+    if (!match) return false
+    const [, y, m, d] = match
+    const targetDate = new Date(Number(y), Number(m) - 1, Number(d))
+    const baseDate = new Date(
+      base.getFullYear(),
+      base.getMonth(),
+      base.getDate(),
+    )
+    return targetDate.getTime() < baseDate.getTime()
+  }
+
+  private formatDateKey(date: Date): string {
+    const y = date.getFullYear()
+    const m = (date.getMonth() + 1).toString().padStart(2, '0')
+    const d = date.getDate().toString().padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
 }

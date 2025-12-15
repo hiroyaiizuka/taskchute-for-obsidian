@@ -317,6 +317,8 @@ export class TaskChuteView
       isDuplicateInstance: (inst) => this.taskMutationService.isDuplicatedTask(inst),
       moveDuplicateInstanceToDate: (inst, dateStr) =>
         this.moveDuplicateInstanceToDate(inst, dateStr),
+      hideRoutineInstanceForDate: (inst, dateStr) =>
+        this.hideRoutineInstanceForDate(inst, dateStr),
     })
     this.taskCompletionController = new TaskCompletionController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -862,6 +864,45 @@ export class TaskChuteView
       }
     } catch (error) {
       console.warn('[TaskChuteView] Failed to remove duplicate entry for moved task', error)
+    }
+  }
+
+  private async hideRoutineInstanceForDate(inst: TaskInstance, dateKey: string): Promise<void> {
+    try {
+      const path = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+      const taskId = inst.task?.taskId
+      if (!path && !taskId) {
+        return
+      }
+      await this.ensureDayStateForDate(dateKey)
+      const dayState = this.dayStateManager.getStateFor(dateKey)
+      const deletedEntries = Array.isArray(dayState.deletedInstances)
+        ? [...dayState.deletedInstances]
+        : []
+
+      const alreadyHidden = deletedEntries.some((entry) => {
+        if (!entry) return false
+        if (entry.deletionType !== 'permanent') {
+          return false
+        }
+        if (taskId && entry.taskId === taskId) return true
+        if (!taskId && path && entry.path === path) return true
+        return false
+      })
+      if (alreadyHidden) {
+        return
+      }
+
+      deletedEntries.push({
+        path,
+        deletionType: 'permanent',
+        timestamp: Date.now(),
+        taskId,
+      })
+      this.dayStateManager.setDeleted(deletedEntries, dateKey)
+      await this.persistDayState(dateKey)
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to hide routine instance for current date', error)
     }
   }
 

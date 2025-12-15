@@ -206,4 +206,87 @@ describe('TaskScheduleController', () => {
       expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('routine move to past date', () => {
+    test('hides routine on current date when moved to past', async () => {
+      const hideRoutineInstanceForDate = jest.fn().mockResolvedValue(undefined)
+      const { host, fileManager } = createHost({
+        hideRoutineInstanceForDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          isRoutine: true,
+        },
+      })
+
+      await controller.moveTaskToDate(instance, '2025-10-08')
+
+      expect(fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
+      expect(hideRoutineInstanceForDate).toHaveBeenCalledWith(instance, '2025-10-09')
+    })
+
+    test('does not hide when target is future', async () => {
+      const hideRoutineInstanceForDate = jest.fn().mockResolvedValue(undefined)
+      const { host } = createHost({
+        hideRoutineInstanceForDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          isRoutine: true,
+        },
+      })
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      expect(hideRoutineInstanceForDate).not.toHaveBeenCalled()
+    })
+
+    test('does not hide non-routine even when target is past', async () => {
+      const hideRoutineInstanceForDate = jest.fn().mockResolvedValue(undefined)
+      const { host } = createHost({
+        hideRoutineInstanceForDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          isRoutine: false,
+        },
+      })
+
+      await controller.moveTaskToDate(instance, '2025-10-08')
+
+      expect(hideRoutineInstanceForDate).not.toHaveBeenCalled()
+    })
+
+    test('hides previous target date when retargeting', async () => {
+      const hideRoutineInstanceForDate = jest.fn().mockResolvedValue(undefined)
+      const { host } = createHost({
+        hideRoutineInstanceForDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: { target_date: '2025-10-24' },
+          name: 'sample',
+          isRoutine: true,
+        },
+      })
+
+      await controller.moveTaskToDate(instance, '2025-10-17')
+
+      expect(hideRoutineInstanceForDate).toHaveBeenCalledWith(instance, '2025-10-24')
+    })
+  })
 })
