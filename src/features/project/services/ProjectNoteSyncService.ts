@@ -130,12 +130,14 @@ export class ProjectNoteSyncService {
       if (this.isTaskLine(line)) {
         const currentTitle = this.normalizeTaskTitle(this.extractTaskTitle(line))
         if (!replaced && currentTitle === normalizedTarget) {
-          updatedLines.push(this.buildTaskLine(taskTitle))
+          const existingComments: string[] = []
           index += 1
           while (index < lines.length && this.isCommentLine(lines[index])) {
+            existingComments.push(lines[index])
             index += 1
           }
-          updatedLines.push(...commentLines)
+          updatedLines.push(this.buildTaskLine(taskTitle))
+          updatedLines.push(...existingComments, ...commentLines)
           replaced = true
           continue
         }

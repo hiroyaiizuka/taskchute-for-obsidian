@@ -640,6 +640,38 @@ describe('TaskChuteView duplication and deletion', () => {
     deleteInstanceSpy.mockRestore();
     persistSpy.mockRestore();
   });
+
+  test('hideRoutineInstanceForDate records permanent deletion keyed by taskId/path', async () => {
+    const { view } = createView();
+    const targetDate = '2025-01-02';
+    await view.ensureDayStateForDate(targetDate);
+
+    const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md', taskId: 'routine-123' });
+    const instance = createTaskInstance(task, { instanceId: 'routine-inst-1' });
+
+    await (view as unknown as { hideRoutineInstanceForDate: (inst: TaskInstance, dateKey: string) => Promise<void> })
+      .hideRoutineInstanceForDate(instance, targetDate);
+
+    const dayState = view.dayStateManager.getStateFor(targetDate);
+    expect(dayState.deletedInstances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deletionType: 'permanent',
+          path: 'ROUTINE/base.md',
+          taskId: 'routine-123',
+        }),
+      ]),
+    );
+
+    // New instanceId should still be considered deleted via taskId/path match
+    const isDeleted = view.dayStateManager.isDeleted({
+      instanceId: 'routine-inst-2',
+      path: 'ROUTINE/base.md',
+      taskId: 'routine-123',
+      dateKey: targetDate,
+    });
+    expect(isDeleted).toBe(true);
+  });
 });
 
 describe('TaskChuteView persistSlotAssignment', () => {
