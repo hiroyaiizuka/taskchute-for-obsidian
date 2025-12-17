@@ -37,6 +37,8 @@ import TaskExecutionService, {
 import type { RunningTaskRecord } from "../../../features/core/services/RunningTasksService"
 import NavigationController from "../../../ui/navigation/NavigationController"
 import ProjectController from "../../../ui/project/ProjectController"
+import { GoogleCalendarService } from "../../calendar/services/GoogleCalendarService"
+import { CalendarExportModal } from "../../calendar/ui/CalendarExportModal"
 import TaskDragController from "../../../ui/tasklist/TaskDragController"
 import TaskMutationService from "../../../features/core/services/TaskMutationService"
 import type { TaskMutationHost } from "../../../features/core/services/TaskMutationService"
@@ -82,6 +84,7 @@ export class TaskChuteView
   public readonly taskReloadCoordinator: TaskReloadCoordinator
   public readonly navigationController: NavigationController
   public readonly projectController: ProjectController
+  public readonly googleCalendarService: GoogleCalendarService
   public readonly taskDragController: TaskDragController
   public readonly taskMutationService: TaskMutationService
   public readonly taskListRenderer: TaskListRenderer
@@ -220,6 +223,7 @@ export class TaskChuteView
       getTaskListElement: () => this.getTaskListElement(),
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
     })
+    this.googleCalendarService = new GoogleCalendarService(this.app)
     this.taskDragController = new TaskDragController({
       getTaskInstances: () => this.taskInstances,
       sortByOrder: (instances) => this.sortByOrder(instances),
@@ -345,6 +349,10 @@ export class TaskChuteView
       hasExecutionHistory: (path) => this.hasExecutionHistory(path),
       showDeleteConfirmDialog: (inst) => this.showDeleteConfirmDialog(inst),
       showReminderSettingsDialog: (inst) => this.showReminderSettingsDialog(inst),
+      openGoogleCalendarExport: (inst) =>
+        this.openGoogleCalendarExport(inst),
+      isGoogleCalendarEnabled: () =>
+        this.plugin.settings.googleCalendar?.enabled === true,
     })
     this.taskHeaderController = new TaskHeaderController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -1522,6 +1530,38 @@ export class TaskChuteView
 
   private showTaskContextMenu(event: MouseEvent, inst: TaskInstance): void {
     this.taskContextMenuController.show(event, inst)
+  }
+
+  private openGoogleCalendarExport(inst: TaskInstance): void {
+    if (this.plugin.settings.googleCalendar?.enabled !== true) {
+      new Notice(
+        this.tv(
+          "calendar.export.disabled",
+          "Googleカレンダー連携は設定で有効化してください",
+        ),
+      )
+      return
+    }
+
+    const modal = new CalendarExportModal({
+      app: this.app,
+      service: this.googleCalendarService,
+      instance: inst,
+      viewDate: this.getViewDate(),
+      settings: this.plugin.settings.googleCalendar ?? {},
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+      getDisplayTitle: (instance) => this.getInstanceDisplayTitle(instance),
+      isRoutine: inst.task.isRoutine === true,
+      onMoveNonRoutineDate: async (dateKey) => {
+        // Move task to target date, then jump view to that date
+        await this.taskScheduleController.moveTaskToDate(inst, dateKey)
+        this.currentDate = this.parseDateString(dateKey)
+        this.currentDayState = null
+        this.currentDayStateKey = null
+        await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+      },
+    })
+    modal.open()
   }
 
   private handleDragOver(

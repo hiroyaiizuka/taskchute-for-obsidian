@@ -78,6 +78,22 @@ export async function prepareSettings(
     }
   }
 
+  // Normalize Google Calendar settings
+  if (!settings.googleCalendar) {
+    settings.googleCalendar = {
+      enabled: false,
+      defaultDurationMinutes: 60,
+      includeNoteContent: true,
+    }
+  } else {
+    if (settings.googleCalendar.includeNoteContent === false) {
+      settings.googleCalendar.includeNoteContent = true
+    }
+    if (!Number.isFinite(settings.googleCalendar.defaultDurationMinutes)) {
+      settings.googleCalendar.defaultDurationMinutes = 60
+    }
+  }
+
   return settings
 }
 

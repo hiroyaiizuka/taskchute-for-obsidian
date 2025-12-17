@@ -44,6 +44,15 @@ export interface TaskChuteSettings {
 
   // Device identity (legacy, migrated to localStorage)
   deviceId?: string
+
+  // Google Calendar export (URL scheme, push-only)
+  googleCalendar?: GoogleCalendarSettings
+}
+
+export interface GoogleCalendarSettings {
+  enabled?: boolean
+  defaultDurationMinutes?: number
+  includeNoteContent?: boolean
 }
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const

@@ -5,6 +5,7 @@ import {
   ReminderSettingsModal,
   ReminderSettingsModalOptions,
 } from '../../src/features/reminder/modals/ReminderSettingsModal';
+import { t } from '../../src/i18n';
 
 // Mock Obsidian App and Modal
 const mockOpen = jest.fn();
@@ -61,7 +62,9 @@ describe('ReminderSettingsModal', () => {
   describe('onOpen', () => {
     it('should render header in modal', () => {
       modal.onOpen();
-      expect(modal.contentEl.textContent).toContain('リマインダー設定');
+      expect(modal.contentEl.textContent).toContain(
+        t('reminder.modal.title', 'Reminder settings')
+      );
     });
 
     it('should render input field for time', () => {
