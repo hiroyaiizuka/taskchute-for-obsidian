@@ -12,6 +12,8 @@ export interface TaskSettingsTooltipHost {
   hasExecutionHistory: (path: string) => Promise<boolean>
   showDeleteConfirmDialog: (inst: TaskInstance) => Promise<boolean>
   showReminderSettingsDialog?: (inst: TaskInstance) => void
+  openGoogleCalendarExport?: (inst: TaskInstance) => void
+  isGoogleCalendarEnabled?: () => boolean
 }
 
 export default class TaskSettingsTooltipController {
@@ -61,12 +63,13 @@ export default class TaskSettingsTooltipController {
     }
     closeButton.addEventListener('click', dismiss)
 
-    this.appendReset(inst, tooltip)
-    this.appendStartTime(inst, tooltip)
-    this.appendReminder(inst, tooltip)
     this.appendMove(inst, tooltip, anchor)
     this.appendDuplicate(inst, tooltip)
     void this.appendDelete(inst, tooltip)
+    this.appendReset(inst, tooltip)
+    this.appendStartTime(inst, tooltip)
+    this.appendReminder(inst, tooltip)
+    this.appendGoogleCalendar(inst, tooltip)
 
     const rect = anchor.getBoundingClientRect()
     const width = 200
@@ -160,6 +163,35 @@ export default class TaskSettingsTooltipController {
       event.stopPropagation()
       tooltip.remove()
       this.host.showReminderSettingsDialog!(inst)
+    })
+  }
+
+  private appendGoogleCalendar(inst: TaskInstance, tooltip: HTMLElement): void {
+    if (!this.host.openGoogleCalendarExport) return
+
+    const enabled = this.host.isGoogleCalendarEnabled
+      ? this.host.isGoogleCalendarEnabled()
+      : false
+
+    if (!enabled) {
+      return
+    }
+
+    const item = tooltip.createEl("div", {
+      cls: "tooltip-item",
+      text: this.host.tv("calendar.export.toGoogle", "🗓️ register calender"),
+      attr: {
+        title: this.host.tv(
+          "calendar.export.tooltip",
+          "Open Google Calendar in browser",
+        ),
+      },
+    })
+
+    item.addEventListener("click", (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.openGoogleCalendarExport?.(inst)
     })
   }
 

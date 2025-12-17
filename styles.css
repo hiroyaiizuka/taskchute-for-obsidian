@@ -47,6 +47,65 @@
   max-height: 50vh !important;
 }
 
+.taskchute-calendar-export-modal .setting-item .setting-item-description:empty {
+  display: none;
+}
+.taskchute-calendar-export-modal .setting-item.is-hidden {
+  display: none;
+  border-top: 0;
+  border-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin: 0;
+}
+.taskchute-calendar-export-modal .setting-item {
+  border-top: 0;
+  border-bottom: 0;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.taskchute-calendar-export-modal .setting-item:not(.is-hidden) + .setting-item:not(.is-hidden) {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.taskchute-calendar-export-modal .setting-item-heading {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.taskchute-calendar-export-modal .calendar-export-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 0 !important;
+}
+.taskchute-calendar-export-modal .modal-close-button {
+  top: 25px !important;
+  right: 16px !important;
+}
+.taskchute-calendar-export-modal .modal-title {
+  padding-bottom: 12px;
+  padding-top: 6px;
+}
+.taskchute-calendar-export-modal .modal-header {
+  padding-top: 0;
+}
+.taskchute-settings-pane .taskchute-subheading.setting-item .setting-item-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-name {
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2;
+}
+.taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-info {
+  margin-top: 4px;
+}
+.task-modal-content .modal-header {
+  padding-bottom: 10px;
+}
+
 :where(
     .task-modal-content,
     .taskchute-confirm-modal,

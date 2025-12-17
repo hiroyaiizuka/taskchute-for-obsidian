@@ -19,6 +19,13 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
 
   // Reminder defaults
   defaultReminderMinutes: 5,
+
+  // Google Calendar export (URL scheme push-only)
+  googleCalendar: {
+    enabled: false,
+    defaultDurationMinutes: 60,
+    includeNoteContent: true,
+  },
 };
 
 export { TaskChuteSettingTab } from './SettingsTab';

@@ -6,6 +6,7 @@
  */
 
 import { App, Modal } from 'obsidian';
+import { t } from '../../../i18n';
 
 export interface ReminderSettingsModalOptions {
   /** Current reminder time in HH:mm format, or undefined if not set */
@@ -126,12 +127,12 @@ export class ReminderSettingsModal extends Modal {
 
     // Header
     const header = createElCompat(contentEl, 'div', { cls: 'reminder-settings-header' });
-    createElCompat(header, 'h3', { text: 'リマインダー設定' });
+    createElCompat(header, 'h3', { text: t('reminder.modal.title', 'Reminder settings') });
 
     // Input section
     const inputSection = createElCompat(contentEl, 'div', { cls: 'reminder-settings-input-section' });
     createElCompat(inputSection, 'label', {
-      text: '通知する時刻を設定してください',
+      text: t('reminder.modal.description', 'Set the time to receive a reminder'),
       attr: { for: 'reminder-time-input' },
     });
 
@@ -152,7 +153,9 @@ export class ReminderSettingsModal extends Modal {
     if (this.scheduledTime) {
       createElCompat(inputSection, 'p', {
         cls: 'reminder-scheduled-info',
-        text: `タスク開始予定: ${this.scheduledTime}`,
+        text: t('reminder.modal.scheduledInfo', 'Scheduled start: {time}', {
+          time: this.scheduledTime,
+        }),
       });
     }
 
@@ -164,7 +167,7 @@ export class ReminderSettingsModal extends Modal {
       const clearButton = createElCompat(buttonGroup, 'button', {
         type: 'button',
         cls: ['form-button', 'danger'],
-        text: '解除',
+        text: t('reminder.modal.clear', 'Clear'),
       });
       clearButton.addEventListener('click', () => {
         this.onClearCallback();
@@ -176,7 +179,7 @@ export class ReminderSettingsModal extends Modal {
     const cancelButton = createElCompat(buttonGroup, 'button', {
       type: 'button',
       cls: ['form-button', 'cancel'],
-      text: 'キャンセル',
+      text: t('common.cancel', 'Cancel'),
     });
     cancelButton.addEventListener('click', () => {
       this.close();
@@ -186,7 +189,7 @@ export class ReminderSettingsModal extends Modal {
     const saveButton = createElCompat(buttonGroup, 'button', {
       type: 'button',
       cls: ['form-button', 'create'],
-      text: '設定',
+      text: t('reminder.modal.save', 'Save'),
     });
     saveButton.addEventListener('click', () => {
       this.handleSave();
