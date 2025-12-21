@@ -77,6 +77,9 @@ class ConfirmModal extends Modal {
       }
     }
     this.modalEl?.classList.add('taskchute-confirm-modal')
+    if (this.destructive) {
+      this.modalEl?.classList.add('taskchute-confirm-modal--destructive')
+    }
 
     const header = createElCompat(contentEl, 'div', { cls: 'modal-header' })
     createElCompat(header, 'h3', { text: this.titleText })
@@ -119,6 +122,9 @@ class ConfirmModal extends Modal {
     confirmButton.addEventListener('click', () => {
       this.closeWith(true)
     })
+
+    const defaultButton = this.destructive ? cancelButton : confirmButton
+    defaultButton.focus()
   }
 
   onClose(): void {
@@ -129,7 +135,7 @@ class ConfirmModal extends Modal {
         this.contentEl.removeChild(this.contentEl.firstChild)
       }
     }
-    this.modalEl?.classList.remove('taskchute-confirm-modal')
+    this.modalEl?.classList.remove('taskchute-confirm-modal', 'taskchute-confirm-modal--destructive')
   }
 
   private closeWith(result: boolean): void {
