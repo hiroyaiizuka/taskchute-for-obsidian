@@ -305,10 +305,12 @@ export class ProjectBoardView extends ItemView {
       this.boardService.createProject({
         title,
         status,
-      }).then(() => {
-        this.reloadItemsPreservingState()
+      }).then((createdItem) => {
+        const filtered = this.items.filter((item) => item.path !== createdItem.path)
+        this.items = [createdItem, ...filtered]
         close()
         this.render()
+        this.scheduleMetadataRefresh(createdItem.path, createdItem.status)
       }).catch((error: unknown) => {
         console.error('[ProjectBoard] Failed to create project', error)
         new Notice(this.translate('projectCreate.error', 'Failed to create project'))

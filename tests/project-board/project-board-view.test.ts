@@ -29,11 +29,21 @@ describe('ProjectBoardView', () => {
     render: () => void
   }
 
-  function createPluginStub(options: { items?: ProjectBoardItem[] }) {
+  const flushMicrotasks = () => new Promise<void>((resolve) => {
+    void Promise.resolve().then(() => resolve())
+  })
+
+  function createPluginStub(options: {
+    items?: ProjectBoardItem[]
+    createProjectResult?: ProjectBoardItem
+    loadProjectItems?: () => ProjectBoardItem[]
+  }) {
     const items = options.items ?? []
 
-    const loadProjectItems = jest.fn(() => items)
-    const createProject = jest.fn(async () => items[0] ?? createItem('todo', 'New project'))
+    const loadProjectItems = jest.fn(options.loadProjectItems ?? (() => items))
+    const createProject = jest.fn(async () =>
+      options.createProjectResult ?? items[0] ?? createItem('todo', 'New project'),
+    )
     const updateProjectStatus = jest.fn(async () => {})
     const service = {
       loadProjectItems,
@@ -109,7 +119,11 @@ describe('ProjectBoardView', () => {
     }
   }
 
-  function createView(options: { items?: ProjectBoardItem[] }) {
+  function createView(options: {
+    items?: ProjectBoardItem[]
+    createProjectResult?: ProjectBoardItem
+    loadProjectItems?: () => ProjectBoardItem[]
+  }) {
     const { plugin, service } = createPluginStub(options)
     const leaf = { containerEl: document.createElement('div') } as unknown as WorkspaceLeaf
     const view = new ProjectBoardView(leaf, plugin, {
@@ -211,6 +225,59 @@ describe('ProjectBoardView', () => {
     columns.forEach((list) => {
       expect(list.getAttribute('data-scroll-region')).toBe('cards')
     })
+  })
+
+  test('creates project in selected column without relying on metadata cache', async () => {
+    const createdItem = createItem('in-progress', 'New project')
+    const loadProjectItems = jest.fn(() => [createItem('todo', 'New project')])
+    const { view, service } = createView({
+      items: [],
+      createProjectResult: createdItem,
+      loadProjectItems,
+    })
+    const mutable = view as MutableView
+    mutable.items = []
+    mutable.statusDefs = [
+      { id: 'todo', label: 'To Do' },
+      { id: 'in-progress', label: 'In Progress' },
+      { id: 'done', label: 'Done' },
+    ]
+
+    const scheduleMetadataRefresh = jest.fn()
+    ;(view as unknown as { scheduleMetadataRefresh: jest.Mock }).scheduleMetadataRefresh = scheduleMetadataRefresh
+
+    mutable.render()
+
+    const addButton = view.containerEl.querySelector(
+      '.project-board-column[data-status="in-progress"] .project-board-column__new',
+    ) as HTMLButtonElement
+    expect(addButton).not.toBeNull()
+    addButton.click()
+
+    const overlay = document.querySelector('.task-modal-overlay') as HTMLElement
+    const form = overlay.querySelector('form') as HTMLFormElement
+    const input = overlay.querySelector('input') as HTMLInputElement
+    input.value = 'New project'
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+    await flushMicrotasks()
+
+    expect((service as unknown as { createProject: jest.Mock }).createProject).toHaveBeenCalledWith({
+      title: 'New project',
+      status: 'in-progress',
+    })
+
+    const inProgressCards = view.containerEl.querySelectorAll(
+      '.project-board-column[data-status="in-progress"] .project-board-card',
+    )
+    const todoCards = view.containerEl.querySelectorAll(
+      '.project-board-column[data-status="todo"] .project-board-card',
+    )
+    expect(inProgressCards.length).toBe(1)
+    expect(inProgressCards[0].textContent).toBe('New project')
+    expect(todoCards.length).toBe(0)
+    expect(scheduleMetadataRefresh).toHaveBeenCalledWith(createdItem.path, 'in-progress')
   })
 
   describe('reloadItemsPreservingState', () => {
