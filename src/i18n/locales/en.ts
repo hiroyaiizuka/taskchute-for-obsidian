@@ -536,7 +536,7 @@ export const en = {
     labels: {
       yearOption: "{year}",
       tooltipNoData: "No data",
-      openTaskList: "Open task list",
+      openTaskList: "Open ↗",
       openTaskListAria: "Open task list for {date}",
       totalTasks: "Total tasks",
       completedTasks: "Completed",

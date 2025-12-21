@@ -214,8 +214,10 @@ beforeAll(() => {
     const dateEl = container.querySelector('.heatmap-detail-date')
     expect(dateEl?.textContent).toContain('2025-09-26')
 
-    const satisfactionEl = container.querySelector('.heatmap-detail-satisfaction')
-    expect(satisfactionEl?.textContent).toBe('1日の満足度: 4/5')
+    const openButton = container.querySelector('.heatmap-detail-open-button')
+    expect(openButton?.textContent).toBe('↗︎ 開く')
+    const heading = container.querySelector('.heatmap-detail-heading')
+    expect(heading?.contains(openButton ?? null)).toBe(true)
 
     const rows = container.querySelectorAll('.heatmap-detail-table tbody tr')
     expect(rows.length).toBe(1)
@@ -282,8 +284,10 @@ beforeAll(() => {
     expect(loadDetail).toHaveBeenCalledWith('2025-09-25')
     const dateEl = container.querySelector('.heatmap-detail-date')
     expect(dateEl?.textContent).toContain('2025-09-25')
-    const satisfactionEl = container.querySelector('.heatmap-detail-satisfaction')
-    expect(satisfactionEl?.textContent).toBe('1日の満足度: 5/5')
+    const openButton = container.querySelector('.heatmap-detail-open-button')
+    expect(openButton?.textContent).toBe('↗︎ 開く')
+    const heading = container.querySelector('.heatmap-detail-heading')
+    expect(heading?.contains(openButton ?? null)).toBe(true)
 
     const detailCell = container.querySelector('.heatmap-detail-name')
     expect(detailCell?.textContent).toContain('✅')

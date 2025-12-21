@@ -574,13 +574,9 @@ export class LogView {
       text: this.formatHeaderDate(detail.date),
     });
 
-    const satisfactionBadge = this.createSatisfactionElement(detail.satisfaction);
-    heading.appendChild(satisfactionBadge);
-
-    const actions = header.createEl('div', { cls: 'heatmap-detail-actions' });
-    const openButton = actions.createEl('button', {
+    const openButton = heading.createEl('button', {
       cls: 'heatmap-detail-open-button',
-      text: this.tv('labels.openTaskList', 'タスク一覧を開く'),
+      text: this.tv('labels.openTaskList', '↗︎ 開く'),
       attr: {
         'aria-label': this.tv(
           'labels.openTaskListAria',
@@ -680,22 +676,6 @@ export class LogView {
     const item = parent.createEl('div', { cls: 'heatmap-summary-item' });
     item.createEl('span', { cls: 'heatmap-summary-label', text: label });
     item.createEl('span', { cls: 'heatmap-summary-value', text: value });
-  }
-
-  private createSatisfactionElement(value: number | null): HTMLElement {
-    const span = document.createElement('span');
-    span.className = 'heatmap-detail-satisfaction';
-    if (value === null) {
-      span.textContent = this.tv('labels.satisfactionEmpty', '1日の満足度: -');
-      return span;
-    }
-    const clamped = Math.min(5, Math.max(1, Math.round(value)));
-    span.textContent = this.tv(
-      'labels.satisfactionValue',
-      `1日の満足度: ${clamped}/5`,
-      { value: clamped },
-    );
-    return span;
   }
 
   private formatHeaderDate(dateKey: string): string {

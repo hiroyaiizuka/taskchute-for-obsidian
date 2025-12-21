@@ -537,7 +537,7 @@ export const ja = {
     labels: {
       yearOption: "{year}年",
       tooltipNoData: "データなし",
-      openTaskList: "タスク一覧を開く",
+      openTaskList: "↗︎ 開く",
       openTaskListAria: "{date}のタスク一覧を開く",
       totalTasks: "総タスク",
       completedTasks: "完了",

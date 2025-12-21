@@ -345,6 +345,11 @@ select.form-input {
   margin: 24px 20px 20px;
 }
 
+.taskchute-confirm-modal .form-button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
 .form-button {
   padding: 8px 16px;
   border: none;
@@ -2085,6 +2090,7 @@ select.form-input {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .heatmap-detail-date {
@@ -2092,18 +2098,6 @@ select.form-input {
   font-size: 18px;
   font-weight: 600;
   color: var(--text-normal);
-}
-
-.heatmap-detail-satisfaction {
-  font-size: 14px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.heatmap-detail-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .heatmap-detail-open-button {
@@ -2368,7 +2362,7 @@ select.form-input {
     width: 40%;
   }
 
-  /* Header adjustments - row layout with button on right */
+  /* Header adjustments - row layout with inline action */
   .heatmap-detail-header {
     flex-direction: row;
     flex-wrap: nowrap;
@@ -2384,20 +2378,12 @@ select.form-input {
     gap: 6px;
     flex-shrink: 1;
     min-width: 0;
+    flex-wrap: wrap;
   }
 
   .heatmap-detail-date {
     font-size: 11px;
     white-space: nowrap;
-  }
-
-  .heatmap-detail-satisfaction {
-    font-size: 10px;
-    white-space: nowrap;
-  }
-
-  .heatmap-detail-actions {
-    flex-shrink: 0;
   }
 
   .heatmap-detail-open-button {
