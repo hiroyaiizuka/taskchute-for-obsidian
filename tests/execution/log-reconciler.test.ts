@@ -157,6 +157,149 @@ describe('LogReconciler', () => {
     expect(recordsNote).not.toContain('Remove me')
   })
 
+  test('applies summary delta using recordedAt LWW', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    seedSnapshot(store, abstractStore, '2025-10', {
+      taskExecutions: {},
+      dailySummary: {
+        '2025-10-01': {
+          totalTasks: 2,
+          totalTasksRecordedAt: '2025-10-01T08:00:00.000Z',
+          totalTasksDeviceId: 'device-alpha',
+          totalTasksEntryId: 'device-alpha:1',
+        },
+      },
+      meta: { revision: 1, processedCursor: { 'device-alpha': 0 } },
+    })
+
+    seedDeltaFile(abstractStore, deltaStore, 'device-alpha', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'summary',
+        entryId: 'device-alpha:old',
+        deviceId: 'device-alpha',
+        monthKey: '2025-10',
+        dateKey: '2025-10-01',
+        recordedAt: '2025-10-01T07:00:00.000Z',
+        payload: { summary: { totalTasks: 1 } },
+      },
+      {
+        schemaVersion: 1,
+        op: 'summary',
+        entryId: 'device-alpha:new',
+        deviceId: 'device-alpha',
+        monthKey: '2025-10',
+        dateKey: '2025-10-01',
+        recordedAt: '2025-10-01T09:00:00.000Z',
+        payload: { summary: { totalTasks: 5 } },
+      },
+    ])
+
+    const reconciler = new LogReconciler(plugin)
+    await reconciler.reconcilePendingDeltas()
+
+    const snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    expect(snapshot.dailySummary['2025-10-01'].totalTasks).toBe(5)
+    expect(snapshot.dailySummary['2025-10-01'].totalTasksRecordedAt).toBe('2025-10-01T09:00:00.000Z')
+    expect(snapshot.dailySummary['2025-10-01'].totalTasksDeviceId).toBe('device-alpha')
+    expect(snapshot.dailySummary['2025-10-01'].totalTasksEntryId).toBe('device-alpha:new')
+  })
+
+  test('uses deviceId/entryId tie-break for summary delta', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    seedSnapshot(store, abstractStore, '2025-10', {
+      taskExecutions: {},
+      dailySummary: {},
+      meta: { revision: 0, processedCursor: {} },
+    })
+
+    seedDeltaFile(abstractStore, deltaStore, 'device-alpha', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'summary',
+        entryId: 'device-zulu:1',
+        deviceId: 'device-zulu',
+        monthKey: '2025-10',
+        dateKey: '2025-10-02',
+        recordedAt: '2025-10-02T08:00:00.000Z',
+        payload: { summary: { totalTasks: 9 } },
+      },
+      {
+        schemaVersion: 1,
+        op: 'summary',
+        entryId: 'device-alpha:2',
+        deviceId: 'device-alpha',
+        monthKey: '2025-10',
+        dateKey: '2025-10-02',
+        recordedAt: '2025-10-02T08:00:00.000Z',
+        payload: { summary: { totalTasks: 3 } },
+      },
+    ])
+
+    const reconciler = new LogReconciler(plugin)
+    await reconciler.reconcilePendingDeltas()
+
+    const snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    expect(snapshot.dailySummary['2025-10-02'].totalTasks).toBe(9)
+    expect(snapshot.dailySummary['2025-10-02'].totalTasksDeviceId).toBe('device-zulu')
+    expect(snapshot.dailySummary['2025-10-02'].totalTasksEntryId).toBe('device-zulu:1')
+  })
+
+  test('recomputes derived summary fields when totalTasks changes', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    seedSnapshot(store, abstractStore, '2025-10', {
+      taskExecutions: {
+        '2025-10-03': [
+          {
+            instanceId: 'inst-1',
+            taskId: 'tc-task-1',
+            taskTitle: 'Sample',
+            taskPath: 'TASKS/sample.md',
+            durationSec: 600,
+            stopTime: '09:00',
+          },
+        ],
+      },
+      dailySummary: {
+        '2025-10-03': {
+          totalMinutes: 5,
+          totalTasks: 2,
+          completedTasks: 1,
+          procrastinatedTasks: 1,
+          completionRate: 0.5,
+          totalTasksRecordedAt: '2025-10-03T08:00:00.000Z',
+          totalTasksDeviceId: 'device-alpha',
+          totalTasksEntryId: 'device-alpha:1',
+        },
+      },
+      meta: { revision: 1, processedCursor: { 'device-alpha': 0 } },
+    })
+
+    seedDeltaFile(abstractStore, deltaStore, 'device-alpha', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'summary',
+        entryId: 'device-alpha:2',
+        deviceId: 'device-alpha',
+        monthKey: '2025-10',
+        dateKey: '2025-10-03',
+        recordedAt: '2025-10-03T09:00:00.000Z',
+        payload: { summary: { totalTasks: 5 } },
+      },
+    ])
+
+    const reconciler = new LogReconciler(plugin)
+    await reconciler.reconcilePendingDeltas()
+
+    const snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    const summary = snapshot.dailySummary['2025-10-03']
+    expect(summary.totalTasks).toBe(5)
+    expect(summary.completedTasks).toBe(1)
+    expect(summary.totalMinutes).toBe(10)
+    expect(summary.procrastinatedTasks).toBe(4)
+    expect(summary.completionRate).toBeCloseTo(0.2)
+  })
+
   test('resets processed cursor when delta file shrinks', async () => {
     const { plugin, store, deltaStore, abstractStore } = createPluginStub()
     seedSnapshot(store, abstractStore, '2025-11', {

@@ -7,7 +7,6 @@ import {
   HiddenRoutine,
   DeletedInstance,
 } from '../../../types'
-import { parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
 import type DayStateStoreService from '../../../services/DayStateStoreService'
 
 type HiddenRoutineEntry = HiddenRoutine | string
@@ -57,6 +56,12 @@ export interface TaskMutationHost {
   getOrderKey: (inst: TaskInstance) => string | null
   dayStateManager: DayStateStoreService
   removeRunningTaskRecord?: (params: { instanceId?: string; taskPath?: string; taskId?: string }) => Promise<unknown>
+  removeTaskLogForInstanceOnDate?: (
+    instanceId: string,
+    dateKey: string,
+    taskId?: string,
+    taskPath?: string,
+  ) => Promise<void>
 }
 
 export default class TaskMutationService {
@@ -234,29 +239,17 @@ export default class TaskMutationService {
 
   async deleteTaskLogsByInstanceId(taskPath: string, instanceId: string): Promise<number> {
     try {
-      const logDataPath = this.host.plugin.pathManager.getLogDataPath()
-      const [year, month] = this.host.getCurrentDateString().split('-')
-      const logPath = `${logDataPath}/${year}-${month}-tasks.json`
-      const file = this.host.app.vault.getAbstractFileByPath(logPath)
-      if (!file || !(file instanceof TFile)) {
+      if (!instanceId) {
         return 0
       }
 
-      const raw = await this.host.app.vault.read(file)
-      const monthlyLog = parseTaskLogSnapshot(raw)
-
-      let deletedCount = 0
-      Object.keys(monthlyLog.taskExecutions).forEach((dayKey) => {
-        const executions = monthlyLog.taskExecutions[dayKey] ?? []
-        const before = executions.length
-        monthlyLog.taskExecutions[dayKey] = executions.filter((entry) => entry?.instanceId !== instanceId)
-        deletedCount += before - monthlyLog.taskExecutions[dayKey].length
-      })
-
-      if (deletedCount > 0) {
-        await this.host.app.vault.modify(file, JSON.stringify(monthlyLog, null, 2))
+      if (typeof this.host.removeTaskLogForInstanceOnDate !== 'function') {
+        return 0
       }
-      return deletedCount
+
+      const dateKey = this.extractDateKeyFromInstanceId(instanceId) ?? this.host.getCurrentDateString()
+      await this.host.removeTaskLogForInstanceOnDate(instanceId, dateKey, undefined, taskPath)
+      return 1
     } catch (error) {
       console.warn('[TaskMutationService] deleteTaskLogsByInstanceId failed', error)
       return 0
@@ -439,5 +432,13 @@ export default class TaskMutationService {
     } catch (error) {
       console.warn('[TaskMutationService] renderTaskList skipped', error)
     }
+  }
+
+  private extractDateKeyFromInstanceId(instanceId: string): string | null {
+    if (!instanceId) {
+      return null
+    }
+    const match = instanceId.match(/\d{4}-\d{2}-\d{2}/)
+    return match ? match[0] : null
   }
 }

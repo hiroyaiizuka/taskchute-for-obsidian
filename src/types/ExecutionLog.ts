@@ -27,6 +27,9 @@ export interface DailySummaryEntry {
   completedTasks?: number
   procrastinatedTasks?: number
   completionRate?: number
+  totalTasksRecordedAt?: string
+  totalTasksDeviceId?: string
+  totalTasksEntryId?: string
   [key: string]: unknown
 }
 

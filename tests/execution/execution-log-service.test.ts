@@ -44,6 +44,27 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
       deltaStore.set(path, data);
     }),
     exists: jest.fn(async (path: string) => deltaStore.has(path)),
+    list: jest.fn(async (path: string) => {
+      const normalized = path.replace(/\/+$/, '');
+      const folders = new Set<string>();
+      const files: string[] = [];
+      for (const key of deltaStore.keys()) {
+        if (!key.startsWith(`${normalized}/`)) {
+          continue;
+        }
+        const remainder = key.slice(normalized.length + 1);
+        if (!remainder) {
+          continue;
+        }
+        const [first, ...rest] = remainder.split('/');
+        if (rest.length === 0) {
+          files.push(key);
+        } else {
+          folders.add(`${normalized}/${first}`);
+        }
+      }
+      return { files, folders: Array.from(folders) };
+    }),
   };
 
   const vault = {
@@ -136,68 +157,26 @@ function createInstance(overrides: Partial<TaskInstance> = {}): TaskInstance {
 }
 
 describe('ExecutionLogService.saveTaskLog', () => {
-  test('counts completed instances even when metadata overlaps', async () => {
-    const { plugin, store } = createPluginStub();
+  test('writes delta without modifying snapshot directly', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, store, deltaStore, vault } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
-    const inst1 = createInstance({ instanceId: 'inst-1' });
-    await service.saveTaskLog(inst1, 3600);
+    const inst = createInstance({ instanceId: 'inst-1' });
+    await service.saveTaskLog(inst, 3600);
 
-    const logPath = 'LOGS/2025-09-tasks.json';
-    let data = store.get(logPath)!;
-    expect(data).toBeDefined();
-    expect(data.taskExecutions['2025-09-24']).toHaveLength(1);
-    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
+    expect(store.size).toBe(0);
+    expect(vault.modify).not.toHaveBeenCalled();
+    expect(vault.create).not.toHaveBeenCalled();
 
-    // Pre-set totalTasks to ensure it is preserved on next save
-    data.dailySummary['2025-09-24'].totalTasks = 5;
-    store.set(logPath, data);
-
-    const inst2 = createInstance({
-      instanceId: 'inst-2',
-      startTime: new Date('2025-09-24T10:00:00'),
-      stopTime: new Date('2025-09-24T10:45:00'),
-    });
-    await service.saveTaskLog(inst2, 2700);
-
-    data = store.get(logPath)!;
-    expect(data.taskExecutions['2025-09-24']).toHaveLength(2);
-    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(2);
-    expect(data.dailySummary['2025-09-24'].totalTasks).toBe(5);
-    expect(data.dailySummary['2025-09-24'].procrastinatedTasks).toBe(3);
-  });
-
-  test('overwrites existing entry when same instance id is logged again', async () => {
-    const { plugin, store } = createPluginStub();
-    const service = new ExecutionLogService(plugin);
-
-    const base = createInstance();
-    await service.saveTaskLog(base, 3600);
-
-    const logPath = 'LOGS/2025-09-tasks.json';
-    let data = store.get(logPath)!;
-    expect(data.taskExecutions['2025-09-24']).toHaveLength(1);
-    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
-      expect.objectContaining({ instanceId: 'inst-1', slotKey: '8:00-12:00' }),
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-09.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const record = JSON.parse(raw!.trim().split('\n').pop()!);
+    expect(record.op).toBe('upsert');
+    expect(record.payload).toEqual(
+      expect.objectContaining({ instanceId: 'inst-1', taskId: 'tc-task-sample' }),
     );
-    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
-      expect.objectContaining({ taskId: 'tc-task-sample' }),
-    );
-
-    const updated = createInstance({
-      instanceId: 'inst-1',
-      slotKey: '12:00-16:00',
-      startTime: new Date('2025-09-24T12:00:00'),
-      stopTime: new Date('2025-09-24T13:00:00'),
-    });
-    await service.saveTaskLog(updated, 3600);
-
-    data = store.get(logPath)!;
-    expect(data.taskExecutions['2025-09-24']).toHaveLength(1);
-    expect(data.taskExecutions['2025-09-24'][0]).toEqual(
-      expect.objectContaining({ instanceId: 'inst-1', slotKey: '12:00-16:00' }),
-    );
-    expect(data.dailySummary['2025-09-24'].completedTasks).toBe(1);
   });
 
   test('writes delta record with device id metadata', async () => {
@@ -364,8 +343,9 @@ describe('ExecutionLogService.hasExecutionHistory', () => {
 });
 
 describe('ExecutionLogService.renameTaskPath', () => {
-  test('updates taskPath across log entries while preserving titles', async () => {
-    const { plugin, store } = createPluginStub();
+  test('emits delta updates without modifying snapshot directly', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, store, deltaStore, vault } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
     const logPath = 'LOGS/2025-09-tasks.json';
@@ -381,13 +361,72 @@ describe('ExecutionLogService.renameTaskPath', () => {
 
     await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md');
 
+    expect(vault.modify).not.toHaveBeenCalled();
     const snapshot = store.get(logPath)!;
     const entries = snapshot.taskExecutions['2025-09-14'] as Array<Record<string, unknown>>;
     expect(entries[0]).toEqual(
-      expect.objectContaining({ taskPath: 'TASKS/new.md', taskTitle: 'Old Routine' }),
+      expect.objectContaining({ taskPath: 'TASKS/old.md', taskTitle: 'Old Routine' }),
     );
     expect(entries[1]).toEqual(
       expect.objectContaining({ taskPath: 'TASKS/other.md', taskTitle: 'Other Task' }),
+    );
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-09.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const records = raw!.trim().split('\n').map((line) => JSON.parse(line));
+    expect(records).toHaveLength(1);
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        op: 'upsert',
+        dateKey: '2025-09-14',
+        payload: expect.objectContaining({
+          instanceId: 'old-1',
+          taskPath: 'TASKS/new.md',
+          taskTitle: 'Old Routine',
+        }),
+      }),
+    );
+  });
+
+  test('emits rename delta based on pending inbox deltas when snapshot missing', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, deltaStore } = createPluginStub();
+    const service = new ExecutionLogService(plugin);
+
+    const pendingRecord = {
+      schemaVersion: 1,
+      op: 'upsert',
+      entryId: 'device-beta:1',
+      deviceId: 'device-beta',
+      monthKey: '2025-11',
+      dateKey: '2025-11-03',
+      recordedAt: '2025-11-03T08:00:00.000Z',
+      payload: {
+        instanceId: 'inst-rename',
+        taskId: 'tc-task-rename',
+        taskTitle: 'Rename Me',
+        taskPath: 'TASKS/old.md',
+        startTime: '08:00',
+        stopTime: '09:00',
+      },
+    };
+    deltaStore.set('LOGS/inbox/device-beta/2025-11.jsonl', `${JSON.stringify(pendingRecord)}\n`);
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md');
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-11.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const record = JSON.parse(raw!.trim().split('\n').pop()!);
+    expect(record.op).toBe('upsert');
+    expect(record.dateKey).toBe('2025-11-03');
+    expect(record.payload).toEqual(
+      expect.objectContaining({
+        instanceId: 'inst-rename',
+        taskId: 'tc-task-rename',
+        taskPath: 'TASKS/new.md',
+      }),
     );
   });
 
@@ -415,69 +454,36 @@ describe('ExecutionLogService.renameTaskPath', () => {
 });
 
 describe('ExecutionLogService.updateDailySummaryTotals', () => {
-  test('creates snapshot when log file is missing', async () => {
-    const { plugin, store } = createPluginStub();
+  test('emits summary delta without mutating snapshot directly', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, store, deltaStore, vault } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
     await service.updateDailySummaryTotals('2025-10-09', 4);
 
-    const data = store.get('LOGS/2025-10-tasks.json');
-    expect(data).toBeDefined();
-    expect(data?.dailySummary['2025-10-09']).toEqual(
-      expect.objectContaining({
-        totalTasks: 4,
-        completedTasks: 0,
-        procrastinatedTasks: 4,
-        completionRate: 0,
-      }),
-    );
-    expect(data?.taskExecutions['2025-10-09']).toEqual([]);
+    expect(store.size).toBe(0);
+    expect(vault.modify).not.toHaveBeenCalled();
+    expect(vault.create).not.toHaveBeenCalled();
+
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-10.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    expect(raw).toBeDefined();
+    const record = JSON.parse(raw!.trim().split('\n').pop()!);
+    expect(record.op).toBe('summary');
+    expect(record.payload).toEqual({ summary: { totalTasks: 4 } });
   });
 
-  test('recomputes summary metrics from existing executions', async () => {
-    const { plugin, store } = createPluginStub();
-    store.set('LOGS/2025-09-tasks.json', {
-      taskExecutions: {
-        '2025-09-24': [
-      {
-        instanceId: 'inst-1',
-        durationSec: 1800,
-        stopTime: '09:30',
-        isCompleted: true,
-      },
-      {
-        instanceId: 'inst-2',
-        durationSec: 600,
-        stopTime: '',
-        isCompleted: false,
-      },
-        ],
-      },
-      dailySummary: {
-        '2025-09-24': {
-          totalMinutes: 999,
-          totalTasks: 2,
-          completedTasks: 1,
-          procrastinatedTasks: 1,
-          completionRate: 0.5,
-        },
-      },
-    });
+  test('skips duplicate summary deltas in the same session', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, deltaStore } = createPluginStub();
     const service = new ExecutionLogService(plugin);
 
-    await service.updateDailySummaryTotals('2025-09-24', 6);
+    await service.updateDailySummaryTotals('2025-10-09', 4);
+    await service.updateDailySummaryTotals('2025-10-09', 4);
 
-    const data = store.get('LOGS/2025-09-tasks.json');
-    expect(data).toBeDefined();
-    const summary = data?.dailySummary['2025-09-24'];
-    expect(summary).toEqual(
-      expect.objectContaining({
-        totalTasks: 6,
-        completedTasks: 1,
-        procrastinatedTasks: 5,
-        completionRate: 1 / 6,
-        totalMinutes: 40,
-      }),
-    );
+    const deltaPath = 'LOGS/inbox/device-alpha/2025-10.jsonl';
+    const raw = deltaStore.get(deltaPath);
+    const lines = raw?.trim().split('\n') ?? [];
+    expect(lines).toHaveLength(1);
   });
 });

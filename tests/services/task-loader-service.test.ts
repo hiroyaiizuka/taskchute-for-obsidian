@@ -61,6 +61,33 @@ describe('TaskLoaderService', () => {
     expect(context.tasks.length).toBeGreaterThan(0);
   });
 
+  test('derives task path from instanceId when execution entry lacks path', async () => {
+    const { context } = createExecutionLogContext({
+      executions: [
+        {
+          instanceId: 'TASKS/missing.md_2025-09-24_123_abc',
+          startTime: '08:00',
+          stopTime: '09:00',
+        },
+      ],
+      taskFiles: [
+        {
+          path: 'TASKS/missing.md',
+          content: '#task',
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const inst = context.taskInstances.find((candidate) =>
+      candidate.instanceId?.includes('TASKS/missing.md'),
+    );
+    expect(inst?.task.path).toBe('TASKS/missing.md');
+    expect(inst?.task.name).not.toBe('Untitled task');
+  });
+
   test('skips routine task hidden through day state manager metadata', async () => {
     const hiddenRoutines = [
       {

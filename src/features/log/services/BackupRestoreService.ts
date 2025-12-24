@@ -1,6 +1,6 @@
 import { TFile, TFolder, normalizePath } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogSnapshot, TaskLogEntry } from '../../../types/ExecutionLog'
+import type { TaskLogSnapshot, TaskLogEntry, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
 import {
   LOG_BACKUP_FOLDER,
   LOG_BACKUP_LEGACY_FOLDER,
@@ -9,6 +9,7 @@ import {
   LOG_HEATMAP_FOLDER,
   LOG_HEATMAP_LEGACY_FOLDER,
 } from '../constants'
+import { LogSnapshotWriter } from './LogSnapshotWriter'
 
 export interface BackupEntry {
   path: string
@@ -29,7 +30,11 @@ export interface BackupPreview {
 }
 
 export class BackupRestoreService {
-  constructor(private readonly plugin: TaskChutePluginLike) {}
+  private readonly snapshotWriter: LogSnapshotWriter
+
+  constructor(private readonly plugin: TaskChutePluginLike) {
+    this.snapshotWriter = new LogSnapshotWriter(plugin)
+  }
 
   listBackups(): Map<string, BackupEntry[]> {
     const result = new Map<string, BackupEntry[]>()
@@ -51,7 +56,7 @@ export class BackupRestoreService {
   async restoreFromBackup(monthKey: string, backupPath: string): Promise<void> {
     const adapter = this.plugin.app.vault.adapter
     const backupContent = await adapter.read(backupPath)
-    const logPath = normalizePath(`${this.plugin.pathManager.getLogDataPath()}/${monthKey}-tasks.json`)
+    const snapshot = this.parseBackupSnapshot(backupContent, backupPath)
 
     // Clear delta files for this month to prevent re-sync overwriting the restored data
     await this.clearDeltaFilesForMonth(monthKey)
@@ -60,7 +65,31 @@ export class BackupRestoreService {
     const year = monthKey.split('-')[0]
     await this.clearHeatmapCacheForYear(year)
 
-    await adapter.write(logPath, backupContent)
+    await this.snapshotWriter.write(monthKey, snapshot)
+  }
+
+  private parseBackupSnapshot(raw: string, backupPath: string): TaskLogSnapshot {
+    try {
+      const parsed = JSON.parse(raw) as Partial<TaskLogSnapshot>
+      const meta: TaskLogSnapshotMeta = {
+        revision: typeof parsed.meta?.revision === 'number' ? parsed.meta.revision : 0,
+        lastProcessedAt: typeof parsed.meta?.lastProcessedAt === 'string' ? parsed.meta.lastProcessedAt : undefined,
+        processedCursor: parsed.meta?.processedCursor && typeof parsed.meta.processedCursor === 'object'
+          ? { ...parsed.meta.processedCursor }
+          : {},
+        lastBackupAt: typeof parsed.meta?.lastBackupAt === 'string' ? parsed.meta.lastBackupAt : undefined,
+      }
+
+      return {
+        ...parsed,
+        taskExecutions: parsed.taskExecutions ?? {},
+        dailySummary: parsed.dailySummary ?? {},
+        meta,
+      }
+    } catch (error) {
+      console.warn('[BackupRestoreService] Failed to parse backup snapshot', backupPath, error)
+      throw error
+    }
   }
 
   private async clearDeltaFilesForMonth(monthKey: string): Promise<void> {

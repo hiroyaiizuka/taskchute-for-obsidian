@@ -42,14 +42,25 @@ function createRestoreContext() {
   const legacyRoot = createFolder('LOGS/.backups')
   const taskFolder = createFolder('TaskChute/Task')
   const fileContents: Record<string, string> = {}
+  const fileNodes = new Map<string, FileNode>()
 
   // Map to store frontmatter for each file
   const fileFrontmatterMap = new Map<string, Record<string, unknown>>()
 
+  const ensureFileNode = (path: string): FileNode => {
+    const existing = fileNodes.get(path)
+    if (existing) return existing
+    const file = createFile(path, Date.now())
+    fileNodes.set(path, file)
+    return file
+  }
+
   const vault = {
     adapter: {
       read: jest.fn(async (path: string) => {
-        if (fileContents[path]) return fileContents[path]
+        if (Object.prototype.hasOwnProperty.call(fileContents, path)) {
+          return fileContents[path]
+        }
         throw new Error(`File not found: ${path}`)
       }),
       write: jest.fn(async (path: string, content: string) => {
@@ -61,7 +72,18 @@ function createRestoreContext() {
       if (path === 'LOGS/backups') return backupRoot
       if (path === 'LOGS/.backups') return legacyRoot
       if (path === 'TaskChute/Task') return taskFolder
+      if (fileContents[path] !== undefined) {
+        return ensureFileNode(path)
+      }
       return null
+    }),
+    read: jest.fn(async (file: TFile) => fileContents[file.path] ?? ''),
+    modify: jest.fn(async (file: TFile, content: string) => {
+      fileContents[file.path] = content
+    }),
+    create: jest.fn(async (path: string, content: string) => {
+      fileContents[path] = content
+      return ensureFileNode(path)
     }),
   }
 
@@ -235,7 +257,7 @@ describe('BackupRestoreService', () => {
 
   describe('restoreFromBackup', () => {
     test('overwrites current log file with backup content', async () => {
-      const { plugin, backupRoot, fileContents, vault } = createRestoreContext()
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
 
       // Setup backup file
       const dec2025 = createFolder('LOGS/backups/2025-12')
@@ -261,7 +283,13 @@ describe('BackupRestoreService', () => {
       const service = new BackupRestoreService(plugin)
       await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json')
 
-      expect(vault.adapter.write).toHaveBeenCalledWith('LOGS/2025-12-tasks.json', backupData)
+      const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      const expected = JSON.parse(backupData)
+      expect(restored.taskExecutions).toEqual(expected.taskExecutions)
+      expect(restored.dailySummary).toEqual(expected.dailySummary)
+      expect(restored.meta.revision).toBe(1)
+      expect(restored.meta.processedCursor).toEqual({})
+      expect(typeof restored.meta.lastBackupAt).toBe('string')
     })
 
     test('throws error if backup file cannot be read', async () => {

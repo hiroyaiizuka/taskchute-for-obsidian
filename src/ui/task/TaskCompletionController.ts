@@ -2,7 +2,7 @@ import { Notice, TFile, App } from 'obsidian'
 import { t } from '../../i18n'
 import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '../../types'
-import type { TaskLogEntry, TaskLogSnapshot } from '../../types/ExecutionLog'
+import type { TaskLogEntry } from '../../types/ExecutionLog'
 import { parseTaskLogSnapshot } from '../../utils/executionLogUtils'
 
 export interface TaskCompletionControllerHost {
@@ -226,6 +226,10 @@ export default class TaskCompletionController {
     if (!inst.instanceId) {
       return null
     }
+    const fromInstance = this.getCommentFromInstance(inst)
+    if (fromInstance) {
+      return fromInstance
+    }
     try {
       const { logFilePath, dateKey } = this.getLogPaths()
       const file = this.host.app.vault.getAbstractFileByPath(logFilePath)
@@ -245,30 +249,19 @@ export default class TaskCompletionController {
     inst: TaskInstance,
     data: { comment: string; energy: number; focus: number },
   ): Promise<void> {
-    const { logFilePath, logDataPath, dateKey } = this.getLogPaths()
-    const vault = this.host.app.vault
-    const file = vault.getAbstractFileByPath(logFilePath)
-    if (this.host.plugin.pathManager.ensureFolderExists) {
-      await this.host.plugin.pathManager.ensureFolderExists(logDataPath)
-    }
-
-    let snapshot: TaskLogSnapshot = { taskExecutions: {}, dailySummary: {} }
-    if (file && file instanceof TFile) {
-      const raw = await vault.read(file)
-      snapshot = parseTaskLogSnapshot(raw)
-    }
-
-    const entries = snapshot.taskExecutions[dateKey] ?? []
-    const idx = entries.findIndex((entry) => entry.instanceId === inst.instanceId)
+    const { dateKey } = this.getLogPaths()
+    const previousEntry = await this.getExistingTaskComment(inst)
 
     const startTime = this.toTimeString(inst.startTime)
     const stopTime = this.toTimeString(inst.stopTime)
     const durationSec = inst.startTime && inst.stopTime
       ? Math.floor(this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000)
       : 0
+    const nowIso = new Date().toISOString()
 
     const payload: TaskLogEntry = {
       instanceId: inst.instanceId,
+      taskId: inst.task?.taskId,
       taskPath: inst.task?.path || '',
       taskName: inst.task?.name || '',
       executionComment: data.comment.trim(),
@@ -280,26 +273,11 @@ export default class TaskCompletionController {
       isCompleted: inst.state === 'done',
       project_path: inst.task?.projectPath || null,
       project: inst.task?.projectTitle ? `[[${inst.task.projectTitle}]]` : null,
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
     }
 
-    const previousEntry = idx >= 0 ? { ...entries[idx] } : null
-    if (idx >= 0) {
-      entries[idx] = {
-        ...entries[idx],
-        ...payload,
-        lastCommentUpdate: new Date().toISOString(),
-      }
-    } else {
-      entries.push(payload)
-    }
-    snapshot.taskExecutions[dateKey] = entries
-
-    const serialized = `${JSON.stringify(snapshot, null, 2)}\n`
-    if (file && file instanceof TFile) {
-      await vault.modify(file, serialized)
-    } else {
-      await vault.create(logFilePath, serialized)
+    if (previousEntry) {
+      payload.lastCommentUpdate = nowIso
     }
 
     if (
@@ -310,10 +288,6 @@ export default class TaskCompletionController {
       await this.syncCommentToProject(inst, payload.executionComment)
     }
 
-    if (!snapshot.dailySummary[dateKey]) {
-      snapshot.dailySummary[dateKey] = {}
-    }
-
     if (this.host.appendCommentDelta) {
       try {
         await this.host.appendCommentDelta(dateKey, payload)
@@ -321,6 +295,10 @@ export default class TaskCompletionController {
         console.warn('[TaskCompletionController] Failed to append comment delta', error)
       }
     }
+
+    inst.comment = payload.executionComment ?? ''
+    inst.focusLevel = payload.focusLevel
+    inst.energyLevel = payload.energyLevel
 
     new Notice(this.host.tv('comment.saved', 'Comment saved'))
   }
@@ -387,5 +365,20 @@ export default class TaskCompletionController {
     const minutes = Math.floor((total % 3600) / 60)
     const seconds = total % 60
     return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
+  }
+
+  private getCommentFromInstance(inst: TaskInstance): TaskLogEntry | null {
+    const comment = (inst.comment ?? '').toString().trim()
+    const focusLevel = typeof inst.focusLevel === 'number' ? inst.focusLevel : 0
+    const energyLevel = typeof inst.energyLevel === 'number' ? inst.energyLevel : 0
+    if (!comment && focusLevel <= 0 && energyLevel <= 0) {
+      return null
+    }
+    return {
+      instanceId: inst.instanceId,
+      executionComment: comment,
+      focusLevel,
+      energyLevel,
+    }
   }
 }
