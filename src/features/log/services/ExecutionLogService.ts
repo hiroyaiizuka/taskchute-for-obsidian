@@ -1,18 +1,21 @@
-import { TFile } from 'obsidian';
+import { normalizePath, TFile, TFolder } from 'obsidian';
 import type { TaskChutePluginLike } from '../../../types';
 import type { TaskInstance } from '../../../types';
 import { DeviceIdentityService } from '../../../services/DeviceIdentityService';
-import { computeExecutionInstanceKey } from '../../../utils/logKeys';
 import {
   createEmptyTaskLogSnapshot,
-  isExecutionLogEntryCompleted,
-  minutesFromLogEntries,
   parseTaskLogSnapshot,
 } from '../../../utils/executionLogUtils';
-import type { TaskLogEntry, TaskLogSnapshot } from '../../../types/ExecutionLog';
-import { ExecutionLogDeltaWriter, type ExecutionLogDeltaOperation } from './ExecutionLogDeltaWriter';
+import type { TaskLogEntry } from '../../../types/ExecutionLog';
+import {
+  ExecutionLogDeltaWriter,
+  type ExecutionLogDeltaOperation,
+  type ExecutionLogDeltaPayloadEntry,
+  type ExecutionLogDeltaRecord,
+} from './ExecutionLogDeltaWriter';
 import { RecordsRebuilder, type RecordsRebuildStats } from './RecordsRebuilder';
 import { LogReconciler } from './LogReconciler';
+import { LOG_INBOX_FOLDER, LOG_INBOX_LEGACY_FOLDER } from '../constants';
 
 export class ExecutionLogService {
   private readonly deviceIdentity: DeviceIdentityService;
@@ -21,6 +24,7 @@ export class ExecutionLogService {
   private readonly recordsRebuilder: RecordsRebuilder;
   private reconcilePromise: Promise<void> | null = null;
   private reconcilePending = false;
+  private readonly summaryDeltaCache = new Map<string, number>();
 
   constructor(private plugin: TaskChutePluginLike) {
     this.deviceIdentity = new DeviceIdentityService(plugin);
@@ -67,31 +71,6 @@ export class ExecutionLogService {
     const start = new Date(inst.startTime);
     const monthKey = this.getMonthKey(start);
     const dateKey = this.getDateKey(start);
-    const logDataPath = this.plugin.pathManager.getLogDataPath();
-    const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-
-    // Load
-    const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
-    let file = abstract instanceof TFile ? abstract : null;
-    let json: TaskLogSnapshot = createEmptyTaskLogSnapshot();
-    if (file && file instanceof TFile) {
-      try {
-        const raw = await this.plugin.app.vault.read(file);
-        json = parseTaskLogSnapshot(raw);
-      } catch (error) {
-        console.warn("[ExecutionLogService] Failed to read log file", error);
-        json = createEmptyTaskLogSnapshot();
-      }
-    } else {
-      await this.plugin.pathManager.ensureFolderExists(logDataPath);
-      await this.plugin.app.vault.create(logPath, JSON.stringify(json, null, 2));
-      const created = this.plugin.app.vault.getAbstractFileByPath(logPath);
-      file = created instanceof TFile ? created : null;
-    }
-
-    if (!json.taskExecutions[dateKey]) {
-      json.taskExecutions[dateKey] = [];
-    }
 
     const exec: TaskLogEntry = {
       taskTitle: this.resolveTaskTitle(inst),
@@ -104,38 +83,6 @@ export class ExecutionLogService {
       durationSec,
       deviceId,
     };
-
-    const arr: TaskLogEntry[] = json.taskExecutions[dateKey];
-    const idx = arr.findIndex((e) => e.instanceId === exec.instanceId);
-    if (idx >= 0) arr[idx] = exec; else arr.push(exec);
-
-    // Recompute daily summary (do NOT equate totalTasks with completed)
-    const totalMinutes = minutesFromLogEntries(arr);
-    // completed = unique tasks completed on the day
-    const completedSet = new Set<string>();
-    for (const entry of arr) {
-      if (isExecutionLogEntryCompleted(entry)) {
-        completedSet.add(computeExecutionInstanceKey(entry));
-      }
-    }
-    const completedTasks = completedSet.size;
-    const prev = json.dailySummary[dateKey] || {};
-    const totalTasks = typeof prev.totalTasks === 'number' ? prev.totalTasks : Math.max(completedTasks, 0);
-    const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
-    const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
-
-    json.dailySummary[dateKey] = {
-      ...prev,
-      totalMinutes,
-      totalTasks,
-      completedTasks,
-      procrastinatedTasks,
-      completionRate,
-    };
-
-    if (file) {
-      await this.plugin.app.vault.modify(file, JSON.stringify(json, null, 2));
-    }
 
     await this.appendDeltaRecord({ monthKey, dateKey, entry: exec });
     this.enqueueReconcile();
@@ -151,6 +98,7 @@ export class ExecutionLogService {
     }
     const monthKey = `${year}-${month}`;
     await this.appendDeltaRecord({ monthKey, dateKey, entry, operation: 'upsert' });
+    this.enqueueReconcile();
   }
 
   async rebuildFromRecords(): Promise<RecordsRebuildStats> {
@@ -202,35 +150,78 @@ export class ExecutionLogService {
     }
 
     const files = this.collectLogFiles();
+    let appended = 0;
+    const renamedKeys = new Set<string>();
+    const appendRename = async (dateKey: string, entry: TaskLogEntry): Promise<void> => {
+      if (!dateKey || typeof dateKey !== 'string') {
+        return;
+      }
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      if (entry.taskPath !== normalizedOld) {
+        return;
+      }
+      if (entry.taskPath === normalizedNew) {
+        return;
+      }
+      const key = this.buildRenameKey(dateKey, entry);
+      if (renamedKeys.has(key)) {
+        return;
+      }
+      const monthKey = dateKey.slice(0, 7);
+      const updatedEntry: TaskLogEntry = {
+        ...entry,
+        taskPath: normalizedNew,
+      };
+      await this.appendDeltaRecord({
+        monthKey,
+        dateKey,
+        entry: updatedEntry,
+        operation: 'upsert',
+      });
+      renamedKeys.add(key);
+      appended += 1;
+    };
     for (const file of files) {
       try {
         const raw = await this.plugin.app.vault.read(file);
         const snapshot = raw ? parseTaskLogSnapshot(raw) : createEmptyTaskLogSnapshot();
-        let mutated = false;
 
         for (const [dateKey, entries] of Object.entries(snapshot.taskExecutions)) {
           if (!Array.isArray(entries) || entries.length === 0) {
             continue;
           }
-          const updated = entries.map((entry) => {
-            if (!entry || typeof entry !== 'object') {
-              return entry;
-            }
-            if ('taskPath' in entry && entry.taskPath === normalizedOld) {
-              mutated = true;
-              return { ...entry, taskPath: normalizedNew };
-            }
-            return entry;
-          });
-          snapshot.taskExecutions[dateKey] = updated;
-        }
-
-        if (mutated) {
-          await this.plugin.app.vault.modify(file, JSON.stringify(snapshot, null, 2));
+          for (const entry of entries) {
+            await appendRename(dateKey, entry);
+          }
         }
       } catch (error) {
         console.warn('[ExecutionLogService] Failed to rename task path in log', file.path, error);
       }
+    }
+
+    const deltaFiles = await this.collectDeltaFiles();
+    for (const deltaPath of deltaFiles) {
+      const records = await this.readDeltaRecords(deltaPath);
+      for (const record of records) {
+        const op = record.op ?? 'upsert';
+        if (op !== 'upsert') {
+          continue;
+        }
+        if (!record.dateKey || typeof record.dateKey !== 'string') {
+          continue;
+        }
+        const payload = record.payload;
+        if (!payload || typeof payload !== 'object') {
+          continue;
+        }
+        await appendRename(record.dateKey, payload as TaskLogEntry);
+      }
+    }
+
+    if (appended > 0) {
+      this.enqueueReconcile();
     }
   }
 
@@ -272,56 +263,24 @@ export class ExecutionLogService {
     if (!year || !month) {
       return;
     }
+    if (!Number.isFinite(totalTasks)) {
+      return;
+    }
+
+    const cached = this.summaryDeltaCache.get(dateKey);
+    if (cached === totalTasks) {
+      return;
+    }
+    this.summaryDeltaCache.set(dateKey, totalTasks);
 
     const monthKey = `${year}-${month}`;
-    const logDataPath = this.plugin.pathManager.getLogDataPath();
-    const logPath = `${logDataPath}/${monthKey}-tasks.json`;
-    const abstract = this.plugin.app.vault.getAbstractFileByPath(logPath);
-    const file = abstract instanceof TFile ? abstract : null;
-
-    let snapshot: TaskLogSnapshot = createEmptyTaskLogSnapshot();
-    if (file) {
-      try {
-        const raw = await this.plugin.app.vault.read(file);
-        snapshot = parseTaskLogSnapshot(raw);
-      } catch (error) {
-        console.warn('[ExecutionLogService] Failed to update summary (read error)', error);
-      }
-    } else {
-      await this.plugin.pathManager.ensureFolderExists(logDataPath);
-    }
-
-    const dayExecutions = snapshot.taskExecutions[dateKey] ?? [];
-    snapshot.taskExecutions[dateKey] = dayExecutions;
-
-    const completedSet = new Set<string>();
-    for (const entry of dayExecutions) {
-      if (isExecutionLogEntryCompleted(entry)) {
-        completedSet.add(computeExecutionInstanceKey(entry));
-      }
-    }
-
-    const completedTasks = completedSet.size;
-    const totalMinutes = minutesFromLogEntries(dayExecutions);
-    const procrastinatedTasks = Math.max(0, totalTasks - completedTasks);
-    const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0;
-
-    const prev = snapshot.dailySummary[dateKey] ?? {};
-    snapshot.dailySummary[dateKey] = {
-      ...prev,
-      totalMinutes,
-      totalTasks,
-      completedTasks,
-      procrastinatedTasks,
-      completionRate,
-    };
-
-    const payload = JSON.stringify(snapshot, null, 2);
-    if (file) {
-      await this.plugin.app.vault.modify(file, payload);
-    } else {
-      await this.plugin.app.vault.create(logPath, payload);
-    }
+    await this.appendDeltaRecord({
+      monthKey,
+      dateKey,
+      entry: { summary: { totalTasks } },
+      operation: 'summary',
+    });
+    this.enqueueReconcile();
   }
 
   private collectLogFiles(): TFile[] {
@@ -359,10 +318,111 @@ export class ExecutionLogService {
     return files;
   }
 
+  private async collectDeltaFiles(): Promise<string[]> {
+    const logBase = this.plugin.pathManager.getLogDataPath();
+    const inboxPaths = [
+      normalizePath(`${logBase}/${LOG_INBOX_FOLDER}`),
+      normalizePath(`${logBase}/${LOG_INBOX_LEGACY_FOLDER}`),
+    ];
+    const files = new Set<string>();
+
+    for (const inboxPath of inboxPaths) {
+      const root = this.plugin.app.vault.getAbstractFileByPath(inboxPath);
+      if (!root || !(root instanceof TFolder)) {
+        continue;
+      }
+      for (const deviceFolder of root.children) {
+        if (!(deviceFolder instanceof TFolder)) continue;
+        for (const child of deviceFolder.children) {
+          if (!(child instanceof TFile)) continue;
+          if (!child.path.endsWith('.jsonl')) continue;
+          files.add(child.path);
+        }
+      }
+    }
+
+    const adapter = this.plugin.app.vault.adapter as
+      | { list?: (path: string) => Promise<{ files: string[]; folders: string[] }> }
+      | undefined;
+    if (adapter && typeof adapter.list === 'function') {
+      for (const inboxPath of inboxPaths) {
+        try {
+          const listing = await adapter.list(inboxPath);
+          const folders = listing.folders ?? [];
+          for (const folder of folders) {
+            try {
+              const inner = await adapter.list(folder);
+              const innerFiles = inner.files ?? [];
+              for (const filePath of innerFiles) {
+                if (filePath.endsWith('.jsonl')) {
+                  files.add(filePath);
+                }
+              }
+            } catch (error) {
+              console.warn('[ExecutionLogService] Failed to list delta device folder', folder, error);
+            }
+          }
+        } catch (error) {
+          console.warn('[ExecutionLogService] Failed to list delta inbox', inboxPath, error);
+        }
+      }
+    }
+
+    return Array.from(files);
+  }
+
+  private async readDeltaRecords(path: string): Promise<ExecutionLogDeltaRecord[]> {
+    const adapter = this.plugin.app.vault.adapter as
+      | { read?: (path: string) => Promise<string> }
+      | undefined;
+    if (!adapter || typeof adapter.read !== 'function') {
+      return [];
+    }
+    try {
+      const content = await adapter.read(path);
+      if (!content) {
+        return [];
+      }
+      const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      const records: ExecutionLogDeltaRecord[] = [];
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line) as ExecutionLogDeltaRecord;
+          records.push(parsed);
+        } catch (error) {
+          console.warn('[ExecutionLogService] Failed to parse delta line', path, error);
+        }
+      }
+      return records;
+    } catch (error) {
+      console.warn('[ExecutionLogService] Failed to read delta file', path, error);
+      return [];
+    }
+  }
+
+  private buildRenameKey(dateKey: string, entry: TaskLogEntry): string {
+    const instanceId = typeof entry.instanceId === 'string' ? entry.instanceId : '';
+    if (instanceId) {
+      return `${dateKey}::instance::${instanceId}`;
+    }
+    const taskId = typeof entry.taskId === 'string' ? entry.taskId : '';
+    const startTime = typeof entry.startTime === 'string' ? entry.startTime : '';
+    const stopTime = typeof entry.stopTime === 'string' ? entry.stopTime : '';
+    const recordedAt = typeof entry.recordedAt === 'string' ? entry.recordedAt : '';
+    if (taskId && (startTime || stopTime || recordedAt)) {
+      return `${dateKey}::task::${taskId}::${startTime}::${stopTime}::${recordedAt}`;
+    }
+    const title = typeof entry.taskTitle === 'string' ? entry.taskTitle : '';
+    if (title) {
+      return `${dateKey}::title::${title}`;
+    }
+    return `${dateKey}::payload::${JSON.stringify(entry)}`;
+  }
+
   private async appendDeltaRecord(payload: {
     monthKey: string;
     dateKey: string;
-    entry: TaskLogEntry;
+    entry: ExecutionLogDeltaPayloadEntry;
     operation?: ExecutionLogDeltaOperation;
   }): Promise<void> {
     try {

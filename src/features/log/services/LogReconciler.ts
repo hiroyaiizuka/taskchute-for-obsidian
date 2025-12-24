@@ -34,6 +34,12 @@ interface ReconcileStats {
   processedEntries: number
 }
 
+interface SummaryMeta {
+  recordedAt?: string
+  deviceId?: string
+  entryId?: string
+}
+
 export class LogReconciler {
   private readonly snapshotWriter: LogSnapshotWriter
   private readonly recordsWriter: RecordsWriter
@@ -287,16 +293,24 @@ export class LogReconciler {
   ): number {
     let applied = 0
     for (const record of records) {
-      const payloadEntry = record.payload
+      const dateKey = record.dateKey
+      if (!dateKey) continue
+      const operation = record.op ?? 'upsert'
+      if (operation === 'summary') {
+        const summaryApplied = this.applySummaryRecord(record, snapshot)
+        if (summaryApplied) {
+          mutatedDates.add(dateKey)
+          applied += 1
+        }
+        continue
+      }
+      const payloadEntry = record.payload as TaskLogEntry
       const normalizedEntry: TaskLogEntry = {
         ...payloadEntry,
         entryId: payloadEntry.entryId ?? record.entryId,
         deviceId: payloadEntry.deviceId ?? record.deviceId,
         recordedAt: payloadEntry.recordedAt ?? record.recordedAt,
       }
-      const dateKey = record.dateKey
-      if (!dateKey) continue
-      const operation = record.op ?? 'upsert'
       if (operation === 'delete') {
         this.applyDeleteRecord(dateKey, normalizedEntry, snapshot)
         mutatedDates.add(dateKey)
@@ -317,6 +331,85 @@ export class LogReconciler {
       applied += 1
     }
     return applied
+  }
+
+  private applySummaryRecord(record: ExecutionLogDeltaRecord, snapshot: TaskLogSnapshot): boolean {
+    const payload = record.payload as { summary?: { totalTasks?: number } } | undefined
+    const totalTasks = payload?.summary?.totalTasks
+    if (typeof totalTasks !== 'number') {
+      return false
+    }
+    const dateKey = record.dateKey
+    if (!dateKey) {
+      return false
+    }
+
+    const current = snapshot.dailySummary[dateKey] ?? {}
+    const incomingMeta: SummaryMeta = {
+      recordedAt: record.recordedAt,
+      deviceId: record.deviceId,
+      entryId: record.entryId,
+    }
+    this.warnIfClockSkew(incomingMeta.recordedAt)
+    const existingMeta = this.readSummaryMeta(current)
+    if (!this.isIncomingSummaryNewer(existingMeta, incomingMeta)) {
+      return false
+    }
+
+    snapshot.dailySummary[dateKey] = {
+      ...current,
+      totalTasks,
+      totalTasksRecordedAt: incomingMeta.recordedAt,
+      totalTasksDeviceId: incomingMeta.deviceId,
+      totalTasksEntryId: incomingMeta.entryId,
+    }
+    this.recomputeSummaryForDate(snapshot, dateKey)
+    return true
+  }
+
+  private readSummaryMeta(summary: Record<string, unknown> | undefined): SummaryMeta {
+    if (!summary) {
+      return {}
+    }
+    return {
+      recordedAt: typeof summary.totalTasksRecordedAt === 'string' ? summary.totalTasksRecordedAt : undefined,
+      deviceId: typeof summary.totalTasksDeviceId === 'string' ? summary.totalTasksDeviceId : undefined,
+      entryId: typeof summary.totalTasksEntryId === 'string' ? summary.totalTasksEntryId : undefined,
+    }
+  }
+
+  private isIncomingSummaryNewer(current: SummaryMeta, incoming: SummaryMeta): boolean {
+    const currentRecorded = current.recordedAt ?? ''
+    const incomingRecorded = incoming.recordedAt ?? ''
+    if (incomingRecorded !== currentRecorded) {
+      return incomingRecorded > currentRecorded
+    }
+    const currentDevice = current.deviceId ?? ''
+    const incomingDevice = incoming.deviceId ?? ''
+    if (incomingDevice !== currentDevice) {
+      return incomingDevice > currentDevice
+    }
+    const currentEntry = current.entryId ?? ''
+    const incomingEntry = incoming.entryId ?? ''
+    if (incomingEntry !== currentEntry) {
+      return incomingEntry > currentEntry
+    }
+    return false
+  }
+
+  private warnIfClockSkew(recordedAt?: string): void {
+    if (!recordedAt) {
+      return
+    }
+    const recordedMillis = Date.parse(recordedAt)
+    if (Number.isNaN(recordedMillis)) {
+      return
+    }
+    const diff = Math.abs(Date.now() - recordedMillis)
+    const threshold = 24 * 60 * 60 * 1000
+    if (diff > threshold) {
+      console.warn('[LogReconciler] Summary recordedAt skew detected', recordedAt)
+    }
   }
 
   private applyDeleteRecord(dateKey: string, entry: TaskLogEntry, snapshot: TaskLogSnapshot): void {

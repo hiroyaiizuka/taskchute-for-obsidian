@@ -271,16 +271,20 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
       : []
 
     return entries.map((entry): NormalizedExecution => {
-      const taskTitle = toStringField(entry.taskTitle ?? entry.taskName) ?? 'Untitled task'
-      const taskPath = toStringField(entry.taskPath) ?? ''
+      const instanceId = toStringField(entry.instanceId)
+      const taskPath = toStringField(entry.taskPath) ?? derivePathFromInstanceId(instanceId)
+      const taskTitle =
+        toStringField(entry.taskTitle ?? entry.taskName) ??
+        deriveTitleFromPath(taskPath) ??
+        'Untitled task'
       const slotKey = toStringField(entry.slotKey) ?? calculateSlotKeyFromTime(entry.startTime) ?? DEFAULT_SLOT_KEY
       return {
         taskTitle,
-        taskPath,
+        taskPath: taskPath ?? '',
         slotKey,
         startTime: toStringField(entry.startTime),
         stopTime: toStringField(entry.stopTime),
-        instanceId: toStringField(entry.instanceId) ?? undefined,
+        instanceId,
       }
     })
   } catch (error) {
@@ -302,7 +306,7 @@ function createTaskFromExecutions(
   const metadata = file ? getFrontmatter(context, file) : undefined
   const projectInfo = resolveProjectInfo(context, metadata)
   const templateName = file?.basename ?? executions[0].taskTitle
-  const derivedPath = file?.path ?? executions[0].taskPath ?? `${templateName}.md`
+  const derivedPath = file?.path ?? (executions[0].taskPath || `${templateName}.md`)
   const createdMillis = resolveCreatedMillis(file, resolveExecutionCreatedMillis(executions, dateKey))
   const taskId = resolveTaskId(metadata)
 
@@ -886,6 +890,27 @@ function isMarkdownFile(candidate: unknown): candidate is TFile {
 
 function toStringField(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function derivePathFromInstanceId(instanceId: string | undefined): string | undefined {
+  if (!instanceId) {
+    return undefined
+  }
+  const match = instanceId.match(/^(.*)_\d{4}-\d{2}-\d{2}_/)
+  const candidate = match?.[1]
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined
+}
+
+function deriveTitleFromPath(path: string | undefined): string | undefined {
+  if (!path) {
+    return undefined
+  }
+  const parts = path.split('/')
+  const filename = parts[parts.length - 1]
+  if (!filename) {
+    return undefined
+  }
+  return filename.endsWith('.md') ? filename.slice(0, -3) : filename
 }
 
 function calculateSlotKeyFromTime(time: string | undefined): string | undefined {

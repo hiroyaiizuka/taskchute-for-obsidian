@@ -50,6 +50,7 @@ type HostStub = TaskMutationHost & {
   }
   logSnapshot: { taskExecutions: Record<string, unknown[]>; dailySummary: Record<string, Record<string, unknown>> }
   removeRunningTaskRecord?: jest.Mock
+  removeTaskLogForInstanceOnDate?: jest.Mock
 }
 
 function createHost(overrides: Partial<HostStub> = {}): HostStub {
@@ -114,6 +115,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
       }),
     } as unknown as DayStateStoreService,
     removeRunningTaskRecord: overrides.removeRunningTaskRecord ?? jest.fn(async () => {}),
+    removeTaskLogForInstanceOnDate: overrides.removeTaskLogForInstanceOnDate ?? jest.fn(async () => {}),
     persistSlotAssignment: jest.fn(),
     tasks,
     taskInstances,
@@ -480,38 +482,28 @@ describe('TaskMutationService', () => {
   })
 
   test('deleteTaskLogsByInstanceId removes matching entries and writes snapshot', async () => {
-    const logFile = createMockTFile('LOGS/2025-10-tasks.json')
     const host = createHost()
-    host.app.vault.getAbstractFileByPath = jest.fn(() => logFile)
-    host.logSnapshot.taskExecutions = {
-      '2025-10-09': [
-        { instanceId: 'keep-1' },
-        { instanceId: 'remove-me' },
-      ],
-    }
-    host.app.vault.read = jest.fn(async () => JSON.stringify(host.logSnapshot))
-    const modifySpy = jest.fn(async (_file, data: string) => {
-      Object.assign(host.logSnapshot, JSON.parse(data))
-    })
-    host.app.vault.modify = modifySpy
     const service = new TaskMutationService(host)
 
-    const removed = await service.deleteTaskLogsByInstanceId('TASKS/sample.md', 'remove-me')
+    const removed = await service.deleteTaskLogsByInstanceId('TASKS/sample.md', 'TASKS/sample.md_2025-10-09_123')
 
     expect(removed).toBe(1)
-    expect(modifySpy).toHaveBeenCalled()
-    expect(host.logSnapshot.taskExecutions['2025-10-09']).toEqual([{ instanceId: 'keep-1' }])
+    expect(host.removeTaskLogForInstanceOnDate).toHaveBeenCalledWith(
+      'TASKS/sample.md_2025-10-09_123',
+      '2025-10-09',
+      undefined,
+      'TASKS/sample.md',
+    )
   })
 
-  test('deleteTaskLogsByInstanceId returns zero when log file missing', async () => {
-    const host = createHost()
-    host.app.vault.getAbstractFileByPath = jest.fn(() => null)
+  test('deleteTaskLogsByInstanceId returns zero when removal hook is missing', async () => {
+    const host = createHost({ removeTaskLogForInstanceOnDate: undefined })
     const service = new TaskMutationService(host)
 
     const removed = await service.deleteTaskLogsByInstanceId('TASKS/sample.md', 'unknown')
 
     expect(removed).toBe(0)
-    expect(host.app.vault.modify).not.toHaveBeenCalled()
+    expect(host.removeTaskLogForInstanceOnDate).toBeUndefined()
   })
 
   test('deleteTask hides routine instance and records hidden entry', async () => {

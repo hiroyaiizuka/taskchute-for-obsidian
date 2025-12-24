@@ -150,7 +150,7 @@ describe('TaskCompletionController', () => {
       focus: 5,
     })
 
-    expect(storage.has('LOGS/2025-10-tasks.json')).toBe(true)
+    expect(storage.has('LOGS/2025-10-tasks.json')).toBe(false)
     expect(await controller.hasCommentData(inst)).toBe(true)
     expect(appendCommentDelta).toHaveBeenCalledWith(
       '2025-10-09',

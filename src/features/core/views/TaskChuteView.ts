@@ -1080,25 +1080,35 @@ export class TaskChuteView
     try {
       if (!instanceId) return
       const dateStr = this.getCurrentDateString()
-      const resolvedTaskId =
-        taskId ??
-        this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.taskId ??
-        this.currentInstance?.task?.taskId
-      const resolvedPath =
-        this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.path ??
-        this.currentInstance?.task?.path
-      await this.executionLogService.removeTaskLogForInstanceOnDate(
-        instanceId,
-        dateStr,
-        resolvedTaskId,
-        resolvedPath,
-      )
+      await this.removeTaskLogForInstanceOnDate(instanceId, dateStr, taskId)
     } catch (e) {
       console.error(
         "[TaskChute] removeTaskLogForInstanceOnCurrentDate failed:",
         e,
       )
     }
+  }
+
+  public async removeTaskLogForInstanceOnDate(
+    instanceId: string,
+    dateKey: string,
+    taskId?: string,
+    taskPath?: string,
+  ): Promise<void> {
+    const resolvedTaskId =
+      taskId ??
+      this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.taskId ??
+      this.currentInstance?.task?.taskId
+    const resolvedPath =
+      taskPath ??
+      this.taskInstances.find((inst) => inst.instanceId === instanceId)?.task?.path ??
+      this.currentInstance?.task?.path
+    await this.executionLogService.removeTaskLogForInstanceOnDate(
+      instanceId,
+      dateKey,
+      resolvedTaskId,
+      resolvedPath,
+    )
   }
 
   private createRunningInstanceFromRecord(record: RunningTaskRecord): TaskInstance {

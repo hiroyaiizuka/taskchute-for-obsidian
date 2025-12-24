@@ -4,7 +4,15 @@ import type { TaskLogEntry } from '../../../types/ExecutionLog'
 import { DeviceIdentityService } from '../../../services/DeviceIdentityService'
 import { LOG_INBOX_FOLDER } from '../constants'
 
-export type ExecutionLogDeltaOperation = 'upsert' | 'delete'
+export type ExecutionLogDeltaOperation = 'upsert' | 'delete' | 'summary'
+
+export interface ExecutionLogDeltaSummaryPayload {
+  summary: {
+    totalTasks: number
+  }
+}
+
+export type ExecutionLogDeltaPayloadEntry = TaskLogEntry | ExecutionLogDeltaSummaryPayload
 
 export interface ExecutionLogDeltaRecord {
   schemaVersion: number
@@ -14,13 +22,13 @@ export interface ExecutionLogDeltaRecord {
   monthKey: string
   dateKey: string
   recordedAt: string
-  payload: TaskLogEntry
+  payload: ExecutionLogDeltaPayloadEntry
 }
 
 export interface ExecutionLogDeltaPayload {
   monthKey: string
   dateKey: string
-  entry: TaskLogEntry
+  entry: ExecutionLogDeltaPayloadEntry
   operation?: ExecutionLogDeltaOperation
 }
 

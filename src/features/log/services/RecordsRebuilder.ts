@@ -277,6 +277,7 @@ export class RecordsRebuilder {
     const completionRate = totalTasks > 0 ? completedTasks / totalTasks : 0
 
     return {
+      ...(provided ?? {}),
       totalMinutes,
       totalTasks,
       completedTasks,
