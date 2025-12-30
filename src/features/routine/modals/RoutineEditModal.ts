@@ -24,6 +24,7 @@ const ROUTINE_TYPE_DEFAULTS: Array<{ value: RoutineType; label: string }> = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly (weekday)" },
   { value: "monthly", label: "Monthly (Nth weekday)" },
+  { value: "monthly_date", label: "Monthly (date)" },
 ]
 
 const WEEK_OPTION_DEFAULTS: Array<{ value: RoutineWeek; label: string }> = [
@@ -41,6 +42,7 @@ export default class RoutineEditModal extends Modal {
   private readonly plugin: TaskChutePluginLike
   private readonly file: TFile
   private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void
+  private monthdayOutsideClickHandler: ((event: MouseEvent) => void) | null = null
 
   constructor(
     app: App,
@@ -229,13 +231,113 @@ export default class RoutineEditModal extends Modal {
       frontmatter,
     )
 
+    const monthlyDateGroup = form.createEl("div", {
+      cls: "form-group routine-form__monthly-date",
+      attr: { "data-kind": "monthly_date" },
+    })
+    const monthdayLabel = monthlyDateGroup.createEl("label", {
+      text: this.tv("fields.monthDaysLabel", "Dates (multi-select):"),
+    })
+    monthdayLabel.classList.add("routine-form__inline-label")
+    const monthdaySelect = monthlyDateGroup.createEl("div", {
+      cls: "routine-monthday-select",
+    })
+    const monthdayTrigger = monthdaySelect.createEl("button", {
+      cls: "form-input routine-monthday-trigger",
+      attr: {
+        type: "button",
+        "aria-haspopup": "listbox",
+        "aria-expanded": "false",
+      },
+    })
+    const monthdayDropdown = monthdaySelect.createEl("div", {
+      cls: "routine-monthday-dropdown is-hidden",
+    })
+    const monthdayOptions = monthdayDropdown.createEl("div", {
+      cls: "routine-monthday-options",
+    })
+    const monthdayCheckboxes: HTMLInputElement[] = []
+    for (let day = 1; day <= 31; day += 1) {
+      const option = monthdayOptions.createEl("label", {
+        cls: "routine-monthday-option",
+      })
+      const checkbox = option.createEl("input", {
+        type: "checkbox",
+        attr: { value: String(day) },
+      })
+      option.createEl("span", {
+        text: this.tv("labels.monthdayNth", "{day}", { day }),
+        cls: "routine-monthday-option__label",
+      })
+      monthdayCheckboxes.push(checkbox)
+    }
+    {
+      const option = monthdayOptions.createEl("label", {
+        cls: "routine-monthday-option",
+      })
+      const checkbox = option.createEl("input", {
+        type: "checkbox",
+        attr: { value: "last" },
+      })
+      option.createEl("span", {
+        text: this.tv("labels.monthdayLast", "Last day"),
+        cls: "routine-monthday-option__label",
+      })
+      monthdayCheckboxes.push(checkbox)
+    }
+    this.applyMonthlyDateSelection(monthdayCheckboxes, frontmatter)
+    const updateMonthdayTrigger = () => {
+      const selected = this.normalizeMonthdaySelection(
+        this.getCheckedMonthdays(monthdayCheckboxes),
+      )
+      const label =
+        this.formatMonthdayList(selected) ??
+        t("taskChuteView.labels.routineMonthdayUnset", "No date set")
+      monthdayTrigger.textContent = label
+      monthdayTrigger.classList.toggle("is-empty", selected.length === 0)
+    }
+    updateMonthdayTrigger()
+    monthdayCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateMonthdayTrigger)
+    })
+    const openMonthdayDropdown = () => {
+      monthdayDropdown.classList.remove("is-hidden")
+      monthdayTrigger.setAttribute("aria-expanded", "true")
+    }
+    const closeMonthdayDropdown = () => {
+      monthdayDropdown.classList.add("is-hidden")
+      monthdayTrigger.setAttribute("aria-expanded", "false")
+    }
+    monthdayTrigger.addEventListener("click", (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (monthdayDropdown.classList.contains("is-hidden")) {
+        openMonthdayDropdown()
+      } else {
+        closeMonthdayDropdown()
+      }
+    })
+    const handleMonthdayOutsideClick = (event: MouseEvent) => {
+      if (!monthdaySelect.contains(event.target as Node)) {
+        closeMonthdayDropdown()
+      }
+    }
+    document.addEventListener("click", handleMonthdayOutsideClick)
+    this.monthdayOutsideClickHandler = handleMonthdayOutsideClick
+
     const updateVisibility = () => {
       const selected = this.normalizeRoutineType(typeSelect.value)
       const isWeekly = selected === "weekly"
       const isMonthly = selected === "monthly"
+      const isMonthlyDate = selected === "monthly_date"
       weeklyGroup.classList.toggle("is-hidden", !isWeekly)
       monthlyLabel.classList.toggle("is-hidden", !isMonthly)
       monthlyGroup.classList.toggle("is-hidden", !isMonthly)
+      monthlyDateGroup.classList.toggle("is-hidden", !isMonthlyDate)
+      if (!isMonthlyDate) {
+        monthdayDropdown.classList.add("is-hidden")
+        monthdayTrigger.setAttribute("aria-expanded", "false")
+      }
     }
     updateVisibility()
     typeSelect.addEventListener("change", updateVisibility)
@@ -302,6 +404,7 @@ export default class RoutineEditModal extends Modal {
         const weeklyDays = this.getCheckedDays(weekdayInputs)
         const monthlyWeeks = this.getCheckedWeeks(monthlyWeekInputs)
         const monthlyWeekdays = this.getCheckedDays(monthlyWeekdayInputs)
+        const monthlyDates = this.getCheckedMonthdays(monthdayCheckboxes)
 
         if (routineType === "weekly" && weeklyDays.length === 0) {
           errors.push(
@@ -321,6 +424,15 @@ export default class RoutineEditModal extends Modal {
               this.tv(
                 "errors.monthlyRequiresWeekday",
                 "Select at least one weekday.",
+              ),
+            )
+          }
+        } else if (routineType === "monthly_date") {
+          if (monthlyDates.length === 0) {
+            errors.push(
+              this.tv(
+                "errors.monthlyDateRequiresDay",
+                "Select at least one date.",
               ),
             )
           }
@@ -384,6 +496,8 @@ export default class RoutineEditModal extends Modal {
             delete fm.monthly_weekday
             delete fm.routine_week
             delete fm.routine_weekday
+            delete fm.routine_monthday
+            delete fm.routine_monthdays
 
             if (routineType === "weekly") {
               if (weeklyDays.length === 1) {
@@ -416,6 +530,21 @@ export default class RoutineEditModal extends Modal {
               } else {
                 delete fm.routine_weekdays
               }
+            } else if (routineType === "monthly_date") {
+              const normalizedMonthdays = this.normalizeMonthdaySelection(
+                monthlyDates,
+              )
+              if (normalizedMonthdays.length > 0) {
+                fm.routine_monthdays = normalizedMonthdays
+                if (normalizedMonthdays.length === 1) {
+                  fm.routine_monthday = normalizedMonthdays[0]
+                } else {
+                  delete fm.routine_monthday
+                }
+              } else {
+                delete fm.routine_monthdays
+                delete fm.routine_monthday
+              }
             }
 
             updatedFrontmatter = { ...fm }
@@ -432,6 +561,13 @@ export default class RoutineEditModal extends Modal {
     cancelButton.addEventListener("click", () => this.close())
   }
 
+  onClose(): void {
+    if (this.monthdayOutsideClickHandler) {
+      document.removeEventListener("click", this.monthdayOutsideClickHandler)
+      this.monthdayOutsideClickHandler = null
+    }
+  }
+
   private getFrontmatterSnapshot(): RoutineFrontmatter {
     const raw = this.app.metadataCache.getFileCache(this.file)?.frontmatter
     if (raw && typeof raw === "object") {
@@ -444,7 +580,7 @@ export default class RoutineEditModal extends Modal {
   }
 
   private normalizeRoutineType(type: unknown): RoutineType {
-    if (type === "weekly" || type === "monthly") {
+    if (type === "weekly" || type === "monthly" || type === "monthly_date") {
       return type
     }
     return "daily"
@@ -499,6 +635,21 @@ export default class RoutineEditModal extends Modal {
     })
   }
 
+  private applyMonthlyDateSelection(
+    checkboxes: HTMLInputElement[],
+    fm: RoutineFrontmatter,
+  ): void {
+    const monthdaySet = this.normalizeMonthdaySelection(
+      this.getMonthlyMonthdaySet(fm),
+    )
+    checkboxes.forEach((checkbox) => {
+      const match = checkbox.value === "last"
+        ? monthdaySet.includes("last")
+        : monthdaySet.includes(Number(checkbox.value))
+      checkbox.checked = match
+    })
+  }
+
   private getMonthlyWeekSet(fm: RoutineFrontmatter): Array<RoutineWeek> {
     if (Array.isArray(fm.routine_weeks) && fm.routine_weeks.length) {
       return this.normalizeWeekSelection(fm.routine_weeks)
@@ -547,6 +698,25 @@ export default class RoutineEditModal extends Modal {
     return []
   }
 
+  private getMonthlyMonthdaySet(
+    fm: RoutineFrontmatter,
+  ): Array<number | "last"> {
+    if (Array.isArray(fm.routine_monthdays) && fm.routine_monthdays.length) {
+      return this.normalizeMonthdaySelection(fm.routine_monthdays)
+    }
+    const single = this.getMonthlyMonthday(fm)
+    return single ? [single] : []
+  }
+
+  private getMonthlyMonthday(
+    fm: RoutineFrontmatter,
+  ): number | "last" | undefined {
+    if (fm.routine_monthday === "last" || typeof fm.routine_monthday === "number") {
+      return fm.routine_monthday
+    }
+    return undefined
+  }
+
   private normalizeWeekSelection(
     values: Array<number | "last">,
   ): Array<RoutineWeek> {
@@ -570,6 +740,45 @@ export default class RoutineEditModal extends Modal {
       }
     })
     return result
+  }
+
+  private normalizeMonthdaySelection(
+    values: Array<number | "last">,
+  ): Array<number | "last"> {
+    const seen = new Set<string>()
+    const result: Array<number | "last"> = []
+    values.forEach((value) => {
+      if (value === "last") {
+        if (!seen.has("last")) {
+          seen.add("last")
+          result.push("last")
+        }
+        return
+      }
+      const num = Number(value)
+      if (Number.isInteger(num) && num >= 1 && num <= 31) {
+        const key = String(num)
+        if (!seen.has(key)) {
+          seen.add(key)
+          result.push(num)
+        }
+      }
+    })
+    return result.sort((a, b) => {
+      if (a === "last") return 1
+      if (b === "last") return -1
+      return Number(a) - Number(b)
+    })
+  }
+
+  private formatMonthdayList(monthdays: Array<number | "last">): string | undefined {
+    if (!monthdays.length) return undefined
+    const labels = monthdays.map((day) =>
+      day === "last"
+        ? this.tv("labels.monthdayLast", "Last day")
+        : this.tv("labels.monthdayNth", "Day {day}", { day }),
+    )
+    return labels.join(" / ")
   }
 
   private createChipFieldset(
@@ -617,6 +826,20 @@ export default class RoutineEditModal extends Modal {
       .filter((checkbox) => checkbox.checked)
       .map((checkbox) => Number.parseInt(checkbox.value, 10))
       .filter((value) => Number.isInteger(value))
+  }
+
+  private getCheckedMonthdays(
+    checkboxes: HTMLInputElement[],
+  ): Array<number | "last"> {
+    return checkboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) =>
+        checkbox.value === "last" ? "last" : Number.parseInt(checkbox.value, 10),
+      )
+      .filter(
+        (value): value is number | "last" =>
+          value === "last" || Number.isInteger(value),
+      )
   }
 
   private async handlePostSave(

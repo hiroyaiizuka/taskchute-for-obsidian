@@ -148,4 +148,33 @@ describe("GoogleCalendarService", () => {
     const url = service.buildEventUrl(event)
     expect(url).toContain("recur=RRULE%3AFREQ%3DWEEKLY%3BINTERVAL%3D1%3BBYDAY%3DSU")
   })
+
+  test("adds RRULE for monthly date routine", async () => {
+    const { service } = createService("")
+    const inst = createInstance({
+      task: {
+        path: "Tasks/routine-date.md",
+        name: "Routine date",
+        displayTitle: "Routine date",
+        frontmatter: {
+          routine_type: "monthly_date",
+          routine_interval: 1,
+          routine_monthdays: [1, 15, "last"],
+          scheduled_time: "07:00",
+        },
+        isRoutine: true,
+      },
+      date: "2025-12-15",
+    })
+
+    const event = await service.buildEventFromTask(inst, settings, {
+      viewDate: new Date("2025-12-15T00:00:00"),
+      defaultDurationMinutes: 30,
+    })
+
+    const url = service.buildEventUrl(event)
+    expect(url).toContain(
+      "recur=RRULE%3AFREQ%3DMONTHLY%3BINTERVAL%3D1%3BBYMONTHDAY%3D1%2C15%2C-1",
+    )
+  })
 })

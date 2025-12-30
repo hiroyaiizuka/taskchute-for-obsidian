@@ -1,5 +1,5 @@
 import { RoutineRule } from '../../../types';
-import type { RoutineWeek } from '../../../types/TaskFields';
+import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields';
 
 /**
  * RoutineService
@@ -14,13 +14,13 @@ export class RoutineService {
     if (!isRoutine) return null;
 
     const typeRaw = fm.routine_type || fm.routineType || 'daily';
-    const type = (typeRaw === 'daily' || typeRaw === 'weekly' || typeRaw === 'monthly')
+    const type = (typeRaw === 'daily' || typeRaw === 'weekly' || typeRaw === 'monthly' || typeRaw === 'monthly_date')
       ? typeRaw
       : // Backward-compat: treat weekends/weekdays/custom as weekly variants
         'weekly';
 
     const enabled = fm.routine_enabled === false ? false : true; // default true
-    const interval = this.#toPositiveInt(fm.routine_interval, 1);
+    const interval = this.#toPositiveInt(fm.routine_interval, 1) ?? 1;
 
     const rule: RoutineRule = {
       type,
@@ -61,9 +61,14 @@ export class RoutineService {
       } else if (fm.monthly_week !== undefined) {
         if (fm.monthly_week === 'last') {
           week = 'last';
-        } else {
-          const zeroBased = this.#toPositiveInt(fm.monthly_week, undefined);
-          week = zeroBased !== undefined ? (zeroBased + 1) : undefined;
+        } else if (fm.monthly_week !== '') {
+          const raw = Number(fm.monthly_week);
+          if (Number.isFinite(raw)) {
+            const zeroBased = Math.floor(raw);
+            if (zeroBased >= 0 && zeroBased <= 4) {
+              week = (zeroBased + 1) as RoutineWeek;
+            }
+          }
         }
       }
       const weekday = this.#toWeekday(fm.routine_weekday ?? fm.monthly_weekday);
@@ -78,6 +83,14 @@ export class RoutineService {
       if (weekdaySet.length > 0) {
         rule.monthWeekdaySet = weekdaySet;
       }
+    }
+
+    // Monthly date: `routine_monthday` / `routine_monthdays`
+    if (type === 'monthly_date') {
+      const monthDay = this.#toMonthday(fm.routine_monthday);
+      const monthDaySet = this.#toMonthdaySet((fm).routine_monthdays);
+      if (monthDay !== undefined) rule.monthDay = monthDay;
+      if (monthDaySet.length > 0) rule.monthDaySet = monthDaySet;
     }
 
     return rule;
@@ -127,6 +140,8 @@ export class RoutineService {
         return this.#isWeeklyDue(date, rule);
       case 'monthly':
         return this.#isMonthlyDue(date, rule);
+      case 'monthly_date':
+        return this.#isMonthlyDateDue(date, rule);
       default:
         return false;
     }
@@ -198,11 +213,33 @@ export class RoutineService {
     return matchesWeek && matchesWeekday;
   }
 
+  static #isMonthlyDateDue(date: Date, rule: RoutineRule): boolean {
+    const monthDayCandidates = (rule.monthDaySet && rule.monthDaySet.length > 0)
+      ? rule.monthDaySet
+      : rule.monthDay !== undefined
+        ? [rule.monthDay]
+        : [];
+    if (monthDayCandidates.length === 0) return false;
+    const interval = Math.max(1, rule.interval || 1);
+
+    if (rule.start) {
+      const s = this.#parseDate(rule.start)!;
+      const mdiff = (date.getFullYear() - s.getFullYear()) * 12 + (date.getMonth() - s.getMonth());
+      if (mdiff < 0 || mdiff % interval !== 0) return false;
+    }
+
+    const day = date.getDate();
+    const lastDay = this.#getLastDayOfMonth(date);
+    return monthDayCandidates.some((candidate) =>
+      candidate === 'last' ? day === lastDay : day === candidate,
+    );
+  }
+
   // ---------- Helpers ----------
-  static #toPositiveInt(value: unknown, fallback: number | undefined): number {
+  static #toPositiveInt(value: unknown, fallback?: number): number | undefined {
     const n = Number(value);
     if (Number.isFinite(n) && n >= 1) return Math.floor(n);
-    return fallback ?? 1;
+    return fallback;
   }
 
   static #toWeekday(value: unknown): number | undefined {
@@ -248,6 +285,32 @@ export class RoutineService {
     return result;
   }
 
+  static #toMonthday(value: unknown): RoutineMonthday | undefined {
+    if (value === 'last') return 'last';
+    const parsed = this.#toPositiveInt(value, undefined);
+    if (!parsed || parsed < 1 || parsed > 31) return undefined;
+    return parsed as RoutineMonthday;
+  }
+
+  static #toMonthdaySet(value: unknown): RoutineMonthday[] {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const result: RoutineMonthday[] = [];
+    for (const candidate of value) {
+      const normalized = this.#toMonthday(candidate);
+      if (normalized === undefined) continue;
+      const key = String(normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(normalized);
+    }
+    return result.sort((a, b) => {
+      if (a === 'last') return 1;
+      if (b === 'last') return -1;
+      return (a as number) - (b as number);
+    });
+  }
+
   static #isValidWeekday(n: number): n is number {
     return Number.isInteger(n) && n >= 0 && n <= 6;
   }
@@ -284,6 +347,10 @@ export class RoutineService {
     d.setDate(d.getDate() - dow);
     d.setHours(0, 0, 0, 0);
     return d;
+  }
+
+  static #getLastDayOfMonth(date: Date): number {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   }
 }
 

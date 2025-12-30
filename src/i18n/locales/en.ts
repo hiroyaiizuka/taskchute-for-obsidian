@@ -349,6 +349,7 @@ export const en = {
       routineDaily: "Daily",
       routineWeekly: "Weekly (by weekday)",
       routineMonthly: "Monthly (weekday)",
+      routineMonthlyDate: "Monthly (date)",
       interval: "Interval:",
       enabled: "Enabled:",
       selectWeekdays: "Select weekdays:",
@@ -358,6 +359,9 @@ export const en = {
       selectMonthWeeksPrompt: "Please select at least one week",
       selectMonthWeekdaysPrompt: "Please select at least one weekday",
       monthlySettings: "Monthly settings:",
+      monthlyDateSettings: "Monthly date settings:",
+      selectMonthDays: "Select dates:",
+      selectMonthDaysPrompt: "Please select at least one date",
       monthWeeksLabel: "Weeks (multi-select):",
       monthWeekdaysLabel: "Weekdays (multi-select):",
       scheduledTimeLabel: "Scheduled start time:",
@@ -450,6 +454,10 @@ export const en = {
       routineWeekNth: 'Week {week}',
       routineWeekLast: 'Last week',
       routineDayUnset: 'No weekday set',
+      routineMonthlyDateLabel: 'Every {interval} month(s) on {day}',
+      routineMonthdayNth: 'Day {day}',
+      routineMonthdayLast: 'Last day',
+      routineMonthdayUnset: 'No date set',
     },
     validator: {
       invalidChars: "Task name contains invalid characters: {chars}",
@@ -616,6 +624,7 @@ export const en = {
       daily: "Daily",
       weekly: "Weekly",
       monthly: "Monthly",
+      monthly_date: "Monthly (date)",
     },
     notices: {
       toggledOn: "Enabled",
@@ -626,6 +635,8 @@ export const en = {
       weekdaySuffix: "",
       weekNth: "Week {week}",
       weekLast: "Last",
+      monthdayNth: "Day {day}",
+      monthdayLast: "Last day",
     },
     calendar: {
       export: {
@@ -708,6 +719,8 @@ export const en = {
       monthWeekLabel: 'Week:',
       monthWeeksLabel: 'Weeks (multi-select):',
       monthWeekdaysLabel: 'Weekdays (multi-select):',
+      monthlyDateSettings: 'Monthly date settings:',
+      monthDaysLabel: 'Dates (multi-select):',
       saveButton: 'Save',
       cancelButton: 'Cancel',
     },
@@ -715,6 +728,7 @@ export const en = {
       daily: 'Daily',
       weekly: 'Weekly (weekday)',
       monthly: 'Monthly (nth weekday)',
+      monthly_date: 'Monthly (date)',
     },
     weekOptions: {
       first: '1st',
@@ -733,6 +747,11 @@ export const en = {
       monthlyRequiresSelection: 'Choose an "nth + weekday" combination.',
       monthlyRequiresWeek: 'Select at least one week.',
       monthlyRequiresWeekday: 'Select at least one weekday.',
+      monthlyDateRequiresDay: 'Select at least one date.',
+    },
+    labels: {
+      monthdayNth: 'Day {day}',
+      monthdayLast: 'Last day',
     },
     notices: {
       legacyTargetDateRemoved: 'Removed legacy target_date automatically.',

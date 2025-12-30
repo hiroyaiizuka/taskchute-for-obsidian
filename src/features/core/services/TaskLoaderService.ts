@@ -11,7 +11,7 @@ import {
   TaskData,
   TaskInstance,
 } from '../../../types'
-import type { RoutineWeek } from '../../../types/TaskFields'
+import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields'
 import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 
@@ -458,6 +458,41 @@ function normalizeRoutineWeekdays(metadata: TaskFrontmatterWithLegacy): number[]
   return result.length ? result : undefined
 }
 
+function normalizeRoutineMonthday(metadata: TaskFrontmatterWithLegacy): RoutineMonthday | undefined {
+  const raw = (metadata as Record<string, unknown>).routine_monthday
+  if (raw === 'last') return 'last'
+  const num = Number(raw)
+  if (Number.isInteger(num) && num >= 1 && num <= 31) {
+    return num as RoutineMonthday
+  }
+  return undefined
+}
+
+function normalizeRoutineMonthdays(metadata: TaskFrontmatterWithLegacy): RoutineMonthday[] | undefined {
+  const raw = (metadata as Record<string, unknown>).routine_monthdays
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const result: RoutineMonthday[] = []
+  raw.forEach((value) => {
+    if (value === 'last') {
+      if (!seen.has('last')) {
+        seen.add('last')
+        result.push('last')
+      }
+      return
+    }
+    const num = Number(value)
+    if (Number.isInteger(num) && num >= 1 && num <= 31) {
+      const key = String(num)
+      if (!seen.has(key)) {
+        seen.add(key)
+        result.push(num as RoutineMonthday)
+      }
+    }
+  })
+  return result.length ? result : undefined
+}
+
 async function createRoutineTask(
   context: TaskLoaderHost,
   file: TFile,
@@ -490,6 +525,8 @@ async function createRoutineTask(
     routine_end: metadata.routine_end,
     routine_week: metadata.routine_week,
     routine_weekday: metadata.routine_weekday,
+    routine_monthday: normalizeRoutineMonthday(metadata),
+    routine_monthdays: normalizeRoutineMonthdays(metadata),
     weekdays: Array.isArray(metadata.weekdays)
       ? metadata.weekdays.filter((value): value is number => Number.isInteger(value))
       : undefined,

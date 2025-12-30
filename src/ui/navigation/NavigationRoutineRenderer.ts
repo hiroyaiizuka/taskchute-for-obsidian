@@ -125,7 +125,19 @@ export default class NavigationRoutineRenderer {
           this.formatWeekdayList(weekdaySet) ?? this.host.tv('labels.routineDayUnset', 'No weekday set')
 
         return this.host.tv('labels.routineMonthlyLabel', 'Every {week} on {day}', {
+          interval,
           week: weekLabel,
+          day: dayLabel,
+        })
+      }
+      case 'monthly_date': {
+        const monthdaySet = this.normalizeMonthdayArray(
+          task.routine_monthdays ?? (task.routine_monthday ? [task.routine_monthday] : undefined),
+        )
+        const dayLabel =
+          this.formatMonthdayList(monthdaySet) ?? this.host.tv('labels.routineMonthdayUnset', 'No date set')
+        return this.host.tv('labels.routineMonthlyDateLabel', 'Every {interval} month(s) on {day}', {
+          interval,
           day: dayLabel,
         })
       }
@@ -181,6 +193,28 @@ export default class NavigationRoutineRenderer {
       })
   }
 
+  private normalizeMonthdayArray(values?: Array<number | 'last'>): Array<number | 'last'> {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<string>()
+    return values
+      .map((value) => (value === 'last' ? 'last' : Number(value)))
+      .filter((value): value is number | 'last' => {
+        if (value === 'last') return true
+        return Number.isInteger(value) && value >= 1 && value <= 31
+      })
+      .filter((value) => {
+        const key = String(value)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => {
+        if (a === 'last') return 1
+        if (b === 'last') return -1
+        return Number(a) - Number(b)
+      })
+  }
+
   private formatWeekList(weeks: Array<number | 'last'>): string | undefined {
     if (!weeks.length) return undefined
     const joiner = this.host.tv('lists.weekLabelJoiner', ' / ')
@@ -188,6 +222,17 @@ export default class NavigationRoutineRenderer {
       week === 'last'
         ? this.host.tv('labels.routineWeekLast', 'Last')
         : this.host.tv('labels.routineWeekLabel', 'Week {week}', { week }),
+    )
+    return labels.join(joiner)
+  }
+
+  private formatMonthdayList(monthdays: Array<number | 'last'>): string | undefined {
+    if (!monthdays.length) return undefined
+    const joiner = this.host.tv('lists.weekdayJoiner', ' / ')
+    const labels = monthdays.map((day) =>
+      day === 'last'
+        ? this.host.tv('labels.routineMonthdayLast', 'Last day')
+        : this.host.tv('labels.routineMonthdayNth', '{day}', { day }),
     )
     return labels.join(joiner)
   }

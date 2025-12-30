@@ -13,7 +13,7 @@ export interface RoutineTaskShape {
   title?: string
   isRoutine?: boolean
   scheduledTime?: string
-  routine_type?: 'daily' | 'weekly' | 'monthly' | 'weekdays' | 'weekends'
+  routine_type?: 'daily' | 'weekly' | 'monthly' | 'monthly_date' | 'weekdays' | 'weekends'
   routine_interval?: number
   routine_enabled?: boolean
   weekdays?: number[]
@@ -24,6 +24,8 @@ export interface RoutineTaskShape {
   routine_weekdays?: number[]
   routine_week?: number | 'last'
   routine_weekday?: number
+  routine_monthday?: number | 'last'
+  routine_monthdays?: Array<number | 'last'>
   /** Japanese frontmatter compatibility */
   開始時刻?: string
   projectPath?: string
