@@ -6,6 +6,7 @@ import type {
   TaskData,
   TaskInstance,
 } from '../../../types'
+import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { getCurrentTimeSlot } from '../../../utils/time'
 
 export interface RunningTaskRecord {
@@ -296,22 +297,52 @@ export class RunningTasksService {
       }
 
       const taskData = record.taskPath ? findTaskByPath(record.taskPath) : undefined
-      if (!taskData) continue
+      const resolvedTask =
+        taskData ?? (record.taskPath ? this.resolveTaskDataFromPath(record.taskPath) : undefined)
+      if (!resolvedTask) continue
 
       const recreated: TaskInstance = {
-        task: taskData,
-        instanceId: record.instanceId || generateInstanceId(taskData),
+        task: resolvedTask,
+        instanceId: record.instanceId || generateInstanceId(resolvedTask),
         state: 'running',
         slotKey: record.slotKey || getCurrentTimeSlot(new Date()),
         originalSlotKey: record.originalSlotKey,
         startTime: new Date(record.startTime),
         stopTime: undefined,
-        createdMillis: taskData.createdMillis,
+        createdMillis: resolvedTask.createdMillis,
       }
       instances.push(recreated)
       restoredInstances.push(recreated)
     }
 
     return restoredInstances
+  }
+
+  private resolveTaskDataFromPath(path: string): TaskData | undefined {
+    if (!path) return undefined
+    const app = this.plugin?.app
+    if (!app?.vault || !app.metadataCache) {
+      return undefined
+    }
+
+    const file = app.vault.getAbstractFileByPath(path)
+    if (!(file instanceof TFile)) {
+      return undefined
+    }
+
+    const cache = app.metadataCache.getFileCache(file)
+    const frontmatter = (cache?.frontmatter ?? {}) as Record<string, unknown>
+    const title = typeof frontmatter.title === 'string' ? frontmatter.title.trim() : ''
+    const displayTitle = title.length > 0 ? title : file.basename
+
+    return {
+      file,
+      frontmatter,
+      path: file.path,
+      name: file.basename,
+      displayTitle,
+      isRoutine: frontmatter.isRoutine === true,
+      taskId: extractTaskIdFromFrontmatter(frontmatter),
+    }
   }
 }

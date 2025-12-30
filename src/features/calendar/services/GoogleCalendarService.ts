@@ -338,6 +338,19 @@ export class GoogleCalendarService {
       }
     }
 
+    if (type === "monthly_date") {
+      const monthdayEntries = this.getMonthlyByMonthdayEntries(
+        inst.task.routine_monthdays ??
+          inst.task.routine_monthday ??
+          fm.routine_monthdays ??
+          fm.routine_monthday,
+      )
+      if (!monthdayEntries.length) return { rule: null }
+      return {
+        rule: `FREQ=MONTHLY;INTERVAL=${interval};BYMONTHDAY=${monthdayEntries.join(",")}`,
+      }
+    }
+
     return { rule: null }
   }
 
@@ -408,6 +421,34 @@ export class GoogleCalendarService {
       }
     }
     return Array.from(new Set(entries))
+  }
+
+  private getMonthlyByMonthdayEntries(input: unknown): string[] {
+    const toMonthdays = (value: unknown): Array<number | "last"> => {
+      if (Array.isArray(value)) {
+        return value
+          .map((v) => {
+            if (v === "last") return "last"
+            const num = Number(v)
+            if (Number.isInteger(num) && num >= 1 && num <= 31) {
+              return num
+            }
+            return null
+          })
+          .filter((v): v is number | "last" => v !== null)
+      }
+      if (value === "last") return ["last"]
+      const num = Number(value)
+      if (Number.isInteger(num) && num >= 1 && num <= 31) {
+        return [num]
+      }
+      return []
+    }
+
+    const monthdays = toMonthdays(input)
+    if (!monthdays.length) return []
+    const normalized = monthdays.map((day) => (day === "last" ? -1 : day))
+    return Array.from(new Set(normalized)).map((day) => String(day))
   }
 
   private toDayCode(day: number): string {

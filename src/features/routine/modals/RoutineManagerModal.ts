@@ -360,6 +360,8 @@ export class RoutineManagerModal extends Modal {
         return this.tv('types.weekly', 'Weekly');
       case 'monthly':
         return this.tv('types.monthly', 'Monthly');
+      case 'monthly_date':
+        return this.tv('types.monthly_date', 'Monthly (date)');
       default:
         return type ?? '-';
     }
@@ -400,17 +402,34 @@ export class RoutineManagerModal extends Modal {
   }
 
   private weekLabel(fm: RoutineFrontmatter): string {
-    if (fm.routine_type !== 'monthly') return '-';
-    const weekSet = this.getMonthlyWeekSet(fm);
-    if (weekSet.length > 0) {
-      return weekSet
-        .map((week) =>
-          week === 'last'
-            ? this.tv('labels.weekLast', 'Last')
-            : this.tv('labels.weekNth', `Week ${week}`, { week }),
-        )
-        .join(', ');
+    if (fm.routine_type === 'monthly') {
+      const weekSet = this.getMonthlyWeekSet(fm);
+      if (weekSet.length > 0) {
+        return weekSet
+          .map((week) =>
+            week === 'last'
+              ? this.tv('labels.weekLast', 'Last')
+              : this.tv('labels.weekNth', `Week ${week}`, { week }),
+          )
+          .join(', ');
+      }
+      return '-';
     }
+
+    if (fm.routine_type === 'monthly_date') {
+      const monthdays = this.getMonthlyMonthdaySet(fm);
+      if (monthdays.length > 0) {
+        return monthdays
+          .map((day) =>
+            day === 'last'
+              ? this.tv('labels.monthdayLast', 'Last day')
+              : this.tv('labels.monthdayNth', '{day}', { day }),
+          )
+          .join(', ');
+      }
+      return '-';
+    }
+
     return '-';
   }
 
@@ -461,6 +480,20 @@ export class RoutineManagerModal extends Modal {
     }
     const single = this.getMonthlyWeekday(fm);
     return typeof single === 'number' ? [single] : [];
+  }
+
+  private getMonthlyMonthdaySet(fm: RoutineFrontmatter): Array<number | 'last'> {
+    if (Array.isArray(fm.routine_monthdays) && fm.routine_monthdays.length) {
+      return fm.routine_monthdays.filter(
+        (value): value is number | 'last' =>
+          value === 'last' || (typeof value === 'number' && value >= 1 && value <= 31),
+      );
+    }
+    const single = fm.routine_monthday;
+    if (single === 'last' || typeof single === 'number') {
+      return [single];
+    }
+    return [];
   }
 
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {

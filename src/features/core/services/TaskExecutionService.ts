@@ -114,10 +114,8 @@ export class TaskExecutionService {
           console.error('[TaskExecutionService] handleCrossDayStart failed', error)
           this.host.renderTaskList()
         }
-        if (handledCrossDay) {
-          await this.host.saveRunningTasksState()
-        }
-      } else {
+      }
+      if (!handledCrossDay) {
         await this.host.saveRunningTasksState()
         this.host.renderTaskList()
       }

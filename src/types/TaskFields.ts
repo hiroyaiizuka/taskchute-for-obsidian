@@ -72,8 +72,9 @@ export interface TaskSchedulingFields {
 // Routine Task Fields
 // ============================================================================
 
-export type RoutineType = 'daily' | 'weekly' | 'monthly';
+export type RoutineType = 'daily' | 'weekly' | 'monthly' | 'monthly_date';
 export type RoutineWeek = 1 | 2 | 3 | 4 | 5 | 'last';
+export type RoutineMonthday = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 'last';
 
 export interface RoutineTaskFields {
   /** Whether this is a routine task */
@@ -108,6 +109,12 @@ export interface RoutineTaskFields {
 
   /** Multiple weekdays for monthly routines */
   routine_weekdays?: number[];
+
+  /** Day of month for monthly date routines */
+  routine_monthday?: RoutineMonthday;
+
+  /** Multiple days of month for monthly date routines */
+  routine_monthdays?: RoutineMonthday[];
 }
 
 // ============================================================================

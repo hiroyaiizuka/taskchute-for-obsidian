@@ -181,11 +181,7 @@ describe('TaskExecutionService', () => {
     expect(payload.todayKey).toBe('2025-01-02')
     expect(instance.state).toBe('running')
     expect(instance.date).toBe('2025-01-02')
-    expect(host.saveRunningTasksState).toHaveBeenCalledTimes(1)
-    expect(
-      host.saveRunningTasksState.mock.invocationCallOrder[0] >
-        handleCrossDayStart.mock.invocationCallOrder[0],
-    ).toBe(true)
+    expect(host.saveRunningTasksState).not.toHaveBeenCalled()
   })
 
   it('moves cross-day routine tasks without updating frontmatter', async () => {
@@ -223,28 +219,23 @@ describe('TaskExecutionService', () => {
     expect(payload.todayKey).toBe('2025-01-02')
     expect(instance.state).toBe('running')
     expect(instance.date).toBe('2025-01-02')
-    expect(host.saveRunningTasksState).toHaveBeenCalledTimes(1)
-    expect(
-      host.saveRunningTasksState.mock.invocationCallOrder[0] >
-        handleCrossDayStart.mock.invocationCallOrder[0],
-    ).toBe(true)
+    expect(host.saveRunningTasksState).not.toHaveBeenCalled()
   })
 
-  it('calls handleCrossDayStart before saving running tasks for routine cross-day start', async () => {
+  it('does not resave running tasks after handleCrossDayStart for routine cross-day start', async () => {
     const current = new Date('2025-01-02T09:00:00.000Z')
     jest.useFakeTimers().setSystemTime(current)
 
-    const callOrder: string[] = []
     const host = createHost({
       getViewDate: () => new Date('2025-01-01T00:00:00.000Z'),
       handleCrossDayStart: jest.fn().mockImplementation(async () => {
-        callOrder.push('handle')
+        return undefined
       }),
       saveRunningTasksState: jest.fn().mockImplementation(async () => {
-        callOrder.push('save')
+        return undefined
       }),
       renderTaskList: jest.fn().mockImplementation(() => {
-        callOrder.push('render')
+        return undefined
       }),
     })
     const mockFile = createMockTFile('TASKS/routine.md')
@@ -266,9 +257,8 @@ describe('TaskExecutionService', () => {
 
     await service.startInstance(instance)
 
-    expect(callOrder).toEqual(['handle', 'save'])
+    expect(host.saveRunningTasksState).not.toHaveBeenCalled()
     expect(host.renderTaskList).not.toHaveBeenCalled()
-    expect(host.saveRunningTasksState).toHaveBeenCalledTimes(1)
   })
 
   it('handles heatmap update failure gracefully', async () => {

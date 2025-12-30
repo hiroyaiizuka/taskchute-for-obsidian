@@ -54,6 +54,11 @@ export interface MonthlySelection {
   weekdaySet?: number[];
 }
 
+export interface MonthlyDateSelection {
+  monthday?: number | 'last';
+  monthdaySet?: Array<number | 'last'>;
+}
+
 /**
  * Determine which monthly options should be pre-selected for a routine task.
  */
@@ -138,4 +143,62 @@ export function deriveMonthlySelection(task: TaskData): MonthlySelection {
         : undefined;
 
   return { week, weekday, weekSet: weekSet.length ? weekSet : undefined, weekdaySet };
+}
+
+/**
+ * Determine which monthly date options should be pre-selected for a routine task.
+ */
+export function deriveMonthlyDateSelection(task: TaskData): MonthlyDateSelection {
+  const frontmatter = task.frontmatter || {};
+  const normalizeMonthday = (value: unknown): number | 'last' | undefined => {
+    if (value === 'last') return 'last';
+    const num = Number(value);
+    if (Number.isInteger(num) && num >= 1 && num <= 31) return num;
+    return undefined;
+  };
+
+  const normalizeMonthdayArray = (value: unknown): Array<number | 'last'> => {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const result: Array<number | 'last'> = [];
+    value.forEach((candidate) => {
+      const normalized = normalizeMonthday(candidate);
+      if (normalized !== undefined) {
+        const key = String(normalized);
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(normalized);
+        }
+      }
+    });
+    return result;
+  };
+
+  const monthdaySet = normalizeMonthdayArray(
+    task.routine_monthdays ?? frontmatter.routine_monthdays,
+  );
+
+  if (monthdaySet.length > 0) {
+    return { monthdaySet };
+  }
+
+  const candidates: Array<number | 'last' | undefined> = [
+    task.routine_monthday,
+    (frontmatter.routine_monthday as number | 'last' | undefined),
+  ];
+
+  let monthday: number | 'last' | undefined;
+  for (const candidate of candidates) {
+    if (candidate === 'last') {
+      monthday = 'last';
+      break;
+    }
+    const normalized = normalizeMonthday(candidate);
+    if (normalized !== undefined) {
+      monthday = normalized;
+      break;
+    }
+  }
+
+  return { monthday };
 }

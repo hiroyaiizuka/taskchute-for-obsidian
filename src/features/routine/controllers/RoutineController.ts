@@ -12,6 +12,7 @@ import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
   deriveMonthlySelection,
+  deriveMonthlyDateSelection,
 } from '../modals/RoutineModal'
 
 type CreateOptions = {
@@ -30,6 +31,8 @@ interface RoutineDetailsInput {
   monthly_weekday?: number
   monthly_weeks?: Array<number | 'last'>
   monthly_weekdays?: number[]
+  monthly_monthday?: number | 'last'
+  monthly_monthdays?: Array<number | 'last'>
   interval?: number
   enabled?: boolean
 }
@@ -96,6 +99,7 @@ export default class RoutineController {
       { value: 'daily', text: this.tv('forms.routineDaily', 'Daily') },
       { value: 'weekly', text: this.tv('forms.routineWeekly', 'Weekly (by weekday)') },
       { value: 'monthly', text: this.tv('forms.routineMonthly', 'Monthly (weekday)') },
+      { value: 'monthly_date', text: this.tv('forms.routineMonthlyDate', 'Monthly (date)') },
     ]
     options.forEach((opt) => {
       const option = typeSelect.createEl('option', {
@@ -107,7 +111,7 @@ export default class RoutineController {
       }
     })
     typeSelect.value =
-      task.routine_type === 'weekly' || task.routine_type === 'monthly'
+      task.routine_type === 'weekly' || task.routine_type === 'monthly' || task.routine_type === 'monthly_date'
         ? task.routine_type
         : 'daily'
 
@@ -219,13 +223,119 @@ export default class RoutineController {
       }
     })
 
+    const monthlyDateGroup = form.createEl('div', {
+      cls: 'form-group routine-monthly-date-group',
+    })
+    monthlyDateGroup.classList.add('is-hidden')
+    monthlyDateGroup.createEl('label', {
+      text: this.tv('forms.selectMonthDays', 'Select dates:'),
+      cls: 'form-label',
+    })
+    const monthdaySelect = monthlyDateGroup.createEl('div', {
+      cls: 'routine-monthday-select',
+    })
+    const monthdayTrigger = monthdaySelect.createEl('button', {
+      cls: 'form-input routine-monthday-trigger',
+      attr: {
+        type: 'button',
+        'aria-haspopup': 'listbox',
+        'aria-expanded': 'false',
+      },
+    })
+    const monthdayDropdown = monthdaySelect.createEl('div', {
+      cls: 'routine-monthday-dropdown is-hidden',
+    })
+    const monthdayOptions = monthdayDropdown.createEl('div', {
+      cls: 'routine-monthday-options',
+    })
+    const monthdayCheckboxes: HTMLInputElement[] = []
+    for (let day = 1; day <= 31; day += 1) {
+      const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
+      const checkbox = option.createEl('input', { type: 'checkbox', value: String(day) })
+      option.createEl('span', {
+        text: this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        cls: 'routine-monthday-option__label',
+      })
+      monthdayCheckboxes.push(checkbox)
+    }
+    {
+      const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
+      const checkbox = option.createEl('input', { type: 'checkbox', value: 'last' })
+      option.createEl('span', {
+        text: this.tv('labels.routineMonthdayLast', 'Last day'),
+        cls: 'routine-monthday-option__label',
+      })
+      monthdayCheckboxes.push(checkbox)
+    }
+
+    const {
+      monthday: initialMonthday,
+      monthdaySet: initialMonthdaySet,
+    } = deriveMonthlyDateSelection(task as TaskData)
+    const normalizedMonthdaySet = initialMonthdaySet?.length
+      ? initialMonthdaySet
+      : initialMonthday !== undefined
+        ? [initialMonthday]
+        : []
+    monthdayCheckboxes.forEach((checkbox) => {
+      const match = checkbox.value === 'last'
+        ? normalizedMonthdaySet.includes('last')
+        : normalizedMonthdaySet.includes(Number(checkbox.value))
+      checkbox.checked = match
+    })
+    const getSelectedMonthdays = () =>
+      this.normalizeMonthdaySelection(
+        monthdayCheckboxes
+          .filter((checkbox) => checkbox.checked)
+          .map((checkbox) => checkbox.value === 'last' ? 'last' : Number.parseInt(checkbox.value, 10)),
+      )
+    const updateMonthdayTrigger = () => {
+      const selected = getSelectedMonthdays()
+      const label =
+        this.formatMonthdayList(selected) ?? this.tv('labels.routineMonthdayUnset', 'No date set')
+      monthdayTrigger.textContent = label
+      monthdayTrigger.classList.toggle('is-empty', selected.length === 0)
+    }
+    updateMonthdayTrigger()
+    monthdayCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener('change', updateMonthdayTrigger)
+    })
+    const openMonthdayDropdown = () => {
+      monthdayDropdown.classList.remove('is-hidden')
+      monthdayTrigger.setAttribute('aria-expanded', 'true')
+    }
+    const closeMonthdayDropdown = () => {
+      monthdayDropdown.classList.add('is-hidden')
+      monthdayTrigger.setAttribute('aria-expanded', 'false')
+    }
+    monthdayTrigger.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (monthdayDropdown.classList.contains('is-hidden')) {
+        openMonthdayDropdown()
+      } else {
+        closeMonthdayDropdown()
+      }
+    })
+    const handleMonthdayOutsideClick = (event: MouseEvent) => {
+      if (!monthdaySelect.contains(event.target as Node)) {
+        closeMonthdayDropdown()
+      }
+    }
+    document.addEventListener('click', handleMonthdayOutsideClick)
+
     const syncVisibility = () => {
       const selectedType = typeSelect.value
       const isWeekly = selectedType === 'weekly'
       const isMonthly = selectedType === 'monthly'
+      const isMonthlyDate = selectedType === 'monthly_date'
       weeklyGroup.classList.toggle('is-hidden', !isWeekly)
       monthlyLabel.classList.toggle('is-hidden', !isMonthly)
       monthlyGroup.classList.toggle('is-hidden', !isMonthly)
+      monthlyDateGroup.classList.toggle('is-hidden', !isMonthlyDate)
+      if (!isMonthlyDate) {
+        closeMonthdayDropdown()
+      }
     }
     syncVisibility()
     typeSelect.addEventListener('change', syncVisibility)
@@ -251,6 +361,7 @@ export default class RoutineController {
     }
 
     const closeModal = () => {
+      document.removeEventListener('click', handleMonthdayOutsideClick)
       modal.remove()
     }
     closeButton.addEventListener('click', closeModal)
@@ -297,6 +408,13 @@ export default class RoutineController {
           return
         }
       }
+      if (routineType === 'monthly_date') {
+        const selectedDays = getSelectedMonthdays()
+        if (selectedDays.length === 0) {
+          new Notice(this.tv('forms.selectMonthDaysPrompt', 'Select at least one date'))
+          return
+        }
+      }
       const detailPayload: RoutineDetailsInput = {
         interval,
         enabled,
@@ -327,6 +445,10 @@ export default class RoutineController {
         const normalizedWeekdays = this.normalizeWeekdaySelection(pickedWeekdays)
         detailPayload.monthly_weekdays = normalizedWeekdays
         detailPayload.monthly_weekday = normalizedWeekdays.length === 1 ? normalizedWeekdays[0] : undefined
+      } else if (routineType === 'monthly_date') {
+        const normalizedMonthdays = getSelectedMonthdays()
+        detailPayload.monthly_monthdays = normalizedMonthdays
+        detailPayload.monthly_monthday = normalizedMonthdays.length === 1 ? normalizedMonthdays[0] : undefined
       }
 
       await this.setRoutineTaskWithDetails(task, anchor ?? modalContent, scheduledTime, routineType, detailPayload)
@@ -407,6 +529,8 @@ export default class RoutineController {
         delete cleaned.monthly_weekday
         delete cleaned.routine_week
         delete cleaned.routine_weekday
+        delete cleaned.routine_monthday
+        delete cleaned.routine_monthdays
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
         if (routineType === 'weekly') {
           const weekdays = this.normalizeWeekdaySelection(details.weekdays)
@@ -462,6 +586,35 @@ export default class RoutineController {
             delete routineFrontmatter.routine_weekdays
             delete routineFrontmatter.routine_weekday
           }
+          delete routineFrontmatter.routine_monthday
+          delete routineFrontmatter.routine_monthdays
+        } else if (routineType === 'monthly_date') {
+          const normalizedMonthdays = this.normalizeMonthdaySelection(
+            Array.isArray(details.monthly_monthdays) && details.monthly_monthdays.length
+              ? details.monthly_monthdays
+              : details.monthly_monthday !== undefined
+                ? [details.monthly_monthday]
+                : [],
+          )
+          if (normalizedMonthdays.length > 0) {
+            routineFrontmatter.routine_monthdays = normalizedMonthdays
+            if (normalizedMonthdays.length === 1) {
+              routineFrontmatter.routine_monthday = normalizedMonthdays[0]
+            } else {
+              delete routineFrontmatter.routine_monthday
+            }
+          } else {
+            delete routineFrontmatter.routine_monthdays
+            delete routineFrontmatter.routine_monthday
+          }
+          delete routineFrontmatter.weekday
+          delete routineFrontmatter.weekdays
+          delete routineFrontmatter.monthly_week
+          delete routineFrontmatter.monthly_weekday
+          delete routineFrontmatter.routine_week
+          delete routineFrontmatter.routine_weekday
+          delete routineFrontmatter.routine_weeks
+          delete routineFrontmatter.routine_weekdays
         }
         return routineFrontmatter
       })
@@ -578,6 +731,8 @@ export default class RoutineController {
       delete task.monthly_weekday
       delete task.routine_weeks
       delete task.routine_weekdays
+      delete task.routine_monthday
+      delete task.routine_monthdays
     } else if (routineType === 'monthly') {
       const normalizedWeeks = this.normalizeWeekSelection(
         Array.isArray(details.monthly_weeks) && details.monthly_weeks.length
@@ -622,6 +777,30 @@ export default class RoutineController {
       }
       delete task.weekday
       delete task.weekdays
+      delete task.routine_monthday
+      delete task.routine_monthdays
+    } else if (routineType === 'monthly_date') {
+      const normalizedMonthdays = this.normalizeMonthdaySelection(
+        Array.isArray(details.monthly_monthdays) && details.monthly_monthdays.length
+          ? details.monthly_monthdays
+          : details.monthly_monthday !== undefined
+            ? [details.monthly_monthday]
+            : [],
+      )
+      task.routine_monthdays = normalizedMonthdays
+      if (normalizedMonthdays.length === 1) {
+        task.routine_monthday = normalizedMonthdays[0]
+      } else {
+        delete task.routine_monthday
+      }
+      delete task.weekday
+      delete task.weekdays
+      delete task.monthly_week
+      delete task.monthly_weekday
+      delete task.routine_week
+      delete task.routine_weekday
+      delete task.routine_weeks
+      delete task.routine_weekdays
     } else {
       delete task.weekday
       delete task.weekdays
@@ -631,6 +810,8 @@ export default class RoutineController {
       delete task.routine_weekday
       delete task.routine_weeks
       delete task.routine_weekdays
+      delete task.routine_monthday
+      delete task.routine_monthdays
     }
   }
 
@@ -709,6 +890,27 @@ export default class RoutineController {
         tooltip += ` - ${monthlyLabel.replace(/\s{2,}/g, ' ').trim()}`
         break
       }
+      case 'monthly_date': {
+        const monthdaySet = this.normalizeMonthdaySelection(
+          Array.isArray(details.monthly_monthdays) && details.monthly_monthdays.length
+            ? details.monthly_monthdays
+            : Array.isArray(task.routine_monthdays) && task.routine_monthdays.length
+              ? task.routine_monthdays
+              : details.monthly_monthday !== undefined
+                ? [details.monthly_monthday]
+                : task.routine_monthday !== undefined
+                  ? [task.routine_monthday]
+                  : [],
+        )
+        const dayLabel =
+          this.formatMonthdayList(monthdaySet) ?? this.tv('labels.routineMonthdayUnset', 'No date set')
+        const monthlyLabel = this.tv('labels.routineMonthlyDateLabel', 'Every {interval} month(s) on {day}', {
+          interval: intervalValue,
+          day: dayLabel,
+        })
+        tooltip += ` - ${monthlyLabel.replace(/\s{2,}/g, ' ').trim()}`
+        break
+      }
       default:
         break
     }
@@ -760,6 +962,45 @@ export default class RoutineController {
         if (b === 'last') return -1
         return (a as number) - (b as number)
       })
+  }
+
+  private normalizeMonthdaySelection(values?: Array<number | 'last'>): Array<number | 'last'> {
+    if (!Array.isArray(values)) return []
+    const seen = new Set<string>()
+    const result: Array<number | 'last'> = []
+    values.forEach((value) => {
+      if (value === 'last') {
+        if (!seen.has('last')) {
+          seen.add('last')
+          result.push('last')
+        }
+        return
+      }
+      const num = Number(value)
+      if (Number.isInteger(num) && num >= 1 && num <= 31) {
+        const key = String(num)
+        if (!seen.has(key)) {
+          seen.add(key)
+          result.push(num)
+        }
+      }
+    })
+    return result.sort((a, b) => {
+      if (a === 'last') return 1
+      if (b === 'last') return -1
+      return Number(a) - Number(b)
+    })
+  }
+
+  private formatMonthdayList(monthdays?: Array<number | 'last'>): string | undefined {
+    if (!Array.isArray(monthdays) || monthdays.length === 0) return undefined
+    const joiner = this.tv('lists.weekdayJoiner', ' / ')
+    const labels = monthdays.map((day) =>
+      day === 'last'
+        ? this.tv('labels.routineMonthdayLast', 'Last day')
+        : this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+    )
+    return labels.join(joiner)
   }
 
   private formatWeekList(weeks?: Array<number | 'last'>): string | undefined {
@@ -841,7 +1082,7 @@ export default class RoutineController {
   }
 
   private normalizeRoutineType(value: unknown): RoutineKind {
-    if (value === 'weekly' || value === 'monthly') {
+    if (value === 'weekly' || value === 'monthly' || value === 'monthly_date') {
       return value
     }
     return 'daily'

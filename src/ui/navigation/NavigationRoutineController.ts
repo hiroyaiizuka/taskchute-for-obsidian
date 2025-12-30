@@ -120,6 +120,12 @@ export default class NavigationRoutineController {
             value === 'last' || typeof value === 'number',
         )
       : undefined
+    const routineMonthdaysArray = Array.isArray(rawFrontmatter.routine_monthdays)
+      ? rawFrontmatter.routine_monthdays.filter(
+          (value): value is RoutineTaskShape['routine_monthday'] =>
+            value === 'last' || typeof value === 'number',
+        )
+      : undefined
     const routineWeekday =
       typeof rawFrontmatter.routine_weekday === 'number'
         ? rawFrontmatter.routine_weekday
@@ -131,6 +137,12 @@ export default class NavigationRoutineController {
         ? 'last'
         : typeof rawFrontmatter.routine_week === 'number'
           ? rawFrontmatter.routine_week
+          : undefined
+    const routineMonthday =
+      rawFrontmatter.routine_monthday === 'last'
+        ? 'last'
+        : typeof rawFrontmatter.routine_monthday === 'number'
+          ? rawFrontmatter.routine_monthday
           : undefined
 
     const monthlyWeek =
@@ -167,6 +179,8 @@ export default class NavigationRoutineController {
       routine_weekday: routineWeekday,
       routine_weeks: routineWeeksArray,
       routine_weekdays: routineWeekdaysArray,
+      routine_monthday: routineMonthday,
+      routine_monthdays: routineMonthdaysArray,
       projectPath: typeof rawFrontmatter.project_path === 'string' ? rawFrontmatter.project_path : undefined,
       projectTitle: typeof rawFrontmatter.project === 'string' ? rawFrontmatter.project : undefined,
     } as RoutineTaskShape

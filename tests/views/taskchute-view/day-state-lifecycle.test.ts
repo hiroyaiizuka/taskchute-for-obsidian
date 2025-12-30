@@ -1687,6 +1687,131 @@ describe('TaskChuteView cross-day start handling', () => {
     expect(view.currentDate.getDate()).toBe(2);
     expect(refreshSpy).toHaveBeenCalled();
   });
+
+  test('moves duplicate entry to today when starting from past date', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const duplicateEntry = {
+      instanceId: 'dup-1',
+      originalPath: 'TASKS/weekly.md',
+      slotKey: '8:00-12:00',
+      originalSlotKey: '8:00-12:00',
+      timestamp: 10,
+      createdMillis: 10,
+      originalTaskId: 'tc-weekly',
+    };
+    view.getCurrentDayState().duplicatedInstances.push(duplicateEntry);
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    const refreshSpy = jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const routineTask = createTaskData({
+      path: 'TASKS/weekly.md',
+      name: 'Weekly',
+      isRoutine: true,
+      taskId: 'tc-weekly',
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      slotKey: '16:00-0:00',
+      originalSlotKey: '8:00-12:00',
+      instanceId: 'dup-1',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    const prevState = view.dayStateManager.getStateFor('2025-01-01');
+    expect(prevState.duplicatedInstances.some((entry) => entry.instanceId === 'dup-1')).toBe(false);
+    const todayState = view.dayStateManager.getStateFor('2025-01-02');
+    const movedEntry = todayState.duplicatedInstances.find((entry) => entry.instanceId === 'dup-1');
+    expect(movedEntry).toMatchObject({
+      instanceId: 'dup-1',
+      originalPath: 'TASKS/weekly.md',
+      slotKey: '16:00-0:00',
+      originalSlotKey: '8:00-12:00',
+      originalTaskId: 'tc-weekly',
+    });
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-02');
+    expect(refreshSpy).toHaveBeenCalled();
+  });
+
+  test('clears permanent deletion for running task on today', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    await view.dayStateManager.ensure('2025-01-02');
+
+    view.dayStateManager.setDeleted(
+      [
+        {
+          path: 'TASKS/weekly.md',
+          deletionType: 'permanent',
+          timestamp: Date.now(),
+          taskId: 'tc-weekly',
+        },
+      ],
+      '2025-01-02',
+    );
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+
+    const routineTask = createTaskData({
+      path: 'TASKS/weekly.md',
+      name: 'Weekly',
+      isRoutine: true,
+      taskId: 'tc-weekly',
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      instanceId: 'dup-1',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    const deleted = view.dayStateManager.getDeleted('2025-01-02');
+    expect(
+      deleted.some(
+        (entry) =>
+          entry.deletionType === 'permanent' &&
+          (entry.path === 'TASKS/weekly.md' || entry.taskId === 'tc-weekly'),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('TaskChuteView keyboard shortcuts', () => {

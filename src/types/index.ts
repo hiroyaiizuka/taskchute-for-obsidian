@@ -109,7 +109,7 @@ export interface TaskData {
   projectTitle?: string
   isRoutine?: boolean
   createdMillis?: number
-  routine_type?: "daily" | "weekly" | "monthly" | "weekdays" | "weekends"
+  routine_type?: "daily" | "weekly" | "monthly" | "monthly_date" | "weekdays" | "weekends"
   routine_start?: string
   routine_end?: string
   weekdays?: number[]
@@ -125,6 +125,8 @@ export interface TaskData {
   routine_week?: number | "last"
   routine_weeks?: (number | "last")[]
   routine_weekdays?: number[]
+  routine_monthday?: number | "last"
+  routine_monthdays?: Array<number | "last">
   routine_day?: string
   flexible_schedule?: boolean
   scheduledTime?: string
@@ -314,7 +316,7 @@ export interface AutocompleteInstance {
 
 // Phase 3: Use properly typed frontmatter
 // Import from TaskFields module
-import type { TaskFrontmatter, RoutineType, RoutineWeek } from "./TaskFields"
+import type { TaskFrontmatter, RoutineType, RoutineWeek, RoutineMonthday } from "./TaskFields"
 
 export interface RoutineFrontmatter extends TaskFrontmatter {
   // Legacy compatibility - keep the original shape but extend from TaskFrontmatter
@@ -337,6 +339,9 @@ export interface RoutineRule {
   monthWeekday?: number // 0..6
   weekSet?: (number | 'last')[]
   monthWeekdaySet?: number[]
+  // monthly date
+  monthDay?: RoutineMonthday
+  monthDaySet?: RoutineMonthday[]
 }
 
 /**

@@ -348,6 +348,7 @@ export const ja = {
       routineDaily: "日ごと",
       routineWeekly: "週ごと（曜日指定）",
       routineMonthly: "月ごと（曜日指定）",
+      routineMonthlyDate: "月ごと（日付指定）",
       interval: "間隔:",
       enabled: "有効:",
       selectWeekdays: "曜日を選択:",
@@ -357,6 +358,9 @@ export const ja = {
       selectMonthWeeksPrompt: "週を選択してください",
       selectMonthWeekdaysPrompt: "曜日を選択してください",
       monthlySettings: "月次設定:",
+      monthlyDateSettings: "月次（日付）設定:",
+      selectMonthDays: "日付を選択:",
+      selectMonthDaysPrompt: "日付を選択してください",
       monthWeeksLabel: "週（複数選択可）:",
       monthWeekdaysLabel: "曜日（複数選択可）:",
       scheduledTimeLabel: "開始予定時刻:",
@@ -446,9 +450,13 @@ export const ja = {
       routineDailyLabel: "{interval}日ごと",
       routineWeeklyLabel: "{interval}週ごと {day}",
       routineMonthlyLabel: "{interval}ヶ月ごと {week}{day}",
+      routineMonthlyDateLabel: "{interval}ヶ月ごと {day}",
       routineWeekNth: "第{week}",
       routineWeekLast: "最終",
       routineDayUnset: "曜日未指定",
+      routineMonthdayNth: "{day}日",
+      routineMonthdayLast: "最終日",
+      routineMonthdayUnset: "日付未指定",
     },
     validator: {
       invalidChars: "使用できない文字が含まれています: {chars}",
@@ -617,6 +625,7 @@ export const ja = {
       daily: "日ごと",
       weekly: "週ごと",
       monthly: "月ごと",
+      monthly_date: "月ごと（日付）",
     },
     notices: {
       toggledOn: "有効化しました",
@@ -627,6 +636,8 @@ export const ja = {
       weekdaySuffix: "曜",
       weekNth: "第{week}",
       weekLast: "最終",
+      monthdayNth: "{day}日",
+      monthdayLast: "最終日",
     },
     calendar: {
       export: {
@@ -709,6 +720,8 @@ export const ja = {
       monthWeekLabel: '第:',
       monthWeeksLabel: '週（複数選択可）:',
       monthWeekdaysLabel: '曜日（複数選択可）:',
+      monthlyDateSettings: '月次（日付）設定:',
+      monthDaysLabel: '日付（複数選択可）:',
       saveButton: '保存',
       cancelButton: 'キャンセル',
     },
@@ -716,6 +729,7 @@ export const ja = {
       daily: '日ごと',
       weekly: '週ごと（曜日）',
       monthly: '月ごと（第n x曜日）',
+      monthly_date: '月ごと（日付）',
     },
     weekOptions: {
       first: '第1',
@@ -734,6 +748,11 @@ export const ja = {
       monthlyRequiresSelection: '「第n + 曜日」を選択してください',
       monthlyRequiresWeek: '対象となる週を1つ以上選択してください',
       monthlyRequiresWeekday: '対象となる曜日を1つ以上選択してください',
+      monthlyDateRequiresDay: '日付を1つ以上選択してください',
+    },
+    labels: {
+      monthdayNth: "{day}日",
+      monthdayLast: "最終日",
     },
     notices: {
       legacyTargetDateRemoved: '古いtarget_dateを自動削除しました',

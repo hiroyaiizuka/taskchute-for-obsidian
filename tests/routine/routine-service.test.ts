@@ -129,4 +129,75 @@ describe('RoutineService.isDue', () => {
     expect(RoutineService.isDue('2025-09-29', rule)).toBe(true); // Last Monday
     expect(RoutineService.isDue('2025-09-30', rule)).toBe(false); // Last Tuesday
   });
+
+  test('monthly routines support legacy zero-based month week', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly',
+      routine_interval: 1,
+      monthly_week: 0,
+      monthly_weekday: 1,
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-01', rule)).toBe(true); // 1st Monday
+    expect(RoutineService.isDue('2025-09-08', rule)).toBe(false); // 2nd Monday
+  });
+
+  test('monthly date routines support multiple monthdays and last day', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly_date',
+      routine_interval: 1,
+      routine_start: '2025-01-01',
+      routine_monthdays: [1, 15, 'last'],
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-01', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-09-15', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-09-30', rule)).toBe(true); // last day
+    expect(RoutineService.isDue('2025-09-29', rule)).toBe(false);
+  });
+
+  test('monthly date routines skip invalid dates in shorter months', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly_date',
+      routine_interval: 1,
+      routine_monthday: 31,
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-04-30', rule)).toBe(false); // April has no 31st
+    expect(RoutineService.isDue('2025-05-31', rule)).toBe(true);
+  });
+
+  test('monthly date routines ignore invalid monthday values', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly_date',
+      routine_interval: 1,
+      routine_monthdays: ['foo', 0, 32],
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-09-01', rule)).toBe(false);
+    expect(RoutineService.isDue('2025-09-30', rule)).toBe(false);
+  });
+
+  test('monthly date routines respect month interval', () => {
+    const rule = RoutineService.parseFrontmatter({
+      isRoutine: true,
+      routine_type: 'monthly_date',
+      routine_interval: 2,
+      routine_start: '2025-01-01',
+      routine_monthday: 10,
+    });
+
+    expect(rule).not.toBeNull();
+    expect(RoutineService.isDue('2025-01-10', rule)).toBe(true);
+    expect(RoutineService.isDue('2025-02-10', rule)).toBe(false);
+    expect(RoutineService.isDue('2025-03-10', rule)).toBe(true);
+  });
 });
