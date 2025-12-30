@@ -951,6 +951,110 @@ export class TaskChuteView
     }
   }
 
+  private async moveDuplicateEntryToDate(
+    inst: TaskInstance,
+    fromDateKey: string,
+    toDateKey: string,
+  ): Promise<void> {
+    if (!inst || fromDateKey === toDateKey) {
+      return
+    }
+    const instanceId = inst.instanceId
+    const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+
+    await this.ensureDayStateForDate(fromDateKey)
+    const sourceState = this.dayStateManager.getStateFor(fromDateKey)
+    const sourceEntries = Array.isArray(sourceState.duplicatedInstances)
+      ? sourceState.duplicatedInstances
+      : []
+    const sourceIndex = sourceEntries.findIndex((entry) => {
+      if (!entry) return false
+      if (instanceId && entry.instanceId === instanceId) {
+        return true
+      }
+      if (!instanceId && taskPath && entry.originalPath === taskPath) {
+        return true
+      }
+      return false
+    })
+    if (sourceIndex < 0) {
+      return
+    }
+
+    const [sourceEntry] = sourceEntries.splice(sourceIndex, 1)
+    sourceState.duplicatedInstances = sourceEntries
+    await this.persistDayState(fromDateKey)
+
+    const resolvedInstanceId = sourceEntry.instanceId ?? instanceId
+    const resolvedPath = sourceEntry.originalPath ?? taskPath
+    if (!resolvedInstanceId || !resolvedPath) {
+      return
+    }
+
+    await this.ensureDayStateForDate(toDateKey)
+    const targetState = this.dayStateManager.getStateFor(toDateKey)
+    if (!Array.isArray(targetState.duplicatedInstances)) {
+      targetState.duplicatedInstances = []
+    }
+    const alreadyExists = targetState.duplicatedInstances.some(
+      (entry) => entry?.instanceId === resolvedInstanceId,
+    )
+    if (alreadyExists) {
+      return
+    }
+
+    const now = Date.now()
+    targetState.duplicatedInstances.push({
+      instanceId: resolvedInstanceId,
+      originalPath: resolvedPath,
+      slotKey: inst.slotKey ?? sourceEntry.slotKey ?? 'none',
+      originalSlotKey: inst.originalSlotKey ?? sourceEntry.originalSlotKey ?? inst.slotKey ?? 'none',
+      timestamp: sourceEntry.timestamp ?? now,
+      createdMillis: sourceEntry.createdMillis ?? now,
+      originalTaskId: sourceEntry.originalTaskId ?? inst.task?.taskId,
+    })
+    await this.persistDayState(toDateKey)
+  }
+
+  private async clearTaskDeletionForDate(inst: TaskInstance, dateKey: string): Promise<void> {
+    try {
+      const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+      const taskId = inst.task?.taskId
+      const instanceId = inst.instanceId
+      if (!taskPath && !taskId && !instanceId) {
+        return
+      }
+
+      await this.ensureDayStateForDate(dateKey)
+      const dayState = this.dayStateManager.getStateFor(dateKey)
+      const deletedEntries = Array.isArray(dayState.deletedInstances)
+        ? dayState.deletedInstances
+        : []
+      const filtered = deletedEntries.filter((entry) => {
+        if (!entry) return false
+        if (instanceId && entry.instanceId === instanceId) {
+          return false
+        }
+        if (entry.deletionType === 'permanent') {
+          if (taskId && entry.taskId === taskId) {
+            return false
+          }
+          if (taskPath && entry.path === taskPath) {
+            return false
+          }
+        }
+        return true
+      })
+
+      if (filtered.length !== deletedEntries.length) {
+        dayState.deletedInstances = filtered
+        await this.persistDayState(dateKey)
+      }
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to clear task deletion for date', error)
+    }
+  }
+
   public calculateSimpleOrder(
     targetIndex: number,
     sameTasks: TaskInstance[],
@@ -984,6 +1088,9 @@ export class TaskChuteView
 
   public async handleCrossDayStart(payload: CrossDayStartPayload): Promise<void> {
     const { today, todayKey, instance } = payload
+    const previousDateKey = this.getCurrentDateString()
+    await this.moveDuplicateEntryToDate(instance, previousDateKey, todayKey)
+    await this.clearTaskDeletionForDate(instance, todayKey)
     await this.persistCrossDayRunningTasks(todayKey, instance)
     const next = new Date(
       today.getFullYear(),

@@ -130,6 +130,63 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances[0].task.path).toBe(record.taskPath)
   })
 
+  it('restores records by resolving task data from vault when missing in list', async () => {
+    const file = new TFile()
+    const proto = (TFile as unknown as { prototype?: unknown }).prototype ?? {}
+    if (Object.getPrototypeOf(file) !== proto) {
+      Object.setPrototypeOf(file, proto)
+    }
+    if (typeof (file as { constructor?: unknown }).constructor !== 'function') {
+      ;(file as { constructor?: unknown }).constructor = TFile
+    }
+    file.path = 'TASKS/weekly.md'
+    file.basename = 'weekly'
+    file.extension = 'md'
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === file.path ? file : null)),
+        },
+        metadataCache: {
+          getFileCache: jest.fn(() => ({
+            frontmatter: {
+              title: 'Weekly Journal',
+              isRoutine: true,
+              taskId: 'tc-weekly',
+            },
+          })),
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([
+      createRecord({
+        taskPath: 'TASKS/weekly.md',
+        taskTitle: 'Weekly Journal',
+        instanceId: 'weekly-instance',
+      }),
+    ])
+
+    const instances: TaskInstance[] = []
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].task.path).toBe('TASKS/weekly.md')
+    expect(instances[0].task.displayTitle).toBe('Weekly Journal')
+    expect(instances[0].task.isRoutine).toBe(true)
+  })
+
   it('still restores non-routine records when temporary deletion belongs to another path', async () => {
     const record = createRecord({
       taskPath: 'TASKS/non-routine.md',
