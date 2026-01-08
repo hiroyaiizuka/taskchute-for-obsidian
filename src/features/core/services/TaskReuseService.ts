@@ -35,6 +35,31 @@ export class TaskReuseService {
     if (!Array.isArray(dayState.hiddenRoutines)) {
       dayState.hiddenRoutines = []
     }
+    if (!Array.isArray(dayState.deletedInstances)) {
+      dayState.deletedInstances = []
+    }
+
+    // パスレベルのhiddenRoutinesをクリア（instanceIdがnullまたはundefinedのもの）
+    // インスタンス固有のhidden（instanceIdあり）は残す
+    dayState.hiddenRoutines = dayState.hiddenRoutines.filter((entry) => {
+      if (typeof entry === 'string') {
+        return entry !== file.path
+      }
+      // パスが一致し、instanceIdがない場合はクリア
+      if (entry.path === file.path && !entry.instanceId) {
+        return false
+      }
+      return true
+    })
+
+    // temporary削除エントリをクリア（同じパスのもの）
+    // permanent削除エントリは残す
+    dayState.deletedInstances = dayState.deletedInstances.filter((entry) => {
+      if (entry.path === file.path && entry.deletionType === 'temporary') {
+        return false
+      }
+      return true
+    })
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)

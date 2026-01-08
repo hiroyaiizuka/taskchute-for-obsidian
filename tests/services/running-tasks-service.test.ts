@@ -80,6 +80,50 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances).toHaveLength(0)
   })
 
+  it('restores records when hidden entry targets another instance', async () => {
+    const record = createRecord({ instanceId: 'running-instance' })
+    const hidden: HiddenRoutine = {
+      path: record.taskPath,
+      instanceId: 'other-instance',
+    }
+
+    const { result, instances } = await runRestore({
+      records: [record],
+      hiddenRoutines: [hidden],
+    })
+
+    expect(result).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].instanceId).toBe('running-instance')
+    expect(instances[0].state).toBe('running')
+  })
+
+  it('restores records when path-level hidden exists but instance is visible', async () => {
+    const record = createRecord({ instanceId: 'visible-instance' })
+    const task = createTaskData({ path: record.taskPath, isRoutine: true })
+    const existing: TaskInstance = {
+      task,
+      instanceId: 'visible-instance',
+      state: 'idle',
+      slotKey: 'none',
+      date: dateString,
+      createdMillis: Date.now(),
+    }
+    const hidden: HiddenRoutine = { path: record.taskPath, instanceId: null }
+
+    const { result, instances } = await runRestore({
+      records: [record],
+      instances: [existing],
+      hiddenRoutines: [hidden],
+      taskData: task,
+    })
+
+    expect(result).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].instanceId).toBe('visible-instance')
+    expect(instances[0].state).toBe('running')
+  })
+
   it('skips records flagged as deleted by instanceId', async () => {
     const record = createRecord({ instanceId: 'to-delete' })
     const deleted: DeletedInstance = {

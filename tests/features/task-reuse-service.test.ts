@@ -91,7 +91,10 @@ describe('TaskReuseService', () => {
     expect(NoticeMock).toHaveBeenCalled()
   })
 
-  test('reuseTaskAtDate keeps hidden routine entry but still records duplicate', async () => {
+  // NOTE: このテストは以前のバグ動作をテストしていた
+  // 修正後は、パスレベルのhiddenRoutinesは再利用時にクリアされる
+  // 詳細は 'clears path-level hidden entry for the same path' テストを参照
+  test('reuseTaskAtDate clears path-level hidden and records duplicate', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
@@ -103,12 +106,127 @@ describe('TaskReuseService', () => {
 
     await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
 
-    expect(dayState.hiddenRoutines).toHaveLength(1)
-    expect(dayState.hiddenRoutines[0]).toMatchObject({
+    // 修正後: パスレベルのhiddenはクリアされる
+    expect(dayState.hiddenRoutines).toHaveLength(0)
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+    expect(dateService.saveDay).toHaveBeenCalled()
+  })
+
+  // === バグ修正テスト: 削除→再利用後の状態復元 ===
+
+  test('reuseTaskAtDate clears path-level hidden entry for the same path', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    // パスレベルのhidden（instanceId: null）を追加
+    dayState.hiddenRoutines.push({
       path: 'TaskChute/Task/sample.md',
       instanceId: null,
     })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    // パスレベルのhiddenはクリアされるべき
+    const pathLevelHidden = dayState.hiddenRoutines.filter(
+      (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId
+    )
+    expect(pathLevelHidden).toHaveLength(0)
     expect(dayState.duplicatedInstances).toHaveLength(1)
     expect(dateService.saveDay).toHaveBeenCalled()
+  })
+
+  test('reuseTaskAtDate preserves instance-specific hidden entry', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    // インスタンス固有のhidden（instanceId あり）を追加
+    dayState.hiddenRoutines.push({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: 'specific-instance-123',
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    // インスタンス固有のhiddenは残るべき
+    expect(dayState.hiddenRoutines).toHaveLength(1)
+    expect(dayState.hiddenRoutines[0]).toMatchObject({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: 'specific-instance-123',
+    })
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+  })
+
+  test('reuseTaskAtDate clears temporary deleted entry for the same path', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    // temporary削除エントリを追加
+    dayState.deletedInstances.push({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: 'old-instance',
+      deletionType: 'temporary',
+      timestamp: Date.now(),
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    // temporary削除エントリはクリアされるべき
+    const temporaryDeleted = dayState.deletedInstances.filter(
+      (entry) => entry.path === 'TaskChute/Task/sample.md' && entry.deletionType === 'temporary'
+    )
+    expect(temporaryDeleted).toHaveLength(0)
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+  })
+
+  test('reuseTaskAtDate preserves hidden entries for different paths', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    // 別パスのhiddenを追加
+    dayState.hiddenRoutines.push({
+      path: 'TaskChute/Task/other.md',
+      instanceId: null,
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    // 別パスのhiddenは残るべき
+    expect(dayState.hiddenRoutines).toHaveLength(1)
+    expect(dayState.hiddenRoutines[0]).toMatchObject({
+      path: 'TaskChute/Task/other.md',
+      instanceId: null,
+    })
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+  })
+
+  test('reuseTaskAtDate preserves permanent deleted entry', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    // permanent削除エントリを追加（非ルーチンタスクの完全削除など）
+    dayState.deletedInstances.push({
+      path: 'TaskChute/Task/sample.md',
+      deletionType: 'permanent',
+      timestamp: Date.now(),
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    // permanent削除エントリは残るべき（ただし、この動作は議論の余地あり）
+    expect(dayState.deletedInstances).toHaveLength(1)
+    expect(dayState.deletedInstances[0]).toMatchObject({
+      deletionType: 'permanent',
+    })
+    expect(dayState.duplicatedInstances).toHaveLength(1)
   })
 })

@@ -206,16 +206,30 @@ export class RunningTasksService {
     const deletedEntries = deletedInstances ?? []
 
     const isHiddenRecord = (record: RunningTaskRecord): boolean => {
+      const hasVisibleInstance =
+        typeof record.instanceId === 'string' &&
+        record.instanceId.length > 0 &&
+        instances.some((inst) => inst.instanceId === record.instanceId)
       return hiddenEntries.some((entry) => {
         if (!entry) return false
         if (typeof entry === 'string') {
+          if (hasVisibleInstance) {
+            return false
+          }
           return entry === record.taskPath
         }
-        if (entry.instanceId && record.instanceId) {
-          return entry.instanceId === record.instanceId
+        const entryInstanceId =
+          typeof entry.instanceId === 'string' && entry.instanceId.trim().length > 0
+            ? entry.instanceId
+            : null
+        if (entryInstanceId) {
+          if (record.instanceId) {
+            return entryInstanceId === record.instanceId
+          }
+          return entry.path === record.taskPath
         }
-        if (entry.instanceId && !record.instanceId && entry.path === record.taskPath) {
-          return true
+        if (hasVisibleInstance) {
+          return false
         }
         return entry.path === record.taskPath
       })
