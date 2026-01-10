@@ -203,10 +203,6 @@ export class DayStatePersistenceService {
       }
     } else {
       monthly = this.normalizeMonthlyState({});
-      await this.plugin.pathManager.ensureFolderExists(
-        this.plugin.pathManager.getLogDataPath(),
-      );
-      await this.plugin.app.vault.create(path, JSON.stringify(monthly, null, 2));
     }
 
     this.ensureMetadata(monthly);
@@ -240,8 +236,6 @@ export class DayStatePersistenceService {
     const month = await this.loadMonth(monthKey);
     if (!month.days[dateKey]) {
       month.days[dateKey] = createEmptyDayState();
-      month.metadata.lastUpdated = new Date().toISOString();
-      await this.writeMonth(monthKey, month);
     }
     return cloneDayState(month.days[dateKey]);
   }
