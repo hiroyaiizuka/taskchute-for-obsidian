@@ -116,3 +116,125 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
   })
 })
 
+describe('DayStatePersistenceService.loadDay', () => {
+  const createPlugin = () => {
+    const store = new Map<string, string>()
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      create: jest.fn(async (path: string, content: string) => {
+        store.set(path, content)
+        return createFile(path)
+      }),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+    }
+
+    const pathManager = {
+      getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
+      getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
+      ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+      getLogYearPath: jest.fn((year: string | number) => `LOGS/${year}`),
+      ensureYearFolder: jest.fn(async () => undefined),
+      validatePath: jest.fn(() => ({ valid: true })),
+    }
+
+    const plugin = {
+      app: { vault },
+      settings: {
+        useOrderBasedSort: true,
+        slotKeys: {},
+      },
+      pathManager,
+      routineAliasService: {
+        loadAliases: jest.fn().mockResolvedValue({}),
+      },
+      dayStateService: {} as unknown,
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as unknown as TaskChutePluginLike
+
+    return { plugin, store, pathManager, vault }
+  }
+
+  it('does not create month files when loading missing day state', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-09T00:00:00.000Z')
+    const state = await service.loadDay(date)
+
+    expect(vault.create).not.toHaveBeenCalled()
+    expect(vault.modify).not.toHaveBeenCalled()
+    expect(store.size).toBe(0)
+    expect(state.hiddenRoutines).toEqual([])
+    expect(state.deletedInstances).toEqual([])
+    expect(state.duplicatedInstances).toEqual([])
+    expect(state.slotOverrides).toEqual({})
+    expect(state.orders).toEqual({})
+  })
+
+  it('does not modify existing month files when the day entry is missing', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-08': {
+              hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-08T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+    const before = store.get('LOGS/2026-01-state.json')
+
+    const date = new Date('2026-01-09T00:00:00.000Z')
+    await service.loadDay(date)
+
+    expect(vault.modify).not.toHaveBeenCalled()
+    expect(store.get('LOGS/2026-01-state.json')).toBe(before)
+  })
+
+  it('creates month files when saving day state', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-09T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    expect(vault.create).toHaveBeenCalled()
+    expect(store.has('LOGS/2026-01-state.json')).toBe(true)
+  })
+})
