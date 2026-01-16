@@ -16,6 +16,8 @@ export interface RoutineTaskShape {
   routine_type?: 'daily' | 'weekly' | 'monthly' | 'monthly_date' | 'weekdays' | 'weekends'
   routine_interval?: number
   routine_enabled?: boolean
+  routine_start?: string
+  routine_end?: string
   weekdays?: number[]
   weekday?: number
   monthly_week?: number | 'last'

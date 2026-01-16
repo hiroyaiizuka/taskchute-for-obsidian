@@ -122,6 +122,28 @@ describe('TaskScheduleController', () => {
     expect(handles[0]?.close).toHaveBeenCalledTimes(1)
   })
 
+  test('showTaskMoveDatePicker uses current view date even when target_date exists', () => {
+    const { host } = createHost()
+    const { factory, handles } = createCalendarFactory()
+    const controller = new TaskScheduleController(host, { createCalendar: factory })
+    const instance = createInstance({
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: { target_date: '2025-10-20' },
+        name: 'sample',
+      },
+    })
+    const anchor = document.createElement('button')
+
+    controller.showTaskMoveDatePicker(instance, anchor)
+
+    const options = handles[0]?.options as { initialDate: Date }
+    const expected = host.getCurrentDate()
+    expect(options.initialDate.getFullYear()).toBe(expected.getFullYear())
+    expect(options.initialDate.getMonth()).toBe(expected.getMonth())
+    expect(options.initialDate.getDate()).toBe(expected.getDate())
+  })
+
   test('showTaskMoveDatePicker closes existing calendar before opening new one', () => {
     const { host } = createHost()
     const { factory, handles } = createCalendarFactory()

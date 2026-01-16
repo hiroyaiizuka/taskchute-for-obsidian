@@ -55,8 +55,7 @@ export default class TaskScheduleController {
     }
 
     const current = this.host.getCurrentDate()
-    const targetDate = inst.task?.frontmatter?.target_date
-    const initialDate = this.parseTargetDate(targetDate, current)
+    const initialDate = this.normalizeDate(current)
 
     const calendar = this.dependencies.createCalendar({
       anchor,
@@ -171,18 +170,8 @@ export default class TaskScheduleController {
     return abstract instanceof TFile ? abstract : null
   }
 
-  private parseTargetDate(targetDate: unknown, fallback: Date): Date {
-    if (typeof targetDate === 'string') {
-      const match = targetDate.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
-      if (match) {
-        const [, y, m, d] = match
-        const parsed = Date.parse(`${y}-${m}-${d}T00:00:00`)
-        if (!Number.isNaN(parsed)) {
-          return new Date(parsed)
-        }
-      }
-    }
-    return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate())
+  private normalizeDate(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
   }
 
   private parseTargetDateString(targetDate: unknown): string | undefined {
