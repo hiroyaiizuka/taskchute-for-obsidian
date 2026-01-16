@@ -1,13 +1,14 @@
 import { Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
 import { t } from '../../../i18n'
+import { DATE_FORMAT_DISPLAY } from '../../../constants'
 import { applyRoutineFrontmatterMerge } from '../utils/RoutineFrontmatterUtils'
 import { TaskValidator } from '../../core/services/TaskValidator'
 import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
 import type { RoutineWeek } from '../../../types/TaskFields'
 import type { RoutineTaskShape } from '../../../types/routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
-import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
+import { attachCalendarButtonIcon, attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
@@ -35,6 +36,8 @@ interface RoutineDetailsInput {
   monthly_monthdays?: Array<number | 'last'>
   interval?: number
   enabled?: boolean
+  start?: string
+  end?: string
 }
 
 export interface RoutineControllerHost {
@@ -137,6 +140,28 @@ export default class RoutineController {
       attr: { min: '1', step: '1' },
       value: String(task.routine_interval ?? 1),
     })
+
+    const startDateGroup = form.createEl('div', { cls: 'form-group' })
+    startDateGroup.createEl('label', {
+      text: this.tv('forms.startDateLabel', 'Start date:'),
+      cls: 'form-label',
+    })
+    const startInput = this.createDateInputWithIcon(
+      startDateGroup,
+      this.resolveRoutineStartValue(task),
+      this.tv('forms.startDateLabel', 'Start date:'),
+    )
+
+    const endDateGroup = form.createEl('div', { cls: 'form-group' })
+    endDateGroup.createEl('label', {
+      text: this.tv('forms.endDateLabel', 'End date:'),
+      cls: 'form-label',
+    })
+    const endInput = this.createDateInputWithIcon(
+      endDateGroup,
+      this.resolveRoutineEndValue(task),
+      this.tv('forms.endDateLabel', 'End date:'),
+    )
 
     const enabledGroup = form.createEl('div', { cls: 'form-group' })
     enabledGroup.createEl('label', {
@@ -385,8 +410,41 @@ export default class RoutineController {
       const routineType = this.normalizeRoutineType(typeSelect.value)
       const interval = Math.max(1, Number.parseInt(intervalInput.value || '1', 10) || 1)
       const enabled = enabledToggle.checked
+      const start = (startInput.value || '').trim()
+      const end = (endInput.value || '').trim()
+      const isDate = (value: string) =>
+        !value || /^\d{4}-\d{2}-\d{2}$/.test(value)
       if (!scheduledTime) {
         new Notice(this.tv('forms.scheduledTimePlaceholder', 'Enter a scheduled start time'))
+        return
+      }
+      if (!isDate(start)) {
+        new Notice(
+          this.tv(
+            'forms.startDateFormat',
+            'Start date must use {format} format.',
+            { format: DATE_FORMAT_DISPLAY },
+          ),
+        )
+        return
+      }
+      if (!isDate(end)) {
+        new Notice(
+          this.tv(
+            'forms.endDateFormat',
+            'End date must use {format} format.',
+            { format: DATE_FORMAT_DISPLAY },
+          ),
+        )
+        return
+      }
+      if (start && end && start > end) {
+        new Notice(
+          this.tv(
+            'forms.endBeforeStart',
+            'End date must be on or after the start date.',
+          ),
+        )
         return
       }
       if (routineType === 'weekly') {
@@ -418,6 +476,8 @@ export default class RoutineController {
       const detailPayload: RoutineDetailsInput = {
         interval,
         enabled,
+        start,
+        end,
       }
 
       if (routineType === 'weekly') {
@@ -511,18 +571,34 @@ export default class RoutineController {
         return
       }
       await this.host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        const today = this.formatCurrentDate()
         const changes: Record<string, unknown> = {
           isRoutine: true,
           routine_type: routineType,
           routine_enabled: details.enabled !== false,
           routine_interval: Math.max(1, details.interval || 1),
-          routine_start: today,
         }
+        const hasStart = 'start' in details
+        const hasEnd = 'end' in details
+        const startValue = hasStart ? (details.start ?? '').trim() : undefined
+        const endValue = hasEnd ? (details.end ?? '').trim() : undefined
+        const fallbackStart = this.resolveRoutineStartValue(task)
         setScheduledTime(changes, scheduledTime, { preferNew: true })
+        if (startValue) {
+          changes.routine_start = startValue
+        } else if (!hasStart && fallbackStart) {
+          changes.routine_start = fallbackStart
+        }
+        if (endValue) {
+          changes.routine_end = endValue
+        }
         const routineFrontmatter = frontmatter as RoutineFrontmatter
         const cleaned = TaskValidator.cleanupOnRoutineChange(routineFrontmatter, changes)
-        delete cleaned.routine_end
+        if (hasStart && !startValue) {
+          delete cleaned.routine_start
+        }
+        if (hasEnd && !endValue) {
+          delete cleaned.routine_end
+        }
         delete cleaned.weekday
         delete cleaned.weekdays
         delete cleaned.monthly_week
@@ -532,6 +608,18 @@ export default class RoutineController {
         delete cleaned.routine_monthday
         delete cleaned.routine_monthdays
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
+        const mergedStart = routineFrontmatter.routine_start
+        const mergedEnd = routineFrontmatter.routine_end
+        if (typeof mergedStart === 'string' && mergedStart.length > 0) {
+          task.routine_start = mergedStart
+        } else {
+          delete task.routine_start
+        }
+        if (typeof mergedEnd === 'string' && mergedEnd.length > 0) {
+          task.routine_end = mergedEnd
+        } else {
+          delete task.routine_end
+        }
         if (routineType === 'weekly') {
           const weekdays = this.normalizeWeekdaySelection(details.weekdays)
           if (weekdays.length > 1) {
@@ -648,6 +736,44 @@ export default class RoutineController {
 
   private tv(key: string, fallback: string, vars?: Record<string, string | number>): string {
     return this.host.tv(key, fallback, vars)
+  }
+
+  private createDateInputWithIcon(
+    container: HTMLElement,
+    value: string,
+    ariaLabel: string,
+  ): HTMLInputElement {
+    const wrapper = container.createEl('div', { cls: 'form-input-icon-wrapper' })
+    const input = wrapper.createEl('input', {
+      type: 'date',
+      cls: 'form-input--date form-input--bare',
+      value,
+    })
+    const button = wrapper.createEl('button', {
+      type: 'button',
+      cls: 'form-input-icon-button',
+      attr: {
+        'aria-label': ariaLabel,
+        title: ariaLabel,
+      },
+    })
+    attachCalendarButtonIcon(button)
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      this.openDatePicker(input)
+    })
+    return input
+  }
+
+  private openDatePicker(input: HTMLInputElement): void {
+    const picker = input as HTMLInputElement & { showPicker?: () => void }
+    if (picker.showPicker) {
+      picker.showPicker()
+      return
+    }
+    input.focus()
+    input.click()
   }
 
   private getWeekdayNames(): string[] {
@@ -1079,6 +1205,42 @@ export default class RoutineController {
       return legacy
     }
     return '09:00'
+  }
+
+  private resolveRoutineStartValue(task: RoutineTaskShape): string {
+    const direct = this.normalizeDateString(task.routine_start)
+    if (direct) return direct
+    const fromFrontmatter = this.getFrontmatterDate(task, 'routine_start')
+      ?? this.getFrontmatterDate(task, 'execution_date')
+      ?? this.getFrontmatterDate(task, 'target_date')
+    if (fromFrontmatter) return fromFrontmatter
+    if (!task.isRoutine) {
+      return this.formatCurrentDate()
+    }
+    return ''
+  }
+
+  private resolveRoutineEndValue(task: RoutineTaskShape): string {
+    if (!task.isRoutine) {
+      return ''
+    }
+    const direct = this.normalizeDateString(task.routine_end)
+    if (direct) return direct
+    return this.getFrontmatterDate(task, 'routine_end') ?? ''
+  }
+
+  private normalizeDateString(value: unknown): string | undefined {
+    return this.isDateString(value) ? value : undefined
+  }
+
+  private getFrontmatterDate(task: RoutineTaskShape, key: string): string | undefined {
+    const frontmatter = task.frontmatter
+    if (!frontmatter || typeof frontmatter !== 'object') return undefined
+    return this.normalizeDateString(frontmatter[key])
+  }
+
+  private isDateString(value: unknown): value is string {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
   }
 
   private normalizeRoutineType(value: unknown): RoutineKind {

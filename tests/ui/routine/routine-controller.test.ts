@@ -137,6 +137,26 @@ describe('RoutineController', () => {
     expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: true })
   })
 
+  it('persists routine start and end dates when provided', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '07:30', 'daily', {
+      interval: 1,
+      enabled: true,
+      start: '2025-08-01',
+      end: '2025-08-03',
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_start).toBe('2025-08-01')
+    expect(fm?.routine_end).toBe('2025-08-03')
+    expect(task.routine_start).toBe('2025-08-01')
+    expect(task.routine_end).toBe('2025-08-03')
+  })
+
   it('persists multiple weekdays when weekly routine has more than one selection', async () => {
     const { host, frontmatterStore } = createHost()
     const controller = new RoutineController(host)
@@ -178,6 +198,55 @@ describe('RoutineController', () => {
     expect(task.monthly_weekday).toBeUndefined()
     expect(task.routine_weeks).toEqual([1, 3, 'last'])
     expect(task.routine_weekdays).toEqual([1, 4])
+  })
+
+  it('prefills routine start date using the task target date', () => {
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({
+      isRoutine: false,
+      frontmatter: { target_date: '2025-08-01' },
+    })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    expect(dateInputs?.length).toBe(2)
+    expect(dateInputs?.[0]?.value).toBe('2025-08-01')
+    expect(dateInputs?.[1]?.value).toBe('')
+  })
+
+  it('does not prefill routine end date for non-routine tasks', () => {
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({
+      isRoutine: false,
+      frontmatter: { routine_end: '2025-08-03' },
+    })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    expect(dateInputs?.length).toBe(2)
+    expect(dateInputs?.[1]?.value).toBe('')
+  })
+
+  it('prefills routine start date with the current date when no frontmatter date is present', () => {
+    const { host } = createHost({
+      getCurrentDate: () => new Date(2025, 9, 9),
+    })
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    expect(dateInputs?.length).toBe(2)
+    expect(dateInputs?.[0]?.value).toBe('2025-10-09')
+    expect(dateInputs?.[1]?.value).toBe('')
   })
 
   it('prevents Enter key presses inside routine modal inputs from closing the modal', () => {

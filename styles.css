@@ -275,6 +275,129 @@ select.form-input {
   box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
+.form-input-icon-wrapper {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
+.form-input-icon-wrapper:focus-within {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.form-input-icon-wrapper .form-input--bare {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text-normal);
+  box-shadow: none;
+  outline: none;
+}
+
+.form-input-icon-wrapper .form-input--bare:focus {
+  box-shadow: none;
+}
+
+.form-input--date {
+  -webkit-appearance: none;
+  appearance: none;
+  font-size: 14px;
+  color: var(--text-normal);
+  text-align: left;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.form-input-icon-wrapper input[type="date"] {
+  background-image: none;
+}
+
+.form-input--date::-webkit-date-and-time-value,
+.form-input--date::-webkit-datetime-edit,
+.form-input--date::-webkit-datetime-edit-fields-wrapper,
+.form-input--date::-webkit-datetime-edit-text,
+.form-input--date::-webkit-datetime-edit-month-field,
+.form-input--date::-webkit-datetime-edit-day-field,
+.form-input--date::-webkit-datetime-edit-year-field {
+  padding: 0;
+  margin: 0;
+  background: transparent !important;
+  color: inherit;
+  text-align: left;
+}
+
+.form-input--date::-webkit-datetime-edit-month-field:focus,
+.form-input--date::-webkit-datetime-edit-day-field:focus,
+.form-input--date::-webkit-datetime-edit-year-field:focus,
+.form-input--date::-webkit-datetime-edit-text:focus {
+  background: transparent !important;
+  color: inherit;
+}
+
+.form-input-icon-wrapper input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+.form-input-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none !important;
+  border-radius: 2px;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none !important;
+}
+
+.form-input-icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.form-input-icon-button:hover {
+  color: var(--text-normal);
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.form-input-icon-button:focus-visible {
+  outline: none;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.form-input-icon-button:focus {
+  outline: none;
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
 .form-textarea {
   min-height: 80px;
   resize: vertical;
