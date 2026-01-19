@@ -201,6 +201,10 @@ export class RecordsRebuilder {
     if (/^\d{4}-\d{2}-\d{2}$/.test(base)) {
       return base
     }
+    const match = base.match(/^record-(\d{4}-\d{2}-\d{2})$/)
+    if (match) {
+      return match[1]
+    }
     return null
   }
 

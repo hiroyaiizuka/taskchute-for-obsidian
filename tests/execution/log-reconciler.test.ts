@@ -59,7 +59,7 @@ describe('LogReconciler', () => {
     expect(snapshot.meta.processedCursor['device-alpha']).toBe(2)
     expect(snapshot.meta.revision).toBe(1)
 
-    const recordsPath = 'LOGS/records/2025/2025-10-01.md'
+    const recordsPath = 'LOGS/records/2025/record-2025-10-01.md'
     const recordsNote = store.get(recordsPath)
     expect(recordsNote).toBeDefined()
     expect(recordsNote).toContain('recordsVersion: 1')
@@ -151,7 +151,7 @@ describe('LogReconciler', () => {
     expect(snapshot.taskExecutions['2025-10-01'][0].instanceId).toBe('inst-1')
     expect(snapshot.meta.processedCursor['device-alpha']).toBe(1)
 
-    const recordsPath = 'LOGS/records/2025/2025-10-01.md'
+    const recordsPath = 'LOGS/records/2025/record-2025-10-01.md'
     const recordsNote = store.get(recordsPath)
     expect(recordsNote).toBeDefined()
     expect(recordsNote).not.toContain('Remove me')
