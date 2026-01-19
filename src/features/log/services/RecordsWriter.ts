@@ -112,7 +112,7 @@ export class RecordsWriter {
     const recordFolder = normalizePath(`${recordsRoot}/${year}`)
     await this.plugin.pathManager.ensureFolderExists(recordFolder)
 
-    const filePath = normalizePath(`${recordFolder}/${payload.dateKey}.md`)
+    const filePath = normalizePath(`${recordFolder}/record-${payload.dateKey}.md`)
     const records = payload.entries.map((entry) => serializeRecordEntry(entry))
     const hash = computeRecordsHash(records)
     const frontmatter = compactObject({
