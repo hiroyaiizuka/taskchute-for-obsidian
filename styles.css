@@ -1236,9 +1236,15 @@ select.form-input {
   border-radius: 4px;
   background-color: var(--background-secondary);
   color: var(--text-normal);
+  caret-color: var(--text-normal);
   font-family: inherit;
   font-size: 14px;
   resize: vertical;
+}
+
+.theme-dark .taskchute-comment-textarea {
+  color: var(--text-normal);
+  caret-color: var(--text-normal);
 }
 
 .taskchute-rating-container {
