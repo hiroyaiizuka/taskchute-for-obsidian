@@ -32,6 +32,7 @@ const defaultDependencies: TaskHeaderControllerDependencies = {
 
 export default class TaskHeaderController {
   private dateLabelEl: HTMLElement | null = null
+  private navContainerEl: HTMLElement | null = null
   private activeCalendar: TaskMoveCalendarHandle | null = null
 
   constructor(
@@ -50,6 +51,19 @@ export default class TaskHeaderController {
     if (this.dateLabelEl) {
       this.dateLabelEl.textContent = this.formatDateLabel()
     }
+    // 今日以外の場合はnavContainerにクラスを追加してカレンダーボタンの余白調整
+    if (this.navContainerEl) {
+      const isToday = this.isCurrentDateToday()
+      this.navContainerEl.classList.toggle('is-not-today', !isToday)
+    }
+  }
+
+  private isCurrentDateToday(): boolean {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const current = this.host.getCurrentDate()
+    const normalized = new Date(current.getFullYear(), current.getMonth(), current.getDate())
+    return today.getTime() === normalized.getTime()
   }
 
   private renderDateNavigation(container: HTMLElement): void {
@@ -69,6 +83,7 @@ export default class TaskHeaderController {
     const navContainer = container.createEl('div', {
       cls: 'date-nav-container compact',
     })
+    this.navContainerEl = navContainer
 
     const leftBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',

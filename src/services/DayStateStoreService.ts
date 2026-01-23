@@ -60,6 +60,10 @@ export class DayStateStoreService {
     this.cache.clear();
     this.currentKey = null;
     this.currentState = null;
+    // Also clear the persistence layer's month-level cache to pick up external changes
+    if (typeof this.options.dayStateService.clearCache === 'function') {
+      void this.options.dayStateService.clearCache();
+    }
   }
 
   getCurrentKey(): string | null {

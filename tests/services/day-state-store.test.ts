@@ -126,4 +126,68 @@ describe('DayStateStoreService', () => {
     expect(state.deletedInstances[0]?.path).toBe('TASKS/new.md')
     expect(state.duplicatedInstances[0]?.originalPath).toBe('TASKS/new.md')
   })
+
+  describe('clear', () => {
+    test('clear without dateKey clears all cache and calls persistence clearCache', async () => {
+      const preset = createState({ hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }] });
+      const { deps } = createDeps({ '2025-10-09': preset });
+      const manager = new DayStateStoreService(deps);
+
+      // Load state into cache
+      await manager.ensure();
+      expect(manager.snapshot('2025-10-09')).not.toBeNull();
+
+      // Clear all caches
+      manager.clear();
+
+      // Local cache should be cleared
+      expect(manager.snapshot('2025-10-09')).toBeNull();
+      expect(manager.getCurrentKey()).toBeNull();
+
+      // Persistence layer's cache should also be cleared
+      expect(deps.dayStateService.clearCache).toHaveBeenCalled();
+    });
+
+    test('clear with specific dateKey only clears that date and does not call persistence clearCache', async () => {
+      const preset1 = createState({ hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }] });
+      const preset2 = createState({ hiddenRoutines: [{ path: 'TASKS/bar.md', instanceId: null }] });
+      const { deps } = createDeps({ '2025-10-09': preset1, '2025-10-10': preset2 });
+      const manager = new DayStateStoreService(deps);
+
+      // Load states into cache
+      await manager.ensure('2025-10-09');
+      await manager.ensure('2025-10-10');
+
+      // Clear only one date
+      manager.clear('2025-10-10');
+
+      // Only specified date should be cleared
+      expect(manager.snapshot('2025-10-09')).not.toBeNull();
+      expect(manager.snapshot('2025-10-10')).toBeNull();
+
+      // Persistence layer's cache should NOT be called for single-date clear
+      expect(deps.dayStateService.clearCache).not.toHaveBeenCalled();
+    });
+
+    test('clear enables fresh reload from file on next ensure', async () => {
+      const preset = createState({ hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }] });
+      const { deps, loadDay } = createDeps({ '2025-10-09': preset });
+      const manager = new DayStateStoreService(deps);
+
+      // First load
+      await manager.ensure();
+      expect(loadDay).toHaveBeenCalledTimes(1);
+
+      // Second load should use cache, not call loadDay
+      await manager.ensure();
+      expect(loadDay).toHaveBeenCalledTimes(1);
+
+      // Clear cache
+      manager.clear();
+
+      // Third load should call loadDay again since cache is cleared
+      await manager.ensure();
+      expect(loadDay).toHaveBeenCalledTimes(2);
+    });
+  });
 });

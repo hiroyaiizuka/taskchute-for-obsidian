@@ -844,7 +844,6 @@ select.form-input {
 .date-nav-container.compact {
   justify-content: center;
   gap: 1px;
-  margin-left: 50px;
 }
 .date-nav-arrow {
   background: none;
@@ -866,12 +865,23 @@ select.form-input {
   text-align: center;
   letter-spacing: 0.5px;
 }
+.date-nav-container.is-not-today .calendar-btn {
+  margin-left: 14px;
+}
+.date-nav-container.is-not-today .date-nav-label,
+.date-nav-container.compact.is-not-today .date-nav-label {
+  margin-left: -14px !important;
+}
+.is-mobile .date-nav-container.is-not-today .date-nav-label,
+.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
+  margin-left: -22px !important;
+}
 .calendar-btn {
   background: none;
   border: none;
   font-size: 16px;
   padding: 2px;
-  margin: 0 1px;
+  margin-left: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1236,9 +1246,15 @@ select.form-input {
   border-radius: 4px;
   background-color: var(--background-secondary);
   color: var(--text-normal);
+  caret-color: var(--text-normal);
   font-family: inherit;
   font-size: 14px;
   resize: vertical;
+}
+
+.theme-dark .taskchute-comment-textarea {
+  color: var(--text-normal);
+  caret-color: var(--text-normal);
 }
 
 .taskchute-rating-container {
@@ -3625,6 +3641,17 @@ select.form-input {
   height: 28px;
   margin-right: 3px;
 }
+.date-nav-container.is-not-today .calendar-btn {
+  margin-left: 14px;
+}
+.date-nav-container.is-not-today .date-nav-label,
+.date-nav-container.compact.is-not-today .date-nav-label {
+  margin-left: -14px !important;
+}
+.is-mobile .date-nav-container.is-not-today .date-nav-label,
+.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
+  margin-left: -22px !important;
+}
 
 .date-nav-container.compact .date-nav-label {
   font-size: 15px;
@@ -3637,7 +3664,7 @@ select.form-input {
   border: none;
   font-size: 16px;
   padding: 2px 2px;
-  margin: 0 1px;
+  margin-left: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;

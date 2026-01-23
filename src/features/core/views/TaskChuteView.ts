@@ -129,6 +129,10 @@ export class TaskChuteView
   // Debounce Timer
   public renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
+  // Debounce Timer for state file modification detection (cross-device sync)
+  private stateFileModifyDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null
+
   // Debug helper flag
   // Task Name Validator
   private TaskNameValidator: TaskNameValidator = {
@@ -694,6 +698,8 @@ export class TaskChuteView
 
   async loadTasks(): Promise<void> {
     await this.executionLogService.ensureReconciled()
+    // Clear DayState cache to pick up externally synced changes (e.g., deletions from other devices)
+    this.dayStateManager.clear()
     // Use the refactored implementation
     await this.ensureDayStateForCurrentDate()
     await loadTasksRefactored.call(this)
@@ -1380,6 +1386,28 @@ export class TaskChuteView
       await this.handleFileRename(file, oldPath)
     })
     this.registerManagedEvent(renameRef)
+
+    // State file modification listener for cross-device sync support
+    // When the state file is modified externally (e.g., via Obsidian Sync),
+    // reload tasks to reflect the synced changes (cache is cleared in loadTasks)
+    const stateModifyRef = this.app.vault.on("modify", (file) => {
+      if (!(file instanceof TFile)) return
+      if (!file.path.endsWith("-state.json")) return
+
+      // Check if this is our state file (under logDataPath)
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      if (!file.path.startsWith(logDataPath)) return
+
+      // Debounce to avoid excessive reloads during rapid changes
+      if (this.stateFileModifyDebounceTimer) {
+        clearTimeout(this.stateFileModifyDebounceTimer)
+      }
+      this.stateFileModifyDebounceTimer = setTimeout(() => {
+        this.stateFileModifyDebounceTimer = null
+        void this.loadTasks()
+      }, 500) // 500ms debounce
+    })
+    this.registerManagedEvent(stateModifyRef)
   }
 
   // ===========================================
@@ -1611,6 +1639,11 @@ export class TaskChuteView
     if (this.renderDebounceTimer) {
       clearTimeout(this.renderDebounceTimer)
       this.renderDebounceTimer = null
+    }
+
+    if (this.stateFileModifyDebounceTimer) {
+      clearTimeout(this.stateFileModifyDebounceTimer)
+      this.stateFileModifyDebounceTimer = null
     }
 
     // TimerService dispose
