@@ -844,7 +844,6 @@ select.form-input {
 .date-nav-container.compact {
   justify-content: center;
   gap: 1px;
-  margin-left: 50px;
 }
 .date-nav-arrow {
   background: none;
