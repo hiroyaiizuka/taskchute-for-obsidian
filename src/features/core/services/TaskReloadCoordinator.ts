@@ -26,14 +26,7 @@ export class TaskReloadCoordinator {
   constructor(private readonly view: TaskReloadCoordinatorHost) {}
 
   async reloadTasksAndRestore(options: ReloadOptions = {}): Promise<void> {
-    const loadOptions = options.clearDayStateCache
-      ? { clearDayStateCache: options.clearDayStateCache }
-      : undefined
-    if (loadOptions) {
-      await this.view.loadTasks(loadOptions)
-    } else {
-      await this.view.loadTasks()
-    }
+    await this.view.loadTasks({ clearDayStateCache: options.clearDayStateCache })
     await this.view.restoreRunningTaskState()
     this.view.renderTaskList()
     if (options.runBoundaryCheck) {
