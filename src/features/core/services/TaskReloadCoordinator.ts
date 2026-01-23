@@ -1,11 +1,13 @@
 import { calculateNextBoundary, getCurrentTimeSlot } from '../../../utils/time'
 import type { TaskInstance } from '../../../types'
 
+export type DayStateCacheClearMode = 'none' | 'current' | 'all'
+
 interface TaskReloadCoordinatorHost {
   boundaryCheckTimeout: ReturnType<typeof setTimeout> | null
   currentDate: Date
   taskInstances: TaskInstance[]
-  loadTasks: () => Promise<void>
+  loadTasks: (options?: { clearDayStateCache?: DayStateCacheClearMode }) => Promise<void>
   restoreRunningTaskState: () => Promise<void>
   renderTaskList: () => void
   getTimeSlotKeys: () => string[]
@@ -17,13 +19,14 @@ interface TaskReloadCoordinatorHost {
 
 interface ReloadOptions {
   runBoundaryCheck?: boolean
+  clearDayStateCache?: DayStateCacheClearMode
 }
 
 export class TaskReloadCoordinator {
   constructor(private readonly view: TaskReloadCoordinatorHost) {}
 
   async reloadTasksAndRestore(options: ReloadOptions = {}): Promise<void> {
-    await this.view.loadTasks()
+    await this.view.loadTasks({ clearDayStateCache: options.clearDayStateCache })
     await this.view.restoreRunningTaskState()
     this.view.renderTaskList()
     if (options.runBoundaryCheck) {

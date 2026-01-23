@@ -276,9 +276,16 @@ export class RunningTasksService {
       if (isDeletedRecord(record)) continue
 
       let runningInstance = instances.find((inst) => inst.instanceId === record.instanceId)
-      if (!runningInstance) {
+      // Fallback: match by path (more specific than taskId)
+      if (!runningInstance && record.taskPath) {
         runningInstance = instances.find(
           (inst) => inst.task.path === record.taskPath && inst.state === 'idle',
+        )
+      }
+      // Fallback: match by taskId (stable across file renames)
+      if (!runningInstance && record.taskId) {
+        runningInstance = instances.find(
+          (inst) => inst.task.taskId === record.taskId && inst.state === 'idle',
         )
       }
 

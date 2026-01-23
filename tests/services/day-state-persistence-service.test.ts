@@ -238,3 +238,118 @@ describe('DayStatePersistenceService.loadDay', () => {
     expect(store.has('LOGS/2026-01-state.json')).toBe(true)
   })
 })
+
+describe('DayStatePersistenceService local write tracking', () => {
+  const createPlugin = () => {
+    const store = new Map<string, string>()
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      create: jest.fn(async (path: string, content: string) => {
+        store.set(path, content)
+        return createFile(path)
+      }),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+    }
+
+    const pathManager = {
+      getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
+      getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
+      ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+      getLogYearPath: jest.fn((year: string | number) => `LOGS/${year}`),
+      ensureYearFolder: jest.fn(async () => undefined),
+      validatePath: jest.fn(() => ({ valid: true })),
+    }
+
+    const plugin = {
+      app: { vault },
+      settings: {
+        useOrderBasedSort: true,
+        slotKeys: {},
+      },
+      pathManager,
+      routineAliasService: {
+        loadAliases: jest.fn().mockResolvedValue({}),
+      },
+      dayStateService: {} as unknown,
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as unknown as TaskChutePluginLike
+
+    return { plugin, store, pathManager, vault }
+  }
+
+  it('consumes local write markers after saving state', async () => {
+    const { plugin } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-02-01T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    const path = 'LOGS/2026-02-state.json'
+    expect(service.consumeLocalStateWrite(path)).toBe(true)
+    expect(service.consumeLocalStateWrite(path)).toBe(false)
+  })
+
+  it('records local writes before modifying existing files', async () => {
+    const { plugin, store, vault } = createPlugin()
+    store.set(
+      'LOGS/2026-03-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-03-01': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-03-01T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const service = new DayStatePersistenceService(plugin)
+    vault.modify = jest.fn(async (file: TFile, content: string) => {
+      expect(service.consumeLocalStateWrite(file.path)).toBe(true)
+      store.set(file.path, content)
+    })
+
+    const date = new Date('2026-03-01T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    expect(vault.modify).toHaveBeenCalled()
+  })
+})

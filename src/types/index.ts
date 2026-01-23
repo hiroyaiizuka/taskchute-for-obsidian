@@ -218,8 +218,10 @@ export interface DayStateServiceAPI {
   saveDay(date: Date, state: DayState): Promise<void>
   mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>
   clearCache(): Promise<void>
+  clearCacheForDate?(dateKey: string): void | Promise<void>
   getDateFromKey(dateKey: string): Date
   renameTaskPath(oldPath: string, newPath: string): Promise<void>
+  consumeLocalStateWrite?(path: string): boolean
 }
 
 export interface RoutineAliasServiceLike {

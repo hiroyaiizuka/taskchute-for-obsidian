@@ -78,6 +78,7 @@ function createPluginStub() {
   const dayStateService = {
     loadDay: jest.fn(async () => createDayState()),
     saveDay: jest.fn(async () => undefined),
+    consumeLocalStateWrite: jest.fn(() => false),
   };
 
   const plugin = {
@@ -348,6 +349,55 @@ describe('TaskChuteView execution history helpers', () => {
   });
 });
 
+describe('TaskChuteView handleFileRename', () => {
+  test('keeps instanceId stable when task path changes', async () => {
+    const { view } = createView();
+    const oldPath = 'TASKS/old.md';
+    const newPath = 'TASKS/new.md';
+    const task = createTaskData({ path: oldPath, name: 'Old Task' });
+    const instanceId = `${oldPath}_2025-01-01_123_abc`;
+    const instance = createTaskInstance(task, { instanceId });
+
+    view.tasks = [task];
+    view.taskInstances = [instance];
+    view.currentInstance = instance;
+
+    const file = new TFile();
+    file.path = newPath;
+    (file as { basename?: string }).basename = 'new';
+    (file as { extension?: string }).extension = 'md';
+    (file as { name?: string }).name = 'new.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+
+    (view.app.metadataCache.getFileCache as jest.Mock).mockReturnValue({
+      frontmatter: { title: 'New Title' },
+    });
+
+    jest
+      .spyOn(view.executionLogService, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.dayStateManager, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.runningTasksService, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+
+    await (view as unknown as { handleFileRename: (file: TFile, oldPath: string) => Promise<void> }).handleFileRename(
+      file,
+      oldPath,
+    );
+
+    expect(instance.task.path).toBe(newPath);
+    expect(instance.instanceId).toBe(instanceId);
+    expect(view.currentInstance?.instanceId).toBe(instanceId);
+    expect(reloadSpy).toHaveBeenCalled();
+  });
+});
+
 
 describe('TaskChuteView reloadTasksAndRestore', () => {
   afterEach(() => {
@@ -365,6 +415,85 @@ describe('TaskChuteView reloadTasksAndRestore', () => {
     expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: true });
   });
 
+});
+
+describe('TaskChuteView loadTasks cache clearing', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('loadTasks clears only current date cache by default', async () => {
+    const { view } = createView();
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+    jest
+      .spyOn(view.executionLogService, 'ensureReconciled')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view as unknown as { ensureDayStateForCurrentDate: () => Promise<DayState> }, 'ensureDayStateForCurrentDate')
+      .mockResolvedValue(createDayState());
+    jest
+      .spyOn(view.taskLoader, 'load')
+      .mockResolvedValue(undefined);
+
+    await (view as unknown as { loadTasks: (options?: { clearDayStateCache?: string }) => Promise<void> }).loadTasks();
+
+    expect(clearSpy).toHaveBeenCalledWith('2025-01-01');
+    const calledWithoutArgs = clearSpy.mock.calls.some((call) => call.length === 0);
+    expect(calledWithoutArgs).toBe(false);
+  });
+
+  test('loadTasks clears all caches when requested', async () => {
+    const { view } = createView();
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+    jest
+      .spyOn(view.executionLogService, 'ensureReconciled')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view as unknown as { ensureDayStateForCurrentDate: () => Promise<DayState> }, 'ensureDayStateForCurrentDate')
+      .mockResolvedValue(createDayState());
+    jest
+      .spyOn(view.taskLoader, 'load')
+      .mockResolvedValue(undefined);
+
+    await (view as unknown as { loadTasks: (options?: { clearDayStateCache?: string }) => Promise<void> }).loadTasks({
+      clearDayStateCache: 'all',
+    });
+
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    const call = clearSpy.mock.calls[0] ?? [];
+    expect(call.length).toBe(0);
+  });
+});
+
+describe('TaskChuteView onOpen cache clearing', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('onOpen reloads with full cache clear', async () => {
+    const { view } = createView();
+    view.containerEl = document.createElement('div');
+    view.containerEl.appendChild(document.createElement('div'));
+    const content = document.createElement('div');
+    (content as unknown as { empty?: () => void }).empty = jest.fn();
+    view.containerEl.appendChild(content);
+
+    jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    (view as Mutable<TaskChuteView>).setupUI = jest.fn();
+    (view as Mutable<TaskChuteView>).ensureTimerService = jest.fn();
+    (view as Mutable<TaskChuteView>).setupResizeObserver = jest.fn();
+    view.navigationController.initializeNavigationEventListeners = jest.fn();
+    (view as Mutable<TaskChuteView>).setupEventListeners = jest.fn();
+
+    await view.onOpen();
+
+    expect(view.reloadTasksAndRestore).toHaveBeenCalledWith({
+      runBoundaryCheck: true,
+      clearDayStateCache: 'all',
+    });
+  });
 });
 
 
@@ -1545,6 +1674,79 @@ describe('TaskChuteView registerDomEvent harness', () => {
     expect(registerDomEvent).toHaveBeenCalled();
     const events = registerDomEvent.mock.calls.map(([, event]) => event);
     expect(events).toEqual(expect.arrayContaining(['contextmenu', 'click', 'dragover', 'dragleave', 'drop']));
+  });
+});
+
+describe('TaskChuteView state file modify listener', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  test('reloads and restores on external state file modification', () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+
+    const consumeSpy = jest.fn(() => false);
+    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string) => boolean }).consumeLocalStateWrite = consumeSpy;
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+
+    expect(modifyHandler).not.toBeNull();
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    jest.advanceTimersByTime(500);
+
+    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json');
+    expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'all' });
+  });
+
+  test('ignores local state file modifications', () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+
+    const consumeSpy = jest.fn(() => true);
+    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string) => boolean }).consumeLocalStateWrite = consumeSpy;
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+
+    expect(modifyHandler).not.toBeNull();
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    jest.advanceTimersByTime(500);
+
+    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json');
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 });
 

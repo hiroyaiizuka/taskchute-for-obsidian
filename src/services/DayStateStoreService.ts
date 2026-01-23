@@ -55,6 +55,9 @@ export class DayStateStoreService {
         this.currentKey = null;
         this.currentState = null;
       }
+      if (typeof this.options.dayStateService.clearCacheForDate === 'function') {
+        void this.options.dayStateService.clearCacheForDate(dateKey);
+      }
       return;
     }
     this.cache.clear();
