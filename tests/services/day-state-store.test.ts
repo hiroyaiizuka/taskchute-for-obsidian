@@ -26,6 +26,7 @@ describe('DayStateStoreService', () => {
         saveDay,
         mergeDayState: jest.fn(),
         clearCache: jest.fn(),
+        clearCacheForDate: jest.fn(),
         getDateFromKey: jest.fn(),
         renameTaskPath: jest.fn().mockResolvedValue(undefined),
       },
@@ -148,7 +149,7 @@ describe('DayStateStoreService', () => {
       expect(deps.dayStateService.clearCache).toHaveBeenCalled();
     });
 
-    test('clear with specific dateKey only clears that date and does not call persistence clearCache', async () => {
+    test('clear with specific dateKey only clears that date and clears month cache for that date', async () => {
       const preset1 = createState({ hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }] });
       const preset2 = createState({ hiddenRoutines: [{ path: 'TASKS/bar.md', instanceId: null }] });
       const { deps } = createDeps({ '2025-10-09': preset1, '2025-10-10': preset2 });
@@ -165,8 +166,9 @@ describe('DayStateStoreService', () => {
       expect(manager.snapshot('2025-10-09')).not.toBeNull();
       expect(manager.snapshot('2025-10-10')).toBeNull();
 
-      // Persistence layer's cache should NOT be called for single-date clear
+      // Persistence layer's full cache should NOT be called for single-date clear
       expect(deps.dayStateService.clearCache).not.toHaveBeenCalled();
+      expect(deps.dayStateService.clearCacheForDate).toHaveBeenCalledWith('2025-10-10');
     });
 
     test('clear enables fresh reload from file on next ensure', async () => {

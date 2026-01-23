@@ -4,6 +4,7 @@ import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
 
 const DAY_STATE_VERSION = '1.0';
+const LOCAL_WRITE_TTL_MS = 1000;
 
 function cloneDayState(state: DayState): DayState {
   return JSON.parse(JSON.stringify(state)) as DayState;
@@ -26,6 +27,7 @@ function createEmptyDayState(): DayState {
 export class DayStatePersistenceService {
   private plugin: TaskChutePluginLike;
   private cache: Map<string, MonthlyDayStateFile> = new Map();
+  private recentLocalWrites: Map<string, number> = new Map();
 
   constructor(plugin: TaskChutePluginLike) {
     this.plugin = plugin;
@@ -215,13 +217,19 @@ export class DayStatePersistenceService {
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
     const payload = JSON.stringify(month, null, 2);
 
-    if (file && file instanceof TFile) {
-      await this.plugin.app.vault.modify(file, payload);
-    } else {
-      await this.plugin.pathManager.ensureFolderExists(
-        this.plugin.pathManager.getLogDataPath(),
-      );
-      await this.plugin.app.vault.create(path, payload);
+    this.recordLocalWrite(path);
+    try {
+      if (file && file instanceof TFile) {
+        await this.plugin.app.vault.modify(file, payload);
+      } else {
+        await this.plugin.pathManager.ensureFolderExists(
+          this.plugin.pathManager.getLogDataPath(),
+        );
+        await this.plugin.app.vault.create(path, payload);
+      }
+    } catch (error) {
+      this.recentLocalWrites.delete(path);
+      throw error;
     }
     this.cache.set(monthKey, month);
   }
@@ -394,6 +402,27 @@ export class DayStatePersistenceService {
     this.cache.clear();
   }
 
+  clearCacheForDate(dateKey: string): void {
+    const date = this.getDateFromKey(dateKey);
+    const monthKey = this.getMonthKey(date);
+    this.cache.delete(monthKey);
+  }
+
+  consumeLocalStateWrite(path: string): boolean {
+    const now = Date.now();
+    const recorded = this.recentLocalWrites.get(path);
+    if (!recorded) {
+      this.pruneLocalWrites(now);
+      return false;
+    }
+    if (now - recorded > LOCAL_WRITE_TTL_MS) {
+      this.recentLocalWrites.delete(path);
+      return false;
+    }
+    this.recentLocalWrites.delete(path);
+    return true;
+  }
+
   cloneDayState(state: DayState): DayState {
     return cloneDayState(state);
   }
@@ -405,6 +434,20 @@ export class DayStatePersistenceService {
   getDateFromKey(dateKey: string): Date {
     const [y, m, d] = dateKey.split('-').map((value) => parseInt(value, 10));
     return new Date(y, m - 1, d);
+  }
+
+  private recordLocalWrite(path: string): void {
+    const now = Date.now();
+    this.recentLocalWrites.set(path, now);
+    this.pruneLocalWrites(now);
+  }
+
+  private pruneLocalWrites(now: number): void {
+    for (const [path, timestamp] of this.recentLocalWrites.entries()) {
+      if (now - timestamp > LOCAL_WRITE_TTL_MS) {
+        this.recentLocalWrites.delete(path);
+      }
+    }
   }
 }
 

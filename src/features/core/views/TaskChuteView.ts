@@ -29,7 +29,10 @@ import { TaskReuseService } from "../../../features/core/services/TaskReuseServi
 import { getCurrentLocale, t } from "../../../i18n"
 import { TASKCHUTE_NAME } from "../../../constants"
 import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
-import type { TaskReloadCoordinatorHost } from "../../../features/core/services/TaskReloadCoordinator"
+import type {
+  DayStateCacheClearMode,
+  TaskReloadCoordinatorHost,
+} from "../../../features/core/services/TaskReloadCoordinator"
 import TaskExecutionService, {
   CrossDayStartPayload,
   calculateCrossDayDuration,
@@ -560,7 +563,10 @@ export class TaskChuteView
     container.empty()
 
     this.setupUI(container)
-    await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+    await this.reloadTasksAndRestore({
+      runBoundaryCheck: true,
+      clearDayStateCache: 'all',
+    })
 
     // Styles are now provided via styles.css (no dynamic CSS injection)
     // Initialize timer service (ticks update timer displays)
@@ -599,7 +605,7 @@ export class TaskChuteView
 
   // Utility: reload tasks and immediately restore running-state from persistence
   public async reloadTasksAndRestore(
-    options: { runBoundaryCheck?: boolean } = {},
+    options: { runBoundaryCheck?: boolean; clearDayStateCache?: DayStateCacheClearMode } = {},
   ): Promise<void> {
     await this.taskReloadCoordinator.reloadTasksAndRestore(options)
   }
@@ -696,10 +702,14 @@ export class TaskChuteView
   // Task Loading and Rendering Methods
   // ===========================================
 
-  async loadTasks(): Promise<void> {
+  async loadTasks(options: { clearDayStateCache?: DayStateCacheClearMode } = {}): Promise<void> {
     await this.executionLogService.ensureReconciled()
-    // Clear DayState cache to pick up externally synced changes (e.g., deletions from other devices)
-    this.dayStateManager.clear()
+    const clearMode = options.clearDayStateCache ?? 'current'
+    if (clearMode === 'all') {
+      this.dayStateManager.clear()
+    } else if (clearMode === 'current') {
+      this.dayStateManager.clear(this.getCurrentDateString())
+    }
     // Use the refactored implementation
     await this.ensureDayStateForCurrentDate()
     await loadTasksRefactored.call(this)
@@ -1398,13 +1408,23 @@ export class TaskChuteView
       const logDataPath = this.plugin.pathManager.getLogDataPath()
       if (!file.path.startsWith(logDataPath)) return
 
+      const dayStateService = this.plugin.dayStateService as {
+        consumeLocalStateWrite?: (path: string) => boolean
+      }
+      if (dayStateService.consumeLocalStateWrite?.(file.path)) {
+        return
+      }
+
       // Debounce to avoid excessive reloads during rapid changes
       if (this.stateFileModifyDebounceTimer) {
         clearTimeout(this.stateFileModifyDebounceTimer)
       }
       this.stateFileModifyDebounceTimer = setTimeout(() => {
         this.stateFileModifyDebounceTimer = null
-        void this.loadTasks()
+        void this.reloadTasksAndRestore({
+          runBoundaryCheck: false,
+          clearDayStateCache: 'all',
+        })
       }, 500) // 500ms debounce
     })
     this.registerManagedEvent(stateModifyRef)
