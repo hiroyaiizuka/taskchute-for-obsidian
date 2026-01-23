@@ -421,4 +421,199 @@ describe('RunningTasksService.renameTaskPath', () => {
       expect.objectContaining({ taskPath: 'TASKS/old.md', taskTitle: 'Old Title' }),
     )
   })
+
+  it('does not rewrite instanceId when renaming task path', async () => {
+    const store = new Map<string, string>()
+    const pathManager = { getLogDataPath: () => 'LOGS' }
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+      adapter: {
+        write: jest.fn(async (path: string, content: string) => {
+          store.set(path, content)
+        }),
+      },
+    }
+
+    const plugin = {
+      app: { vault },
+      pathManager,
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    const dataPath = 'LOGS/running-task.json'
+    store.set(
+      dataPath,
+      JSON.stringify(
+        [
+          {
+            date: '2025-10-16',
+            taskTitle: 'Running Task',
+            taskPath: 'TASKS/old.md',
+            startTime: new Date('2025-10-16T09:00:00.000Z').toISOString(),
+            instanceId: 'TASKS/old.md_2025-10-16_1234567890_abc123',
+          },
+        ],
+        null,
+        2,
+      ),
+    )
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md', { newTitle: 'New Task' })
+
+    expect(vault.modify).toHaveBeenCalled()
+    const updated = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
+    expect(updated[0]).toEqual(
+      expect.objectContaining({
+        taskPath: 'TASKS/new.md',
+        taskTitle: 'New Task',
+        instanceId: 'TASKS/old.md_2025-10-16_1234567890_abc123',
+      }),
+    )
+  })
+})
+
+describe('RunningTasksService.restoreForDate - taskId fallback', () => {
+  const dateString = '2025-10-13'
+
+  const createTaskData = (overrides: Partial<TaskData> = {}): TaskData => ({
+    file: null,
+    frontmatter: {},
+    path: overrides.path ?? 'TASKS/routine.md',
+    name: overrides.name ?? 'Routine Task',
+    isRoutine: overrides.isRoutine ?? true,
+    taskId: overrides.taskId ?? 'tc-task-123',
+  })
+
+  const createRecord = (overrides: Partial<RunningTaskRecord> = {}): RunningTaskRecord => ({
+    date: overrides.date ?? dateString,
+    taskTitle: overrides.taskTitle ?? 'Routine Task',
+    taskPath: overrides.taskPath ?? 'TASKS/routine.md',
+    startTime: overrides.startTime ?? new Date('2025-10-13T09:00:00.000Z').toISOString(),
+    slotKey: overrides.slotKey,
+    originalSlotKey: overrides.originalSlotKey,
+    instanceId: overrides.instanceId ?? 'old-instance-id',
+    taskDescription: overrides.taskDescription,
+    isRoutine: overrides.isRoutine ?? true,
+    taskId: overrides.taskId ?? 'tc-task-123',
+  })
+
+  it('prefers path match over taskId match when both exist', async () => {
+    const plugin = {} as TaskChutePluginLike
+    const service = new RunningTasksService(plugin)
+
+    const record = createRecord({
+      taskPath: 'TASKS/path-match.md',
+      taskId: 'tc-task-shared',
+      instanceId: 'record-instance',
+    })
+
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([record])
+
+    const taskIdMatch = createTaskData({
+      path: 'TASKS/other.md',
+      taskId: 'tc-task-shared',
+    })
+    const taskPathMatch = createTaskData({
+      path: 'TASKS/path-match.md',
+      taskId: 'tc-task-different',
+    })
+
+    const instanceTaskId: TaskInstance = {
+      task: taskIdMatch,
+      instanceId: 'taskid-instance',
+      state: 'idle',
+      slotKey: 'none',
+      date: dateString,
+      createdMillis: Date.now(),
+    }
+    const instancePath: TaskInstance = {
+      task: taskPathMatch,
+      instanceId: 'path-instance',
+      state: 'idle',
+      slotKey: 'none',
+      date: dateString,
+      createdMillis: Date.now(),
+    }
+
+    const instances: TaskInstance[] = [instanceTaskId, instancePath]
+
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instancePath.state).toBe('running')
+    expect(instanceTaskId.state).toBe('idle')
+    expect(instancePath.task.path).toBe('TASKS/path-match.md')
+  })
+
+  it('restores running state via taskId when instanceId changes after file rename', async () => {
+    const plugin = {} as TaskChutePluginLike
+    const service = new RunningTasksService(plugin)
+
+    // Simulate: record has old instanceId and old path, but same taskId
+    const record = createRecord({
+      taskPath: 'TASKS/old-name.md',
+      instanceId: 'TASKS/old-name.md_2025-10-13_1234567890_abc',
+      taskId: 'tc-task-stable-id',
+    })
+
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([record])
+
+    // Task instance now has new path and new instanceId, but same taskId
+    const task = createTaskData({
+      path: 'TASKS/new-name.md',
+      taskId: 'tc-task-stable-id',
+    })
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'TASKS/new-name.md_2025-10-13_9999999999_xyz', // Different instanceId
+      state: 'idle',
+      slotKey: 'none',
+      date: dateString,
+      createdMillis: Date.now(),
+    }
+
+    const instances: TaskInstance[] = [instance]
+
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined, // path doesn't match
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances[0].state).toBe('running')
+    expect(instances[0].startTime).toBeDefined()
+    // Instance should be restored via taskId match
+    expect(instances[0].task.taskId).toBe('tc-task-stable-id')
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
 })

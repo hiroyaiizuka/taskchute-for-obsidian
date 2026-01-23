@@ -349,6 +349,55 @@ describe('TaskChuteView execution history helpers', () => {
   });
 });
 
+describe('TaskChuteView handleFileRename', () => {
+  test('keeps instanceId stable when task path changes', async () => {
+    const { view } = createView();
+    const oldPath = 'TASKS/old.md';
+    const newPath = 'TASKS/new.md';
+    const task = createTaskData({ path: oldPath, name: 'Old Task' });
+    const instanceId = `${oldPath}_2025-01-01_123_abc`;
+    const instance = createTaskInstance(task, { instanceId });
+
+    view.tasks = [task];
+    view.taskInstances = [instance];
+    view.currentInstance = instance;
+
+    const file = new TFile();
+    file.path = newPath;
+    (file as { basename?: string }).basename = 'new';
+    (file as { extension?: string }).extension = 'md';
+    (file as { name?: string }).name = 'new.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+
+    (view.app.metadataCache.getFileCache as jest.Mock).mockReturnValue({
+      frontmatter: { title: 'New Title' },
+    });
+
+    jest
+      .spyOn(view.executionLogService, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.dayStateManager, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.runningTasksService, 'renameTaskPath')
+      .mockResolvedValue(undefined);
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+
+    await (view as unknown as { handleFileRename: (file: TFile, oldPath: string) => Promise<void> }).handleFileRename(
+      file,
+      oldPath,
+    );
+
+    expect(instance.task.path).toBe(newPath);
+    expect(instance.instanceId).toBe(instanceId);
+    expect(view.currentInstance?.instanceId).toBe(instanceId);
+    expect(reloadSpy).toHaveBeenCalled();
+  });
+});
+
 
 describe('TaskChuteView reloadTasksAndRestore', () => {
   afterEach(() => {
