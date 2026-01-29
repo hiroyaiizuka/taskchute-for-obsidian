@@ -5,8 +5,16 @@
 /data
 /node_modules
 /tmp
+taskchute-docs
+guide
+schemas
+
 main.js
 .hotreload
 CLAUDE.md
 data.json
 
+memory
+memory:
+
+.codex

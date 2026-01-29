@@ -285,6 +285,11 @@ export class TaskChuteView
       calculateCrossDayDuration: (start, stop) =>
         this.calculateCrossDayDuration(start, stop),
       saveRunningTasksState: () => this.saveRunningTasksState(),
+      stopInstance: (instance, stopTime) => this.stopInstance(instance, stopTime),
+      confirmStopNextDay: () => this.confirmStopNextDay(),
+      setCurrentInstance: (instance) => this.setCurrentInstance(instance),
+      startGlobalTimer: () => this.startGlobalTimer(),
+      restartTimerService: () => this.restartTimerService(),
       removeTaskLogForInstanceOnCurrentDate: (instanceId, taskId) =>
         this.removeTaskLogForInstanceOnCurrentDate(instanceId, taskId),
       getCurrentDate: () => new Date(this.currentDate),
@@ -475,7 +480,8 @@ export class TaskChuteView
         view.showTaskContextMenu(event, inst),
       calculateCrossDayDuration: (start, stop) =>
         view.calculateCrossDayDuration(start, stop),
-      showTimeEditModal: (inst) => view.showTimeEditModal(inst),
+      showStartTimePopup: (inst, anchor) => view.showStartTimePopup(inst, anchor),
+      showStopTimePopup: (inst, anchor) => view.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => view.showReminderSettingsModal(inst),
       updateTotalTasksCount: () => view.updateTotalTasksCount(),
       showProjectModal: (inst) => view.projectController.showProjectModal(inst),
@@ -663,6 +669,18 @@ export class TaskChuteView
 
   public async removeRunningTaskRecord(params: { instanceId?: string; taskPath?: string; taskId?: string }): Promise<void> {
     await this.runningTasksService.deleteByInstanceOrPath(params)
+  }
+
+  public confirmStopNextDay(): Promise<boolean> {
+    return showConfirmModal(this.app, {
+      title: this.tv('forms.confirmStopNextDayTitle', 'Treat stop time as next day?'),
+      message: this.tv(
+        'forms.confirmStopNextDayMessage',
+        'The stop time you entered is earlier than the start time. Save it as next day?',
+      ),
+      confirmText: this.tv('common.yes', 'Yes'),
+      cancelText: this.tv('common.no', 'No'),
+    })
   }
 
   public getOrderKey(inst: TaskInstance): string | null {
@@ -1097,9 +1115,17 @@ export class TaskChuteView
     await this.taskExecutionService.startInstance(inst)
   }
 
-  async stopInstance(inst: TaskInstance): Promise<void> {
-    await this.taskExecutionService.stopInstance(inst)
-    this.timerService?.restart()
+  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
+    await this.taskExecutionService.stopInstance(inst, stopTime)
+    const viewDate = this.getViewDate()
+    const today = new Date()
+    const isTodayView =
+      viewDate.getFullYear() === today.getFullYear() &&
+      viewDate.getMonth() === today.getMonth() &&
+      viewDate.getDate() === today.getDate()
+    if (isTodayView && this.hasRunningInstances()) {
+      this.timerService?.restart()
+    }
   }
 
   public async handleCrossDayStart(payload: CrossDayStartPayload): Promise<void> {
@@ -1131,7 +1157,8 @@ export class TaskChuteView
       const runningInstances = this.taskInstances.filter(
         (inst) => inst.state === "running",
       )
-      await this.runningTasksService.save(runningInstances)
+      const viewDateString = this.getCurrentDateString()
+      await this.runningTasksService.save(runningInstances, viewDateString)
     } catch (e) {
       console.error(
         this.tv(
@@ -1306,8 +1333,12 @@ export class TaskChuteView
     this.taskTimeController.showScheduledTimeEditModal(inst)
   }
 
-  private showTimeEditModal(inst: TaskInstance): void {
-    this.taskTimeController.showTimeEditModal(inst)
+  private showStartTimePopup(inst: TaskInstance, anchor: HTMLElement): void {
+    this.taskTimeController.showStartTimePopup(inst, anchor)
+  }
+
+  private showStopTimePopup(inst: TaskInstance, anchor: HTMLElement): void {
+    this.taskTimeController.showStopTimePopup(inst, anchor)
   }
 
   private showReminderSettingsModal(inst: TaskInstance): void {

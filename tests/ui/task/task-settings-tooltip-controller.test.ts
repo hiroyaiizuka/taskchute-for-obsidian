@@ -124,6 +124,12 @@ const createTimeController = () => {
     },
     calculateCrossDayDuration: jest.fn(() => 0),
     saveRunningTasksState,
+
+    stopInstance: jest.fn().mockResolvedValue(undefined),
+    confirmStopNextDay: jest.fn().mockResolvedValue(true),
+    setCurrentInstance: jest.fn(),
+    startGlobalTimer: jest.fn(),
+    restartTimerService: jest.fn(),
     removeTaskLogForInstanceOnCurrentDate: removeTaskLog,
     getCurrentDate: () => new Date('2025-10-09T00:00:00Z'),
   }

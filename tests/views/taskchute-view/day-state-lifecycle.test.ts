@@ -1575,6 +1575,36 @@ describe('TaskChuteView execution log integration', () => {
     mockedHeatmapService.mockClear();
   });
 
+  test('stopInstance does not restart timer on past-date view', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-02T12:00:00.000Z'))
+
+    try {
+      const { view } = createView();
+      const stopSpy = jest.fn().mockResolvedValue(undefined)
+      ;(view as Mutable<TaskChuteView>).taskExecutionService = {
+        stopInstance: stopSpy,
+      } as unknown as TaskChuteView['taskExecutionService']
+      const timerRestart = jest.fn()
+      ;(view as Mutable<TaskChuteView>).timerService = {
+        restart: timerRestart,
+        start: jest.fn(),
+        stop: jest.fn(),
+      } as unknown as TaskChuteView['timerService']
+
+      const instance = createTaskInstance(createTaskData(), {
+        state: 'running',
+        startTime: new Date('2025-01-01T08:00:00.000Z'),
+      })
+
+      await view.stopInstance(instance)
+
+      expect(stopSpy).toHaveBeenCalledWith(instance, undefined)
+      expect(timerRestart).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  });
+
   test('resetTaskToIdle removes execution log entry for current date', async () => {
     const { view } = createView();
     await view.ensureDayStateForCurrentDate();

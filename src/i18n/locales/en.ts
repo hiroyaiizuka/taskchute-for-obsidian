@@ -375,6 +375,8 @@ export const en = {
       scheduledTimePlaceholder: "Enter a scheduled start time",
       startTimeRequired: "Scheduled start time is required",
       startTimeBeforeEnd: "Scheduled start time must be before end time",
+      stopTimeNotFuture: "Stop time cannot be in the future",
+      timeNotFuture: "Time cannot be in the future",
       confirmStopNextDay: 'Treat the stop time as next day?',
       confirmStopNextDayTitle: 'Treat stop time as next day?',
       confirmStopNextDayMessage: 'The stop time you entered is earlier than the start time. Save it as next day?',

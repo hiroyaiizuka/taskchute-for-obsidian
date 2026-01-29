@@ -38,7 +38,7 @@ export class RunningTasksService {
     );
   }
 
-  async save(runningInstances: TaskInstance[]): Promise<void> {
+  async save(runningInstances: TaskInstance[], viewDateString?: string): Promise<void> {
     const records: RunningTaskRecord[] = runningInstances.map((inst) => {
       const base = inst.startTime ? new Date(inst.startTime) : new Date();
       const y = base.getFullYear();
@@ -62,12 +62,36 @@ export class RunningTasksService {
       };
     });
 
+    const datesToReplace = new Set(records.map((r) => r.date));
+    if (viewDateString) datesToReplace.add(viewDateString);
+
     const logDataPath = this.plugin.pathManager.getLogDataPath();
     const dataPath = `${logDataPath}/running-task.json`;
 
+    // Read existing records
+    let existing: RunningTaskRecord[] = [];
+    try {
+      const adapter = this.plugin.app.vault.adapter;
+      if (await adapter.exists(dataPath)) {
+        const raw = await adapter.read(dataPath);
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          existing = parsed.filter(
+            (entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry),
+          );
+        }
+      }
+    } catch {
+      // If read fails, start fresh
+    }
+
+    // Preserve records for other dates
+    const preserved = existing.filter((r) => !datesToReplace.has(r.date));
+    const merged = [...preserved, ...records];
+
     await this.plugin.app.vault.adapter.write(
       dataPath,
-      JSON.stringify(records, null, 2)
+      JSON.stringify(merged, null, 2)
     );
   }
 

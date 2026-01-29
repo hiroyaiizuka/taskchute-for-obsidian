@@ -1,5 +1,53 @@
 /* TaskChute Plus Plugin Styles */
 
+/* ===== Time Edit Popup ===== */
+.taskchute-time-popup {
+  position: fixed;
+  z-index: 10000;
+  left: var(--time-popup-left, 0);
+  top: var(--time-popup-top, 0);
+  background: var(--background-primary);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.taskchute-time-popup-input {
+  font-size: 14px;
+  padding: 4px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+
+
+.task-time-start.editable,
+.task-time-stop.editable {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.task-time-start.editable:hover,
+.task-time-stop.editable:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Hide time range by default, show on task row hover */
+.task-time-range.time-hidden {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.task-item:hover .task-time-range.time-hidden {
+  opacity: 1;
+}
+
 /* ===== Restored original CSS (from full-css.ts) ===== */
 /* Modal overlay/content (used by time edit, settings, etc.) */
 .task-modal-overlay {
@@ -262,6 +310,11 @@
   box-sizing: border-box;
 }
 
+.form-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 select.form-input {
   min-height: 36px;
   line-height: 1.5;
@@ -427,6 +480,29 @@ select.form-input {
   color: var(--text-muted);
 }
 
+.time-edit-modal-container .modal-title-bar,
+.time-edit-modal-container .modal-title {
+  border-bottom: none;
+}
+
+.time-edit-modal-container .modal-content {
+  border-top: none;
+}
+
+.time-edit-modal .modal-header {
+  border-bottom: none;
+  padding: 20px 20px 12px 20px;
+  margin-bottom: 4px;
+}
+
+.time-edit-modal .form-group {
+  margin-bottom: 16px;
+}
+
+.time-edit-modal .form-button.secondary {
+  margin-top: 8px;
+}
+
 .taskchute-confirm-modal .modal-header {
   border-bottom: none;
   padding: 20px 20px 12px 20px;
@@ -529,6 +605,16 @@ select.form-input {
 .task-time-range.editable {
   cursor: pointer;
   text-decoration: none;
+}
+.task-time-range.editable:hover {
+  color: var(--interactive-accent);
+}
+.task-time-range.idle-placeholder {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.task-time-range.idle-placeholder:hover {
+  opacity: 1;
 }
 .task-timer-display {
   font-size: 12px;
@@ -2961,6 +3047,16 @@ select.form-input {
 .task-time-range.editable {
   cursor: pointer;
   text-decoration: none;
+}
+.task-time-range.editable:hover {
+  color: var(--interactive-accent);
+}
+.task-time-range.idle-placeholder {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.task-time-range.idle-placeholder:hover {
+  opacity: 1;
 }
 .task-duration,
 .task-timer-display {
