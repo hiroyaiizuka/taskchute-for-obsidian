@@ -1,8 +1,9 @@
-import { Notice, Modal, App } from 'obsidian'
+import { Notice } from 'obsidian'
+import type { App } from 'obsidian'
 import { getSlotFromTime } from '../../utils/time'
 import type { TaskInstance } from '../../types'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
-import TimeEditModal from '../modals/TimeEditModal'
+import TimeEditPopup from './TimeEditPopup'
 
 export interface TaskTimeControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -16,6 +17,11 @@ export interface TaskTimeControllerHost {
   }
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
   saveRunningTasksState: () => Promise<void>
+  stopInstance: (inst: TaskInstance, stopTime?: Date) => Promise<void>
+  confirmStopNextDay: () => Promise<boolean>
+  setCurrentInstance: (inst: TaskInstance | null) => void
+  startGlobalTimer: () => void
+  restartTimerService: () => void
   removeTaskLogForInstanceOnCurrentDate: (instanceId: string, taskId?: string) => Promise<void>
   getCurrentDate: () => Date
 }
@@ -28,30 +34,116 @@ export default class TaskTimeController {
     modal.open()
   }
 
-  showTimeEditModal(inst: TaskInstance): void {
-    if (!(inst.startTime && (inst.state === 'running' || inst.state === 'done'))) {
+  showStartTimePopup(inst: TaskInstance, anchor: HTMLElement): void {
+    const rawViewDate = new Date(this.host.getCurrentDate())
+    const viewDate = new Date(rawViewDate)
+    viewDate.setHours(0, 0, 0, 0)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (viewDate.getTime() > today.getTime()) {
+      new Notice(
+        this.host.tv(
+          'notices.futureTaskPreventedWithPeriod',
+          'Cannot start a future task.',
+        ),
+        2000,
+      )
       return
     }
 
-    const modal = new TimeEditModal({
-      app: this.host.app as unknown as Modal['app'],
-      host: {
-        tv: this.host.tv,
-        getInstanceDisplayTitle: this.host.getInstanceDisplayTitle,
-      },
-      instance: inst,
-      callbacks: {
-        resetTaskToIdle: () => this.resetTaskToIdle(inst),
-        updateRunningInstanceStartTime: (startStr) =>
-          this.updateRunningInstanceStartTime(inst, startStr),
-        transitionToRunningWithStart: (startStr) =>
-          this.transitionToRunningWithStart(inst, startStr),
-        updateInstanceTimes: (startStr, stopStr) =>
-          this.updateInstanceTimes(inst, startStr, stopStr),
-      },
-    })
+    const toHM = (date?: Date) =>
+      date
+        ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+        : ''
 
-    modal.open()
+    const popup = new TimeEditPopup()
+    popup.show({
+      anchor,
+      currentValue: toHM(inst.startTime),
+      viewDate: rawViewDate,
+      validationDate: inst.startTime ? new Date(inst.startTime) : rawViewDate,
+      tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+      onSave: (value: string) => {
+        void (async () => {
+          if (!value) {
+            // Clear start → reset to idle
+            if (inst.state === 'running' || inst.state === 'done') {
+              await this.resetTaskToIdle(inst)
+            }
+            return
+          }
+          if (inst.state === 'idle') {
+            await this.transitionToRunningWithStart(inst, value)
+          } else if (inst.state === 'running') {
+            await this.updateRunningInstanceStartTime(inst, value)
+          } else if (inst.state === 'done') {
+            const stopStr = toHM(inst.stopTime)
+            if (stopStr) {
+              const ok = await this.validateStartStopTimes(inst, value, stopStr, rawViewDate)
+              if (ok) {
+                await this.updateInstanceTimes(inst, value, stopStr)
+              }
+            } else {
+              await this.transitionToRunningWithStart(inst, value)
+            }
+          }
+        })()
+      },
+      onCancel: () => {},
+    })
+  }
+
+  showStopTimePopup(inst: TaskInstance, anchor: HTMLElement): void {
+    if (!inst.startTime) return
+
+    const viewDate = new Date(this.host.getCurrentDate())
+    const toHM = (date?: Date) =>
+      date
+        ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+        : ''
+
+    const popup = new TimeEditPopup()
+    popup.show({
+      anchor,
+      currentValue: toHM(inst.stopTime),
+      viewDate,
+      validationDate: inst.stopTime ? new Date(inst.stopTime) : viewDate,
+      tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+      onSave: (value: string) => {
+        void (async () => {
+          const startStr = toHM(inst.startTime)
+          if (!value) {
+            // Clear stop → back to running (keep start)
+            if (inst.state === 'done') {
+              await this.transitionToRunningWithStart(inst, startStr)
+            }
+            return
+          }
+          if (startStr) {
+            const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate)
+            if (!ok) return
+
+            if (inst.state === 'running') {
+              const stopTime = this.buildStopTimeFromStart(inst.startTime, value)
+              if (stopTime.getTime() > Date.now()) {
+                new Notice(
+                  this.host.tv(
+                    'forms.stopTimeNotFuture',
+                    'Stop time cannot be in the future',
+                  ),
+                )
+                return
+              }
+              await this.host.stopInstance(inst, stopTime)
+              return
+            }
+
+            await this.updateInstanceTimes(inst, startStr, value)
+          }
+        })()
+      },
+      onCancel: () => {},
+    })
   }
 
   async resetTaskToIdle(inst: TaskInstance): Promise<void> {
@@ -81,6 +173,8 @@ export default class TaskTimeController {
 
   private async updateInstanceTimes(inst: TaskInstance, startStr: string, stopStr: string): Promise<void> {
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
+    const wasRunning = inst.state === 'running'
+    if (inst.state === 'idle' || inst.state === 'running') inst.state = 'done'
     const base = inst.startTime || this.cloneCurrentDate()
     const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10))
     const [eh, em] = stopStr.split(':').map((n) => parseInt(n, 10))
@@ -100,6 +194,9 @@ export default class TaskTimeController {
 
     const durationSec = Math.floor(this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000)
     await this.host.executionLogService.saveTaskLog(inst, durationSec)
+    if (wasRunning) {
+      await this.host.saveRunningTasksState()
+    }
     this.host.renderTaskList()
     new Notice(
       this.host.tv('notices.taskTimesUpdated', 'Updated times for "{title}"', {
@@ -130,12 +227,12 @@ export default class TaskTimeController {
   }
 
   private async transitionToRunningWithStart(inst: TaskInstance, startStr: string): Promise<void> {
-    if (inst.state !== 'done') return
+    if (inst.state !== 'done' && inst.state !== 'idle') return
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
     const base = inst.startTime || this.cloneCurrentDate()
     const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10))
 
-    if (inst.instanceId) {
+    if (inst.state !== 'idle' && inst.instanceId) {
       await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)
     }
 
@@ -149,8 +246,20 @@ export default class TaskTimeController {
       this.host.persistSlotAssignment(inst)
     }
 
+    const viewDate = this.host.getCurrentDate()
+    const isTodayView = this.isSameDay(viewDate, new Date())
+    if (isTodayView) {
+      this.host.setCurrentInstance(inst)
+    }
+
     await this.host.saveRunningTasksState()
     this.host.renderTaskList()
+
+    if (isTodayView) {
+      this.host.startGlobalTimer()
+      this.host.restartTimerService()
+    }
+
     new Notice(
       this.host.tv('notices.restoredToRunning', 'Moved "{title}" back to running', {
         title: displayTitle,
@@ -161,5 +270,54 @@ export default class TaskTimeController {
   private cloneCurrentDate(): Date {
     const current = this.host.getCurrentDate()
     return new Date(current.getFullYear(), current.getMonth(), current.getDate())
+  }
+
+  private isSameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  }
+
+  private toMinutes(value: string): number {
+    const [hours, minutes] = value.split(':').map((n) => parseInt(n, 10))
+    return hours * 60 + minutes
+  }
+
+  private buildStopTimeFromStart(startTime: Date, stopStr: string): Date {
+    const [eh, em] = stopStr.split(':').map((n) => parseInt(n, 10))
+    const stopTime = new Date(
+      startTime.getFullYear(),
+      startTime.getMonth(),
+      startTime.getDate(),
+      eh,
+      em,
+      0,
+      0,
+    )
+    if (stopTime <= startTime) {
+      stopTime.setDate(stopTime.getDate() + 1)
+    }
+    return stopTime
+  }
+
+  private async validateStartStopTimes(
+    _inst: TaskInstance,
+    startStr: string,
+    stopStr: string,
+    _viewDate: Date,
+  ): Promise<boolean> {
+    const startMinutes = this.toMinutes(startStr)
+    const stopMinutes = this.toMinutes(stopStr)
+
+    if (startMinutes === stopMinutes) {
+      new Notice(
+        this.host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
+      )
+      return false
+    }
+
+    if (startMinutes > stopMinutes) {
+      return this.host.confirmStopNextDay()
+    }
+
+    return true
   }
 }

@@ -44,6 +44,7 @@ describe('TaskExecutionService', () => {
       restartTimerService: jest.fn(),
       stopTimers: jest.fn(),
       saveRunningTasksState: jest.fn().mockResolvedValue(undefined),
+      removeRunningTaskRecord: jest.fn().mockResolvedValue(undefined),
       sortTaskInstancesByTimeOrder: jest.fn(),
       saveTaskOrders: jest.fn().mockResolvedValue(undefined),
       executionLogService: { saveTaskLog: jest.fn().mockResolvedValue(undefined) },
@@ -103,6 +104,8 @@ describe('TaskExecutionService', () => {
   })
 
   it('stops instance and writes execution log', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-02T12:00:00.000Z'))
+
     const host = createHost({
       getCurrentInstance: jest.fn().mockReturnValue({} as TaskInstance),
       hasRunningInstances: jest.fn().mockReturnValue(false),
@@ -114,6 +117,7 @@ describe('TaskExecutionService', () => {
         frontmatter: {},
         path: 'TASKS/sample.md',
         name: 'Sample',
+        taskId: 'tc-task-sample',
       },
       instanceId: 'inst-1',
       state: 'running',
@@ -128,6 +132,11 @@ describe('TaskExecutionService', () => {
     expect(instance.actualMinutes).toBe(60)
     expect(instance.executedTitle).toBe('Sample')
     expect(host.executionLogService.saveTaskLog).toHaveBeenCalledWith(instance, 3600)
+    expect(host.removeRunningTaskRecord).toHaveBeenCalledWith({
+      instanceId: 'inst-1',
+      taskPath: 'TASKS/sample.md',
+      taskId: 'tc-task-sample',
+    })
     expect(host.sortTaskInstancesByTimeOrder).toHaveBeenCalled()
     expect(host.saveTaskOrders).toHaveBeenCalled()
     expect(host.renderTaskList).toHaveBeenCalled()
@@ -259,6 +268,40 @@ describe('TaskExecutionService', () => {
 
     expect(host.saveRunningTasksState).not.toHaveBeenCalled()
     expect(host.renderTaskList).not.toHaveBeenCalled()
+  })
+
+  it('stopInstance skips timer control on past-date view', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-03T12:00:00.000Z'))
+
+    const host = createHost({
+      // viewDate is Jan 2 (yesterday), system is Jan 3 (today)
+      getViewDate: () => new Date('2025-01-02T00:00:00.000Z'),
+      getCurrentInstance: jest.fn().mockReturnValue(null),
+      hasRunningInstances: jest.fn().mockReturnValue(false),
+    })
+    const service = new TaskExecutionService(host)
+    const instance: TaskInstance = {
+      task: {
+        file: null,
+        frontmatter: {},
+        path: 'TASKS/sample.md',
+        name: 'Sample',
+        taskId: 'tc-task-sample',
+      },
+      instanceId: 'inst-1',
+      state: 'running',
+      slotKey: 'none',
+      startTime: new Date('2025-01-02T08:00:00.000Z'),
+    }
+
+    await service.stopInstance(instance)
+
+    expect(instance.state).toBe('done')
+    expect(host.executionLogService.saveTaskLog).toHaveBeenCalled()
+    expect(host.saveRunningTasksState).toHaveBeenCalled()
+    // Timer control should NOT happen on past-date view
+    expect(host.stopTimers).not.toHaveBeenCalled()
+    expect(host.restartTimerService).not.toHaveBeenCalled()
   })
 
   it('handles heatmap update failure gracefully', async () => {

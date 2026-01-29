@@ -617,3 +617,138 @@ describe('RunningTasksService.restoreForDate - taskId fallback', () => {
     jest.restoreAllMocks()
   })
 })
+
+describe('RunningTasksService.save - merge behavior', () => {
+  const createRecord = (overrides: Partial<RunningTaskRecord> = {}): RunningTaskRecord => ({
+    date: overrides.date ?? '2025-01-28',
+    taskTitle: overrides.taskTitle ?? 'Task',
+    taskPath: overrides.taskPath ?? 'TASKS/task.md',
+    startTime: overrides.startTime ?? new Date('2025-01-28T09:00:00.000Z').toISOString(),
+    instanceId: overrides.instanceId ?? 'inst-1',
+    isRoutine: overrides.isRoutine ?? false,
+  })
+
+  const createInstance = (date: string, overrides: Partial<TaskInstance> = {}): TaskInstance => ({
+    task: {
+      file: null,
+      frontmatter: {},
+      path: overrides.task?.path ?? 'TASKS/task.md',
+      name: overrides.task?.name ?? 'Task',
+      isRoutine: overrides.task?.isRoutine ?? false,
+      taskId: overrides.task?.taskId ?? 'tc-task-1',
+    },
+    instanceId: overrides.instanceId ?? 'inst-1',
+    state: 'running',
+    slotKey: overrides.slotKey ?? 'none',
+    startTime: new Date(`${date}T09:00:00.000Z`),
+    createdMillis: Date.now(),
+    ...overrides,
+  })
+
+  const createServiceWithStore = (initialRecords: RunningTaskRecord[] = []) => {
+    const store = new Map<string, string>()
+    const pathManager = { getLogDataPath: () => 'LOGS' }
+    const dataPath = 'LOGS/running-task.json'
+
+    if (initialRecords.length > 0) {
+      store.set(dataPath, JSON.stringify(initialRecords, null, 2))
+    }
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+      adapter: {
+        write: jest.fn(async (path: string, content: string) => {
+          store.set(path, content)
+        }),
+        exists: jest.fn(async (path: string) => store.has(path)),
+        read: jest.fn(async (path: string) => store.get(path) ?? ''),
+      },
+    }
+
+    const plugin = {
+      app: { vault },
+      pathManager,
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    return { service, store, dataPath }
+  }
+
+  it('preserves records for other dates when saving', async () => {
+    const existingRecord = createRecord({
+      date: '2025-01-27',
+      taskPath: 'TASKS/yesterday.md',
+      instanceId: 'inst-yesterday',
+    })
+    const { service, store, dataPath } = createServiceWithStore([existingRecord])
+
+    const todayInstance = createInstance('2025-01-28', {
+      instanceId: 'inst-today',
+      task: { file: null, frontmatter: {}, path: 'TASKS/today.md', name: 'Today Task', isRoutine: false, taskId: 'tc-today' },
+    })
+
+    await service.save([todayInstance], '2025-01-28')
+
+    const result = JSON.parse(store.get(dataPath)!) as RunningTaskRecord[]
+    expect(result).toHaveLength(2)
+    expect(result.find(r => r.date === '2025-01-27')).toBeDefined()
+    expect(result.find(r => r.date === '2025-01-28')).toBeDefined()
+  })
+
+  it('replaces records for the same date when saving', async () => {
+    const existingRecord = createRecord({
+      date: '2025-01-28',
+      taskPath: 'TASKS/old.md',
+      instanceId: 'inst-old',
+    })
+    const { service, store, dataPath } = createServiceWithStore([existingRecord])
+
+    const newInstance = createInstance('2025-01-28', {
+      instanceId: 'inst-new',
+      task: { file: null, frontmatter: {}, path: 'TASKS/new.md', name: 'New Task', isRoutine: false, taskId: 'tc-new' },
+    })
+
+    await service.save([newInstance], '2025-01-28')
+
+    const result = JSON.parse(store.get(dataPath)!) as RunningTaskRecord[]
+    expect(result).toHaveLength(1)
+    expect(result[0].instanceId).toBe('inst-new')
+  })
+
+  it('removes date records when no running instances for that date', async () => {
+    const jan27 = createRecord({ date: '2025-01-27', instanceId: 'inst-27' })
+    const jan28 = createRecord({ date: '2025-01-28', instanceId: 'inst-28' })
+    const { service, store, dataPath } = createServiceWithStore([jan27, jan28])
+
+    // Save empty array for 2025-01-28 (all tasks stopped)
+    await service.save([], '2025-01-28')
+
+    const result = JSON.parse(store.get(dataPath)!) as RunningTaskRecord[]
+    expect(result).toHaveLength(1)
+    expect(result[0].date).toBe('2025-01-27')
+  })
+
+  it('works when running-task.json does not exist yet', async () => {
+    const { service, store, dataPath } = createServiceWithStore()
+
+    const instance = createInstance('2025-01-28')
+    await service.save([instance], '2025-01-28')
+
+    const result = JSON.parse(store.get(dataPath)!) as RunningTaskRecord[]
+    expect(result).toHaveLength(1)
+    expect(result[0].date).toBe('2025-01-28')
+  })
+})

@@ -21,6 +21,7 @@ export interface TaskExecutionHost {
   restartTimerService(): void
   stopTimers(): void
   saveRunningTasksState(): Promise<void>
+  removeRunningTaskRecord: (params: { instanceId?: string; taskPath?: string; taskId?: string }) => Promise<void>
   sortTaskInstancesByTimeOrder(): void
   saveTaskOrders(): Promise<void>
   executionLogService: {
@@ -134,14 +135,14 @@ export class TaskExecutionService {
     }
   }
 
-  async stopInstance(inst: TaskInstance): Promise<void> {
+  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
     try {
       if (inst.state !== 'running') {
         return
       }
 
       inst.state = 'done'
-      inst.stopTime = new Date()
+      inst.stopTime = stopTime ?? new Date()
 
       if (inst.startTime) {
         const duration = this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime)
@@ -166,6 +167,12 @@ export class TaskExecutionService {
       if (this.host.getCurrentInstance() === inst) {
         this.host.setCurrentInstance(null)
       }
+
+      await this.host.removeRunningTaskRecord({
+        instanceId: inst.instanceId,
+        taskPath: inst.task?.path,
+        taskId: inst.task?.taskId,
+      })
 
       const durationSec = Math.floor(
         this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000,
@@ -196,10 +203,19 @@ export class TaskExecutionService {
       await this.host.saveTaskOrders()
       this.host.renderTaskList()
 
-      if (this.host.hasRunningInstances()) {
-        this.host.restartTimerService()
-      } else {
-        this.host.stopTimers()
+      const viewDate = this.host.getViewDate()
+      const today = new Date()
+      const isTodayView =
+        viewDate.getFullYear() === today.getFullYear() &&
+        viewDate.getMonth() === today.getMonth() &&
+        viewDate.getDate() === today.getDate()
+
+      if (isTodayView) {
+        if (this.host.hasRunningInstances()) {
+          this.host.restartTimerService()
+        } else {
+          this.host.stopTimers()
+        }
       }
 
       new Notice(

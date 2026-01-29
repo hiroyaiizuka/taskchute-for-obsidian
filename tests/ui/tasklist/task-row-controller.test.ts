@@ -36,7 +36,8 @@ describe('TaskRowController', () => {
     startInstance: jest.fn(),
     stopInstance: jest.fn(),
     duplicateAndStartInstance: jest.fn(),
-    showTimeEditModal: jest.fn(),
+    showStartTimePopup: jest.fn(),
+    showStopTimePopup: jest.fn(),
     calculateCrossDayDuration: (start: Date, stop: Date) => stop.getTime() - start.getTime(),
     app: {
       workspace: {
@@ -114,18 +115,23 @@ describe('TaskRowController', () => {
     errorSpy.mockRestore()
   })
 
-  test('renderTimeRangeDisplay marks editable spans', () => {
-    const host = createHost({ showTimeEditModal: jest.fn() })
+  test('renderTimeRangeDisplay marks editable spans and click triggers popup', () => {
+    const host = createHost({ showStartTimePopup: jest.fn(), showStopTimePopup: jest.fn() })
     const controller = new TaskRowController(host)
     const container = document.createElement('div')
     attachCreateEl(container)
     const inst = createInstance({ startTime: new Date(2025, 9, 9, 8, 0, 0), stopTime: new Date(2025, 9, 9, 9, 0, 0) })
 
     controller.renderTimeRangeDisplay(container, inst)
-    const range = container.querySelector('.task-time-range') as HTMLElement
-    expect(range?.textContent).toContain('08:00')
-    range?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    expect(host.showTimeEditModal).toHaveBeenCalledWith(inst)
+    const startSpan = container.querySelector('.task-time-start') as HTMLElement
+    expect(startSpan?.textContent).toContain('08:00')
+    startSpan?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(host.showStartTimePopup).toHaveBeenCalledWith(inst, startSpan)
+
+    const stopSpan = container.querySelector('.task-time-stop') as HTMLElement
+    expect(stopSpan?.textContent).toContain('09:00')
+    stopSpan?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(host.showStopTimePopup).toHaveBeenCalledWith(inst, stopSpan)
   })
 
   test('renderDurationDisplay renders timer for running tasks', () => {

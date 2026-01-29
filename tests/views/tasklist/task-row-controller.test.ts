@@ -44,7 +44,8 @@ describe('TaskRowController.renderTaskName', () => {
     startInstance: jest.fn(),
     stopInstance: jest.fn(),
     duplicateAndStartInstance: jest.fn(),
-    showTimeEditModal: jest.fn(),
+    showStartTimePopup: jest.fn(),
+    showStopTimePopup: jest.fn(),
     showReminderSettingsModal: jest.fn(),
     calculateCrossDayDuration: jest.fn(),
     app: {

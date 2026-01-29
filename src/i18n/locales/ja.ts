@@ -374,6 +374,8 @@ export const ja = {
       scheduledTimePlaceholder: "開始予定時刻を入力してください",
       startTimeRequired: "開始予定時刻は必須です",
       startTimeBeforeEnd: "開始予定時刻は終了時刻より前である必要があります",
+      stopTimeNotFuture: "未来の終了時刻は指定できません",
+      timeNotFuture: "未来の時刻は指定できません",
       confirmStopNextDay: "終了時刻を翌日として保存しますか？",
       confirmStopNextDayTitle: "終了時刻を翌日扱いにしますか？",
       confirmStopNextDayMessage: "入力した終了時刻が開始時刻より早いです。翌日の終了時刻として保存しますか？",

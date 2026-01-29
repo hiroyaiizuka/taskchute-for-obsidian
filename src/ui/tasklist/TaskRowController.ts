@@ -7,7 +7,8 @@ export interface TaskRowControllerHost {
   startInstance: (inst: TaskInstance) => Promise<void> | void
   stopInstance: (inst: TaskInstance) => Promise<void> | void
   duplicateAndStartInstance: (inst: TaskInstance) => Promise<void> | void
-  showTimeEditModal: (inst: TaskInstance) => void
+  showStartTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
+  showStopTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showReminderSettingsModal: (inst: TaskInstance) => void
   calculateCrossDayDuration: (start: Date, stop: Date) => number
   app: {
@@ -118,19 +119,49 @@ export default class TaskRowController {
     const timeRangeEl = taskItem.createEl('span', { cls: 'task-time-range' })
     const formatTime = (date: Date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 
+    const startSpan = timeRangeEl.createEl('span', { cls: 'task-time-start editable' })
+    const arrowSpan = timeRangeEl.createEl('span', { cls: 'task-time-arrow', text: ' → ' })
+    const stopSpan = timeRangeEl.createEl('span', { cls: 'task-time-stop' })
+
+    // Determine if we have actual time values to show
+    const hasTimeValues = Boolean(inst.startTime || inst.stopTime)
+
+    if (inst.startTime) {
+      startSpan.textContent = formatTime(inst.startTime)
+    } else {
+      startSpan.textContent = '--:--'
+      startSpan.classList.add('idle-placeholder')
+    }
+
     if (inst.startTime && inst.stopTime) {
-      timeRangeEl.textContent = `${formatTime(inst.startTime)} → ${formatTime(inst.stopTime)}`
-      timeRangeEl.classList.add('editable')
-      timeRangeEl.addEventListener('click', (e) => {
+      stopSpan.textContent = formatTime(inst.stopTime)
+      stopSpan.classList.add('editable')
+    } else if (inst.startTime && !inst.stopTime) {
+      // running state — show clickable placeholder for stop time
+      stopSpan.textContent = '--:--'
+      stopSpan.classList.add('idle-placeholder', 'editable')
+    } else {
+      // idle — hide arrow and stop
+      arrowSpan.classList.add('is-hidden')
+      stopSpan.classList.add('is-hidden')
+    }
+
+    // Hide time range by default, show on row hover (unless has values)
+    if (!hasTimeValues) {
+      timeRangeEl.classList.add('time-hidden')
+    }
+
+    startSpan.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.host.showStartTimePopup(inst, startSpan)
+    })
+
+    // Stop span clickable only when startTime exists
+    if (inst.startTime) {
+      stopSpan.classList.add('editable')
+      stopSpan.addEventListener('click', (e) => {
         e.stopPropagation()
-        this.host.showTimeEditModal(inst)
-      })
-    } else if (inst.startTime) {
-      timeRangeEl.textContent = `${formatTime(inst.startTime)} →`
-      timeRangeEl.classList.add('editable')
-      timeRangeEl.addEventListener('click', (e) => {
-        e.stopPropagation()
-        this.host.showTimeEditModal(inst)
+        this.host.showStopTimePopup(inst, stopSpan)
       })
     }
   }
