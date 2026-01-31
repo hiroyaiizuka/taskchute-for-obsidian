@@ -87,6 +87,53 @@ describe('DayStateStoreService', () => {
     expect(manager.isDeleted({ instanceId: 'missing', path: 'TASKS/other.md' })).toBe(false);
   });
 
+  test('isDeleted treats legacy deletion without timestamp as deleted', async () => {
+    const state = createState({
+      deletedInstances: [
+        {
+          path: 'TASKS/legacy.md',
+          deletionType: 'permanent',
+        },
+      ],
+    });
+    const { deps } = createDeps({ '2025-10-09': state });
+    const manager = new DayStateStoreService(deps);
+    await manager.ensure();
+
+    expect(manager.isDeleted({ path: 'TASKS/legacy.md' })).toBe(true);
+  });
+
+  test('setDeleted keeps newest permanent deletion for same taskId', async () => {
+    const { deps } = createDeps();
+    const manager = new DayStateStoreService(deps);
+    const dateKey = '2025-10-09';
+
+    manager.setDeleted(
+      [
+        {
+          taskId: 'task-1',
+          path: 'TASKS/old.md',
+          deletionType: 'permanent',
+          deletedAt: 1000,
+          restoredAt: 2000,
+        },
+        {
+          taskId: 'task-1',
+          path: 'TASKS/new.md',
+          deletionType: 'permanent',
+          deletedAt: 3000,
+        },
+      ],
+      dateKey,
+    );
+
+    const entries = manager.getDeleted(dateKey);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.deletedAt).toBe(3000);
+    expect(entries[0]?.restoredAt).toBeUndefined();
+    expect(entries[0]?.path).toBe('TASKS/new.md');
+  });
+
   test('renameTaskPath updates cache and delegates to persistence layer', async () => {
     const preset = createState({
       hiddenRoutines: [{ path: 'TASKS/old.md', instanceId: null }],
@@ -106,8 +153,14 @@ describe('DayStateStoreService', () => {
       slotOverrides: {
         'TASKS/old.md': '8:00-12:00',
       },
+      slotOverridesMeta: {
+        'TASKS/old.md': { slotKey: '8:00-12:00', updatedAt: 123 },
+      },
       orders: {
         'TASKS/old.md::none': 120,
+      },
+      ordersMeta: {
+        'TASKS/old.md::none': { order: 120, updatedAt: 456 },
       },
     })
 
@@ -122,7 +175,11 @@ describe('DayStateStoreService', () => {
     const state = manager.getStateFor('2025-10-09')
     expect(state.slotOverrides['TASKS/new.md']).toBe('8:00-12:00')
     expect(state.slotOverrides['TASKS/old.md']).toBeUndefined()
+    expect(state.slotOverridesMeta?.['TASKS/new.md']?.updatedAt).toBe(123)
+    expect(state.slotOverridesMeta?.['TASKS/old.md']).toBeUndefined()
     expect(state.orders['TASKS/new.md::none']).toBe(120)
+    expect(state.ordersMeta?.['TASKS/new.md::none']?.updatedAt).toBe(456)
+    expect(state.ordersMeta?.['TASKS/old.md::none']).toBeUndefined()
     expect(state.hiddenRoutines[0]?.path).toBe('TASKS/new.md')
     expect(state.deletedInstances[0]?.path).toBe('TASKS/new.md')
     expect(state.duplicatedInstances[0]?.originalPath).toBe('TASKS/new.md')

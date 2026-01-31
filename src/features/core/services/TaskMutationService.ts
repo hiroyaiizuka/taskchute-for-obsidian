@@ -6,8 +6,10 @@ import {
   TaskData,
   HiddenRoutine,
   DeletedInstance,
+  SlotOverrideEntry,
 } from '../../../types'
 import type DayStateStoreService from '../../../services/DayStateStoreService'
+import { isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
 
 type HiddenRoutineEntry = HiddenRoutine | string
 
@@ -26,6 +28,7 @@ interface MutationDayState {
   deletedInstances: DeletedInstance[]
   duplicatedInstances: DuplicatedEntry[]
   slotOverrides: Record<string, string>
+  slotOverridesMeta?: Record<string, SlotOverrideEntry>
   orders?: Record<string, number>
 }
 
@@ -169,6 +172,7 @@ export default class TaskMutationService {
           path: inst.task.path,
           deletionType: 'temporary',
           timestamp,
+          deletedAt: timestamp,
           taskId,
         })
         dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
@@ -182,6 +186,7 @@ export default class TaskMutationService {
             path: inst.task.path,
             deletionType: 'permanent',
             timestamp,
+            deletedAt: timestamp,
             taskId,
           })
         } else {
@@ -190,6 +195,7 @@ export default class TaskMutationService {
             path: inst.task.path,
             deletionType: 'temporary',
             timestamp,
+            deletedAt: timestamp,
             taskId,
           })
         }
@@ -199,6 +205,7 @@ export default class TaskMutationService {
           path: inst.task.path,
           deletionType: 'temporary',
           timestamp,
+          deletedAt: timestamp,
           taskId,
         })
       }
@@ -273,10 +280,28 @@ export default class TaskMutationService {
           if (taskId && taskPath && overrideKey !== taskPath) {
             delete dayState.slotOverrides[taskPath]
           }
+          if (!dayState.slotOverridesMeta) {
+            dayState.slotOverridesMeta = {}
+          }
+          const updatedAt = Date.now()
+          dayState.slotOverridesMeta[overrideKey] = { slotKey: defaultSlot, updatedAt }
+          if (taskId && taskPath && overrideKey !== taskPath) {
+            dayState.slotOverridesMeta[taskPath] = { slotKey: defaultSlot, updatedAt }
+          }
         } else {
           dayState.slotOverrides[overrideKey] = slotKeyValue
           if (taskId && taskPath && overrideKey !== taskPath) {
             delete dayState.slotOverrides[taskPath]
+          }
+          if (!dayState.slotOverridesMeta) {
+            dayState.slotOverridesMeta = {}
+          }
+          dayState.slotOverridesMeta[overrideKey] = {
+            slotKey: slotKeyValue,
+            updatedAt: Date.now(),
+          }
+          if (taskId && taskPath && overrideKey !== taskPath) {
+            delete dayState.slotOverridesMeta[taskPath]
           }
         }
       } else {
@@ -351,7 +376,8 @@ export default class TaskMutationService {
     const dayState = this.host.getCurrentDayState()
     const isDuplicated = this.isDuplicatedTask(inst)
 
-    const alreadyHidden = dayState.hiddenRoutines.some((entry) => {
+    const matchesEntry = (entry: HiddenRoutineEntry): boolean => {
+      if (!entry) return false
       if (typeof entry === 'string') {
         return !isDuplicated && entry === inst.task.path
       }
@@ -359,13 +385,43 @@ export default class TaskMutationService {
         return entry.instanceId === inst.instanceId
       }
       return entry.path === inst.task.path && !entry.instanceId
-    })
+    }
+    const isActiveHidden = (entry: HiddenRoutineEntry): boolean => {
+      if (!entry) return false
+      if (typeof entry === 'string') {
+        return true
+      }
+      return isHiddenEntry(entry)
+    }
+    const alreadyHidden = dayState.hiddenRoutines.some(
+      (entry) => matchesEntry(entry) && isActiveHidden(entry),
+    )
 
     if (!alreadyHidden) {
-      dayState.hiddenRoutines.push({
-        path: inst.task.path,
-        instanceId: isDuplicated ? inst.instanceId : null,
-      })
+      const now = Date.now()
+      const existingIndex = dayState.hiddenRoutines.findIndex((entry) => matchesEntry(entry))
+      if (existingIndex >= 0) {
+        const existing = dayState.hiddenRoutines[existingIndex]
+        if (typeof existing === 'string') {
+          dayState.hiddenRoutines[existingIndex] = {
+            path: existing,
+            instanceId: null,
+            hiddenAt: now,
+          }
+        } else if (existing) {
+          dayState.hiddenRoutines[existingIndex] = {
+            ...existing,
+            hiddenAt: now,
+            restoredAt: undefined,
+          }
+        }
+      } else {
+        dayState.hiddenRoutines.push({
+          path: inst.task.path,
+          instanceId: isDuplicated ? inst.instanceId : null,
+          hiddenAt: now,
+        })
+      }
       await this.host.persistDayState(dateKey)
     }
 

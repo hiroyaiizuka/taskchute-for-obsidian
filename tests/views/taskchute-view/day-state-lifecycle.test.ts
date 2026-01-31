@@ -546,6 +546,33 @@ describe('TaskChuteView duplication and deletion', () => {
     persistSpy.mockRestore();
   });
 
+  test('removeDuplicateInstanceFromCurrentDate records temporary deletion entry', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const task = createTaskData({ path: 'TASKS/dup.md' });
+    const instance = createTaskInstance(task, { instanceId: 'dup-1' });
+
+    const dayState = view.getCurrentDayState();
+    dayState.duplicatedInstances.push({
+      instanceId: 'dup-1',
+      originalPath: 'TASKS/dup.md',
+      slotKey: 'none',
+      timestamp: 1000,
+      createdMillis: 1000,
+    });
+
+    await (view as unknown as {
+      removeDuplicateInstanceFromCurrentDate: (inst: TaskInstance) => Promise<void>
+    }).removeDuplicateInstanceFromCurrentDate(instance);
+
+    expect(dayState.duplicatedInstances.some((entry) => entry.instanceId === 'dup-1')).toBe(false);
+    const deletion = dayState.deletedInstances.find((entry) => entry.instanceId === 'dup-1');
+    expect(deletion).toBeDefined();
+    expect(deletion?.deletionType).toBe('temporary');
+    expect(deletion?.deletedAt).toEqual(expect.any(Number));
+  });
+
   test('deleteInstance marks non-routine task as permanent deletion when last instance', async () => {
     const { view } = createView();
     await view.ensureDayStateForCurrentDate();
@@ -797,6 +824,35 @@ describe('TaskChuteView duplication and deletion', () => {
       instanceId: 'routine-inst-2',
       path: 'ROUTINE/base.md',
       taskId: 'routine-123',
+      dateKey: targetDate,
+    });
+    expect(isDeleted).toBe(true);
+  });
+
+  test('hideRoutineInstanceForDate allows re-hide after restored deletion', async () => {
+    const { view } = createView();
+    const targetDate = '2025-01-03';
+    await view.ensureDayStateForDate(targetDate);
+
+    const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md', taskId: 'routine-456' });
+    const instance = createTaskInstance(task, { instanceId: 'routine-inst-1' });
+
+    const dayState = view.dayStateManager.getStateFor(targetDate);
+    dayState.deletedInstances.push({
+      deletionType: 'permanent',
+      path: 'ROUTINE/base.md',
+      taskId: 'routine-456',
+      deletedAt: 1000,
+      restoredAt: 2000,
+    });
+
+    await (view as unknown as { hideRoutineInstanceForDate: (inst: TaskInstance, dateKey: string) => Promise<void> })
+      .hideRoutineInstanceForDate(instance, targetDate);
+
+    const isDeleted = view.dayStateManager.isDeleted({
+      instanceId: 'routine-inst-2',
+      path: 'ROUTINE/base.md',
+      taskId: 'routine-456',
       dateKey: targetDate,
     });
     expect(isDeleted).toBe(true);
@@ -1296,6 +1352,70 @@ describe('TaskChuteView running task restore', () => {
     expect(startGlobalTimer).not.toHaveBeenCalled();
   });
 
+  test('treats legacy permanent deletions as deleted when restoring running tasks', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const task = createTaskData({ path: 'TASKS/legacy-deleted.md', name: 'LegacyDeleted' });
+    const instance = createTaskInstance(task, {
+      instanceId: 'legacy-del-1',
+      state: 'idle',
+      slotKey: '8:00-12:00',
+    });
+    view.taskInstances = [instance];
+    view.tasks = [task];
+
+    const dayState = view.getCurrentDayState();
+    dayState.deletedInstances.push({
+      path: 'TASKS/legacy-deleted.md',
+      deletionType: 'permanent',
+    });
+
+    const restoreForDateMock = jest
+      .spyOn(view.runningTasksService, 'restoreForDate')
+      .mockResolvedValue([]);
+
+    await view.restoreRunningTaskState();
+
+    const restoreOptions = restoreForDateMock.mock.calls[0]?.[0];
+    expect(restoreOptions?.deletedPaths).toContain('TASKS/legacy-deleted.md');
+  });
+
+  test('restores running tasks when deletion was already restored', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const task = createTaskData({ path: 'TASKS/restored.md', name: 'Restored' });
+    const instance = createTaskInstance(task, {
+      instanceId: 'restored-1',
+      state: 'idle',
+      slotKey: '8:00-12:00',
+    });
+    view.taskInstances = [instance];
+    view.tasks = [task];
+
+    const dayState = view.getCurrentDayState();
+    dayState.deletedInstances.push({
+      path: 'TASKS/restored.md',
+      deletionType: 'permanent',
+      deletedAt: 1000,
+      restoredAt: 2000,
+    });
+
+    const restoreForDateMock = jest
+      .spyOn(view.runningTasksService, 'restoreForDate')
+      .mockResolvedValue([instance]);
+
+    const startGlobalTimer = jest.fn();
+    (view as unknown as { startGlobalTimer: () => void }).startGlobalTimer = startGlobalTimer;
+    view.renderTaskList = jest.fn();
+
+    await view.restoreRunningTaskState();
+
+    const restoreOptions = restoreForDateMock.mock.calls[0]?.[0];
+    expect(restoreOptions?.deletedPaths).not.toContain('TASKS/restored.md');
+  });
+
   test('recreates running instance when none exists', async () => {
     const { view } = createView();
     await view.ensureDayStateForCurrentDate();
@@ -1344,6 +1464,45 @@ describe('TaskChuteView running task restore', () => {
     expect(view.currentInstance).toBe(recreated);
     expect(startGlobalTimer).toHaveBeenCalled();
     expect(renderTaskList).toHaveBeenCalled();
+  });
+});
+
+describe('TaskChuteView deleted task restore candidate', () => {
+  test('excludes restored deletion entries from restore candidates', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const dayState = view.getCurrentDayState();
+    dayState.deletedInstances.push({
+      path: 'TASKS/restore.md',
+      deletionType: 'permanent',
+      deletedAt: 1000,
+      restoredAt: 2000,
+    });
+
+    const candidate = (view as unknown as {
+      findDeletedTaskRestoreCandidate: (taskName: string) => { entry: unknown } | null
+    }).findDeletedTaskRestoreCandidate('restore');
+
+    expect(candidate).toBeNull();
+  });
+
+  test('includes legacy deletion entries without timestamps as restore candidates', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const dayState = view.getCurrentDayState();
+    dayState.deletedInstances.push({
+      path: 'TASKS/legacy.md',
+      deletionType: 'permanent',
+    });
+
+    const candidate = (view as unknown as {
+      findDeletedTaskRestoreCandidate: (taskName: string) => { entry: { path?: string } } | null
+    }).findDeletedTaskRestoreCandidate('legacy');
+
+    expect(candidate).not.toBeNull();
+    expect(candidate?.entry.path).toBe('TASKS/legacy.md');
   });
 });
 
@@ -1748,6 +1907,74 @@ describe('TaskChuteView state file modify listener', () => {
     expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'all' });
   });
 
+  test('processes multiple state file modifications within debounce window', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+
+    const mergeSpy = jest.fn(async (monthKey: string) => {
+      if (monthKey === '2025-01') {
+        return { merged: {}, affectedDateKeys: ['2025-01-01'] };
+      }
+      if (monthKey === '2024-12') {
+        return { merged: {}, affectedDateKeys: ['2024-12-31'] };
+      }
+      return { merged: {}, affectedDateKeys: [] };
+    });
+
+    (plugin.dayStateService as unknown as {
+      consumeLocalStateWrite?: (path: string) => boolean;
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).consumeLocalStateWrite = jest.fn(() => false);
+    (plugin.dayStateService as unknown as {
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).getMonthKeyFromPath = jest.fn((path: string) => {
+      if (path.includes('2025-01')) return '2025-01';
+      if (path.includes('2024-12')) return '2024-12';
+      return null;
+    });
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+
+    expect(modifyHandler).not.toBeNull();
+    const fileA = new TFile();
+    fileA.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(fileA, TFile.prototype);
+    modifyHandler?.(fileA);
+
+    const fileB = new TFile();
+    fileB.path = 'LOGS/2024-12-state.json';
+    Object.setPrototypeOf(fileB, TFile.prototype);
+    modifyHandler?.(fileB);
+
+    jest.advanceTimersByTime(500);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const mergedMonths = mergeSpy.mock.calls.map((call) => call[0]);
+    expect(mergeSpy).toHaveBeenCalledTimes(2);
+    expect(mergedMonths).toEqual(expect.arrayContaining(['2025-01', '2024-12']));
+    expect(clearSpy).toHaveBeenCalledWith('2025-01-01');
+    expect(clearSpy).toHaveBeenCalledWith('2024-12-31');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'none' });
+  });
+
   test('ignores local state file modifications', () => {
     const { view, plugin } = createView();
     const reloadSpy = jest
@@ -2036,12 +2263,19 @@ describe('TaskChuteView cross-day start handling', () => {
     });
 
     const deleted = view.dayStateManager.getDeleted('2025-01-02');
+    const restoredEntry = deleted.find(
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        (entry.path === 'TASKS/weekly.md' || entry.taskId === 'tc-weekly'),
+    );
+    expect(restoredEntry).toBeDefined();
+    expect(restoredEntry?.restoredAt).toEqual(expect.any(Number));
     expect(
-      deleted.some(
-        (entry) =>
-          entry.deletionType === 'permanent' &&
-          (entry.path === 'TASKS/weekly.md' || entry.taskId === 'tc-weekly'),
-      ),
+      view.dayStateManager.isDeleted({
+        dateKey: '2025-01-02',
+        taskId: 'tc-weekly',
+        path: 'TASKS/weekly.md',
+      }),
     ).toBe(false);
   });
 });
@@ -2172,12 +2406,12 @@ describe('TaskChuteView keyboard shortcuts', () => {
 })
 
 describe('TaskChuteView restoreDeletedTask', () => {
-  test('removes matching entry and reloads view', async () => {
+  test('sets restoredAt on matching entry and reloads view', async () => {
     const { view } = createView()
     const task = createTaskData({ taskId: 'tc-task-restore', displayTitle: 'Restore me' })
     view.tasks = [task]
 
-    const deletedEntry = { taskId: 'tc-task-restore', deletionType: 'permanent' }
+    const deletedEntry = { taskId: 'tc-task-restore', deletionType: 'permanent' as const }
     const setDeleted = jest.fn()
     const persist = jest.fn().mockResolvedValue(undefined)
     const ensure = jest.fn().mockResolvedValue(createDayState())
@@ -2197,9 +2431,52 @@ describe('TaskChuteView restoreDeletedTask', () => {
     const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
 
     expect(restored).toBe(true)
-    expect(setDeleted).toHaveBeenCalledWith([], '2025-01-01')
+    // Entry is NOT removed; instead restoredAt is set for sync propagation
+    expect(setDeleted).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        taskId: 'tc-task-restore',
+        deletionType: 'permanent',
+        restoredAt: expect.any(Number),
+      })],
+      '2025-01-01',
+    )
     expect(persist).toHaveBeenCalledWith('2025-01-01')
     expect(view.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: false })
+  })
+
+  test('ensures restoredAt is after deletedAt even with clock skew', async () => {
+    const { view } = createView()
+    const deletedEntry = {
+      taskId: 'tc-task-restore',
+      deletionType: 'permanent' as const,
+      deletedAt: 5000,
+    }
+    const setDeleted = jest.fn()
+    const persist = jest.fn().mockResolvedValue(undefined)
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [deletedEntry])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      persist,
+      getCurrent: jest.fn(() => createDayState()),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
+      expect(restored).toBe(true)
+      const [[updated]] = setDeleted.mock.calls
+      const restoredAt = updated[0]?.restoredAt ?? 0
+      expect(restoredAt).toBeGreaterThan(5000)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   test('returns false when entry is missing', async () => {

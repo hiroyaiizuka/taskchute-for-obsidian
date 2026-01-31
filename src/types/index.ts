@@ -163,13 +163,22 @@ export interface DeletedInstance {
   instanceId?: string
   path?: string
   deletionType?: "temporary" | "permanent"
+  /** @deprecated Use deletedAt instead. Kept for backwards compatibility. */
   timestamp?: number
+  /** Timestamp when the deletion occurred */
+  deletedAt?: number
+  /** Timestamp when the deletion was restored (undone). If restoredAt > deletedAt, task is visible. */
+  restoredAt?: number
   taskId?: string
 }
 
 export interface HiddenRoutine {
   path: string
   instanceId?: string | null
+  /** Timestamp when the routine was hidden */
+  hiddenAt?: number
+  /** Timestamp when the routine was restored (unhidden). If restoredAt > hiddenAt, routine is visible. */
+  restoredAt?: number
 }
 
 export interface DuplicatedInstance {
@@ -178,6 +187,13 @@ export interface DuplicatedInstance {
   timestamp?: number
   createdMillis?: number
   originalTaskId?: string
+  /** Timestamp when the duplicate was removed. If restoredAt > createdMillis, duplicate is removed. */
+  restoredAt?: number
+}
+
+export interface SlotOverrideEntry {
+  slotKey: string
+  updatedAt: number
 }
 
 export interface DayState {
@@ -190,7 +206,11 @@ export interface DayState {
     }
   >
   slotOverrides: Record<string, string>
+  /** Metadata for slot overrides with per-key update timestamps for conflict resolution */
+  slotOverridesMeta?: Record<string, SlotOverrideEntry>
   orders: Record<string, number>
+  /** Metadata for orders with per-key update timestamps for conflict resolution */
+  ordersMeta?: Record<string, { order: number; updatedAt: number }>
 }
 
 export interface MonthlyDayStateFile {

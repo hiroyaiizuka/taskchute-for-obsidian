@@ -432,4 +432,258 @@ describe('BackupRestoreService', () => {
       expect(preview.executions[0].taskName).toBe('タスク名のみ')
     })
   })
+
+  describe('getLatestDateInBackup', () => {
+    test('returns the most recent date with execution data', async () => {
+      const { plugin, fileContents } = createRestoreContext()
+
+      const backupData = {
+        taskExecutions: {
+          '2025-12-05': [{ taskTitle: '古いタスク', startTime: '09:00', stopTime: '10:00' }],
+          '2025-12-08': [{ taskTitle: '最新タスク', startTime: '09:00', stopTime: '10:00' }],
+          '2025-12-06': [{ taskTitle: '中間タスク', startTime: '09:00', stopTime: '10:00' }],
+        },
+        dailySummary: {},
+        meta: { revision: 1 },
+      }
+      fileContents['LOGS/backups/2025-12/backup.json'] = JSON.stringify(backupData)
+
+      const service = new BackupRestoreService(plugin)
+      const latestDate = await service.getLatestDateInBackup('LOGS/backups/2025-12/backup.json')
+
+      expect(latestDate).toBe('2025-12-08')
+    })
+
+    test('skips dates with empty execution arrays', async () => {
+      const { plugin, fileContents } = createRestoreContext()
+
+      const backupData = {
+        taskExecutions: {
+          '2025-12-08': [], // Empty - should be skipped
+          '2025-12-07': [{ taskTitle: 'タスク', startTime: '09:00', stopTime: '10:00' }],
+          '2025-12-06': [{ taskTitle: '古いタスク', startTime: '09:00', stopTime: '10:00' }],
+        },
+        dailySummary: {},
+        meta: { revision: 1 },
+      }
+      fileContents['LOGS/backups/2025-12/backup.json'] = JSON.stringify(backupData)
+
+      const service = new BackupRestoreService(plugin)
+      const latestDate = await service.getLatestDateInBackup('LOGS/backups/2025-12/backup.json')
+
+      expect(latestDate).toBe('2025-12-07')
+    })
+
+    test('returns undefined when no execution data exists', async () => {
+      const { plugin, fileContents } = createRestoreContext()
+
+      const backupData = {
+        taskExecutions: {},
+        dailySummary: {},
+        meta: { revision: 1 },
+      }
+      fileContents['LOGS/backups/2025-12/backup.json'] = JSON.stringify(backupData)
+
+      const service = new BackupRestoreService(plugin)
+      const latestDate = await service.getLatestDateInBackup('LOGS/backups/2025-12/backup.json')
+
+      expect(latestDate).toBeUndefined()
+    })
+
+    test('returns undefined when all dates have empty arrays', async () => {
+      const { plugin, fileContents } = createRestoreContext()
+
+      const backupData = {
+        taskExecutions: {
+          '2025-12-08': [],
+          '2025-12-07': [],
+        },
+        dailySummary: {},
+        meta: { revision: 1 },
+      }
+      fileContents['LOGS/backups/2025-12/backup.json'] = JSON.stringify(backupData)
+
+      const service = new BackupRestoreService(plugin)
+      const latestDate = await service.getLatestDateInBackup('LOGS/backups/2025-12/backup.json')
+
+      expect(latestDate).toBeUndefined()
+    })
+
+    test('returns undefined when backup file cannot be read', async () => {
+      const { plugin } = createRestoreContext()
+
+      const service = new BackupRestoreService(plugin)
+      const latestDate = await service.getLatestDateInBackup('LOGS/backups/2025-12/nonexistent.json')
+
+      expect(latestDate).toBeUndefined()
+    })
+  })
+
+  describe('restoreFromBackup with records rebuild', () => {
+    test('rebuilds records for all dates after restore', async () => {
+      const { plugin, backupRoot, fileContents, vault } = createRestoreContext()
+
+      // Setup backup file
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      // Backup contains execution data for multiple dates
+      const backupData = JSON.stringify({
+        taskExecutions: {
+          '2025-12-07': [
+            { taskTitle: 'Task 1', instanceId: 'inst-1', startTime: '09:00', stopTime: '10:00', durationSec: 3600 },
+          ],
+          '2025-12-08': [
+            { taskTitle: 'Task 2', instanceId: 'inst-2', startTime: '11:00', stopTime: '12:00', durationSec: 3600 },
+            { taskTitle: 'Task 3', instanceId: 'inst-3', startTime: '14:00', stopTime: '15:00', durationSec: 3600 },
+          ],
+        },
+        dailySummary: {
+          '2025-12-07': { totalTasks: 1, completedTasks: 1 },
+          '2025-12-08': { totalTasks: 2, completedTasks: 2 },
+        },
+        meta: { revision: 1 },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json'] = backupData
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json')
+
+      // Verify records were rebuilt (vault.modify or vault.create should be called for record files)
+      const modifyCalls = (vault.modify as jest.Mock).mock.calls
+      const createCalls = (vault.create as jest.Mock).mock.calls
+      const allWrittenPaths = [
+        ...modifyCalls.map((call: [TFile, string]) => call[0].path),
+        ...createCalls.map((call: [string, string]) => call[0]),
+      ]
+
+      // Should have written snapshot and record files
+      expect(allWrittenPaths.some((p: string) => p.includes('2025-12-tasks.json'))).toBe(true)
+    })
+
+    test('passes correct canonicalRevision and snapshotMeta to writeDay', async () => {
+      const { plugin, backupRoot, fileContents, vault } = createRestoreContext()
+
+      // Setup backup file
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-10T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      // Backup with specific meta information
+      const backupData = JSON.stringify({
+        taskExecutions: {
+          '2025-12-10': [
+            { taskTitle: 'Task A', instanceId: 'inst-a', startTime: '09:00', stopTime: '10:00', durationSec: 3600 },
+          ],
+        },
+        dailySummary: {
+          '2025-12-10': { totalTasks: 1, completedTasks: 1 },
+        },
+        meta: {
+          revision: 42,
+          processedCursor: { 'device-1': 100 },
+          lastBackupAt: '2025-12-10T09:00:00Z',
+        },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-10T10-00-00-000Z.json'] = backupData
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-10T10-00-00-000Z.json')
+
+      // Check that record file was created with correct frontmatter
+      const createCalls = (vault.create as jest.Mock).mock.calls
+      const recordCreates = createCalls.filter((call: [string, string]) =>
+        call[0].includes('record-2025-12-10.md')
+      )
+
+      // Record file should be created
+      expect(recordCreates.length).toBe(1)
+
+      // Verify the content includes canonicalRevision (from the frontmatter)
+      const recordContent = recordCreates[0][1] as string
+      expect(recordContent).toContain('canonicalRevision: 42')
+    })
+
+    test('rebuilds records for summary-only dates (no taskExecutions)', async () => {
+      const { plugin, backupRoot, fileContents, vault } = createRestoreContext()
+
+      // Setup backup file
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-15T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      // Backup with:
+      // - 2025-12-14: has taskExecutions
+      // - 2025-12-15: summary-only (no taskExecutions, totalTasks recorded via heatmap)
+      const backupData = JSON.stringify({
+        taskExecutions: {
+          '2025-12-14': [
+            { taskTitle: 'Task A', instanceId: 'inst-a', startTime: '09:00', stopTime: '10:00', durationSec: 3600 },
+          ],
+          // Note: 2025-12-15 is NOT in taskExecutions
+        },
+        dailySummary: {
+          '2025-12-14': { totalTasks: 1, completedTasks: 1 },
+          '2025-12-15': { totalTasks: 5, completedTasks: 0 },  // Summary-only date
+        },
+        meta: { revision: 10 },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-15T10-00-00-000Z.json'] = backupData
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-15T10-00-00-000Z.json')
+
+      // Check that record files were created
+      const createCalls = (vault.create as jest.Mock).mock.calls
+      const recordPaths = createCalls
+        .filter((call: [string, string]) => call[0].includes('record-'))
+        .map((call: [string, string]) => call[0])
+
+      // Both dates should have records - including summary-only date
+      expect(recordPaths.some((p: string) => p.includes('record-2025-12-14.md'))).toBe(true)
+      expect(recordPaths.some((p: string) => p.includes('record-2025-12-15.md'))).toBe(true)
+
+      // Verify the summary-only record contains the summary data
+      const summaryOnlyRecord = createCalls.find((call: [string, string]) =>
+        call[0].includes('record-2025-12-15.md')
+      )
+      expect(summaryOnlyRecord).toBeDefined()
+      const content = summaryOnlyRecord[1] as string
+      expect(content).toContain('totalTasks: 5')
+    })
+
+    test('overwrites empty-day records to clear stale data', async () => {
+      const { plugin, backupRoot, fileContents, vault } = createRestoreContext()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-16T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      const recordPath = 'LOGS/records/2025/record-2025-12-16.md'
+      fileContents[recordPath] = 'stale record content'
+
+      const backupData = JSON.stringify({
+        taskExecutions: {
+          '2025-12-16': [],
+        },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-16T10-00-00-000Z.json'] = backupData
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-16T10-00-00-000Z.json')
+
+      const updated = fileContents[recordPath] ?? ''
+      expect(updated).toContain('(no entries)')
+      expect(updated).not.toContain('stale record content')
+      const modifyCalls = (vault.modify as jest.Mock).mock.calls
+      expect(modifyCalls.some((call: [TFile, string]) => call[0].path === recordPath)).toBe(true)
+    })
+  })
 })

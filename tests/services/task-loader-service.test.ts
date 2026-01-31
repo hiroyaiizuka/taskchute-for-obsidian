@@ -28,6 +28,61 @@ describe('TaskLoaderService', () => {
     expect(context.taskInstances).toHaveLength(0);
   });
 
+  test('skips legacy path deletion without timestamp', async () => {
+    const { context } = createNonRoutineLoadContext({
+      metadataOverrides: { taskId: null },
+      deletedInstances: [
+        {
+          path: 'TASKS/non-routine.md',
+          deletionType: 'permanent',
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks).toHaveLength(0);
+    expect(context.taskInstances).toHaveLength(0);
+  });
+
+  test('skips legacy deletion after taskId promotion', async () => {
+    const { context } = createNonRoutineLoadContext({
+      deletedInstances: [
+        {
+          path: 'TASKS/non-routine.md',
+          deletionType: 'permanent',
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks).toHaveLength(0);
+    expect(context.taskInstances).toHaveLength(0);
+  });
+
+  test('shows restored non-routine task when deletion entry has newer restoredAt', async () => {
+    const { context } = createNonRoutineLoadContext({
+      deletedInstances: [
+        {
+          path: 'TASKS/non-routine.md',
+          deletionType: 'permanent',
+          taskId: 'tc-task-non-routine',
+          deletedAt: 1_000,
+          restoredAt: 2_000,
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks).toHaveLength(1);
+    expect(context.taskInstances).toHaveLength(1);
+  });
+
   test('restores duplicated instance from day state snapshot', async () => {
     const duplicatedInstances = [
       {
@@ -102,6 +157,24 @@ describe('TaskLoaderService', () => {
 
     expect(context.taskInstances.length).toBe(0);
     expect(context.tasks.length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('shows routine when hidden entry has newer restoredAt', async () => {
+    const hiddenRoutines = [
+      {
+        instanceId: null,
+        path: 'TASKS/routine.md',
+        hiddenAt: 1000,
+        restoredAt: 2000,
+      },
+    ];
+    const { context } = createRoutineLoadContext({ hiddenRoutines });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.taskInstances.length).toBe(1);
+    expect(context.taskInstances[0]?.task.path).toBe('TASKS/routine.md');
   });
 
   test('restores duplicated routine even when base routine is hidden by path', async () => {

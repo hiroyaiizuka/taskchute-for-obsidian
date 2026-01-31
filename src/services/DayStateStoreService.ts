@@ -1,5 +1,6 @@
 import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI } from '../types';
 import { renamePathsInDayState } from './dayState/pathRename';
+import { getEffectiveDeletedAt, isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from './dayState/conflictResolver';
 
 export interface DayStateStoreServiceOptions {
   dayStateService: DayStateServiceAPI;
@@ -120,6 +121,12 @@ export class DayStateStoreService {
     const hiddenEntries = this.getHidden(target.dateKey);
     return hiddenEntries.some((hidden) => {
       if (!hidden) return false;
+      if (typeof hidden === 'string') {
+        return hidden === path;
+      }
+      if (!isHiddenEntry(hidden)) {
+        return false;
+      }
       if (hidden.instanceId && hidden.instanceId === instanceId) return true;
       if (hidden.instanceId === null && hidden.path && hidden.path === path) return true;
       return false;
@@ -145,18 +152,29 @@ export class DayStateStoreService {
       });
 
     const deduped: DeletedInstance[] = [];
-    const seenPermanentTaskIds = new Set<string>();
+    const permanentIndexByTaskId = new Map<string, number>();
+    const getLatestOperation = (entry: DeletedInstance): number =>
+      Math.max(getEffectiveDeletedAt(entry), entry.restoredAt ?? 0);
     for (const entry of normalized) {
       if (!entry) continue;
-      if (
-        entry.taskId &&
-        entry.deletionType === 'permanent' &&
-        seenPermanentTaskIds.has(entry.taskId)
-      ) {
-        continue;
-      }
       if (entry.taskId && entry.deletionType === 'permanent') {
-        seenPermanentTaskIds.add(entry.taskId);
+        const existingIndex = permanentIndexByTaskId.get(entry.taskId);
+        if (existingIndex === undefined) {
+          permanentIndexByTaskId.set(entry.taskId, deduped.length);
+          deduped.push(entry);
+          continue;
+        }
+        const existing = deduped[existingIndex];
+        if (!existing) {
+          deduped[existingIndex] = entry;
+          continue;
+        }
+        const existingLatest = getLatestOperation(existing);
+        const entryLatest = getLatestOperation(entry);
+        if (entryLatest > existingLatest) {
+          deduped[existingIndex] = entry;
+        }
+        continue;
       }
       deduped.push(entry);
     }
@@ -169,12 +187,27 @@ export class DayStateStoreService {
     const { taskId, instanceId, path } = target;
     const deleted = this.getDeleted(target.dateKey);
     return deleted.some((entry) => {
-      if (entry.instanceId && entry.instanceId === instanceId) return true;
-      if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
+      // First check if the entry matches
+      const matches =
+        (entry.instanceId && entry.instanceId === instanceId) ||
+        (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) ||
+        (entry.deletionType === 'permanent' && entry.path === path);
+
+      if (!matches) return false;
+
+      // Check if the entry is actually deleted (not restored)
+      // Uses isDeletedEntry from conflictResolver which checks deletedAt vs restoredAt
+      if (isDeletedEntry(entry)) {
         return true;
       }
-      if (entry.deletionType === 'permanent' && entry.path === path) return true;
-      return false;
+
+      const restoredAt = entry.restoredAt ?? 0;
+      if (restoredAt > 0) {
+        return false;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+      const ts = entry.deletedAt ?? entry.timestamp;
+      return !(typeof ts === 'number' && Number.isFinite(ts));
     });
   }
 
@@ -211,7 +244,9 @@ export class DayStateStoreService {
       deletedInstances: state.deletedInstances ?? [],
       duplicatedInstances: state.duplicatedInstances ?? [],
       slotOverrides: state.slotOverrides ?? {},
+      slotOverridesMeta: state.slotOverridesMeta,
       orders: state.orders ?? {},
+      ordersMeta: state.ordersMeta,
     };
   }
 

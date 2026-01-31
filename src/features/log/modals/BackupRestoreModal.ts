@@ -4,6 +4,7 @@ import type { BackupEntry, BackupPreview } from '../services/BackupRestoreServic
 export interface BackupRestoreModalCallbacks {
   onRestore: (monthKey: string, backupPath: string) => Promise<void>
   getPreview: (backupPath: string, targetDate?: string) => Promise<BackupPreview>
+  getLatestDateInBackup?: (backupPath: string) => Promise<string | undefined>
 }
 
 export class BackupRestoreModal extends Modal {
@@ -134,7 +135,9 @@ export class BackupRestoreModal extends Modal {
     if (!this.selectedEntry) return
 
     try {
-      const preview = await this.callbacks.getPreview(this.selectedEntry.path)
+      // Get the latest date with data in the backup for better initial preview
+      const latestDate = await this.callbacks.getLatestDateInBackup?.(this.selectedEntry.path)
+      const preview = await this.callbacks.getPreview(this.selectedEntry.path, latestDate)
       const confirmed = await this.showConfirmModal(this.selectedEntry, preview)
 
       if (confirmed) {

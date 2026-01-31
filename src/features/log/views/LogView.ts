@@ -973,6 +973,9 @@ export class LogView {
         getPreview: async (backupPath: string, targetDate?: string) => {
           return restoreService.getBackupPreview(backupPath, targetDate)
         },
+        getLatestDateInBackup: async (backupPath: string) => {
+          return restoreService.getLatestDateInBackup(backupPath)
+        },
       }
     )
     modal.open()

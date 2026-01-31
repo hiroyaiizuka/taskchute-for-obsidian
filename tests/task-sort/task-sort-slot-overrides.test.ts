@@ -91,10 +91,41 @@ describe('Task sort slot overrides', () => {
       expect(plugin.saveSettings).not.toHaveBeenCalled();
     });
 
+    test('updates slotOverridesMeta when routine override changes', () => {
+      const dayState = createDayState();
+      const now = 1730000000000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+      const inst: TaskInstance = {
+        task: {
+          path: 'Tasks/routine.md',
+          isRoutine: true,
+          scheduledTime: '08:00',
+          taskId: 'tc-task-routine',
+        } as TaskData,
+        slotKey: '12:00-16:00',
+        instanceId: 'routine-1',
+        state: 'idle',
+      };
+      const { host } = createMutationHost(dayState);
+      const service = new TaskMutationService(host);
+
+      service.persistSlotAssignment(inst);
+
+      expect(dayState.slotOverridesMeta?.[inst.task.taskId!]).toEqual({
+        slotKey: '12:00-16:00',
+        updatedAt: now,
+      });
+
+      nowSpy.mockRestore();
+    });
+
     test('removes routine override when slot matches scheduled default', () => {
       const dayState = createDayState({
         slotOverrides: { 'Tasks/routine.md': '16:00-0:00' },
       });
+      const now = 1730000001000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
       const inst: TaskInstance = {
         task: {
           path: 'Tasks/routine.md',
@@ -112,6 +143,11 @@ describe('Task sort slot overrides', () => {
       service.persistSlotAssignment(inst);
 
       expect(dayState.slotOverrides[inst.task.taskId!]).toBeUndefined();
+      expect(dayState.slotOverridesMeta?.[inst.task.taskId!]).toEqual({
+        slotKey: '8:00-12:00',
+        updatedAt: now,
+      });
+      nowSpy.mockRestore();
     });
 
     test('stores non-routine overrides in plugin settings', () => {

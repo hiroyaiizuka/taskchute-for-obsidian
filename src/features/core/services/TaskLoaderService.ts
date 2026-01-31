@@ -14,6 +14,7 @@ import {
 import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields'
 import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -84,6 +85,16 @@ const DEFAULT_SLOT_KEY = 'none'
 
 function resolveTaskId(metadata?: TaskFrontmatterWithLegacy): string | undefined {
   return extractTaskIdFromFrontmatter(metadata as Record<string, unknown> | undefined)
+}
+
+function isLegacyDeletionEntry(entry: DeletedInstance): boolean {
+  const restoredAt = entry.restoredAt ?? 0
+  if (restoredAt > 0) {
+    return false
+  }
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+  const ts = entry.deletedAt ?? entry.timestamp
+  return !(typeof ts === 'number' && Number.isFinite(ts))
 }
 
 function promoteDeletedEntriesToTaskId(
@@ -588,7 +599,10 @@ async function shouldShowNonRoutineTask(
     }
 
     const hasTaskIdDeletion = deletedEntries.some(
-      (entry) => entry.deletionType === 'permanent' && entry.taskId === taskId,
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        entry.taskId === taskId &&
+        (isDeletedEntry(entry) || isLegacyDeletionEntry(entry)),
     )
 
     if (hasTaskIdDeletion) {
@@ -596,18 +610,23 @@ async function shouldShowNonRoutineTask(
     }
   }
 
-  const legacyPathDeletions = deletedEntries.filter(
-    (entry) => entry.deletionType === 'permanent' && !entry.taskId && entry.path === file.path,
-  )
+  const legacyPathDeletions = deletedEntries.filter((entry) => {
+    if (entry.deletionType !== 'permanent') return false
+    if (entry.taskId) return false
+    if (entry.path !== file.path) return false
+    return isDeletedEntry(entry) || isLegacyDeletionEntry(entry)
+  })
 
   let missingDeletionTimestamp = false
   let latestDeletionTimestamp: number | undefined
   for (const entry of legacyPathDeletions) {
-    if (typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+    const ts = entry.deletedAt ?? entry.timestamp
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
       latestDeletionTimestamp =
         latestDeletionTimestamp === undefined
-          ? entry.timestamp
-          : Math.max(latestDeletionTimestamp, entry.timestamp)
+          ? ts
+          : Math.max(latestDeletionTimestamp, ts)
     } else {
       missingDeletionTimestamp = true
     }
@@ -654,6 +673,9 @@ async function shouldShowNonRoutineTask(
         return true
       }
       if (entry.taskId) {
+        return true
+      }
+      if (!isDeletedEntry(entry)) {
         return true
       }
       return entry.path !== file.path
@@ -791,6 +813,7 @@ function isVisibleInstance(
   options: { ignorePathHidden?: boolean } = {},
 ): boolean {
   const manager = context.dayStateManager
+  const hasManager = Boolean(manager)
   if (manager?.isDeleted({ instanceId, path, dateKey, taskId })) {
     return false
   }
@@ -798,11 +821,28 @@ function isVisibleInstance(
   if (manager) {
     const hiddenEntries = typeof manager.getHidden === 'function' ? manager.getHidden(dateKey) : null
     if (Array.isArray(hiddenEntries)) {
-      const hasInstanceHidden = hiddenEntries.some((entry) => entry?.instanceId === instanceId)
+      const hasInstanceHidden = hiddenEntries.some((entry) => {
+        if (!entry || typeof entry === 'string') {
+          return false
+        }
+        if (!isHiddenEntry(entry)) {
+          return false
+        }
+        return entry.instanceId === instanceId
+      })
       if (hasInstanceHidden) {
         return false
       }
-      const hasPathHidden = hiddenEntries.some((entry) => entry?.instanceId === null && entry.path === path)
+      const hasPathHidden = hiddenEntries.some((entry) => {
+        if (!entry) return false
+        if (typeof entry === 'string') {
+          return entry === path
+        }
+        if (!isHiddenEntry(entry)) {
+          return false
+        }
+        return entry.instanceId === null && entry.path === path
+      })
       if (hasPathHidden && !options.ignorePathHidden) {
         return false
       }
@@ -814,7 +854,7 @@ function isVisibleInstance(
   if (context.isInstanceDeleted?.(instanceId, path, dateKey, taskId)) {
     return false
   }
-  if (!options.ignorePathHidden && context.isInstanceHidden?.(instanceId, path, dateKey)) {
+  if (!hasManager && !options.ignorePathHidden && context.isInstanceHidden?.(instanceId, path, dateKey)) {
     return false
   }
   return true
