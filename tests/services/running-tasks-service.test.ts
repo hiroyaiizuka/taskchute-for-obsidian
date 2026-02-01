@@ -142,6 +142,22 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances).toHaveLength(0)
   })
 
+  it('skips records when legacy permanent deletion lacks timestamp', async () => {
+    const record = createRecord()
+    const deleted: DeletedInstance = {
+      path: record.taskPath,
+      deletionType: 'permanent',
+    }
+
+    const { result, instances } = await runRestore({
+      records: [record],
+      deletedInstances: [deleted],
+    })
+
+    expect(result).toHaveLength(0)
+    expect(instances).toHaveLength(0)
+  })
+
   it('restores routine records when deletion entry targets another duplicated instance', async () => {
     const record = createRecord({ instanceId: 'original-instance' })
     const deleted: DeletedInstance = {

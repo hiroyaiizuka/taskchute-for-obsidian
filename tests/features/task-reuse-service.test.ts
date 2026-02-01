@@ -91,10 +91,7 @@ describe('TaskReuseService', () => {
     expect(NoticeMock).toHaveBeenCalled()
   })
 
-  // NOTE: このテストは以前のバグ動作をテストしていた
-  // 修正後は、パスレベルのhiddenRoutinesは再利用時にクリアされる
-  // 詳細は 'clears path-level hidden entry for the same path' テストを参照
-  test('reuseTaskAtDate clears path-level hidden and records duplicate', async () => {
+  test('reuseTaskAtDate marks path-level hidden as restored and records duplicate', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
@@ -106,15 +103,17 @@ describe('TaskReuseService', () => {
 
     await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
 
-    // 修正後: パスレベルのhiddenはクリアされる
-    expect(dayState.hiddenRoutines).toHaveLength(0)
+    const restoredEntry = dayState.hiddenRoutines.find(
+      (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId,
+    ) as { restoredAt?: number } | undefined
+    expect(restoredEntry?.restoredAt).toBeGreaterThan(0)
     expect(dayState.duplicatedInstances).toHaveLength(1)
     expect(dateService.saveDay).toHaveBeenCalled()
   })
 
   // === バグ修正テスト: 削除→再利用後の状態復元 ===
 
-  test('reuseTaskAtDate clears path-level hidden entry for the same path', async () => {
+  test('reuseTaskAtDate stamps restoredAt for path-level hidden entry', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
@@ -128,11 +127,10 @@ describe('TaskReuseService', () => {
 
     await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
 
-    // パスレベルのhiddenはクリアされるべき
-    const pathLevelHidden = dayState.hiddenRoutines.filter(
-      (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId
-    )
-    expect(pathLevelHidden).toHaveLength(0)
+    const pathLevelHidden = dayState.hiddenRoutines.find(
+      (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId,
+    ) as { restoredAt?: number } | undefined
+    expect(pathLevelHidden?.restoredAt).toBeGreaterThan(0)
     expect(dayState.duplicatedInstances).toHaveLength(1)
     expect(dateService.saveDay).toHaveBeenCalled()
   })
@@ -160,7 +158,7 @@ describe('TaskReuseService', () => {
     expect(dayState.duplicatedInstances).toHaveLength(1)
   })
 
-  test('reuseTaskAtDate clears temporary deleted entry for the same path', async () => {
+  test('reuseTaskAtDate marks temporary deleted entry as restored for the same path', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
@@ -176,11 +174,10 @@ describe('TaskReuseService', () => {
 
     await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
 
-    // temporary削除エントリはクリアされるべき
-    const temporaryDeleted = dayState.deletedInstances.filter(
+    const temporaryDeleted = dayState.deletedInstances.find(
       (entry) => entry.path === 'TaskChute/Task/sample.md' && entry.deletionType === 'temporary'
     )
-    expect(temporaryDeleted).toHaveLength(0)
+    expect(temporaryDeleted?.restoredAt ?? 0).toBeGreaterThan(0)
     expect(dayState.duplicatedInstances).toHaveLength(1)
   })
 
@@ -228,5 +225,40 @@ describe('TaskReuseService', () => {
       deletionType: 'permanent',
     })
     expect(dayState.duplicatedInstances).toHaveLength(1)
+  })
+
+  test('reuseTaskAtDate ensures restoredAt is after hiddenAt/deletedAt with clock skew', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+
+    dayState.hiddenRoutines.push({
+      path: 'TaskChute/Task/sample.md',
+      instanceId: null,
+      hiddenAt: 5000,
+    })
+    dayState.deletedInstances.push({
+      path: 'TaskChute/Task/sample.md',
+      deletionType: 'temporary',
+      deletedAt: 7000,
+    })
+
+    const service = new TaskReuseService(plugin)
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+    } finally {
+      nowSpy.mockRestore()
+    }
+
+    const restoredHidden = dayState.hiddenRoutines.find(
+      (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId,
+    ) as { restoredAt?: number; hiddenAt?: number } | undefined
+    const restoredDeleted = dayState.deletedInstances.find(
+      (entry) => entry.path === 'TaskChute/Task/sample.md' && entry.deletionType === 'temporary',
+    )
+
+    expect(restoredHidden?.restoredAt ?? 0).toBeGreaterThan(5000)
+    expect(restoredDeleted?.restoredAt ?? 0).toBeGreaterThan(7000)
   })
 })

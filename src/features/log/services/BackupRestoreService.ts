@@ -10,6 +10,7 @@ import {
   LOG_HEATMAP_LEGACY_FOLDER,
 } from '../constants'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
+import { RecordsWriter } from './RecordsWriter'
 
 export interface BackupEntry {
   path: string
@@ -66,6 +67,65 @@ export class BackupRestoreService {
     await this.clearHeatmapCacheForYear(year)
 
     await this.snapshotWriter.write(monthKey, snapshot)
+
+    // Rebuild records for all dates in the restored snapshot
+    await this.rebuildRecordsForMonth(snapshot)
+  }
+
+  /**
+   * Get the latest date that has execution records in a backup
+   * Used to show meaningful preview when opening restore modal
+   */
+  async getLatestDateInBackup(backupPath: string): Promise<string | undefined> {
+    try {
+      const adapter = this.plugin.app.vault.adapter
+      const content = await adapter.read(backupPath)
+      const parsed: unknown = JSON.parse(content)
+      const snapshot = parsed as TaskLogSnapshot
+
+      const dates = Object.keys(snapshot.taskExecutions ?? {})
+        .filter(d => {
+          const entries = snapshot.taskExecutions?.[d]
+          return Array.isArray(entries) && entries.length > 0
+        })
+        .sort()
+        .reverse()
+
+      return dates[0] // Return the most recent date with data
+    } catch (error) {
+      console.warn('[BackupRestoreService] Failed to get latest date from backup', backupPath, error)
+      return undefined
+    }
+  }
+
+  private async rebuildRecordsForMonth(snapshot: TaskLogSnapshot): Promise<void> {
+    const recordsWriter = new RecordsWriter(this.plugin)
+    const taskExecutions = snapshot.taskExecutions ?? {}
+    const dailySummary = snapshot.dailySummary ?? {}
+
+    // Collect all unique dates from both taskExecutions and dailySummary
+    // (summary-only dates should also have records regenerated)
+    const allDates = new Set([
+      ...Object.keys(taskExecutions),
+      ...Object.keys(dailySummary),
+    ])
+
+    for (const dateKey of allDates) {
+      const entries = taskExecutions[dateKey] ?? []
+      const summary = dailySummary[dateKey]
+
+      try {
+        await recordsWriter.writeDay({
+          dateKey,
+          entries,
+          summary,
+          canonicalRevision: snapshot.meta?.revision ?? 0,
+          snapshotMeta: snapshot.meta,
+        })
+      } catch (error) {
+        console.warn('[BackupRestoreService] Failed to rebuild record for date', dateKey, error)
+      }
+    }
   }
 
   private parseBackupSnapshot(raw: string, backupPath: string): TaskLogSnapshot {

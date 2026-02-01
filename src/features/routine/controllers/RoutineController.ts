@@ -56,7 +56,7 @@ export default class RoutineController {
     this.ensureDomHelpers()
     const modal = document.createElement('div')
     modal.className = 'task-modal-overlay'
-    const modalContent = modal.createEl('div', { cls: 'task-modal-content' })
+    const modalContent = modal.createEl('div', { cls: 'task-modal-content routine-edit-modal' })
 
     const modalHeader = modalContent.createEl('div', { cls: 'modal-header' })
     const taskTitle = deriveRoutineModalTitle(task as TaskData)
@@ -128,6 +128,13 @@ export default class RoutineController {
       cls: 'form-input',
       value: this.resolveScheduledTimeValue(task),
     })
+
+    // Prevent touch events from immediately triggering the native time picker
+    // when the modal opens (mobile touch event propagation issue)
+    timeInput.disabled = true
+    setTimeout(() => {
+      timeInput.disabled = false
+    }, 500)
 
     const intervalGroup = form.createEl('div', { cls: 'form-group' })
     intervalGroup.createEl('label', {
@@ -517,7 +524,7 @@ export default class RoutineController {
     })
 
     document.body.appendChild(modal)
-    timeInput.focus()
+    // Removed timeInput.focus() - prevents native time picker from auto-opening on mobile
   }
 
   async toggleRoutine(task: RoutineTaskShape, button?: HTMLElement): Promise<void> {

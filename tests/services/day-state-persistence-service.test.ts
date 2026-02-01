@@ -221,6 +221,54 @@ describe('DayStatePersistenceService.loadDay', () => {
     expect(store.get('LOGS/2026-01-state.json')).toBe(before)
   })
 
+  it('restores slotOverridesMeta and ordersMeta when loading day state', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-09': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {
+                'TASKS/foo.md': '8:00-12:00',
+              },
+              slotOverridesMeta: {
+                'TASKS/foo.md': { slotKey: '8:00-12:00', updatedAt: 1700000000000 },
+              },
+              orders: {
+                'TASKS/foo.md::none': 200,
+              },
+              ordersMeta: {
+                'TASKS/foo.md::none': { order: 200, updatedAt: 1700000000000 },
+              },
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-09T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const date = new Date('2026-01-09T00:00:00.000Z')
+    const state = await service.loadDay(date)
+
+    expect(state.slotOverridesMeta).toEqual({
+      'TASKS/foo.md': { slotKey: '8:00-12:00', updatedAt: 1700000000000 },
+    })
+    expect(state.ordersMeta).toEqual({
+      'TASKS/foo.md::none': { order: 200, updatedAt: 1700000000000 },
+    })
+  })
+
   it('creates month files when saving day state', async () => {
     const { plugin, store, vault } = createPlugin()
     const service = new DayStatePersistenceService(plugin)
@@ -236,6 +284,256 @@ describe('DayStatePersistenceService.loadDay', () => {
 
     expect(vault.create).toHaveBeenCalled()
     expect(store.has('LOGS/2026-01-state.json')).toBe(true)
+  })
+})
+
+describe('DayStatePersistenceService.mergeExternalChange', () => {
+  const createPlugin = () => {
+    const store = new Map<string, string>()
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const vault = {
+      getAbstractFileByPath: jest.fn((path: string) =>
+        store.has(path) ? createFile(path) : null,
+      ),
+      read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+      create: jest.fn(async (path: string, content: string) => {
+        store.set(path, content)
+        return createFile(path)
+      }),
+      modify: jest.fn(async (file: TFile, content: string) => {
+        store.set(file.path, content)
+      }),
+    }
+
+    const pathManager = {
+      getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
+      getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
+      ensureFolderExists: jest.fn().mockResolvedValue(undefined),
+      getLogYearPath: jest.fn((year: string | number) => `LOGS/${year}`),
+      ensureYearFolder: jest.fn(async () => undefined),
+      validatePath: jest.fn(() => ({ valid: true })),
+    }
+
+    const plugin = {
+      app: { vault },
+      settings: {
+        useOrderBasedSort: true,
+        slotKeys: {},
+      },
+      pathManager,
+      routineAliasService: {
+        loadAliases: jest.fn().mockResolvedValue({}),
+      },
+      dayStateService: {} as unknown,
+      saveSettings: jest.fn().mockResolvedValue(undefined),
+    } as unknown as TaskChutePluginLike
+
+    return { plugin, store, vault }
+  }
+
+  it('preserves ordersMeta in merged day state', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-09T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: { 'TASKS/foo.md::none': 100 },
+      ordersMeta: {
+        'TASKS/foo.md::none': { order: 100, updatedAt: 1000 },
+      },
+    })
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-09': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: { 'TASKS/foo.md::none': 200 },
+              ordersMeta: {
+                'TASKS/foo.md::none': { order: 200, updatedAt: 2000 },
+              },
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-09T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    expect(result.merged?.days['2026-01-09']?.ordersMeta).toEqual({
+      'TASKS/foo.md::none': { order: 200, updatedAt: 2000 },
+    })
+  })
+
+  it('keeps order value aligned with newer ordersMeta', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-10T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: { 'TASKS/foo.md::none': 300 },
+      ordersMeta: {
+        'TASKS/foo.md::none': { order: 300, updatedAt: 2000 },
+      },
+    })
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-10': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: { 'TASKS/foo.md::none': 100 },
+              ordersMeta: {
+                'TASKS/foo.md::none': { order: 100, updatedAt: 1000 },
+              },
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-10T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    expect(result.merged?.days['2026-01-10']?.orders['TASKS/foo.md::none']).toBe(300)
+    expect(result.merged?.days['2026-01-10']?.ordersMeta).toEqual({
+      'TASKS/foo.md::none': { order: 300, updatedAt: 2000 },
+    })
+  })
+
+  it('drops local orders when remote removes a key without ordersMeta', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-12T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: { 'TASKS/foo.md::none': 150 },
+    })
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-12': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-12T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    expect(result.merged?.days['2026-01-12']?.orders).toEqual({})
+  })
+
+  it('removes duplicatedInstances when a matching temporary deletion exists', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-11T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [
+        {
+          instanceId: 'dup-1',
+          path: 'TASKS/dup.md',
+          deletionType: 'temporary',
+          deletedAt: 2000,
+        },
+      ],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-11': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [
+                {
+                  instanceId: 'dup-1',
+                  originalPath: 'TASKS/dup.md',
+                  timestamp: 1000,
+                  createdMillis: 1000,
+                },
+              ],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-11T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    const mergedDay = result.merged?.days['2026-01-11']
+    expect(mergedDay?.duplicatedInstances).toHaveLength(0)
   })
 })
 

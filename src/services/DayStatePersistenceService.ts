@@ -2,6 +2,12 @@ import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
+import {
+  mergeDeletedInstances,
+  mergeHiddenRoutines,
+  mergeSlotOverrides,
+  isDeleted as isDeletedEntry,
+} from './dayState/conflictResolver';
 
 const DAY_STATE_VERSION = '1.0';
 const LOCAL_WRITE_TTL_MS = 1000;
@@ -173,12 +179,50 @@ export class DayStatePersistenceService {
       );
       day.slotOverrides = Object.fromEntries(entries) as Record<string, string>
     }
+    const slotOverridesMeta = record.slotOverridesMeta
+    if (slotOverridesMeta && typeof slotOverridesMeta === 'object') {
+      const entries = Object.entries(slotOverridesMeta as Record<string, unknown>).filter(
+        ([key, val]) => {
+          if (typeof key !== 'string') return false
+          if (!val || typeof val !== 'object') return false
+          const meta = val as { slotKey?: unknown; updatedAt?: unknown }
+          return typeof meta.slotKey === 'string' && typeof meta.updatedAt === 'number'
+        },
+      )
+      if (entries.length > 0) {
+        day.slotOverridesMeta = Object.fromEntries(
+          entries.map(([key, val]) => {
+            const meta = val as { slotKey?: string; updatedAt?: number }
+            return [key, { slotKey: meta.slotKey as string, updatedAt: meta.updatedAt as number }]
+          }),
+        )
+      }
+    }
     const orders = record.orders;
     if (orders && typeof orders === 'object') {
       const entries = Object.entries(orders as Record<string, unknown>).filter(
         ([key, val]) => typeof key === 'string' && typeof val === 'number',
       );
       day.orders = Object.fromEntries(entries) as Record<string, number>
+    }
+    const ordersMeta = record.ordersMeta
+    if (ordersMeta && typeof ordersMeta === 'object') {
+      const entries = Object.entries(ordersMeta as Record<string, unknown>).filter(
+        ([key, val]) => {
+          if (typeof key !== 'string') return false
+          if (!val || typeof val !== 'object') return false
+          const meta = val as { order?: unknown; updatedAt?: unknown }
+          return typeof meta.order === 'number' && typeof meta.updatedAt === 'number'
+        },
+      )
+      if (entries.length > 0) {
+        day.ordersMeta = Object.fromEntries(
+          entries.map(([key, val]) => {
+            const meta = val as { order?: number; updatedAt?: number }
+            return [key, { order: meta.order as number, updatedAt: meta.updatedAt as number }]
+          }),
+        )
+      }
     }
 
     return day;
@@ -406,6 +450,247 @@ export class DayStatePersistenceService {
     const date = this.getDateFromKey(dateKey);
     const monthKey = this.getMonthKey(date);
     this.cache.delete(monthKey);
+  }
+
+  /**
+   * Merge external changes (from Obsidian Sync) with local cache.
+   * Uses OR-Set + Tombstone conflict resolution.
+   * - deletedInstances: newer deletedAt/restoredAt wins
+   * - hiddenRoutines: newer hiddenAt/restoredAt wins
+   * - slotOverrides: newer updatedAt wins
+   */
+  async mergeExternalChange(monthKey: string): Promise<{
+    merged: MonthlyDayStateFile | null
+    affectedDateKeys: string[]
+  }> {
+    const localCached = this.cache.get(monthKey);
+
+    // Read remote state from file
+    const path = this.getStatePath(monthKey);
+    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+
+    if (!existing || !(existing instanceof TFile)) {
+      // File doesn't exist - nothing to merge
+      return {
+        merged: localCached ?? null,
+        affectedDateKeys: [],
+      };
+    }
+
+    let remoteState: MonthlyDayStateFile;
+    try {
+      const raw = await this.plugin.app.vault.read(existing);
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      remoteState = this.normalizeMonthlyState(parsed);
+    } catch (error) {
+      console.error('[DayStatePersistenceService] Failed to parse remote state for merge:', error);
+      return {
+        merged: localCached ?? null,
+        affectedDateKeys: [],
+      };
+    }
+
+    // If no local cache, just use remote
+    if (!localCached) {
+      this.cache.set(monthKey, remoteState);
+      return {
+        merged: remoteState,
+        affectedDateKeys: Object.keys(remoteState.days),
+      };
+    }
+
+    // Merge each day's state
+    const mergedMonthly = cloneMonthlyState(localCached);
+    let hasChanges = false;
+    const affectedDateKeys: string[] = [];
+
+    // Get all date keys from both local and remote
+    const allDateKeys = new Set([
+      ...Object.keys(localCached.days),
+      ...Object.keys(remoteState.days),
+    ]);
+
+    for (const dateKey of allDateKeys) {
+      const localDay = localCached.days[dateKey] ?? createEmptyDayState();
+      const remoteDay = remoteState.days[dateKey] ?? createEmptyDayState();
+
+      // Merge deletedInstances
+      const deletedResult = mergeDeletedInstances(
+        localDay.deletedInstances ?? [],
+        remoteDay.deletedInstances ?? [],
+      );
+
+      const isLegacyDeletionEntry = (entry: DayState['deletedInstances'][number]): boolean => {
+        const restoredAt = entry?.restoredAt ?? 0;
+        if (restoredAt > 0) {
+          return false;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+        const ts = entry?.deletedAt ?? entry?.timestamp;
+        return !(typeof ts === 'number' && Number.isFinite(ts));
+      };
+      const isActiveDeletion = (entry: DayState['deletedInstances'][number]): boolean =>
+        Boolean(entry) && (isDeletedEntry(entry) || isLegacyDeletionEntry(entry));
+      const deletedInstanceIds = new Set<string>();
+      const deletedPaths = new Set<string>();
+      const deletedTaskIds = new Set<string>();
+      for (const entry of deletedResult.merged) {
+        if (!isActiveDeletion(entry)) continue;
+        if (entry.instanceId) {
+          deletedInstanceIds.add(entry.instanceId);
+        }
+        if (entry.deletionType === 'permanent') {
+          if (entry.path) {
+            deletedPaths.add(entry.path);
+          }
+          if (entry.taskId) {
+            deletedTaskIds.add(entry.taskId);
+          }
+        }
+      }
+
+      // Merge hiddenRoutines
+      const hiddenResult = mergeHiddenRoutines(
+        localDay.hiddenRoutines ?? [],
+        remoteDay.hiddenRoutines ?? [],
+      );
+
+      // Merge slotOverrides (using simple timestamp comparison)
+      const slotResult = mergeSlotOverrides(
+        localDay.slotOverrides ?? {},
+        localDay.slotOverridesMeta ?? {},
+        remoteDay.slotOverrides ?? {},
+        remoteDay.slotOverridesMeta ?? {},
+      );
+
+      // Merge orders based on ordersMeta updatedAt
+      const localOrders = localDay.orders ?? {};
+      const remoteOrders = remoteDay.orders ?? {};
+      const localOrdersMeta = localDay.ordersMeta ?? {};
+      const remoteOrdersMeta = remoteDay.ordersMeta ?? {};
+      const mergedOrders: Record<string, number> = {};
+      const mergedOrdersMeta: DayState['ordersMeta'] = {};
+      const orderKeys = new Set([
+        ...Object.keys(localOrders),
+        ...Object.keys(remoteOrders),
+        ...Object.keys(localOrdersMeta),
+        ...Object.keys(remoteOrdersMeta),
+      ]);
+
+      for (const key of orderKeys) {
+        const localMeta = localOrdersMeta[key];
+        const remoteMeta = remoteOrdersMeta[key];
+        const localOrder = localOrders[key];
+        const remoteOrder = remoteOrders[key];
+
+        if (localMeta && remoteMeta) {
+          const useLocal = localMeta.updatedAt >= remoteMeta.updatedAt;
+          const selectedMeta = useLocal ? localMeta : remoteMeta;
+          const selectedOrder = useLocal ? localOrder : remoteOrder;
+          const fallbackOrder = selectedOrder ?? (useLocal ? remoteOrder : localOrder);
+          if (typeof fallbackOrder === 'number') {
+            mergedOrders[key] = fallbackOrder;
+          }
+          mergedOrdersMeta[key] = selectedMeta;
+          continue;
+        }
+
+        if (localMeta || remoteMeta) {
+          const selectedMeta = localMeta ?? remoteMeta;
+          const selectedOrder = localMeta ? localOrder : remoteOrder;
+          const fallbackOrder = selectedOrder ?? (localMeta ? remoteOrder : localOrder);
+          if (typeof fallbackOrder === 'number') {
+            mergedOrders[key] = fallbackOrder;
+          }
+          if (selectedMeta) {
+            mergedOrdersMeta[key] = selectedMeta;
+          }
+          continue;
+        }
+
+        if (typeof remoteOrder === 'number') {
+          // Prefer remote in legacy/no-meta cases to allow deletions to propagate.
+          mergedOrders[key] = remoteOrder;
+        }
+      }
+
+      // Merge duplicatedInstances (by instanceId, keep both unless deleted)
+      const duplicatedMap = new Map<string, DayState['duplicatedInstances'][number]>();
+      for (const item of localDay.duplicatedInstances ?? []) {
+        if (item?.instanceId) {
+          const isSuppressed =
+            deletedInstanceIds.has(item.instanceId) ||
+            (item.originalTaskId && deletedTaskIds.has(item.originalTaskId)) ||
+            (item.originalPath && deletedPaths.has(item.originalPath));
+          if (isSuppressed) {
+            continue;
+          }
+          duplicatedMap.set(item.instanceId, item);
+        }
+      }
+      for (const item of remoteDay.duplicatedInstances ?? []) {
+        if (item?.instanceId) {
+          const isSuppressed =
+            deletedInstanceIds.has(item.instanceId) ||
+            (item.originalTaskId && deletedTaskIds.has(item.originalTaskId)) ||
+            (item.originalPath && deletedPaths.has(item.originalPath));
+          if (isSuppressed) {
+            continue;
+          }
+        }
+        if (item?.instanceId && !duplicatedMap.has(item.instanceId)) {
+          duplicatedMap.set(item.instanceId, item);
+        }
+      }
+
+      const mergedDay: DayState = {
+        deletedInstances: deletedResult.merged,
+        hiddenRoutines: hiddenResult.merged,
+        slotOverrides: slotResult.merged,
+        slotOverridesMeta: slotResult.meta,
+        duplicatedInstances: Array.from(duplicatedMap.values()),
+        orders: mergedOrders,
+        ordersMeta: Object.keys(mergedOrdersMeta).length > 0 ? mergedOrdersMeta : undefined,
+      };
+
+      // Check if there were actual changes
+      if (
+        deletedResult.hasConflicts ||
+        hiddenResult.hasConflicts ||
+        slotResult.hasConflicts ||
+        JSON.stringify(mergedDay) !== JSON.stringify(localDay)
+      ) {
+        hasChanges = true;
+        affectedDateKeys.push(dateKey);
+      }
+
+      mergedMonthly.days[dateKey] = mergedDay;
+    }
+
+    // Update cache
+    mergedMonthly.metadata.lastUpdated = new Date().toISOString();
+    this.cache.set(monthKey, mergedMonthly);
+
+    // Persist merged state if there were changes
+    if (hasChanges) {
+      try {
+        await this.writeMonth(monthKey, mergedMonthly);
+      } catch (error) {
+        console.warn('[DayStatePersistenceService] Failed to persist merged state:', error);
+      }
+    }
+
+    return {
+      merged: mergedMonthly,
+      affectedDateKeys,
+    };
+  }
+
+  /**
+   * Extract month key from state file path
+   */
+  getMonthKeyFromPath(path: string): string | null {
+    return this.extractMonthKeyFromPath(path);
   }
 
   consumeLocalStateWrite(path: string): boolean {

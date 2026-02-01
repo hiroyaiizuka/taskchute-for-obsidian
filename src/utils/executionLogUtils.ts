@@ -22,7 +22,15 @@ export function createEmptyTaskLogSnapshot(): TaskLogSnapshot {
   }
 }
 
-export function parseTaskLogSnapshot(raw: string | null | undefined): TaskLogSnapshot {
+export interface ParseTaskLogSnapshotOptions {
+  /** If true, throws an error on parse failure instead of returning empty snapshot */
+  throwOnError?: boolean
+}
+
+export function parseTaskLogSnapshot(
+  raw: string | null | undefined,
+  options?: ParseTaskLogSnapshotOptions,
+): TaskLogSnapshot {
   if (!raw || typeof raw !== 'string') {
     return createEmptyTaskLogSnapshot()
   }
@@ -46,6 +54,9 @@ export function parseTaskLogSnapshot(raw: string | null | undefined): TaskLogSna
     }
   } catch (error) {
     console.warn('[executionLogUtils] Failed to parse task log snapshot', error)
+    if (options?.throwOnError) {
+      throw error // Allow caller to handle and prevent data loss
+    }
     return createEmptyTaskLogSnapshot()
   }
 }

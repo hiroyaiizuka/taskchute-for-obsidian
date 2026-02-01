@@ -39,27 +39,43 @@ export class TaskReuseService {
       dayState.deletedInstances = []
     }
 
-    // パスレベルのhiddenRoutinesをクリア（instanceIdがnullまたはundefinedのもの）
+    // パスレベルのhiddenRoutinesは復元済みとして記録（同期のため tombstone を残す）
     // インスタンス固有のhidden（instanceIdあり）は残す
-    dayState.hiddenRoutines = dayState.hiddenRoutines.filter((entry) => {
-      if (typeof entry === 'string') {
-        return entry !== file.path
-      }
-      // パスが一致し、instanceIdがない場合はクリア
-      if (entry.path === file.path && !entry.instanceId) {
-        return false
-      }
-      return true
-    })
+    const now = Date.now()
+    const coerceRestoredAt = (prevRestoredAt: number | undefined, baseTime: number | undefined): number => {
+      const prev = prevRestoredAt ?? 0
+      const base = baseTime ?? 0
+      const minRestoredAt = base > 0 ? base + 1 : now
+      return Math.max(prev, now, minRestoredAt)
+    }
+    dayState.hiddenRoutines = dayState.hiddenRoutines
+      .map((entry) => {
+        if (!entry) return entry
+        if (typeof entry === 'string') {
+          if (entry === file.path) {
+            return { path: entry, instanceId: null, restoredAt: coerceRestoredAt(undefined, 0) }
+          }
+          return entry
+        }
+        if (entry.path === file.path && !entry.instanceId) {
+          return { ...entry, restoredAt: coerceRestoredAt(entry.restoredAt, entry.hiddenAt) }
+        }
+        return entry
+      })
+      .filter(Boolean)
 
-    // temporary削除エントリをクリア（同じパスのもの）
-    // permanent削除エントリは残す
-    dayState.deletedInstances = dayState.deletedInstances.filter((entry) => {
-      if (entry.path === file.path && entry.deletionType === 'temporary') {
-        return false
-      }
-      return true
-    })
+    // temporary削除は復元 tombstone として残す（同期で復元を伝播するため）
+    dayState.deletedInstances = dayState.deletedInstances
+      .map((entry) => {
+        if (!entry) return entry
+        if (entry.path === file.path && entry.deletionType === 'temporary') {
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+          const deletedAt = entry.deletedAt ?? entry.timestamp
+          return { ...entry, restoredAt: coerceRestoredAt(entry.restoredAt, deletedAt) }
+        }
+        return entry
+      })
+      .filter(Boolean)
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)

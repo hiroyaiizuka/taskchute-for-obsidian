@@ -7,6 +7,7 @@ import type {
   TaskInstance,
 } from '../../../types'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
 import { getCurrentTimeSlot } from '../../../utils/time'
 
 export interface RunningTaskRecord {
@@ -229,6 +230,16 @@ export class RunningTasksService {
     const hiddenEntries = hiddenRoutines ?? []
     const deletedEntries = deletedInstances ?? []
 
+    const isLegacyDeletionEntry = (entry: DeletedInstance): boolean => {
+      const restoredAt = entry.restoredAt ?? 0
+      if (restoredAt > 0) {
+        return false
+      }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+      const ts = entry.deletedAt ?? entry.timestamp
+      return !(typeof ts === 'number' && Number.isFinite(ts))
+    }
+
     const isHiddenRecord = (record: RunningTaskRecord): boolean => {
       const hasVisibleInstance =
         typeof record.instanceId === 'string' &&
@@ -241,6 +252,9 @@ export class RunningTasksService {
             return false
           }
           return entry === record.taskPath
+        }
+        if (!isHiddenEntry(entry)) {
+          return false
         }
         const entryInstanceId =
           typeof entry.instanceId === 'string' && entry.instanceId.trim().length > 0
@@ -262,6 +276,9 @@ export class RunningTasksService {
     const isDeletedRecord = (record: RunningTaskRecord): boolean => {
       return deletedEntries.some((entry) => {
         if (!entry) return false
+        if (!isDeletedEntry(entry) && !(entry.deletionType === 'permanent' && isLegacyDeletionEntry(entry))) {
+          return false
+        }
         const hasInstanceId = typeof entry.instanceId === 'string' && entry.instanceId.length > 0
         const instanceMatches = hasInstanceId && record.instanceId && entry.instanceId === record.instanceId
         if (instanceMatches) {

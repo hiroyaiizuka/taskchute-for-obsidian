@@ -519,7 +519,9 @@ describe('TaskMutationService', () => {
 
     await service.deleteTask(instance)
 
-    expect(host.dayState.hiddenRoutines).toEqual([{ path: 'TASKS/routine.md', instanceId: null }])
+    expect(host.dayState.hiddenRoutines).toEqual([
+      expect.objectContaining({ path: 'TASKS/routine.md', instanceId: null }),
+    ])
     expect(host.persistDayState).toHaveBeenCalled()
     expect(host.taskInstances).toHaveLength(0)
   })

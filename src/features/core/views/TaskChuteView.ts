@@ -62,6 +62,7 @@ import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
+import { isDeleted as isDeletedEntry } from "../../../services/dayState/conflictResolver"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "review" | "log" | "settings" | null = null
@@ -135,6 +136,8 @@ export class TaskChuteView
   // Debounce Timer for state file modification detection (cross-device sync)
   private stateFileModifyDebounceTimer: ReturnType<typeof setTimeout> | null =
     null
+  private stateFileModifyPendingMonthKeys: Set<string> = new Set()
+  private stateFileModifyRequiresFullReload = false
 
   // Debug helper flag
   // Task Name Validator
@@ -790,11 +793,29 @@ export class TaskChuteView
     const targetDate = dateKey ?? this.getCurrentDateString()
     await this.ensureDayStateForDate(targetDate)
     const deleted = [...this.dayStateManager.getDeleted(targetDate)]
-    const next = deleted.filter((candidate) => !this.isSameDeletedEntry(candidate, entry))
-    if (next.length === deleted.length) {
+
+    // Find the entry to restore
+    const targetIdx = deleted.findIndex((candidate) =>
+      this.isSameDeletedEntry(candidate, entry),
+    )
+    if (targetIdx === -1) {
       return false
     }
-    this.dayStateManager.setDeleted(next, targetDate)
+
+    // Set restoredAt instead of removing the entry (for sync propagation)
+    const current = deleted[targetIdx]
+    const now = Date.now()
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+    const deletedAt = current.deletedAt ?? current.timestamp ?? 0
+    const minRestoredAt = deletedAt > 0 ? deletedAt + 1 : now
+    const prevRestoredAt = current.restoredAt ?? 0
+    const restoredAt = Math.max(prevRestoredAt, now, minRestoredAt)
+    deleted[targetIdx] = {
+      ...current,
+      restoredAt,
+    }
+
+    this.dayStateManager.setDeleted(deleted, targetDate)
     await this.persistDayState(targetDate)
     const title = this.resolveDeletedTaskTitle(entry)
     if (typeof this.plugin._log === "function") {
@@ -890,18 +911,49 @@ export class TaskChuteView
       const dateKey = this.getCurrentDateString()
       const instanceId = inst.instanceId
       const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+      const removedEntries: typeof duplicates = []
       const filtered = duplicates.filter((entry) => {
         if (!entry) return true
         if (instanceId && entry.instanceId === instanceId) {
+          removedEntries.push(entry)
           return false
         }
         if (!instanceId && taskPath && entry.originalPath === taskPath) {
+          removedEntries.push(entry)
           return false
         }
         return true
       })
       if (filtered.length !== duplicates.length) {
         dayState.duplicatedInstances = filtered
+        const deletedEntries = Array.isArray(dayState.deletedInstances)
+          ? [...dayState.deletedInstances]
+          : []
+        const now = Date.now()
+        const resolvedTaskId = inst.task?.taskId
+        const deletedKey = instanceId ?? taskPath
+        const hasActiveDeletion = deletedEntries.some((entry) => {
+          if (!entry || entry.deletionType !== 'temporary') return false
+          if (instanceId && entry.instanceId === instanceId) {
+            return isDeletedEntry(entry)
+          }
+          if (!instanceId && taskPath && entry.path === taskPath) {
+            return isDeletedEntry(entry)
+          }
+          return false
+        })
+        if (!hasActiveDeletion && deletedKey) {
+          const removed = removedEntries[0]
+          deletedEntries.push({
+            instanceId: removed?.instanceId ?? instanceId,
+            path: removed?.originalPath ?? taskPath,
+            deletionType: 'temporary',
+            timestamp: now,
+            deletedAt: now,
+            taskId: resolvedTaskId,
+          })
+        }
+        dayState.deletedInstances = deletedEntries
         await this.persistDayState(dateKey)
       }
     } catch (error) {
@@ -927,18 +979,31 @@ export class TaskChuteView
         if (entry.deletionType !== 'permanent') {
           return false
         }
-        if (taskId && entry.taskId === taskId) return true
-        if (!taskId && path && entry.path === path) return true
-        return false
+        const matches = (taskId && entry.taskId === taskId) || (!taskId && path && entry.path === path)
+        if (!matches) {
+          return false
+        }
+        if (isDeletedEntry(entry)) {
+          return true
+        }
+        const restoredAt = entry.restoredAt ?? 0
+        if (restoredAt > 0) {
+          return false
+        }
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+        const ts = entry.deletedAt ?? entry.timestamp
+        return !(typeof ts === "number" && Number.isFinite(ts))
       })
       if (alreadyHidden) {
         return
       }
 
+      const now = Date.now()
       deletedEntries.push({
         path,
         deletionType: 'permanent',
-        timestamp: Date.now(),
+        timestamp: now,
+        deletedAt: now,
         taskId,
       })
       this.dayStateManager.setDeleted(deletedEntries, dateKey)
@@ -1017,6 +1082,33 @@ export class TaskChuteView
 
     const [sourceEntry] = sourceEntries.splice(sourceIndex, 1)
     sourceState.duplicatedInstances = sourceEntries
+    const sourceDeleted = Array.isArray(sourceState.deletedInstances)
+      ? [...sourceState.deletedInstances]
+      : []
+    const sourceInstanceId = sourceEntry.instanceId ?? instanceId
+    const sourcePath = sourceEntry.originalPath ?? taskPath
+    const hasActiveDeletion = sourceDeleted.some((entry) => {
+      if (!entry || entry.deletionType !== 'temporary') return false
+      if (sourceInstanceId && entry.instanceId === sourceInstanceId) {
+        return isDeletedEntry(entry)
+      }
+      if (!sourceInstanceId && sourcePath && entry.path === sourcePath) {
+        return isDeletedEntry(entry)
+      }
+      return false
+    })
+    if ((sourceInstanceId || sourcePath) && !hasActiveDeletion) {
+      const now = Date.now()
+      sourceDeleted.push({
+        instanceId: sourceInstanceId,
+        path: sourcePath,
+        deletionType: 'temporary',
+        timestamp: now,
+        deletedAt: now,
+        taskId: sourceEntry.originalTaskId ?? inst.task?.taskId,
+      })
+      sourceState.deletedInstances = sourceDeleted
+    }
     await this.persistDayState(fromDateKey)
 
     const resolvedInstanceId = sourceEntry.instanceId ?? instanceId
@@ -1064,24 +1156,48 @@ export class TaskChuteView
       const deletedEntries = Array.isArray(dayState.deletedInstances)
         ? dayState.deletedInstances
         : []
-      const filtered = deletedEntries.filter((entry) => {
-        if (!entry) return false
-        if (instanceId && entry.instanceId === instanceId) {
-          return false
+      const now = Date.now()
+      let changed = false
+      const updated = deletedEntries.reduce<DeletedInstance[]>((acc, entry) => {
+        if (!entry) {
+          changed = true
+          return acc
         }
-        if (entry.deletionType === 'permanent') {
-          if (taskId && entry.taskId === taskId) {
-            return false
-          }
-          if (taskPath && entry.path === taskPath) {
-            return false
-          }
-        }
-        return true
-      })
 
-      if (filtered.length !== deletedEntries.length) {
-        dayState.deletedInstances = filtered
+        let shouldRestore = false
+        if (instanceId && entry.instanceId === instanceId) {
+          shouldRestore = true
+        }
+        if (!shouldRestore && entry.deletionType === 'permanent') {
+          if (taskId && entry.taskId === taskId) {
+            shouldRestore = true
+          } else if (taskPath && entry.path === taskPath) {
+            shouldRestore = true
+          }
+        }
+
+        if (shouldRestore) {
+          const prevRestoredAt = entry.restoredAt ?? 0
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+          const deletedAt = entry.deletedAt ?? entry.timestamp ?? 0
+          const minRestoredAt = deletedAt > 0 ? deletedAt + 1 : now
+          const nextRestoredAt = Math.max(prevRestoredAt, now, minRestoredAt)
+          if (nextRestoredAt !== prevRestoredAt) {
+            changed = true
+            acc.push({
+              ...entry,
+              restoredAt: nextRestoredAt,
+            })
+            return acc
+          }
+        }
+
+        acc.push(entry)
+        return acc
+      }, [])
+
+      if (changed) {
+        dayState.deletedInstances = updated
         await this.persistDayState(dateKey)
       }
     } catch (error) {
@@ -1176,7 +1292,11 @@ export class TaskChuteView
       const deletedInstances = this.dayStateManager.getDeleted(dateKey)
       const hiddenRoutines = this.dayStateManager.getHidden(dateKey)
       const deletedPaths = deletedInstances
-        .filter((inst) => inst.deletionType === "permanent")
+        .filter(
+          (inst) =>
+            inst.deletionType === "permanent" &&
+            (isDeletedEntry(inst) || this.isLegacyDeletionEntry(inst)),
+        )
         .map((inst) => inst.path)
         .filter((path): path is string => typeof path === "string")
 
@@ -1428,10 +1548,10 @@ export class TaskChuteView
     })
     this.registerManagedEvent(renameRef)
 
-    // State file modification listener for cross-device sync support
+    // State file modification/creation listener for cross-device sync support
     // When the state file is modified externally (e.g., via Obsidian Sync),
-    // reload tasks to reflect the synced changes (cache is cleared in loadTasks)
-    const stateModifyRef = this.app.vault.on("modify", (file) => {
+    // merge changes using OR-Set + Tombstone conflict resolution
+    const handleExternalStateChange = (file: TAbstractFile) => {
       if (!(file instanceof TFile)) return
       if (!file.path.endsWith("-state.json")) return
 
@@ -1441,9 +1561,21 @@ export class TaskChuteView
 
       const dayStateService = this.plugin.dayStateService as {
         consumeLocalStateWrite?: (path: string) => boolean
+        getMonthKeyFromPath?: (path: string) => string | null
+        mergeExternalChange?: (monthKey: string) => Promise<{
+          merged: unknown
+          affectedDateKeys: string[]
+        } | null>
       }
       if (dayStateService.consumeLocalStateWrite?.(file.path)) {
         return
+      }
+
+      const monthKey = dayStateService.getMonthKeyFromPath?.(file.path)
+      if (monthKey) {
+        this.stateFileModifyPendingMonthKeys.add(monthKey)
+      } else {
+        this.stateFileModifyRequiresFullReload = true
       }
 
       // Debounce to avoid excessive reloads during rapid changes
@@ -1452,13 +1584,68 @@ export class TaskChuteView
       }
       this.stateFileModifyDebounceTimer = setTimeout(() => {
         this.stateFileModifyDebounceTimer = null
-        void this.reloadTasksAndRestore({
-          runBoundaryCheck: false,
-          clearDayStateCache: 'all',
-        })
+
+        const pendingMonthKeys = Array.from(this.stateFileModifyPendingMonthKeys)
+        const requiresFullReload = this.stateFileModifyRequiresFullReload
+        this.stateFileModifyPendingMonthKeys.clear()
+        this.stateFileModifyRequiresFullReload = false
+
+        if (!pendingMonthKeys.length && !requiresFullReload) {
+          return
+        }
+
+        if (requiresFullReload || typeof dayStateService.mergeExternalChange !== 'function') {
+          void this.reloadTasksAndRestore({
+            runBoundaryCheck: false,
+            clearDayStateCache: 'all',
+          })
+          return
+        }
+
+        void (async () => {
+          const affectedDates = new Set<string>()
+          let mergeFailed = false
+
+          for (const key of pendingMonthKeys) {
+            try {
+              const result = await dayStateService.mergeExternalChange?.(key)
+              if (result && Array.isArray(result.affectedDateKeys)) {
+                for (const dateKey of result.affectedDateKeys) {
+                  affectedDates.add(dateKey)
+                }
+              }
+            } catch (error) {
+              mergeFailed = true
+              console.warn('[TaskChuteView] mergeExternalChange failed for month', key, error)
+            }
+          }
+
+          if (mergeFailed) {
+            await this.reloadTasksAndRestore({
+              runBoundaryCheck: false,
+              clearDayStateCache: 'all',
+            })
+            return
+          }
+
+          for (const dateKey of affectedDates) {
+            this.dayStateManager.clear(dateKey)
+          }
+
+          await this.reloadTasksAndRestore({
+            runBoundaryCheck: false,
+            clearDayStateCache: 'none',
+          })
+        })()
       }, 500) // 500ms debounce
-    })
+    }
+
+    // Listen for both modify and create events
+    // Obsidian Sync may delete and recreate files during sync
+    const stateModifyRef = this.app.vault.on("modify", handleExternalStateChange)
+    const stateCreateRef = this.app.vault.on("create", handleExternalStateChange)
     this.registerManagedEvent(stateModifyRef)
+    this.registerManagedEvent(stateCreateRef)
   }
 
   // ===========================================
@@ -1696,6 +1883,8 @@ export class TaskChuteView
       clearTimeout(this.stateFileModifyDebounceTimer)
       this.stateFileModifyDebounceTimer = null
     }
+    this.stateFileModifyPendingMonthKeys.clear()
+    this.stateFileModifyRequiresFullReload = false
 
     // TimerService dispose
     this.timerService?.dispose()
@@ -1860,6 +2049,16 @@ export class TaskChuteView
     return `${normalizedFolder}/${trimmed}.md`
   }
 
+  private isLegacyDeletionEntry(entry: DeletedInstance): boolean {
+    const restoredAt = entry.restoredAt ?? 0
+    if (restoredAt > 0) {
+      return false
+    }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+    const ts = entry.deletedAt ?? entry.timestamp
+    return !(typeof ts === "number" && Number.isFinite(ts))
+  }
+
   private findDeletedTaskRestoreCandidate(taskName: string): DeletedTaskRestoreCandidate | null {
     const path = this.buildTaskPathFromName(taskName)
     if (!path) {
@@ -1868,7 +2067,10 @@ export class TaskChuteView
     const dateKey = this.getCurrentDateString()
     const deletedEntries = this.dayStateManager.getDeleted(dateKey)
     const match = deletedEntries.find(
-      (entry) => entry?.deletionType === "permanent" && entry.path === path,
+      (entry) =>
+        entry?.deletionType === "permanent" &&
+        entry.path === path &&
+        (isDeletedEntry(entry) || this.isLegacyDeletionEntry(entry)),
     )
     if (!match) {
       return null
@@ -1912,8 +2114,12 @@ export class TaskChuteView
     if (a.taskId && b.taskId && a.taskId === b.taskId) return true
     if (a.instanceId && b.instanceId && a.instanceId === b.instanceId) return true
     if (a.path && b.path && a.path === b.path) {
-      if (a.timestamp && b.timestamp) {
-        return a.timestamp === b.timestamp
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+      const aTime = a.deletedAt ?? a.timestamp
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
+      const bTime = b.deletedAt ?? b.timestamp
+      if (aTime && bTime) {
+        return aTime === bTime
       }
       return true
     }

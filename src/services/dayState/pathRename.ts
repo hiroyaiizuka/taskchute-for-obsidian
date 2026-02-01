@@ -1,4 +1,4 @@
-import { DayState, HiddenRoutine, MonthlyDayStateFile } from '../../types'
+import { DayState, HiddenRoutine, MonthlyDayStateFile, SlotOverrideEntry } from '../../types'
 
 const isString = (value: unknown): value is string => typeof value === 'string'
 
@@ -70,6 +70,20 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
     state.slotOverrides = updated
   }
 
+  if (state.slotOverridesMeta && typeof state.slotOverridesMeta === 'object') {
+    const updated: Record<string, SlotOverrideEntry> = {}
+    for (const key of Object.keys(state.slotOverridesMeta)) {
+      const value = state.slotOverridesMeta[key]
+      if (!value) continue
+      const newKey = key === oldPath ? newPath : key
+      if (newKey !== key) {
+        mutated = true
+      }
+      updated[newKey] = value
+    }
+    state.slotOverridesMeta = updated
+  }
+
   if (state.orders && typeof state.orders === 'object') {
     const updated: Record<string, number> = {}
     for (const [key, value] of Object.entries(state.orders)) {
@@ -84,6 +98,23 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
       }
     }
     state.orders = updated
+  }
+
+  if (state.ordersMeta && typeof state.ordersMeta === 'object') {
+    const updated: Record<string, { order: number; updatedAt: number }> = {}
+    for (const key of Object.keys(state.ordersMeta)) {
+      const value = state.ordersMeta[key]
+      if (!value) continue
+      if (key.startsWith(`${oldPath}::`)) {
+        const slot = key.slice(oldPath.length + 2)
+        const newKey = `${newPath}::${slot}`
+        updated[newKey] = value
+        mutated = true
+      } else {
+        updated[key] = value
+      }
+    }
+    state.ordersMeta = updated
   }
 
   return mutated

@@ -86,13 +86,27 @@ export default class TaskSettingsTooltipController {
     tooltip.style.setProperty('--taskchute-tooltip-top', `${top}px`)
 
     document.body.appendChild(tooltip)
-    const clickAway = (event: MouseEvent) => {
-      if (!tooltip.contains(event.target as Node) && event.target !== anchor) {
+
+    // Click-away to close (with mobile touch support)
+    // Record open time to ignore events from the same interaction that opened the tooltip
+    const openTime = Date.now()
+    const DEBOUNCE_MS = 150 // Ignore events within 150ms of opening
+
+    const handleOutsideInteraction = (event: MouseEvent | TouchEvent) => {
+      // Ignore events that happen too soon after opening (same interaction)
+      if (Date.now() - openTime < DEBOUNCE_MS) return
+
+      const target = event.target as Node
+      if (!tooltip.contains(target) && target !== anchor) {
         tooltip.remove()
-        document.removeEventListener('click', clickAway)
+        document.removeEventListener('click', handleOutsideInteraction)
+        document.removeEventListener('touchend', handleOutsideInteraction)
       }
     }
-    setTimeout(() => document.addEventListener('click', clickAway), 80)
+
+    // Register both click and touchend for better mobile support
+    document.addEventListener('click', handleOutsideInteraction)
+    document.addEventListener('touchend', handleOutsideInteraction)
   }
 
   private appendReset(inst: TaskInstance, tooltip: HTMLElement): void {

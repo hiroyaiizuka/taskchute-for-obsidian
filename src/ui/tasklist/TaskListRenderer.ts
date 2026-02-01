@@ -1,3 +1,4 @@
+import { Platform } from 'obsidian'
 import { TaskInstance } from '../../types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
@@ -206,10 +207,49 @@ export default class TaskListRenderer {
     })
 
     this.setupDragEvents(dragHandle, taskItem, slot, idx)
-    dragHandle.addEventListener('click', (e) => {
+    this.registerTapEvent(dragHandle, (e) => {
       e.stopPropagation()
       this.host.selectTaskForKeyboard(inst, taskItem)
     })
+  }
+
+  /**
+   * Register both click and touchend events for mobile compatibility.
+   * Only triggers on actual taps (not scrolls) by checking touch movement distance.
+   */
+  private registerTapEvent(element: HTMLElement, handler: (event: Event) => void): void {
+    element.addEventListener('click', handler)
+
+    if (Platform?.isMobile) {
+      const TAP_THRESHOLD = 10
+      let touchStartX = 0
+      let touchStartY = 0
+
+      element.addEventListener('touchstart', (event) => {
+        if (event.touches.length > 0) {
+          touchStartX = event.touches[0].clientX
+          touchStartY = event.touches[0].clientY
+          event.stopPropagation()
+        }
+      })
+
+      element.addEventListener('touchend', (event) => {
+        event.stopPropagation()
+
+        if (event.changedTouches.length > 0) {
+          const touch = event.changedTouches[0]
+          const deltaX = Math.abs(touch.clientX - touchStartX)
+          const deltaY = Math.abs(touch.clientY - touchStartY)
+
+          if (deltaX > TAP_THRESHOLD || deltaY > TAP_THRESHOLD) {
+            return // Scroll, not tap
+          }
+        }
+
+        event.preventDefault()
+        handler(event)
+      })
+    }
   }
 
   private setupTaskItemEventListeners(taskItem: HTMLElement, inst: TaskInstance): void {

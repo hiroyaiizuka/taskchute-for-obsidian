@@ -2,6 +2,7 @@ import { TFile } from 'obsidian';
 import { loadTasksRefactored } from '../../src/features/core/helpers';
 import DayStateStoreService from '../../src/services/DayStateStoreService';
 import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
+import { isDeleted as isDeletedEntry } from '../../src/services/dayState/conflictResolver';
 import {
   DayState,
   TaskInstance,
@@ -140,12 +141,12 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
     isDeleted: jest.fn(({ instanceId, path, taskId }: { taskId?: string; instanceId?: string; path?: string }) => {
       if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
-        if (entry.instanceId && entry.instanceId === instanceId) return true;
-        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
-          return true;
-        }
-        if (entry.deletionType === 'permanent' && entry.path === path) return true;
-        return false;
+        const matches =
+          (entry.instanceId && entry.instanceId === instanceId) ||
+          (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) ||
+          (entry.deletionType === 'permanent' && entry.path === path);
+        if (!matches) return false;
+        return isDeletedEntry(entry);
       });
     }),
   } as unknown as DayStateStoreService;
@@ -280,12 +281,12 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
       if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
-        if (entry.instanceId && entry.instanceId === instanceId) return true;
-        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
-          return true;
-        }
-        if (entry.deletionType === 'permanent' && entry.path === path) return true;
-        return false;
+        const matches =
+          (entry.instanceId && entry.instanceId === instanceId) ||
+          (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) ||
+          (entry.deletionType === 'permanent' && entry.path === path);
+        if (!matches) return false;
+        return isDeletedEntry(entry);
       });
     }),
     generateInstanceId: jest.fn(() => `routine-${Math.random().toString(36).slice(2)}`),
@@ -448,12 +449,12 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
       if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
-        if (entry.instanceId && entry.instanceId === instanceId) return true;
-        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
-          return true;
-        }
-        if (entry.deletionType === 'permanent' && entry.path === path) return true;
-        return false;
+        const matches =
+          (entry.instanceId && entry.instanceId === instanceId) ||
+          (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) ||
+          (entry.deletionType === 'permanent' && entry.path === path);
+        if (!matches) return false;
+        return isDeletedEntry(entry);
       });
     }),
     generateInstanceId: jest.fn(() => `non-routine-${Math.random().toString(36).slice(2)}`),
@@ -630,12 +631,12 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
     isInstanceDeleted: jest.fn((instanceId?: string, path?: string, _date?: string, taskId?: string) => {
       if (!instanceId && !path && !taskId) return false;
       return dayState.deletedInstances.some((entry) => {
-        if (entry.instanceId && entry.instanceId === instanceId) return true;
-        if (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) {
-          return true;
-        }
-        if (entry.deletionType === 'permanent' && entry.path === path) return true;
-        return false;
+        const matches =
+          (entry.instanceId && entry.instanceId === instanceId) ||
+          (taskId && entry.taskId && entry.deletionType === 'permanent' && entry.taskId === taskId) ||
+          (entry.deletionType === 'permanent' && entry.path === path);
+        if (!matches) return false;
+        return isDeletedEntry(entry);
       });
     }),
     generateInstanceId: jest.fn(() => `exec-${Math.random().toString(36).slice(2)}`),

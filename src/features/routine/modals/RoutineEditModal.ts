@@ -1,4 +1,4 @@
-import { App, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian"
+import { App, Notice, TFile } from "obsidian"
 
 import { t } from "../../../i18n"
 import { DATE_FORMAT_DISPLAY } from "../../../constants"
@@ -15,6 +15,7 @@ import {
   setScheduledTime,
 } from "../../../utils/fieldMigration"
 import { applyRoutineFrontmatterMerge } from "../utils/RoutineFrontmatterUtils"
+import { attachCloseButtonIcon } from "../../../ui/components/iconUtils"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
@@ -38,11 +39,20 @@ const WEEK_OPTION_DEFAULTS: Array<{ value: RoutineWeek; label: string }> = [
 
 const DEFAULT_DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-export default class RoutineEditModal extends Modal {
+/**
+ * Custom modal implementation that doesn't use Obsidian's Modal class.
+ * This allows full control over the close button styling on mobile.
+ */
+export default class RoutineEditModal {
+  private readonly app: App
   private readonly plugin: TaskChutePluginLike
   private readonly file: TFile
   private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void
   private monthdayOutsideClickHandler: ((event: MouseEvent) => void) | null = null
+  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+
+  private modalEl: HTMLDivElement | null = null
+  private contentEl: HTMLDivElement | null = null
 
   constructor(
     app: App,
@@ -50,7 +60,7 @@ export default class RoutineEditModal extends Modal {
     file: TFile,
     onSaved?: (frontmatter: RoutineFrontmatter) => void,
   ) {
-    super(app)
+    this.app = app
     this.plugin = plugin
     this.file = file
     this.onSaved = onSaved
@@ -104,21 +114,79 @@ export default class RoutineEditModal extends Modal {
     )
   }
 
-  onOpen(): void {
-    const { contentEl } = this
-    contentEl.empty()
-    this.modalEl?.classList.add("routine-edit-modal")
+  open(): void {
+    // Create overlay
+    this.modalEl = document.createElement("div")
+    this.modalEl.className = "task-modal-overlay"
 
-    const frontmatter = this.getFrontmatterSnapshot()
-    const initialType = this.normalizeRoutineType(frontmatter.routine_type)
+    // Create modal content container
+    this.contentEl = this.modalEl.createEl("div", { cls: "task-modal-content routine-edit-modal" })
 
-    contentEl.createEl("h4", {
+    // Create header with title and close button
+    const header = this.contentEl.createEl("div", { cls: "modal-header" })
+    header.createEl("h3", {
       text: this.tv("title", `Routine settings for "${this.file.basename}"`, {
         name: this.file.basename,
       }),
     })
+    const closeButton = header.createEl("button", {
+      cls: "modal-close-button",
+      attr: {
+        "aria-label": t("common.close", "Close"),
+        type: "button",
+      },
+    })
+    attachCloseButtonIcon(closeButton)
+    closeButton.addEventListener("click", () => this.close())
 
-    const form = contentEl.createEl("div", { cls: "routine-form" })
+    // Build the form content
+    this.buildFormContent()
+
+    // Add to DOM
+    document.body.appendChild(this.modalEl)
+
+    // Close on overlay click
+    this.modalEl.addEventListener("click", (event) => {
+      if (event.target === this.modalEl) {
+        this.close()
+      }
+    })
+
+    // Close on Escape key
+    this.escapeKeyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        this.close()
+      }
+    }
+    document.addEventListener("keydown", this.escapeKeyHandler)
+  }
+
+  close(): void {
+    // Cleanup event listeners
+    if (this.monthdayOutsideClickHandler) {
+      document.removeEventListener("click", this.monthdayOutsideClickHandler)
+      this.monthdayOutsideClickHandler = null
+    }
+    if (this.escapeKeyHandler) {
+      document.removeEventListener("keydown", this.escapeKeyHandler)
+      this.escapeKeyHandler = null
+    }
+
+    // Remove from DOM
+    if (this.modalEl) {
+      this.modalEl.remove()
+      this.modalEl = null
+      this.contentEl = null
+    }
+  }
+
+  private buildFormContent(): void {
+    if (!this.contentEl) return
+
+    const frontmatter = this.getFrontmatterSnapshot()
+    const initialType = this.normalizeRoutineType(frontmatter.routine_type)
+
+    const form = this.contentEl.createEl("div", { cls: "routine-form" })
 
     // Type selector
     const typeGroup = form.createEl("div", { cls: "form-group" })
@@ -139,6 +207,14 @@ export default class RoutineEditModal extends Modal {
     const timeInput = timeGroup.createEl("input", { type: "time" })
     timeInput.value = getScheduledTime(frontmatter) || ""
 
+    // Prevent touch events from immediately triggering the native time picker
+    // when the modal opens (mobile touch event propagation issue)
+    // Use disabled attribute which is more reliable than pointer-events
+    timeInput.disabled = true
+    setTimeout(() => {
+      timeInput.disabled = false
+    }, 500)
+
     // Interval
     const intervalGroup = form.createEl("div", { cls: "form-group" })
     intervalGroup.createEl("label", {
@@ -151,17 +227,6 @@ export default class RoutineEditModal extends Modal {
     intervalInput.value = String(
       Math.max(1, Number(frontmatter.routine_interval ?? 1)),
     )
-
-    // Enabled toggle
-    const enabledGroup = form.createEl("div", {
-      cls: "form-group form-group--inline",
-    })
-    const enabledLabel = enabledGroup.createEl("label", {
-      text: this.tv("fields.enabledLabel", "Enabled:"),
-    })
-    enabledLabel.classList.add("routine-form__inline-label")
-    const enabledToggle = enabledGroup.createEl("input", { type: "checkbox" })
-    enabledToggle.checked = frontmatter.routine_enabled !== false
 
     // Start / End dates
     const datesGroup = form.createEl("div", {
@@ -185,6 +250,17 @@ export default class RoutineEditModal extends Modal {
     const endInput = datesGroup.createEl("input", { type: "date" })
     endInput.value =
       typeof frontmatter.routine_end === "string" ? frontmatter.routine_end : ""
+
+    // Enabled toggle
+    const enabledGroup = form.createEl("div", {
+      cls: "form-group form-group--inline",
+    })
+    const enabledLabel = enabledGroup.createEl("label", {
+      text: this.tv("fields.enabledLabel", "Enabled:"),
+    })
+    enabledLabel.classList.add("routine-form__inline-label")
+    const enabledToggle = enabledGroup.createEl("input", { type: "checkbox" })
+    enabledToggle.checked = frontmatter.routine_enabled !== false
 
     // Weekly controls
     const weeklyGroup = form.createEl("div", {
@@ -343,7 +419,7 @@ export default class RoutineEditModal extends Modal {
     typeSelect.addEventListener("change", updateVisibility)
 
     // Buttons
-    const buttonRow = contentEl.createEl("div", {
+    const buttonRow = this.contentEl.createEl("div", {
       cls: "routine-editor__buttons",
     })
     const saveButton = buttonRow.createEl("button", {
@@ -561,13 +637,6 @@ export default class RoutineEditModal extends Modal {
     cancelButton.addEventListener("click", () => this.close())
   }
 
-  onClose(): void {
-    if (this.monthdayOutsideClickHandler) {
-      document.removeEventListener("click", this.monthdayOutsideClickHandler)
-      this.monthdayOutsideClickHandler = null
-    }
-  }
-
   private getFrontmatterSnapshot(): RoutineFrontmatter {
     const raw = this.app.metadataCache.getFileCache(this.file)?.frontmatter
     if (raw && typeof raw === "object") {
@@ -586,199 +655,177 @@ export default class RoutineEditModal extends Modal {
     return "daily"
   }
 
-  private applyWeeklySelection(
-    checkboxes: HTMLInputElement[],
-    fm: RoutineFrontmatter,
-  ): void {
-    const selected = this.getWeeklySelection(fm)
-    selected.forEach((day) => {
-      if (checkboxes[day]) {
-        checkboxes[day].checked = true
-      }
-    })
-  }
-
-  private getWeeklySelection(fm: RoutineFrontmatter): number[] {
-    if (Array.isArray(fm.weekdays)) {
-      return fm.weekdays.filter(
-        (day) =>
-          Number.isInteger(day) && day >= 0 && day < DEFAULT_DAY_NAMES.length,
-      )
-    }
-    if (typeof fm.routine_weekday === "number") {
-      return [fm.routine_weekday]
-    }
-    if (typeof fm.weekday === "number") {
-      return [fm.weekday]
-    }
-    return []
-  }
-
-  private applyMonthlySelection(
-    weekInputs: HTMLInputElement[],
-    weekdayInputs: HTMLInputElement[],
-    fm: RoutineFrontmatter,
-  ): void {
-    const weekSet = this.normalizeWeekSelection(this.getMonthlyWeekSet(fm))
-    if (weekSet.length === 0 && typeof fm.routine_week === "number") {
-      weekSet.push(fm.routine_week)
-    }
-    weekInputs.forEach((input) => {
-      input.checked = weekSet.some((week) =>
-        week === "last" ? input.value === "last" : input.value === String(week),
-      )
-    })
-
-    const weekdaySet = this.getMonthlyWeekdaySet(fm)
-    weekdayInputs.forEach((input, index) => {
-      input.checked = weekdaySet.includes(index)
-    })
-  }
-
-  private applyMonthlyDateSelection(
-    checkboxes: HTMLInputElement[],
-    fm: RoutineFrontmatter,
-  ): void {
-    const monthdaySet = this.normalizeMonthdaySelection(
-      this.getMonthlyMonthdaySet(fm),
+  private normalizeWeekSelection(weeks: RoutineWeek[]): RoutineWeek[] {
+    return weeks.filter(
+      (week): week is RoutineWeek =>
+        week === "last" ||
+        (typeof week === "number" && week >= 1 && week <= 5),
     )
-    checkboxes.forEach((checkbox) => {
-      const match = checkbox.value === "last"
-        ? monthdaySet.includes("last")
-        : monthdaySet.includes(Number(checkbox.value))
-      checkbox.checked = match
-    })
-  }
-
-  private getMonthlyWeekSet(fm: RoutineFrontmatter): Array<RoutineWeek> {
-    if (Array.isArray(fm.routine_weeks) && fm.routine_weeks.length) {
-      return this.normalizeWeekSelection(fm.routine_weeks)
-    }
-    if (Array.isArray((fm as Record<string, unknown>).monthly_weeks)) {
-      return this.normalizeWeekSelection(
-        (fm as Record<string, unknown>).monthly_weeks as RoutineWeek[],
-      )
-    }
-    const single = this.getLegacyMonthlyWeek(fm)
-    return single ? [single] : []
-  }
-
-  private getLegacyMonthlyWeek(
-    fm: RoutineFrontmatter,
-  ): RoutineWeek | undefined {
-    if (fm.routine_week === "last" || typeof fm.routine_week === "number") {
-      return fm.routine_week
-    }
-    if (fm.monthly_week === "last") {
-      return "last"
-    }
-    if (typeof fm.monthly_week === "number") {
-      return (fm.monthly_week + 1) as RoutineWeek
-    }
-    return undefined
-  }
-
-  private getMonthlyWeekdaySet(fm: RoutineFrontmatter): number[] {
-    const raw = Array.isArray(fm.routine_weekdays)
-      ? fm.routine_weekdays
-      : Array.isArray((fm as Record<string, unknown>).monthly_weekdays)
-      ? ((fm as Record<string, unknown>).monthly_weekdays as number[])
-      : undefined
-    if (Array.isArray(raw)) {
-      return raw
-        .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
-    }
-    if (typeof fm.routine_weekday === "number") {
-      return [fm.routine_weekday]
-    }
-    if (typeof fm.monthly_weekday === "number") {
-      return [fm.monthly_weekday]
-    }
-    return []
-  }
-
-  private getMonthlyMonthdaySet(
-    fm: RoutineFrontmatter,
-  ): Array<number | "last"> {
-    if (Array.isArray(fm.routine_monthdays) && fm.routine_monthdays.length) {
-      return this.normalizeMonthdaySelection(fm.routine_monthdays)
-    }
-    const single = this.getMonthlyMonthday(fm)
-    return single ? [single] : []
-  }
-
-  private getMonthlyMonthday(
-    fm: RoutineFrontmatter,
-  ): number | "last" | undefined {
-    if (fm.routine_monthday === "last" || typeof fm.routine_monthday === "number") {
-      return fm.routine_monthday
-    }
-    return undefined
-  }
-
-  private normalizeWeekSelection(
-    values: Array<number | "last">,
-  ): Array<RoutineWeek> {
-    const seen = new Set<string>()
-    const result: Array<RoutineWeek> = []
-    values.forEach((value) => {
-      if (value === "last") {
-        if (!seen.has("last")) {
-          seen.add("last")
-          result.push("last")
-        }
-        return
-      }
-      const num = Number(value)
-      if (Number.isInteger(num) && num >= 1 && num <= 5) {
-        const key = String(num)
-        if (!seen.has(key)) {
-          seen.add(key)
-          result.push(num as RoutineWeek)
-        }
-      }
-    })
-    return result
   }
 
   private normalizeMonthdaySelection(
-    values: Array<number | "last">,
+    days: Array<number | "last">,
   ): Array<number | "last"> {
-    const seen = new Set<string>()
-    const result: Array<number | "last"> = []
-    values.forEach((value) => {
-      if (value === "last") {
-        if (!seen.has("last")) {
-          seen.add("last")
-          result.push("last")
-        }
-        return
-      }
-      const num = Number(value)
-      if (Number.isInteger(num) && num >= 1 && num <= 31) {
-        const key = String(num)
-        if (!seen.has(key)) {
-          seen.add(key)
-          result.push(num)
-        }
-      }
-    })
-    return result.sort((a, b) => {
-      if (a === "last") return 1
-      if (b === "last") return -1
-      return Number(a) - Number(b)
-    })
+    return days
+      .filter(
+        (day): day is number | "last" =>
+          day === "last" || (typeof day === "number" && day >= 1 && day <= 31),
+      )
+      .sort((a, b) => {
+        if (a === "last") return 1
+        if (b === "last") return -1
+        return a - b
+      })
   }
 
-  private formatMonthdayList(monthdays: Array<number | "last">): string | undefined {
-    if (!monthdays.length) return undefined
-    const labels = monthdays.map((day) =>
-      day === "last"
-        ? this.tv("labels.monthdayLast", "Last day")
-        : this.tv("labels.monthdayNth", "Day {day}", { day }),
-    )
-    return labels.join(" / ")
+  private getCheckedDays(inputs: HTMLInputElement[]): number[] {
+    return inputs
+      .filter((input) => input.checked)
+      .map((input) => parseInt(input.value, 10))
+      .filter((value) => !isNaN(value))
+  }
+
+  private getCheckedWeeks(inputs: HTMLInputElement[]): RoutineWeek[] {
+    return inputs
+      .filter((input) => input.checked)
+      .map((input) => {
+        if (input.value === "last") return "last"
+        return parseInt(input.value, 10)
+      })
+      .filter((value): value is RoutineWeek => value === "last" || !isNaN(value))
+  }
+
+  private getCheckedMonthdays(inputs: HTMLInputElement[]): Array<number | "last"> {
+    return inputs
+      .filter((input) => input.checked)
+      .map((input) => {
+        if (input.value === "last") return "last"
+        return parseInt(input.value, 10)
+      })
+      .filter((value): value is number | "last" => value === "last" || !isNaN(value))
+  }
+
+  private getWeeklySelection(frontmatter: RoutineFrontmatter): number[] {
+    const routineWeekday = frontmatter.routine_weekday
+    const weekdays = frontmatter.weekdays ?? (frontmatter as Record<string, unknown>).weekdays
+    // Legacy: old format used 'weekday' (singular) instead of 'weekdays' or 'routine_weekday'
+    const legacyWeekday = (frontmatter as Record<string, unknown>).weekday
+    if (Array.isArray(weekdays)) {
+      return weekdays.filter((v): v is number => typeof v === "number")
+    }
+    if (typeof routineWeekday === "number") {
+      return [routineWeekday]
+    }
+    // Fallback to legacy weekday
+    if (typeof legacyWeekday === "number") {
+      return [legacyWeekday]
+    }
+    return []
+  }
+
+  private getMonthlyWeekSet(frontmatter: RoutineFrontmatter): Set<string> {
+    const weeks = frontmatter.routine_weeks
+    const week = frontmatter.routine_week
+    const legacyWeek = this.getLegacyMonthlyWeek(frontmatter)
+    // Legacy: old format used 'monthly_weeks' (plural) array
+    const legacyWeeks = (frontmatter as Record<string, unknown>).monthly_weeks
+    const result = new Set<string>()
+    if (Array.isArray(weeks)) {
+      weeks.forEach((w) => result.add(String(w)))
+    } else if (Array.isArray(legacyWeeks)) {
+      // Fallback to legacy monthly_weeks array
+      legacyWeeks.forEach((w) => {
+        if (w === "last") {
+          result.add("last")
+          return
+        }
+        const asNumber =
+          typeof w === "number"
+            ? w
+            : typeof w === "string" && w.trim() !== ""
+              ? Number(w)
+              : NaN
+        if (Number.isFinite(asNumber)) {
+          // Legacy monthly_weeks used 0-based indexing (0..4)
+          if (asNumber >= 0 && asNumber <= 4) {
+            result.add(String(asNumber + 1))
+          } else if (asNumber >= 1 && asNumber <= 5) {
+            result.add(String(asNumber))
+          }
+        }
+      })
+    } else if (week !== undefined) {
+      result.add(String(week))
+    } else if (legacyWeek !== undefined) {
+      result.add(String(legacyWeek))
+    }
+    return result
+  }
+
+  private getMonthlyWeekdaySet(frontmatter: RoutineFrontmatter): Set<string> {
+    const weekdays = frontmatter.routine_weekdays
+    const weekday = frontmatter.routine_weekday
+    const legacyWeekday = (frontmatter as Record<string, unknown>).monthly_weekday
+    const legacyWeekdays = (frontmatter as Record<string, unknown>).monthly_weekdays
+    const result = new Set<string>()
+    if (Array.isArray(weekdays)) {
+      weekdays.forEach((w) => result.add(String(w)))
+    } else if (Array.isArray(legacyWeekdays)) {
+      legacyWeekdays.forEach((w) => {
+        const asNumber =
+          typeof w === "number"
+            ? w
+            : typeof w === "string" && w.trim() !== ""
+              ? Number(w)
+              : NaN
+        if (Number.isFinite(asNumber)) {
+          result.add(String(asNumber))
+        }
+      })
+    } else if (weekday !== undefined) {
+      result.add(String(weekday))
+    } else if (typeof legacyWeekday === "number") {
+      result.add(String(legacyWeekday))
+    }
+    return result
+  }
+
+  private getMonthlyMonthday(frontmatter: RoutineFrontmatter): number | "last" | undefined {
+    const monthday = frontmatter.routine_monthday
+    if (monthday === "last" || (typeof monthday === "number" && monthday >= 1 && monthday <= 31)) {
+      return monthday
+    }
+    return undefined
+  }
+
+  private getMonthlyMonthdaySet(frontmatter: RoutineFrontmatter): Set<string> {
+    const monthdays = frontmatter.routine_monthdays
+    const monthday = this.getMonthlyMonthday(frontmatter)
+    const result = new Set<string>()
+    if (Array.isArray(monthdays)) {
+      monthdays.forEach((d) => result.add(String(d)))
+    } else if (monthday !== undefined) {
+      result.add(String(monthday))
+    }
+    return result
+  }
+
+  private getLegacyMonthlyWeek(frontmatter: RoutineFrontmatter): RoutineWeek | undefined {
+    const record = frontmatter as Record<string, unknown>
+    const legacy = record.monthly_week
+    if (legacy === "last") return "last"
+    if (typeof legacy === "number") {
+      // Legacy monthly_week uses 0-based indexing (0..4)
+      // Convert to 1-based (1..5) to match current format
+      if (legacy >= 0 && legacy <= 4) {
+        return (legacy + 1) as RoutineWeek
+      }
+      // Also accept already-converted 1..5 values for safety
+      if (legacy >= 1 && legacy <= 5) {
+        return legacy as RoutineWeek
+      }
+    }
+    return undefined
   }
 
   private createChipFieldset(
@@ -786,90 +833,85 @@ export default class RoutineEditModal extends Modal {
     labelText: string,
     options: Array<{ value: string; label: string }>,
   ): HTMLInputElement[] {
-    const fieldset = parent.createEl("div", { cls: "routine-chip-fieldset" })
-    fieldset.createEl("div", {
-      cls: "routine-chip-fieldset__label",
-      text: labelText,
-    })
-    const chipContainer = fieldset.createEl("div", {
-      cls: "routine-chip-fieldset__chips",
-    })
-    return options.map(({ value, label }) => {
-      const chip = chipContainer.createEl("label", { cls: "routine-chip" })
+    const fieldset = parent.createEl("fieldset", { cls: "routine-chip-fieldset" })
+    const legend = fieldset.createEl("legend", { text: labelText, cls: "routine-chip-legend" })
+    legend.classList.add("routine-form__inline-label")
+    const chipGroup = fieldset.createEl("div", { cls: "routine-chip-group" })
+    const inputs: HTMLInputElement[] = []
+    options.forEach(({ value, label }) => {
+      const chip = chipGroup.createEl("label", { cls: "routine-chip" })
       const checkbox = chip.createEl("input", {
         type: "checkbox",
         attr: { value },
       })
-      chip.createEl("span", { text: label, cls: "routine-chip__text" })
-      return checkbox
+      chip.createEl("span", { text: label, cls: "routine-chip__label" })
+      inputs.push(checkbox)
+    })
+    return inputs
+  }
+
+  private applyWeeklySelection(
+    inputs: HTMLInputElement[],
+    frontmatter: RoutineFrontmatter,
+  ): void {
+    const selected = this.getWeeklySelection(frontmatter)
+    inputs.forEach((input) => {
+      input.checked = selected.includes(parseInt(input.value, 10))
     })
   }
 
-  private getCheckedWeeks(
-    checkboxes: HTMLInputElement[],
-  ): Array<number | "last"> {
-    return checkboxes
-      .filter((checkbox) => checkbox.checked)
-      .map((checkbox) =>
-        checkbox.value === "last"
-          ? "last"
-          : Number.parseInt(checkbox.value, 10),
-      )
-      .filter(
-        (value): value is number | "last" =>
-          value === "last" || Number.isInteger(value),
-      )
+  private applyMonthlySelection(
+    weekInputs: HTMLInputElement[],
+    weekdayInputs: HTMLInputElement[],
+    frontmatter: RoutineFrontmatter,
+  ): void {
+    const weekSet = this.getMonthlyWeekSet(frontmatter)
+    const weekdaySet = this.getMonthlyWeekdaySet(frontmatter)
+    weekInputs.forEach((input) => {
+      input.checked = weekSet.has(input.value)
+    })
+    weekdayInputs.forEach((input) => {
+      input.checked = weekdaySet.has(input.value)
+    })
   }
 
-  private getCheckedDays(checkboxes: HTMLInputElement[]): number[] {
-    return checkboxes
-      .filter((checkbox) => checkbox.checked)
-      .map((checkbox) => Number.parseInt(checkbox.value, 10))
-      .filter((value) => Number.isInteger(value))
+  private applyMonthlyDateSelection(
+    inputs: HTMLInputElement[],
+    frontmatter: RoutineFrontmatter,
+  ): void {
+    const monthdaySet = this.getMonthlyMonthdaySet(frontmatter)
+    inputs.forEach((input) => {
+      input.checked = monthdaySet.has(input.value)
+    })
   }
 
-  private getCheckedMonthdays(
-    checkboxes: HTMLInputElement[],
-  ): Array<number | "last"> {
-    return checkboxes
-      .filter((checkbox) => checkbox.checked)
-      .map((checkbox) =>
-        checkbox.value === "last" ? "last" : Number.parseInt(checkbox.value, 10),
+  private formatMonthdayList(days: Array<number | "last">): string | null {
+    if (days.length === 0) return null
+    return days
+      .map((d) =>
+        d === "last"
+          ? this.tv("labels.monthdayLast", "Last day")
+          : this.tv("labels.monthdayNth", "{day}", { day: d }),
       )
-      .filter(
-        (value): value is number | "last" =>
-          value === "last" || Number.isInteger(value),
-      )
+      .join(", ")
   }
 
   private async handlePostSave(
     updatedFrontmatter: RoutineFrontmatter | null,
   ): Promise<void> {
     if (this.onSaved && updatedFrontmatter) {
-      try {
-        this.onSaved(updatedFrontmatter)
-      } catch (error) {
-        console.error("RoutineEditModal onSaved callback failed", error)
-      }
+      this.onSaved(updatedFrontmatter)
     }
-
-    try {
-      await this.refreshTaskView()
-    } catch (error) {
-      console.error("RoutineEditModal failed to refresh view", error)
-    }
+    await this.refreshTaskView()
   }
 
   private async refreshTaskView(): Promise<void> {
     const leaves = this.app.workspace.getLeavesOfType("taskchute-view")
-    if (!leaves.length) return
-
-    const leaf = leaves[0] as WorkspaceLeaf | undefined
-    const view = leaf?.view as TaskChuteViewLike | undefined
-    if (view?.reloadTasksAndRestore) {
-      await Promise.resolve(
-        view.reloadTasksAndRestore({ runBoundaryCheck: true }),
-      )
+    for (const leaf of leaves) {
+      const view = leaf.view as TaskChuteViewLike | undefined
+      if (view && typeof view.reloadTasksAndRestore === "function") {
+        await view.reloadTasksAndRestore({ runBoundaryCheck: false })
+      }
     }
   }
 }

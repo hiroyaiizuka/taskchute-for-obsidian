@@ -3,7 +3,7 @@ import type { App } from 'obsidian'
 import { getSlotFromTime } from '../../utils/time'
 import type { TaskInstance } from '../../types'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
-import TimeEditPopup from './TimeEditPopup'
+import { createTimePicker } from './TimePickerFactory'
 
 export interface TaskTimeControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -56,7 +56,7 @@ export default class TaskTimeController {
         ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
         : ''
 
-    const popup = new TimeEditPopup()
+    const popup = createTimePicker()
     popup.show({
       anchor,
       currentValue: toHM(inst.startTime),
@@ -102,7 +102,7 @@ export default class TaskTimeController {
         ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
         : ''
 
-    const popup = new TimeEditPopup()
+    const popup = createTimePicker()
     popup.show({
       anchor,
       currentValue: toHM(inst.stopTime),
