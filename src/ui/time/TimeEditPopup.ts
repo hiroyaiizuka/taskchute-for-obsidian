@@ -1,20 +1,14 @@
 import { Notice } from 'obsidian'
+import type { TimePicker, TimePickerOptions } from './TimePickerFactory'
 
-export interface TimeEditPopupOptions {
-  anchor: HTMLElement
-  currentValue: string
-  viewDate: Date
-  validationDate?: Date
-  tv?: (key: string, fallback: string, vars?: Record<string, string | number>) => string
-  onSave: (value: string) => void
-  onCancel: () => void
-}
+/** @deprecated Use TimePickerOptions from TimePickerFactory instead */
+export type TimeEditPopupOptions = TimePickerOptions
 
-export default class TimeEditPopup {
+export default class TimeEditPopup implements TimePicker {
   private containerEl: HTMLDivElement | null = null
-  private removeClickAway: (() => void) | null = null
+  private removeListeners: (() => void) | null = null
 
-  show(options: TimeEditPopupOptions): void {
+  show(options: TimePickerOptions): void {
     this.close()
 
     const { anchor, currentValue, viewDate, validationDate, onSave, onCancel } = options
@@ -28,6 +22,30 @@ export default class TimeEditPopup {
     input.value = currentValue
     input.classList.add('taskchute-time-popup-input')
     container.appendChild(input)
+
+    // Save button (✓)
+    const saveBtn = document.createElement('button')
+    saveBtn.type = 'button'
+    saveBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-save')
+    saveBtn.textContent = '✓'
+    saveBtn.setAttribute('aria-label', 'Save')
+    container.appendChild(saveBtn)
+
+    // Cancel button (✕)
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-cancel')
+    cancelBtn.textContent = '✕'
+    cancelBtn.setAttribute('aria-label', 'Cancel')
+    container.appendChild(cancelBtn)
+
+    // Reset button (clear time)
+    const resetBtn = document.createElement('button')
+    resetBtn.type = 'button'
+    resetBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-reset')
+    resetBtn.textContent = '↺'
+    resetBtn.setAttribute('aria-label', 'Reset')
+    container.appendChild(resetBtn)
 
     // Position below anchor
     document.body.appendChild(container)
@@ -49,7 +67,11 @@ export default class TimeEditPopup {
       return hours * 60 + minutes
     }
 
-    const handleSave = () => {
+    /**
+     * Validate and save the time value.
+     * @returns true if save succeeded, false if validation failed
+     */
+    const handleSave = (): boolean => {
       const val = input.value.trim()
       if (val && isValidationDateToday) {
         const now = new Date()
@@ -59,42 +81,114 @@ export default class TimeEditPopup {
             ? options.tv('forms.timeNotFuture', 'Time cannot be in the future')
             : 'Time cannot be in the future'
           new Notice(message)
-          return
+          return false // Validation failed
         }
       }
       onSave(val)
       this.close()
+      return true // Save succeeded
     }
 
+    // Guard to prevent duplicate saves from multiple triggers
+    let committed = false
+    const commitOnce = () => {
+      if (committed) return
+      // Only mark as committed if save actually succeeded
+      // This allows retry after validation failure
+      if (handleSave()) {
+        committed = true
+      }
+    }
+
+    // Keyboard shortcuts (desktop)
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault()
-        handleSave()
+        commitOnce()
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        onCancel()
-        this.close()
+        handleCancel()
       }
     })
 
-    // Click-away to save
-    const clickAway = (e: MouseEvent) => {
-      if (this.containerEl && !this.containerEl.contains(e.target as Node)) {
-        handleSave()
+    // Button handlers
+    const handleCancel = () => {
+      onCancel()
+      this.close()
+    }
+
+    // Helper to force close iOS native picker
+    const closeNativePicker = () => {
+      const originalType = input.type
+      input.type = 'text'
+      input.blur()
+      input.type = originalType
+    }
+
+    saveBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      closeNativePicker()
+      commitOnce()
+    })
+
+    cancelBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      closeNativePicker()
+      handleCancel()
+    })
+
+    resetBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      closeNativePicker()
+      // Clear the time value and save directly (bypass commitOnce guard)
+      onSave('')
+      this.close()
+    })
+
+    // Click-away behavior differs by device type:
+    // - Desktop (pointer: fine): click outside = save (traditional behavior)
+    // - Touch/Mobile (pointer: coarse): click outside = cancel (explicit save button required)
+    const isPointerFine = window.matchMedia?.('(pointer: fine)').matches ?? true
+
+    // Record open time to ignore events from the same interaction that opened the popup
+    const openTime = Date.now()
+    const DEBOUNCE_MS = 150 // Ignore events within 150ms of opening
+
+    const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
+      // Ignore events that happen too soon after opening (same interaction)
+      if (Date.now() - openTime < DEBOUNCE_MS) return
+
+      const target = e.target as Node
+      if (this.containerEl && !this.containerEl.contains(target)) {
+        if (isPointerFine) {
+          // Desktop: click outside = save (traditional behavior)
+          commitOnce()
+        } else {
+          // Touch/Mobile: click outside = cancel (user must explicitly click save button)
+          handleCancel()
+        }
       }
     }
-    setTimeout(() => {
-      document.addEventListener('click', clickAway, true)
-    }, 0)
-    this.removeClickAway = () => document.removeEventListener('click', clickAway, true)
+
+    // Register both click and touchend for better mobile support
+    document.addEventListener('click', handleOutsideInteraction, true)
+    document.addEventListener('touchend', handleOutsideInteraction, true)
+
+    this.removeListeners = () => {
+      document.removeEventListener('click', handleOutsideInteraction, true)
+      document.removeEventListener('touchend', handleOutsideInteraction, true)
+    }
 
     input.focus()
   }
 
   close(): void {
-    if (this.removeClickAway) {
-      this.removeClickAway()
-      this.removeClickAway = null
+    if (this.removeListeners) {
+      this.removeListeners()
+      this.removeListeners = null
     }
     if (this.containerEl) {
       this.containerEl.remove()

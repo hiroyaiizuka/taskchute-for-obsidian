@@ -1,3 +1,4 @@
+import { Platform } from 'obsidian'
 import type { TaskInstance } from '../../types'
 
 export interface TaskItemActionHost {
@@ -21,6 +22,54 @@ export interface TaskItemActionHost {
 export class TaskItemActionController {
   constructor(private readonly host: TaskItemActionHost) {}
 
+  /**
+   * Register both click and touchend events for mobile compatibility.
+   * On mobile, touchend fires before click, allowing immediate response.
+   * Only triggers on actual taps (not scrolls) by checking touch movement distance.
+   */
+  private registerTapEvent(element: HTMLElement, handler: (event: Event) => void): void {
+    // Always register click for desktop
+    this.host.registerManagedDomEvent(element, 'click', handler)
+
+    // On mobile, also register touch events for immediate response
+    if (Platform?.isMobile) {
+      const TAP_THRESHOLD = 10 // Max pixels of movement to still count as a tap
+      let touchStartX = 0
+      let touchStartY = 0
+
+      this.host.registerManagedDomEvent(element, 'touchstart', (event) => {
+        if (event instanceof TouchEvent && event.touches.length > 0) {
+          touchStartX = event.touches[0].clientX
+          touchStartY = event.touches[0].clientY
+          // Stop propagation to prevent parent elements from receiving touch events
+          event.stopPropagation()
+        }
+      })
+
+      this.host.registerManagedDomEvent(element, 'touchend', (event) => {
+        if (!(event instanceof TouchEvent)) return
+
+        // Stop propagation first
+        event.stopPropagation()
+
+        // Check if touch moved too much (indicates scroll, not tap)
+        if (event.changedTouches.length > 0) {
+          const touch = event.changedTouches[0]
+          const deltaX = Math.abs(touch.clientX - touchStartX)
+          const deltaY = Math.abs(touch.clientY - touchStartY)
+
+          if (deltaX > TAP_THRESHOLD || deltaY > TAP_THRESHOLD) {
+            // This was a scroll, not a tap - ignore
+            return
+          }
+        }
+
+        event.preventDefault() // Prevent click from firing
+        handler(event)
+      })
+    }
+  }
+
   renderProject(container: HTMLElement, inst: TaskInstance): void {
     const wrapper = container.createEl('span', { cls: 'taskchute-project-display' })
     const projectTitle = inst.task.projectTitle || ''
@@ -36,7 +85,7 @@ export class TaskItemActionController {
       })
       projectButton.createEl('span', { cls: 'taskchute-project-icon', text: '📁' })
       projectButton.createEl('span', { cls: 'taskchute-project-name', text: displayTitle })
-      this.host.registerManagedDomEvent(projectButton, 'click', (event) => {
+      this.registerTapEvent(projectButton, (event) => {
         event.stopPropagation()
         if (typeof this.host.showUnifiedProjectModal === 'function') {
           void this.host.showUnifiedProjectModal(inst)
@@ -52,7 +101,7 @@ export class TaskItemActionController {
           title: this.host.tv('project.openNote', 'Open project note'),
         },
       })
-      this.host.registerManagedDomEvent(externalLink, 'click', (event) => {
+      this.registerTapEvent(externalLink, (event) => {
         event.stopPropagation()
         const path = inst.task.projectPath ?? ''
         if (!path) return
@@ -69,7 +118,7 @@ export class TaskItemActionController {
         text: label,
         attr: { title: label },
       })
-      this.host.registerManagedDomEvent(placeholder, 'click', (event) => {
+      this.registerTapEvent(placeholder, (event) => {
         event.stopPropagation()
         if (typeof this.host.showProjectModal === 'function') {
           void this.host.showProjectModal(inst)
@@ -92,7 +141,7 @@ export class TaskItemActionController {
       button.setAttribute('disabled', 'true')
     }
 
-    this.host.registerManagedDomEvent(button, 'click', (event) => {
+    this.registerTapEvent(button, (event) => {
       void (async () => {
         event.stopPropagation()
         if (inst.state !== 'done') return
@@ -123,10 +172,14 @@ export class TaskItemActionController {
       },
     })
 
-    this.host.registerManagedDomEvent(button, 'click', (event) => {
+    this.registerTapEvent(button, (event) => {
       event.stopPropagation()
       if (inst.task.isRoutine) {
-        this.host.showRoutineEditModal(inst.task, button)
+        // Delay modal opening to ensure touch events are fully processed
+        // This prevents touch events from propagating to modal content
+        setTimeout(() => {
+          this.host.showRoutineEditModal(inst.task, button)
+        }, 50)
       } else {
         void this.host.toggleRoutine(inst.task, button)
       }
@@ -140,7 +193,7 @@ export class TaskItemActionController {
       attr: { title: this.host.tv('forms.taskSettings', 'Task settings') },
     })
 
-    this.host.registerManagedDomEvent(button, 'click', (event) => {
+    this.registerTapEvent(button, (event) => {
       event.stopPropagation()
       this.host.showTaskSettingsTooltip(inst, button)
     })

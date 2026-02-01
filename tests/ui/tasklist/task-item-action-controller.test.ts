@@ -171,7 +171,8 @@ describe('TaskItemActionController', () => {
     expect(host.showTaskCompletionModal).not.toHaveBeenCalled()
   })
 
-  test('renderRoutineButton toggles depending on routine flag', () => {
+  test('renderRoutineButton toggles depending on routine flag', async () => {
+    jest.useFakeTimers()
     const container = document.createElement('div')
     const { host } = createHost()
     const controller = new TaskItemActionController(host)
@@ -181,6 +182,8 @@ describe('TaskItemActionController', () => {
     const routineButton = container.querySelector('.routine-button') as HTMLButtonElement
     expect(routineButton?.classList.contains('active')).toBe(true)
     routineButton?.click()
+    // The click handler has a 50ms delay for mobile touch event handling
+    jest.advanceTimersByTime(50)
     expect(host.showRoutineEditModal).toHaveBeenCalledWith(routineInstance.task, routineButton)
 
     const nonRoutineContainer = document.createElement('div')
@@ -188,6 +191,7 @@ describe('TaskItemActionController', () => {
     const nonRoutineButton = nonRoutineContainer.querySelector('.routine-button') as HTMLButtonElement
     nonRoutineButton?.click()
     expect(host.toggleRoutine).toHaveBeenCalled()
+    jest.useRealTimers()
   })
 
   test('renderSettingsButton delegates to tooltip controller', () => {

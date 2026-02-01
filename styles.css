@@ -24,6 +24,56 @@
   color: var(--text-normal);
 }
 
+.taskchute-time-popup-btn {
+  /* Hidden by default (desktop) */
+  display: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+}
+
+/* Show buttons only on touch devices (mobile) */
+@media (pointer: coarse) {
+  .taskchute-time-popup-btn {
+    display: flex;
+  }
+}
+
+.taskchute-time-popup-btn-save {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.taskchute-time-popup-btn-save:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.taskchute-time-popup-btn-cancel {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.taskchute-time-popup-btn-cancel:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.taskchute-time-popup-btn-reset {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.taskchute-time-popup-btn-reset:hover {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+}
+
 
 
 .task-time-start.editable,
@@ -75,15 +125,30 @@
 
 .is-mobile .task-modal-overlay {
   align-items: flex-start !important;
-  padding-top: 70px !important;
+  padding-top: 50px !important;
+  padding-bottom: 20px !important;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content {
-  max-height: 50vh !important;
+  max-height: calc(100vh - 100px) !important;
+  overflow-y: auto !important;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header {
-  padding-left: 16px !important;
+  padding: 16px 50px 12px 16px !important;
+  position: relative !important;
+}
+
+.is-mobile .task-modal-overlay .task-modal-content .modal-header h3 {
+  font-size: 1rem !important;
+  line-height: 1.4 !important;
+  word-break: break-word !important;
+}
+
+.is-mobile .task-modal-overlay .task-modal-content .modal-header .modal-close-button {
+  position: absolute !important;
+  top: 6px !important;
+  right: 10px !important;
 }
 
 .is-mobile .taskchute-comment-modal {
@@ -4509,6 +4574,63 @@ select.form-input {
   max-width: min(600px, 90vw);
 }
 
+/* Hide Obsidian's default close button (direct child of modal) */
+.routine-edit-modal > .modal-close-button {
+  display: none !important;
+}
+
+/* Header with title and close button - applies to all custom modals */
+.task-modal-content .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.task-modal-content .modal-header h3,
+.task-modal-content .modal-header h4 {
+  margin: 0;
+  padding-right: 40px;
+  font-size: 1rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Close button positioned in header row - applies to all custom modals */
+.task-modal-content .modal-header .modal-close-button {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.task-modal-content .modal-header .modal-close-button:hover {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.task-modal-content .modal-header .modal-close-button svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+}
+
 .routine-form {
   display: flex;
   flex-direction: column;
@@ -5815,5 +5937,320 @@ select.form-input {
 }
 
 .backup-confirm-button:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* ===== Mobile Touch Improvements ===== */
+/* Disable double-tap zoom on interactive elements for better touch responsiveness */
+.routine-button,
+.settings-task-button,
+.comment-button,
+.time-display,
+.task-time-start.editable,
+.task-time-stop.editable,
+.task-time-range.editable,
+.drag-handle,
+.add-task-button,
+.date-nav-arrow,
+.calendar-btn,
+.drawer-toggle,
+.taskchute-button-save,
+.taskchute-button-cancel,
+.taskchute-button-primary,
+.taskchute-button-secondary,
+.taskchute-nav-button,
+.taskchute-project-button,
+.task-button,
+.form-button,
+.tooltip-item,
+.tooltip-close-button,
+.modal-close-button {
+  touch-action: manipulation;
+}
+
+/* Mobile devices: disable task-item hover effects entirely */
+/* This prevents unwanted hover effects when tapping settings button */
+@media (hover: none) {
+  /* Disable task-item hover background change on mobile */
+  .task-item:hover {
+    background: inherit !important;
+  }
+
+  /* Show routine/settings buttons at default visible opacity instead of hidden */
+  .routine-button,
+  .settings-task-button {
+    opacity: 0.6 !important;
+  }
+
+  .routine-button.active {
+    opacity: 1 !important;
+  }
+
+  /* Comment button: transparent by default, visible on tap */
+  /* Has comments (done state with active class): always visible */
+  .comment-button.active {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  /* Done state without comments: invisible but tappable, shows on :active */
+  .comment-button.no-comment {
+    opacity: 0 !important;
+    visibility: visible !important;
+  }
+
+  .comment-button.no-comment:active {
+    opacity: 0.8 !important;
+  }
+
+  /* Idle/running state (disabled): completely hidden */
+  .comment-button:disabled {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  /* Drag handle: invisible by default, visible on tap */
+  .drag-handle:not(.disabled) {
+    opacity: 0 !important;
+  }
+
+  .drag-handle:not(.disabled):active {
+    opacity: 0.6 !important;
+  }
+
+  .drag-handle.disabled {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* Time range (start time): invisible by default, visible on tap/hover */
+  /* On iOS, tapping triggers :hover state which persists until tapping elsewhere */
+  .task-time-range.time-hidden {
+    opacity: 0 !important;
+    visibility: visible !important;
+  }
+
+  .task-time-range.time-hidden:hover,
+  .task-time-range.time-hidden:active {
+    opacity: 1 !important;
+  }
+
+  /* Tap feedback using :active instead of :hover */
+  .routine-button:active,
+  .settings-task-button:active {
+    opacity: 1 !important;
+    background: var(--background-modifier-border) !important;
+  }
+
+  /* Disable hover-triggered visibility/opacity changes on mobile */
+  .task-item:hover .task-time-range.time-hidden,
+  .task-item:hover .comment-button,
+  .task-item:hover .comment-button.no-comment,
+  .task-item:hover .comment-button.active,
+  .task-item:hover .drag-handle,
+  .task-item:hover .drag-handle.disabled,
+  .task-item:hover .taskchute-project-placeholder,
+  .task-item:hover .routine-button,
+  .task-item:hover .settings-task-button {
+    /* Override hover states - inherit from base mobile styles above */
+  }
+}
+
+/* PC only: enable hover styles */
+@media (hover: hover) and (pointer: fine) {
+  .routine-button:hover,
+  .settings-task-button:hover {
+    opacity: 1;
+  }
+}
+
+/* ===== Mobile Time Picker (Drum Roller UI) ===== */
+
+/* Overlay background */
+.taskchute-mobile-time-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 9998;
+  transition: background 0.3s ease;
+}
+
+.taskchute-mobile-time-picker-overlay-visible {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Main container - slides up from bottom */
+.taskchute-mobile-time-picker {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--background-primary);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  padding: 16px 16px 32px 16px;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+.taskchute-mobile-time-picker-visible {
+  transform: translateY(0);
+}
+
+/* Header */
+.taskchute-mobile-time-picker-header {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-normal);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 16px;
+}
+
+/* Wheels container */
+.taskchute-mobile-time-picker-wheels {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  padding: 0 20px;
+}
+
+/* Section (hour or minute) */
+.taskchute-mobile-time-picker-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Label (時/分) */
+.taskchute-mobile-time-picker-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+/* Separator (:) */
+.taskchute-mobile-time-picker-separator {
+  font-size: 32px;
+  font-weight: bold;
+  color: var(--text-normal);
+  margin: 0 4px;
+  align-self: flex-start;
+  margin-top: 54px;
+}
+
+/* Wheel scroll container */
+.taskchute-time-wheel {
+  width: 80px;
+  height: 132px;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.taskchute-time-wheel::-webkit-scrollbar {
+  display: none;
+}
+
+/* Padding elements for top/bottom centering */
+.taskchute-time-wheel-padding {
+  height: 44px;
+  scroll-snap-align: center;
+}
+
+/* Individual wheel item */
+.taskchute-time-wheel-item {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--text-muted);
+  scroll-snap-align: center;
+  transition: color 0.15s ease, font-size 0.15s ease;
+}
+
+/* Highlight bar (selection indicator) */
+.taskchute-mobile-time-picker-highlight {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 44px;
+  height: 44px;
+  background: var(--background-modifier-hover);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Buttons container */
+.taskchute-mobile-time-picker-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 24px;
+  padding: 0 8px;
+  gap: 12px;
+}
+
+/* Button base */
+.taskchute-mobile-time-picker-btn {
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.taskchute-mobile-time-picker-btn:active {
+  transform: scale(0.96);
+}
+
+/* Reset button */
+.taskchute-mobile-time-picker-btn-reset {
+  width: 44px;
+  height: 44px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 20px;
+}
+
+.taskchute-mobile-time-picker-btn-reset:hover,
+.taskchute-mobile-time-picker-btn-reset:active {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+}
+
+/* Cancel button */
+.taskchute-mobile-time-picker-btn-cancel {
+  flex: 1;
+  height: 44px;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.taskchute-mobile-time-picker-btn-cancel:hover,
+.taskchute-mobile-time-picker-btn-cancel:active {
+  background: var(--background-modifier-hover);
+}
+
+/* Save button */
+.taskchute-mobile-time-picker-btn-save {
+  flex: 1;
+  height: 44px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.taskchute-mobile-time-picker-btn-save:hover,
+.taskchute-mobile-time-picker-btn-save:active {
   background: var(--interactive-accent-hover);
 }

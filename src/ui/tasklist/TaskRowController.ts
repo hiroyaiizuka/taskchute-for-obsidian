@@ -1,4 +1,4 @@
-import { Notice } from 'obsidian'
+import { Notice, Platform } from 'obsidian'
 import type { TaskInstance } from '../../types'
 import { ReminderIconRenderer } from '../../features/reminder/ui/ReminderIconRenderer'
 
@@ -20,6 +20,61 @@ export interface TaskRowControllerHost {
 
 export default class TaskRowController {
   constructor(private readonly host: TaskRowControllerHost) {}
+
+  /**
+   * Register both click and touchend events for mobile compatibility.
+   * Only triggers on actual taps (not scrolls) by checking touch movement distance.
+   */
+  private registerTapEvent(element: HTMLElement, handler: (event: Event) => void): void {
+    if (Platform?.isMobile) {
+      // On mobile, use touchend only to prevent double-firing with click
+      const TAP_THRESHOLD = 10
+      let touchStartX = 0
+      let touchStartY = 0
+      let touchHandled = false
+
+      element.addEventListener('touchstart', (event) => {
+        touchHandled = false
+        if (event.touches.length > 0) {
+          touchStartX = event.touches[0].clientX
+          touchStartY = event.touches[0].clientY
+          event.stopPropagation()
+        }
+      })
+
+      element.addEventListener('touchend', (event) => {
+        event.stopPropagation()
+        event.preventDefault() // Prevent subsequent click event
+
+        if (event.changedTouches.length > 0) {
+          const touch = event.changedTouches[0]
+          const deltaX = Math.abs(touch.clientX - touchStartX)
+          const deltaY = Math.abs(touch.clientY - touchStartY)
+
+          if (deltaX > TAP_THRESHOLD || deltaY > TAP_THRESHOLD) {
+            return // Scroll, not tap
+          }
+        }
+
+        touchHandled = true
+        handler(event)
+      })
+
+      // Fallback click handler in case touch events don't work
+      element.addEventListener('click', (event) => {
+        if (touchHandled) {
+          // Already handled by touchend, ignore click
+          touchHandled = false
+          event.stopPropagation()
+          return
+        }
+        handler(event)
+      })
+    } else {
+      // On desktop, use click only
+      element.addEventListener('click', handler)
+    }
+  }
 
   renderPlayStopButton(taskItem: HTMLElement, inst: TaskInstance, isFutureTask: boolean): void {
     let cls = 'play-stop-button'
@@ -49,7 +104,7 @@ export default class TaskRowController {
       button.disabled = true
     }
 
-    button.addEventListener('click', (e) => {
+    this.registerTapEvent(button, (e) => {
       void (async () => {
         e.stopPropagation()
         if (isFutureTask) {
@@ -90,7 +145,7 @@ export default class TaskRowController {
       text: displayName,
     })
 
-    taskName.addEventListener('click', (e) => {
+    this.registerTapEvent(taskName, (e) => {
       void (async () => {
         e.stopPropagation()
         if (!inst.task.path) {
@@ -151,7 +206,7 @@ export default class TaskRowController {
       timeRangeEl.classList.add('time-hidden')
     }
 
-    startSpan.addEventListener('click', (e) => {
+    this.registerTapEvent(startSpan, (e) => {
       e.stopPropagation()
       this.host.showStartTimePopup(inst, startSpan)
     })
@@ -159,7 +214,7 @@ export default class TaskRowController {
     // Stop span clickable only when startTime exists
     if (inst.startTime) {
       stopSpan.classList.add('editable')
-      stopSpan.addEventListener('click', (e) => {
+      this.registerTapEvent(stopSpan, (e) => {
         e.stopPropagation()
         this.host.showStopTimePopup(inst, stopSpan)
       })
