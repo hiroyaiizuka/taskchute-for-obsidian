@@ -352,6 +352,12 @@
 .task-form {
   padding: 20px;
 }
+.task-modal-content .task-form {
+  padding-top: 10px;
+}
+.task-modal-content .task-form .form-button-group {
+  margin-top: 28px;
+}
 .form-group {
   margin-bottom: 15px;
 }
@@ -2067,10 +2073,8 @@ select.form-input {
   gap: 20px;
 }
 
-.project-settings-modal-content .modal-header {
-  border-bottom: none;
-  padding: 20px 20px 12px 20px;
-  margin-bottom: 0;
+.project-settings-modal-content .modal-header h3 {
+  font-size: 1.15rem;
 }
 
 .project-settings-modal-content .project-settings-body {
@@ -4257,7 +4261,7 @@ select.form-input {
   display: flex;
   gap: 12px;
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 13px;
 }
 
 .form-button {
@@ -4596,7 +4600,8 @@ select.form-input {
 .task-modal-content .modal-header h4 {
   margin: 0;
   padding-right: 40px;
-  font-size: 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
   line-height: 1.4;
   word-break: break-word;
 }
@@ -4604,7 +4609,7 @@ select.form-input {
 /* Close button positioned in header row - applies to all custom modals */
 .task-modal-content .modal-header .modal-close-button {
   position: absolute;
-  top: 8px;
+  top: 10px;
   right: 12px;
   width: 28px;
   height: 28px;
