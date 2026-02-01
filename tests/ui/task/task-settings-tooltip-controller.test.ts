@@ -226,6 +226,58 @@ const createTimeController = () => {
     jest.useRealTimers()
   })
 
+  describe('project menu item', () => {
+    test('appendProject renders menu item when host supports showProjectModal', () => {
+      const showProjectModal = jest.fn()
+      const host = createHost({ showProjectModal })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance()
+
+      controller.show(instance, anchor)
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      const items = Array.from(tooltip.querySelectorAll<HTMLElement>('.tooltip-item'))
+      const projectItem = items.find((item) => item.textContent?.includes('project'))
+      expect(projectItem).toBeTruthy()
+    })
+
+    test('appendProject invokes showProjectModal on click and closes tooltip', async () => {
+      const showProjectModal = jest.fn()
+      const host = createHost({ showProjectModal })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance()
+
+      controller.show(instance, anchor)
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      const items = Array.from(tooltip.querySelectorAll<HTMLElement>('.tooltip-item'))
+      const projectItem = items.find((item) => item.textContent?.includes('project'))
+      projectItem?.click()
+      await flush()
+
+      expect(showProjectModal).toHaveBeenCalledWith(instance)
+      expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+    })
+
+    test('appendProject is not rendered when host lacks showProjectModal', () => {
+      const host = createHost({ showProjectModal: undefined })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance()
+
+      controller.show(instance, anchor)
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      const items = Array.from(tooltip.querySelectorAll<HTMLElement>('.tooltip-item'))
+      const projectItem = items.find((item) => item.textContent?.includes('project'))
+      expect(projectItem).toBeUndefined()
+    })
+  })
+
   test('show replaces existing tooltip', () => {
     const host = createHost()
     const controller = new TaskSettingsTooltipController(host)

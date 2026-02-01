@@ -14,6 +14,7 @@ export interface TaskSettingsTooltipHost {
   showReminderSettingsDialog?: (inst: TaskInstance) => void
   openGoogleCalendarExport?: (inst: TaskInstance) => void
   isGoogleCalendarEnabled?: () => boolean
+  showProjectModal?: (inst: TaskInstance) => void
 }
 
 export default class TaskSettingsTooltipController {
@@ -67,13 +68,20 @@ export default class TaskSettingsTooltipController {
     this.appendDuplicate(inst, tooltip)
     void this.appendDelete(inst, tooltip)
     this.appendReset(inst, tooltip)
+    this.appendProject(inst, tooltip)
     this.appendStartTime(inst, tooltip)
     this.appendReminder(inst, tooltip)
     this.appendGoogleCalendar(inst, tooltip)
 
+    // Add tooltip to DOM first to measure actual dimensions
+    tooltip.classList.add('is-measuring')
+    document.body.appendChild(tooltip)
+
     const rect = anchor.getBoundingClientRect()
-    const width = 200
-    const height = 250
+    const tooltipRect = tooltip.getBoundingClientRect()
+    const width = Math.max(tooltipRect.width, tooltip.scrollWidth, tooltip.offsetWidth)
+    const height = Math.max(tooltipRect.height, tooltip.scrollHeight, tooltip.offsetHeight)
+
     let top = rect.bottom + 5
     if (top + height > window.innerHeight) {
       top = Math.max(rect.top - height - 5, 0)
@@ -84,8 +92,7 @@ export default class TaskSettingsTooltipController {
     }
     tooltip.style.setProperty('--taskchute-tooltip-left', `${left}px`)
     tooltip.style.setProperty('--taskchute-tooltip-top', `${top}px`)
-
-    document.body.appendChild(tooltip)
+    tooltip.classList.remove('is-measuring')
 
     // Click-away to close (with mobile touch support)
     // Record open time to ignore events from the same interaction that opened the tooltip
@@ -124,6 +131,28 @@ export default class TaskSettingsTooltipController {
         tooltip.remove()
         await this.host.resetTaskToIdle(inst)
       })()
+    })
+  }
+
+  private appendProject(inst: TaskInstance, tooltip: HTMLElement): void {
+    if (!this.host.showProjectModal) {
+      return
+    }
+
+    const label = this.host.tv('buttons.setProject', '📁 Set project')
+
+    const item = tooltip.createEl('div', {
+      cls: 'tooltip-item',
+      text: label,
+      attr: {
+        title: this.host.tv('forms.projectDescription', 'Assign or change project'),
+      },
+    })
+
+    item.addEventListener('click', (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.showProjectModal!(inst)
     })
   }
 

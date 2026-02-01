@@ -1815,6 +1815,10 @@ select.form-input {
   top: var(--taskchute-tooltip-top, 0);
 }
 
+.taskchute-tooltip.is-measuring {
+  visibility: hidden;
+}
+
 /* タスクハイライト */
 .taskchute-task-highlight {
   background-color: var(--background-secondary);

@@ -368,6 +368,7 @@ export class TaskChuteView
         this.openGoogleCalendarExport(inst),
       isGoogleCalendarEnabled: () =>
         this.plugin.settings.googleCalendar?.enabled === true,
+      showProjectModal: (inst) => this.projectController.showProjectModal(inst),
     })
     this.taskHeaderController = new TaskHeaderController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
