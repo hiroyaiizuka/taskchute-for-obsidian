@@ -7,6 +7,7 @@ export interface PluginStub {
   store: Map<string, string>
   deltaStore: Map<string, string>
   abstractStore: Map<string, TFolder | TFile>
+  recordStore: Map<string, string>
 }
 
 function createTFile(path: string) {
@@ -78,6 +79,7 @@ export function createPluginStub(): PluginStub {
   const store = new Map<string, string>()
   const deltaStore = new Map<string, string>()
   const abstractStore = new Map<string, TFolder | TFile>()
+  const recordStore = new Map<string, string>()
 
   const logRoot = createTFolder('LOGS')
   abstractStore.set('LOGS', logRoot)
@@ -86,8 +88,16 @@ export function createPluginStub(): PluginStub {
 
   const vault = {
     adapter: {
-      read: jest.fn(async (path: string) => deltaStore.get(path) ?? ''),
+      read: jest.fn(async (path: string) => {
+        // recordStoreを優先してチェック
+        if (recordStore.has(path)) return recordStore.get(path) ?? ''
+        return deltaStore.get(path) ?? ''
+      }),
       write: jest.fn(async (path: string, data: string) => {
+        // recordsパスの場合はrecordStoreに書き込む
+        if (path.startsWith('LOGS/records/')) {
+          recordStore.set(path, data)
+        }
         deltaStore.set(path, data)
       }),
     },
@@ -109,6 +119,7 @@ export function createPluginStub(): PluginStub {
 
   const pathManager = {
     getLogDataPath: () => 'LOGS',
+    getLogRecordsPath: () => 'LOGS/records',
     ensureFolderExists: jest.fn().mockResolvedValue(undefined),
     getLogYearPath: jest.fn(),
     ensureYearFolder: jest.fn(),
@@ -134,7 +145,7 @@ export function createPluginStub(): PluginStub {
     },
   }
 
-  return { plugin, store, deltaStore, abstractStore }
+  return { plugin, store, deltaStore, abstractStore, recordStore }
 }
 
 export function seedDeltaFile(
