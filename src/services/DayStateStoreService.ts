@@ -1,6 +1,6 @@
 import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI } from '../types';
 import { renamePathsInDayState } from './dayState/pathRename';
-import { getEffectiveDeletedAt, isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from './dayState/conflictResolver';
+import { getEffectiveDeletedAt, isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from './dayState/conflictResolver';
 
 export interface DayStateStoreServiceOptions {
   dayStateService: DayStateServiceAPI;
@@ -201,13 +201,7 @@ export class DayStateStoreService {
         return true;
       }
 
-      const restoredAt = entry.restoredAt ?? 0;
-      if (restoredAt > 0) {
-        return false;
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-      const ts = entry.deletedAt ?? entry.timestamp;
-      return !(typeof ts === 'number' && Number.isFinite(ts));
+      return isLegacyDeletionEntry(entry);
     });
   }
 

@@ -14,7 +14,7 @@ import {
 import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields'
 import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -85,16 +85,6 @@ const DEFAULT_SLOT_KEY = 'none'
 
 function resolveTaskId(metadata?: TaskFrontmatterWithLegacy): string | undefined {
   return extractTaskIdFromFrontmatter(metadata as Record<string, unknown> | undefined)
-}
-
-function isLegacyDeletionEntry(entry: DeletedInstance): boolean {
-  const restoredAt = entry.restoredAt ?? 0
-  if (restoredAt > 0) {
-    return false
-  }
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-  const ts = entry.deletedAt ?? entry.timestamp
-  return !(typeof ts === 'number' && Number.isFinite(ts))
 }
 
 function promoteDeletedEntriesToTaskId(
@@ -620,9 +610,8 @@ async function shouldShowNonRoutineTask(
   let missingDeletionTimestamp = false
   let latestDeletionTimestamp: number | undefined
   for (const entry of legacyPathDeletions) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-    const ts = entry.deletedAt ?? entry.timestamp
-    if (typeof ts === 'number' && Number.isFinite(ts)) {
+    const ts = getEffectiveDeletedAt(entry)
+    if (ts > 0) {
       latestDeletionTimestamp =
         latestDeletionTimestamp === undefined
           ? ts

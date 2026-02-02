@@ -62,7 +62,7 @@ import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
-import { isDeleted as isDeletedEntry } from "../../../services/dayState/conflictResolver"
+import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "review" | "log" | "settings" | null = null
@@ -806,8 +806,7 @@ export class TaskChuteView
     // Set restoredAt instead of removing the entry (for sync propagation)
     const current = deleted[targetIdx]
     const now = Date.now()
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-    const deletedAt = current.deletedAt ?? current.timestamp ?? 0
+    const deletedAt = getEffectiveDeletedAt(current)
     const minRestoredAt = deletedAt > 0 ? deletedAt + 1 : now
     const prevRestoredAt = current.restoredAt ?? 0
     const restoredAt = Math.max(prevRestoredAt, now, minRestoredAt)
@@ -987,13 +986,7 @@ export class TaskChuteView
         if (isDeletedEntry(entry)) {
           return true
         }
-        const restoredAt = entry.restoredAt ?? 0
-        if (restoredAt > 0) {
-          return false
-        }
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-        const ts = entry.deletedAt ?? entry.timestamp
-        return !(typeof ts === "number" && Number.isFinite(ts))
+        return isLegacyDeletionEntry(entry)
       })
       if (alreadyHidden) {
         return
@@ -1179,8 +1172,7 @@ export class TaskChuteView
 
         if (shouldRestore) {
           const prevRestoredAt = entry.restoredAt ?? 0
-          // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-          const deletedAt = entry.deletedAt ?? entry.timestamp ?? 0
+          const deletedAt = getEffectiveDeletedAt(entry)
           const minRestoredAt = deletedAt > 0 ? deletedAt + 1 : now
           const nextRestoredAt = Math.max(prevRestoredAt, now, minRestoredAt)
           if (nextRestoredAt !== prevRestoredAt) {
@@ -1296,7 +1288,7 @@ export class TaskChuteView
         .filter(
           (inst) =>
             inst.deletionType === "permanent" &&
-            (isDeletedEntry(inst) || this.isLegacyDeletionEntry(inst)),
+            (isDeletedEntry(inst) || isLegacyDeletionEntry(inst)),
         )
         .map((inst) => inst.path)
         .filter((path): path is string => typeof path === "string")
@@ -2050,16 +2042,6 @@ export class TaskChuteView
     return `${normalizedFolder}/${trimmed}.md`
   }
 
-  private isLegacyDeletionEntry(entry: DeletedInstance): boolean {
-    const restoredAt = entry.restoredAt ?? 0
-    if (restoredAt > 0) {
-      return false
-    }
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-    const ts = entry.deletedAt ?? entry.timestamp
-    return !(typeof ts === "number" && Number.isFinite(ts))
-  }
-
   private findDeletedTaskRestoreCandidate(taskName: string): DeletedTaskRestoreCandidate | null {
     const path = this.buildTaskPathFromName(taskName)
     if (!path) {
@@ -2071,7 +2053,7 @@ export class TaskChuteView
       (entry) =>
         entry?.deletionType === "permanent" &&
         entry.path === path &&
-        (isDeletedEntry(entry) || this.isLegacyDeletionEntry(entry)),
+        (isDeletedEntry(entry) || isLegacyDeletionEntry(entry)),
     )
     if (!match) {
       return null
@@ -2115,11 +2097,9 @@ export class TaskChuteView
     if (a.taskId && b.taskId && a.taskId === b.taskId) return true
     if (a.instanceId && b.instanceId && a.instanceId === b.instanceId) return true
     if (a.path && b.path && a.path === b.path) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-      const aTime = a.deletedAt ?? a.timestamp
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-      const bTime = b.deletedAt ?? b.timestamp
-      if (aTime && bTime) {
+      const aTime = getEffectiveDeletedAt(a)
+      const bTime = getEffectiveDeletedAt(b)
+      if (aTime > 0 && bTime > 0) {
         return aTime === bTime
       }
       return true
