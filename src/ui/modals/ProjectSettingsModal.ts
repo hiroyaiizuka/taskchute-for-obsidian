@@ -1,158 +1,227 @@
-import { App, Modal, Notice, TFile } from 'obsidian'
+import { Notice, TFile } from 'obsidian'
 import { t } from '../../i18n'
 import type { TaskChutePluginLike } from '../../types'
+import { attachCloseButtonIcon } from '../components/iconUtils'
 
 export interface ProjectSettingsModalOptions {
-  app: App
-  plugin: TaskChutePluginLike
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  plugin: TaskChutePluginLike
   displayTitle: string
   projectFiles: TFile[]
   currentProjectPath?: string | null
   onSubmit: (projectPath: string) => Promise<void>
+  context?: {
+    doc?: Document
+    win?: Window & typeof globalThis
+  }
 }
 
-export default class ProjectSettingsModal extends Modal {
-  private readonly plugin: TaskChutePluginLike
-  private readonly tv: ProjectSettingsModalOptions['tv']
-  private readonly displayTitle: string
-  private readonly projectFiles: TFile[]
-  private readonly currentProjectPath?: string | null
-  private readonly onSubmit: (projectPath: string) => Promise<void>
+export interface ProjectSettingsModalHandle {
+  overlay: HTMLElement
+  close: () => void
+}
 
-  constructor(app: App, options: ProjectSettingsModalOptions) {
-    super(app)
-    this.plugin = options.plugin
-    this.tv = options.tv
-    this.displayTitle = options.displayTitle
-    this.projectFiles = options.projectFiles
-    this.currentProjectPath = options.currentProjectPath
-    this.onSubmit = options.onSubmit
-  }
+export function createProjectSettingsModal(options: ProjectSettingsModalOptions): ProjectSettingsModalHandle {
+  const doc = options.context?.doc ?? document
+  const tv = options.tv
 
-  onOpen(): void {
-    const { contentEl } = this
-    contentEl.empty()
-    contentEl.classList.add('project-settings-modal-content')
+  const overlay = doc.createElement('div')
+  overlay.className = 'task-modal-overlay'
 
-    const header = contentEl.createEl('div', { cls: 'modal-header' })
-    header.createEl('h3', {
-      text: this.tv(
-        'project.settingsTitle',
-        `Project settings for "${this.displayTitle}"`,
-        { title: this.displayTitle },
-      ),
-    })
+  const content = doc.createElement('div')
+  content.className = 'task-modal-content project-settings-modal-content'
+  overlay.appendChild(content)
 
+  // Header
+  const header = doc.createElement('div')
+  header.className = 'modal-header'
+  content.appendChild(header)
 
-    const body = contentEl.createEl('div', { cls: 'project-settings-body' })
+  const title = doc.createElement('h3')
+  title.textContent = tv(
+    'project.settingsTitle',
+    `Project settings for "${options.displayTitle}"`,
+    { title: options.displayTitle },
+  )
+  header.appendChild(title)
 
-    if (this.projectFiles.length === 0) {
-      body.createEl('p', {
-        text: this.tv('project.noFiles', 'No project files found in the configured folder.'),
-        cls: 'form-description',
-      })
-      const footer = this.renderFooter(contentEl)
-      const cancel = footer.querySelector('.form-button.cancel') as HTMLButtonElement
-      cancel.textContent = t('common.close', 'Close')
-      // rely on default modal close button
-      cancel.addEventListener('click', () => this.close())
-      return
+  const closeButton = doc.createElement('button')
+  closeButton.className = 'modal-close-button'
+  closeButton.setAttribute('aria-label', t('common.close', 'Close'))
+  closeButton.setAttribute('title', t('common.close', 'Close'))
+  closeButton.setAttribute('type', 'button')
+  attachCloseButtonIcon(closeButton)
+  header.appendChild(closeButton)
+
+  // Body
+  const body = doc.createElement('div')
+  body.className = 'project-settings-body'
+  content.appendChild(body)
+
+  let closed = false
+  const close = () => {
+    if (closed) return
+    closed = true
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay)
     }
-
-    const form = body.createEl('form', { cls: 'task-form project-settings-form' })
-
-    const selectGroup = form.createEl('div', { cls: 'form-group project-select-group' })
-    const projectSelect = selectGroup.createEl('select', { cls: 'form-input' })
-    projectSelect.setAttr('aria-label', this.tv('project.selectLabel', 'Select project:'))
-
-    // Remove/None option
-    if (this.currentProjectPath) {
-      projectSelect.createEl('option', {
-        value: '',
-        text: this.tv('buttons.removeProject', '➖ Remove project'),
-      })
-    } else {
-      const noneOption = projectSelect.createEl('option', {
-        value: '',
-        text: this.tv('project.none', 'No project'),
-      })
-      noneOption.selected = true
-    }
-
-    this.projectFiles.forEach((file) => {
-      const option = projectSelect.createEl('option', {
-        value: file.path,
-        text: this.getDisplayName(file.basename),
-      })
-      if (file.path === this.currentProjectPath) {
-        option.selected = true
-      }
-    })
-
-    const descriptionGroup = form.createEl('div', { cls: 'form-group' })
-    descriptionGroup.createEl('p', {
-      text: this.currentProjectPath
-        ? this.tv(
-            'project.instructionsLinked',
-            'Select another project or choose "Remove project" to clear the assignment.',
-          )
-        : this.tv(
-            'project.instructionsUnlinked',
-            'Assigning a project lets you review related tasks from the project page.',
-          ),
-      cls: 'form-description',
-    })
-
-    const footer = this.renderFooter(form)
-    const cancelButton = footer.querySelector('.form-button.cancel') as HTMLButtonElement
-    const submitButton = footer.querySelector('.form-button.create') as HTMLButtonElement
-
-    form.addEventListener('submit', (event) => {
-      void (async () => {
-        event.preventDefault()
-        submitButton.disabled = true
-        cancelButton.disabled = true
-        try {
-          await this.onSubmit(projectSelect.value)
-          this.close()
-        } catch (error) {
-          console.error('[ProjectSettingsModal] Failed to save project', error)
-          new Notice(this.tv('notices.projectSetFailed', 'Failed to set project'))
-          submitButton.disabled = false
-          cancelButton.disabled = false
-        }
-      })()
-    })
-
-    cancelButton.addEventListener('click', () => this.close())
   }
 
-  onClose(): void {
-    this.contentEl.empty()
-    this.contentEl.classList.remove('project-settings-modal-content')
+  closeButton.addEventListener('click', close)
+
+  // Empty state
+  if (options.projectFiles.length === 0) {
+    const emptyMessage = doc.createElement('p')
+    emptyMessage.className = 'form-description'
+    emptyMessage.textContent = tv('project.noFiles', 'No project files found in the configured folder.')
+    body.appendChild(emptyMessage)
+
+    const footer = doc.createElement('div')
+    footer.className = 'form-button-group project-settings-actions'
+    body.appendChild(footer)
+
+    const cancelButton = doc.createElement('button')
+    cancelButton.type = 'button'
+    cancelButton.className = 'form-button cancel'
+    cancelButton.textContent = t('common.close', 'Close')
+    cancelButton.addEventListener('click', close)
+    footer.appendChild(cancelButton)
+
+    doc.body.appendChild(overlay)
+    return { overlay, close }
   }
 
-  private renderFooter(parent: HTMLElement): HTMLElement {
-    const footer = parent.createEl('div', { cls: 'form-button-group project-settings-actions' })
-    footer.createEl('button', {
-      type: 'button',
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'Cancel'),
-    })
-    footer.createEl('button', {
-      type: 'submit',
-      cls: 'form-button create',
-      text: this.tv('buttons.save', 'Save'),
-    })
-    return footer
+  // Form
+  const form = doc.createElement('form')
+  form.className = 'task-form project-settings-form'
+  body.appendChild(form)
+
+  const selectGroup = doc.createElement('div')
+  selectGroup.className = 'form-group project-select-group'
+  form.appendChild(selectGroup)
+
+  const projectSelect = doc.createElement('select')
+  projectSelect.className = 'form-input'
+  projectSelect.setAttribute('aria-label', tv('project.selectLabel', 'Select project:'))
+  selectGroup.appendChild(projectSelect)
+
+  // Options
+  if (options.currentProjectPath) {
+    const removeOption = doc.createElement('option')
+    removeOption.value = ''
+    removeOption.textContent = tv('buttons.removeProject', '➖ Remove project')
+    projectSelect.appendChild(removeOption)
+  } else {
+    const noneOption = doc.createElement('option')
+    noneOption.value = ''
+    noneOption.textContent = tv('project.none', 'No project')
+    noneOption.selected = true
+    projectSelect.appendChild(noneOption)
   }
 
-  private getDisplayName(basename: string): string {
-    const prefix = this.plugin.settings.projectTitlePrefix ?? ''
+  const getDisplayName = (basename: string): string => {
+    const prefix = options.plugin.settings.projectTitlePrefix ?? ''
     if (prefix && basename.startsWith(prefix)) {
       return basename.slice(prefix.length).trimStart()
     }
     return basename
+  }
+
+  options.projectFiles.forEach((file) => {
+    const option = doc.createElement('option')
+    option.value = file.path
+    option.textContent = getDisplayName(file.basename)
+    if (file.path === options.currentProjectPath) {
+      option.selected = true
+    }
+    projectSelect.appendChild(option)
+  })
+
+  // Buttons
+  const footer = doc.createElement('div')
+  footer.className = 'form-button-group project-settings-actions'
+  form.appendChild(footer)
+
+  const cancelButton = doc.createElement('button')
+  cancelButton.type = 'button'
+  cancelButton.className = 'form-button cancel'
+  cancelButton.textContent = t('common.cancel', 'Cancel')
+  cancelButton.addEventListener('click', close)
+  footer.appendChild(cancelButton)
+
+  const submitButton = doc.createElement('button')
+  submitButton.type = 'submit'
+  submitButton.className = 'form-button create'
+  submitButton.textContent = tv('buttons.save', 'Save')
+  footer.appendChild(submitButton)
+
+  form.addEventListener('submit', (event) => {
+    void (async () => {
+      event.preventDefault()
+      submitButton.disabled = true
+      cancelButton.disabled = true
+      try {
+        await options.onSubmit(projectSelect.value)
+        close()
+      } catch (error) {
+        console.error('[ProjectSettingsModal] Failed to save project', error)
+        new Notice(tv('notices.projectSetFailed', 'Failed to set project'))
+        submitButton.disabled = false
+        cancelButton.disabled = false
+      }
+    })()
+  })
+
+  doc.body.appendChild(overlay)
+
+  return { overlay, close }
+}
+
+// Legacy class for backward compatibility
+export default class ProjectSettingsModal {
+  private handle: ProjectSettingsModalHandle | null = null
+
+  constructor(
+    _app: unknown,
+    private readonly options: {
+      app: unknown
+      plugin: TaskChutePluginLike
+      tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+      displayTitle: string
+      projectFiles: TFile[]
+      currentProjectPath?: string | null
+      onSubmit: (projectPath: string) => Promise<void>
+    },
+  ) {}
+
+  open(): void {
+    this.handle = createProjectSettingsModal({
+      tv: this.options.tv,
+      plugin: this.options.plugin,
+      displayTitle: this.options.displayTitle,
+      projectFiles: this.options.projectFiles,
+      currentProjectPath: this.options.currentProjectPath,
+      onSubmit: this.options.onSubmit,
+    })
+  }
+
+  close(): void {
+    this.handle?.close()
+    this.handle = null
+  }
+
+  // For test compatibility
+  get contentEl(): HTMLElement & { children: HTMLElement[]; empty: () => void; classList: DOMTokenList; createEl: (tag: string, options?: { cls?: string; text?: string }) => HTMLElement } {
+    const el = this.handle?.overlay.querySelector('.task-modal-content') as HTMLElement
+    return el as HTMLElement & { children: HTMLElement[]; empty: () => void; classList: DOMTokenList; createEl: (tag: string, options?: { cls?: string; text?: string }) => HTMLElement }
+  }
+
+  onOpen(): void {
+    // Called for test compatibility - actual open is done in open()
+    this.open()
+  }
+
+  onClose(): void {
+    // No-op for compatibility
   }
 }

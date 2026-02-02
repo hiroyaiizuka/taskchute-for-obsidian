@@ -186,6 +186,7 @@ export const ja = {
       moveTask: "📅 タスクを移動",
       duplicateTask: "📄 タスクを複製",
       deleteTask: "🗑️ タスクを削除",
+      setProject: "📁 プロジェクトを設定",
       removeProject: "➖ プロジェクトを外す",
       removeRoutine: "ルーチンを外す",
       cancel: "キャンセル",
@@ -407,6 +408,7 @@ export const ja = {
       namePlaceholder: "タスク名を入力",
       nameRequired: "タスク名を入力してください",
       reminderDescription: "リマインダーの通知時刻を設定します",
+      projectDescription: "プロジェクトを設定または変更",
     },
     calendar: {
       export: {
@@ -688,9 +690,11 @@ export const ja = {
     moveTask: "📅 タスクを移動",
     duplicateTask: "📄 タスクを複製",
     deleteTask: "🗑️ タスクを削除",
+    setProject: "📁 プロジェクトを設定",
   },
   forms: {
     reminderDescription: "リマインダーの通知時刻を設定します",
+    projectDescription: "プロジェクトを設定または変更",
   },
   calendar: {
     export: {

@@ -2,6 +2,7 @@ import { Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
 import type { TaskChutePluginLike } from '../../../types'
 import { TaskIdManager, extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
+import { getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
 
 export class TaskReuseService {
   constructor(private readonly plugin: TaskChutePluginLike) {}
@@ -69,8 +70,7 @@ export class TaskReuseService {
       .map((entry) => {
         if (!entry) return entry
         if (entry.path === file.path && entry.deletionType === 'temporary') {
-          // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-          const deletedAt = entry.deletedAt ?? entry.timestamp
+          const deletedAt = getEffectiveDeletedAt(entry)
           return { ...entry, restoredAt: coerceRestoredAt(entry.restoredAt, deletedAt) }
         }
         return entry

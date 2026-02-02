@@ -7,6 +7,7 @@ import {
   mergeHiddenRoutines,
   mergeSlotOverrides,
   isDeleted as isDeletedEntry,
+  isLegacyDeletionEntry,
 } from './dayState/conflictResolver';
 
 const DAY_STATE_VERSION = '1.0';
@@ -520,15 +521,6 @@ export class DayStatePersistenceService {
         remoteDay.deletedInstances ?? [],
       );
 
-      const isLegacyDeletionEntry = (entry: DayState['deletedInstances'][number]): boolean => {
-        const restoredAt = entry?.restoredAt ?? 0;
-        if (restoredAt > 0) {
-          return false;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-        const ts = entry?.deletedAt ?? entry?.timestamp;
-        return !(typeof ts === 'number' && Number.isFinite(ts));
-      };
       const isActiveDeletion = (entry: DayState['deletedInstances'][number]): boolean =>
         Boolean(entry) && (isDeletedEntry(entry) || isLegacyDeletionEntry(entry));
       const deletedInstanceIds = new Set<string>();

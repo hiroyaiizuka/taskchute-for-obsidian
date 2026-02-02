@@ -25,10 +25,26 @@ export interface SlotOverrideResolution {
 /**
  * DeletedInstance から有効な削除時刻を取得
  * deletedAt を優先し、なければ timestamp にフォールバック
+ *
+ * Note: Legacy data migration - 'timestamp' was renamed to 'deletedAt'.
+ * Access via type assertion to avoid deprecated property warning.
  */
 export function getEffectiveDeletedAt(entry: DeletedInstance): number {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility fallback
-  return entry.deletedAt ?? entry.timestamp ?? 0
+  const legacyEntry = entry as { deletedAt?: number; timestamp?: number }
+  return legacyEntry.deletedAt ?? legacyEntry.timestamp ?? 0
+}
+
+/**
+ * DeletedInstance がレガシーデータ（有効なタイムスタンプがない）かを判定
+ * 復元済みエントリは false を返す
+ */
+export function isLegacyDeletionEntry(entry: DeletedInstance): boolean {
+  const restoredAt = entry.restoredAt ?? 0
+  if (restoredAt > 0) {
+    return false
+  }
+  const ts = getEffectiveDeletedAt(entry)
+  return !(typeof ts === 'number' && Number.isFinite(ts) && ts > 0)
 }
 
 /**

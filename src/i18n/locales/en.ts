@@ -188,6 +188,7 @@ export const en = {
       moveTask: "📅 move task",
       duplicateTask: "📄 duplicate task",
       deleteTask: "🗑️ delete task",
+      setProject: "📁 set project",
       removeProject: "➖ remove project",
       removeRoutine: "Remove from routine",
       cancel: "Cancel",
@@ -408,6 +409,7 @@ export const en = {
       namePlaceholder: "Enter task name",
       nameRequired: "Please enter a task name",
       reminderDescription: "Set a reminder notification time",
+      projectDescription: "Assign or change project",
     },
     calendar: {
       export: {
@@ -687,9 +689,11 @@ export const en = {
     moveTask: "📅 move task",
     duplicateTask: "📄 duplicate task",
     deleteTask: "🗑️ delete task",
+    setProject: "📁 set project",
   },
   forms: {
     reminderDescription: "Set a reminder notification time",
+    projectDescription: "Assign or change project",
   },
   calendar: {
     export: {

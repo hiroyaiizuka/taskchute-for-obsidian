@@ -300,6 +300,205 @@ describe('LogReconciler', () => {
     expect(summary.completionRate).toBeCloseTo(0.2)
   })
 
+  test('delete by instanceId does not affect other entries with same taskId', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    // 同じtaskIdを持つ2つのエントリを用意（異なるinstanceId）
+    seedSnapshot(store, abstractStore, '2025-10', {
+      taskExecutions: {
+        '2025-10-01': [
+          {
+            instanceId: 'inst-desktop',
+            taskId: 'tc-same-task',
+            taskTitle: '薬を飲むよ',
+            durationSec: 600,
+            stopTime: '10:59',
+            deviceId: 'device-desktop',
+          },
+          {
+            instanceId: 'inst-mobile',
+            taskId: 'tc-same-task',
+            taskTitle: '薬を飲むよ',
+            durationSec: 300,
+            stopTime: '11:30',
+            deviceId: 'device-mobile',
+          },
+        ],
+      },
+      dailySummary: {},
+      meta: { revision: 2, processedCursor: { 'device-mobile': 0 } },
+    })
+
+    // モバイルから inst-mobile のみを削除するdeltaを送信
+    seedDeltaFile(abstractStore, deltaStore, 'device-mobile', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'delete',
+        entryId: 'device-mobile:del',
+        deviceId: 'device-mobile',
+        monthKey: '2025-10',
+        dateKey: '2025-10-01',
+        recordedAt: '2025-10-01T12:00:00Z',
+        payload: { instanceId: 'inst-mobile', taskId: 'tc-same-task' },
+      },
+    ])
+
+    const reconciler = new LogReconciler(plugin)
+    const stats = await reconciler.reconcilePendingDeltas()
+
+    expect(stats.processedEntries).toBe(1)
+    const snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+
+    // inst-mobile のみが削除され、inst-desktop は残っていること
+    expect(snapshot.taskExecutions['2025-10-01']).toHaveLength(1)
+    expect(snapshot.taskExecutions['2025-10-01'][0].instanceId).toBe('inst-desktop')
+    expect(snapshot.taskExecutions['2025-10-01'][0].taskId).toBe('tc-same-task')
+  })
+
+  test('delete without instanceId falls back to taskId for backward compatibility', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    // instanceIdがない旧形式のログデータを用意
+    seedSnapshot(store, abstractStore, '2025-09', {
+      taskExecutions: {
+        '2025-09-15': [
+          {
+            taskId: 'tc-old-task',
+            taskTitle: 'Legacy Task',
+            durationSec: 600,
+            stopTime: '10:00',
+          },
+          {
+            taskId: 'tc-keep-task',
+            taskTitle: 'Keep This',
+            durationSec: 300,
+            stopTime: '11:00',
+          },
+        ],
+      },
+      dailySummary: {},
+      meta: { revision: 1, processedCursor: { 'device-alpha': 0 } },
+    })
+
+    // instanceIdなしの削除delta（旧形式互換）
+    seedDeltaFile(abstractStore, deltaStore, 'device-alpha', '2025-09', [
+      {
+        schemaVersion: 1,
+        op: 'delete',
+        entryId: 'device-alpha:del',
+        deviceId: 'device-alpha',
+        monthKey: '2025-09',
+        dateKey: '2025-09-15',
+        recordedAt: '2025-09-15T12:00:00Z',
+        payload: { taskId: 'tc-old-task' },
+      },
+    ])
+
+    const reconciler = new LogReconciler(plugin)
+    await reconciler.reconcilePendingDeltas()
+
+    const snapshot = JSON.parse(store.get('LOGS/2025-09-tasks.json')!)
+    expect(snapshot.taskExecutions['2025-09-15']).toHaveLength(1)
+    expect(snapshot.taskExecutions['2025-09-15'][0].taskId).toBe('tc-keep-task')
+  })
+
+  test('delete after upsert correctly restores entry from different device', async () => {
+    const { plugin, store, deltaStore, abstractStore } = createPluginStub()
+    seedSnapshot(store, abstractStore, '2025-10', {
+      taskExecutions: {},
+      dailySummary: {},
+      meta: { revision: 0, processedCursor: {} },
+    })
+
+    // デスクトップでupsert、モバイルでdelete、デスクトップで再度upsert
+    seedDeltaFile(abstractStore, deltaStore, 'device-desktop', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'upsert',
+        entryId: 'device-desktop:1',
+        deviceId: 'device-desktop',
+        monthKey: '2025-10',
+        dateKey: '2025-10-05',
+        recordedAt: '2025-10-05T08:00:00Z',
+        payload: {
+          instanceId: 'inst-1',
+          taskId: 'tc-task-1',
+          taskTitle: 'Task One',
+          durationSec: 600,
+          stopTime: '08:10',
+        },
+      },
+    ])
+
+    seedDeltaFile(abstractStore, deltaStore, 'device-mobile', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'delete',
+        entryId: 'device-mobile:del',
+        deviceId: 'device-mobile',
+        monthKey: '2025-10',
+        dateKey: '2025-10-05',
+        recordedAt: '2025-10-05T09:00:00Z',
+        payload: { instanceId: 'inst-1', taskId: 'tc-task-1' },
+      },
+    ])
+
+    // 最初のreconcile: upsertしてからdelete
+    const reconciler = new LogReconciler(plugin)
+    await reconciler.reconcilePendingDeltas()
+
+    let snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    // 削除後なのでエントリは空のはず
+    expect(snapshot.taskExecutions['2025-10-05'] ?? []).toHaveLength(0)
+
+    // デスクトップから再度upsert（復活シナリオ）
+    seedDeltaFile(abstractStore, deltaStore, 'device-desktop', '2025-10', [
+      {
+        schemaVersion: 1,
+        op: 'upsert',
+        entryId: 'device-desktop:1',
+        deviceId: 'device-desktop',
+        monthKey: '2025-10',
+        dateKey: '2025-10-05',
+        recordedAt: '2025-10-05T08:00:00Z',
+        payload: {
+          instanceId: 'inst-1',
+          taskId: 'tc-task-1',
+          taskTitle: 'Task One',
+          durationSec: 600,
+          stopTime: '08:10',
+        },
+      },
+      {
+        schemaVersion: 1,
+        op: 'upsert',
+        entryId: 'device-desktop:2',
+        deviceId: 'device-desktop',
+        monthKey: '2025-10',
+        dateKey: '2025-10-05',
+        recordedAt: '2025-10-05T10:00:00Z',
+        payload: {
+          instanceId: 'inst-1',
+          taskId: 'tc-task-1',
+          taskTitle: 'Task One Restored',
+          durationSec: 700,
+          stopTime: '10:11',
+        },
+      },
+    ])
+
+    // 新しいリコンサイラーでカーソルリセット
+    snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    snapshot.meta.processedCursor['device-desktop'] = 0
+    store.set('LOGS/2025-10-tasks.json', JSON.stringify(snapshot))
+
+    const reconciler2 = new LogReconciler(plugin)
+    await reconciler2.reconcilePendingDeltas()
+
+    snapshot = JSON.parse(store.get('LOGS/2025-10-tasks.json')!)
+    // 新しいupsertで復活
+    expect(snapshot.taskExecutions['2025-10-05']).toHaveLength(1)
+    expect(snapshot.taskExecutions['2025-10-05'][0].taskTitle).toBe('Task One Restored')
+  })
+
   test('resets processed cursor when delta file shrinks', async () => {
     const { plugin, store, deltaStore, abstractStore } = createPluginStub()
     seedSnapshot(store, abstractStore, '2025-11', {

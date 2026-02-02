@@ -910,7 +910,7 @@ export default class RoutineEditModal {
     for (const leaf of leaves) {
       const view = leaf.view as TaskChuteViewLike | undefined
       if (view && typeof view.reloadTasksAndRestore === "function") {
-        await view.reloadTasksAndRestore({ runBoundaryCheck: false })
+        await view.reloadTasksAndRestore({ runBoundaryCheck: true })
       }
     }
   }

@@ -7,7 +7,7 @@ import type {
   TaskInstance,
 } from '../../../types'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from '../../../services/dayState/conflictResolver'
 import { getCurrentTimeSlot } from '../../../utils/time'
 
 export interface RunningTaskRecord {
@@ -229,16 +229,6 @@ export class RunningTasksService {
     const restoredInstances: TaskInstance[] = []
     const hiddenEntries = hiddenRoutines ?? []
     const deletedEntries = deletedInstances ?? []
-
-    const isLegacyDeletionEntry = (entry: DeletedInstance): boolean => {
-      const restoredAt = entry.restoredAt ?? 0
-      if (restoredAt > 0) {
-        return false
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- backwards compatibility: timestamp is still used in legacy data
-      const ts = entry.deletedAt ?? entry.timestamp
-      return !(typeof ts === 'number' && Number.isFinite(ts))
-    }
 
     const isHiddenRecord = (record: RunningTaskRecord): boolean => {
       const hasVisibleInstance =
