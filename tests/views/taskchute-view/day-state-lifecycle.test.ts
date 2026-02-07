@@ -2510,3 +2510,145 @@ describe('TaskChuteView restoreDeletedTask', () => {
     expect(view.reloadTasksAndRestore).not.toHaveBeenCalled()
   })
 })
+
+describe('restoreDeletedTask - hiddenRoutines restoration', () => {
+  test('restoring a deleted routine also restores path-level hiddenRoutines entry', async () => {
+    const { view } = createView()
+    const routinePath = 'ROUTINES/morning.md'
+    const deletedEntry = {
+      taskId: 'tc-routine-1',
+      path: routinePath,
+      deletionType: 'temporary' as const,
+      deletedAt: 1000,
+    }
+    const hiddenEntry = {
+      path: routinePath,
+      instanceId: null,
+      hiddenAt: 1000,
+    }
+
+    const setDeleted = jest.fn()
+    const setHidden = jest.fn()
+    const persist = jest.fn().mockResolvedValue(undefined)
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [deletedEntry])
+    const getHidden = jest.fn(() => [hiddenEntry])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      getHidden,
+      setHidden,
+      persist,
+      getCurrent: jest.fn(() => createDayState({
+        deletedInstances: [deletedEntry],
+        hiddenRoutines: [hiddenEntry],
+      })),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
+
+    expect(restored).toBe(true)
+    // deletedInstances の restoredAt が設定される
+    expect(setDeleted).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        taskId: 'tc-routine-1',
+        restoredAt: expect.any(Number),
+      })],
+      '2025-01-01',
+    )
+    // hiddenRoutines のパスレベルエントリも restoredAt が設定される
+    expect(setHidden).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        path: routinePath,
+        instanceId: null,
+        restoredAt: expect.any(Number),
+      })],
+      '2025-01-01',
+    )
+    // restoredAt は hiddenAt より大きい
+    const [[hiddenArgs]] = setHidden.mock.calls
+    expect(hiddenArgs[0].restoredAt).toBeGreaterThan(1000)
+  })
+
+  test('does not modify hiddenRoutines when no path-level entry exists', async () => {
+    const { view } = createView()
+    const routinePath = 'ROUTINES/morning.md'
+    const deletedEntry = {
+      taskId: 'tc-routine-2',
+      path: routinePath,
+      deletionType: 'temporary' as const,
+      deletedAt: 1000,
+    }
+
+    const setDeleted = jest.fn()
+    const setHidden = jest.fn()
+    const persist = jest.fn().mockResolvedValue(undefined)
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [deletedEntry])
+    // パスレベルエントリがない（instanceId付きのみ）
+    const getHidden = jest.fn(() => [
+      { path: routinePath, instanceId: 'some-instance', hiddenAt: 1000 },
+    ])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      getHidden,
+      setHidden,
+      persist,
+      getCurrent: jest.fn(() => createDayState()),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
+
+    expect(restored).toBe(true)
+    expect(setDeleted).toHaveBeenCalled()
+    // hiddenRoutines にパスレベルエントリがないので setHidden は呼ばれない
+    expect(setHidden).not.toHaveBeenCalled()
+  })
+
+  test('does not modify hiddenRoutines when entry has no path', async () => {
+    const { view } = createView()
+    const deletedEntry = {
+      taskId: 'tc-no-path',
+      deletionType: 'permanent' as const,
+    }
+
+    const setDeleted = jest.fn()
+    const setHidden = jest.fn()
+    const persist = jest.fn().mockResolvedValue(undefined)
+    const ensure = jest.fn().mockResolvedValue(createDayState())
+    const getDeleted = jest.fn(() => [deletedEntry])
+    const getHidden = jest.fn(() => [])
+
+    view.reloadTasksAndRestore = jest.fn().mockResolvedValue(undefined)
+    ;(view as Mutable<TaskChuteView>).dayStateManager = {
+      ensure,
+      getDeleted,
+      setDeleted,
+      getHidden,
+      setHidden,
+      persist,
+      getCurrent: jest.fn(() => createDayState()),
+      getCurrentKey: jest.fn(() => '2025-01-01'),
+      snapshot: jest.fn(),
+    } as unknown as DayStateStoreService
+
+    const restored = await view.restoreDeletedTask(deletedEntry, '2025-01-01')
+
+    expect(restored).toBe(true)
+    expect(setDeleted).toHaveBeenCalled()
+    // path がないので getHidden/setHidden は呼ばれない
+    expect(getHidden).not.toHaveBeenCalled()
+    expect(setHidden).not.toHaveBeenCalled()
+  })
+})
