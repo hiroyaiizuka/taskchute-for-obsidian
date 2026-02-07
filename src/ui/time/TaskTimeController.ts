@@ -4,6 +4,7 @@ import { getSlotFromTime } from '../../utils/time'
 import type { TaskInstance } from '../../types'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
 import { createTimePicker } from './TimePickerFactory'
+import { resolveStopTimeDate } from '../../utils/resolveStopTimeDate'
 
 export interface TaskTimeControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -24,6 +25,7 @@ export interface TaskTimeControllerHost {
   restartTimerService: () => void
   removeTaskLogForInstanceOnCurrentDate: (instanceId: string, taskId?: string) => Promise<void>
   getCurrentDate: () => Date
+  disambiguateStopTimeDate?: (sameDayDate: Date, nextDayDate: Date) => Promise<'same-day' | 'next-day' | 'cancel'>
 }
 
 export default class TaskTimeController {
@@ -102,12 +104,23 @@ export default class TaskTimeController {
         ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
         : ''
 
+    // For cross-day tasks, use startTime's date for validation
+    // so that the time picker doesn't reject past times as "future"
+    const isCrossDay = inst.startTime && inst.stopTime
+      && !this.isSameDay(inst.startTime, inst.stopTime)
+    const validationDate = (() => {
+      if (isCrossDay && inst.startTime) {
+        return new Date(inst.startTime.getFullYear(), inst.startTime.getMonth(), inst.startTime.getDate())
+      }
+      return inst.stopTime ? new Date(inst.stopTime) : viewDate
+    })()
+
     const popup = createTimePicker()
     popup.show({
       anchor,
       currentValue: toHM(inst.stopTime),
       viewDate,
-      validationDate: inst.stopTime ? new Date(inst.stopTime) : viewDate,
+      validationDate,
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
       onSave: (value: string) => {
         void (async () => {
@@ -119,11 +132,13 @@ export default class TaskTimeController {
             }
             return
           }
-          if (startStr) {
-            const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate)
-            if (!ok) return
 
-            if (inst.state === 'running') {
+          // Running state: use existing logic (buildStopTimeFromStart)
+          if (inst.state === 'running') {
+            if (startStr) {
+              const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate)
+              if (!ok) return
+
               const stopTime = this.buildStopTimeFromStart(inst.startTime, value)
               if (stopTime.getTime() > Date.now()) {
                 new Notice(
@@ -135,9 +150,77 @@ export default class TaskTimeController {
                 return
               }
               await this.host.stopInstance(inst, stopTime)
-              return
             }
+            return
+          }
 
+          // Done state: use resolveStopTimeDate for cross-day handling
+          if (startStr && inst.state === 'done') {
+            const wasCrossDay = !!(inst.startTime && inst.stopTime
+              && !this.isSameDay(inst.startTime, inst.stopTime))
+
+            const resolution = resolveStopTimeDate({
+              startTime: inst.startTime!,
+              stopTimeStr: value,
+              now: new Date(),
+              wasCrossDay,
+            })
+
+            switch (resolution.type) {
+              case 'same-day':
+                await this.updateInstanceTimes(inst, startStr, value)
+                break
+              case 'next-day': {
+                const confirmed = await this.host.confirmStopNextDay()
+                if (confirmed) {
+                  const nextDayStopTime = this.buildStopTimeFromStart(inst.startTime!, value)
+                  if (nextDayStopTime.getTime() > Date.now()) {
+                    new Notice(
+                      this.host.tv('forms.timeNotFuture', 'Time cannot be in the future'),
+                    )
+                    break
+                  }
+                  await this.updateInstanceTimes(inst, startStr, value)
+                }
+                break
+              }
+              case 'disambiguate': {
+                if (this.host.disambiguateStopTimeDate) {
+                  const choice = await this.host.disambiguateStopTimeDate(
+                    resolution.sameDayDate,
+                    resolution.nextDayDate,
+                  )
+                  if (choice === 'same-day') {
+                    await this.updateInstanceTimes(inst, startStr, value)
+                  } else if (choice === 'next-day') {
+                    await this.updateInstanceTimes(inst, startStr, value, true)
+                  }
+                  // 'cancel' -> do nothing
+                } else {
+                  // Fallback: treat as same-day
+                  await this.updateInstanceTimes(inst, startStr, value)
+                }
+                break
+              }
+              case 'error':
+                if (resolution.reason === 'same-time') {
+                  new Notice(
+                    this.host.tv('forms.startTimeBeforeEnd', 'Scheduled start time must be before end time'),
+                  )
+                } else {
+                  new Notice(
+                    this.host.tv('forms.timeNotFuture', 'Time cannot be in the future'),
+                  )
+                }
+                break
+            }
+            return
+          }
+
+          // Fallback for non-done state with startStr
+          if (startStr) {
+            const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate)
+            if (!ok) return
             await this.updateInstanceTimes(inst, startStr, value)
           }
         })()
@@ -171,7 +254,12 @@ export default class TaskTimeController {
     }
   }
 
-  private async updateInstanceTimes(inst: TaskInstance, startStr: string, stopStr: string): Promise<void> {
+  private async updateInstanceTimes(
+    inst: TaskInstance,
+    startStr: string,
+    stopStr: string,
+    forceCrossDay = false,
+  ): Promise<void> {
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
     const wasRunning = inst.state === 'running'
     if (inst.state === 'idle' || inst.state === 'running') inst.state = 'done'
@@ -182,7 +270,7 @@ export default class TaskTimeController {
     inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0)
     inst.stopTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), eh, em, 0, 0)
 
-    if (inst.startTime && inst.stopTime && inst.stopTime <= inst.startTime) {
+    if (forceCrossDay || (inst.startTime && inst.stopTime && inst.stopTime <= inst.startTime)) {
       inst.stopTime.setDate(inst.stopTime.getDate() + 1)
     }
 

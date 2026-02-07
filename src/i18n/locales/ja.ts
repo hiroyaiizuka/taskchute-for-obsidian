@@ -409,6 +409,10 @@ export const ja = {
       nameRequired: "タスク名を入力してください",
       reminderDescription: "リマインダーの通知時刻を設定します",
       projectDescription: "プロジェクトを設定または変更",
+      disambiguateStopTimeDateTitle: "終了時刻の日付を選択",
+      disambiguateStopTimeDateMessage: "入力された終了時刻は、開始日と翌日のどちらにも該当する可能性があります。",
+      disambiguateStopTimeSameDay: "{date} (当日)",
+      disambiguateStopTimeNextDay: "{date} (翌日)",
     },
     calendar: {
       export: {

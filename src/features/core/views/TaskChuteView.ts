@@ -60,6 +60,7 @@ import TaskKeyboardController from "../../../ui/task/TaskKeyboardController"
 import RoutineController from "../../routine/controllers/RoutineController"
 import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
+import { showDisambiguateStopTimeDateModal } from "../../../ui/modals/DisambiguateStopTimeDateModal"
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
@@ -290,6 +291,8 @@ export class TaskChuteView
       saveRunningTasksState: () => this.saveRunningTasksState(),
       stopInstance: (instance, stopTime) => this.stopInstance(instance, stopTime),
       confirmStopNextDay: () => this.confirmStopNextDay(),
+      disambiguateStopTimeDate: (sameDayDate, nextDayDate) =>
+        this.disambiguateStopTimeDate(sameDayDate, nextDayDate),
       setCurrentInstance: (instance) => this.setCurrentInstance(instance),
       startGlobalTimer: () => this.startGlobalTimer(),
       restartTimerService: () => this.restartTimerService(),
@@ -687,6 +690,17 @@ export class TaskChuteView
     })
   }
 
+  public disambiguateStopTimeDate(
+    sameDayDate: Date,
+    nextDayDate: Date,
+  ): Promise<'same-day' | 'next-day' | 'cancel'> {
+    return showDisambiguateStopTimeDateModal(this.app, {
+      sameDayDate,
+      nextDayDate,
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+    })
+  }
+
   public getOrderKey(inst: TaskInstance): string | null {
     const slot = inst.slotKey || "none"
     const dayState = this.getCurrentDayState()
@@ -816,6 +830,33 @@ export class TaskChuteView
     }
 
     this.dayStateManager.setDeleted(deleted, targetDate)
+
+    // hiddenRoutines のパスレベルエントリも同時に復元する
+    // deleteRoutineTask() は hiddenRoutines と deletedInstances の両方に記録するが、
+    // 復元時に hiddenRoutines を戻さないと isVisibleInstance() がブロックする
+    if (entry.path) {
+      const hiddenEntries = [...(this.dayStateManager.getHidden(targetDate) ?? [])]
+      let hiddenChanged = false
+      const restoredHidden = hiddenEntries.map((h) => {
+        if (!h || typeof h === 'string') return h
+        // 同じパスのパスレベル非表示エントリを復元
+        if (h.path === entry.path && !h.instanceId) {
+          const hHiddenAt = h.hiddenAt ?? 0
+          const hPrevRestoredAt = h.restoredAt ?? 0
+          const hMinRestoredAt = hHiddenAt > 0 ? hHiddenAt + 1 : now
+          const hRestoredAt = Math.max(hPrevRestoredAt, now, hMinRestoredAt)
+          if (hRestoredAt !== hPrevRestoredAt) {
+            hiddenChanged = true
+            return { ...h, restoredAt: hRestoredAt }
+          }
+        }
+        return h
+      })
+      if (hiddenChanged) {
+        this.dayStateManager.setHidden(restoredHidden, targetDate)
+      }
+    }
+
     await this.persistDayState(targetDate)
     const title = this.resolveDeletedTaskTitle(entry)
     if (typeof this.plugin._log === "function") {

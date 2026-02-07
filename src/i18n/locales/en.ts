@@ -410,6 +410,10 @@ export const en = {
       nameRequired: "Please enter a task name",
       reminderDescription: "Set a reminder notification time",
       projectDescription: "Assign or change project",
+      disambiguateStopTimeDateTitle: "Select stop time date",
+      disambiguateStopTimeDateMessage: "The stop time you entered could apply to the start day or the next day.",
+      disambiguateStopTimeSameDay: "{date} (same day)",
+      disambiguateStopTimeNextDay: "{date} (next day)",
     },
     calendar: {
       export: {

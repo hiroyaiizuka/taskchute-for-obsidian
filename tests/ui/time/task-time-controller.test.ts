@@ -429,6 +429,49 @@ describe('TaskTimeController', () => {
     expect(host.executionLogService.saveTaskLog).not.toHaveBeenCalled()
   })
 
+  test('showStopTimePopup rejects next-day stop time when resolved datetime is in the future', async () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(2025, 9, 2, 10, 0, 0, 0))
+
+    try {
+      const host = createHost(new Date('2025-10-01T00:00:00Z'))
+      const controller = new TaskTimeController(host)
+
+      const instance: TaskInstance = {
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          taskId: 'tc-task-sample',
+        },
+        instanceId: 'inst-cross-future',
+        state: 'done',
+        slotKey: '16:00-0:00',
+        startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+        stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+      } as TaskInstance
+      const originalStop = new Date(instance.stopTime!)
+      const anchor = document.createElement('span')
+
+      controller.showStopTimePopup(instance, anchor)
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const options = _showMock.mock.calls[0][0]
+      // 12:00 resolves to next-day (Oct 2 12:00), which is future at Oct 2 10:00
+      options.onSave('12:00')
+
+      await flushPromises()
+
+      expect(host.confirmStopNextDay).toHaveBeenCalled()
+      expect(host.executionLogService.saveTaskLog).not.toHaveBeenCalled()
+      expect(instance.stopTime?.getTime()).toBe(originalStop.getTime())
+      expect(Notice).toHaveBeenCalledWith('Time cannot be in the future')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   test('showStopTimePopup blocks running stop that would be in the future on today view', async () => {
     jest.useFakeTimers()
     jest.setSystemTime(new Date('2025-10-10T11:00:00Z'))
@@ -546,6 +589,205 @@ describe('TaskTimeController', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  test('cross-day done task: validationDate uses startTime date so past times are not blocked', () => {
+    const host = createHost(new Date('2025-10-02T00:00:00Z'))
+    const controller = new TaskTimeController(host)
+    // Cross-day task: started Oct 1 22:00, stopped Oct 2 09:00
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        taskId: 'tc-task-sample',
+      },
+      instanceId: 'inst-cross',
+      state: 'done',
+      slotKey: '16:00-0:00',
+      startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+      stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+    } as TaskInstance
+    const anchor = document.createElement('span')
+
+    controller.showStopTimePopup(instance, anchor)
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const showOptions = _showMock.mock.calls[0][0]
+    // validationDate should be Oct 1 (startTime date), not Oct 2 (stopTime date)
+    expect(showOptions.validationDate.getDate()).toBe(1)
+    expect(showOptions.validationDate.getMonth()).toBe(9) // October = 9
+  })
+
+  test('cross-day done task: editing stop to past time on start date resolves as same-day', async () => {
+    jest.useFakeTimers()
+    // Now is Oct 2 09:00 — next-day candidate (Oct 2 22:30) is future
+    jest.setSystemTime(new Date(2025, 9, 2, 9, 0, 0, 0))
+
+    try {
+      const host = createHost(new Date('2025-10-01T00:00:00Z'))
+      const controller = new TaskTimeController(host)
+      jest
+        .spyOn(host, 'calculateCrossDayDuration')
+        .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+      const instance: TaskInstance = {
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          taskId: 'tc-task-sample',
+        },
+        instanceId: 'inst-cross-2',
+        state: 'done',
+        slotKey: '16:00-0:00',
+        startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+        stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+      } as TaskInstance
+      const anchor = document.createElement('span')
+
+      controller.showStopTimePopup(instance, anchor)
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const options = _showMock.mock.calls[0][0]
+      // Edit stop to 22:30 — resolveStopTimeDate should auto-select same-day
+      options.onSave('22:30')
+
+      await flushPromises()
+
+      // Should NOT prompt confirmStopNextDay (not ambiguous, auto same-day)
+      expect(host.confirmStopNextDay).not.toHaveBeenCalled()
+      // Should save
+      expect(host.executionLogService.saveTaskLog).toHaveBeenCalled()
+      expect(instance.stopTime?.getDate()).toBe(1) // Oct 1
+      expect(instance.stopTime?.getHours()).toBe(22)
+      expect(instance.stopTime?.getMinutes()).toBe(30)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('cross-day done task: both candidates past triggers disambiguate dialog', async () => {
+    jest.useFakeTimers()
+    // Now is Oct 2 23:00 — both candidates are in the past
+    jest.setSystemTime(new Date(2025, 9, 2, 23, 0, 0, 0))
+
+    try {
+      const host = createHost(new Date('2025-10-01T00:00:00Z'))
+      host.disambiguateStopTimeDate = jest.fn().mockResolvedValue('next-day')
+      const controller = new TaskTimeController(host)
+      jest
+        .spyOn(host, 'calculateCrossDayDuration')
+        .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+      const instance: TaskInstance = {
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          taskId: 'tc-task-sample',
+        },
+        instanceId: 'inst-cross-3',
+        state: 'done',
+        slotKey: '16:00-0:00',
+        startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+        stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+      } as TaskInstance
+      const anchor = document.createElement('span')
+
+      controller.showStopTimePopup(instance, anchor)
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const options = _showMock.mock.calls[0][0]
+      // Edit stop to 22:30 — both Oct 1 22:30 and Oct 2 22:30 are past
+      options.onSave('22:30')
+
+      await flushPromises()
+
+      // Should trigger disambiguate dialog
+      expect(host.disambiguateStopTimeDate).toHaveBeenCalled()
+      // Since we chose 'next-day', forceCrossDay should be true -> stopTime on Oct 2
+      expect(host.executionLogService.saveTaskLog).toHaveBeenCalled()
+      expect(instance.stopTime?.getDate()).toBe(2)
+      expect(instance.stopTime?.getHours()).toBe(22)
+      expect(instance.stopTime?.getMinutes()).toBe(30)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('cross-day done task: disambiguate cancel does nothing', async () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(2025, 9, 2, 23, 0, 0, 0))
+
+    try {
+      const host = createHost(new Date('2025-10-01T00:00:00Z'))
+      host.disambiguateStopTimeDate = jest.fn().mockResolvedValue('cancel')
+      const controller = new TaskTimeController(host)
+
+      const instance: TaskInstance = {
+        task: {
+          path: 'TASKS/sample.md',
+          frontmatter: {},
+          name: 'sample',
+          taskId: 'tc-task-sample',
+        },
+        instanceId: 'inst-cross-4',
+        state: 'done',
+        slotKey: '16:00-0:00',
+        startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+        stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+      } as TaskInstance
+      const anchor = document.createElement('span')
+
+      controller.showStopTimePopup(instance, anchor)
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const options = _showMock.mock.calls[0][0]
+      options.onSave('22:30')
+
+      await flushPromises()
+
+      expect(host.disambiguateStopTimeDate).toHaveBeenCalled()
+      // Cancel -> should NOT save
+      expect(host.executionLogService.saveTaskLog).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('cross-day done task: forceCrossDay sets stop to next day even when stop > start', async () => {
+    const host = createHost()
+    const controller = new TaskTimeController(host)
+    jest
+      .spyOn(host, 'calculateCrossDayDuration')
+      .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        taskId: 'tc-task-sample',
+      },
+      state: 'done',
+      slotKey: '16:00-0:00',
+      startTime: new Date(2025, 9, 1, 22, 0, 0, 0),
+      stopTime: new Date(2025, 9, 2, 9, 0, 0, 0),
+    } as TaskInstance
+
+    // forceCrossDay = true: stopTime should be +1 day even though 22:30 > 22:00
+    await (controller as unknown as {
+      updateInstanceTimes: (inst: TaskInstance, startStr: string, stopStr: string, forceCrossDay?: boolean) => Promise<void>
+    }).updateInstanceTimes(instance, '22:00', '22:30', true)
+
+    expect(instance.stopTime?.getDate()).toBe(instance.startTime!.getDate() + 1)
+    expect(instance.stopTime?.getHours()).toBe(22)
+    expect(instance.stopTime?.getMinutes()).toBe(30)
   })
 
   test('showStopTimePopup on past-date view still routes through stopInstance', async () => {
