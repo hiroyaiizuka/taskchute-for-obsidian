@@ -60,6 +60,7 @@ import TaskKeyboardController from "../../../ui/task/TaskKeyboardController"
 import RoutineController from "../../routine/controllers/RoutineController"
 import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
+import { showDisambiguateStopTimeDateModal } from "../../../ui/modals/DisambiguateStopTimeDateModal"
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
@@ -290,6 +291,8 @@ export class TaskChuteView
       saveRunningTasksState: () => this.saveRunningTasksState(),
       stopInstance: (instance, stopTime) => this.stopInstance(instance, stopTime),
       confirmStopNextDay: () => this.confirmStopNextDay(),
+      disambiguateStopTimeDate: (sameDayDate, nextDayDate) =>
+        this.disambiguateStopTimeDate(sameDayDate, nextDayDate),
       setCurrentInstance: (instance) => this.setCurrentInstance(instance),
       startGlobalTimer: () => this.startGlobalTimer(),
       restartTimerService: () => this.restartTimerService(),
@@ -684,6 +687,17 @@ export class TaskChuteView
       ),
       confirmText: this.tv('common.yes', 'Yes'),
       cancelText: this.tv('common.no', 'No'),
+    })
+  }
+
+  public disambiguateStopTimeDate(
+    sameDayDate: Date,
+    nextDayDate: Date,
+  ): Promise<'same-day' | 'next-day' | 'cancel'> {
+    return showDisambiguateStopTimeDateModal(this.app, {
+      sameDayDate,
+      nextDayDate,
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
     })
   }
 
