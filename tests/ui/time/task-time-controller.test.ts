@@ -3,6 +3,7 @@ import TaskTimeController, { TaskTimeControllerHost } from '../../../src/ui/time
 import type { TaskInstance } from '../../../src/types'
 import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
 import ScheduledTimeModal from '../../../src/ui/modals/ScheduledTimeModal'
+import { SectionConfigService } from '../../../src/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -48,6 +49,7 @@ describe('TaskTimeController', () => {
   }
 
   const createHost = (currentDate: Date = new Date('2025-10-09T00:00:00Z')): TaskTimeControllerHost => {
+    const sectionConfig = new SectionConfigService()
     return {
       tv: (_key, fallback, vars) => {
         if (vars && vars.title) {
@@ -83,6 +85,7 @@ describe('TaskTimeController', () => {
       restartTimerService: jest.fn(),
       removeTaskLogForInstanceOnCurrentDate: jest.fn().mockResolvedValue(undefined),
       getCurrentDate: () => new Date(currentDate),
+      getSectionConfig: () => sectionConfig,
     }
   }
 

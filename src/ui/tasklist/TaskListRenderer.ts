@@ -97,13 +97,14 @@ export default class TaskListRenderer {
     })
 
     const noTimeInstances: TaskInstance[] = []
+    const validSlotKeys = new Set(this.host.getTimeSlotKeys())
     taskInstances.forEach((inst) => {
       const slot = inst.slotKey && inst.slotKey !== 'none' ? inst.slotKey : null
-      if (slot) {
-        if (!timeSlots[slot]) {
-          timeSlots[slot] = []
-        }
+      if (slot && validSlotKeys.has(slot)) {
         timeSlots[slot].push(inst)
+      } else if (slot) {
+        // Unknown slot key — fallback to no-time group
+        noTimeInstances.push(inst)
       } else {
         noTimeInstances.push(inst)
       }

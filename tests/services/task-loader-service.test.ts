@@ -1,5 +1,6 @@
 import type { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
 import { TaskLoaderService, isTaskFile } from '../../src/features/core/services/TaskLoaderService';
+import { SectionConfigService } from '../../src/services/SectionConfigService';
 import {
   createNonRoutineLoadContext,
   createRoutineLoadContext,
@@ -114,6 +115,177 @@ describe('TaskLoaderService', () => {
 
     expect(context.taskInstances.length).toBeGreaterThan(0);
     expect(context.tasks.length).toBeGreaterThan(0);
+  });
+
+  test('migrates legacy execution slotKey to current section key', async () => {
+    const date = '2025-09-24';
+    const startTime = `${date}T08:30:00.000Z`;
+    const { context } = createExecutionLogContext({
+      date,
+      executions: [
+        {
+          taskTitle: 'Log Task',
+          taskPath: 'TASKS/log-task.md',
+          slotKey: '8:00-12:00',
+          instanceId: 'log-instance-legacy-slot',
+          startTime,
+          stopTime: `${date}T09:00:00.000Z`,
+        },
+      ],
+      taskFiles: [{ path: 'TASKS/log-task.md', content: '#task' }],
+    });
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 18, minute: 0 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'log-instance-legacy-slot');
+    expect(restored).toBeDefined();
+    expect(restored?.slotKey).toBe(sectionConfig.getCurrentTimeSlot(new Date(startTime)));
+  });
+
+  test('discards order entries with invalid slot keys after section change', async () => {
+    const { context, dayState } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        orders: {
+          'TASKS/non-routine.md::8:00-12:00': 10,
+          'TASKS/non-routine.md::12:00-16:00': 20,
+          'TASKS/non-routine.md::6:00-18:00': 30,
+        },
+        ordersMeta: {
+          'TASKS/non-routine.md::12:00-16:00': {
+            order: 20,
+            updatedAt: 2_000,
+          },
+          'TASKS/non-routine.md::6:00-18:00': {
+            order: 30,
+            updatedAt: 3_000,
+          },
+        },
+      },
+    });
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 18, minute: 0 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    // Invalid slot keys (8:00-12:00, 12:00-16:00) are discarded; valid key (6:00-18:00) is kept
+    expect(dayState.orders['TASKS/non-routine.md::8:00-12:00']).toBeUndefined();
+    expect(dayState.orders['TASKS/non-routine.md::12:00-16:00']).toBeUndefined();
+    expect(dayState.orders['TASKS/non-routine.md::6:00-18:00']).toBe(30);
+    expect(dayState.ordersMeta?.['TASKS/non-routine.md::6:00-18:00']).toEqual({
+      order: 30,
+      updatedAt: 3_000,
+    });
+  });
+
+  test('persists day state when legacy slot keys are migrated (keep mapped overrides)', async () => {
+    const { context, dayState } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        slotOverrides: {
+          'tc-task-non-routine': '8:00-12:00',
+        },
+        slotOverridesMeta: {
+          'tc-task-non-routine': {
+            slotKey: '12:00-16:00',
+            updatedAt: 1234,
+          },
+        },
+        duplicatedInstances: [
+          {
+            instanceId: 'dup-migrate',
+            originalPath: 'TASKS/non-routine.md',
+            timestamp: 1_700_000_000_000,
+            slotKey: '16:00-0:00',
+            originalSlotKey: '8:00-12:00',
+          },
+        ],
+        orders: {
+          'TASKS/non-routine.md::8:00-12:00': 10,
+        },
+      },
+    });
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 18, minute: 0 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const persistMock = context.dayStateManager!.persist as jest.Mock;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    // slotOverrides: invalid key is migrated and kept
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('6:00-18:00');
+    // slotOverridesMeta: migrated slotKey with refreshed timestamp
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.slotKey).toBe('6:00-18:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.updatedAt).toBeGreaterThan(1234);
+    // duplicatedInstances: invalid slotKey/originalSlotKey cleared
+    expect(dayState.duplicatedInstances[0]?.slotKey).toBeUndefined();
+    expect(dayState.duplicatedInstances[0]?.originalSlotKey).toBeUndefined();
+    // orders: invalid slot key entries discarded
+    expect(dayState.orders['TASKS/non-routine.md::8:00-12:00']).toBeUndefined();
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+  });
+
+  test('keeps migrated routine slot override even when scheduled time is missing', async () => {
+    const { context, dayState } = createRoutineLoadContext({
+      metadataOverrides: {
+        開始時刻: undefined,
+        scheduled_time: undefined,
+      },
+      dayStateOverrides: {
+        slotOverrides: {
+          'tc-task-routine': '8:00-12:00',
+        },
+      },
+    });
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 9, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 50 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const persistMock = context.dayStateManager!.persist as jest.Mock;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(dayState.slotOverrides['tc-task-routine']).toBe('0:00-9:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-routine']?.slotKey).toBe('0:00-9:00');
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+
+    const restoredRoutine = context.taskInstances.find((inst) => inst.task.taskId === 'tc-task-routine');
+    expect(restoredRoutine?.slotKey).toBe('0:00-9:00');
+  });
+
+  test('does not persist day state when slot keys are already valid', async () => {
+    const { context } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        slotOverrides: {
+          'tc-task-non-routine': '8:00-12:00',
+        },
+      },
+    });
+    const persistMock = context.dayStateManager!.persist as jest.Mock;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(persistMock).not.toHaveBeenCalled();
   });
 
   test('derives task path from instanceId when execution entry lacks path', async () => {
@@ -236,5 +408,69 @@ describe('isTaskFile', () => {
   test('returns false for empty content and frontmatter', () => {
     expect(isTaskFile('', undefined)).toBe(false);
     expect(isTaskFile('', {})).toBe(false);
+  });
+});
+
+describe('slot key migration - boundary change scenario', () => {
+  test('execution log with invalid slotKey recalculates from startTime', async () => {
+    const date = '2025-09-24';
+    const { context } = createExecutionLogContext({
+      date,
+      executions: [
+        {
+          taskTitle: 'Evening Task',
+          taskPath: 'TASKS/evening.md',
+          slotKey: '16:00-0:00',
+          instanceId: 'evening-instance',
+          startTime: '18:30',
+          stopTime: '19:00',
+        },
+      ],
+      taskFiles: [{ path: 'TASKS/evening.md', content: '#task' }],
+    });
+    // Change boundaries: 16:00 → 16:50
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 9, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 50 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'evening-instance');
+    expect(restored).toBeDefined();
+    // 18:30 falls in 16:50-0:00
+    expect(restored?.slotKey).toBe('16:50-0:00');
+  });
+
+  test('non-routine task with invalid storedSlot falls back to scheduledTime', async () => {
+    const { context } = createNonRoutineLoadContext({
+      metadataOverrides: {
+        開始時刻: '18:00',
+      },
+    });
+    // Set an invalid stored slot key
+    context.plugin.settings.slotKeys = {
+      'tc-task-non-routine': '16:00-0:00',
+    };
+    // Change boundaries: 16:00 → 16:50
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 9, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 16, minute: 50 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const inst = context.taskInstances.find((i) => i.task.taskId === 'tc-task-non-routine');
+    expect(inst).toBeDefined();
+    // Invalid storedSlot ignored → scheduledTime 18:00 → 16:50-0:00
+    expect(inst?.slotKey).toBe('16:50-0:00');
   });
 });

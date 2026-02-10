@@ -9,6 +9,7 @@ import type {
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from '../../../services/dayState/conflictResolver'
 import { getCurrentTimeSlot } from '../../../utils/time'
+import type { SectionConfigService } from '../../../services/SectionConfigService'
 
 export interface RunningTaskRecord {
   date: string;
@@ -24,7 +25,17 @@ export interface RunningTaskRecord {
 }
 
 export class RunningTasksService {
+  private sectionConfig: SectionConfigService | null = null
+
   constructor(private plugin: TaskChutePluginLike) {}
+
+  setSectionConfig(config: SectionConfigService): void {
+    this.sectionConfig = config
+  }
+
+  getSectionConfig(): SectionConfigService | null {
+    return this.sectionConfig
+  }
 
   private isRunningTaskRecord(value: unknown): value is RunningTaskRecord {
     if (!value || typeof value !== 'object') {
@@ -227,6 +238,7 @@ export class RunningTasksService {
     } = options
     const records = await this.loadForDate(dateString)
     const restoredInstances: TaskInstance[] = []
+    let didMigrateSlotKeys = false
     const hiddenEntries = hiddenRoutines ?? []
     const deletedEntries = deletedInstances ?? []
 
@@ -302,6 +314,23 @@ export class RunningTasksService {
 
     for (const record of records) {
       if (record.date !== dateString) continue
+
+      // Migrate slot keys when section boundaries are customized
+      if (this.sectionConfig) {
+        if (record.slotKey && !this.sectionConfig.isValidSlotKey(record.slotKey)) {
+          // ISO string → Date → getCurrentTimeSlot for local time conversion
+          const startDate = new Date(record.startTime)
+          record.slotKey = !isNaN(startDate.getTime())
+            ? this.sectionConfig.getCurrentTimeSlot(startDate)
+            : 'none'
+          didMigrateSlotKeys = true
+        }
+        if (record.originalSlotKey && !this.sectionConfig.isValidSlotKey(record.originalSlotKey)) {
+          record.originalSlotKey = undefined
+          didMigrateSlotKeys = true
+        }
+      }
+
       if (record.taskPath && deletedPaths.includes(record.taskPath)) continue
       if (isHiddenRecord(record)) continue
       if (isDeletedRecord(record)) continue
@@ -322,7 +351,7 @@ export class RunningTasksService {
 
       if (runningInstance) {
         try {
-          const desiredSlot = record.slotKey || getCurrentTimeSlot(new Date())
+          const desiredSlot = record.slotKey || (this.sectionConfig?.getCurrentTimeSlot(new Date()) ?? getCurrentTimeSlot(new Date()))
           if (runningInstance.slotKey !== desiredSlot) {
             if (!runningInstance.originalSlotKey) {
               runningInstance.originalSlotKey = runningInstance.slotKey
@@ -357,7 +386,7 @@ export class RunningTasksService {
         task: resolvedTask,
         instanceId: record.instanceId || generateInstanceId(resolvedTask),
         state: 'running',
-        slotKey: record.slotKey || getCurrentTimeSlot(new Date()),
+        slotKey: record.slotKey || (this.sectionConfig?.getCurrentTimeSlot(new Date()) ?? getCurrentTimeSlot(new Date())),
         originalSlotKey: record.originalSlotKey,
         startTime: new Date(record.startTime),
         stopTime: undefined,
@@ -367,7 +396,38 @@ export class RunningTasksService {
       restoredInstances.push(recreated)
     }
 
+    if (didMigrateSlotKeys) {
+      await this.persistRecordsForDate(dateString, records)
+    }
+
     return restoredInstances
+  }
+
+  private async persistRecordsForDate(dateString: string, dateRecords: RunningTaskRecord[]): Promise<void> {
+    try {
+      const logDataPath = this.plugin.pathManager?.getLogDataPath?.()
+      const adapter = this.plugin.app?.vault?.adapter
+      if (!logDataPath || !adapter?.exists || !adapter?.read || !adapter?.write) {
+        return
+      }
+      const dataPath = `${logDataPath}/running-task.json`
+
+      let existing: RunningTaskRecord[] = []
+      if (await adapter.exists(dataPath)) {
+        const raw = await adapter.read(dataPath)
+        const parsed: unknown = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          existing = parsed.filter((entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry))
+        }
+      }
+
+      const preserved = existing.filter((record) => record.date !== dateString)
+      const merged = [...preserved, ...dateRecords]
+
+      await adapter.write(dataPath, JSON.stringify(merged, null, 2))
+    } catch (error) {
+      console.warn('[RunningTasksService] Failed to persist migrated running-task records', error)
+    }
   }
 
   private resolveTaskDataFromPath(path: string): TaskData | undefined {

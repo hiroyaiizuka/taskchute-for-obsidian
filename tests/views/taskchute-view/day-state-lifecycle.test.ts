@@ -1046,6 +1046,7 @@ describe('TaskChuteView loadTasksRefactored deletions', () => {
 
 describe('TaskChuteView loadTasksRefactored executions', () => {
   test('creates synthetic task instances from execution log entries', async () => {
+    const startTime = '2025-09-24T01:00:00.000Z'
     const { context, load } = createExecutionLogContext({
       executions: [
         {
@@ -1053,7 +1054,7 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
           taskPath: 'TASKS/logged.md',
           slotKey: '10:00-12:00',
           instanceId: 'exec-visible',
-          startTime: '2025-09-24T01:00:00.000Z',
+          startTime,
         },
       ],
     });
@@ -1064,7 +1065,8 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     expect(context.taskInstances).toHaveLength(1);
     const instance = context.taskInstances[0];
     expect(instance.instanceId).toBe('exec-visible');
-    expect(instance.slotKey).toBe('10:00-12:00');
+    // Invalid slotKey is recalculated from startTime using local-time conversion.
+    expect(instance.slotKey).toBe(context.getSectionConfig().getCurrentTimeSlot(new Date(startTime)));
     expect(instance.state).toBe('done');
     expect(instance.task.displayTitle).toBe('Logged Task');
   });
@@ -1110,7 +1112,7 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     const executionInstance = {
       taskTitle: 'Logged Task',
       taskPath: 'TASKS/logged.md',
-      slotKey: '08:00-09:00',
+      slotKey: '8:00-12:00',
       instanceId: 'exec-visible',
       startTime: '2025-09-24T00:00:00.000Z',
     };
@@ -1118,8 +1120,8 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     const duplicatedRecord = {
       instanceId: 'dup-visible',
       originalPath: 'TASKS/logged.md',
-      slotKey: '16:00-17:00',
-      originalSlotKey: '08:00-09:00',
+      slotKey: '16:00-0:00',
+      originalSlotKey: '8:00-12:00',
     };
 
     const { context, load } = createExecutionLogContext({
@@ -1146,13 +1148,13 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
 
     const duplicate = context.taskInstances.find((inst) => inst.instanceId === 'dup-visible');
     expect(duplicate).toBeDefined();
-    expect(duplicate?.slotKey).toBe('16:00-17:00');
+    expect(duplicate?.slotKey).toBe('16:00-0:00');
     expect(duplicate?.task.path).toBe('TASKS/logged.md');
     expect(duplicate?.task.displayTitle).toBe('Logged Task');
 
     const primary = context.taskInstances.find((inst) => inst.instanceId === 'exec-visible');
     expect(primary).toBeDefined();
-    expect(primary?.slotKey).toBe('08:00-09:00');
+    expect(primary?.slotKey).toBe('8:00-12:00');
   });
 
   test('skips duplicated instances suppressed via hidden routine metadata', async () => {

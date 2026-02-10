@@ -2,6 +2,7 @@ import { App } from "obsidian"
 import type { GoogleCalendarSettings, TaskInstance } from "../../../types"
 import { ensureFrontmatterObject } from "../../../utils/frontmatter"
 import { isTimeString } from "../../../types/TaskFields"
+import type { SectionConfigService } from "../../../services/SectionConfigService"
 
 const MAX_DESCRIPTION_LENGTH = 2000
 
@@ -31,7 +32,13 @@ interface RecurrenceBuildResult {
 }
 
 export class GoogleCalendarService {
+  private sectionConfig: SectionConfigService | null = null
+
   constructor(private readonly app: App) {}
+
+  setSectionConfig(config: SectionConfigService): void {
+    this.sectionConfig = config
+  }
 
   async buildEventFromTask(
     inst: TaskInstance,
@@ -239,6 +246,10 @@ export class GoogleCalendarService {
   }
 
   private getSlotStartTime(slotKey: string): string | null {
+    if (this.sectionConfig) {
+      return this.sectionConfig.getSlotStartTime(slotKey)
+    }
+    // Fallback for when sectionConfig is not set
     switch (slotKey) {
       case "0:00-8:00":
         return "00:00"

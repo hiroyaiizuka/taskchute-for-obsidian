@@ -8,12 +8,14 @@ import {
   TFolder,
   AbstractInputSuggest,
 } from "obsidian"
-import { TaskChuteSettings, PathManagerLike } from "../types"
+import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
 import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
+import { SectionConfigService } from "../services/SectionConfigService"
+import { showConfirmModal } from "../ui/modals/ConfirmModal"
 
 interface PluginWithSettings extends Plugin {
   app: App
@@ -39,13 +41,20 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     this.renderLogBackupSection(containerEl)
     this.renderReviewTemplateSection(containerEl)
     this.renderProjectCandidateSection(containerEl)
-    this.renderFeaturesSection(containerEl)
+    this.renderAdvancedSection(containerEl)
+  }
+
+  private setHeadingIfSupported(setting: Setting): void {
+    const maybeHeading = setting as Setting & { setHeading?: () => Setting }
+    if (typeof maybeHeading.setHeading === "function") {
+      maybeHeading.setHeading()
+    }
   }
 
   private renderLogBackupSection(container: HTMLElement): void {
-    new Setting(container)
+    const heading = new Setting(container)
       .setName(t("settings.logBackup.heading", "Log"))
-      .setHeading()
+    this.setHeadingIfSupported(heading)
 
     const intervalSetting = new Setting(container)
       .setName(t("settings.logBackup.intervalName", "Backup interval (hours)"))
@@ -105,9 +114,9 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private renderReviewTemplateSection(container: HTMLElement): void {
-    new Setting(container)
+    const heading = new Setting(container)
       .setName(t("settings.reviewTemplate.heading", "Review"))
-      .setHeading()
+    this.setHeadingIfSupported(heading)
 
     const pattern =
       this.plugin.settings.reviewFileNamePattern ?? "Review - {{date}}.md"
@@ -204,9 +213,9 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private renderStorageSection(container: HTMLElement): void {
-    new Setting(container)
+    const heading = new Setting(container)
       .setName(t("settings.heading", "TaskChute file paths"))
-      .setHeading()
+    this.setHeadingIfSupported(heading)
 
     // Base location dropdown
     new Setting(container)
@@ -303,9 +312,9 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private renderProjectCandidateSection(container: HTMLElement): void {
-    new Setting(container)
+    const heading = new Setting(container)
       .setName(t("settings.projectCandidates.heading", "Projects"))
-      .setHeading()
+    this.setHeadingIfSupported(heading)
 
     new Setting(container)
       .setName(
@@ -473,10 +482,213 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
   }
 
+  private renderAdvancedSection(container: HTMLElement): void {
+    const details = container.createEl('details', { cls: 'taskchute-advanced-settings' })
+    const summary = details.createEl('summary', { cls: 'taskchute-advanced-summary' })
+    summary.createEl('span', {
+      cls: 'taskchute-advanced-heading',
+      text: t('settings.advanced.heading', 'Advanced settings'),
+    })
+
+    const content = details.createEl('div', { cls: 'taskchute-advanced-content' })
+    this.renderSectionCustomization(content)
+    this.renderFeaturesSection(content)
+  }
+
+  private renderSectionCustomization(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t('settings.advanced.sectionCustomize.heading', 'Section customization'))
+    this.setHeadingIfSupported(heading)
+
+    // Draft state: copy current boundaries for editing
+    const current = SectionConfigService.sanitizeBoundaries(this.plugin.settings.customSections)
+      ?? [...SectionConfigService.DEFAULT_BOUNDARIES]
+    const draft: SectionBoundary[] = current.map(b => ({ ...b }))
+
+    const listEl = container.createEl('div', { cls: 'taskchute-section-boundaries' })
+
+    const renderBoundaryList = () => {
+      listEl.empty()
+      draft.forEach((boundary, idx) => {
+        const row = listEl.createEl('div', { cls: 'taskchute-boundary-row' })
+
+        row.createEl('span', {
+          cls: 'taskchute-boundary-label',
+          text: t('settings.advanced.sectionCustomize.boundaryLabel', `Boundary ${idx + 1}`, { index: idx + 1 }),
+        })
+
+        const input = row.createEl('input', {
+          cls: 'taskchute-boundary-input',
+          type: 'text',
+          attr: { placeholder: 'Enter time (hh:mm)' },
+        })
+        input.value = `${String(boundary.hour).padStart(2, '0')}:${String(boundary.minute).padStart(2, '0')}`
+
+        input.addEventListener('change', () => {
+          const match = input.value.trim().match(/^(\d{1,2}):(\d{2})$/)
+          if (match) {
+            const h = parseInt(match[1], 10)
+            const m = parseInt(match[2], 10)
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+              draft[idx] = { hour: h, minute: m }
+              return
+            }
+          }
+          new Notice(t('settings.advanced.sectionCustomize.validation.invalidFormat', 'Please enter in HH:MM format'))
+          const currentBoundary = draft[idx] ?? boundary
+          input.value = `${String(currentBoundary.hour).padStart(2, '0')}:${String(currentBoundary.minute).padStart(2, '0')}`
+        })
+
+        // Delete button (only if more than 2 boundaries)
+        if (draft.length > 2) {
+          const deleteBtn = row.createEl('button', {
+            cls: 'taskchute-boundary-delete',
+            text: t('settings.advanced.sectionCustomize.removeBoundary', 'Remove'),
+          })
+          deleteBtn.addEventListener('click', () => {
+            draft.splice(idx, 1)
+            renderBoundaryList()
+          })
+        }
+      })
+    }
+
+    renderBoundaryList()
+
+    // Buttons row
+    const buttonsEl = container.createEl('div', { cls: 'taskchute-section-buttons' })
+
+    // Add boundary button
+    const addBtn = buttonsEl.createEl('button', {
+      text: t('settings.advanced.sectionCustomize.addBoundary', 'Add boundary'),
+    })
+    addBtn.addEventListener('click', () => {
+      const lastBoundary = draft[draft.length - 1]
+      const newHour = Math.min(23, lastBoundary.hour + 4)
+      draft.push({ hour: newHour, minute: 0 })
+      renderBoundaryList()
+    })
+
+    // Reset button
+    const resetBtn = buttonsEl.createEl('button', {
+      text: t('settings.advanced.sectionCustomize.resetDefault', 'Reset to default'),
+    })
+    resetBtn.addEventListener('click', () => {
+      draft.length = 0
+      SectionConfigService.DEFAULT_BOUNDARIES.forEach(b => draft.push({ ...b }))
+      renderBoundaryList()
+    })
+
+    // Apply button
+    const applyBtn = buttonsEl.createEl('button', {
+      cls: 'mod-cta',
+      text: t('settings.advanced.sectionCustomize.apply', 'Apply'),
+    })
+    applyBtn.addEventListener('click', () => {
+      void (async () => {
+        // Sort draft ascending
+        draft.sort((a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute))
+        renderBoundaryList()
+
+        // Validate
+        if (draft.length < 2) {
+          new Notice(t('settings.advanced.sectionCustomize.validation.minimum', 'At least 2 boundaries are required'))
+          return
+        }
+        if (draft[0].hour !== 0 || draft[0].minute !== 0) {
+          new Notice(t('settings.advanced.sectionCustomize.validation.firstMustBeZero', 'The first boundary must be 0:00'))
+          return
+        }
+        // Check duplicates and ascending
+        for (let i = 1; i < draft.length; i++) {
+          const prev = draft[i - 1].hour * 60 + draft[i - 1].minute
+          const curr = draft[i].hour * 60 + draft[i].minute
+          if (curr === prev) {
+            new Notice(t('settings.advanced.sectionCustomize.validation.duplicate', 'Duplicate boundary times exist'))
+            return
+          }
+          if (curr < prev) {
+            new Notice(t('settings.advanced.sectionCustomize.validation.notAscending', 'Boundaries must be in ascending order'))
+            return
+          }
+        }
+
+        // Check if boundaries actually changed
+        const currentSections = this.plugin.settings.customSections
+        const sanitized = SectionConfigService.sanitizeBoundaries(currentSections) ?? SectionConfigService.DEFAULT_BOUNDARIES
+        const isDefault = draft.length === SectionConfigService.DEFAULT_BOUNDARIES.length
+          && draft.every((b, i) => b.hour === SectionConfigService.DEFAULT_BOUNDARIES[i].hour && b.minute === SectionConfigService.DEFAULT_BOUNDARIES[i].minute)
+        const isUnchanged = draft.length === sanitized.length
+          && draft.every((b, i) => b.hour === sanitized[i].hour && b.minute === sanitized[i].minute)
+
+        if (isUnchanged) {
+          new Notice(t('settings.advanced.sectionCustomize.noChanges', 'No changes to apply'))
+          return
+        }
+
+        // Confirm
+        const confirmed = await showConfirmModal(this.app, {
+          title: t('settings.advanced.sectionCustomize.confirmDialog.title', 'Change section boundaries'),
+          message: t('settings.advanced.sectionCustomize.confirmDialog.body', 'Changing section boundaries will recalculate slot assignments for existing tasks. Continue?'),
+          confirmText: t('settings.advanced.sectionCustomize.confirmDialog.confirm', 'Apply'),
+          cancelText: t('settings.advanced.sectionCustomize.confirmDialog.cancel', 'Cancel'),
+        })
+        if (!confirmed) return
+
+        try {
+          await this.applySectionCustomization(isDefault ? undefined : draft.map(b => ({ ...b })))
+          new Notice(t('settings.advanced.sectionCustomize.applied', 'Section boundaries updated'))
+        } catch (error) {
+          console.error('[SettingsTab] section customization failed', error)
+          new Notice(t('settings.advanced.sectionCustomize.migrationFailed', 'An error occurred while recalculating slot assignments'))
+        }
+      })()
+    })
+
+    // Migration notice
+    container.createEl('p', {
+      cls: 'setting-item-description taskchute-section-notice',
+      text: t('settings.advanced.sectionCustomize.migrationNotice', 'Changing section boundaries will automatically recalculate slot assignments for existing tasks.'),
+    })
+  }
+
+  private async applySectionCustomization(newBoundaries: SectionBoundary[] | undefined): Promise<void> {
+    // 1. Migrate settings.slotKeys – keep manual assignments by mapping old keys to new boundaries
+    const newConfig = new SectionConfigService(newBoundaries)
+    const migratedSlotKeys: Record<string, string> = {}
+    for (const [taskId, oldSlot] of Object.entries(this.plugin.settings.slotKeys)) {
+      migratedSlotKeys[taskId] = newConfig.isValidSlotKey(oldSlot)
+        ? oldSlot
+        : newConfig.migrateSlotKey(oldSlot)
+    }
+    this.plugin.settings.slotKeys = migratedSlotKeys
+    this.plugin.settings.customSections = newBoundaries
+
+    // 2. Save settings
+    await this.plugin.saveSettings()
+
+    // 3. Notify all open Views
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+    const results = await Promise.allSettled(
+      leaves.map(leaf => {
+        const view = leaf.view as { onSectionSettingsChanged?: () => Promise<void> }
+        if (typeof view.onSectionSettingsChanged === 'function') {
+          return view.onSectionSettingsChanged()
+        }
+        return Promise.resolve()
+      })
+    )
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        console.error('[SettingsTab] section update failed', r.reason)
+      }
+    }
+  }
+
   private renderFeaturesSection(container: HTMLElement): void {
-    new Setting(container)
+    const heading = new Setting(container)
       .setName(t("settings.features.heading", "External tools"))
-      .setHeading()
+    this.setHeadingIfSupported(heading)
 
     new Setting(container)
       .setName(t("settings.features.robotButton", "Show terminal button"))

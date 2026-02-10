@@ -2,6 +2,7 @@ import TaskReloadCoordinator, {
   TaskReloadCoordinatorHost,
 } from '../../src/features/core/services/TaskReloadCoordinator';
 import type { TaskInstance } from '../../src/types';
+import { SectionConfigService } from '../../src/services/SectionConfigService';
 
 jest.mock('../../src/utils/time', () => {
   const actual = jest.requireActual('../../src/utils/time');
@@ -12,13 +13,14 @@ jest.mock('../../src/utils/time', () => {
   };
 });
 
-const { calculateNextBoundary, getCurrentTimeSlot } = jest.requireMock('../../src/utils/time');
+const { calculateNextBoundary } = jest.requireMock('../../src/utils/time');
 
 interface ViewStub extends TaskReloadCoordinatorHost {
   getCurrentDateString: () => string;
 }
 
 function createViewStub(): ViewStub {
+  const sectionConfig = new SectionConfigService()
   const stub: ViewStub = {
     loadTasks: jest.fn().mockResolvedValue(undefined),
     restoreRunningTaskState: jest.fn().mockResolvedValue(undefined),
@@ -31,6 +33,7 @@ function createViewStub(): ViewStub {
     currentDate: new Date('2025-10-09T00:00:00.000Z'),
     getCurrentDateString: () => '2025-10-09',
     getTimeSlotKeys: () => ['0:00-8:00', '8:00-12:00', '12:00-16:00', '16:00-0:00'],
+    getSectionConfig: () => sectionConfig,
   }
   return stub
 }
@@ -38,7 +41,8 @@ function createViewStub(): ViewStub {
 describe('TaskReloadCoordinator', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    jest.setSystemTime(new Date('2025-10-09T09:00:00.000Z'));
+    // Set time to 9:00 AM in local time (not UTC)
+    jest.setSystemTime(new Date(2025, 9, 9, 9, 0, 0, 0));
     jest.clearAllMocks();
   });
 
@@ -104,6 +108,5 @@ describe('TaskReloadCoordinator', () => {
     expect(view.sortTaskInstancesByTimeOrder).toHaveBeenCalledTimes(1);
     expect(view.saveTaskOrders).toHaveBeenCalledTimes(1);
     expect(view.renderTaskList).toHaveBeenCalledTimes(1);
-    expect(getCurrentTimeSlot).toHaveBeenCalled();
   });
 });

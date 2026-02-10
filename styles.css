@@ -6263,3 +6263,97 @@ select.form-input {
 .taskchute-mobile-time-picker-btn-save:active {
   background: var(--interactive-accent-hover);
 }
+
+/* ── Advanced Settings (details/summary) ── */
+
+.taskchute-advanced-settings {
+  margin-top: 24px;
+}
+
+.taskchute-advanced-summary {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.taskchute-advanced-summary::-webkit-details-marker,
+.taskchute-advanced-summary::marker {
+  display: none;
+}
+
+.taskchute-advanced-summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 0.7em;
+  transition: transform 120ms ease;
+}
+
+.taskchute-advanced-settings[open] > .taskchute-advanced-summary::before {
+  transform: rotate(90deg);
+}
+
+.taskchute-advanced-heading {
+  font-size: var(--h3-size, 1.15em);
+  font-weight: var(--h3-weight, 600);
+  color: var(--text-normal);
+}
+
+.taskchute-advanced-content {
+  padding-top: 12px;
+}
+
+/* ── Section boundary list ── */
+
+.taskchute-section-boundaries {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.taskchute-boundary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--background-secondary);
+}
+
+.taskchute-boundary-row:not(:last-child) {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-boundary-label {
+  min-width: 60px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.taskchute-boundary-input {
+  flex: 1;
+  max-width: 200px;
+}
+
+.taskchute-boundary-delete {
+  flex-shrink: 0;
+}
+
+/* ── Section buttons row ── */
+
+.taskchute-section-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+
+.taskchute-section-notice {
+  margin-top: 8px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}

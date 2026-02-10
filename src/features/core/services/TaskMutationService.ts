@@ -1,6 +1,5 @@
 import { Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { getSlotFromTime } from '../../../utils/time'
 import {
   TaskInstance,
   TaskData,
@@ -10,6 +9,7 @@ import {
 } from '../../../types'
 import type DayStateStoreService from '../../../services/DayStateStoreService'
 import { isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
+import type { SectionConfigService } from '../../../services/SectionConfigService'
 
 type HiddenRoutineEntry = HiddenRoutine | string
 
@@ -65,6 +65,7 @@ export interface TaskMutationHost {
     taskId?: string,
     taskPath?: string,
   ) => Promise<void>
+  getSectionConfig: () => SectionConfigService
 }
 
 export default class TaskMutationService {
@@ -274,7 +275,7 @@ export default class TaskMutationService {
 
     if (overrideKey) {
       if (inst.task.isRoutine) {
-        const defaultSlot = scheduledTime ? getSlotFromTime(scheduledTime) : 'none'
+        const defaultSlot = scheduledTime ? this.host.getSectionConfig().getSlotFromTime(scheduledTime) : 'none'
         if (slotKeyValue === defaultSlot) {
           delete dayState.slotOverrides[overrideKey]
           if (taskId && taskPath && overrideKey !== taskPath) {

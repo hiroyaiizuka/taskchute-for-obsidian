@@ -53,6 +53,35 @@ export const ja = {
       robotButtonDesc:
         "Terminal から AI 連携が可能になります（Terminal プラグインが必要です）。",
     },
+    advanced: {
+      heading: "詳細設定",
+      sectionCustomize: {
+        heading: "セクション",
+        description: "タスクリストのセクション分割に使う時間帯の境界を変更できます。",
+        boundaryLabel: "境界 {index}",
+        addBoundary: "境界を追加",
+        removeBoundary: "削除",
+        resetDefault: "デフォルトに戻す",
+        apply: "適用",
+        noChanges: "変更はありません",
+        applied: "セクション境界を更新しました",
+        validation: {
+          minimum: "最低2つの境界が必要です",
+          duplicate: "同じ時刻の境界が存在します",
+          firstMustBeZero: "最初の境界は 0:00 である必要があります",
+          invalidFormat: "HH:MM 形式で入力してください",
+          notAscending: "境界は昇順で入力してください",
+        },
+        migrationNotice: "セクション境界を変更すると、既存のタスクのセクション割り当てが自動的に再計算されます。",
+        confirmDialog: {
+          title: "セクション境界の変更",
+          body: "セクション境界を変更すると、既存のタスクのセクション割り当てが再計算されます。続行しますか？",
+          confirm: "変更する",
+          cancel: "キャンセル",
+        },
+        migrationFailed: "セクション割り当ての再計算中にエラーが発生しました。",
+      },
+    },
     reminder: {
       heading: "リマインダー",
       enabledName: "リマインダー機能を有効化",

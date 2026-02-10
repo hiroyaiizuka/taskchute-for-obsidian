@@ -64,6 +64,7 @@ import { showDisambiguateStopTimeDateModal } from "../../../ui/modals/Disambigua
 import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
+import { SectionConfigService } from "../../../services/SectionConfigService"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "review" | "log" | "settings" | null = null
@@ -106,6 +107,7 @@ export class TaskChuteView
   public readonly routineController: RoutineController
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
+  public sectionConfig: SectionConfigService
 
   // Date Navigation
   public currentDate: Date
@@ -217,6 +219,9 @@ export class TaskChuteView
     // Initialize navigation state
     this.navigationState = new NavigationStateManager()
 
+    // Section config
+    this.sectionConfig = new SectionConfigService(this.plugin.settings.customSections)
+
     // Services
     this.runningTasksService = new RunningTasksService(this.plugin)
     this.executionLogService = new ExecutionLogService(this.plugin)
@@ -235,6 +240,8 @@ export class TaskChuteView
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
     })
     this.googleCalendarService = new GoogleCalendarService(this.app)
+    this.googleCalendarService.setSectionConfig(this.sectionConfig)
+    this.runningTasksService.setSectionConfig(this.sectionConfig)
     this.taskDragController = new TaskDragController({
       getTaskInstances: () => this.taskInstances,
       sortByOrder: (instances) => this.sortByOrder(instances),
@@ -299,6 +306,7 @@ export class TaskChuteView
       removeTaskLogForInstanceOnCurrentDate: (instanceId, taskId) =>
         this.removeTaskLogForInstanceOnCurrentDate(instanceId, taskId),
       getCurrentDate: () => new Date(this.currentDate),
+      getSectionConfig: () => this.sectionConfig,
     })
     this.taskCreationController = new TaskCreationController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -1756,7 +1764,16 @@ export class TaskChuteView
   // ===========================================
 
   public getTimeSlotKeys(): string[] {
-    return ["0:00-8:00", "8:00-12:00", "12:00-16:00", "16:00-0:00"]
+    return this.sectionConfig.getSlotKeys()
+  }
+
+  public getSectionConfig(): SectionConfigService {
+    return this.sectionConfig
+  }
+
+  async onSectionSettingsChanged(): Promise<void> {
+    this.sectionConfig.updateBoundaries(this.plugin.settings.customSections)
+    await this.reloadTasksAndRestore({ runBoundaryCheck: true })
   }
 
   public sortTaskInstancesByTimeOrder(): void {

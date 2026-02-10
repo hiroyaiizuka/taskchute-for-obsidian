@@ -1,5 +1,6 @@
 import { TFile } from 'obsidian'
 import { RunningTasksService, type RunningTaskRecord } from '../../src/features/core/services/RunningTasksService'
+import { SectionConfigService } from '../../src/services/SectionConfigService'
 import type {
   DeletedInstance,
   HiddenRoutine,
@@ -188,6 +189,80 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances).toHaveLength(1)
     expect(instances[0].state).toBe('running')
     expect(instances[0].task.path).toBe(record.taskPath)
+  })
+
+  it('persists migrated slot keys to running-task.json using startTime re-calculation', async () => {
+    // startTime is 2025-10-13T09:00:00.000Z (UTC) → local time depends on timezone
+    // With boundaries [0,6,12,18], slot is determined by local hour from startTime
+    const record = createRecord({
+      taskPath: 'TASKS/migrate-target.md',
+      slotKey: '8:00-12:00',
+      originalSlotKey: '16:00-0:00',
+      instanceId: 'migrate-instance',
+      startTime: new Date('2025-10-13T09:00:00.000Z').toISOString(),
+    })
+    const dataPath = 'LOGS/running-task.json'
+    const store = new Map<string, string>([
+      [dataPath, JSON.stringify([record], null, 2)],
+    ])
+
+    const createFile = (path: string) => {
+      const file = new TFile()
+      file.path = path
+      Object.setPrototypeOf(file, TFile.prototype)
+      return file
+    }
+
+    const plugin = {
+      pathManager: { getLogDataPath: () => 'LOGS' },
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (store.has(path) ? createFile(path) : null)),
+          read: jest.fn(async (file: TFile) => store.get(file.path) ?? ''),
+          adapter: {
+            exists: jest.fn(async (path: string) => store.has(path)),
+            read: jest.fn(async (path: string) => store.get(path) ?? ''),
+            write: jest.fn(async (path: string, content: string) => {
+              store.set(path, content)
+            }),
+          },
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 18, minute: 0 },
+    ])
+    const service = new RunningTasksService(plugin)
+    service.setSectionConfig(sectionConfig)
+
+    const task = createTaskData({ path: record.taskPath })
+    const instances: TaskInstance[] = []
+
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: (path) => (path === task.path ? task : undefined),
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    // Slot is re-calculated from startTime via getCurrentTimeSlot(new Date(startTime))
+    const startDate = new Date(record.startTime)
+    const expectedSlot = sectionConfig.getCurrentTimeSlot(startDate)
+    expect(restored[0]?.slotKey).toBe(expectedSlot)
+    expect(plugin.app.vault.adapter.write).toHaveBeenCalled()
+
+    const persisted = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
+    expect(persisted[0]?.slotKey).toBe(expectedSlot)
+    // originalSlotKey is cleared (undefined) when invalid
+    expect(persisted[0]?.originalSlotKey).toBeUndefined()
   })
 
   it('restores records by resolving task data from vault when missing in list', async () => {

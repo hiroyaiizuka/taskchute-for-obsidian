@@ -2,6 +2,7 @@ import TaskMutationService, { TaskMutationHost } from '../../src/features/core/s
 import type { DayState, TaskData, TaskInstance, DeletedInstance } from '../../src/types';
 import type DayStateStoreService from '../../src/services/DayStateStoreService';
 import { createRoutineLoadContext } from '../utils/taskViewTestUtils';
+import { SectionConfigService } from '../../src/services/SectionConfigService';
 
 function createDayState(partial?: Partial<DayState>): DayState {
   return {
@@ -32,6 +33,8 @@ function createMutationHost(dayState: DayState, pluginOverrides: Partial<PluginS
     }),
   } as unknown as DayStateStoreService
 
+  const sectionConfig = new SectionConfigService()
+
   const host: TaskMutationHost = {
     tv: (_key: string, fallback: string) => fallback,
     app: {
@@ -61,6 +64,7 @@ function createMutationHost(dayState: DayState, pluginOverrides: Partial<PluginS
     sortTaskInstancesByTimeOrder: jest.fn(),
     getOrderKey: () => null,
     dayStateManager,
+    getSectionConfig: () => sectionConfig,
   }
 
   return { host, plugin }

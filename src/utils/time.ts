@@ -2,6 +2,8 @@
  * Pure time/week functions used by TaskChuteView
  */
 
+import { SectionConfigService } from '../services/SectionConfigService'
+
 export interface TimeBoundary {
   hour: number;
   minute: number;
@@ -13,7 +15,7 @@ export function calculateNextBoundary(
 ): Date {
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
-  
+
   for (const boundary of boundaries) {
     if (
       boundary.hour > currentHour ||
@@ -24,32 +26,22 @@ export function calculateNextBoundary(
       return next;
     }
   }
-  
+
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(boundaries[0].hour, boundaries[0].minute, 0, 0);
   return tomorrow;
 }
 
+// Default service singleton (backward-compat fallback for callers without a SectionConfigService)
+const defaultService = new SectionConfigService()
+
 export function getCurrentTimeSlot(date: Date = new Date()): string {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
-  const timeInMinutes = hour * 60 + minute;
-  
-  if (timeInMinutes >= 0 && timeInMinutes < 8 * 60) return "0:00-8:00";
-  if (timeInMinutes >= 8 * 60 && timeInMinutes < 12 * 60) return "8:00-12:00";
-  if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) return "12:00-16:00";
-  return "16:00-0:00";
+  return defaultService.getCurrentTimeSlot(date)
 }
 
 export function getSlotFromTime(timeStr: string): string {
-  const [hour, minute] = String(timeStr).split(":").map(Number);
-  const timeInMinutes = hour * 60 + minute;
-  
-  if (timeInMinutes >= 0 && timeInMinutes < 8 * 60) return "0:00-8:00";
-  if (timeInMinutes >= 8 * 60 && timeInMinutes < 12 * 60) return "8:00-12:00";
-  if (timeInMinutes >= 12 * 60 && timeInMinutes < 16 * 60) return "12:00-16:00";
-  return "16:00-0:00";
+  return defaultService.getSlotFromTime(timeStr)
 }
 
 export function isTargetWeekday(date: Date, weekday: number): boolean {

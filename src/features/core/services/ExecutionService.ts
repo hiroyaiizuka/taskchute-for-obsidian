@@ -1,5 +1,6 @@
 import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../../../types';
+import type { SectionConfigService } from '../../../services/SectionConfigService';
 
 interface RawExecutionEntry {
   taskTitle?: string;
@@ -25,7 +26,13 @@ export interface TaskExecution {
 }
 
 export class ExecutionService {
+  private sectionConfig: SectionConfigService | null = null
+
   constructor(private plugin: TaskChutePluginLike) {}
+
+  setSectionConfig(config: SectionConfigService): void {
+    this.sectionConfig = config
+  }
 
   /**
    * Load today's task executions from log file
@@ -75,17 +82,17 @@ export class ExecutionService {
    */
   private calculateSlotKey(timeStr: string | undefined): string {
     if (!timeStr) return "none"
-
+    if (this.sectionConfig) {
+      return this.sectionConfig.calculateSlotKeyFromTime(timeStr) ?? "none"
+    }
+    // Fallback for when sectionConfig is not set
     const [hourStr] = timeStr.split(':')
     const hour = parseInt(hourStr ?? '', 10)
-
     if (!Number.isFinite(hour)) return "none"
-
     if (hour >= 0 && hour < 8) return "0:00-8:00"
     if (hour >= 8 && hour < 12) return "8:00-12:00"
     if (hour >= 12 && hour < 16) return "12:00-16:00"
     if (hour >= 16 && hour < 24) return "16:00-0:00"
-
     return "none"
   }
 
