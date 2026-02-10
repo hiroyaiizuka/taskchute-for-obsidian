@@ -9,6 +9,16 @@ import type { TaskChuteView } from "../../features/core/views/TaskChuteView";
 export class TaskChuteViewController {
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
+  isViewActive(): boolean {
+    const activeView = this.plugin.app.workspace.getMostRecentLeaf()?.view
+    if (!activeView) return false
+
+    const candidate = activeView as { getViewType?: () => string }
+    if (typeof candidate.getViewType !== "function") return false
+
+    return candidate.getViewType() === VIEW_TYPE_TASKCHUTE
+  }
+
   getView(): TaskChuteView | null {
     const leaf = this.plugin.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)[0]
     if (!leaf || !leaf.view) return null

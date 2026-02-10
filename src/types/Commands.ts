@@ -9,6 +9,7 @@ export interface CommandHost {
 
 export interface ViewActions {
   activateView(): Promise<void>;
+  isViewActive(): boolean;
   triggerDuplicateSelectedTask(): Promise<void>;
   triggerDeleteSelectedTask(): Promise<void>;
   triggerResetSelectedTask(): Promise<void>;

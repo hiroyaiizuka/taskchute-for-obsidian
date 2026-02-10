@@ -81,32 +81,6 @@ export default class TaskSelectionController {
     this.clear()
   }
 
-  async handleKeyboardShortcut(event: KeyboardEvent): Promise<void> {
-    if (!this.selectedInstance) return
-
-    const key = (event.key || '').toLowerCase()
-    const isAccel = event.ctrlKey || event.metaKey
-
-    if (!isAccel) return
-
-    switch (key) {
-      case 'c':
-        event.preventDefault()
-        await this.duplicateSelectedTask()
-        break
-      case 'd':
-        event.preventDefault()
-        await this.deleteSelectedTask()
-        break
-      case 'u':
-        event.preventDefault()
-        await this.resetSelectedTask()
-        break
-      default:
-        break
-    }
-  }
-
   private clearHighlight(): void {
     const container = this.host.getContainer()
     container
