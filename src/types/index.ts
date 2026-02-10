@@ -8,6 +8,11 @@ export * from "./projectBoard"
 
 export type LocationMode = "vaultRoot" | "specifiedFolder"
 
+export interface SectionBoundary {
+  hour: number    // 0-23
+  minute: number  // 0-59
+}
+
 export interface TaskChuteSettings {
   // New storage model (all optional for backward-compat)
   locationMode?: LocationMode // default: 'vaultRoot'
@@ -47,6 +52,9 @@ export interface TaskChuteSettings {
 
   // Google Calendar export (URL scheme, push-only)
   googleCalendar?: GoogleCalendarSettings
+
+  // Section customization (undefined = default boundaries [0:00, 8:00, 12:00, 16:00])
+  customSections?: SectionBoundary[]
 }
 
 export interface GoogleCalendarSettings {

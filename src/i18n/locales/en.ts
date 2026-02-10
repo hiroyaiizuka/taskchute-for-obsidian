@@ -55,6 +55,35 @@ export const en = {
       robotButtonDesc:
         `Enable AI integration via ${TERMINAL_NAME} (requires ${TERMINAL_NAME} plugin).`,
     },
+    advanced: {
+      heading: "Advanced settings",
+      sectionCustomize: {
+        heading: "Section",
+        description: "Customize the time boundaries used to divide your task list into sections.",
+        boundaryLabel: "Boundary {index}",
+        addBoundary: "Add boundary",
+        removeBoundary: "Remove",
+        resetDefault: "Reset to default",
+        apply: "Apply",
+        noChanges: "No changes to apply",
+        applied: "Section boundaries updated",
+        validation: {
+          minimum: "At least 2 boundaries are required",
+          duplicate: "Duplicate boundary times exist",
+          firstMustBeZero: "The first boundary must be 0:00",
+          invalidFormat: "Please enter in hh:mm format",
+          notAscending: "Boundaries must be in ascending order",
+        },
+        migrationNotice: "Changing section boundaries will automatically recalculate slot assignments for existing tasks.",
+        confirmDialog: {
+          title: "Change section boundaries",
+          body: "Changing section boundaries will recalculate slot assignments for existing tasks. Continue?",
+          confirm: "Apply",
+          cancel: "Cancel",
+        },
+        migrationFailed: "An error occurred while recalculating slot assignments.",
+      },
+    },
     reminder: {
       heading: "Reminders",
       enabledName: "Enable reminders",

@@ -1,7 +1,7 @@
 import { Notice } from 'obsidian'
 import type { App } from 'obsidian'
-import { getSlotFromTime } from '../../utils/time'
 import type { TaskInstance } from '../../types'
+import type { SectionConfigService } from '../../services/SectionConfigService'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
 import { createTimePicker } from './TimePickerFactory'
 import { resolveStopTimeDate } from '../../utils/resolveStopTimeDate'
@@ -26,6 +26,7 @@ export interface TaskTimeControllerHost {
   removeTaskLogForInstanceOnCurrentDate: (instanceId: string, taskId?: string) => Promise<void>
   getCurrentDate: () => Date
   disambiguateStopTimeDate?: (sameDayDate: Date, nextDayDate: Date) => Promise<'same-day' | 'next-day' | 'cancel'>
+  getSectionConfig: () => SectionConfigService
 }
 
 export default class TaskTimeController {
@@ -274,7 +275,7 @@ export default class TaskTimeController {
       inst.stopTime.setDate(inst.stopTime.getDate() + 1)
     }
 
-    const newSlot = getSlotFromTime(startStr)
+    const newSlot = this.host.getSectionConfig().getSlotFromTime(startStr)
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot
       this.host.persistSlotAssignment(inst)
@@ -299,7 +300,7 @@ export default class TaskTimeController {
     const [sh, sm] = startStr.split(':').map((n) => parseInt(n, 10))
     inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0)
 
-    const newSlot = getSlotFromTime(startStr)
+    const newSlot = this.host.getSectionConfig().getSlotFromTime(startStr)
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot
       this.host.persistSlotAssignment(inst)
@@ -328,7 +329,7 @@ export default class TaskTimeController {
     inst.startTime = new Date(base.getFullYear(), base.getMonth(), base.getDate(), sh, sm, 0, 0)
     inst.stopTime = undefined
 
-    const newSlot = getSlotFromTime(startStr)
+    const newSlot = this.host.getSectionConfig().getSlotFromTime(startStr)
     if (inst.slotKey !== newSlot) {
       inst.slotKey = newSlot
       this.host.persistSlotAssignment(inst)

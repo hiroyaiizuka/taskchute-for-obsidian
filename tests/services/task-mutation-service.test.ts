@@ -2,6 +2,7 @@ import { Notice, TFile } from 'obsidian'
 import TaskMutationService, { TaskMutationHost } from '../../src/features/core/services/TaskMutationService'
 import { TaskInstance, TaskData, HiddenRoutine, DeletedInstance } from '../../src/types'
 import type DayStateStoreService from '../../src/services/DayStateStoreService'
+import { SectionConfigService } from '../../src/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -67,6 +68,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
     taskExecutions: {},
     dailySummary: {},
   }
+  const sectionConfig = new SectionConfigService()
   const host: HostStub = {
     tv: (_key: string, fallback: string) => fallback,
     app: {
@@ -117,6 +119,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
     removeRunningTaskRecord: overrides.removeRunningTaskRecord ?? jest.fn(async () => {}),
     removeTaskLogForInstanceOnDate: overrides.removeTaskLogForInstanceOnDate ?? jest.fn(async () => {}),
     persistSlotAssignment: jest.fn(),
+    getSectionConfig: () => sectionConfig,
     tasks,
     taskInstances,
     dayState,

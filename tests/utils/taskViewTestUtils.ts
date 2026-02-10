@@ -10,6 +10,7 @@ import {
   DuplicatedInstance,
   DeletedInstance,
 } from '../../src/types';
+import { SectionConfigService } from '../../src/services/SectionConfigService';
 
 const DEFAULT_ROUTINE_METADATA = {
   isRoutine: true,
@@ -78,6 +79,7 @@ interface TaskChuteViewContextStub {
   generateInstanceId: jest.Mock<string, []>;
   dayStateManager?: DayStateStoreService;
   taskLoader: TaskLoaderService;
+  getSectionConfig: () => SectionConfigService;
 }
 
 function createDayState(overrides?: Partial<DayState>): DayState {
@@ -99,6 +101,7 @@ function createDayStateStoreServiceStub(dayState: DayState, date: string) {
       }
       return dayState;
     }),
+    persist: jest.fn(async () => undefined),
     getHidden: jest.fn(() => dayState.hiddenRoutines),
     getDeleted: jest.fn(() => dayState.deletedInstances),
     setDeleted: jest.fn((entries: DeletedInstance[]) => {
@@ -227,6 +230,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
 
   const ctime = new Date(date).getTime();
   const routineDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
+  const sectionConfig = new SectionConfigService();
 
   const context = {
     plugin,
@@ -292,6 +296,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     generateInstanceId: jest.fn(() => `routine-${Math.random().toString(36).slice(2)}`),
     dayStateManager: routineDayStateStoreService,
     taskLoader: new TaskLoaderService(),
+    getSectionConfig: () => sectionConfig,
   } as TaskChuteViewContextStub;
 
   return {
@@ -395,6 +400,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
   const statCtime = fileStat?.ctime ?? fileStat?.mtime ?? defaultCtime;
   const statMtime = fileStat?.mtime ?? fileStat?.ctime ?? defaultCtime;
   const nonRoutineDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
+  const sectionConfig = new SectionConfigService();
 
   const context = {
     plugin,
@@ -460,6 +466,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     generateInstanceId: jest.fn(() => `non-routine-${Math.random().toString(36).slice(2)}`),
     dayStateManager: nonRoutineDayStateStoreService,
     taskLoader: new TaskLoaderService(),
+    getSectionConfig: () => sectionConfig,
   } as TaskChuteViewContextStub;
 
   return {
@@ -526,6 +533,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
   }
 
   const executionDayStateStoreService = createDayStateStoreServiceStub(dayState, date);
+  const sectionConfig = new SectionConfigService();
 
   const taskFileEntries = taskFiles.map((descriptor) => {
     const file = createMockTFile(descriptor.path, descriptor.path.split('/').pop() ?? descriptor.path, 'md');
@@ -642,6 +650,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
     generateInstanceId: jest.fn(() => `exec-${Math.random().toString(36).slice(2)}`),
     dayStateManager: executionDayStateStoreService,
     taskLoader: new TaskLoaderService(),
+    getSectionConfig: () => sectionConfig,
   } as TaskChuteViewContextStub;
 
   return {

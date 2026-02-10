@@ -2,6 +2,7 @@ import { Notice } from 'obsidian'
 import TaskTimeController, { TaskTimeControllerHost } from '../../../src/ui/time/TaskTimeController'
 import type { TaskInstance } from '../../../src/types'
 import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
+import { SectionConfigService } from '../../../src/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -40,6 +41,7 @@ jest.mock('../../../src/ui/modals/ScheduledTimeModal', () => {
 
 describe('Retrospective time entry', () => {
   const createHost = (currentDate?: Date): TaskTimeControllerHost => {
+    const sectionConfig = new SectionConfigService()
     return {
       tv: (_key, fallback, vars) => {
         if (vars && vars.title) {
@@ -72,6 +74,7 @@ describe('Retrospective time entry', () => {
       restartTimerService: jest.fn(),
       removeTaskLogForInstanceOnCurrentDate: jest.fn().mockResolvedValue(undefined),
       getCurrentDate: () => currentDate ?? new Date('2025-10-05T00:00:00'),
+      getSectionConfig: () => sectionConfig,
     }
   }
 

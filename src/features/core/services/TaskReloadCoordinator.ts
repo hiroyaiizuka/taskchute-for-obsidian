@@ -1,5 +1,6 @@
-import { calculateNextBoundary, getCurrentTimeSlot } from '../../../utils/time'
+import { calculateNextBoundary } from '../../../utils/time'
 import type { TaskInstance } from '../../../types'
+import type { SectionConfigService } from '../../../services/SectionConfigService'
 
 export type DayStateCacheClearMode = 'none' | 'current' | 'all'
 
@@ -15,6 +16,7 @@ interface TaskReloadCoordinatorHost {
   sortTaskInstancesByTimeOrder: () => void
   saveTaskOrders: () => Promise<void>
   getCurrentDateString?: () => string
+  getSectionConfig: () => SectionConfigService
 }
 
 interface ReloadOptions {
@@ -41,12 +43,7 @@ export class TaskReloadCoordinator {
       clearTimeout(view.boundaryCheckTimeout)
     }
     const now = new Date()
-    const boundaries = [
-      { hour: 0, minute: 0 },
-      { hour: 8, minute: 0 },
-      { hour: 12, minute: 0 },
-      { hour: 16, minute: 0 },
-    ]
+    const boundaries = this.view.getSectionConfig().getTimeBoundaries()
 
     const next = calculateNextBoundary(now, boundaries)
     const delay = Math.max(0, next.getTime() - now.getTime() + 1000)
@@ -68,7 +65,7 @@ export class TaskReloadCoordinator {
         : this.formatDateKey(view.currentDate)
       if (viewDateKey !== todayKey) return
 
-      const currentSlot = getCurrentTimeSlot(new Date())
+      const currentSlot = this.view.getSectionConfig().getCurrentTimeSlot(new Date())
       const slots = view.getTimeSlotKeys()
       const currentIndex = slots.indexOf(currentSlot)
       if (currentIndex < 0) return

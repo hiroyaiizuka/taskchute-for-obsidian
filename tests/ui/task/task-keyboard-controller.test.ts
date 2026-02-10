@@ -13,7 +13,6 @@ describe('TaskKeyboardController', () => {
     }> = []
 
     const selection = {
-      handleKeyboardShortcut: jest.fn().mockResolvedValue(undefined),
       handleContainerClick: jest.fn(),
     } as unknown as TaskSelectionController
 
@@ -33,50 +32,37 @@ describe('TaskKeyboardController', () => {
     jest.clearAllMocks()
   })
 
-  test('initialize registers document keydown and container click handlers', () => {
+  test('initialize registers container click handler only', () => {
     const { controller, events, container } = createController()
 
     controller.initialize()
 
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ target: document, event: 'keydown' }),
-        expect.objectContaining({ target: container, event: 'click' }),
-      ]),
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual(
+      expect.objectContaining({ target: container, event: 'click' }),
     )
   })
 
-  test('handleKeyDown delegates to selection controller when not ignored', async () => {
+  test('container click delegates to selection controller', () => {
     const { controller, events, selection } = createController()
     controller.initialize()
 
-    const keydown = events.find(({ target, event }) => target === document && event === 'keydown')
-    expect(keydown).toBeDefined()
+    const click = events.find(({ event }) => event === 'click')
+    expect(click).toBeDefined()
 
-    keydown?.handler(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }))
-    await Promise.resolve()
+    const mouseEvent = new MouseEvent('click')
+    click?.handler(mouseEvent)
 
-    expect(selection.handleKeyboardShortcut).toHaveBeenCalled()
+    expect(selection.handleContainerClick).toHaveBeenCalledWith(mouseEvent)
   })
 
-  test('shouldIgnore returns true for focused input and modal overlay', () => {
-    const { controller } = createController()
+  test('container click ignores non-MouseEvent', () => {
+    const { controller, events, selection } = createController()
+    controller.initialize()
 
-    const input = document.createElement('input')
-    document.body.appendChild(input)
-    input.focus()
+    const click = events.find(({ event }) => event === 'click')
+    click?.handler(new Event('click'))
 
-    const ignoreInput = controller.shouldIgnore(new KeyboardEvent('keydown'))
-    expect(ignoreInput).toBe(true)
-
-    input.blur()
-    document.body.removeChild(input)
-
-    const overlay = document.createElement('div')
-    overlay.classList.add('modal')
-    document.body.appendChild(overlay)
-
-    const ignoreModal = controller.shouldIgnore(new KeyboardEvent('keydown'))
-    expect(ignoreModal).toBe(true)
+    expect(selection.handleContainerClick).not.toHaveBeenCalled()
   })
 })

@@ -7,6 +7,7 @@ import { initializeLocaleManager } from '../../src/i18n';
 describe('CommandRegistrar', () => {
   const viewControllerMock: jest.Mocked<TaskChuteViewController> = {
     activateView: jest.fn(async () => {}),
+    isViewActive: jest.fn(() => true),
     getView: jest.fn(() => null),
     getOrCreateView: jest.fn(async () => null),
     triggerShowTodayTasks: jest.fn(async () => {}),
@@ -44,11 +45,11 @@ describe('CommandRegistrar', () => {
     expect(ids).toEqual([
       'open-taskchute-view',
       'taskchute-settings',
+      'show-today-tasks',
+      'reorganize-idle-tasks',
       'duplicate-selected-task',
       'delete-selected-task',
       'reset-selected-task',
-      'show-today-tasks',
-      'reorganize-idle-tasks',
     ]);
 
     const openView = addCommand.mock.calls[0][0];
@@ -59,25 +60,25 @@ describe('CommandRegistrar', () => {
     await settings.callback();
     expect(showSettingsModal).toHaveBeenCalled();
 
-    const duplicate = addCommand.mock.calls[2][0];
-    await duplicate.callback();
-    expect(viewControllerMock.triggerDuplicateSelectedTask).toHaveBeenCalled();
-
-    const remove = addCommand.mock.calls[3][0];
-    await remove.callback();
-    expect(viewControllerMock.triggerDeleteSelectedTask).toHaveBeenCalled();
-
-    const reset = addCommand.mock.calls[4][0];
-    await reset.callback();
-    expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
-
-    const showToday = addCommand.mock.calls[5][0];
+    const showToday = addCommand.mock.calls[2][0];
     await showToday.callback();
     expect(viewControllerMock.triggerShowTodayTasks).toHaveBeenCalled();
 
-    const reorganize = addCommand.mock.calls[6][0];
+    const reorganize = addCommand.mock.calls[3][0];
     await reorganize.callback();
     expect(viewControllerMock.reorganizeIdleTasks).toHaveBeenCalled();
+
+    const duplicate = addCommand.mock.calls[4][0];
+    duplicate.checkCallback(false);
+    expect(viewControllerMock.triggerDuplicateSelectedTask).toHaveBeenCalled();
+
+    const remove = addCommand.mock.calls[5][0];
+    remove.checkCallback(false);
+    expect(viewControllerMock.triggerDeleteSelectedTask).toHaveBeenCalled();
+
+    const reset = addCommand.mock.calls[6][0];
+    reset.checkCallback(false);
+    expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
   });
 
   it('relocalizes commands on request', () => {

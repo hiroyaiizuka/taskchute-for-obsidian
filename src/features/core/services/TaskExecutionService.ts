@@ -1,7 +1,7 @@
 import { Notice, App, TFile } from 'obsidian'
-import { getCurrentTimeSlot } from '../../../utils/time'
 import { HeatmapService } from '../../log/services/HeatmapService'
 import type { TaskInstance, TaskChutePluginLike } from '../../../types'
+import type { SectionConfigService } from '../../../services/SectionConfigService'
 
 export interface CrossDayStartPayload {
   instance: TaskInstance
@@ -32,6 +32,7 @@ export interface TaskExecutionHost {
   hasRunningInstances(): boolean
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
   handleCrossDayStart?: (payload: CrossDayStartPayload) => Promise<void> | void
+  getSectionConfig: () => SectionConfigService
 }
 
 export const calculateCrossDayDuration = (startTime?: Date, stopTime?: Date): number => {
@@ -65,7 +66,7 @@ export class TaskExecutionService {
       }
 
       try {
-        const currentSlot = getCurrentTimeSlot(new Date())
+        const currentSlot = this.host.getSectionConfig().getCurrentTimeSlot(new Date())
         if (inst.slotKey !== currentSlot) {
           if (!inst.originalSlotKey) inst.originalSlotKey = inst.slotKey
           inst.slotKey = currentSlot

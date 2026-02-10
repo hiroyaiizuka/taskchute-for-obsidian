@@ -1046,6 +1046,7 @@ describe('TaskChuteView loadTasksRefactored deletions', () => {
 
 describe('TaskChuteView loadTasksRefactored executions', () => {
   test('creates synthetic task instances from execution log entries', async () => {
+    const startTime = '2025-09-24T01:00:00.000Z'
     const { context, load } = createExecutionLogContext({
       executions: [
         {
@@ -1053,7 +1054,7 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
           taskPath: 'TASKS/logged.md',
           slotKey: '10:00-12:00',
           instanceId: 'exec-visible',
-          startTime: '2025-09-24T01:00:00.000Z',
+          startTime,
         },
       ],
     });
@@ -1064,7 +1065,8 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     expect(context.taskInstances).toHaveLength(1);
     const instance = context.taskInstances[0];
     expect(instance.instanceId).toBe('exec-visible');
-    expect(instance.slotKey).toBe('10:00-12:00');
+    // Invalid slotKey is recalculated from startTime using local-time conversion.
+    expect(instance.slotKey).toBe(context.getSectionConfig().getCurrentTimeSlot(new Date(startTime)));
     expect(instance.state).toBe('done');
     expect(instance.task.displayTitle).toBe('Logged Task');
   });
@@ -1110,7 +1112,7 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     const executionInstance = {
       taskTitle: 'Logged Task',
       taskPath: 'TASKS/logged.md',
-      slotKey: '08:00-09:00',
+      slotKey: '8:00-12:00',
       instanceId: 'exec-visible',
       startTime: '2025-09-24T00:00:00.000Z',
     };
@@ -1118,8 +1120,8 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
     const duplicatedRecord = {
       instanceId: 'dup-visible',
       originalPath: 'TASKS/logged.md',
-      slotKey: '16:00-17:00',
-      originalSlotKey: '08:00-09:00',
+      slotKey: '16:00-0:00',
+      originalSlotKey: '8:00-12:00',
     };
 
     const { context, load } = createExecutionLogContext({
@@ -1146,13 +1148,13 @@ describe('TaskChuteView loadTasksRefactored executions', () => {
 
     const duplicate = context.taskInstances.find((inst) => inst.instanceId === 'dup-visible');
     expect(duplicate).toBeDefined();
-    expect(duplicate?.slotKey).toBe('16:00-17:00');
+    expect(duplicate?.slotKey).toBe('16:00-0:00');
     expect(duplicate?.task.path).toBe('TASKS/logged.md');
     expect(duplicate?.task.displayTitle).toBe('Logged Task');
 
     const primary = context.taskInstances.find((inst) => inst.instanceId === 'exec-visible');
     expect(primary).toBeDefined();
-    expect(primary?.slotKey).toBe('08:00-09:00');
+    expect(primary?.slotKey).toBe('8:00-12:00');
   });
 
   test('skips duplicated instances suppressed via hidden routine metadata', async () => {
@@ -1809,7 +1811,7 @@ describe('TaskChuteView execution log integration', () => {
 });
 
 describe('TaskChuteView registerDomEvent harness', () => {
-  test('setupEventListeners wires document keydown and container click', () => {
+  test('setupEventListeners wires container click handler', () => {
     const { view } = createView();
     view.containerEl = document.createElement('div');
 
@@ -1818,31 +1820,26 @@ describe('TaskChuteView registerDomEvent harness', () => {
     const registerEvent = jest.fn();
     (view as Mutable<TaskChuteView>).registerEvent = registerEvent;
 
-    const docRemoveSpy = jest.spyOn(document, 'removeEventListener');
     const containerRemoveSpy = jest.spyOn(view.containerEl, 'removeEventListener');
     const renameDetach = jest.fn();
     (view.app.vault.on as jest.Mock).mockReturnValue({ detach: renameDetach });
 
     (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
 
-    expect(registerDomEvent).toHaveBeenCalledTimes(2);
+    expect(registerDomEvent).toHaveBeenCalledTimes(1);
     const calls = registerDomEvent.mock.calls.map(([target, event]) => ({ target, event }));
-    const hasDocumentKeydown = calls.some(({ target, event }) => target === document && event === 'keydown');
     const hasContainerClick = calls.some(({ target, event }) => target === view.containerEl && event === 'click');
-    expect(hasDocumentKeydown).toBe(true);
     expect(hasContainerClick).toBe(true);
     expect(registerEvent).toHaveBeenCalledWith(expect.objectContaining({ detach: expect.any(Function) }));
     expect((view.app.vault.on as jest.Mock).mock.calls[0][0]).toBe('rename');
 
     const managed = (view as Mutable<TaskChuteView>)['managedDisposers'];
-    expect(managed.length).toBeGreaterThanOrEqual(3);
+    expect(managed.length).toBeGreaterThanOrEqual(2);
     managed.slice().forEach((dispose) => dispose());
 
-    expect(docRemoveSpy).toHaveBeenCalled();
     expect(containerRemoveSpy).toHaveBeenCalled();
     expect(renameDetach).toHaveBeenCalled();
 
-    docRemoveSpy.mockRestore();
     containerRemoveSpy.mockRestore();
   });
 
@@ -2044,7 +2041,6 @@ describe('TaskChuteView onClose cleanup', () => {
 
     const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
     const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout');
-    const docRemoveSpy = jest.spyOn(document, 'removeEventListener');
     const containerRemoveSpy = jest.spyOn(view.containerEl, 'removeEventListener');
 
     const vaultDetach = jest.fn();
@@ -2078,13 +2074,11 @@ describe('TaskChuteView onClose cleanup', () => {
       expect(clearTimeoutSpy).toHaveBeenCalledWith(fakeDebounce);
       expect(view['boundaryCheckTimeout']).toBeNull();
       expect(view['renderDebounceTimer']).toBeNull();
-      expect(docRemoveSpy).toHaveBeenCalled();
       expect(containerRemoveSpy).toHaveBeenCalled();
       expect(vaultDetach).toHaveBeenCalled();
     } finally {
       clearIntervalSpy.mockRestore();
       clearTimeoutSpy.mockRestore();
-      docRemoveSpy.mockRestore();
       containerRemoveSpy.mockRestore();
     }
   });
@@ -2279,131 +2273,6 @@ describe('TaskChuteView cross-day start handling', () => {
     ).toBe(false);
   });
 });
-
-describe('TaskChuteView keyboard shortcuts', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-    document.body.innerHTML = '';
-  });
-
-  const getSelectionController = (view: TaskChuteView) =>
-    view['taskSelectionController'];
-
-  function createShortcutEvent(
-    key: string,
-    options: { ctrl?: boolean; meta?: boolean } = {},
-  ): KeyboardEvent {
-    return {
-      key,
-      ctrlKey: options.ctrl ?? false,
-      metaKey: options.meta ?? false,
-      preventDefault: jest.fn(),
-    } as unknown as KeyboardEvent
-  }
-
-  function mountTaskElement(view: TaskChuteView): HTMLElement {
-    const el = document.createElement('div')
-    el.classList.add('task-item')
-    view.containerEl.appendChild(el)
-    return el
-  }
-
-  test('ctrl/c duplicates selection and clears highlight', async () => {
-    const { view } = createView()
-    const selection = getSelectionController(view)
-    const instance = createTaskInstance(createTaskData(), { instanceId: 'kb-dup' })
-    const element = mountTaskElement(view)
-    selection.select(instance, element)
-
-    const duplicateSpy = jest
-      .spyOn(view as unknown as { duplicateInstance: (inst: TaskInstance) => Promise<TaskInstance | void> }, 'duplicateInstance')
-      .mockResolvedValue(undefined)
-    const clearSpy = jest.spyOn(selection, 'clear')
-
-    const event = createShortcutEvent('c', { ctrl: true })
-    await selection.handleKeyboardShortcut(event)
-
-    expect(duplicateSpy).toHaveBeenCalledWith(instance)
-    expect(clearSpy).toHaveBeenCalled()
-    expect(event.preventDefault).toHaveBeenCalled()
-  })
-
-  test('ctrl/d invokes deleteSelectedTask', async () => {
-    const { view } = createView()
-    const selection = getSelectionController(view)
-    const instance = createTaskInstance(createTaskData(), { instanceId: 'kb-del' })
-    const element = mountTaskElement(view)
-    selection.select(instance, element)
-
-    jest
-      .spyOn(view as unknown as { showDeleteConfirmDialog: (inst: TaskInstance) => Promise<boolean> }, 'showDeleteConfirmDialog')
-      .mockResolvedValue(true)
-    const deleteSpy = jest
-      .spyOn(view as unknown as { deleteTask: (inst: TaskInstance) => Promise<void> }, 'deleteTask')
-      .mockResolvedValue(undefined)
-
-    const event = createShortcutEvent('d', { meta: true })
-    await selection.handleKeyboardShortcut(event)
-
-    expect(deleteSpy).toHaveBeenCalledWith(instance)
-    expect(event.preventDefault).toHaveBeenCalled()
-  })
-
-  test('ctrl/u resets running task and clears selection', async () => {
-    const { view } = createView()
-    const selection = getSelectionController(view)
-    const instance = createTaskInstance(createTaskData(), {
-      instanceId: 'kb-reset',
-      state: 'running',
-    })
-    const element = mountTaskElement(view)
-    selection.select(instance, element)
-
-    const resetSpy = jest
-      .spyOn(view as unknown as { resetTaskToIdle: (inst: TaskInstance) => Promise<void> }, 'resetTaskToIdle')
-      .mockResolvedValue(undefined)
-    const clearSpy = jest.spyOn(selection, 'clear')
-
-    const event = createShortcutEvent('u', { ctrl: true })
-    await selection.handleKeyboardShortcut(event)
-
-    expect(resetSpy).toHaveBeenCalledWith(instance)
-    expect(clearSpy).toHaveBeenCalled()
-    expect(event.preventDefault).toHaveBeenCalled()
-  })
-
-  test('ignores shortcuts while typing in active input', () => {
-    const { view } = createView()
-    const keyboardController = (view as unknown as {
-      taskKeyboardController: {
-        shouldIgnore: (event: KeyboardEvent) => boolean
-      }
-    }).taskKeyboardController;
-
-    const input = document.createElement('input')
-    document.body.appendChild(input)
-    input.focus()
-
-    const event = createShortcutEvent('c', { ctrl: true });
-    expect(keyboardController.shouldIgnore(event)).toBe(true);
-  })
-
-  test('ignores shortcuts when modal overlay present', () => {
-    const { view } = createView()
-    const keyboardController = (view as unknown as {
-      taskKeyboardController: {
-        shouldIgnore: (event: KeyboardEvent) => boolean
-      }
-    }).taskKeyboardController;
-
-    const modal = document.createElement('div')
-    modal.classList.add('modal')
-    document.body.appendChild(modal)
-
-    const event = createShortcutEvent('c', { ctrl: true });
-    expect(keyboardController.shouldIgnore(event)).toBe(true);
-  })
-})
 
 describe('TaskChuteView restoreDeletedTask', () => {
   test('sets restoredAt on matching entry and reloads view', async () => {

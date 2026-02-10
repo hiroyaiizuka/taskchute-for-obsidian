@@ -15,6 +15,7 @@ import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields'
 import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
+import type { SectionConfigService } from '../../../services/SectionConfigService'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -47,6 +48,7 @@ interface NormalizedExecution {
 
 interface DuplicatedRecord extends DuplicatedInstance {
   slotKey?: string
+  originalSlotKey?: string
 }
 
 interface VaultStat {
@@ -79,6 +81,7 @@ export interface TaskLoaderHost {
   generateInstanceId: (task: TaskData, dateKey: string) => string
   isInstanceHidden?: (instanceId?: string, path?: string, dateKey?: string) => boolean
   isInstanceDeleted?: (instanceId?: string, path?: string, dateKey?: string, taskId?: string) => boolean
+  getSectionConfig: () => SectionConfigService
 }
 
 const DEFAULT_SLOT_KEY = 'none'
@@ -270,6 +273,7 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
     const entries = Array.isArray(parsed?.taskExecutions?.[dateKey])
       ? parsed.taskExecutions[dateKey]
       : []
+    const sectionConfig = context.getSectionConfig()
 
     return entries.map((entry): NormalizedExecution => {
       const instanceId = toStringField(entry.instanceId)
@@ -278,7 +282,10 @@ async function loadTodayExecutions(context: TaskLoaderHost, dateKey: string): Pr
         toStringField(entry.taskTitle ?? entry.taskName) ??
         deriveTitleFromPath(taskPath) ??
         'Untitled task'
-      const slotKey = toStringField(entry.slotKey) ?? calculateSlotKeyFromTime(entry.startTime) ?? DEFAULT_SLOT_KEY
+      const rawSlotKey = toStringField(entry.slotKey)
+      const slotKey = (rawSlotKey && sectionConfig.isValidSlotKey(rawSlotKey))
+        ? rawSlotKey
+        : sectionConfig.calculateSlotKeyFromTime(toStringField(entry.startTime)) ?? DEFAULT_SLOT_KEY
       return {
         taskTitle,
         taskPath: taskPath ?? '',
@@ -383,8 +390,9 @@ function createNonRoutineTask(
 
   context.tasks.push(taskData)
 
-  const storedSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
-  const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? DEFAULT_SLOT_KEY
+  const rawStoredSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
+  const storedSlot = rawStoredSlot && context.getSectionConfig().isValidSlotKey(rawStoredSlot) ? rawStoredSlot : undefined
+  const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
     instanceId: context.generateInstanceId(taskData, dateKey),
@@ -540,8 +548,9 @@ async function createRoutineTask(
 
   context.tasks.push(taskData)
 
-  const { value: storedSlot } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
-  const slotKey = storedSlot ?? getScheduledSlotKey(getScheduledTime(metadata)) ?? DEFAULT_SLOT_KEY
+  const { value: rawStoredSlot } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
+  const storedSlot = rawStoredSlot && context.getSectionConfig().isValidSlotKey(rawStoredSlot) ? rawStoredSlot : undefined
+  const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
     instanceId: context.generateInstanceId(taskData, dateKey),
@@ -754,7 +763,9 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
         task: taskData,
         instanceId,
         state: 'idle',
-        slotKey: slotKey ?? DEFAULT_SLOT_KEY,
+        slotKey: slotKey
+          ?? context.getSectionConfig().calculateSlotKeyFromTime(taskData.scheduledTime)
+          ?? DEFAULT_SLOT_KEY,
         date: dateKey,
         createdMillis,
       }
@@ -780,9 +791,116 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
 async function ensureDayState(context: TaskLoaderHost, dateKey: string): Promise<DayState> {
   const manager = context.dayStateManager
   if (manager) {
-    return await manager.ensure(dateKey)
+    const state = await manager.ensure(dateKey)
+    if (migrateDayStateSlotKeys(context, state)) {
+      await manager.persist(dateKey)
+    }
+    return state
   }
   return createEmptyDayState()
+}
+
+function migrateDayStateSlotKeys(context: TaskLoaderHost, state: DayState): boolean {
+  const config = context.getSectionConfig()
+  let mutated = false
+
+  // Migrate slotOverrides – keep manual assignments by mapping old keys to new boundaries
+  if (state.slotOverrides) {
+    for (const [key, val] of Object.entries(state.slotOverrides)) {
+      if (val && val !== 'none' && !config.isValidSlotKey(val)) {
+        const migratedSlotKey = config.migrateSlotKey(val)
+        state.slotOverrides[key] = migratedSlotKey
+
+        // Update metadata so migrated value is persisted across syncs
+        if (!state.slotOverridesMeta) state.slotOverridesMeta = {}
+        state.slotOverridesMeta[key] = {
+          ...(state.slotOverridesMeta[key] ?? {}),
+          slotKey: migratedSlotKey,
+          updatedAt: Date.now()
+        }
+        mutated = true
+      }
+    }
+  }
+
+  // Migrate slotOverridesMeta – map invalid slot keys to current boundaries
+  if (state.slotOverridesMeta) {
+    for (const [key, entry] of Object.entries(state.slotOverridesMeta)) {
+      if (entry?.slotKey && !config.isValidSlotKey(entry.slotKey)) {
+        state.slotOverridesMeta[key] = {
+          ...entry,
+          slotKey: config.migrateSlotKey(entry.slotKey),
+          updatedAt: Date.now()
+        }
+        mutated = true
+      }
+    }
+  }
+
+  // Migrate duplicatedInstances – clear invalid slotKey/originalSlotKey for downstream re-calculation
+  if (Array.isArray(state.duplicatedInstances)) {
+    for (const dup of state.duplicatedInstances) {
+      const dupRecord = dup as DuplicatedRecord
+      if (dupRecord.slotKey && !config.isValidSlotKey(dupRecord.slotKey)) {
+        dupRecord.slotKey = undefined
+        mutated = true
+      }
+      if (dupRecord.originalSlotKey && !config.isValidSlotKey(dupRecord.originalSlotKey)) {
+        dupRecord.originalSlotKey = undefined
+        mutated = true
+      }
+    }
+  }
+
+  // Migrate orders and ordersMeta – discard entries with invalid slot keys
+  if (state.orders && Object.keys(state.orders).length > 0) {
+    const newOrders = new Map<string, number>()
+    const newOrdersMeta = new Map<string, { order: number; updatedAt: number }>()
+
+    for (const [oldKey, oldOrder] of Object.entries(state.orders)) {
+      const sepIdx = oldKey.indexOf('::')
+      if (sepIdx >= 0) {
+        const slotPart = oldKey.slice(sepIdx + 2)
+        if (slotPart && slotPart !== 'none' && !config.isValidSlotKey(slotPart)) {
+          mutated = true
+          continue // Discard orders with invalid slot keys
+        }
+      }
+      newOrders.set(oldKey, oldOrder)
+      const incomingMeta = state.ordersMeta?.[oldKey]
+      if (incomingMeta) {
+        newOrdersMeta.set(oldKey, { ...incomingMeta })
+      }
+    }
+
+    if (mutated) {
+      state.orders = Object.fromEntries(newOrders)
+      if (state.ordersMeta) {
+        state.ordersMeta = Object.fromEntries(newOrdersMeta)
+      }
+    }
+  }
+
+  return mutated
+}
+
+function shouldReplaceOrder(
+  existingMeta: { order: number; updatedAt: number } | undefined,
+  incomingMeta: { order: number; updatedAt: number } | undefined,
+  existingOrder: number,
+  incomingOrder: number,
+): boolean {
+  // Case 1: both have meta → compare updatedAt, then order
+  if (existingMeta && incomingMeta) {
+    if (incomingMeta.updatedAt > existingMeta.updatedAt) return true
+    if (incomingMeta.updatedAt === existingMeta.updatedAt && incomingOrder < existingOrder) return true
+    return false
+  }
+  // Case 2: only one has meta → meta-having side wins
+  if (incomingMeta && !existingMeta) return true
+  if (!incomingMeta && existingMeta) return false
+  // Case 3: neither has meta → smaller order wins
+  return incomingOrder < existingOrder
 }
 
 function getDeletedInstancesForDate(context: TaskLoaderHost, dateKey: string): DeletedInstance[] {
