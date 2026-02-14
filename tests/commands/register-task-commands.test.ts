@@ -52,7 +52,7 @@ describe('registerTaskCommands checkCallback', () => {
     ['delete-selected-task', 'triggerDeleteSelectedTask'],
     ['reset-selected-task', 'triggerResetSelectedTask'],
   ])('%s', (commandId, triggerMethod) => {
-    test('returns true when view is active and no input focused', () => {
+    test('checking=true: returns true when view is active', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
@@ -61,7 +61,7 @@ describe('registerTaskCommands checkCallback', () => {
       expect(check(true)).toBe(true)
     })
 
-    test('returns false when view is not active', () => {
+    test('checking=true: returns false when view is not active', () => {
       const { host, view, registeredCommands } = createMocks()
       ;(view.isViewActive as jest.Mock).mockReturnValue(false)
       const registrar = createCommandRegistrar(host, view)
@@ -71,7 +71,45 @@ describe('registerTaskCommands checkCallback', () => {
       expect(check(true)).toBe(false)
     })
 
-    test('returns false when input element is focused', () => {
+    test('checking=true: returns true even when task-modal-overlay is present', () => {
+      const { host, view, registeredCommands } = createMocks()
+      const registrar = createCommandRegistrar(host, view)
+      registrar.initialize()
+
+      const overlay = document.createElement('div')
+      overlay.classList.add('task-modal-overlay')
+      document.body.appendChild(overlay)
+
+      const check = getCheckCallback(registeredCommands, commandId)
+      expect(check(true)).toBe(true)
+    })
+
+    test('checking=false: executes action when view is active and no blocking modal', () => {
+      const { host, view, registeredCommands } = createMocks()
+      const registrar = createCommandRegistrar(host, view)
+      registrar.initialize()
+
+      const check = getCheckCallback(registeredCommands, commandId)
+      const result = check(false)
+
+      expect(result).toBe(true)
+      expect((view as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
+    })
+
+    test('checking=false: does not execute when view is not active', () => {
+      const { host, view, registeredCommands } = createMocks()
+      ;(view.isViewActive as jest.Mock).mockReturnValue(false)
+      const registrar = createCommandRegistrar(host, view)
+      registrar.initialize()
+
+      const check = getCheckCallback(registeredCommands, commandId)
+      const result = check(false)
+
+      expect(result).toBe(false)
+      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+    })
+
+    test('checking=false: does not execute when input element is focused', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
@@ -81,23 +119,33 @@ describe('registerTaskCommands checkCallback', () => {
       input.focus()
 
       const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
+      const result = check(false)
+
+      expect(result).toBe(false)
+      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
-    test('returns false when textarea is focused', () => {
+    test('checking=false: does not execute when contenteditable element is focused', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
 
-      const textarea = document.createElement('textarea')
-      document.body.appendChild(textarea)
-      textarea.focus()
+      const editor = document.createElement('div')
+      Object.defineProperty(editor, 'isContentEditable', { value: true, configurable: true })
+      const activeElementSpy = jest.spyOn(document, 'activeElement', 'get').mockReturnValue(editor)
 
-      const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
+      try {
+        const check = getCheckCallback(registeredCommands, commandId)
+        const result = check(false)
+
+        expect(result).toBe(false)
+        expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      } finally {
+        activeElementSpy.mockRestore()
+      }
     })
 
-    test('returns false when modal is present', () => {
+    test('checking=false: does not execute when non-command-palette modal is present', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
@@ -107,30 +155,29 @@ describe('registerTaskCommands checkCallback', () => {
       document.body.appendChild(modal)
 
       const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
+      const result = check(false)
+
+      expect(result).toBe(false)
+      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
-    test('returns true when command palette modal is open', () => {
+    test('checking=false: executes when only command palette modal is present', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
 
-      const paletteModal = document.createElement('div')
-      paletteModal.classList.add('modal', 'mod-command-palette')
-      const paletteInput = document.createElement('input')
-      paletteInput.classList.add('prompt-input')
-      paletteModal.appendChild(paletteInput)
-      document.body.appendChild(paletteModal)
-      paletteInput.focus()
+      const modal = document.createElement('div')
+      modal.classList.add('modal', 'mod-command-palette')
+      document.body.appendChild(modal)
 
       const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(true)
+      const result = check(false)
 
-      check(false)
+      expect(result).toBe(true)
       expect((view as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
     })
 
-    test('returns false when command palette and another modal are open', () => {
+    test('checking=false: does not execute when command palette and another modal are present', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
@@ -144,27 +191,13 @@ describe('registerTaskCommands checkCallback', () => {
       document.body.appendChild(otherModal)
 
       const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
+      const result = check(false)
+
+      expect(result).toBe(false)
+      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
-    test('returns false when command palette and task-modal-overlay are open', () => {
-      const { host, view, registeredCommands } = createMocks()
-      const registrar = createCommandRegistrar(host, view)
-      registrar.initialize()
-
-      const paletteModal = document.createElement('div')
-      paletteModal.classList.add('modal', 'mod-command-palette')
-      document.body.appendChild(paletteModal)
-
-      const overlay = document.createElement('div')
-      overlay.classList.add('task-modal-overlay')
-      document.body.appendChild(overlay)
-
-      const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
-    })
-
-    test('returns false when task-modal-overlay is present', () => {
+    test('checking=false: does not execute when task-modal-overlay is present', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
@@ -174,29 +207,9 @@ describe('registerTaskCommands checkCallback', () => {
       document.body.appendChild(overlay)
 
       const check = getCheckCallback(registeredCommands, commandId)
-      expect(check(true)).toBe(false)
-    })
+      const result = check(false)
 
-    test('executes action when checking is false and command is ready', () => {
-      const { host, view, registeredCommands } = createMocks()
-      const registrar = createCommandRegistrar(host, view)
-      registrar.initialize()
-
-      const check = getCheckCallback(registeredCommands, commandId)
-      check(false)
-
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
-    })
-
-    test('does not execute action when checking is false and command is not ready', () => {
-      const { host, view, registeredCommands } = createMocks()
-      ;(view.isViewActive as jest.Mock).mockReturnValue(false)
-      const registrar = createCommandRegistrar(host, view)
-      registrar.initialize()
-
-      const check = getCheckCallback(registeredCommands, commandId)
-      check(false)
-
+      expect(result).toBe(false)
       expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
   })

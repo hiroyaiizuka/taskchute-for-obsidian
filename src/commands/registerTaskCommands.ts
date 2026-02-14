@@ -67,8 +67,11 @@ class CommandRegistrarImpl implements CommandRegistrar {
         nameKey: "commands.duplicateSelected",
         fallback: "Duplicate selected task",
         checkCallback: (checking) => {
-          if (!this.isCommandReady()) return false;
-          if (!checking) void this.view.triggerDuplicateSelectedTask();
+          if (checking) return this.view.isViewActive();
+          if (!this.view.isViewActive()) return false;
+          if (this.hasOwnBlockingModal()) return false;
+          if (this.hasFocusedTextInputOutsideCommandPalette()) return false;
+          void this.view.triggerDuplicateSelectedTask();
           return true;
         },
       },
@@ -77,8 +80,11 @@ class CommandRegistrarImpl implements CommandRegistrar {
         nameKey: "commands.deleteSelected",
         fallback: "Delete selected task",
         checkCallback: (checking) => {
-          if (!this.isCommandReady()) return false;
-          if (!checking) void this.view.triggerDeleteSelectedTask();
+          if (checking) return this.view.isViewActive();
+          if (!this.view.isViewActive()) return false;
+          if (this.hasOwnBlockingModal()) return false;
+          if (this.hasFocusedTextInputOutsideCommandPalette()) return false;
+          void this.view.triggerDeleteSelectedTask();
           return true;
         },
       },
@@ -87,8 +93,11 @@ class CommandRegistrarImpl implements CommandRegistrar {
         nameKey: "commands.resetSelected",
         fallback: "Reset selected task",
         checkCallback: (checking) => {
-          if (!this.isCommandReady()) return false;
-          if (!checking) void this.view.triggerResetSelectedTask();
+          if (checking) return this.view.isViewActive();
+          if (!this.view.isViewActive()) return false;
+          if (this.hasOwnBlockingModal()) return false;
+          if (this.hasFocusedTextInputOutsideCommandPalette()) return false;
+          void this.view.triggerResetSelectedTask();
           return true;
         },
       },
@@ -110,38 +119,21 @@ class CommandRegistrarImpl implements CommandRegistrar {
     }
   }
 
-  private isCommandPaletteOpen(): boolean {
-    return Boolean(document.querySelector(".mod-command-palette"));
-  }
-
-  private hasBlockingModal(): boolean {
-    if (document.querySelector(".task-modal-overlay")) {
-      return true;
-    }
-
+  private hasOwnBlockingModal(): boolean {
+    if (document.querySelector(".task-modal-overlay")) return true;
     return Array.from(document.querySelectorAll(".modal")).some(
       (modal) => !modal.classList.contains("mod-command-palette"),
     );
   }
 
-  private isCommandReady(): boolean {
-    if (!this.view.isViewActive()) return false;
+  private hasFocusedTextInputOutsideCommandPalette(): boolean {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) return false;
+    if (activeElement.closest(".mod-command-palette")) return false;
 
-    const isCommandPaletteOpen = this.isCommandPaletteOpen();
-    if (this.hasBlockingModal()) return false;
-
-    const active = document.activeElement;
-    if (
-      active instanceof HTMLElement &&
-      active !== document.body &&
-      (active.tagName === "INPUT" ||
-        active.tagName === "TEXTAREA" ||
-        active.isContentEditable)
-    ) {
-      return isCommandPaletteOpen;
-    }
-
-    return true;
+    const tagName = activeElement.tagName.toLowerCase();
+    if (tagName === "input" || tagName === "textarea") return true;
+    return activeElement.isContentEditable;
   }
 
   private registerLocalizedCommand(definition: AnyCommandDefinition): void {

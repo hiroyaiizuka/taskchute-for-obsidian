@@ -884,25 +884,6 @@ function migrateDayStateSlotKeys(context: TaskLoaderHost, state: DayState): bool
   return mutated
 }
 
-function shouldReplaceOrder(
-  existingMeta: { order: number; updatedAt: number } | undefined,
-  incomingMeta: { order: number; updatedAt: number } | undefined,
-  existingOrder: number,
-  incomingOrder: number,
-): boolean {
-  // Case 1: both have meta → compare updatedAt, then order
-  if (existingMeta && incomingMeta) {
-    if (incomingMeta.updatedAt > existingMeta.updatedAt) return true
-    if (incomingMeta.updatedAt === existingMeta.updatedAt && incomingOrder < existingOrder) return true
-    return false
-  }
-  // Case 2: only one has meta → meta-having side wins
-  if (incomingMeta && !existingMeta) return true
-  if (!incomingMeta && existingMeta) return false
-  // Case 3: neither has meta → smaller order wins
-  return incomingOrder < existingOrder
-}
-
 function getDeletedInstancesForDate(context: TaskLoaderHost, dateKey: string): DeletedInstance[] {
   const manager = context.dayStateManager
   if (manager) {
@@ -1095,22 +1076,6 @@ function deriveTitleFromPath(path: string | undefined): string | undefined {
     return undefined
   }
   return filename.endsWith('.md') ? filename.slice(0, -3) : filename
-}
-
-function calculateSlotKeyFromTime(time: string | undefined): string | undefined {
-  if (!time) return undefined
-  const [hourStr] = time.split(':')
-  const hour = Number.parseInt(hourStr ?? '', 10)
-  if (Number.isNaN(hour)) return undefined
-  if (hour >= 0 && hour < 8) return '0:00-8:00'
-  if (hour >= 8 && hour < 12) return '8:00-12:00'
-  if (hour >= 12 && hour < 16) return '12:00-16:00'
-  if (hour >= 16 && hour < 24) return '16:00-0:00'
-  return undefined
-}
-
-function getScheduledSlotKey(time: string | undefined): string | undefined {
-  return calculateSlotKeyFromTime(time)
 }
 
 function parseDateTime(time: string | undefined, dateKey: string): Date | undefined {
