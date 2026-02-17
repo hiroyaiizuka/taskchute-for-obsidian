@@ -310,9 +310,20 @@ export class RoutineManagerModal extends Modal {
 
     editBtn.addEventListener('click', () => {
       const { file: currentFile } = this.filtered[index];
-      new RoutineEditModal(this.app, this.plugin, currentFile, (updatedFm) => {
-        void this.refreshRow(currentFile, undefined, updatedFm);
-      }).open();
+      // Disable parent modal to prevent its focus trap from interfering
+      // with native <select> dropdowns in the child modal
+      this.containerEl.setAttribute('inert', '');
+      new RoutineEditModal(
+        this.app,
+        this.plugin,
+        currentFile,
+        (updatedFm) => {
+          void this.refreshRow(currentFile, undefined, updatedFm);
+        },
+        () => {
+          this.containerEl.removeAttribute('inert');
+        },
+      ).open();
     });
 
     deleteBtn.addEventListener('click', () => {

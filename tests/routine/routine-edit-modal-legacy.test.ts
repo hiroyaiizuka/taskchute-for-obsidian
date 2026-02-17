@@ -99,7 +99,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
-    const fieldsets = monthlyGroup?.querySelectorAll('fieldset') ?? []
+    const fieldsets = monthlyGroup?.querySelectorAll('.routine-chip-fieldset') ?? []
     expect(fieldsets.length).toBeGreaterThanOrEqual(2)
 
     const weekFieldset = fieldsets[0]
@@ -135,7 +135,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
-    const fieldsets = monthlyGroup?.querySelectorAll('fieldset') ?? []
+    const fieldsets = monthlyGroup?.querySelectorAll('.routine-chip-fieldset') ?? []
     expect(fieldsets.length).toBeGreaterThanOrEqual(2)
 
     const weekFieldset = fieldsets[0]
@@ -146,6 +146,34 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     const weekdayTue = weekdayFieldset.querySelector('input[value="2"]') as HTMLInputElement
     expect(weekdayTue?.checked).toBe(true)
+
+    modal.close()
+  })
+
+  it('closes monthly date dropdown when clicking outside selector within modal', () => {
+    const frontmatter: RoutineFrontmatter = {
+      routine_type: 'monthly_date',
+    }
+    const app = createApp(frontmatter)
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const trigger = overlay?.querySelector('.routine-monthday-trigger') as HTMLButtonElement
+    const dropdown = overlay?.querySelector('.routine-monthday-dropdown') as HTMLDivElement
+    const outsideInModal = overlay?.querySelector('.routine-form') as HTMLElement
+
+    expect(trigger).toBeTruthy()
+    expect(dropdown.classList.contains('is-hidden')).toBe(true)
+
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(dropdown.classList.contains('is-hidden')).toBe(false)
+
+    outsideInModal.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(dropdown.classList.contains('is-hidden')).toBe(true)
 
     modal.close()
   })
