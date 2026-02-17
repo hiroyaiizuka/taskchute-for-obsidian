@@ -599,6 +599,13 @@ export default class RoutineController {
           changes.routine_end = endValue
         }
         const routineFrontmatter = frontmatter as RoutineFrontmatter
+        const routineFrontmatterRecord = routineFrontmatter as Record<string, unknown>
+        const previousTargetDateValue = routineFrontmatterRecord['target_date']
+        const previousTargetDate =
+          typeof previousTargetDateValue === 'string' && previousTargetDateValue.length > 0
+            ? previousTargetDateValue
+            : undefined
+        const wasEnabled = routineFrontmatter.routine_enabled !== false
         const cleaned = TaskValidator.cleanupOnRoutineChange(routineFrontmatter, changes)
         if (hasStart && !startValue) {
           delete cleaned.routine_start
@@ -615,6 +622,15 @@ export default class RoutineController {
         delete cleaned.routine_monthday
         delete cleaned.routine_monthdays
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
+
+        // Set target_date when disabling routine (after merge which deletes it)
+        if (details.enabled === false) {
+          routineFrontmatterRecord['target_date'] =
+            wasEnabled || !previousTargetDate
+              ? this.formatCurrentDate()
+              : previousTargetDate
+        }
+
         const mergedStart = routineFrontmatter.routine_start
         const mergedEnd = routineFrontmatter.routine_end
         if (typeof mergedStart === 'string' && mergedStart.length > 0) {
@@ -719,7 +735,11 @@ export default class RoutineController {
       task.routine_interval = Math.max(1, details.interval || 1)
       task.routine_enabled = details.enabled !== false
       this.assignRoutineDetails(task, routineType, details)
-      button?.classList.add('active')
+      if (task.routine_enabled !== false) {
+        button?.classList.add('active')
+      } else {
+        button?.classList.remove('active')
+      }
       const tooltipText = this.buildRoutineTooltip(task, routineType, scheduledTime, details)
       button?.setAttribute('title', tooltipText)
       await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })

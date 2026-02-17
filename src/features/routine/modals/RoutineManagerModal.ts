@@ -9,6 +9,7 @@ import {
   TaskChutePluginLike,
 } from '../../../types';
 import { getScheduledTime } from '../../../utils/fieldMigration';
+import { getToday } from '../../../utils/date';
 import RoutineEditModal from './RoutineEditModal';
 
 interface RoutineRow {
@@ -18,6 +19,7 @@ interface RoutineRow {
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown;
+  currentDate?: Date;
 }
 
 const DEFAULT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -510,6 +512,12 @@ export class RoutineManagerModal extends Modal {
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.routine_enabled = enabled;
+      const fmRecord = frontmatter as Record<string, unknown>;
+      if (!enabled) {
+        fmRecord['target_date'] = this.getCurrentViewDateString();
+      } else {
+        delete fmRecord['target_date'];
+      }
       return frontmatter;
     });
     new Notice(
@@ -518,6 +526,30 @@ export class RoutineManagerModal extends Modal {
         : this.tv('notices.toggledOff', 'Disabled'),
       1200,
     );
+  }
+
+  private getCurrentViewDateString(): string {
+    const activeLeaf = this.app.workspace.getMostRecentLeaf?.() as WorkspaceLeaf | null | undefined;
+    const activeView = activeLeaf?.view as TaskChuteViewLike | undefined;
+    const activeDate = activeView?.currentDate;
+    if (activeDate instanceof Date && !Number.isNaN(activeDate.getTime())) {
+      const y = activeDate.getFullYear();
+      const m = String(activeDate.getMonth() + 1).padStart(2, '0');
+      const d = String(activeDate.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    const leaves = this.app.workspace.getLeavesOfType('taskchute-view');
+    const leaf = leaves[0] as WorkspaceLeaf | undefined;
+    const view = leaf?.view as TaskChuteViewLike | undefined;
+    const currentDate = view?.currentDate;
+    if (currentDate instanceof Date && !Number.isNaN(currentDate.getTime())) {
+      const y = currentDate.getFullYear();
+      const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const d = String(currentDate.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return getToday();
   }
 
   private async removeRoutine(file: TFile): Promise<boolean> {

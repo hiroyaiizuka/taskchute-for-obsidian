@@ -1,8 +1,13 @@
 
 import { App, Notice, TFile } from 'obsidian'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
+import { getToday } from '../../utils/date'
 import type { RoutineTaskShape } from '../../types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
+
+interface TaskChuteViewLike {
+  currentDate?: Date
+}
 
 export interface NavigationRoutineHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -79,10 +84,38 @@ export default class NavigationRoutineController {
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
     await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       frontmatter.routine_enabled = enabled
+      if (!enabled) {
+        frontmatter['target_date'] = this.getCurrentViewDateString()
+      } else {
+        delete frontmatter['target_date']
+      }
       return frontmatter
     })
     const noticeKey = enabled ? 'notices.routineEnabled' : 'notices.routineDisabled'
     new Notice(this.host.tv(noticeKey, enabled ? 'Routine enabled' : 'Routine disabled'))
+  }
+
+  private getCurrentViewDateString(): string {
+    const activeLeaf = this.host.app.workspace.getMostRecentLeaf?.()
+    const activeView = activeLeaf?.view as TaskChuteViewLike | undefined
+    const activeDate = activeView?.currentDate
+    if (activeDate instanceof Date && !Number.isNaN(activeDate.getTime())) {
+      const y = activeDate.getFullYear()
+      const m = String(activeDate.getMonth() + 1).padStart(2, '0')
+      const d = String(activeDate.getDate()).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    }
+
+    const leaves = this.host.app.workspace.getLeavesOfType('taskchute-view')
+    const view = leaves[0]?.view as TaskChuteViewLike | undefined
+    const currentDate = view?.currentDate
+    if (currentDate instanceof Date && !Number.isNaN(currentDate.getTime())) {
+      const y = currentDate.getFullYear()
+      const m = String(currentDate.getMonth() + 1).padStart(2, '0')
+      const d = String(currentDate.getDate()).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    }
+    return getToday()
   }
 
   async updateRoutineSchedule(file: TFile, scheduledTime: string): Promise<void> {

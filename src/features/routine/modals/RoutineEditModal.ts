@@ -14,11 +14,13 @@ import {
   getScheduledTime,
   setScheduledTime,
 } from "../../../utils/fieldMigration"
+import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge } from "../utils/RoutineFrontmatterUtils"
 import { attachCloseButtonIcon } from "../../../ui/components/iconUtils"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
+  currentDate?: Date
 }
 
 const ROUTINE_TYPE_DEFAULTS: Array<{ value: RoutineType; label: string }> = [
@@ -553,7 +555,13 @@ export default class RoutineEditModal {
             // Apply cleanup to remove target_date if routine settings changed
             // Using record access to check legacy target_date field
             const fmRecord = fm as Record<string, unknown>
-            const hadTargetDate = !!fmRecord["target_date"]
+            const targetDate = fmRecord["target_date"]
+            const previousTargetDate =
+              typeof targetDate === "string" && targetDate.length > 0
+                ? targetDate
+                : undefined
+            const hadTargetDate = previousTargetDate !== undefined
+            const wasEnabled = fm.routine_enabled !== false
             const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes)
             const hadTemporaryMoveDate = !!fm.temporary_move_date
 
@@ -562,8 +570,19 @@ export default class RoutineEditModal {
               hadTemporaryMoveDate,
             })
 
-            // Notify if target_date was removed
-            if (hadTargetDate && !cleaned.target_date) {
+            // Set target_date when disabling routine (after merge which deletes it)
+            if (!enabledToggle.checked) {
+              fmRecord['target_date'] =
+                wasEnabled || !previousTargetDate
+                  ? this.getCurrentViewDateString()
+                  : previousTargetDate
+            }
+
+            // Notify only when target_date is truly removed from final frontmatter
+            const finalTargetDate = fmRecord["target_date"]
+            const hasFinalTargetDate =
+              typeof finalTargetDate === "string" && finalTargetDate.length > 0
+            if (hadTargetDate && !hasFinalTargetDate) {
               new Notice(
                 this.tv(
                   "notices.legacyTargetDateRemoved",
@@ -921,5 +940,28 @@ export default class RoutineEditModal {
         await view.reloadTasksAndRestore({ runBoundaryCheck: true })
       }
     }
+  }
+
+  private getCurrentViewDateString(): string {
+    const activeLeaf = this.app.workspace.getMostRecentLeaf?.()
+    const activeView = activeLeaf?.view as TaskChuteViewLike | undefined
+    const activeDate = activeView?.currentDate
+    if (activeDate instanceof Date && !Number.isNaN(activeDate.getTime())) {
+      const y = activeDate.getFullYear()
+      const m = String(activeDate.getMonth() + 1).padStart(2, "0")
+      const d = String(activeDate.getDate()).padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+
+    const leaves = this.app.workspace.getLeavesOfType("taskchute-view")
+    const view = leaves[0]?.view as TaskChuteViewLike | undefined
+    const currentDate = view?.currentDate
+    if (currentDate instanceof Date && !Number.isNaN(currentDate.getTime())) {
+      const y = currentDate.getFullYear()
+      const m = String(currentDate.getMonth() + 1).padStart(2, "0")
+      const d = String(currentDate.getDate()).padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+    return getToday()
   }
 }

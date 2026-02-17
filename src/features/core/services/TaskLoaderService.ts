@@ -232,14 +232,22 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
       const content = await context.app.vault.read(file)
       if (!isTaskFile(content, frontmatter)) continue
 
-      if (frontmatter?.isRoutine === true) {
+      const isActiveRoutine = frontmatter?.isRoutine === true &&
+        (frontmatter as Record<string, unknown>).routine_enabled !== false
+
+      if (isActiveRoutine) {
         if (shouldShowRoutineTask(frontmatter, dateKey)) {
           await createRoutineTask(context, file, frontmatter, dateKey)
         }
       } else {
-        const shouldShow = await shouldShowNonRoutineTask(context, file, frontmatter, dateKey)
+        let shouldShow: boolean
+        if (frontmatter?.isRoutine === true) {
+          shouldShow = await shouldShowDisabledRoutineTask(context, file, frontmatter, dateKey)
+        } else {
+          shouldShow = await shouldShowNonRoutineTask(context, file, frontmatter, dateKey)
+        }
         if (shouldShow) {
-          createNonRoutineTask(context, file, frontmatter, dateKey)
+          await createNonRoutineTask(context, file, frontmatter, dateKey)
         }
       }
     }
@@ -313,6 +321,7 @@ function createTaskFromExecutions(
   }
 
   const metadata = file ? getFrontmatter(context, file) : undefined
+  const isRoutineTask = metadata?.isRoutine === true
   const projectInfo = resolveProjectInfo(context, metadata)
   const templateName = file?.basename ?? executions[0].taskTitle
   const derivedPath = file?.path ?? (executions[0].taskPath || `${templateName}.md`)
@@ -328,10 +337,12 @@ function createTaskFromExecutions(
     project: toStringField(metadata?.project),
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
-    isRoutine: metadata?.isRoutine === true,
+    isRoutine: isRoutineTask,
     createdMillis,
-    routine_type: metadata?.routine_type,
-    routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
+    routine_type: isRoutineTask ? metadata?.routine_type : undefined,
+    routine_interval: isRoutineTask && typeof metadata?.routine_interval === 'number'
+      ? metadata.routine_interval
+      : undefined,
     routine_enabled: metadata?.routine_enabled,
     scheduledTime: getScheduledTime(metadata) || undefined,
     reminder_time: normalizeReminderTime(metadata?.reminder_time),
@@ -365,12 +376,13 @@ function createTaskFromExecutions(
   return created > 0
 }
 
-function createNonRoutineTask(
+async function createNonRoutineTask(
   context: TaskLoaderHost,
   file: TFile,
   metadata: TaskFrontmatterWithLegacy | undefined,
   dateKey: string,
-): void {
+): Promise<void> {
+  const isRoutineTask = metadata?.isRoutine === true
   const projectInfo = resolveProjectInfo(context, metadata)
   const createdMillis = resolveCreatedMillis(file, Date.now())
   const taskId = resolveTaskId(metadata)
@@ -383,8 +395,13 @@ function createNonRoutineTask(
     project: toStringField(metadata?.project),
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
-    isRoutine: false,
+    isRoutine: isRoutineTask,
     createdMillis,
+    routine_type: isRoutineTask ? metadata?.routine_type : undefined,
+    routine_interval: isRoutineTask && typeof metadata?.routine_interval === 'number'
+      ? metadata.routine_interval
+      : undefined,
+    routine_enabled: isRoutineTask ? metadata?.routine_enabled : undefined,
     scheduledTime: getScheduledTime(metadata) || undefined,
     reminder_time: normalizeReminderTime(metadata?.reminder_time),
     taskId,
@@ -392,7 +409,17 @@ function createNonRoutineTask(
 
   context.tasks.push(taskData)
 
-  const rawStoredSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
+  let rawStoredSlot: string | undefined
+  if (isRoutineTask) {
+    const dayState = await ensureDayState(context, dateKey)
+    const { value: dayStateSlot, migrated } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
+    rawStoredSlot = dayStateSlot
+    if (migrated) {
+      await context.dayStateManager?.persist(dateKey)
+    }
+  } else {
+    rawStoredSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
+  }
   const storedSlot = rawStoredSlot && context.getSectionConfig().isValidSlotKey(rawStoredSlot) ? rawStoredSlot : undefined
   const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
@@ -580,6 +607,94 @@ function shouldShowRoutineTask(
     : undefined
   const rule = RoutineService.parseFrontmatter(metadata)
   return RoutineService.isDue(dateKey, rule, movedTargetDate)
+}
+
+async function shouldShowDisabledRoutineTask(
+  context: TaskLoaderHost,
+  file: TFile,
+  metadata: TaskFrontmatterWithLegacy | undefined,
+  dateKey: string,
+): Promise<boolean> {
+  const originalEntries = getDeletedInstancesForDate(context, dateKey)
+  const taskId = resolveTaskId(metadata)
+  let deletedEntries = originalEntries
+
+  if (taskId) {
+    const promoted = promoteDeletedEntriesToTaskId(originalEntries, taskId, file.path)
+    if (promoted) {
+      deletedEntries = promoted
+      context.dayStateManager.setDeleted(promoted, dateKey)
+    }
+  }
+
+  // 1a. taskId-based permanent deletion check
+  if (taskId) {
+    const hasTaskIdDeletion = deletedEntries.some(
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        entry.taskId === taskId &&
+        (isDeletedEntry(entry) || isLegacyDeletionEntry(entry)),
+    )
+    if (hasTaskIdDeletion) return false
+  }
+
+  // 1b. legacy path-based permanent deletion check (for old data without taskId)
+  const legacyPathDeletions = deletedEntries.filter((entry) => {
+    if (entry.deletionType !== 'permanent') return false
+    if (entry.taskId) return false
+    if (entry.path !== file.path) return false
+    return isDeletedEntry(entry) || isLegacyDeletionEntry(entry)
+  })
+
+  if (legacyPathDeletions.length > 0) {
+    let missingDeletionTimestamp = false
+    let latestDeletionTimestamp: number | undefined
+    for (const entry of legacyPathDeletions) {
+      const ts = getEffectiveDeletedAt(entry)
+      if (ts > 0) {
+        latestDeletionTimestamp =
+          latestDeletionTimestamp === undefined
+            ? ts
+            : Math.max(latestDeletionTimestamp, ts)
+      } else {
+        missingDeletionTimestamp = true
+      }
+    }
+
+    if (missingDeletionTimestamp) return false
+
+    try {
+      const stats = await context.app.vault.adapter.stat(file.path)
+      if (!stats) return false
+      const raw = stats.ctime ?? stats.mtime
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) return false
+      if (latestDeletionTimestamp === undefined || raw <= latestDeletionTimestamp) return false
+
+      // Clean up stale legacy deletion entries
+      const remainingEntries = deletedEntries.filter((entry) => {
+        if (entry.deletionType !== 'permanent') return true
+        if (entry.taskId) return true
+        if (!isDeletedEntry(entry)) return true
+        return entry.path !== file.path
+      })
+      if (remainingEntries.length !== deletedEntries.length) {
+        context.dayStateManager.setDeleted(remainingEntries, dateKey)
+        deletedEntries = remainingEntries
+      }
+    } catch {
+      return false
+    }
+  }
+
+  // 2. If target_date exists, show only on that date
+  const metaRecord = metadata as Record<string, unknown> | undefined
+  const targetDate = metaRecord?.['target_date'] as string | undefined
+  if (targetDate) {
+    return targetDate === dateKey
+  }
+
+  // 3. Fallback for existing data without target_date: show on today only
+  return dateKey === formatDate(new Date())
 }
 
 async function shouldShowNonRoutineTask(
