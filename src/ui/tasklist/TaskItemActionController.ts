@@ -162,8 +162,9 @@ export class TaskItemActionController {
   }
 
   renderRoutineButton(taskItem: HTMLElement, inst: TaskInstance): void {
+    const isRoutineEnabled = inst.task.isRoutine && inst.task.routine_enabled !== false
     const button = taskItem.createEl('button', {
-      cls: `routine-button ${inst.task.isRoutine ? 'active' : ''}`,
+      cls: `routine-button ${isRoutineEnabled ? 'active' : ''}`,
       text: '🔄',
       attr: {
         title: inst.task.isRoutine

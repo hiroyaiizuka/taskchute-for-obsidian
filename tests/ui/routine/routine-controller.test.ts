@@ -281,4 +281,91 @@ describe('RoutineController', () => {
 
     expect(document.body.contains(overlay)).toBe(true)
   })
+
+  it('sets target_date when setting routine with enabled=false', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '09:00', 'daily', {
+      interval: 1,
+      enabled: false,
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_enabled).toBe(false)
+    expect(fm?.target_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('uses current view date as target_date when disabling routine', async () => {
+    const { host, frontmatterStore } = createHost({
+      getCurrentDate: () => new Date('2025-11-30T00:00:00Z'),
+    })
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '09:00', 'daily', {
+      interval: 1,
+      enabled: false,
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_enabled).toBe(false)
+    expect(fm?.target_date).toBe('2025-11-30')
+  })
+
+  it('does not set target_date when setting routine with enabled=true', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '09:00', 'daily', {
+      interval: 1,
+      enabled: true,
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_enabled).toBe(true)
+    expect(fm?.target_date).toBeUndefined()
+  })
+
+  it('preserves existing target_date when saving already-disabled routine', async () => {
+    const { host, frontmatterStore } = createHost({
+      getCurrentDate: () => new Date('2025-11-30T00:00:00Z'),
+    })
+    const controller = new RoutineController(host)
+    const task = createTask({
+      isRoutine: true,
+      routine_enabled: false,
+      routine_type: 'daily',
+      routine_interval: 1,
+      frontmatter: {
+        isRoutine: true,
+        routine_enabled: false,
+        routine_type: 'daily',
+        routine_interval: 1,
+        target_date: '2026-01-15',
+      },
+    })
+    const button = createButton()
+    frontmatterStore.set(task.path, {
+      isRoutine: true,
+      routine_enabled: false,
+      routine_type: 'daily',
+      routine_interval: 1,
+      target_date: '2026-01-15',
+    })
+
+    await controller.setRoutineTaskWithDetails(task, button, '09:00', 'daily', {
+      interval: 1,
+      enabled: false,
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_enabled).toBe(false)
+    expect(fm?.target_date).toBe('2026-01-15')
+  })
 })

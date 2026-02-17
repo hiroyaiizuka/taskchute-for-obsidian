@@ -2,12 +2,14 @@
  * @jest-environment jsdom
  */
 
-import { TFile } from 'obsidian'
+import { Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
 import RoutineEditModal from '../../src/features/routine/modals/RoutineEditModal'
 import type { RoutineFrontmatter, TaskChutePluginLike } from '../../src/types'
 
 jest.mock('obsidian')
+
+const NoticeMock = Notice as unknown as jest.Mock
 
 const ensureCreateEl = () => {
   const proto = HTMLElement.prototype as unknown as {
@@ -60,18 +62,37 @@ const createFile = (path: string): TFile => {
   return file
 }
 
-const createApp = (frontmatter: RoutineFrontmatter): App =>
-  ({
+const createApp = (
+  frontmatter: RoutineFrontmatter,
+  options?: { currentDate?: Date; viewDates?: Date[]; activeLeafIndex?: number },
+): App =>
+  (() => {
+    const viewDates = options?.viewDates ?? [options?.currentDate ?? new Date(2025, 10, 30)]
+    const leaves = viewDates.map((currentDate) => ({
+      view: {
+        currentDate,
+        reloadTasksAndRestore: jest.fn(async () => {}),
+      },
+    }))
+    const activeLeaf = leaves[options?.activeLeafIndex ?? 0] ?? leaves[0]
+
+    return {
     metadataCache: {
       getFileCache: jest.fn(() => ({ frontmatter })),
     },
     fileManager: {
-      processFrontMatter: jest.fn(),
+      processFrontMatter: jest.fn(
+        async (_file: TFile, updater: (fm: RoutineFrontmatter) => RoutineFrontmatter) => {
+          updater(frontmatter)
+        },
+      ),
     },
     workspace: {
-      getLeavesOfType: jest.fn(() => []),
+      getLeavesOfType: jest.fn(() => leaves),
+      getMostRecentLeaf: jest.fn(() => activeLeaf),
     },
-  }) as unknown as App
+  } as unknown as App
+  })()
 
 const createPlugin = (): TaskChutePluginLike => ({}) as TaskChutePluginLike
 
@@ -82,6 +103,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
   beforeEach(() => {
     document.body.innerHTML = ''
+    NoticeMock.mockClear()
   })
 
   it('prefills legacy monthly weeks and weekdays arrays', () => {
@@ -99,7 +121,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
-    const fieldsets = monthlyGroup?.querySelectorAll('fieldset') ?? []
+    const fieldsets = monthlyGroup?.querySelectorAll('.routine-chip-fieldset') ?? []
     expect(fieldsets.length).toBeGreaterThanOrEqual(2)
 
     const weekFieldset = fieldsets[0]
@@ -135,7 +157,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
-    const fieldsets = monthlyGroup?.querySelectorAll('fieldset') ?? []
+    const fieldsets = monthlyGroup?.querySelectorAll('.routine-chip-fieldset') ?? []
     expect(fieldsets.length).toBeGreaterThanOrEqual(2)
 
     const weekFieldset = fieldsets[0]
@@ -148,5 +170,125 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(weekdayTue?.checked).toBe(true)
 
     modal.close()
+  })
+
+  it('closes monthly date dropdown when clicking outside selector within modal', () => {
+    const frontmatter: RoutineFrontmatter = {
+      routine_type: 'monthly_date',
+    }
+    const app = createApp(frontmatter)
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const trigger = overlay?.querySelector('.routine-monthday-trigger') as HTMLButtonElement
+    const dropdown = overlay?.querySelector('.routine-monthday-dropdown') as HTMLDivElement
+    const outsideInModal = overlay?.querySelector('.routine-form') as HTMLElement
+
+    expect(trigger).toBeTruthy()
+    expect(dropdown.classList.contains('is-hidden')).toBe(true)
+
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(dropdown.classList.contains('is-hidden')).toBe(false)
+
+    outsideInModal.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(dropdown.classList.contains('is-hidden')).toBe(true)
+
+    modal.close()
+  })
+
+  it('uses current view date as target_date when disabling routine on save', async () => {
+    const frontmatter: RoutineFrontmatter = {
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: true,
+    }
+    const app = createApp(frontmatter, {
+      currentDate: new Date(2025, 11, 24),
+    })
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
+    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    expect(enabledToggle).toBeTruthy()
+    expect(saveButton).toBeTruthy()
+
+    enabledToggle.checked = false
+    saveButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.routine_enabled).toBe(false)
+    expect((frontmatter as Record<string, unknown>).target_date).toBe('2025-12-24')
+  })
+
+  it('preserves existing target_date when saving already-disabled routine', async () => {
+    const frontmatter: RoutineFrontmatter = {
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: false,
+      target_date: '2026-01-15',
+    }
+    const app = createApp(frontmatter, {
+      currentDate: new Date(2025, 11, 24),
+    })
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    expect(saveButton).toBeTruthy()
+
+    saveButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.routine_enabled).toBe(false)
+    expect((frontmatter as Record<string, unknown>).target_date).toBe('2026-01-15')
+    expect(NoticeMock).not.toHaveBeenCalledWith(
+      'Removed legacy target_date automatically.',
+    )
+  })
+
+  it('uses active taskchute view date when multiple taskchute leaves are open', async () => {
+    const frontmatter: RoutineFrontmatter = {
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: true,
+    }
+    const app = createApp(frontmatter, {
+      viewDates: [new Date(2025, 10, 30), new Date(2025, 11, 1)],
+      activeLeafIndex: 1,
+    })
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
+    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    expect(enabledToggle).toBeTruthy()
+    expect(saveButton).toBeTruthy()
+
+    enabledToggle.checked = false
+    saveButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.routine_enabled).toBe(false)
+    expect((frontmatter as Record<string, unknown>).target_date).toBe('2025-12-01')
   })
 })

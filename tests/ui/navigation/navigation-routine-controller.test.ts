@@ -78,6 +78,9 @@ describe('NavigationRoutineController', () => {
     files: TFile[]
     nonRoutineFiles?: TFile[]
     navigationContent?: HTMLElement
+    currentDate?: Date
+    viewDates?: Date[]
+    activeLeafIndex?: number
   }): NavigationRoutineHost & {
     navigationContent: HTMLElement
     reloadTasksAndRestore: jest.Mock
@@ -86,6 +89,14 @@ describe('NavigationRoutineController', () => {
     const navigationContent = options.navigationContent ?? document.createElement('div')
     const frontmatter = options.frontmatter
     const files = [...options.files, ...(options.nonRoutineFiles ?? [])]
+
+    const viewDates = options.viewDates ?? [options.currentDate ?? new Date(2025, 9, 9)]
+    const leaves = viewDates.map((currentDate) => ({
+      view: {
+        currentDate,
+      },
+    }))
+    const activeLeaf = leaves[options.activeLeafIndex ?? 0] ?? leaves[0]
 
     return {
       tv: (key, fallback, vars) => translate(key, fallback, vars),
@@ -105,6 +116,10 @@ describe('NavigationRoutineController', () => {
             const updated = updater({ ...data })
             frontmatter.set(file, updated)
           }),
+        },
+        workspace: {
+          getLeavesOfType: jest.fn(() => leaves),
+          getMostRecentLeaf: jest.fn(() => activeLeaf),
         },
       } as unknown as NavigationRoutineHost['app'],
       plugin: {
@@ -166,8 +181,95 @@ describe('NavigationRoutineController', () => {
 
     expect(host.app.fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
     expect(frontmatter.get(routineFile)?.routine_enabled).toBe(false)
+    expect(frontmatter.get(routineFile)?.target_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: true })
     expect(NoticeMock).toHaveBeenCalledWith('Routine disabled')
+  })
+
+  it('uses current view date as target_date when disabling routine', async () => {
+    const routineFile = createMockTFile('TASKS/routine.md')
+    const frontmatter: FrontmatterMap = new Map([
+      [routineFile, { isRoutine: true, routine_type: 'daily', routine_interval: 1, routine_enabled: true }],
+    ])
+
+    const host = createHost({
+      frontmatter,
+      files: [routineFile],
+      currentDate: new Date(2025, 11, 25),
+    })
+    const controller = new NavigationRoutineController(host)
+
+    controller.renderRoutineList()
+
+    const toggle = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!toggle) throw new Error('toggle not found')
+    toggle.checked = false
+    toggle.dispatchEvent(new Event('change'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.get(routineFile)?.routine_enabled).toBe(false)
+    expect(frontmatter.get(routineFile)?.target_date).toBe('2025-12-25')
+  })
+
+  it('uses active taskchute view date when multiple taskchute leaves are open', async () => {
+    const routineFile = createMockTFile('TASKS/routine.md')
+    const frontmatter: FrontmatterMap = new Map([
+      [routineFile, { isRoutine: true, routine_type: 'daily', routine_interval: 1, routine_enabled: true }],
+    ])
+
+    const host = createHost({
+      frontmatter,
+      files: [routineFile],
+      viewDates: [new Date(2025, 10, 30), new Date(2025, 11, 1)],
+      activeLeafIndex: 1,
+    })
+    const controller = new NavigationRoutineController(host)
+
+    controller.renderRoutineList()
+
+    const toggle = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!toggle) throw new Error('toggle not found')
+    toggle.checked = false
+    toggle.dispatchEvent(new Event('change'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.get(routineFile)?.routine_enabled).toBe(false)
+    expect(frontmatter.get(routineFile)?.target_date).toBe('2025-12-01')
+  })
+
+  it('sets target_date when disabling and removes it when re-enabling', async () => {
+    const routineFile = createMockTFile('TASKS/routine.md')
+    const frontmatter: FrontmatterMap = new Map([
+      [routineFile, { isRoutine: true, routine_type: 'daily', routine_interval: 1, routine_enabled: true }],
+    ])
+
+    const host = createHost({ frontmatter, files: [routineFile] })
+    const controller = new NavigationRoutineController(host)
+
+    controller.renderRoutineList()
+
+    // Disable
+    const toggle = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!toggle) throw new Error('toggle not found')
+
+    toggle.checked = false
+    toggle.dispatchEvent(new Event('change'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.get(routineFile)?.routine_enabled).toBe(false)
+    expect(frontmatter.get(routineFile)?.target_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+    // Re-enable
+    controller.renderRoutineList()
+    const toggle2 = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!toggle2) throw new Error('toggle not found')
+
+    toggle2.checked = true
+    toggle2.dispatchEvent(new Event('change'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.get(routineFile)?.routine_enabled).toBe(true)
+    expect(frontmatter.get(routineFile)?.target_date).toBeUndefined()
   })
 
   it('opens routine edit modal when edit button is clicked', async () => {

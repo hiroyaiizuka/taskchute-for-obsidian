@@ -4580,6 +4580,17 @@ select.form-input {
 .routine-edit-modal {
   width: 600px;
   max-width: min(600px, 90vw);
+  padding: 20px;
+}
+
+.routine-edit-modal > .modal-header {
+  padding: 0 40px 12px 0;
+  margin-bottom: 16px;
+}
+
+.task-modal-content.routine-edit-modal .modal-header .modal-close-button {
+  top: -5px;
+  right: 0;
 }
 
 /* Hide Obsidian's default close button (direct child of modal) */

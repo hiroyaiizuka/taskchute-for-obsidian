@@ -211,4 +211,44 @@ describe('TaskListRenderer', () => {
     placeholder?.dispatchEvent(new Event('click'));
     expect(host.showProjectModal).toHaveBeenCalledWith(unassigned);
   });
+
+  test('routine button is inactive when routine is disabled', () => {
+    const disabledRoutine = createInstance({
+      task: {
+        name: 'Disabled Routine',
+        path: 'TASKS/disabled-routine.md',
+        projectPath: undefined,
+        projectTitle: undefined,
+        isRoutine: true,
+        routine_enabled: false,
+      } as TaskData,
+    });
+    const { host, renderer } = createHost([disabledRoutine]);
+
+    renderer.render();
+
+    const button = host.taskList.querySelector('.routine-button');
+    expect(button).not.toBeNull();
+    expect(button?.classList.contains('active')).toBe(false);
+  });
+
+  test('routine button is active when routine is enabled', () => {
+    const enabledRoutine = createInstance({
+      task: {
+        name: 'Enabled Routine',
+        path: 'TASKS/enabled-routine.md',
+        projectPath: undefined,
+        projectTitle: undefined,
+        isRoutine: true,
+        routine_enabled: true,
+      } as TaskData,
+    });
+    const { host, renderer } = createHost([enabledRoutine]);
+
+    renderer.render();
+
+    const button = host.taskList.querySelector('.routine-button');
+    expect(button).not.toBeNull();
+    expect(button?.classList.contains('active')).toBe(true);
+  });
 });

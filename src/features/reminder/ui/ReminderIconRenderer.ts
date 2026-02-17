@@ -7,6 +7,7 @@
  */
 
 import type { TaskInstance } from '../../../types';
+import { normalizeReminderTime } from '../services/ReminderFrontmatterService';
 
 export interface ReminderIconRendererOptions {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string;
@@ -21,8 +22,7 @@ export class ReminderIconRenderer {
    * Check if a task instance has a reminder set.
    */
   hasReminder(inst: TaskInstance): boolean {
-    const reminderTime = inst.task.reminder_time;
-    return typeof reminderTime === 'string' && reminderTime.length > 0;
+    return normalizeReminderTime(inst.task.reminder_time) !== undefined;
   }
 
   /**
@@ -30,11 +30,11 @@ export class ReminderIconRenderer {
    * Does nothing if no reminder is set.
    */
   render(container: HTMLElement, inst: TaskInstance): void {
-    if (!this.hasReminder(inst)) {
+    const reminderTime = normalizeReminderTime(inst.task.reminder_time);
+    if (!reminderTime) {
       return;
     }
 
-    const reminderTime = inst.task.reminder_time!;
     const title = this.buildTooltipText(reminderTime);
     const isClickable = typeof this.options.onClick === 'function';
 

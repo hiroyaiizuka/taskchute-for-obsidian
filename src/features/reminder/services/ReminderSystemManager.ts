@@ -12,6 +12,7 @@ import { ReminderService } from './ReminderService';
 import { NotificationService, type ReminderNotificationOptions } from './NotificationService';
 import { ReminderNotificationModal } from '../modals/ReminderNotificationModal';
 import type { ReminderSchedule } from './ReminderScheduleManager';
+import { normalizeReminderTime } from './ReminderFrontmatterService';
 
 // Default values for settings (internal, not exposed to users)
 const DEFAULT_CHECK_INTERVAL_SEC = 5;
@@ -236,12 +237,13 @@ export class ReminderSystemManager {
     for (const taskData of tasks) {
       const task = taskData as TaskInstanceForReminder;
 
-      // Skip tasks without reminder_time
-      if (!task.task.reminder_time) {
+      // Normalize and skip tasks without valid reminder_time
+      const normalizedTime = normalizeReminderTime(task.task.reminder_time);
+      if (!normalizedTime) {
         continue;
       }
 
-      const reminderDate = parseTimeToDate(task.task.reminder_time);
+      const reminderDate = parseTimeToDate(normalizedTime);
       if (!reminderDate) {
         continue;
       }

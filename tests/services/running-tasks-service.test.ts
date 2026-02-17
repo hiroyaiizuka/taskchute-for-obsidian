@@ -322,6 +322,216 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(instances[0].task.isRoutine).toBe(true)
   })
 
+  it('resolves reminder_time from frontmatter with string value "09:55"', async () => {
+    const file = new TFile()
+    Object.setPrototypeOf(file, TFile.prototype)
+    file.path = 'TASKS/with-reminder.md'
+    file.basename = 'with-reminder'
+    file.extension = 'md'
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === file.path ? file : null)),
+        },
+        metadataCache: {
+          getFileCache: jest.fn(() => ({
+            frontmatter: {
+              title: 'Reminder Task',
+              isRoutine: false,
+              taskId: 'tc-reminder',
+              reminder_time: '09:55',
+            },
+          })),
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([
+      createRecord({
+        taskPath: 'TASKS/with-reminder.md',
+        taskTitle: 'Reminder Task',
+        instanceId: 'reminder-instance',
+      }),
+    ])
+
+    const instances: TaskInstance[] = []
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances[0].task.reminder_time).toBe('09:55')
+  })
+
+  it('normalizes numeric reminder_time (615) from frontmatter to "10:15"', async () => {
+    const file = new TFile()
+    Object.setPrototypeOf(file, TFile.prototype)
+    file.path = 'TASKS/numeric-reminder.md'
+    file.basename = 'numeric-reminder'
+    file.extension = 'md'
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === file.path ? file : null)),
+        },
+        metadataCache: {
+          getFileCache: jest.fn(() => ({
+            frontmatter: {
+              title: 'Numeric Reminder Task',
+              isRoutine: true,
+              taskId: 'tc-numeric-reminder',
+              reminder_time: 615,
+            },
+          })),
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([
+      createRecord({
+        taskPath: 'TASKS/numeric-reminder.md',
+        taskTitle: 'Numeric Reminder Task',
+        instanceId: 'numeric-reminder-instance',
+      }),
+    ])
+
+    const instances: TaskInstance[] = []
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances[0].task.reminder_time).toBe('10:15')
+  })
+
+  it('restores reminder_time from vault frontmatter via resolveTaskDataFromPath', async () => {
+    const file = new TFile()
+    const proto = (TFile as unknown as { prototype?: unknown }).prototype ?? {}
+    if (Object.getPrototypeOf(file) !== proto) {
+      Object.setPrototypeOf(file, proto)
+    }
+    if (typeof (file as { constructor?: unknown }).constructor !== 'function') {
+      ;(file as { constructor?: unknown }).constructor = TFile
+    }
+    file.path = 'TASKS/reminder-task.md'
+    file.basename = 'reminder-task'
+    file.extension = 'md'
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === file.path ? file : null)),
+        },
+        metadataCache: {
+          getFileCache: jest.fn(() => ({
+            frontmatter: {
+              title: 'Reminder Task',
+              isRoutine: true,
+              taskId: 'tc-reminder',
+              reminder_time: '09:55',
+            },
+          })),
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([
+      createRecord({
+        taskPath: 'TASKS/reminder-task.md',
+        taskTitle: 'Reminder Task',
+        instanceId: 'reminder-instance',
+      }),
+    ])
+
+    const instances: TaskInstance[] = []
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].task.reminder_time).toBe('09:55')
+  })
+
+  it('normalizes numeric reminder_time (615) from vault frontmatter to "10:15"', async () => {
+    const file = new TFile()
+    const proto = (TFile as unknown as { prototype?: unknown }).prototype ?? {}
+    if (Object.getPrototypeOf(file) !== proto) {
+      Object.setPrototypeOf(file, proto)
+    }
+    if (typeof (file as { constructor?: unknown }).constructor !== 'function') {
+      ;(file as { constructor?: unknown }).constructor = TFile
+    }
+    file.path = 'TASKS/numeric-reminder.md'
+    file.basename = 'numeric-reminder'
+    file.extension = 'md'
+
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === file.path ? file : null)),
+        },
+        metadataCache: {
+          getFileCache: jest.fn(() => ({
+            frontmatter: {
+              title: 'Numeric Reminder',
+              isRoutine: false,
+              taskId: 'tc-numeric',
+              reminder_time: 615,
+            },
+          })),
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    const service = new RunningTasksService(plugin)
+    jest.spyOn(service, 'loadForDate').mockResolvedValue([
+      createRecord({
+        taskPath: 'TASKS/numeric-reminder.md',
+        taskTitle: 'Numeric Reminder',
+        instanceId: 'numeric-instance',
+      }),
+    ])
+
+    const instances: TaskInstance[] = []
+    const restored = await service.restoreForDate({
+      dateString,
+      instances,
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => undefined,
+      generateInstanceId: () => 'generated-instance',
+    })
+
+    expect(restored).toHaveLength(1)
+    expect(instances).toHaveLength(1)
+    expect(instances[0].task.reminder_time).toBe('10:15')
+  })
+
   it('still restores non-routine records when temporary deletion belongs to another path', async () => {
     const record = createRecord({
       taskPath: 'TASKS/non-routine.md',

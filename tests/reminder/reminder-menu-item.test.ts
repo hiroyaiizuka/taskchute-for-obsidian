@@ -189,5 +189,52 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       // Should indicate current setting with time
       expect(reminderItem?.textContent).toContain('08:55');
     });
+
+    it('should show normalized time for numeric reminder_time (595)', () => {
+      (mockInst.task as Record<string, unknown>).reminder_time = 595;
+      controller.show(mockInst, anchor);
+
+      const tooltip = document.querySelector('.task-settings-tooltip');
+      const items = tooltip?.querySelectorAll('.tooltip-item');
+      const reminderItem = Array.from(items || []).find(
+        (item) =>
+          item.textContent?.includes('リマインダー') ||
+          item.textContent?.includes('Reminder')
+      );
+
+      expect(reminderItem?.textContent).toContain('09:55');
+    });
+
+    it('should show "set reminder" for invalid string reminder_time ("abc")', () => {
+      mockInst.task.reminder_time = 'abc';
+      controller.show(mockInst, anchor);
+
+      const tooltip = document.querySelector('.task-settings-tooltip');
+      const items = tooltip?.querySelectorAll('.tooltip-item');
+      const reminderItem = Array.from(items || []).find(
+        (item) =>
+          item.textContent?.includes('リマインダー') ||
+          item.textContent?.includes('Reminder')
+      );
+
+      // Should show "set" text, not a time
+      expect(reminderItem?.textContent).not.toContain('abc');
+      expect(reminderItem?.textContent).toMatch(/設定|Set/i);
+    });
+
+    it('should show "set reminder" for undefined reminder_time', () => {
+      mockInst.task.reminder_time = undefined;
+      controller.show(mockInst, anchor);
+
+      const tooltip = document.querySelector('.task-settings-tooltip');
+      const items = tooltip?.querySelectorAll('.tooltip-item');
+      const reminderItem = Array.from(items || []).find(
+        (item) =>
+          item.textContent?.includes('リマインダー') ||
+          item.textContent?.includes('Reminder')
+      );
+
+      expect(reminderItem?.textContent).toMatch(/設定|Set/i);
+    });
   });
 });

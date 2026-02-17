@@ -14,11 +14,13 @@ import {
   getScheduledTime,
   setScheduledTime,
 } from "../../../utils/fieldMigration"
+import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge } from "../utils/RoutineFrontmatterUtils"
 import { attachCloseButtonIcon } from "../../../ui/components/iconUtils"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
+  currentDate?: Date
 }
 
 const ROUTINE_TYPE_DEFAULTS: Array<{ value: RoutineType; label: string }> = [
@@ -48,6 +50,7 @@ export default class RoutineEditModal {
   private readonly plugin: TaskChutePluginLike
   private readonly file: TFile
   private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void
+  private readonly onClosed?: () => void
   private monthdayOutsideClickHandler: ((event: MouseEvent) => void) | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
 
@@ -59,11 +62,13 @@ export default class RoutineEditModal {
     plugin: TaskChutePluginLike,
     file: TFile,
     onSaved?: (frontmatter: RoutineFrontmatter) => void,
+    onClosed?: () => void,
   ) {
     this.app = app
     this.plugin = plugin
     this.file = file
     this.onSaved = onSaved
+    this.onClosed = onClosed
   }
 
   private tv(
@@ -145,12 +150,11 @@ export default class RoutineEditModal {
     // Add to DOM
     document.body.appendChild(this.modalEl)
 
-    // Close on overlay click
-    this.modalEl.addEventListener("click", (event) => {
-      if (event.target === this.modalEl) {
-        this.close()
-      }
-    })
+    // Prevent parent Obsidian Modal focus trap from stealing focus
+    // (focusin propagation to document triggers the parent's focus redirect)
+    this.modalEl.addEventListener("focusin", (e) => e.stopPropagation())
+    this.modalEl.addEventListener("mousedown", (e) => e.stopPropagation())
+    this.modalEl.addEventListener("click", (e) => e.stopPropagation())
 
     // Close on Escape key
     this.escapeKeyHandler = (event: KeyboardEvent) => {
@@ -164,7 +168,11 @@ export default class RoutineEditModal {
   close(): void {
     // Cleanup event listeners
     if (this.monthdayOutsideClickHandler) {
-      document.removeEventListener("click", this.monthdayOutsideClickHandler)
+      document.removeEventListener(
+        "click",
+        this.monthdayOutsideClickHandler,
+        true,
+      )
       this.monthdayOutsideClickHandler = null
     }
     if (this.escapeKeyHandler) {
@@ -178,6 +186,8 @@ export default class RoutineEditModal {
       this.modalEl = null
       this.contentEl = null
     }
+
+    this.onClosed?.()
   }
 
   private buildFormContent(): void {
@@ -193,7 +203,7 @@ export default class RoutineEditModal {
     typeGroup.createEl("label", {
       text: this.tv("fields.typeLabel", "Type:"),
     })
-    const typeSelect = typeGroup.createEl("select")
+    const typeSelect = typeGroup.createEl("select", { cls: "form-input" })
     this.getTypeOptions().forEach(({ value, label }) => {
       typeSelect.add(new Option(label, value))
     })
@@ -204,7 +214,7 @@ export default class RoutineEditModal {
     timeGroup.createEl("label", {
       text: this.tv("fields.startTimeLabel", "Scheduled time:"),
     })
-    const timeInput = timeGroup.createEl("input", { type: "time" })
+    const timeInput = timeGroup.createEl("input", { type: "time", cls: "form-input" })
     timeInput.value = getScheduledTime(frontmatter) || ""
 
     // Prevent touch events from immediately triggering the native time picker
@@ -222,6 +232,7 @@ export default class RoutineEditModal {
     })
     const intervalInput = intervalGroup.createEl("input", {
       type: "number",
+      cls: "form-input",
       attr: { min: "1", step: "1" },
     })
     intervalInput.value = String(
@@ -398,7 +409,9 @@ export default class RoutineEditModal {
         closeMonthdayDropdown()
       }
     }
-    document.addEventListener("click", handleMonthdayOutsideClick)
+    // Use capture phase so outside-click detection still runs even when
+    // modal overlay stops bubbling click events.
+    document.addEventListener("click", handleMonthdayOutsideClick, true)
     this.monthdayOutsideClickHandler = handleMonthdayOutsideClick
 
     const updateVisibility = () => {
@@ -542,7 +555,13 @@ export default class RoutineEditModal {
             // Apply cleanup to remove target_date if routine settings changed
             // Using record access to check legacy target_date field
             const fmRecord = fm as Record<string, unknown>
-            const hadTargetDate = !!fmRecord["target_date"]
+            const targetDate = fmRecord["target_date"]
+            const previousTargetDate =
+              typeof targetDate === "string" && targetDate.length > 0
+                ? targetDate
+                : undefined
+            const hadTargetDate = previousTargetDate !== undefined
+            const wasEnabled = fm.routine_enabled !== false
             const cleaned = TaskValidator.cleanupOnRoutineChange(fm, changes)
             const hadTemporaryMoveDate = !!fm.temporary_move_date
 
@@ -551,8 +570,19 @@ export default class RoutineEditModal {
               hadTemporaryMoveDate,
             })
 
-            // Notify if target_date was removed
-            if (hadTargetDate && !cleaned.target_date) {
+            // Set target_date when disabling routine (after merge which deletes it)
+            if (!enabledToggle.checked) {
+              fmRecord['target_date'] =
+                wasEnabled || !previousTargetDate
+                  ? this.getCurrentViewDateString()
+                  : previousTargetDate
+            }
+
+            // Notify only when target_date is truly removed from final frontmatter
+            const finalTargetDate = fmRecord["target_date"]
+            const hasFinalTargetDate =
+              typeof finalTargetDate === "string" && finalTargetDate.length > 0
+            if (hadTargetDate && !hasFinalTargetDate) {
               new Notice(
                 this.tv(
                   "notices.legacyTargetDateRemoved",
@@ -833,21 +863,18 @@ export default class RoutineEditModal {
     labelText: string,
     options: Array<{ value: string; label: string }>,
   ): HTMLInputElement[] {
-    const fieldset = parent.createEl("fieldset", { cls: "routine-chip-fieldset" })
-    const legend = fieldset.createEl("legend", { text: labelText, cls: "routine-chip-legend" })
-    legend.classList.add("routine-form__inline-label")
-    const chipGroup = fieldset.createEl("div", { cls: "routine-chip-group" })
-    const inputs: HTMLInputElement[] = []
-    options.forEach(({ value, label }) => {
-      const chip = chipGroup.createEl("label", { cls: "routine-chip" })
+    const fieldset = parent.createEl("div", { cls: "routine-chip-fieldset" })
+    fieldset.createEl("div", { cls: "routine-chip-fieldset__label", text: labelText })
+    const chipContainer = fieldset.createEl("div", { cls: "routine-chip-fieldset__chips" })
+    return options.map(({ value, label }) => {
+      const chip = chipContainer.createEl("label", { cls: "routine-chip" })
       const checkbox = chip.createEl("input", {
         type: "checkbox",
-        attr: { value },
+        value,
       })
-      chip.createEl("span", { text: label, cls: "routine-chip__label" })
-      inputs.push(checkbox)
+      chip.createEl("span", { text: label, cls: "routine-chip__text" })
+      return checkbox
     })
-    return inputs
   }
 
   private applyWeeklySelection(
@@ -913,5 +940,28 @@ export default class RoutineEditModal {
         await view.reloadTasksAndRestore({ runBoundaryCheck: true })
       }
     }
+  }
+
+  private getCurrentViewDateString(): string {
+    const activeLeaf = this.app.workspace.getMostRecentLeaf?.()
+    const activeView = activeLeaf?.view as TaskChuteViewLike | undefined
+    const activeDate = activeView?.currentDate
+    if (activeDate instanceof Date && !Number.isNaN(activeDate.getTime())) {
+      const y = activeDate.getFullYear()
+      const m = String(activeDate.getMonth() + 1).padStart(2, "0")
+      const d = String(activeDate.getDate()).padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+
+    const leaves = this.app.workspace.getLeavesOfType("taskchute-view")
+    const view = leaves[0]?.view as TaskChuteViewLike | undefined
+    const currentDate = view?.currentDate
+    if (currentDate instanceof Date && !Number.isNaN(currentDate.getTime())) {
+      const y = currentDate.getFullYear()
+      const m = String(currentDate.getMonth() + 1).padStart(2, "0")
+      const d = String(currentDate.getDate()).padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+    return getToday()
   }
 }

@@ -117,6 +117,46 @@ describe('TaskLoaderService', () => {
     expect(context.tasks.length).toBeGreaterThan(0);
   });
 
+  test('keeps execution-log disabled routine as routine', async () => {
+    const date = '2025-09-24';
+    const { context } = createExecutionLogContext({
+      date,
+      executions: [
+        {
+          taskTitle: 'Disabled Routine',
+          taskPath: 'TASKS/disabled-routine.md',
+          slotKey: '08:00-09:00',
+          instanceId: 'disabled-routine-instance',
+          startTime: `${date}T08:00:00.000Z`,
+          stopTime: `${date}T08:30:00.000Z`,
+        },
+      ],
+      taskFiles: [
+        {
+          path: 'TASKS/disabled-routine.md',
+          content: '#task',
+          frontmatter: {
+            isRoutine: true,
+            routine_enabled: false,
+            routine_type: 'daily',
+            routine_interval: 1,
+            target_date: date,
+            taskId: 'tc-task-disabled-routine',
+          },
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const instance = context.taskInstances.find(
+      (candidate) => candidate.instanceId === 'disabled-routine-instance',
+    );
+    expect(instance).toBeDefined();
+    expect(instance?.task.isRoutine).toBe(true);
+  });
+
   test('migrates legacy execution slotKey to current section key', async () => {
     const date = '2025-09-24';
     const startTime = `${date}T08:30:00.000Z`;
