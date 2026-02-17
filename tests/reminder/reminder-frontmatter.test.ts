@@ -23,9 +23,14 @@ describe('ReminderFrontmatterService', () => {
       expect(getReminderTimeFromFrontmatter(undefined)).toBeNull();
     });
 
-    it('should return null when reminder_time is not a string', () => {
+    it('should normalize numeric reminder_time via YAML sexagesimal conversion', () => {
       const frontmatter = { reminder_time: 5 };
-      expect(getReminderTimeFromFrontmatter(frontmatter)).toBeNull();
+      expect(getReminderTimeFromFrontmatter(frontmatter)).toBe('00:05');
+    });
+
+    it('should normalize YAML sexagesimal 595 to "09:55"', () => {
+      const frontmatter = { reminder_time: 595 };
+      expect(getReminderTimeFromFrontmatter(frontmatter)).toBe('09:55');
     });
 
     it('should return null when reminder_time is empty string', () => {
@@ -38,9 +43,9 @@ describe('ReminderFrontmatterService', () => {
       expect(getReminderTimeFromFrontmatter(frontmatter)).toBeNull();
     });
 
-    it('should accept single-digit hour format', () => {
+    it('should normalize single-digit hour format to zero-padded', () => {
       const frontmatter = { reminder_time: '9:00' };
-      expect(getReminderTimeFromFrontmatter(frontmatter)).toBe('9:00');
+      expect(getReminderTimeFromFrontmatter(frontmatter)).toBe('09:00');
     });
 
     it('should accept double-digit hour format', () => {

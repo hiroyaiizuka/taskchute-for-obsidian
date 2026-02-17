@@ -10,6 +10,7 @@ import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from '../../../services/dayState/conflictResolver'
 import { getCurrentTimeSlot } from '../../../utils/time'
 import type { SectionConfigService } from '../../../services/SectionConfigService'
+import { normalizeReminderTime } from '../../reminder/services/ReminderFrontmatterService'
 
 export interface RunningTaskRecord {
   date: string;
@@ -455,6 +456,7 @@ export class RunningTasksService {
       displayTitle,
       isRoutine: frontmatter.isRoutine === true,
       taskId: extractTaskIdFromFrontmatter(frontmatter),
+      reminder_time: normalizeReminderTime(frontmatter.reminder_time),
     }
   }
 }

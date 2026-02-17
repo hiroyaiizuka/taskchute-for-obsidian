@@ -90,7 +90,7 @@ describe('ReminderIconRenderer', () => {
     return fallback;
   };
 
-  const createMockTask = (reminderTime?: string): TaskInstance => ({
+  const createMockTask = (reminderTime?: unknown): TaskInstance => ({
     task: {
       path: 'tasks/test.md',
       name: 'Test Task',
@@ -202,6 +202,149 @@ describe('ReminderIconRenderer', () => {
       iconContainer?.dispatchEvent(clickEvent);
 
       expect(stopPropagationSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('numeric reminder_time (YAML sexagesimal)', () => {
+    it('should show bell icon for numeric reminder_time 595', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask(595);
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      const iconContainer = container.querySelector('.reminder-icon');
+      expect(iconContainer).not.toBeNull();
+    });
+
+    it('should return true for hasReminder with numeric reminder_time', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask(615);
+
+      expect(renderer.hasReminder(task)).toBe(true);
+    });
+  });
+
+  describe('invalid reminder_time values', () => {
+    it('should not render icon for "abc" reminder_time', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('abc');
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      expect(container.querySelector('.reminder-icon')).toBeNull();
+    });
+
+    it('should return false for hasReminder with "abc"', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('abc');
+
+      expect(renderer.hasReminder(task)).toBe(false);
+    });
+
+    it('should return false for hasReminder with undefined', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask(undefined);
+
+      expect(renderer.hasReminder(task)).toBe(false);
+    });
+  });
+
+  describe('tooltip normalization', () => {
+    it('should normalize "9:55" to "09:55" in tooltip', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('9:55');
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      const iconContainer = container.querySelector('.reminder-icon');
+      expect(iconContainer?.getAttribute('title')).toContain('09:55');
+    });
+
+    it('should show normalized time in tooltip for numeric 595', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask(595);
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      const iconContainer = container.querySelector('.reminder-icon');
+      expect(iconContainer?.getAttribute('title')).toContain('09:55');
+    });
+  });
+
+  describe('numeric and invalid reminder_time handling', () => {
+    it('should render bell icon for numeric reminder_time (595) via normalization', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = {
+        ...createMockTask(undefined),
+        task: {
+          ...createMockTask(undefined).task,
+          reminder_time: 595 as unknown as string,
+        },
+      } as TaskInstance;
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      const iconContainer = container.querySelector('.reminder-icon');
+      expect(iconContainer).not.toBeNull();
+      // Tooltip should show normalized time
+      expect(iconContainer?.getAttribute('title')).toContain('09:55');
+    });
+
+    it('should not render icon for invalid reminder_time "abc"', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('abc' as string);
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      expect(container.querySelector('.reminder-icon')).toBeNull();
+    });
+
+    it('should not render icon for undefined reminder_time', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask(undefined);
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      expect(container.querySelector('.reminder-icon')).toBeNull();
+    });
+
+    it('should normalize "9:55" to "09:55" in tooltip', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('9:55');
+      const container = document.createElement('div');
+
+      renderer.render(container, task);
+
+      const iconContainer = container.querySelector('.reminder-icon');
+      expect(iconContainer).not.toBeNull();
+      expect(iconContainer?.getAttribute('title')).toContain('09:55');
+    });
+
+    it('should return true from hasReminder for numeric reminder_time (595)', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = {
+        ...createMockTask(undefined),
+        task: {
+          ...createMockTask(undefined).task,
+          reminder_time: 595 as unknown as string,
+        },
+      } as TaskInstance;
+
+      expect(renderer.hasReminder(task)).toBe(true);
+    });
+
+    it('should return false from hasReminder for "abc"', () => {
+      const renderer = new ReminderIconRenderer({ tv: mockTv });
+      const task = createMockTask('abc' as string);
+
+      expect(renderer.hasReminder(task)).toBe(false);
     });
   });
 

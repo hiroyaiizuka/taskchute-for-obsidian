@@ -1,5 +1,6 @@
 import { t } from '../../i18n'
 import type { TaskInstance } from '../../types'
+import { normalizeReminderTime } from '../../features/reminder/services/ReminderFrontmatterService'
 
 export interface TaskSettingsTooltipHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -179,8 +180,8 @@ export default class TaskSettingsTooltipController {
       return
     }
 
-    const reminderTime = inst.task.reminder_time
-    const hasReminder = typeof reminderTime === 'string' && reminderTime.length > 0
+    const reminderTime = normalizeReminderTime(inst.task.reminder_time)
+    const hasReminder = reminderTime !== undefined
 
     let label: string
     if (hasReminder) {

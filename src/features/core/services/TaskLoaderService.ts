@@ -2,6 +2,7 @@ import { Notice, TFile, TAbstractFile } from 'obsidian'
 import type { App, CachedMetadata } from 'obsidian'
 import RoutineService from '../../routine/services/RoutineService'
 import { getScheduledTime } from '../../../utils/fieldMigration'
+import { normalizeReminderTime } from '../../reminder/services/ReminderFrontmatterService'
 import {
   DayState,
   DeletedInstance,
@@ -333,6 +334,7 @@ function createTaskFromExecutions(
     routine_interval: typeof metadata?.routine_interval === 'number' ? metadata.routine_interval : undefined,
     routine_enabled: metadata?.routine_enabled,
     scheduledTime: getScheduledTime(metadata) || undefined,
+    reminder_time: normalizeReminderTime(metadata?.reminder_time),
     taskId,
   }
 
@@ -384,7 +386,7 @@ function createNonRoutineTask(
     isRoutine: false,
     createdMillis,
     scheduledTime: getScheduledTime(metadata) || undefined,
-    reminder_time: metadata?.reminder_time,
+    reminder_time: normalizeReminderTime(metadata?.reminder_time),
     taskId,
   }
 
@@ -542,7 +544,7 @@ async function createRoutineTask(
     routine_weeks: normalizeRoutineWeeks(metadata),
     routine_weekdays: normalizeRoutineWeekdays(metadata),
     scheduledTime: getScheduledTime(metadata) || undefined,
-    reminder_time: metadata.reminder_time,
+    reminder_time: normalizeReminderTime(metadata.reminder_time),
     taskId,
   }
 
@@ -734,6 +736,7 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
               projectTitle: projectInfo?.title,
               isRoutine: metadata.isRoutine === true,
               scheduledTime: getScheduledTime(metadata) || undefined,
+              reminder_time: normalizeReminderTime(metadata.reminder_time),
               taskId: record.originalTaskId ?? resolveTaskId(metadata),
             }
           }

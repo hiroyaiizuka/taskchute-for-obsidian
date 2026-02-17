@@ -65,6 +65,7 @@ import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
 import { SectionConfigService } from "../../../services/SectionConfigService"
+import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "review" | "log" | "settings" | null = null
@@ -783,16 +784,20 @@ export class TaskChuteView
 
     // Prepare task data for reminder system
     const tasksWithReminders = this.taskInstances
-      .filter((inst) => inst.task.reminder_time)
-      .map((inst) => ({
-        filePath: inst.task.path,
-        task: {
-          name: inst.task.name || inst.task.displayTitle || 'Task',
-          scheduledTime: inst.task.scheduledTime || '',
-          reminder_time: inst.task.reminder_time,
-          isRoutine: inst.task.isRoutine,
-        },
-      }))
+      .map((inst) => {
+        const normalized = normalizeReminderTime(inst.task.reminder_time)
+        if (!normalized) return null
+        return {
+          filePath: inst.task.path,
+          task: {
+            name: inst.task.name || inst.task.displayTitle || 'Task',
+            scheduledTime: inst.task.scheduledTime || '',
+            reminder_time: normalized,
+            isRoutine: inst.task.isRoutine,
+          },
+        }
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
     reminderManager.buildTodaySchedules(tasksWithReminders)
   }
@@ -1508,7 +1513,7 @@ export class TaskChuteView
   }
 
   private showReminderSettingsDialog(inst: TaskInstance): void {
-    const currentTime = inst.task.reminder_time
+    const currentTime = normalizeReminderTime(inst.task.reminder_time)
     const scheduledTime = inst.task.scheduledTime
     const defaultMinutesBefore = this.plugin.settings.defaultReminderMinutes ?? 5
 
