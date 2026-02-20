@@ -1,6 +1,6 @@
 {
   "name": "taskchute-plus",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "description": "TaskChute Plus Plugin for Obsidian",
   "main": "main.js",
   "scripts": {
