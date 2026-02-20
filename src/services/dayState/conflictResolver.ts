@@ -7,7 +7,7 @@
  * - 復元は restoredAt タイムスタンプで記録
  * - マージ時は max(deletedAt, restoredAt) で勝敗決定
  */
-import type { DeletedInstance, HiddenRoutine, SlotOverrideEntry } from '../../types'
+import type { DeletedInstance, DuplicatedInstance, HiddenRoutine, SlotOverrideEntry } from '../../types'
 
 export interface ConflictResolution<T> {
   merged: T[]
@@ -18,6 +18,19 @@ export interface ConflictResolution<T> {
 export interface SlotOverrideResolution {
   merged: Record<string, string>
   meta: Record<string, SlotOverrideEntry>
+  hasConflicts: boolean
+  conflictCount: number
+}
+
+export interface OrdersResolution {
+  merged: Record<string, number>
+  meta: Record<string, { order: number; updatedAt: number }>
+  hasConflicts: boolean
+  conflictCount: number
+}
+
+export interface DuplicatedInstancesResolution {
+  merged: Array<DuplicatedInstance & { slotKey?: string; originalSlotKey?: string }>
   hasConflicts: boolean
   conflictCount: number
 }
@@ -419,6 +432,159 @@ export function mergeSlotOverrides(
   return {
     merged,
     meta,
+    hasConflicts: conflictCount > 0,
+    conflictCount,
+  }
+}
+
+/**
+ * Orders のマージ
+ * ordersMeta の updatedAt で勝敗を決定
+ * メタデータがない場合はリモート優先（削除伝播のため）
+ */
+export function mergeOrders(
+  localOrders: Record<string, number>,
+  localMeta: Record<string, { order: number; updatedAt: number }>,
+  remoteOrders: Record<string, number>,
+  remoteMeta: Record<string, { order: number; updatedAt: number }>,
+  options: { preferRemoteWithoutMeta?: boolean; remoteMonthUpdatedAt?: number } = {},
+): OrdersResolution {
+  const merged: Record<string, number> = {}
+  const meta: Record<string, { order: number; updatedAt: number }> = {}
+  let conflictCount = 0
+  const preferRemoteWithoutMeta = options.preferRemoteWithoutMeta ?? true
+
+  const orderKeys = new Set([
+    ...Object.keys(localOrders),
+    ...Object.keys(remoteOrders),
+    ...Object.keys(localMeta),
+    ...Object.keys(remoteMeta),
+  ])
+
+  for (const key of orderKeys) {
+    const localMetaEntry = localMeta[key]
+    const remoteMetaEntry = remoteMeta[key]
+    const localOrder = localOrders[key]
+    const remoteOrder = remoteOrders[key]
+
+    if (localMetaEntry && remoteMetaEntry) {
+      if (localMetaEntry.updatedAt !== remoteMetaEntry.updatedAt) {
+        conflictCount++
+      }
+      const useLocal = localMetaEntry.updatedAt >= remoteMetaEntry.updatedAt
+      const selectedMeta = useLocal ? localMetaEntry : remoteMetaEntry
+      const selectedOrder = useLocal ? localOrder : remoteOrder
+      const fallbackOrder = selectedOrder ?? (useLocal ? remoteOrder : localOrder)
+      if (typeof fallbackOrder === 'number') {
+        merged[key] = fallbackOrder
+      }
+      meta[key] = selectedMeta
+      continue
+    }
+
+    if (localMetaEntry || remoteMetaEntry) {
+      const selectedMeta = localMetaEntry ?? remoteMetaEntry
+      const selectedOrder = localMetaEntry ? localOrder : remoteOrder
+      const fallbackOrder = selectedOrder ?? (localMetaEntry ? remoteOrder : localOrder)
+      if (typeof fallbackOrder === 'number') {
+        merged[key] = fallbackOrder
+      }
+      if (selectedMeta) {
+        meta[key] = selectedMeta
+      }
+      continue
+    }
+
+    if (preferRemoteWithoutMeta) {
+      if (typeof remoteOrder === 'number') {
+        // Prefer remote in legacy/no-meta cases to allow deletions to propagate.
+        merged[key] = remoteOrder
+      }
+      continue
+    }
+
+    // In local-flush mode, preserve local deletions for no-meta keys.
+    // Only keep the local order when it still exists.
+    if (typeof localOrder === 'number') {
+      merged[key] = localOrder
+    }
+  }
+
+  return {
+    merged,
+    meta,
+    hasConflicts: conflictCount > 0,
+    conflictCount,
+  }
+}
+
+/**
+ * DuplicatedInstances のマージ
+ * instanceId ベースで重複排除し、削除済みインスタンスを抑制
+ */
+export function mergeDuplicatedInstances(
+  local: Array<DuplicatedInstance & { slotKey?: string; originalSlotKey?: string }>,
+  remote: Array<DuplicatedInstance & { slotKey?: string; originalSlotKey?: string }>,
+  deletedInfo: {
+    deletedInstanceIds: Set<string>
+    deletedPaths: Set<string>
+    deletedTaskIds: Set<string>
+  },
+): DuplicatedInstancesResolution {
+  const duplicatedMap = new Map<
+    string,
+    DuplicatedInstance & { slotKey?: string; originalSlotKey?: string }
+  >()
+  let conflictCount = 0
+
+  const isSuppressed = (
+    item: DuplicatedInstance & { slotKey?: string; originalSlotKey?: string },
+  ): boolean =>
+    deletedInfo.deletedInstanceIds.has(item.instanceId) ||
+    (item.originalTaskId != null && deletedInfo.deletedTaskIds.has(item.originalTaskId)) ||
+    (item.originalPath != null && deletedInfo.deletedPaths.has(item.originalPath))
+
+  const isSameDuplicate = (
+    a: DuplicatedInstance & { slotKey?: string; originalSlotKey?: string },
+    b: DuplicatedInstance & { slotKey?: string; originalSlotKey?: string },
+  ): boolean =>
+    a.instanceId === b.instanceId &&
+    a.originalPath === b.originalPath &&
+    a.originalTaskId === b.originalTaskId &&
+    a.timestamp === b.timestamp &&
+    a.createdMillis === b.createdMillis &&
+    a.restoredAt === b.restoredAt &&
+    a.slotKey === b.slotKey &&
+    a.originalSlotKey === b.originalSlotKey
+
+  for (const item of local) {
+    if (item?.instanceId) {
+      if (isSuppressed(item)) {
+        continue
+      }
+      duplicatedMap.set(item.instanceId, item)
+    }
+  }
+
+  for (const item of remote) {
+    if (item?.instanceId) {
+      if (isSuppressed(item)) {
+        continue
+      }
+      if (duplicatedMap.has(item.instanceId)) {
+        // Keep first writer. Count conflict only when payload differs.
+        const existing = duplicatedMap.get(item.instanceId)
+        if (existing && !isSameDuplicate(existing, item)) {
+          conflictCount++
+        }
+      } else {
+        duplicatedMap.set(item.instanceId, item)
+      }
+    }
+  }
+
+  return {
+    merged: Array.from(duplicatedMap.values()),
     hasConflicts: conflictCount > 0,
     conflictCount,
   }

@@ -2,16 +2,29 @@ import { TFile } from 'obsidian';
 import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
+import { SectionConfigService } from './SectionConfigService';
 import {
   mergeDeletedInstances,
+  mergeDuplicatedInstances,
   mergeHiddenRoutines,
+  mergeOrders,
   mergeSlotOverrides,
   isDeleted as isDeletedEntry,
   isLegacyDeletionEntry,
 } from './dayState/conflictResolver';
 
 const DAY_STATE_VERSION = '1.0';
-const LOCAL_WRITE_TTL_MS = 1000;
+const LOCAL_WRITE_TTL_MS = 5000;
+const MAX_HASHES_PER_PATH = 5;
+
+/** djb2 hash for fast content hashing */
+function computeContentHash(content: string): string {
+  let hash = 5381;
+  for (let i = 0; i < content.length; i++) {
+    hash = ((hash << 5) + hash + content.charCodeAt(i)) | 0;
+  }
+  return hash.toString(36);
+}
 
 function cloneDayState(state: DayState): DayState {
   return JSON.parse(JSON.stringify(state)) as DayState;
@@ -31,13 +44,61 @@ function createEmptyDayState(): DayState {
   };
 }
 
+function isOrderKeyCompatibleWithSections(orderKey: string, sectionConfig: SectionConfigService): boolean {
+  const sepIdx = orderKey.indexOf('::');
+  if (sepIdx < 0) return true;
+  const slotPart = orderKey.slice(sepIdx + 2);
+  if (!slotPart || slotPart === 'none') return true;
+  return sectionConfig.isValidSlotKey(slotPart);
+}
+
+function parseIsoTimestamp(value?: string): number | undefined {
+  if (typeof value !== 'string' || value.length === 0) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  return parsed;
+}
+
 export class DayStatePersistenceService {
   private plugin: TaskChutePluginLike;
   private cache: Map<string, MonthlyDayStateFile> = new Map();
-  private recentLocalWrites: Map<string, number> = new Map();
+  /** Content hashes of recent local writes, keyed by file path */
+  private recentLocalWriteHashes: Map<string, { hashes: Map<string, number>; timestamp: number }> = new Map();
 
   constructor(plugin: TaskChutePluginLike) {
     this.plugin = plugin;
+  }
+
+  private sanitizeOrderEntries(
+    orders: Record<string, number>,
+    meta: Record<string, { order: number; updatedAt: number }>,
+    sectionConfig: SectionConfigService,
+  ): {
+    orders: Record<string, number>
+    meta: Record<string, { order: number; updatedAt: number }>
+  } {
+    const sanitizedOrders: Record<string, number> = {};
+    const sanitizedMeta: Record<string, { order: number; updatedAt: number }> = {};
+
+    for (const [key, value] of Object.entries(orders)) {
+      if (!isOrderKeyCompatibleWithSections(key, sectionConfig)) {
+        continue;
+      }
+      sanitizedOrders[key] = value;
+    }
+
+    for (const [key, value] of Object.entries(meta)) {
+      if (!isOrderKeyCompatibleWithSections(key, sectionConfig)) {
+        continue;
+      }
+      sanitizedMeta[key] = value;
+    }
+
+    return { orders: sanitizedOrders, meta: sanitizedMeta };
   }
 
   private getMonthKey(date: Date): string {
@@ -262,7 +323,7 @@ export class DayStatePersistenceService {
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
     const payload = JSON.stringify(month, null, 2);
 
-    this.recordLocalWrite(path);
+    this.recordLocalWrite(path, payload);
     try {
       if (file && file instanceof TFile) {
         await this.plugin.app.vault.modify(file, payload);
@@ -273,14 +334,34 @@ export class DayStatePersistenceService {
         await this.plugin.app.vault.create(path, payload);
       }
     } catch (error) {
-      this.recentLocalWrites.delete(path);
+      this.recentLocalWriteHashes.delete(path);
       throw error;
     }
     this.cache.set(monthKey, month);
   }
 
+  private toComparableDayState(state: DayState): DayState {
+    const comparable: DayState = {
+      hiddenRoutines: state.hiddenRoutines ?? [],
+      deletedInstances: state.deletedInstances ?? [],
+      duplicatedInstances: state.duplicatedInstances ?? [],
+      slotOverrides: state.slotOverrides ?? {},
+      orders: state.orders ?? {},
+    };
+    if (state.slotOverridesMeta && Object.keys(state.slotOverridesMeta).length > 0) {
+      comparable.slotOverridesMeta = state.slotOverridesMeta;
+    }
+    if (state.ordersMeta && Object.keys(state.ordersMeta).length > 0) {
+      comparable.ordersMeta = state.ordersMeta;
+    }
+    return comparable;
+  }
+
   private areDayStatesEqual(a: DayState, b: DayState): boolean {
-    return JSON.stringify(a) === JSON.stringify(b);
+    return (
+      JSON.stringify(this.toComparableDayState(a)) ===
+      JSON.stringify(this.toComparableDayState(b))
+    );
   }
 
   async loadDay(date: Date): Promise<DayState> {
@@ -504,6 +585,7 @@ export class DayStatePersistenceService {
     const mergedMonthly = cloneMonthlyState(localCached);
     let hasChanges = false;
     const affectedDateKeys: string[] = [];
+    const remoteMonthUpdatedAt = parseIsoTimestamp(remoteState.metadata?.lastUpdated);
 
     // Get all date keys from both local and remote
     const allDateKeys = new Set([
@@ -556,101 +638,40 @@ export class DayStatePersistenceService {
       );
 
       // Merge orders based on ordersMeta updatedAt
-      const localOrders = localDay.orders ?? {};
-      const remoteOrders = remoteDay.orders ?? {};
-      const localOrdersMeta = localDay.ordersMeta ?? {};
-      const remoteOrdersMeta = remoteDay.ordersMeta ?? {};
-      const mergedOrders: Record<string, number> = {};
-      const mergedOrdersMeta: DayState['ordersMeta'] = {};
-      const orderKeys = new Set([
-        ...Object.keys(localOrders),
-        ...Object.keys(remoteOrders),
-        ...Object.keys(localOrdersMeta),
-        ...Object.keys(remoteOrdersMeta),
-      ]);
-
-      for (const key of orderKeys) {
-        const localMeta = localOrdersMeta[key];
-        const remoteMeta = remoteOrdersMeta[key];
-        const localOrder = localOrders[key];
-        const remoteOrder = remoteOrders[key];
-
-        if (localMeta && remoteMeta) {
-          const useLocal = localMeta.updatedAt >= remoteMeta.updatedAt;
-          const selectedMeta = useLocal ? localMeta : remoteMeta;
-          const selectedOrder = useLocal ? localOrder : remoteOrder;
-          const fallbackOrder = selectedOrder ?? (useLocal ? remoteOrder : localOrder);
-          if (typeof fallbackOrder === 'number') {
-            mergedOrders[key] = fallbackOrder;
-          }
-          mergedOrdersMeta[key] = selectedMeta;
-          continue;
-        }
-
-        if (localMeta || remoteMeta) {
-          const selectedMeta = localMeta ?? remoteMeta;
-          const selectedOrder = localMeta ? localOrder : remoteOrder;
-          const fallbackOrder = selectedOrder ?? (localMeta ? remoteOrder : localOrder);
-          if (typeof fallbackOrder === 'number') {
-            mergedOrders[key] = fallbackOrder;
-          }
-          if (selectedMeta) {
-            mergedOrdersMeta[key] = selectedMeta;
-          }
-          continue;
-        }
-
-        if (typeof remoteOrder === 'number') {
-          // Prefer remote in legacy/no-meta cases to allow deletions to propagate.
-          mergedOrders[key] = remoteOrder;
-        }
-      }
+      const ordersResult = mergeOrders(
+        localDay.orders ?? {},
+        localDay.ordersMeta ?? {},
+        remoteDay.orders ?? {},
+        remoteDay.ordersMeta ?? {},
+        { remoteMonthUpdatedAt },
+      );
 
       // Merge duplicatedInstances (by instanceId, keep both unless deleted)
-      const duplicatedMap = new Map<string, DayState['duplicatedInstances'][number]>();
-      for (const item of localDay.duplicatedInstances ?? []) {
-        if (item?.instanceId) {
-          const isSuppressed =
-            deletedInstanceIds.has(item.instanceId) ||
-            (item.originalTaskId && deletedTaskIds.has(item.originalTaskId)) ||
-            (item.originalPath && deletedPaths.has(item.originalPath));
-          if (isSuppressed) {
-            continue;
-          }
-          duplicatedMap.set(item.instanceId, item);
-        }
-      }
-      for (const item of remoteDay.duplicatedInstances ?? []) {
-        if (item?.instanceId) {
-          const isSuppressed =
-            deletedInstanceIds.has(item.instanceId) ||
-            (item.originalTaskId && deletedTaskIds.has(item.originalTaskId)) ||
-            (item.originalPath && deletedPaths.has(item.originalPath));
-          if (isSuppressed) {
-            continue;
-          }
-        }
-        if (item?.instanceId && !duplicatedMap.has(item.instanceId)) {
-          duplicatedMap.set(item.instanceId, item);
-        }
-      }
+      const duplicatedResult = mergeDuplicatedInstances(
+        localDay.duplicatedInstances ?? [],
+        remoteDay.duplicatedInstances ?? [],
+        { deletedInstanceIds, deletedPaths, deletedTaskIds },
+      );
 
       const mergedDay: DayState = {
-        deletedInstances: deletedResult.merged,
         hiddenRoutines: hiddenResult.merged,
+        deletedInstances: deletedResult.merged,
+        duplicatedInstances: duplicatedResult.merged,
         slotOverrides: slotResult.merged,
-        slotOverridesMeta: slotResult.meta,
-        duplicatedInstances: Array.from(duplicatedMap.values()),
-        orders: mergedOrders,
-        ordersMeta: Object.keys(mergedOrdersMeta).length > 0 ? mergedOrdersMeta : undefined,
+        slotOverridesMeta: Object.keys(slotResult.meta).length > 0 ? slotResult.meta : undefined,
+        orders: ordersResult.merged,
+        ordersMeta: Object.keys(ordersResult.meta).length > 0 ? ordersResult.meta : undefined,
       };
+
+      const mergedDiffersFromLocal = !this.areDayStatesEqual(mergedDay, localDay);
 
       // Check if there were actual changes
       if (
         deletedResult.hasConflicts ||
         hiddenResult.hasConflicts ||
         slotResult.hasConflicts ||
-        JSON.stringify(mergedDay) !== JSON.stringify(localDay)
+        ordersResult.hasConflicts ||
+        mergedDiffersFromLocal
       ) {
         hasChanges = true;
         affectedDateKeys.push(dateKey);
@@ -679,25 +700,168 @@ export class DayStatePersistenceService {
   }
 
   /**
+   * Merge local DayState changes with on-disk data and save atomically per month.
+   * Used by the write barrier flush to avoid overwriting external sync changes.
+   *
+   * 1. Clears cache for the month to force a fresh disk read
+   * 2. For each dateKey, merges local state with disk state using conflict resolution
+   * 3. Writes the merged result back in a single I/O operation
+   */
+  async mergeAndSaveMonth(
+    monthKey: string,
+    localDayStates: Map<string, DayState>,
+  ): Promise<void> {
+    if (localDayStates.size === 0) return;
+
+    // Clear cache to force a fresh read from disk
+    this.cache.delete(monthKey);
+    const diskMonth = await this.loadMonth(monthKey);
+
+    const mergedMonthly = cloneMonthlyState(diskMonth);
+    const sectionConfig = new SectionConfigService(this.plugin.settings.customSections);
+    const remoteMonthUpdatedAt = parseIsoTimestamp(diskMonth.metadata?.lastUpdated);
+
+    for (const [dateKey, localDay] of localDayStates) {
+      const diskDay = diskMonth.days[dateKey] ?? createEmptyDayState();
+
+      // Merge deletedInstances
+      const deletedResult = mergeDeletedInstances(
+        localDay.deletedInstances ?? [],
+        diskDay.deletedInstances ?? [],
+      );
+
+      // Build deleted info for duplicatedInstances suppression
+      const isActiveDeletion = (entry: DayState['deletedInstances'][number]): boolean =>
+        Boolean(entry) && (isDeletedEntry(entry) || isLegacyDeletionEntry(entry));
+      const deletedInstanceIds = new Set<string>();
+      const deletedPaths = new Set<string>();
+      const deletedTaskIds = new Set<string>();
+      for (const entry of deletedResult.merged) {
+        if (!isActiveDeletion(entry)) continue;
+        if (entry.instanceId) {
+          deletedInstanceIds.add(entry.instanceId);
+        }
+        if (entry.deletionType === 'permanent') {
+          if (entry.path) {
+            deletedPaths.add(entry.path);
+          }
+          if (entry.taskId) {
+            deletedTaskIds.add(entry.taskId);
+          }
+        }
+      }
+
+      // Merge hiddenRoutines
+      const hiddenResult = mergeHiddenRoutines(
+        localDay.hiddenRoutines ?? [],
+        diskDay.hiddenRoutines ?? [],
+      );
+
+      // Merge slotOverrides
+      const slotResult = mergeSlotOverrides(
+        localDay.slotOverrides ?? {},
+        localDay.slotOverridesMeta ?? {},
+        diskDay.slotOverrides ?? {},
+        diskDay.slotOverridesMeta ?? {},
+      );
+
+      const sanitizedLocalOrders = this.sanitizeOrderEntries(
+        localDay.orders ?? {},
+        localDay.ordersMeta ?? {},
+        sectionConfig,
+      );
+      const sanitizedDiskOrders = this.sanitizeOrderEntries(
+        diskDay.orders ?? {},
+        diskDay.ordersMeta ?? {},
+        sectionConfig,
+      );
+
+      // Merge orders
+      const ordersResult = mergeOrders(
+        sanitizedLocalOrders.orders,
+        sanitizedLocalOrders.meta,
+        sanitizedDiskOrders.orders,
+        sanitizedDiskOrders.meta,
+        { preferRemoteWithoutMeta: true, remoteMonthUpdatedAt },
+      );
+
+      // In no-meta local-only keys, preserve local values (remote-only remains remote-preferred).
+      for (const [key, localOrder] of Object.entries(sanitizedLocalOrders.orders)) {
+        const hasAnyMeta = Boolean(sanitizedLocalOrders.meta[key] || sanitizedDiskOrders.meta[key]);
+        if (hasAnyMeta) continue;
+        if (sanitizedDiskOrders.orders[key] === undefined && typeof localOrder === 'number') {
+          ordersResult.merged[key] = localOrder;
+        }
+      }
+
+      // Merge duplicatedInstances
+      const duplicatedResult = mergeDuplicatedInstances(
+        localDay.duplicatedInstances ?? [],
+        diskDay.duplicatedInstances ?? [],
+        { deletedInstanceIds, deletedPaths, deletedTaskIds },
+      );
+
+      mergedMonthly.days[dateKey] = {
+        hiddenRoutines: hiddenResult.merged,
+        deletedInstances: deletedResult.merged,
+        duplicatedInstances: duplicatedResult.merged,
+        slotOverrides: slotResult.merged,
+        slotOverridesMeta: Object.keys(slotResult.meta).length > 0 ? slotResult.meta : undefined,
+        orders: ordersResult.merged,
+        ordersMeta: Object.keys(ordersResult.meta).length > 0 ? ordersResult.meta : undefined,
+      };
+    }
+
+    mergedMonthly.metadata.lastUpdated = new Date().toISOString();
+    await this.writeMonth(monthKey, mergedMonthly);
+  }
+
+  /**
    * Extract month key from state file path
    */
   getMonthKeyFromPath(path: string): string | null {
     return this.extractMonthKeyFromPath(path);
   }
 
-  consumeLocalStateWrite(path: string): boolean {
+  /**
+   * Check if a file change was caused by our own write (content hash comparison).
+   * @param path - File path to check
+   * @param content - Optional file content for hash comparison. If omitted, returns false (safe side: treat as external).
+   * @param maxRecordedAt - Optional event timestamp guard. Hashes recorded after this time are not consumed.
+   * @returns true if this was our own write and should be ignored
+   */
+  consumeLocalStateWrite(path: string, content?: string, maxRecordedAt?: number): boolean {
     const now = Date.now();
-    const recorded = this.recentLocalWrites.get(path);
+    const recorded = this.recentLocalWriteHashes.get(path);
     if (!recorded) {
       this.pruneLocalWrites(now);
       return false;
     }
-    if (now - recorded > LOCAL_WRITE_TTL_MS) {
-      this.recentLocalWrites.delete(path);
+    if (now - recorded.timestamp > LOCAL_WRITE_TTL_MS) {
+      this.recentLocalWriteHashes.delete(path);
       return false;
     }
-    this.recentLocalWrites.delete(path);
+
+    // If no content provided, cannot verify — treat as external change (safe side)
+    if (content === undefined) {
+      return false;
+    }
+
+    const hash = computeContentHash(content);
+    const hashRecordedAt = recorded.hashes.get(hash);
+    if (hashRecordedAt === undefined) {
+      return false;
+    }
+    if (typeof maxRecordedAt === 'number' && hashRecordedAt > maxRecordedAt) {
+      return false;
+    }
+    recorded.hashes.delete(hash);
+    // Clean up if no more hashes remain
+    if (recorded.hashes.size === 0) {
+      this.recentLocalWriteHashes.delete(path);
+    }
     return true;
+
   }
 
   cloneDayState(state: DayState): DayState {
@@ -713,16 +877,40 @@ export class DayStatePersistenceService {
     return new Date(y, m - 1, d);
   }
 
-  private recordLocalWrite(path: string): void {
+  private recordLocalWrite(path: string, content: string): void {
     const now = Date.now();
-    this.recentLocalWrites.set(path, now);
+    const hash = computeContentHash(content);
+    const existing = this.recentLocalWriteHashes.get(path);
+    if (existing) {
+      existing.hashes.set(hash, now);
+      existing.timestamp = now;
+      // Limit stored hashes per path
+      if (existing.hashes.size > MAX_HASHES_PER_PATH) {
+        let oldestHash: string | null = null;
+        let oldestTimestamp = Number.POSITIVE_INFINITY;
+        for (const [candidateHash, candidateTimestamp] of existing.hashes.entries()) {
+          if (candidateTimestamp < oldestTimestamp) {
+            oldestTimestamp = candidateTimestamp;
+            oldestHash = candidateHash;
+          }
+        }
+        if (oldestHash) {
+          existing.hashes.delete(oldestHash);
+        }
+      }
+    } else {
+      this.recentLocalWriteHashes.set(path, {
+        hashes: new Map([[hash, now]]),
+        timestamp: now,
+      });
+    }
     this.pruneLocalWrites(now);
   }
 
   private pruneLocalWrites(now: number): void {
-    for (const [path, timestamp] of this.recentLocalWrites.entries()) {
-      if (now - timestamp > LOCAL_WRITE_TTL_MS) {
-        this.recentLocalWrites.delete(path);
+    for (const [path, entry] of this.recentLocalWriteHashes.entries()) {
+      if (now - entry.timestamp > LOCAL_WRITE_TTL_MS) {
+        this.recentLocalWriteHashes.delete(path);
       }
     }
   }

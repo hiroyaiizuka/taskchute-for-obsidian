@@ -463,6 +463,45 @@ describe('TaskChuteView loadTasks cache clearing', () => {
     const call = clearSpy.mock.calls[0] ?? [];
     expect(call.length).toBe(0);
   });
+
+  test('loadTasks continues when endWriteBarrier fails', async () => {
+    const { view } = createView();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    jest
+      .spyOn(view.executionLogService, 'ensureReconciled')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view as unknown as { ensureDayStateForCurrentDate: () => Promise<DayState> }, 'ensureDayStateForCurrentDate')
+      .mockResolvedValue(createDayState());
+    jest
+      .spyOn(view.taskLoader, 'load')
+      .mockResolvedValue(undefined);
+
+    jest
+      .spyOn(view.dayStateManager, 'endWriteBarrier')
+      .mockRejectedValueOnce(new Error('flush failed'));
+
+    const processBarrierSpy = jest
+      .spyOn(view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }, 'processBarrierPendingExternalChanges')
+      .mockResolvedValue(undefined);
+    const reminderSpy = jest
+      .spyOn(view as unknown as { buildReminderSchedules: () => void }, 'buildReminderSchedules')
+      .mockImplementation(() => undefined);
+
+    await expect(
+      (view as unknown as { loadTasks: (options?: { clearDayStateCache?: string }) => Promise<void> }).loadTasks(),
+    ).resolves.toBeUndefined();
+
+    expect(processBarrierSpy).toHaveBeenCalledTimes(1);
+    expect(reminderSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[TaskChuteView] endWriteBarrier failed during loadTasks:',
+      expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('TaskChuteView onOpen cache clearing', () => {
@@ -1873,14 +1912,17 @@ describe('TaskChuteView state file modify listener', () => {
     jest.clearAllMocks();
   });
 
-  test('reloads and restores on external state file modification', () => {
+  test('reloads and restores on external state file modification', async () => {
     const { view, plugin } = createView();
     const reloadSpy = jest
       .spyOn(view, 'reloadTasksAndRestore')
       .mockResolvedValue(undefined);
 
     const consumeSpy = jest.fn(() => false);
-    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string) => boolean }).consumeLocalStateWrite = consumeSpy;
+    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean }).consumeLocalStateWrite = consumeSpy;
+
+    // Mock vault.read for hash-based content detection
+    (view.app.vault.read as jest.Mock).mockResolvedValue('{"days":{}}');
 
     let modifyHandler: ((file: TFile) => void) | null = null;
     (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
@@ -1898,9 +1940,12 @@ describe('TaskChuteView state file modify listener', () => {
     Object.setPrototypeOf(file, TFile.prototype);
     modifyHandler?.(file);
 
+    // Flush async vault.read and promise microtasks
+    await Promise.resolve();
+    await Promise.resolve();
     jest.advanceTimersByTime(500);
 
-    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json');
+    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json', '{"days":{}}', expect.any(Number));
     expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'all' });
   });
 
@@ -1922,7 +1967,7 @@ describe('TaskChuteView state file modify listener', () => {
     });
 
     (plugin.dayStateService as unknown as {
-      consumeLocalStateWrite?: (path: string) => boolean;
+      consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean;
       getMonthKeyFromPath?: (path: string) => string | null;
       mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
     }).consumeLocalStateWrite = jest.fn(() => false);
@@ -1937,6 +1982,9 @@ describe('TaskChuteView state file modify listener', () => {
     (plugin.dayStateService as unknown as {
       mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
     }).mergeExternalChange = mergeSpy;
+
+    // Mock vault.read for hash-based content detection
+    (view.app.vault.read as jest.Mock).mockResolvedValue('{"days":{}}');
 
     let modifyHandler: ((file: TFile) => void) | null = null;
     (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
@@ -1954,10 +2002,18 @@ describe('TaskChuteView state file modify listener', () => {
     Object.setPrototypeOf(fileA, TFile.prototype);
     modifyHandler?.(fileA);
 
+    // Flush async vault.read for first file
+    await Promise.resolve();
+    await Promise.resolve();
+
     const fileB = new TFile();
     fileB.path = 'LOGS/2024-12-state.json';
     Object.setPrototypeOf(fileB, TFile.prototype);
     modifyHandler?.(fileB);
+
+    // Flush async vault.read for second file
+    await Promise.resolve();
+    await Promise.resolve();
 
     jest.advanceTimersByTime(500);
     await Promise.resolve();
@@ -1972,14 +2028,28 @@ describe('TaskChuteView state file modify listener', () => {
     expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'none' });
   });
 
-  test('ignores local state file modifications', () => {
+  test('queues debounced external change when barrier starts before timer fires', async () => {
     const { view, plugin } = createView();
     const reloadSpy = jest
       .spyOn(view, 'reloadTasksAndRestore')
       .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: ['2025-01-01'] }));
 
-    const consumeSpy = jest.fn(() => true);
-    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string) => boolean }).consumeLocalStateWrite = consumeSpy;
+    (plugin.dayStateService as unknown as {
+      consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean;
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).consumeLocalStateWrite = jest.fn(() => false);
+    (plugin.dayStateService as unknown as {
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).getMonthKeyFromPath = jest.fn(() => '2025-01');
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view.app.vault.read as jest.Mock).mockResolvedValue('{"days":{}}');
 
     let modifyHandler: ((file: TFile) => void) | null = null;
     (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
@@ -1997,9 +2067,428 @@ describe('TaskChuteView state file modify listener', () => {
     Object.setPrototypeOf(file, TFile.prototype);
     modifyHandler?.(file);
 
+    await Promise.resolve();
+    await Promise.resolve();
+
+    view.dayStateManager.beginWriteBarrier();
+
+    jest.advanceTimersByTime(500);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+
+    const pending = view as unknown as {
+      pendingReloadAfterBarrier: boolean;
+      pendingExternalMergeMonthKeys: Set<string>;
+    };
+    expect(pending.pendingReloadAfterBarrier).toBe(true);
+    expect(Array.from(pending.pendingExternalMergeMonthKeys)).toEqual(['2025-01']);
+
+    await view.dayStateManager.endWriteBarrier();
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(mergeSpy).toHaveBeenCalledWith('2025-01');
+    expect(clearSpy).toHaveBeenCalledWith('2025-01-01');
+    expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'none' });
+  });
+
+  test('clears debounce pending state when view starts closing before timer fires', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: ['2025-01-01'] }));
+
+    (plugin.dayStateService as unknown as {
+      consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean;
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).consumeLocalStateWrite = jest.fn(() => false);
+    (plugin.dayStateService as unknown as {
+      getMonthKeyFromPath?: (path: string) => string | null;
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).getMonthKeyFromPath = jest.fn(() => '2025-01');
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view.app.vault.read as jest.Mock).mockResolvedValue('{"days":{}}');
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(modifyHandler).not.toBeNull();
+
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    (view as unknown as { isClosingOrClosed: boolean }).isClosingOrClosed = true;
+
+    jest.advanceTimersByTime(500);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const pendingState = view as unknown as {
+      stateFileModifyPendingMonthKeys: Set<string>;
+      stateFileModifyRequiresFullReload: boolean;
+    };
+    expect(pendingState.stateFileModifyPendingMonthKeys.size).toBe(0);
+    expect(pendingState.stateFileModifyRequiresFullReload).toBe(false);
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  test('ignores local state file modifications', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+
+    const consumeSpy = jest.fn(() => true);
+    (plugin.dayStateService as unknown as { consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean }).consumeLocalStateWrite = consumeSpy;
+
+    // Mock vault.read for hash-based content detection
+    (view.app.vault.read as jest.Mock).mockResolvedValue('{"days":{}}');
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+
+    expect(modifyHandler).not.toBeNull();
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    // Flush async vault.read and promise microtasks
+    await Promise.resolve();
+    await Promise.resolve();
     jest.advanceTimersByTime(500);
 
-    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json');
+    expect(consumeSpy).toHaveBeenCalledWith('LOGS/2025-01-state.json', '{"days":{}}', expect.any(Number));
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  test('queues state file delete during write barrier and defers full reload', async () => {
+    const { view } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+
+    let deleteHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'delete') {
+        deleteHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(deleteHandler).not.toBeNull();
+
+    view.dayStateManager.beginWriteBarrier();
+
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    deleteHandler?.(file);
+
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+
+    await view.dayStateManager.endWriteBarrier();
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'all',
+    });
+  });
+
+  test('ignores state file delete under similarly prefixed sibling folder', async () => {
+    const { view } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+
+    let deleteHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'delete') {
+        deleteHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(deleteHandler).not.toBeNull();
+
+    const file = new TFile();
+    file.path = 'LOGS-backup/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    deleteHandler?.(file);
+
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  test('ignores state file rename under similarly prefixed sibling folder', async () => {
+    const { view } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+
+    const renameHandlers: Array<(file: TFile, oldPath: string) => void> = [];
+    (view.app.vault.on as jest.Mock).mockImplementation(
+      (event: string, callback: (file: TFile, oldPath: string) => void) => {
+        if (event === 'rename') {
+          renameHandlers.push(callback);
+        }
+        return { detach: jest.fn() };
+      },
+    );
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(renameHandlers.length).toBeGreaterThan(0);
+
+    const file = new TFile();
+    file.path = 'LOGS-backup/2025-02-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    for (const handler of renameHandlers) {
+      handler(file, 'LOGS-backup/2025-01-state.json');
+    }
+
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not schedule external state processing after onClose when vault.read resolves late', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const consumeSpy = jest.fn(() => false);
+    (plugin.dayStateService as unknown as {
+      consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean
+    }).consumeLocalStateWrite = consumeSpy;
+
+    let resolveRead: ((content: string) => void) | null = null;
+    (view.app.vault.read as jest.Mock).mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(modifyHandler).not.toBeNull();
+
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    await view.onClose();
+    resolveRead?.('{"days":{}}');
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(500);
+
+    expect(consumeSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not treat external change as local when local write happens during read delay', async () => {
+    const { view, plugin } = createView();
+    const scheduleSpy = jest
+      .spyOn(
+        view as unknown as {
+          scheduleExternalStateChangeProcessing: (
+            filePath: string,
+            dayStateService: { consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean },
+          ) => void
+        },
+        'scheduleExternalStateChangeProcessing',
+      )
+      .mockImplementation(() => undefined);
+
+    let resolveRead: ((content: string) => void) | null = null;
+    (view.app.vault.read as jest.Mock).mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+
+    const consumeSpy = jest.fn(
+      (_path: string, _content?: string, maxRecordedAt?: number) => maxRecordedAt === undefined,
+    );
+    (plugin.dayStateService as unknown as {
+      consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean
+    }).consumeLocalStateWrite = consumeSpy;
+
+    let modifyHandler: ((file: TFile) => void) | null = null;
+    (view.app.vault.on as jest.Mock).mockImplementation((event: string, callback: (file: TFile) => void) => {
+      if (event === 'modify') {
+        modifyHandler = callback;
+      }
+      return { detach: jest.fn() };
+    });
+
+    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    expect(modifyHandler).not.toBeNull();
+
+    const file = new TFile();
+    file.path = 'LOGS/2025-01-state.json';
+    Object.setPrototypeOf(file, TFile.prototype);
+    modifyHandler?.(file);
+
+    resolveRead?.('{"local":"new"}');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(consumeSpy).toHaveBeenCalledWith(
+      'LOGS/2025-01-state.json',
+      '{"local":"new"}',
+      expect.any(Number),
+    );
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    expect(scheduleSpy).toHaveBeenCalledWith(
+      'LOGS/2025-01-state.json',
+      expect.objectContaining({
+        consumeLocalStateWrite: consumeSpy,
+      }),
+    );
+  });
+});
+
+describe('TaskChuteView barrier pending external changes', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('falls back to full reload when barrier queued reload has no resolved month key', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: [] }));
+
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view as unknown as { pendingReloadAfterBarrier: boolean }).pendingReloadAfterBarrier = true;
+    (view as unknown as { pendingExternalMergeMonthKeys: Set<string> }).pendingExternalMergeMonthKeys = new Set();
+
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'all',
+    });
+  });
+
+  test('prioritizes full reload when barrier queued full reload and month keys coexist', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: ['2025-01-01'] }));
+
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view as unknown as { pendingReloadAfterBarrier: boolean }).pendingReloadAfterBarrier = true;
+    (view as unknown as { pendingExternalMergeMonthKeys: Set<string> }).pendingExternalMergeMonthKeys = new Set(['2025-01']);
+    (view as unknown as { pendingFullReloadAfterBarrier: boolean }).pendingFullReloadAfterBarrier = true;
+
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'all',
+    });
+  });
+
+  test('reloads after barrier merge even when affectedDateKeys is empty', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: [] }));
+
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view as unknown as { pendingReloadAfterBarrier: boolean }).pendingReloadAfterBarrier = true;
+    (view as unknown as { pendingExternalMergeMonthKeys: Set<string> }).pendingExternalMergeMonthKeys = new Set(['2025-01']);
+
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(mergeSpy).toHaveBeenCalledWith('2025-01');
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(clearSpy.mock.calls[0]).toEqual([]);
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'none',
+    });
+  });
+
+  test('does not reload barrier pending changes when view is closing', async () => {
+    const { view, plugin } = createView();
+    const reloadSpy = jest
+      .spyOn(view, 'reloadTasksAndRestore')
+      .mockResolvedValue(undefined);
+    const clearSpy = jest.spyOn(view.dayStateManager, 'clear');
+    const mergeSpy = jest.fn(async () => ({ merged: {}, affectedDateKeys: ['2025-01-01'] }));
+
+    (plugin.dayStateService as unknown as {
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] }>;
+    }).mergeExternalChange = mergeSpy;
+
+    (view as unknown as { pendingReloadAfterBarrier: boolean }).pendingReloadAfterBarrier = true;
+    (view as unknown as { pendingExternalMergeMonthKeys: Set<string> }).pendingExternalMergeMonthKeys = new Set(['2025-01']);
+    (view as unknown as { isClosingOrClosed: boolean }).isClosingOrClosed = true;
+
+    await (view as unknown as { processBarrierPendingExternalChanges: () => Promise<void> }).processBarrierPendingExternalChanges();
+
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
     expect(reloadSpy).not.toHaveBeenCalled();
   });
 });

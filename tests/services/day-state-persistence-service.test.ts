@@ -535,6 +535,72 @@ describe('DayStatePersistenceService.mergeExternalChange', () => {
     const mergedDay = result.merged?.days['2026-01-11']
     expect(mergedDay?.duplicatedInstances).toHaveLength(0)
   })
+
+  it('does not persist when duplicate conflicts do not change merged local day', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-13T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-1',
+          originalPath: 'TASKS/dup.md',
+          timestamp: 1000,
+          createdMillis: 1000,
+          slotKey: '8:00-12:00',
+        },
+      ],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    vault.modify.mockClear()
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-13': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [
+                {
+                  instanceId: 'dup-1',
+                  originalPath: 'TASKS/dup.md',
+                  timestamp: 1000,
+                  createdMillis: 1000,
+                  slotKey: '12:00-16:00',
+                },
+              ],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-13T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    expect(vault.modify).not.toHaveBeenCalled()
+    expect(result.affectedDateKeys).toEqual([])
+    expect(result.merged?.days['2026-01-13']?.duplicatedInstances).toEqual([
+      expect.objectContaining({
+        instanceId: 'dup-1',
+        slotKey: '8:00-12:00',
+      }),
+    ])
+  })
 })
 
 describe('DayStatePersistenceService local write tracking', () => {
@@ -590,7 +656,29 @@ describe('DayStatePersistenceService local write tracking', () => {
     return { plugin, store, pathManager, vault }
   }
 
-  it('consumes local write markers after saving state', async () => {
+  it('consumes local write markers after saving state (hash-based)', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-02-01T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    const path = 'LOGS/2026-02-state.json'
+    // Read the actual content that was written to the store
+    const writtenContent = store.get(path) ?? ''
+    // With matching content, consume returns true
+    expect(service.consumeLocalStateWrite(path, writtenContent)).toBe(true)
+    // After consuming, same content should return false (hash was removed)
+    expect(service.consumeLocalStateWrite(path, writtenContent)).toBe(false)
+  })
+
+  it('consumeLocalStateWrite returns false when content is omitted', async () => {
     const { plugin } = createPlugin()
     const service = new DayStatePersistenceService(plugin)
 
@@ -604,11 +692,54 @@ describe('DayStatePersistenceService local write tracking', () => {
     })
 
     const path = 'LOGS/2026-02-state.json'
-    expect(service.consumeLocalStateWrite(path)).toBe(true)
+    // Without content, returns false (safe side: treat as external change)
     expect(service.consumeLocalStateWrite(path)).toBe(false)
   })
 
-  it('records local writes before modifying existing files', async () => {
+  it('consumeLocalStateWrite returns false when content differs', async () => {
+    const { plugin } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-02-01T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    const path = 'LOGS/2026-02-state.json'
+    // With different content (external change), returns false
+    expect(service.consumeLocalStateWrite(path, '{"different": "content"}')).toBe(false)
+  })
+
+  it('does not consume local write hash recorded after event timestamp', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-02-01T00:00:00.000Z')
+    const eventTimestamp = Date.now() - 1000
+
+    await service.saveDay(date, {
+      hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    const path = 'LOGS/2026-02-state.json'
+    const writtenContent = store.get(path) ?? ''
+
+    // Hash recorded after event timestamp should not be consumed
+    expect(service.consumeLocalStateWrite(path, writtenContent, eventTimestamp)).toBe(false)
+
+    // Without timestamp guard, the same local write marker is consumable
+    expect(service.consumeLocalStateWrite(path, writtenContent)).toBe(true)
+  })
+
+  it('records local writes before modifying existing files (hash-based)', async () => {
     const { plugin, store, vault } = createPlugin()
     store.set(
       'LOGS/2026-03-state.json',
@@ -635,7 +766,8 @@ describe('DayStatePersistenceService local write tracking', () => {
 
     const service = new DayStatePersistenceService(plugin)
     vault.modify = jest.fn(async (file: TFile, content: string) => {
-      expect(service.consumeLocalStateWrite(file.path)).toBe(true)
+      // With matching content, consume returns true
+      expect(service.consumeLocalStateWrite(file.path, content)).toBe(true)
       store.set(file.path, content)
     })
 

@@ -138,6 +138,40 @@ describe('TaskOrderManager', () => {
     expect(options.persistDayState).toHaveBeenCalledWith('2025-10-09');
   });
 
+  test('saveTaskOrders adds ordersMeta for keys without metadata', async () => {
+    const { options, dayState } = createOptions();
+    dayState.orders = {
+      'TASKS/sample.md::none': 150,
+    };
+    const manager = new TaskOrderManager(options);
+    const instance = createInstance({ order: 150 });
+
+    await manager.saveTaskOrders([instance]);
+
+    const meta = dayState.ordersMeta?.['TASKS/sample.md::none'];
+    expect(meta?.order).toBe(150);
+    expect(typeof meta?.updatedAt).toBe('number');
+    expect(Number.isFinite(meta?.updatedAt)).toBe(true);
+  });
+
+  test('saveTaskOrders updates ordersMeta when order value changes', async () => {
+    const { options, dayState } = createOptions();
+    dayState.orders = {
+      'TASKS/sample.md::none': 150,
+    };
+    dayState.ordersMeta = {
+      'TASKS/sample.md::none': { order: 150, updatedAt: 1000 },
+    };
+    const manager = new TaskOrderManager(options);
+    const instance = createInstance({ order: 250 });
+
+    await manager.saveTaskOrders([instance]);
+
+    const meta = dayState.ordersMeta?.['TASKS/sample.md::none'];
+    expect(meta?.order).toBe(250);
+    expect((meta?.updatedAt ?? 0)).toBeGreaterThan(1000);
+  });
+
   test('saveTaskOrders rejects when persistDayState fails', async () => {
     const { options, dayState } = createOptions();
     const error = new Error('persist failed');

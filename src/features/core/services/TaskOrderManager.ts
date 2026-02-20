@@ -134,6 +134,8 @@ export class TaskOrderManager {
     await this.options.ensureDayStateForCurrentDate();
     const dateStr = this.options.getCurrentDateString();
     const dayState = this.options.getCurrentDayState();
+    const previousOrders = dayState.orders ?? {};
+    const previousMeta = dayState.ordersMeta ?? {};
 
     const orders: Record<string, number> = {};
     instances.forEach((inst) => {
@@ -157,7 +159,50 @@ export class TaskOrderManager {
     }
 
     dayState.orders = orders;
+    dayState.ordersMeta = this.buildOrderMeta(orders, previousOrders, previousMeta);
     await this.options.persistDayState(dateStr);
+  }
+
+  private buildOrderMeta(
+    nextOrders: Record<string, number>,
+    previousOrders: Record<string, number>,
+    previousMeta: Record<string, { order: number; updatedAt: number }>,
+  ): Record<string, { order: number; updatedAt: number }> | undefined {
+    const nextMeta: Record<string, { order: number; updatedAt: number }> = {};
+    let timestampCursor = Date.now();
+
+    for (const [key, order] of Object.entries(nextOrders)) {
+      const existingMeta = previousMeta[key];
+      const previousOrder = previousOrders[key];
+      const hasUsableUpdatedAt = Boolean(
+        existingMeta &&
+        typeof existingMeta.updatedAt === 'number' &&
+        Number.isFinite(existingMeta.updatedAt),
+      );
+
+      // Keep timestamp stable when value is unchanged to avoid churn writes.
+      if (
+        hasUsableUpdatedAt &&
+        typeof previousOrder === 'number' &&
+        previousOrder === order &&
+        existingMeta?.order === order
+      ) {
+        nextMeta[key] = { order, updatedAt: existingMeta.updatedAt };
+        continue;
+      }
+
+      const minUpdatedAt = hasUsableUpdatedAt && existingMeta
+        ? existingMeta.updatedAt + 1
+        : 0;
+      const nextUpdatedAt = Math.max(timestampCursor, minUpdatedAt);
+      nextMeta[key] = { order, updatedAt: nextUpdatedAt };
+      timestampCursor = nextUpdatedAt + 1;
+    }
+
+    if (Object.keys(nextMeta).length === 0) {
+      return undefined;
+    }
+    return nextMeta;
   }
 
   sortByOrder(instances: TaskInstance[]): TaskInstance[] {
