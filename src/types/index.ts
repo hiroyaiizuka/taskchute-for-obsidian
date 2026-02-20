@@ -249,7 +249,9 @@ export interface DayStateServiceAPI {
   clearCacheForDate?(dateKey: string): void | Promise<void>
   getDateFromKey(dateKey: string): Date
   renameTaskPath(oldPath: string, newPath: string): Promise<void>
-  consumeLocalStateWrite?(path: string): boolean
+  consumeLocalStateWrite?(path: string, content?: string, maxRecordedAt?: number): boolean
+  /** Merge local DayState changes with on-disk data and save atomically per month */
+  mergeAndSaveMonth?(monthKey: string, localDayStates: Map<string, DayState>): Promise<void>
 }
 
 export interface RoutineAliasServiceLike {

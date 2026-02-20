@@ -143,6 +143,12 @@ export class TaskChuteView
   private stateFileModifyPendingMonthKeys: Set<string> = new Set()
   private stateFileModifyRequiresFullReload = false
 
+  // Write barrier: queued external changes during loadTasks barrier
+  private pendingExternalMergeMonthKeys: Set<string> = new Set()
+  private pendingReloadAfterBarrier = false
+  private pendingFullReloadAfterBarrier = false
+  private isClosingOrClosed = false
+
   // Debug helper flag
   // Task Name Validator
   private TaskNameValidator: TaskNameValidator = {
@@ -581,6 +587,7 @@ export class TaskChuteView
   // ===========================================
 
   async onOpen(): Promise<void> {
+    this.isClosingOrClosed = false
     const container = this.getContentContainer()
     container.empty()
 
@@ -607,6 +614,7 @@ export class TaskChuteView
   }
 
   async onClose(): Promise<void> {
+    this.isClosingOrClosed = true
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -755,12 +763,223 @@ export class TaskChuteView
     } else if (clearMode === 'current') {
       this.dayStateManager.clear(this.getCurrentDateString())
     }
-    // Use the refactored implementation
-    await this.ensureDayStateForCurrentDate()
-    await loadTasksRefactored.call(this)
+
+    // Write barrier: suppress disk writes during task loading to prevent
+    // overwriting synced state with stale cache data (cross-device sync fix)
+    this.dayStateManager.beginWriteBarrier()
+    try {
+      await this.ensureDayStateForCurrentDate()
+      await loadTasksRefactored.call(this)
+    } finally {
+      try {
+        await this.dayStateManager.endWriteBarrier()
+      } catch (error) {
+        console.warn('[TaskChuteView] endWriteBarrier failed during loadTasks:', error)
+      }
+    }
+
+    // Process any external changes that arrived during the barrier
+    await this.processBarrierPendingExternalChanges()
 
     // Build reminder schedules after loading tasks
     this.buildReminderSchedules()
+  }
+
+  /**
+   * Process external changes that were queued during a write barrier.
+   * Executes merge for pending month keys and triggers a reload if needed.
+   */
+  private async processBarrierPendingExternalChanges(): Promise<void> {
+    const pendingMonthKeys = Array.from(this.pendingExternalMergeMonthKeys)
+    const needsReload = this.pendingReloadAfterBarrier
+    const requiresFullReload = this.pendingFullReloadAfterBarrier
+    this.pendingExternalMergeMonthKeys.clear()
+    this.pendingReloadAfterBarrier = false
+    this.pendingFullReloadAfterBarrier = false
+
+    if (this.isClosingOrClosed) return
+    if (!needsReload) return
+    if (requiresFullReload || pendingMonthKeys.length === 0) {
+      await this.reloadTasksAndRestore({
+        runBoundaryCheck: false,
+        clearDayStateCache: 'all',
+      })
+      return
+    }
+
+    const dayStateService = this.plugin.dayStateService as {
+      mergeExternalChange?: (monthKey: string) => Promise<{
+        merged: unknown
+        affectedDateKeys: string[]
+      } | null>
+    }
+
+    if (typeof dayStateService.mergeExternalChange !== 'function') {
+      await this.reloadTasksAndRestore({
+        runBoundaryCheck: false,
+        clearDayStateCache: 'all',
+      })
+      return
+    }
+
+    const affectedDates = new Set<string>()
+    let mergeFailed = false
+
+    for (const key of pendingMonthKeys) {
+      try {
+        const result = await dayStateService.mergeExternalChange(key)
+        if (result && Array.isArray(result.affectedDateKeys)) {
+          for (const dateKey of result.affectedDateKeys) {
+            affectedDates.add(dateKey)
+          }
+        }
+      } catch (error) {
+        mergeFailed = true
+        console.warn('[TaskChuteView] barrier pending mergeExternalChange failed:', key, error)
+      }
+    }
+
+    if (mergeFailed) {
+      await this.reloadTasksAndRestore({
+        runBoundaryCheck: false,
+        clearDayStateCache: 'all',
+      })
+      return
+    }
+
+    if (affectedDates.size === 0) {
+      this.dayStateManager.clear()
+    } else {
+      for (const dateKey of affectedDates) {
+        this.dayStateManager.clear(dateKey)
+      }
+    }
+    await this.reloadTasksAndRestore({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'none',
+    })
+  }
+
+  /**
+   * Schedule processing of an external state file change.
+   * Handles write barrier queueing and debouncing.
+   */
+  private scheduleExternalStateChangeProcessing(
+    filePath: string,
+    dayStateService: {
+      getMonthKeyFromPath?: (path: string) => string | null
+      mergeExternalChange?: (monthKey: string) => Promise<{
+        merged: unknown
+        affectedDateKeys: string[]
+      } | null>
+    },
+  ): void {
+    if (this.isClosingOrClosed) {
+      return
+    }
+    const monthKey = dayStateService.getMonthKeyFromPath?.(filePath)
+
+    // If write barrier is active, queue the external change for processing after barrier ends
+    if (this.dayStateManager.isBarrierActive()) {
+      if (monthKey) {
+        this.pendingExternalMergeMonthKeys.add(monthKey)
+      } else {
+        this.pendingFullReloadAfterBarrier = true
+      }
+      this.pendingReloadAfterBarrier = true
+      return
+    }
+
+    if (monthKey) {
+      this.stateFileModifyPendingMonthKeys.add(monthKey)
+    } else {
+      this.stateFileModifyRequiresFullReload = true
+    }
+
+    // Debounce to avoid excessive reloads during rapid changes
+    if (this.stateFileModifyDebounceTimer) {
+      clearTimeout(this.stateFileModifyDebounceTimer)
+    }
+    this.stateFileModifyDebounceTimer = setTimeout(() => {
+      this.stateFileModifyDebounceTimer = null
+      if (this.isClosingOrClosed) {
+        this.stateFileModifyPendingMonthKeys.clear()
+        this.stateFileModifyRequiresFullReload = false
+        return
+      }
+
+      const pendingMonthKeys = Array.from(this.stateFileModifyPendingMonthKeys)
+      const requiresFullReload = this.stateFileModifyRequiresFullReload
+      this.stateFileModifyPendingMonthKeys.clear()
+      this.stateFileModifyRequiresFullReload = false
+
+      if (!pendingMonthKeys.length && !requiresFullReload) {
+        return
+      }
+
+      if (this.dayStateManager.isBarrierActive()) {
+        for (const key of pendingMonthKeys) {
+          this.pendingExternalMergeMonthKeys.add(key)
+        }
+        if (requiresFullReload) {
+          this.pendingFullReloadAfterBarrier = true
+        }
+        this.pendingReloadAfterBarrier = true
+        return
+      }
+
+      if (requiresFullReload || typeof dayStateService.mergeExternalChange !== 'function') {
+        void this.reloadTasksAndRestore({
+          runBoundaryCheck: false,
+          clearDayStateCache: 'all',
+        })
+        return
+      }
+
+      void (async () => {
+        const affectedDates = new Set<string>()
+        let mergeFailed = false
+
+        for (const key of pendingMonthKeys) {
+          try {
+            const result = await dayStateService.mergeExternalChange?.(key)
+            if (result && Array.isArray(result.affectedDateKeys)) {
+              for (const dateKey of result.affectedDateKeys) {
+                affectedDates.add(dateKey)
+              }
+            }
+          } catch (error) {
+            mergeFailed = true
+            console.warn('[TaskChuteView] mergeExternalChange failed for month', key, error)
+          }
+        }
+
+        if (mergeFailed) {
+          await this.reloadTasksAndRestore({
+            runBoundaryCheck: false,
+            clearDayStateCache: 'all',
+          })
+          return
+        }
+
+        for (const dateKey of affectedDates) {
+          this.dayStateManager.clear(dateKey)
+        }
+
+        await this.reloadTasksAndRestore({
+          runBoundaryCheck: false,
+          clearDayStateCache: 'none',
+        })
+      })()
+    }, 500) // 500ms debounce
+  }
+
+  private isPathWithinDirectory(path: string, directoryPath: string): boolean {
+    const normalizedDirectoryPath = directoryPath.replace(/\/+$/, '')
+    if (!normalizedDirectoryPath) {
+      return false
+    }
+    return path === normalizedDirectoryPath || path.startsWith(`${normalizedDirectoryPath}/`)
   }
 
   /**
@@ -1599,92 +1818,40 @@ export class TaskChuteView
     // When the state file is modified externally (e.g., via Obsidian Sync),
     // merge changes using OR-Set + Tombstone conflict resolution
     const handleExternalStateChange = (file: TAbstractFile) => {
+      if (this.isClosingOrClosed) return
       if (!(file instanceof TFile)) return
       if (!file.path.endsWith("-state.json")) return
 
       // Check if this is our state file (under logDataPath)
       const logDataPath = this.plugin.pathManager.getLogDataPath()
-      if (!file.path.startsWith(logDataPath)) return
+      if (!this.isPathWithinDirectory(file.path, logDataPath)) return
 
       const dayStateService = this.plugin.dayStateService as {
-        consumeLocalStateWrite?: (path: string) => boolean
+        consumeLocalStateWrite?: (path: string, content?: string, maxRecordedAt?: number) => boolean
         getMonthKeyFromPath?: (path: string) => string | null
         mergeExternalChange?: (monthKey: string) => Promise<{
           merged: unknown
           affectedDateKeys: string[]
         } | null>
       }
-      if (dayStateService.consumeLocalStateWrite?.(file.path)) {
-        return
-      }
+      const eventTimestamp = Date.now()
 
-      const monthKey = dayStateService.getMonthKeyFromPath?.(file.path)
-      if (monthKey) {
-        this.stateFileModifyPendingMonthKeys.add(monthKey)
-      } else {
-        this.stateFileModifyRequiresFullReload = true
-      }
-
-      // Debounce to avoid excessive reloads during rapid changes
-      if (this.stateFileModifyDebounceTimer) {
-        clearTimeout(this.stateFileModifyDebounceTimer)
-      }
-      this.stateFileModifyDebounceTimer = setTimeout(() => {
-        this.stateFileModifyDebounceTimer = null
-
-        const pendingMonthKeys = Array.from(this.stateFileModifyPendingMonthKeys)
-        const requiresFullReload = this.stateFileModifyRequiresFullReload
-        this.stateFileModifyPendingMonthKeys.clear()
-        this.stateFileModifyRequiresFullReload = false
-
-        if (!pendingMonthKeys.length && !requiresFullReload) {
+      // Read file content asynchronously for hash-based self-write detection
+      void (async () => {
+        let fileContent: string | undefined
+        try {
+          fileContent = await this.app.vault.read(file)
+        } catch {
+          // If read fails, treat as external change (safe side)
+        }
+        if (this.isClosingOrClosed) {
           return
         }
-
-        if (requiresFullReload || typeof dayStateService.mergeExternalChange !== 'function') {
-          void this.reloadTasksAndRestore({
-            runBoundaryCheck: false,
-            clearDayStateCache: 'all',
-          })
+        if (dayStateService.consumeLocalStateWrite?.(file.path, fileContent, eventTimestamp)) {
           return
         }
-
-        void (async () => {
-          const affectedDates = new Set<string>()
-          let mergeFailed = false
-
-          for (const key of pendingMonthKeys) {
-            try {
-              const result = await dayStateService.mergeExternalChange?.(key)
-              if (result && Array.isArray(result.affectedDateKeys)) {
-                for (const dateKey of result.affectedDateKeys) {
-                  affectedDates.add(dateKey)
-                }
-              }
-            } catch (error) {
-              mergeFailed = true
-              console.warn('[TaskChuteView] mergeExternalChange failed for month', key, error)
-            }
-          }
-
-          if (mergeFailed) {
-            await this.reloadTasksAndRestore({
-              runBoundaryCheck: false,
-              clearDayStateCache: 'all',
-            })
-            return
-          }
-
-          for (const dateKey of affectedDates) {
-            this.dayStateManager.clear(dateKey)
-          }
-
-          await this.reloadTasksAndRestore({
-            runBoundaryCheck: false,
-            clearDayStateCache: 'none',
-          })
-        })()
-      }, 500) // 500ms debounce
+        this.scheduleExternalStateChangeProcessing(file.path, dayStateService)
+      })()
     }
 
     // Listen for both modify and create events
@@ -1693,6 +1860,56 @@ export class TaskChuteView
     const stateCreateRef = this.app.vault.on("create", handleExternalStateChange)
     this.registerManagedEvent(stateModifyRef)
     this.registerManagedEvent(stateCreateRef)
+
+    // Handle state file deletion (Obsidian Sync may delete files during sync)
+    const handleStateFileDelete = (file: TAbstractFile) => {
+      if (!(file instanceof TFile)) return
+      if (!file.path.endsWith("-state.json")) return
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      if (!this.isPathWithinDirectory(file.path, logDataPath)) return
+
+      if (this.dayStateManager.isBarrierActive()) {
+        this.pendingReloadAfterBarrier = true
+        this.pendingFullReloadAfterBarrier = true
+        return
+      }
+
+      // State file deleted — clear cache for the affected month and reload
+      this.dayStateManager.clear()
+      void this.reloadTasksAndRestore({
+        runBoundaryCheck: false,
+        clearDayStateCache: 'all',
+      })
+    }
+
+    // Handle state file rename
+    const handleStateFileRename = (file: TAbstractFile, oldPath: string) => {
+      if (!(file instanceof TFile)) return
+      if (!oldPath.endsWith("-state.json") && !file.path.endsWith("-state.json")) return
+      const logDataPath = this.plugin.pathManager.getLogDataPath()
+      if (
+        !this.isPathWithinDirectory(oldPath, logDataPath)
+        && !this.isPathWithinDirectory(file.path, logDataPath)
+      ) return
+
+      if (this.dayStateManager.isBarrierActive()) {
+        this.pendingReloadAfterBarrier = true
+        this.pendingFullReloadAfterBarrier = true
+        return
+      }
+
+      // State file renamed — clear all caches and reload
+      this.dayStateManager.clear()
+      void this.reloadTasksAndRestore({
+        runBoundaryCheck: false,
+        clearDayStateCache: 'all',
+      })
+    }
+
+    const stateDeleteRef = this.app.vault.on("delete", handleStateFileDelete)
+    const stateRenameRef = this.app.vault.on("rename", handleStateFileRename)
+    this.registerManagedEvent(stateDeleteRef)
+    this.registerManagedEvent(stateRenameRef)
   }
 
   // ===========================================
