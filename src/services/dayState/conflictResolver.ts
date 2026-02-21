@@ -499,6 +499,10 @@ export function mergeOrders(
       if (typeof remoteOrder === 'number') {
         // Prefer remote in legacy/no-meta cases to allow deletions to propagate.
         merged[key] = remoteOrder
+      } else if (typeof localOrder === 'number') {
+        // Preserve local-only keys: deletion propagates via deletedInstances,
+        // so absence in remote orders should not imply deletion.
+        merged[key] = localOrder
       }
       continue
     }

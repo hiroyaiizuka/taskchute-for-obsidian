@@ -1,6 +1,6 @@
 import { normalizePath, TFile, TFolder } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
+import type { TaskLogEntry, DailySummaryEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
 import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '../../../types/ExecutionLog'
 import { ExecutionLogDeltaRecord } from './ExecutionLogDeltaWriter'
 import {
@@ -14,6 +14,7 @@ import { RecordsWriter } from './RecordsWriter'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { LOG_INBOX_FOLDER, LOG_INBOX_LEGACY_FOLDER, LEGACY_REVISION } from '../constants'
 import { BackupPruner } from './BackupPruner'
+import { MonthSyncCoordinator } from './MonthSyncCoordinator'
 
 interface DeltaSource {
   deviceId: string
@@ -42,6 +43,66 @@ interface SummaryMeta {
   entryId?: string
 }
 
+interface IdentityOperationState {
+  op: 'upsert' | 'delete'
+  recordedAt: string
+  deviceId: string
+  entryId: string
+}
+
+type ReplayRequestReason = 'external-overwrite' | 'cache-content-changed' | 'terminal-missing'
+
+type RecordIdentity = { kind: 'instanceId'; value: string }
+
+interface NoOpCsrCacheEntry {
+  revision: number
+  recordsLength: number
+  recordsSignature: string
+  snapshotSignature: string
+}
+
+interface SourceCollectState {
+  source: DeltaSource
+  records: ExecutionLogDeltaRecord[]
+  storedCursor: number
+  startIndex: number
+  cursorReset: boolean
+  storedRevision: number | undefined
+  csrCacheKey: string
+  cachedEntry: NoOpCsrCacheEntry | undefined
+  isCacheHit: boolean
+}
+
+interface CollectPhaseResult {
+  sourceRecords: Map<string, ExecutionLogDeltaRecord[]>
+  latestIdentityOps: Map<string, IdentityOperationState>
+  replayRequests: Map<string, ReplayRequestReason>
+  cursorNormalizationTargets: Map<string, number>
+  sourceStates: SourceCollectState[]
+  currentRevision: number
+  currentSnapshotSignature: string
+}
+
+interface FoldSourcePlan {
+  source: DeltaSource
+  records: ExecutionLogDeltaRecord[]
+  sliceStart: number
+}
+
+interface FoldPhaseResult {
+  applied: number
+  processed: number
+}
+
+interface ProcessMonthAccumulator {
+  pendingCursors: Map<string, number>
+  processedEntries: number
+  noOpReplayDevices: Set<string>
+  noOpReplayCursors: Map<string, number>
+  eofSkippedDevices: Set<string>
+  eofSkippedCursors: Map<string, number>
+}
+
 /**
  * LogReconciler依存関係インターフェース（DI対応）
  */
@@ -52,6 +113,8 @@ export interface LogReconcilerDeps {
   randomFn: () => number
 }
 
+type JsonSerializable = string | number | boolean | null | JsonSerializable[] | { [key: string]: JsonSerializable | undefined }
+
 const MAX_RETRIES = 3
 
 export class LogReconciler {
@@ -61,8 +124,14 @@ export class LogReconciler {
   private lastBackupPrune = 0
   private readonly deps: LogReconcilerDeps
 
-  // Promiseチェーン方式のミューテックス: 各monthKeyに対する最後のPromiseを保持
-  private lockChains = new Map<string, Promise<void>>()
+  /**
+   * 揮発CSRキャッシュ: no-op確認済みの (monthKey:deviceId) を保持。
+   * recordsSignature は「再生済みプレフィックス」の内容シグネチャで、
+   * 同一件数上書き・先頭改変付き追記を検知して再replayの必要性を判断する。
+   * snapshotSignature は no-op検証時点のスナップショット署名で、
+   * 同revisionの外部上書きを検知して誤ヒットを防ぐ。
+   */
+  private noOpCsrCache = new Map<string, NoOpCsrCacheEntry>()
 
   constructor(private readonly plugin: TaskChutePluginLike, deps?: Partial<LogReconcilerDeps>) {
     this.snapshotWriter = deps?.snapshotWriter ?? new LogSnapshotWriter(plugin)
@@ -73,6 +142,16 @@ export class LogReconciler {
       recordsWriter: this.recordsWriter,
       sleepFn: deps?.sleepFn ?? ((ms) => new Promise(r => setTimeout(r, ms))),
       randomFn: deps?.randomFn ?? Math.random,
+    }
+  }
+
+  /** 成功書き込み後にnoOpCsrCacheの当該月エントリをクリア */
+  private clearNoOpCacheForMonth(monthKey: string): void {
+    const prefix = `${monthKey}:`
+    for (const key of this.noOpCsrCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.noOpCsrCache.delete(key)
+      }
     }
   }
 
@@ -133,37 +212,7 @@ export class LogReconciler {
    * これにより、同一monthKeyへの全リクエストが順番に実行される
    */
   private withLock<T>(monthKey: string, fn: () => Promise<T>): Promise<T> {
-    // 現在のチェーン末尾を取得（なければ即座に解決するPromise）
-    const currentChain = this.lockChains.get(monthKey) ?? Promise.resolve()
-
-    // 結果を外部に公開するためのPromise
-    let resolveResult!: (value: T) => void
-    let rejectResult!: (reason: unknown) => void
-    const resultPromise = new Promise<T>((resolve, reject) => {
-      resolveResult = resolve
-      rejectResult = reject
-    })
-
-    // 新しいチェーンを作成：既存チェーン完了後に自分のタスクを実行
-    // P2-lock-chain-reject対応: 先行の失敗を握りつぶし、後続タスクが必ず実行されるようにする
-    const newChain = currentChain
-      .catch(() => {})  // 先行タスクの失敗を握りつぶす
-      .then(() => fn())
-      .then(
-        (result) => { resolveResult(result) },
-        (error) => { rejectResult(error) }
-      )
-      .finally(() => {
-        // チェーンが自分で終わっていたら削除（メモリリーク防止）
-        if (this.lockChains.get(monthKey) === newChain) {
-          this.lockChains.delete(monthKey)
-        }
-      })
-
-    // 新しいチェーン末尾をMapに保存（次の呼び出しはこれにチェーン）
-    this.lockChains.set(monthKey, newChain)
-
-    return resultPromise
+    return MonthSyncCoordinator.withMonthLock(monthKey, fn)
   }
 
   /**
@@ -446,44 +495,15 @@ export class LogReconciler {
 
     const meta = this.ensureMeta(context.snapshot.meta)
     context.snapshot.meta = meta
-    const processedCursor = meta.processedCursor!
-
-    // pendingCursorsに一時保存（書き込み成功時のみ反映）
-    const pendingCursors = new Map<string, number>()
-    let processedEntries = 0
-    const affectedDates = context.mutatedDates
-
-    for (const source of sources) {
-      const records = await this.readDeltaRecords(source.filePath)
-      if (records.length === 0) {
-        if ((processedCursor?.[source.deviceId] ?? 0) !== 0) {
-          pendingCursors.set(source.deviceId, 0)
-          context.metaMutated = true
-        }
-        continue
-      }
-      let startIndex = processedCursor?.[source.deviceId] ?? 0
-      let cursorReset = false
-      if (startIndex > records.length) {
-        console.warn('[LogReconciler] Delta cursor exceeds file length, resetting', source.deviceId, source.monthKey)
-        startIndex = 0
-        pendingCursors.set(source.deviceId, 0)
-        context.metaMutated = true
-        cursorReset = true
-      }
-      if (startIndex >= records.length && !cursorReset) {
-        if (processedCursor[source.deviceId] !== records.length) {
-          pendingCursors.set(source.deviceId, records.length)
-          context.metaMutated = true
-        }
-        continue
-      }
-      const sliceStart = cursorReset ? 0 : startIndex
-      const newRecords = records.slice(sliceStart)
-      const applied = this.applyRecordsToSnapshot(newRecords, context.snapshot, affectedDates)
-      processedEntries += applied
-      pendingCursors.set(source.deviceId, records.length)
-      context.metaMutated = context.metaMutated || applied > 0 || records.length !== startIndex
+    const accumulator = this.createProcessMonthAccumulator()
+    const collected = await this.collectPhase(monthKey, sources, context, meta)
+    if (collected.replayRequests.size > 0) {
+      const replayDeviceIds = new Set(collected.replayRequests.keys())
+      this.executeReplayPhase(monthKey, sources, context, meta, collected, accumulator)
+      // replay対象外sourceの未処理tailは同サイクルで取り込む（起動時単発reconcileの取りこぼし防止）。
+      this.executeIncrementalPhase(context, meta, collected, accumulator, replayDeviceIds)
+    } else {
+      this.executeIncrementalPhase(context, meta, collected, accumulator)
     }
 
     // P1-mixed-month対応: 通常sourcesが存在する月でも、archived-onlyのデバイスからdeltaを取り込む
@@ -491,24 +511,533 @@ export class LogReconciler {
     // デバイスBのログが欠落しないようにする
     // P2-missing-snapshot-archived対応: スナップショット欠損時は全デバイスのarchivedも処理
     const snapshotMissing = context.file === null
-    const archivedApplied = await this.applyArchivedOnlyDeltas(monthKey, sources, context.snapshot, affectedDates, snapshotMissing)
+    const archivedApplied = await this.applyArchivedOnlyDeltas(
+      monthKey,
+      sources,
+      context.snapshot,
+      context.mutatedDates,
+      snapshotMissing,
+    )
     if (archivedApplied > 0) {
-      processedEntries += archivedApplied
+      accumulator.processedEntries += archivedApplied
       context.metaMutated = true
     }
 
-    if (processedEntries > 0 || context.metaMutated) {
-      // processedCursorを反映してから書き込み
-      for (const [deviceId, cursor] of pendingCursors) {
-        meta.processedCursor![deviceId] = cursor
-      }
+    await this.commitMonthChanges(monthKey, context, meta, accumulator)
 
-      this.finalizeMeta(context.snapshot)
-      await this.persistSnapshotWithConflictDetection(context)
-      await this.writeRecordEntries(context)
+    return { processedEntries: accumulator.processedEntries }
+  }
+
+  private createProcessMonthAccumulator(): ProcessMonthAccumulator {
+    return {
+      pendingCursors: new Map<string, number>(),
+      processedEntries: 0,
+      noOpReplayDevices: new Set<string>(),
+      noOpReplayCursors: new Map<string, number>(),
+      eofSkippedDevices: new Set<string>(),
+      eofSkippedCursors: new Map<string, number>(),
+    }
+  }
+
+  private executeReplayPhase(
+    monthKey: string,
+    sources: DeltaSource[],
+    context: MonthContext,
+    meta: TaskLogSnapshotMeta,
+    collected: CollectPhaseResult,
+    accumulator: ProcessMonthAccumulator,
+  ): void {
+    const { sourceRecords, latestIdentityOps, replayRequests, cursorNormalizationTargets, sourceStates, currentRevision } = collected
+    const reasonSummary = Array.from(replayRequests.entries())
+      .map(([deviceId, reason]) => `${deviceId}:${reason}`)
+      .join(', ')
+    console.warn('[LogReconciler] Month-level deterministic replay requested', monthKey, reasonSummary)
+    const replayDeviceIds = new Set(replayRequests.keys())
+    const sourceStateByDeviceId = new Map<string, SourceCollectState>()
+    for (const state of sourceStates) {
+      sourceStateByDeviceId.set(state.source.deviceId, state)
+    }
+    const resolvePreservedCursor = (deviceId: string, recordsLength: number): number => {
+      const normalizedCursor = cursorNormalizationTargets.get(deviceId)
+      if (normalizedCursor !== undefined) {
+        return Math.min(recordsLength, Math.max(0, normalizedCursor))
+      }
+      const state = sourceStateByDeviceId.get(deviceId)
+      const currentCursor = state?.storedCursor ?? meta.processedCursor?.[deviceId] ?? 0
+      return Math.min(recordsLength, Math.max(0, currentCursor))
     }
 
-    return { processedEntries }
+    const replayRecords = this.buildMonthReplayRecords(
+      sourceRecords,
+      sources,
+      replayRequests,
+      latestIdentityOps,
+    )
+    const preSignature = this.computeSnapshotSignature(
+      context.snapshot.taskExecutions,
+      context.snapshot.dailySummary,
+    )
+    const replayAffectedDates = new Set<string>()
+    const replayApplied = this.applyRecordsToSnapshot(
+      replayRecords,
+      context.snapshot,
+      replayAffectedDates,
+      { preferNewer: true, allowEqual: true },
+    )
+    const postSignature = this.computeSnapshotSignature(
+      context.snapshot.taskExecutions,
+      context.snapshot.dailySummary,
+    )
+
+    for (const [deviceId, cursor] of cursorNormalizationTargets) {
+      accumulator.pendingCursors.set(deviceId, cursor)
+      context.metaMutated = true
+    }
+
+    if (preSignature === postSignature) {
+      if (!meta.cursorSnapshotRevision) {
+        meta.cursorSnapshotRevision = {}
+      }
+      for (const source of sources) {
+        const state = sourceStateByDeviceId.get(source.deviceId)
+        const safeToCacheNonReplay = (
+          !!state &&
+          !state.cursorReset &&
+          state.startIndex >= state.records.length
+        )
+        const shouldTrackNoOpSource = replayDeviceIds.has(source.deviceId) || safeToCacheNonReplay
+        if (!shouldTrackNoOpSource) {
+          continue
+        }
+        const records = sourceRecords.get(source.filePath) ?? []
+        const csrCacheKey = `${monthKey}:${source.deviceId}`
+        this.noOpCsrCache.set(csrCacheKey, {
+          revision: currentRevision,
+          recordsLength: records.length,
+          recordsSignature: this.computeDeltaRecordsSignature(records),
+          snapshotSignature: postSignature,
+        })
+        meta.cursorSnapshotRevision[source.deviceId] = currentRevision
+        accumulator.noOpReplayDevices.add(source.deviceId)
+        accumulator.noOpReplayCursors.set(source.deviceId, records.length)
+      }
+
+      if (currentRevision === LEGACY_REVISION) {
+        for (const source of sources) {
+          const records = sourceRecords.get(source.filePath) ?? []
+          if (replayDeviceIds.has(source.deviceId)) {
+            accumulator.pendingCursors.set(source.deviceId, records.length)
+            continue
+          }
+          accumulator.pendingCursors.set(source.deviceId, resolvePreservedCursor(source.deviceId, records.length))
+        }
+        context.metaMutated = true
+        console.warn('[LogReconciler] Legacy no-op month replay, forcing persist for migration', monthKey)
+      } else {
+        console.warn('[LogReconciler] No-op month replay, suppressing write', monthKey)
+      }
+      return
+    }
+
+    for (const d of replayAffectedDates) {
+      context.mutatedDates.add(d)
+    }
+    const replayProcessedEntries = this.countReplayRequestedRecords(sources, sourceRecords, replayRequests)
+    accumulator.processedEntries += replayProcessedEntries
+    for (const source of sources) {
+      const records = sourceRecords.get(source.filePath) ?? []
+      if (replayDeviceIds.has(source.deviceId)) {
+        accumulator.pendingCursors.set(source.deviceId, records.length)
+        continue
+      }
+      accumulator.pendingCursors.set(source.deviceId, resolvePreservedCursor(source.deviceId, records.length))
+    }
+    context.metaMutated = true
+    console.warn('[LogReconciler] Month-level replay applied',
+      monthKey, `records=${replayRecords.length}`, `applied=${replayApplied}`, `processedEntries=${replayProcessedEntries}`)
+  }
+
+  private executeIncrementalPhase(
+    context: MonthContext,
+    meta: TaskLogSnapshotMeta,
+    collected: CollectPhaseResult,
+    accumulator: ProcessMonthAccumulator,
+    excludedDeviceIds: Set<string> = new Set(),
+  ): void {
+    const { sourceStates, latestIdentityOps, cursorNormalizationTargets, currentRevision } = collected
+    const processedCursor = meta.processedCursor!
+    const foldPlans: FoldSourcePlan[] = []
+    const cacheSkippedStates: SourceCollectState[] = []
+
+    for (const state of sourceStates) {
+      const { source, records, startIndex, cursorReset, storedRevision, csrCacheKey, cachedEntry, isCacheHit } = state
+      if (excludedDeviceIds.has(source.deviceId)) {
+        continue
+      }
+      if (records.length === 0) {
+        if ((processedCursor?.[source.deviceId] ?? 0) !== 0) {
+          accumulator.pendingCursors.set(source.deviceId, 0)
+          context.metaMutated = true
+        }
+        continue
+      }
+      let sliceStart = cursorReset ? 0 : startIndex
+      if (cursorReset) {
+        console.warn('[LogReconciler] Delta cursor exceeds file length, resetting', source.deviceId, source.monthKey)
+        accumulator.pendingCursors.set(source.deviceId, 0)
+        context.metaMutated = true
+      }
+
+      if (isCacheHit && !cursorReset) {
+        const refreshedSnapshotSignature = this.computeSnapshotSignature(
+          context.snapshot.taskExecutions,
+          context.snapshot.dailySummary,
+        )
+        const snapshotMutatedInThisCycle = (
+          !!cachedEntry &&
+          cachedEntry.snapshotSignature === collected.currentSnapshotSignature
+        )
+        if (!cachedEntry) {
+          this.noOpCsrCache.delete(csrCacheKey)
+          sliceStart = 0
+        } else if (refreshedSnapshotSignature !== cachedEntry.snapshotSignature && !snapshotMutatedInThisCycle) {
+          // キャッシュ作成後に同一reconcile外でスナップショットが変わった可能性があるため全再評価。
+          this.noOpCsrCache.delete(csrCacheKey)
+          sliceStart = 0
+        } else {
+          accumulator.noOpReplayDevices.add(source.deviceId)
+          accumulator.noOpReplayCursors.set(source.deviceId, records.length)
+          const prefixMatchesCache = (
+            records.length >= cachedEntry.recordsLength &&
+            this.computeDeltaRecordsSignature(records, cachedEntry.recordsLength) === cachedEntry.recordsSignature
+          )
+          if (records.length === cachedEntry.recordsLength && prefixMatchesCache) {
+            const terminalUpsertMissing = this.hasMissingTerminalUpsert(context.snapshot, records, latestIdentityOps)
+            if (terminalUpsertMissing) {
+              this.noOpCsrCache.delete(csrCacheKey)
+              sliceStart = 0
+            } else {
+              cacheSkippedStates.push(state)
+              continue
+            }
+          } else if (records.length > cachedEntry.recordsLength && prefixMatchesCache) {
+            sliceStart = cachedEntry.recordsLength
+          } else {
+            this.noOpCsrCache.delete(csrCacheKey)
+            sliceStart = 0
+          }
+        }
+      } else if (!cursorReset && (storedRevision === undefined || storedRevision !== currentRevision)) {
+        sliceStart = 0
+      } else if (startIndex >= records.length && !cursorReset) {
+        const terminalUpsertMissing = this.hasMissingTerminalUpsert(context.snapshot, records, latestIdentityOps)
+        if (terminalUpsertMissing) {
+          sliceStart = 0
+        } else {
+          accumulator.eofSkippedDevices.add(source.deviceId)
+          accumulator.eofSkippedCursors.set(source.deviceId, records.length)
+          if (processedCursor[source.deviceId] !== records.length) {
+            accumulator.pendingCursors.set(source.deviceId, records.length)
+            context.metaMutated = true
+          }
+          continue
+        }
+      }
+
+      foldPlans.push({ source, records, sliceStart })
+    }
+
+    if (foldPlans.length > 0) {
+      const touchedIdentityKeys = this.collectIdentityKeysFromRecords(
+        foldPlans.flatMap(plan => plan.records.slice(Math.max(0, plan.sliceStart))),
+      )
+
+      const folded = this.foldPhase(
+        foldPlans,
+        context.snapshot,
+        context.mutatedDates,
+        latestIdentityOps,
+      )
+      accumulator.processedEntries += folded.applied
+      for (const plan of foldPlans) {
+        accumulator.pendingCursors.set(plan.source.deviceId, plan.records.length)
+      }
+      if (folded.processed > 0) {
+        context.metaMutated = true
+      }
+
+      // Branch1 complete-skip sourceでも、同一reconcile内の先行変更で対象identityが変化した場合は再foldする。
+      if (cacheSkippedStates.length > 0 && touchedIdentityKeys.size > 0) {
+        const signatureAfterFold = this.computeSnapshotSignature(
+          context.snapshot.taskExecutions,
+          context.snapshot.dailySummary,
+        )
+        const recoveryPlans: FoldSourcePlan[] = []
+        for (const skippedState of cacheSkippedStates) {
+          const cached = skippedState.cachedEntry
+          if (!cached) {
+            continue
+          }
+          if (signatureAfterFold === cached.snapshotSignature) {
+            continue
+          }
+          if (!this.recordsTouchAnyIdentity(skippedState.records, touchedIdentityKeys)) {
+            continue
+          }
+          recoveryPlans.push({ source: skippedState.source, records: skippedState.records, sliceStart: 0 })
+        }
+        if (recoveryPlans.length > 0) {
+          const recovered = this.foldPhase(
+            recoveryPlans,
+            context.snapshot,
+            context.mutatedDates,
+            latestIdentityOps,
+          )
+          accumulator.processedEntries += recovered.applied
+          for (const plan of recoveryPlans) {
+            accumulator.pendingCursors.set(plan.source.deviceId, plan.records.length)
+            accumulator.noOpReplayDevices.delete(plan.source.deviceId)
+            accumulator.noOpReplayCursors.delete(plan.source.deviceId)
+          }
+          if (recovered.processed > 0) {
+            context.metaMutated = true
+          }
+        }
+      }
+    }
+
+    for (const [deviceId, cursor] of cursorNormalizationTargets) {
+      if (!accumulator.pendingCursors.has(deviceId)) {
+        accumulator.pendingCursors.set(deviceId, cursor)
+        context.metaMutated = true
+      }
+    }
+  }
+
+  private async commitMonthChanges(
+    monthKey: string,
+    context: MonthContext,
+    meta: TaskLogSnapshotMeta,
+    accumulator: ProcessMonthAccumulator,
+  ): Promise<void> {
+    if (accumulator.processedEntries <= 0 && !context.metaMutated) {
+      return
+    }
+
+    // processedCursorを反映してから書き込み
+    for (const [deviceId, cursor] of accumulator.pendingCursors) {
+      meta.processedCursor![deviceId] = cursor
+    }
+
+    // 外部上書き検知用: 書き込み後のrevisionを記録
+    const nextRevision = context.expectedRevision + 1
+    if (!meta.cursorSnapshotRevision) {
+      meta.cursorSnapshotRevision = {}
+    }
+    // 通常の書き込みソースのCSRを更新
+    for (const [deviceId] of accumulator.pendingCursors) {
+      meta.cursorSnapshotRevision[deviceId] = nextRevision
+    }
+    // no-opソースのCSR + processedCursorもnextRevisionに揃える
+    for (const deviceId of accumulator.noOpReplayDevices) {
+      meta.cursorSnapshotRevision[deviceId] = nextRevision
+      const noOpCursor = accumulator.noOpReplayCursors.get(deviceId)
+      if (noOpCursor !== undefined) {
+        meta.processedCursor![deviceId] = noOpCursor
+      }
+    }
+    // EOFスキップのみだったソースもCSRをnextRevisionへ揃える
+    for (const deviceId of accumulator.eofSkippedDevices) {
+      meta.cursorSnapshotRevision[deviceId] = nextRevision
+      const cursor = accumulator.eofSkippedCursors.get(deviceId)
+      if (cursor !== undefined) {
+        meta.processedCursor![deviceId] = cursor
+      }
+    }
+
+    this.finalizeMeta(context.snapshot)
+    await this.persistSnapshotWithConflictDetection(context)
+    // 成功書き込み後: 揮発キャッシュをクリア
+    this.clearNoOpCacheForMonth(monthKey)
+    await this.writeRecordEntries(context)
+  }
+
+  private async collectPhase(
+    monthKey: string,
+    sources: DeltaSource[],
+    context: MonthContext,
+    meta: TaskLogSnapshotMeta,
+  ): Promise<CollectPhaseResult> {
+    const sourceRecords = new Map<string, ExecutionLogDeltaRecord[]>()
+    const latestIdentityOps = new Map<string, IdentityOperationState>()
+    const sourceStates: SourceCollectState[] = []
+    const processedCursor = meta.processedCursor ?? {}
+    const currentRevision = context.expectedRevision
+
+    for (const source of sources) {
+      const records = await this.readDeltaRecords(source.filePath)
+      sourceRecords.set(source.filePath, records)
+      this.updateLatestIdentityOperations(latestIdentityOps, records)
+
+      const storedCursor = processedCursor[source.deviceId] ?? 0
+      let startIndex = storedCursor
+      let cursorReset = false
+      if (startIndex > records.length) {
+        startIndex = 0
+        cursorReset = true
+      }
+
+      const storedRevision = meta.cursorSnapshotRevision?.[source.deviceId]
+      const csrCacheKey = `${monthKey}:${source.deviceId}`
+      const cachedEntry = this.noOpCsrCache.get(csrCacheKey)
+      const isCacheHit = cachedEntry !== undefined && cachedEntry.revision === currentRevision
+
+      sourceStates.push({
+        source,
+        records,
+        storedCursor,
+        startIndex,
+        cursorReset,
+        storedRevision,
+        csrCacheKey,
+        cachedEntry,
+        isCacheHit,
+      })
+    }
+
+    const currentSnapshotSignature = this.computeSnapshotSignature(
+      context.snapshot.taskExecutions,
+      context.snapshot.dailySummary,
+    )
+    const replayRequests = new Map<string, ReplayRequestReason>()
+    const cursorNormalizationTargets = new Map<string, number>()
+
+    for (const state of sourceStates) {
+      const { source, records, storedCursor, startIndex, cursorReset, storedRevision, cachedEntry, isCacheHit } = state
+      if (records.length === 0) {
+        if (storedCursor !== 0) {
+          cursorNormalizationTargets.set(source.deviceId, 0)
+        }
+        continue
+      }
+
+      if (cursorReset) {
+        cursorNormalizationTargets.set(source.deviceId, 0)
+      }
+
+      if (isCacheHit && !cursorReset) {
+        if (!cachedEntry || currentSnapshotSignature !== cachedEntry.snapshotSignature) {
+          replayRequests.set(source.deviceId, 'external-overwrite')
+          continue
+        }
+        const prefixMatchesCache = (
+          records.length >= cachedEntry.recordsLength &&
+          this.computeDeltaRecordsSignature(records, cachedEntry.recordsLength) === cachedEntry.recordsSignature
+        )
+        if (records.length === cachedEntry.recordsLength && prefixMatchesCache) {
+          continue
+        }
+        if (records.length > cachedEntry.recordsLength && prefixMatchesCache) {
+          continue
+        }
+        replayRequests.set(source.deviceId, 'cache-content-changed')
+        continue
+      }
+
+      if (!cursorReset && (storedRevision === undefined || storedRevision !== currentRevision)) {
+        replayRequests.set(source.deviceId, 'external-overwrite')
+        continue
+      }
+
+      if (startIndex >= records.length && !cursorReset) {
+        const terminalUpsertMissing = this.hasMissingTerminalUpsert(context.snapshot, records, latestIdentityOps)
+        if (terminalUpsertMissing) {
+          replayRequests.set(source.deviceId, 'terminal-missing')
+        }
+      }
+    }
+
+    return {
+      sourceRecords,
+      latestIdentityOps,
+      replayRequests,
+      cursorNormalizationTargets,
+      sourceStates,
+      currentRevision,
+      currentSnapshotSignature,
+    }
+  }
+
+  private foldPhase(
+    plans: FoldSourcePlan[],
+    snapshot: TaskLogSnapshot,
+    mutatedDates: Set<string>,
+    latestIdentityOps: Map<string, IdentityOperationState>,
+  ): FoldPhaseResult {
+    let processed = 0
+    const aggregated: ExecutionLogDeltaRecord[] = []
+
+    for (const plan of plans) {
+      const records = plan.records.slice(Math.max(0, plan.sliceStart))
+      if (records.length === 0) {
+        continue
+      }
+      processed += records.length
+      aggregated.push(...records)
+    }
+
+    if (aggregated.length === 0) {
+      return { applied: 0, processed }
+    }
+
+    const filtered = this.filterReplayRecordsForFullReplay(aggregated, latestIdentityOps)
+    const sorted = this.sortRecordsForFold(filtered)
+    const applied = this.applyRecordsToSnapshot(
+      sorted,
+      snapshot,
+      mutatedDates,
+      { preferNewer: true, allowEqual: true },
+    )
+
+    return { applied, processed }
+  }
+
+  private sortRecordsForFold(records: ExecutionLogDeltaRecord[]): ExecutionLogDeltaRecord[] {
+    if (records.length <= 1) {
+      return records
+    }
+    const keyed = records.map((record, index) => ({
+      record,
+      index,
+      stable: this.stableStringify(record as unknown as JsonSerializable),
+    }))
+    keyed.sort((a, b) => {
+      const baseOrder = this.compareEntryOrder(a.record, b.record)
+      if (baseOrder !== 0) {
+        return baseOrder
+      }
+
+      const opOrder = this.compareFoldOpOrder(a.record.op, b.record.op)
+      if (opOrder !== 0) {
+        return opOrder
+      }
+
+      if (a.stable !== b.stable) {
+        return a.stable < b.stable ? -1 : 1
+      }
+      return a.index - b.index
+    })
+    return keyed.map(entry => entry.record)
+  }
+
+  private compareFoldOpOrder(aOp: ExecutionLogDeltaRecord['op'], bOp: ExecutionLogDeltaRecord['op']): number {
+    const a = aOp === 'delete' ? 'delete' : 'upsert'
+    const b = bOp === 'delete' ? 'delete' : 'upsert'
+    if (a === b) {
+      return 0
+    }
+    // 同一順序キーでは delete を最後に適用して resurrection を防ぐ
+    return a === 'upsert' ? -1 : 1
   }
 
   /**
@@ -669,7 +1198,7 @@ export class LogReconciler {
     records: ExecutionLogDeltaRecord[],
     snapshot: TaskLogSnapshot,
     mutatedDates: Set<string>,
-    options?: { preferNewer?: boolean },
+    options?: { preferNewer?: boolean; allowEqual?: boolean },
   ): number {
     let applied = 0
     for (const record of records) {
@@ -691,6 +1220,12 @@ export class LogReconciler {
         deviceId: payloadEntry.deviceId ?? record.deviceId,
         recordedAt: payloadEntry.recordedAt ?? record.recordedAt,
       }
+      const normalizedInstanceId = this.normalizeInstanceId(normalizedEntry.instanceId)
+      if (!normalizedInstanceId) {
+        continue
+      }
+      normalizedEntry.instanceId = normalizedInstanceId
+
       if (operation === 'delete') {
         const entries = snapshot.taskExecutions[dateKey]
         if (!Array.isArray(entries)) {
@@ -717,8 +1252,14 @@ export class LogReconciler {
       const entries = snapshot.taskExecutions[dateKey]
       const idx = this.findMatchingEntryIndex(entries, normalizedEntry)
       if (idx >= 0) {
-        if (options?.preferNewer && !this.isIncomingEntryNewer(entries[idx], normalizedEntry)) {
-          continue
+        if (options?.preferNewer) {
+          const compare = this.compareEntryOrder(normalizedEntry, entries[idx])
+          if (compare < 0) {
+            continue
+          }
+          if (compare === 0 && !options.allowEqual && !this.isIncomingEntryNewer(entries[idx], normalizedEntry)) {
+            continue
+          }
         }
         entries[idx] = { ...entries[idx], ...normalizedEntry }
       } else {
@@ -750,6 +1291,11 @@ export class LogReconciler {
       deviceId: payloadEntry.deviceId ?? record.deviceId,
       recordedAt: payloadEntry.recordedAt ?? record.recordedAt,
     }
+    const normalizedInstanceId = this.normalizeInstanceId(normalizedEntry.instanceId)
+    if (!normalizedInstanceId) {
+      return
+    }
+    normalizedEntry.instanceId = normalizedInstanceId
 
     if (operation === 'delete') {
       this.applyDeleteRecord(dateKey, normalizedEntry, snapshot)
@@ -886,36 +1432,11 @@ export class LogReconciler {
   }
 
   private findDeleteTargetIndex(entries: TaskLogEntry[], entry: TaskLogEntry): number {
-    const targetInstanceId = entry.instanceId
-    const targetTaskId = typeof entry.taskId === 'string' ? entry.taskId : undefined
-
-    // instanceIdでマッチングを試みる
-    if (targetInstanceId) {
-      const idx = entries.findIndex((existing) => existing?.instanceId === targetInstanceId)
-      if (idx >= 0) {
-        return idx
-      }
-
-      // instanceIdマッチング失敗で、instanceIdがないエントリをtaskIdでフォールバック
-      // （レガシーエントリへの後方互換性）- 最初の1件のみ削除
-      if (targetTaskId) {
-        const legacyIdx = entries.findIndex(
-          (existing) => !existing?.instanceId && existing?.taskId === targetTaskId
-        )
-        if (legacyIdx >= 0) {
-          return legacyIdx
-        }
-      }
-      // マッチしなかった場合は削除しない
+    const targetInstanceId = this.normalizeInstanceId(entry.instanceId)
+    if (!targetInstanceId) {
       return -1
     }
-
-    // instanceIdがない場合は、taskIdでフォールバック（後方互換性）- 最初の1件のみ削除
-    if (targetTaskId) {
-      return entries.findIndex((existing) => existing?.taskId === targetTaskId)
-    }
-
-    return -1
+    return entries.findIndex((existing) => this.normalizeInstanceId(existing?.instanceId) === targetInstanceId)
   }
 
   private applyDeleteRecord(dateKey: string, entry: TaskLogEntry, snapshot: TaskLogSnapshot): void {
@@ -931,27 +1452,477 @@ export class LogReconciler {
   }
 
   private findMatchingEntryIndex(entries: TaskLogEntry[], candidate: TaskLogEntry): number {
-    const targetInstanceId = typeof candidate.instanceId === 'string' ? candidate.instanceId : null
-    const targetTaskId = typeof candidate.taskId === 'string' ? candidate.taskId : null
-    const targetStart = typeof candidate.startTime === 'string' ? candidate.startTime : null
-    const targetStop = typeof candidate.stopTime === 'string' ? candidate.stopTime : null
-    const targetRecordedAt = typeof candidate.recordedAt === 'string' ? candidate.recordedAt : null
+    const targetInstanceId = this.normalizeInstanceId(candidate.instanceId)
+    if (!targetInstanceId) {
+      return -1
+    }
 
     return entries.findIndex((existing) => {
       if (!existing) return false
-      if (targetInstanceId && existing.instanceId === targetInstanceId) {
+      return this.normalizeInstanceId(existing.instanceId) === targetInstanceId
+    })
+  }
+
+  /**
+   * Deltaレコード配列の順序付き内容シグネチャ。
+   * no-opキャッシュのプレフィックス検証に使用する。
+   */
+  private computeDeltaRecordsSignature(records: ExecutionLogDeltaRecord[], takeCount = records.length): string {
+    const limit = Math.min(records.length, Math.max(0, takeCount))
+    if (limit === 0) {
+      return '0:0:0000000000000000'
+    }
+    let totalBytes = 0
+    let hashA = 2166136261
+    let hashB = 5381
+    for (let i = 0; i < limit; i++) {
+      const encoded = this.stableStringify(records[i] as unknown as JsonSerializable)
+      totalBytes += encoded.length
+      hashA = this.hashFnv1a(hashA, `${encoded.length}:`)
+      hashA = this.hashFnv1a(hashA, encoded)
+      hashA = this.hashFnv1a(hashA, '|')
+
+      hashB = this.hashDjb2(hashB, `${encoded.length}:`)
+      hashB = this.hashDjb2(hashB, encoded)
+      hashB = this.hashDjb2(hashB, '|')
+    }
+    return `${limit}:${totalBytes}:${this.toHex32(hashA)}${this.toHex32(hashB)}`
+  }
+
+  /**
+   * taskExecutions + dailySummary のフルコンテンツシグネチャを生成。
+   * full replay前後で比較し、no-op検知に使用。
+   */
+  private computeSnapshotSignature(
+    taskExecutions: Record<string, TaskLogEntry[]>,
+    dailySummary: Record<string, DailySummaryEntry>,
+  ): string {
+    const teParts: string[] = []
+    const taskExecutionsRecord = taskExecutions as Record<string, unknown>
+    for (const date of Object.keys(taskExecutions).sort()) {
+      const rawEntries = taskExecutionsRecord[date]
+      const entries = Array.isArray(rawEntries) ? rawEntries as TaskLogEntry[] : []
+      const entrySignatures = entries
+        .map(e => this.stableStringify(e as unknown as JsonSerializable))
+        .sort()
+      teParts.push(`${date}:${entries.length}:${entrySignatures.join(';')}`)
+    }
+    const dsParts: string[] = []
+    for (const date of Object.keys(dailySummary).sort()) {
+      dsParts.push(`${date}:${this.stableStringify(dailySummary[date] as unknown as JsonSerializable)}`)
+    }
+    return `te=${teParts.join('|')}|ds=${dsParts.join('|')}`
+  }
+
+  private hasMissingTerminalUpsert(
+    snapshot: TaskLogSnapshot,
+    records: ExecutionLogDeltaRecord[],
+    latestIdentityOps: Map<string, IdentityOperationState> = new Map<string, IdentityOperationState>(),
+  ): boolean {
+    const terminals = this.collectTerminalUpserts(records)
+    for (const terminal of terminals) {
+      if (!this.shouldCheckTerminalUpsert(terminal, latestIdentityOps)) {
+        continue
+      }
+      if (this.isTerminalUpsertMissing(snapshot, terminal)) {
         return true
       }
-      if (targetTaskId && existing.taskId === targetTaskId) {
-        if (targetStart && targetStop && existing.startTime === targetStart && existing.stopTime === targetStop) {
-          return true
-        }
-        if (targetRecordedAt && existing.recordedAt === targetRecordedAt) {
-          return true
+    }
+    return false
+  }
+
+  private collectTerminalUpserts(records: ExecutionLogDeltaRecord[]): ExecutionLogDeltaRecord[] {
+    const terminalsReversed: ExecutionLogDeltaRecord[] = []
+    const seenIdentityKeys = new Set<string>()
+
+    for (let i = records.length - 1; i >= 0; i--) {
+      const candidate = records[i]
+      const identity = this.getRecordIdentity(candidate)
+      const identityKey = identity ? this.identityToKey(identity) : ''
+
+      if (candidate.op === 'upsert') {
+        if (identityKey && !seenIdentityKeys.has(identityKey)) {
+          terminalsReversed.push(candidate)
         }
       }
+
+      if (identityKey) {
+        seenIdentityKeys.add(identityKey)
+      }
+    }
+    terminalsReversed.reverse()
+    return terminalsReversed
+  }
+
+  private filterReplayRecordsForFullReplay(
+    records: ExecutionLogDeltaRecord[],
+    latestIdentityOps: Map<string, IdentityOperationState>,
+  ): ExecutionLogDeltaRecord[] {
+    if (records.length === 0 || latestIdentityOps.size === 0) {
+      return records
+    }
+    const filtered: ExecutionLogDeltaRecord[] = []
+    for (const record of records) {
+      if (record.op === 'upsert' && this.shouldSkipStaleReplayUpsert(record, latestIdentityOps)) {
+        continue
+      }
+      filtered.push(record)
+    }
+    return filtered
+  }
+
+  /**
+   * month-level replay 向けに、replay要求デバイスが触る identity/date のみを対象化し、
+   * identity/date ごとに terminal レコードへ圧縮する。
+   */
+  private buildMonthReplayRecords(
+    sourceRecords: Map<string, ExecutionLogDeltaRecord[]>,
+    sources: DeltaSource[],
+    replayRequests: Map<string, ReplayRequestReason>,
+    latestIdentityOps: Map<string, IdentityOperationState>,
+  ): ExecutionLogDeltaRecord[] {
+    const replayDeviceIds = new Set(replayRequests.keys())
+    if (replayDeviceIds.size === 0) {
+      return []
+    }
+
+    const replayIdentityKeys = new Set<string>()
+    const replaySummaryDates = new Set<string>()
+
+    for (const source of sources) {
+      if (!replayDeviceIds.has(source.deviceId)) {
+        continue
+      }
+      const records = sourceRecords.get(source.filePath) ?? []
+      for (const record of records) {
+        const op = record.op ?? 'upsert'
+        if (op === 'summary') {
+          if (typeof record.dateKey === 'string' && record.dateKey.length > 0) {
+            replaySummaryDates.add(record.dateKey)
+          }
+          continue
+        }
+        const identity = this.getRecordIdentity(record)
+        if (!identity) {
+          continue
+        }
+        replayIdentityKeys.add(this.identityToKey(identity))
+      }
+    }
+
+    const latestByIdentity = new Map<string, ExecutionLogDeltaRecord>()
+    const latestSummaryByDate = new Map<string, ExecutionLogDeltaRecord>()
+
+    for (const records of sourceRecords.values()) {
+      for (const record of records) {
+        const op = record.op ?? 'upsert'
+        if (op === 'summary') {
+          const dateKey = typeof record.dateKey === 'string' ? record.dateKey : ''
+          if (!dateKey || !replaySummaryDates.has(dateKey)) {
+            continue
+          }
+          const current = latestSummaryByDate.get(dateKey)
+          if (!current || this.compareEntryOrder(record, current) > 0) {
+            latestSummaryByDate.set(dateKey, record)
+          }
+          continue
+        }
+
+        const identity = this.getRecordIdentity(record)
+        if (!identity) {
+          continue
+        }
+        const identityKey = this.identityToKey(identity)
+        if (!replayIdentityKeys.has(identityKey)) {
+          continue
+        }
+        const current = latestByIdentity.get(identityKey)
+        if (!current) {
+          latestByIdentity.set(identityKey, record)
+          continue
+        }
+        const incomingOrder = this.toIdentityOperationState(record)
+        const currentOrder = this.toIdentityOperationState(current)
+        if (this.compareIdentityOperationOrder(incomingOrder, currentOrder) > 0) {
+          latestByIdentity.set(identityKey, record)
+        }
+      }
+    }
+
+    const compacted = [
+      ...latestByIdentity.values(),
+      ...latestSummaryByDate.values(),
+    ]
+    const filtered = this.filterReplayRecordsForFullReplay(compacted, latestIdentityOps)
+    filtered.sort((a, b) => this.compareEntryOrder(a, b))
+    return filtered
+  }
+
+  private countReplayRequestedRecords(
+    sources: DeltaSource[],
+    sourceRecords: Map<string, ExecutionLogDeltaRecord[]>,
+    replayRequests: Map<string, ReplayRequestReason>,
+  ): number {
+    let count = 0
+    for (const source of sources) {
+      if (!replayRequests.has(source.deviceId)) {
+        continue
+      }
+      count += sourceRecords.get(source.filePath)?.length ?? 0
+    }
+    return count
+  }
+
+  private shouldSkipStaleReplayUpsert(
+    record: ExecutionLogDeltaRecord,
+    latestIdentityOps: Map<string, IdentityOperationState>,
+  ): boolean {
+    const identity = this.getRecordIdentity(record)
+    if (!identity) {
       return false
+    }
+    const latest = latestIdentityOps.get(this.identityToKey(identity))
+    if (!latest || latest.op !== 'delete') {
+      return false
+    }
+    const candidate = this.toIdentityOperationState(record)
+    // 指摘対応: 「deleteより古いupsert」のみ抑止し、同時刻競合は既存LWW挙動に委ねる
+    if (latest.recordedAt === candidate.recordedAt) {
+      return false
+    }
+    return this.compareIdentityOperationOrder(candidate, latest) < 0
+  }
+
+  private updateLatestIdentityOperations(
+    target: Map<string, IdentityOperationState>,
+    records: ExecutionLogDeltaRecord[],
+  ): void {
+    for (const record of records) {
+      if (record.op !== 'upsert' && record.op !== 'delete') {
+        continue
+      }
+      const identity = this.getRecordIdentity(record)
+      if (!identity) {
+        continue
+      }
+      const key = this.identityToKey(identity)
+      const incoming = this.toIdentityOperationState(record)
+      const current = target.get(key)
+      if (!current || this.compareIdentityOperationOrder(incoming, current) > 0) {
+        target.set(key, incoming)
+      }
+    }
+  }
+
+  private shouldCheckTerminalUpsert(
+    terminal: ExecutionLogDeltaRecord,
+    latestIdentityOps: Map<string, IdentityOperationState>,
+  ): boolean {
+    const identity = this.getRecordIdentity(terminal)
+    if (!identity) {
+      return false
+    }
+    const latest = latestIdentityOps.get(this.identityToKey(identity))
+    if (!latest) {
+      return true
+    }
+    if (latest.op === 'delete') {
+      return false
+    }
+    const terminalState = this.toIdentityOperationState(terminal)
+    return this.compareIdentityOperationOrder(terminalState, latest) >= 0
+  }
+
+  private identityToKey(identity: RecordIdentity): string {
+    return `${identity.kind}:${identity.value}`
+  }
+
+  private toIdentityOperationState(record: ExecutionLogDeltaRecord): IdentityOperationState {
+    return {
+      op: record.op === 'delete' ? 'delete' : 'upsert',
+      recordedAt: typeof record.recordedAt === 'string' ? record.recordedAt : '',
+      deviceId: typeof record.deviceId === 'string' ? record.deviceId : '',
+      entryId: typeof record.entryId === 'string' ? record.entryId : '',
+    }
+  }
+
+  private compareIdentityOperationOrder(a: IdentityOperationState, b: IdentityOperationState): number {
+    const order = this.compareEntryOrder(
+      { recordedAt: a.recordedAt, deviceId: a.deviceId, entryId: a.entryId },
+      { recordedAt: b.recordedAt, deviceId: b.deviceId, entryId: b.entryId },
+    )
+    if (order !== 0) {
+      return order
+    }
+    if (a.op === b.op) {
+      return 0
+    }
+    // 同順位ではdeleteを優先して resurrection を防ぐ
+    return a.op === 'delete' ? 1 : -1
+  }
+
+  private getRecordIdentity(
+    record: ExecutionLogDeltaRecord,
+  ): RecordIdentity | null {
+    const payload = record.payload as Partial<TaskLogEntry> | undefined
+    const instanceId = this.normalizeInstanceId(payload?.instanceId)
+    if (instanceId) {
+      return { kind: 'instanceId', value: instanceId }
+    }
+    return null
+  }
+
+  private collectIdentityKeysFromRecords(records: ExecutionLogDeltaRecord[]): Set<string> {
+    const keys = new Set<string>()
+    for (const record of records) {
+      const identity = this.getRecordIdentity(record)
+      if (!identity) {
+        continue
+      }
+      keys.add(this.identityToKey(identity))
+    }
+    return keys
+  }
+
+  private recordsTouchAnyIdentity(records: ExecutionLogDeltaRecord[], identityKeys: Set<string>): boolean {
+    if (identityKeys.size === 0) {
+      return false
+    }
+    for (const record of records) {
+      const identity = this.getRecordIdentity(record)
+      if (!identity) {
+        continue
+      }
+      if (identityKeys.has(this.identityToKey(identity))) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private recordSupersedesIdentity(
+    record: ExecutionLogDeltaRecord,
+    identity: RecordIdentity,
+  ): boolean {
+    const payload = record.payload as Partial<TaskLogEntry> | undefined
+    const instanceId = this.normalizeInstanceId(payload?.instanceId)
+
+    if (record.op === 'upsert') {
+      return instanceId === identity.value
+    }
+    if (record.op === 'delete') {
+      return instanceId === identity.value
+    }
+    return false
+  }
+
+  private isTerminalUpsertMissing(
+    snapshot: TaskLogSnapshot,
+    record: ExecutionLogDeltaRecord,
+  ): boolean {
+    const payload = record.payload as Partial<TaskLogEntry> | undefined
+    if (!payload || typeof record.dateKey !== 'string') {
+      return false
+    }
+    const dateEntriesRaw = snapshot.taskExecutions[record.dateKey]
+    const dateEntries = Array.isArray(dateEntriesRaw) ? dateEntriesRaw : []
+    const candidate: TaskLogEntry = {
+      ...payload,
+      entryId: record.entryId,
+      deviceId: record.deviceId,
+      recordedAt: record.recordedAt,
+    }
+    if (this.findMatchingEntryIndex(dateEntries, candidate) >= 0) {
+      return false
+    }
+
+    const identity = this.getRecordIdentity(record)
+    if (!identity) {
+      return false
+    }
+    const candidateRecordedAt = typeof record.recordedAt === 'string' ? record.recordedAt : ''
+    const supersededByNewerEntry = dateEntries.some((entry) => {
+      if (!entry) return false
+      if (this.normalizeInstanceId(entry.instanceId) !== identity.value) {
+        return false
+      }
+      const existingRecordedAt = typeof entry.recordedAt === 'string' ? entry.recordedAt : ''
+      return existingRecordedAt > candidateRecordedAt
     })
+    if (supersededByNewerEntry) {
+      return false
+    }
+    return true
+  }
+
+  private normalizeInstanceId(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
+  }
+
+  /**
+   * 再帰stable stringify: 全階層でキーをソートして決定的なJSON文字列を生成。
+   */
+  private stableStringify(value: JsonSerializable | undefined): string {
+    if (value === undefined) return 'undefined'
+    if (value === null) return 'null'
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return JSON.stringify(value)
+    }
+    if (Array.isArray(value)) {
+      return '[' + value.map(v => v === undefined ? 'null' : this.stableStringify(v)).join(',') + ']'
+    }
+    const obj = value as Record<string, JsonSerializable | undefined>
+    const keys = Object.keys(obj).sort()
+    const parts: string[] = []
+    for (const k of keys) {
+      const v = obj[k]
+      if (v === undefined) continue
+      parts.push(JSON.stringify(k) + ':' + this.stableStringify(v))
+    }
+    return '{' + parts.join(',') + '}'
+  }
+
+  private hashFnv1a(seed: number, text: string): number {
+    let hash = seed >>> 0
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i)
+      hash = Math.imul(hash, 16777619)
+    }
+    return hash >>> 0
+  }
+
+  private hashDjb2(seed: number, text: string): number {
+    let hash = seed >>> 0
+    for (let i = 0; i < text.length; i++) {
+      hash = (((hash << 5) + hash) ^ text.charCodeAt(i)) >>> 0
+    }
+    return hash >>> 0
+  }
+
+  private toHex32(value: number): string {
+    return (value >>> 0).toString(16).padStart(8, '0')
+  }
+
+  /** device単位でCSRマップをマージ（大きい方を採用） */
+  private mergeDeviceRevisionMap(
+    a?: Record<string, number>,
+    b?: Record<string, number>,
+  ): Record<string, number> | undefined {
+    if (!a && !b) return undefined
+    const merged: Record<string, number> = {}
+    if (a) {
+      for (const [k, v] of Object.entries(a)) {
+        if (typeof v === 'number') merged[k] = v
+      }
+    }
+    if (b) {
+      for (const [k, v] of Object.entries(b)) {
+        if (typeof v === 'number') {
+          if (merged[k] === undefined || v > merged[k]) merged[k] = v
+        }
+      }
+    }
+    return Object.keys(merged).length > 0 ? merged : undefined
   }
 
   private finalizeMeta(snapshot: TaskLogSnapshot): void {
@@ -1142,6 +2113,7 @@ export class LogReconciler {
 
     // 保存（新規ファイルなので競合検出不要）
     await this.snapshotWriter.write(monthKey, freshSnapshot, { forceBackup: false })
+    this.clearNoOpCacheForMonth(monthKey)
 
     // recordsも更新（再構築後のスナップショットと整合性を取る）
     // P2-summary-only-rebuild対応: taskExecutionsとdailySummaryの両方のキーを結合
@@ -1450,6 +2422,7 @@ export class LogReconciler {
 
     // 新規ファイルとして書き込み（旧ファイルは削除済みなので競合なし）
     await this.snapshotWriter.write(monthKey, migratedSnapshot, { forceBackup: true })
+    this.clearNoOpCacheForMonth(monthKey)
     await this.writeRecordsForSnapshot(migratedSnapshot)
 
     console.warn(`[LogReconciler] Migrated legacy snapshot: ${monthKey} with ${Object.keys(migratedSnapshot.taskExecutions).length} days`)
@@ -1467,6 +2440,7 @@ export class LogReconciler {
     while (retries <= MAX_RETRIES) {
       try {
         await this.snapshotWriter.writeWithConflictDetection(monthKey, pendingSnapshot, pendingRevision)
+        this.clearNoOpCacheForMonth(monthKey)
         await this.writeRecordsForSnapshot(pendingSnapshot)
         return true
       } catch (error) {
@@ -1511,7 +2485,11 @@ export class LogReconciler {
       dailySummary: {},
       meta: {
         revision: currentSnapshot.meta?.revision ?? 0,
-        processedCursor: {}
+        processedCursor: {},
+        cursorSnapshotRevision: this.mergeDeviceRevisionMap(
+          legacySnapshot.meta?.cursorSnapshotRevision,
+          currentSnapshot.meta?.cursorSnapshotRevision,
+        ),
       }
     }
 
@@ -1588,6 +2566,18 @@ export class LogReconciler {
     target.taskExecutions = merged.taskExecutions
     target.dailySummary = merged.dailySummary
     target.meta!.processedCursor = merged.meta!.processedCursor
+    // cursorSnapshotRevision をdevice単位でマージ
+    if (merged.meta?.cursorSnapshotRevision) {
+      if (!target.meta!.cursorSnapshotRevision) {
+        target.meta!.cursorSnapshotRevision = {}
+      }
+      for (const [deviceId, rev] of Object.entries(merged.meta.cursorSnapshotRevision)) {
+        const existing = target.meta!.cursorSnapshotRevision[deviceId]
+        if (typeof rev === 'number' && (existing === undefined || rev > existing)) {
+          target.meta!.cursorSnapshotRevision[deviceId] = rev
+        }
+      }
+    }
     // revisionはcaller側で設定
   }
 }
