@@ -19,6 +19,115 @@ describe('TaskLoaderService', () => {
     expect(context.renderTaskList).toHaveBeenCalled();
   });
 
+  test('uses day-state slot override for non-routine task', async () => {
+    const { context } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        slotOverrides: {
+          'tc-task-non-routine': '16:00-0:00',
+        },
+      },
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.taskInstances).toHaveLength(1);
+    expect(context.taskInstances[0].slotKey).toBe('16:00-0:00');
+  });
+
+  test('migrates legacy non-routine settings slot key into current day state', async () => {
+    const { context, dayState } = createNonRoutineLoadContext();
+    const persistMock = context.dayStateManager?.persist as jest.Mock;
+    const saveSettingsMock = context.plugin.saveSettings as jest.Mock;
+    context.plugin.settings.slotKeys['tc-task-non-routine'] = '16:00-0:00';
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('16:00-0:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.slotKey).toBe('16:00-0:00');
+    expect(typeof dayState.slotOverridesMeta?.['tc-task-non-routine']?.updatedAt).toBe('number');
+    expect(context.plugin.settings.slotKeys['tc-task-non-routine']).toBeUndefined();
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+    expect(saveSettingsMock).toHaveBeenCalled();
+    expect(context.taskInstances[0]?.slotKey).toBe('16:00-0:00');
+  });
+
+  test('migrates slotOverridesMeta key from path to taskId for non-routine day-state override migration', async () => {
+    const { context, dayState } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        slotOverrides: {
+          'TASKS/non-routine.md': '16:00-0:00',
+        },
+        slotOverridesMeta: {
+          'TASKS/non-routine.md': {
+            slotKey: '16:00-0:00',
+            updatedAt: 1_000,
+          },
+        },
+      },
+    });
+    const persistMock = context.dayStateManager?.persist as jest.Mock;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('16:00-0:00');
+    expect(dayState.slotOverrides['TASKS/non-routine.md']).toBeUndefined();
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.slotKey).toBe('16:00-0:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.updatedAt).toBe(1_000);
+    expect(dayState.slotOverridesMeta?.['TASKS/non-routine.md']).toBeUndefined();
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+    expect(context.taskInstances[0]?.slotKey).toBe('16:00-0:00');
+  });
+
+  test('keeps existing taskId meta updatedAt when legacy path meta is missing', async () => {
+    const { context, dayState } = createNonRoutineLoadContext({
+      dayStateOverrides: {
+        slotOverrides: {
+          'TASKS/non-routine.md': '16:00-0:00',
+        },
+        slotOverridesMeta: {
+          'tc-task-non-routine': {
+            slotKey: '8:00-12:00',
+            updatedAt: 5_000,
+          },
+        },
+      },
+    });
+    const persistMock = context.dayStateManager?.persist as jest.Mock;
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('16:00-0:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.slotKey).toBe('16:00-0:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.updatedAt).toBe(5_000);
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+  });
+
+  test('normalizes invalid legacy settings slot key before saving into day state', async () => {
+    const { context, dayState } = createNonRoutineLoadContext();
+    const sectionConfig = new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 18, minute: 0 },
+    ]);
+    context.getSectionConfig = () => sectionConfig;
+    const persistMock = context.dayStateManager?.persist as jest.Mock;
+    const saveSettingsMock = context.plugin.saveSettings as jest.Mock;
+    context.plugin.settings.slotKeys['tc-task-non-routine'] = '16:00-0:00';
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('6:00-18:00');
+    expect(dayState.slotOverridesMeta?.['tc-task-non-routine']?.slotKey).toBe('6:00-18:00');
+    expect(context.taskInstances[0]?.slotKey).toBe('6:00-18:00');
+    expect(persistMock).toHaveBeenCalledWith('2025-09-24');
+    expect(saveSettingsMock).toHaveBeenCalled();
+  });
+
   test('skips permanently deleted non-routine task', async () => {
     const { context } = createNonRoutineLoadContext({ deletionType: 'permanent' });
     const loader = new TaskLoaderService();
@@ -486,8 +595,8 @@ describe('slot key migration - boundary change scenario', () => {
     expect(restored?.slotKey).toBe('16:50-0:00');
   });
 
-  test('non-routine task with invalid storedSlot falls back to scheduledTime', async () => {
-    const { context } = createNonRoutineLoadContext({
+  test('non-routine task with invalid storedSlot is normalized to current section key', async () => {
+    const { context, dayState } = createNonRoutineLoadContext({
       metadataOverrides: {
         開始時刻: '18:00',
       },
@@ -510,7 +619,8 @@ describe('slot key migration - boundary change scenario', () => {
 
     const inst = context.taskInstances.find((i) => i.task.taskId === 'tc-task-non-routine');
     expect(inst).toBeDefined();
-    // Invalid storedSlot ignored → scheduledTime 18:00 → 16:50-0:00
-    expect(inst?.slotKey).toBe('16:50-0:00');
+    // Invalid legacy slot is normalized via SectionConfigService.migrateSlotKey
+    expect(inst?.slotKey).toBe('12:00-16:50');
+    expect(dayState.slotOverrides['tc-task-non-routine']).toBe('12:00-16:50');
   });
 });

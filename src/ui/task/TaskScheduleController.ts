@@ -17,6 +17,8 @@ export interface TaskScheduleControllerHost {
   moveDuplicateInstanceToDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
   /** Temporarily hide routine instance on a specific date (used for past move and old target date cleanup) */
   hideRoutineInstanceForDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
+  /** Keep non-routine slot assignment when moving task across dates */
+  moveNonRoutineSlotOverrideToDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -132,6 +134,9 @@ export default class TaskScheduleController {
             frontmatter.target_date = dateStr
             return frontmatter
           })
+        }
+        if (inst.task?.isRoutine !== true && this.host.moveNonRoutineSlotOverrideToDate) {
+          await this.host.moveNonRoutineSlotOverrideToDate(inst, dateStr)
         }
         if (shouldHideRoutineToday && this.host.hideRoutineInstanceForDate) {
           const currentDateKey = this.formatDateKey(this.host.getCurrentDate())

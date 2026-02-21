@@ -354,6 +354,8 @@ export class TaskChuteView
       isDuplicateInstance: (inst) => this.taskMutationService.isDuplicatedTask(inst),
       moveDuplicateInstanceToDate: (inst, dateStr) =>
         this.moveDuplicateInstanceToDate(inst, dateStr),
+      moveNonRoutineSlotOverrideToDate: (inst, dateStr) =>
+        this.moveNonRoutineSlotOverrideToDate(inst, dateStr),
       hideRoutineInstanceForDate: (inst, dateStr) =>
         this.hideRoutineInstanceForDate(inst, dateStr),
     })
@@ -1314,6 +1316,70 @@ export class TaskChuteView
       await this.persistDayState(dateStr)
     } catch (error) {
       console.warn('[TaskChuteView] Failed to move duplicate instance to date', error)
+    }
+  }
+
+  private async moveNonRoutineSlotOverrideToDate(
+    inst: TaskInstance,
+    dateStr: string,
+  ): Promise<void> {
+    try {
+      if (!inst?.task || inst.task.isRoutine === true) {
+        return
+      }
+      const sourceDateKey = this.getCurrentDateString()
+      if (!sourceDateKey || sourceDateKey === dateStr) {
+        return
+      }
+
+      const taskPath = typeof inst.task.path === 'string' ? inst.task.path : ''
+      const taskId = typeof inst.task.taskId === 'string' && inst.task.taskId.trim().length > 0
+        ? inst.task.taskId
+        : undefined
+      const overrideKey = taskId ?? taskPath
+      if (!overrideKey) {
+        return
+      }
+
+      await this.ensureDayStateForDate(sourceDateKey)
+      const sourceState = this.dayStateManager.getStateFor(sourceDateKey)
+      const sourceSlot = sourceState.slotOverrides[overrideKey]
+        ?? (taskId && taskPath ? sourceState.slotOverrides[taskPath] : undefined)
+      if (typeof sourceSlot !== 'string') {
+        return
+      }
+
+      const updatedAt = Date.now()
+      delete sourceState.slotOverrides[overrideKey]
+      if (taskId && taskPath && overrideKey !== taskPath) {
+        delete sourceState.slotOverrides[taskPath]
+      }
+      if (!sourceState.slotOverridesMeta) {
+        sourceState.slotOverridesMeta = {}
+      }
+      sourceState.slotOverridesMeta[overrideKey] = { slotKey: sourceSlot, updatedAt }
+      if (taskId && taskPath && overrideKey !== taskPath) {
+        sourceState.slotOverridesMeta[taskPath] = { slotKey: sourceSlot, updatedAt }
+      }
+
+      await this.ensureDayStateForDate(dateStr)
+      const targetState = this.dayStateManager.getStateFor(dateStr)
+      targetState.slotOverrides[overrideKey] = sourceSlot
+      if (taskId && taskPath && overrideKey !== taskPath) {
+        delete targetState.slotOverrides[taskPath]
+      }
+      if (!targetState.slotOverridesMeta) {
+        targetState.slotOverridesMeta = {}
+      }
+      targetState.slotOverridesMeta[overrideKey] = { slotKey: sourceSlot, updatedAt }
+      if (taskId && taskPath && overrideKey !== taskPath) {
+        delete targetState.slotOverridesMeta[taskPath]
+      }
+
+      await this.persistDayState(sourceDateKey)
+      await this.persistDayState(dateStr)
+    } catch (error) {
+      console.warn('[TaskChuteView] Failed to move non-routine slot override to date', error)
     }
   }
 

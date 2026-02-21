@@ -270,6 +270,7 @@ export default class TaskMutationService {
     const taskId = typeof inst.task.taskId === 'string' ? inst.task.taskId : undefined
     const slotKeyValue = inst.slotKey || 'none'
     const scheduledTime = this.getScheduledTime(inst.task)
+    let shouldPersistDayState = false
 
     const overrideKey = taskId ?? taskPath
 
@@ -306,15 +307,29 @@ export default class TaskMutationService {
           }
         }
       } else {
-        if (!this.host.plugin.settings.slotKeys) {
-          this.host.plugin.settings.slotKeys = {}
-        }
-        this.host.plugin.settings.slotKeys[overrideKey] = slotKeyValue
+        dayState.slotOverrides[overrideKey] = slotKeyValue
         if (taskId && taskPath && overrideKey !== taskPath) {
-          delete this.host.plugin.settings.slotKeys[taskPath]
+          delete dayState.slotOverrides[taskPath]
         }
-        void this.host.plugin.saveSettings()
+        if (!dayState.slotOverridesMeta) {
+          dayState.slotOverridesMeta = {}
+        }
+        dayState.slotOverridesMeta[overrideKey] = {
+          slotKey: slotKeyValue,
+          updatedAt: Date.now(),
+        }
+        if (taskId && taskPath && overrideKey !== taskPath) {
+          delete dayState.slotOverridesMeta[taskPath]
+        }
+        shouldPersistDayState = true
       }
+    }
+
+    if (shouldPersistDayState) {
+      const dateKey = this.host.getCurrentDateString()
+      void this.host.persistDayState(dateKey).catch((error) => {
+        console.warn('[TaskMutationService] persistSlotAssignment persistDayState failed', error)
+      })
     }
 
     if (inst.instanceId) {

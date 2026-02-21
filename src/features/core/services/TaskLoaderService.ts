@@ -73,6 +73,7 @@ export interface TaskLoaderHost {
   plugin: {
     settings: { slotKeys?: Record<string, string> }
     pathManager: PathManagerLike
+    saveSettings?: () => Promise<void>
   }
   dayStateManager: DayStateStoreService
   tasks: TaskData[]
@@ -151,16 +152,58 @@ function getSlotOverrideValue(
   return { value: legacy, migrated: false }
 }
 
-function getStoredSlotKey(
+function migrateSlotOverrideMetaKey(
+  dayState: DayState,
+  taskId: string | undefined,
+  path: string,
+  slotKey: string | undefined,
+): void {
+  if (!taskId || !slotKey) {
+    return
+  }
+
+  const legacyUpdatedAt = dayState.slotOverridesMeta?.[path]?.updatedAt
+  const existingTaskUpdatedAt = dayState.slotOverridesMeta?.[taskId]?.updatedAt
+  const migratedUpdatedAt = typeof legacyUpdatedAt === 'number' && Number.isFinite(legacyUpdatedAt)
+    ? legacyUpdatedAt
+    : (typeof existingTaskUpdatedAt === 'number' && Number.isFinite(existingTaskUpdatedAt) ? existingTaskUpdatedAt : 0)
+
+  if (!dayState.slotOverridesMeta) {
+    dayState.slotOverridesMeta = {}
+  }
+  dayState.slotOverridesMeta[taskId] = {
+    slotKey,
+    updatedAt: migratedUpdatedAt,
+  }
+
+  if (taskId !== path) {
+    delete dayState.slotOverridesMeta[path]
+  }
+}
+
+function consumeStoredSlotKey(
   slotKeys: Record<string, string> | undefined,
   taskId: string | undefined,
   path: string,
-): string | undefined {
-  if (!slotKeys) return undefined
+) : { value?: string; mutated: boolean } {
+  if (!slotKeys) return { mutated: false }
+
   if (taskId && typeof slotKeys[taskId] === 'string') {
-    return slotKeys[taskId]
+    const value = slotKeys[taskId]
+    delete slotKeys[taskId]
+    if (taskId !== path && typeof slotKeys[path] === 'string') {
+      delete slotKeys[path]
+    }
+    return { value, mutated: true }
   }
-  return slotKeys[path]
+
+  if (typeof slotKeys[path] === 'string') {
+    const value = slotKeys[path]
+    delete slotKeys[path]
+    return { value, mutated: true }
+  }
+
+  return { mutated: false }
 }
 
 function resolveCreatedMillis(file: TFile | null | undefined, fallback?: number): number | undefined {
@@ -415,10 +458,54 @@ async function createNonRoutineTask(
     const { value: dayStateSlot, migrated } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
     rawStoredSlot = dayStateSlot
     if (migrated) {
+      migrateSlotOverrideMetaKey(dayState, taskId, file.path, dayStateSlot)
       await context.dayStateManager?.persist(dateKey)
     }
   } else {
-    rawStoredSlot = getStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
+    const dayState = await ensureDayState(context, dateKey)
+    const { value: dayStateSlot, migrated } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
+    rawStoredSlot = dayStateSlot
+    if (migrated) {
+      migrateSlotOverrideMetaKey(dayState, taskId, file.path, dayStateSlot)
+    }
+
+    let shouldPersistDayState = migrated
+    let shouldPersistSettings = false
+
+    if (!rawStoredSlot) {
+      const legacyStoredSlot = consumeStoredSlotKey(context.plugin.settings.slotKeys, taskId, file.path)
+      if (legacyStoredSlot.value) {
+        const sectionConfig = context.getSectionConfig()
+        const normalizedLegacySlot = sectionConfig.isValidSlotKey(legacyStoredSlot.value)
+          ? legacyStoredSlot.value
+          : sectionConfig.migrateSlotKey(legacyStoredSlot.value)
+        const overrideKey = taskId ?? file.path
+        dayState.slotOverrides[overrideKey] = normalizedLegacySlot
+        if (taskId && file.path && overrideKey !== file.path) {
+          delete dayState.slotOverrides[file.path]
+        }
+        if (!dayState.slotOverridesMeta) {
+          dayState.slotOverridesMeta = {}
+        }
+        dayState.slotOverridesMeta[overrideKey] = {
+          slotKey: normalizedLegacySlot,
+          updatedAt: Date.now(),
+        }
+        if (taskId && file.path && overrideKey !== file.path) {
+          delete dayState.slotOverridesMeta[file.path]
+        }
+        rawStoredSlot = normalizedLegacySlot
+        shouldPersistDayState = true
+      }
+      shouldPersistSettings = legacyStoredSlot.mutated
+    }
+
+    if (shouldPersistDayState) {
+      await context.dayStateManager?.persist(dateKey)
+    }
+    if (shouldPersistSettings && typeof context.plugin.saveSettings === 'function') {
+      await context.plugin.saveSettings()
+    }
   }
   const storedSlot = rawStoredSlot && context.getSectionConfig().isValidSlotKey(rawStoredSlot) ? rawStoredSlot : undefined
   const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY

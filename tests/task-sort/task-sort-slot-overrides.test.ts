@@ -154,9 +154,11 @@ describe('Task sort slot overrides', () => {
       nowSpy.mockRestore();
     });
 
-    test('stores non-routine overrides in plugin settings', () => {
+    test('stores non-routine overrides in day state with metadata', () => {
       const dayState = createDayState();
       const pluginOverrides = { settings: { slotKeys: {} as Record<string, string> } };
+      const now = 1730000002000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
 
       const inst: TaskInstance = {
         task: {
@@ -173,8 +175,15 @@ describe('Task sort slot overrides', () => {
 
       service.persistSlotAssignment(inst);
 
-      expect(plugin.settings.slotKeys[inst.task.taskId!]).toBe('12:00-16:00');
-      expect(plugin.saveSettings).toHaveBeenCalled();
+      expect(dayState.slotOverrides[inst.task.taskId!]).toBe('12:00-16:00');
+      expect(dayState.slotOverridesMeta?.[inst.task.taskId!]).toEqual({
+        slotKey: '12:00-16:00',
+        updatedAt: now,
+      });
+      expect(plugin.settings.slotKeys[inst.task.taskId!]).toBeUndefined();
+      expect(plugin.saveSettings).not.toHaveBeenCalled();
+      expect(host.persistDayState).toHaveBeenCalledWith('2025-10-09');
+      nowSpy.mockRestore();
     });
   });
 

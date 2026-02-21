@@ -47,6 +47,7 @@ type HostStub = TaskMutationHost & {
     deletedInstances: DeletedInstance[]
     duplicatedInstances: Array<{ instanceId?: string; path?: string; slotKey?: string; createdMillis?: number }>
     slotOverrides: Record<string, string>
+    slotOverridesMeta?: Record<string, { slotKey: string; updatedAt: number }>
     orders: Record<string, number>
   }
   logSnapshot: { taskExecutions: Record<string, unknown[]>; dailySummary: Record<string, Record<string, unknown>> }
@@ -406,7 +407,7 @@ describe('TaskMutationService', () => {
     expect(host.dayState.deletedInstances.some((entry) => entry.deletionType === 'permanent')).toBe(true)
   })
 
-  test('persistSlotAssignment stores overrides for routine and settings for non-routine', () => {
+  test('persistSlotAssignment stores overrides in day state for routine and non-routine', () => {
     const routineTask = createTask('TASKS/routine.md', {
       isRoutine: true,
       scheduledTime: '08:00',
@@ -432,7 +433,12 @@ describe('TaskMutationService', () => {
     service.persistSlotAssignment(nonRoutineInstance)
 
     expect(host.dayState.slotOverrides[routineTask.taskId!]).toBe('12:00-16:00')
-    expect(host.plugin.settings.slotKeys?.[nonRoutineTask.taskId!]).toBe('16:00-0:00')
+    expect(host.dayState.slotOverrides[nonRoutineTask.taskId!]).toBe('16:00-0:00')
+    expect(host.dayState.slotOverridesMeta?.[nonRoutineTask.taskId!]?.slotKey).toBe('16:00-0:00')
+    expect(host.plugin.settings.slotKeys?.[nonRoutineTask.taskId!]).toBeUndefined()
+    expect(host.plugin.saveSettings).not.toHaveBeenCalled()
+    expect(host.persistDayState).toHaveBeenCalledTimes(1)
+    expect(host.persistDayState).toHaveBeenCalledWith('2025-10-09')
   })
 
   test('moveInstanceToSlot updates slot, order, and persists metadata', async () => {
