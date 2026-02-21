@@ -121,4 +121,27 @@ describe('LogSnapshotWriter', () => {
     const saved = JSON.parse(store.get(file.path) ?? '{}')
     expect(saved.meta.lastBackupAt).toBe(snapshot.meta?.lastBackupAt)
   })
+
+  test('propagates snapshot modify failure instead of swallowing', async () => {
+    const { plugin, file, store } = createWriterTestContext()
+    const writer = new LogSnapshotWriter(plugin)
+    const snapshot = createEmptyTaskLogSnapshot()
+    ;(plugin.app.vault.modify as jest.Mock).mockRejectedValueOnce(new Error('modify failed'))
+    const before = store.get(file.path)
+
+    await expect(writer.write('2025-10', snapshot)).rejects.toThrow('modify failed')
+    expect(store.get(file.path)).toBe(before)
+  })
+
+  test('continues snapshot write even when backup write fails', async () => {
+    const { plugin, file, store } = createWriterTestContext()
+    const writer = new LogSnapshotWriter(plugin)
+    const snapshot = createEmptyTaskLogSnapshot()
+    ;(plugin.app.vault.adapter.write as jest.Mock).mockRejectedValueOnce(new Error('backup failed'))
+    const before = store.get(file.path)
+
+    await expect(writer.write('2025-10', snapshot)).resolves.toBeUndefined()
+    expect(plugin.app.vault.modify).toHaveBeenCalled()
+    expect(store.get(file.path)).not.toBe(before)
+  })
 })

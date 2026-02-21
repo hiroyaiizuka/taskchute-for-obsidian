@@ -919,9 +919,10 @@ describe('TaskChuteView persistSlotAssignment', () => {
     expect(dayState.slotOverrides[routineTask.taskId!]).toBeUndefined();
   });
 
-  test('persists non-routine slot assignment into plugin settings', async () => {
+  test('persists non-routine slot assignment into day state overrides', async () => {
     const { view, plugin } = createView();
     await view.ensureDayStateForCurrentDate();
+    const dayState = view.getCurrentDayState();
 
     const task = createTaskData({ isRoutine: false, path: 'TASKS/non-routine.md' });
     const instance = createTaskInstance(task, {
@@ -931,9 +932,10 @@ describe('TaskChuteView persistSlotAssignment', () => {
 
     (view as unknown as { persistSlotAssignment: (inst: TaskInstance) => void }).persistSlotAssignment(instance);
 
-    expect(plugin.settings.slotKeys[task.taskId!]).toBe('12:00-16:00');
-    expect(plugin.settings.slotKeys[task.path]).toBeUndefined();
-    expect(plugin.saveSettings).toHaveBeenCalled();
+    expect(dayState.slotOverrides[task.taskId!]).toBe('12:00-16:00');
+    expect(dayState.slotOverridesMeta?.[task.taskId!]?.slotKey).toBe('12:00-16:00');
+    expect(plugin.settings.slotKeys[task.taskId!]).toBeUndefined();
+    expect(plugin.saveSettings).not.toHaveBeenCalled();
   });
 
   test('updates duplicated instance slot metadata when slot changes', async () => {
@@ -957,6 +959,43 @@ describe('TaskChuteView persistSlotAssignment', () => {
 
     const entry = dayState.duplicatedInstances.find((dup) => dup.instanceId === 'dup-slot');
     expect(entry?.slotKey).toBe('16:00-0:00');
+  });
+});
+
+describe('TaskChuteView moveNonRoutineSlotOverrideToDate', () => {
+  test('moves non-routine slot override from current date to target date', async () => {
+    const { view, plugin } = createView();
+    const sourceDate = view.getCurrentDateString();
+    const targetDate = '2025-01-02';
+    await view.ensureDayStateForCurrentDate();
+    await view.getDayState(targetDate);
+
+    const task = createTaskData({ isRoutine: false, path: 'TASKS/move-target.md' });
+    const instance = createTaskInstance(task, {
+      instanceId: 'move-target-instance',
+      slotKey: '12:00-16:00',
+    });
+
+    const sourceState = view.dayStateManager.getStateFor(sourceDate);
+    sourceState.slotOverrides[task.taskId!] = '12:00-16:00';
+    sourceState.slotOverridesMeta = {
+      ...(sourceState.slotOverridesMeta ?? {}),
+      [task.taskId!]: {
+        slotKey: '12:00-16:00',
+        updatedAt: 1_000,
+      },
+    };
+
+    await (view as unknown as {
+      moveNonRoutineSlotOverrideToDate: (inst: TaskInstance, dateStr: string) => Promise<void>;
+    }).moveNonRoutineSlotOverrideToDate(instance, targetDate);
+
+    const targetState = view.dayStateManager.getStateFor(targetDate);
+    expect(sourceState.slotOverrides[task.taskId!]).toBeUndefined();
+    expect(sourceState.slotOverridesMeta?.[task.taskId!]?.updatedAt).toBeGreaterThan(1_000);
+    expect(targetState.slotOverrides[task.taskId!]).toBe('12:00-16:00');
+    expect(targetState.slotOverridesMeta?.[task.taskId!]?.slotKey).toBe('12:00-16:00');
+    expect(plugin.dayStateService.saveDay).toHaveBeenCalledTimes(2);
   });
 });
 

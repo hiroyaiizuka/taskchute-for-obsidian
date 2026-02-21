@@ -171,14 +171,10 @@ export class LogSnapshotWriter {
     previousRaw: string | null,
     shouldBackup: boolean,
   ): Promise<void> {
-    try {
-      if (shouldBackup && previousRaw) {
-        await this.writeBackup(monthKey, previousRaw)
-      }
-      await this.plugin.app.vault.modify(file, payload)
-    } catch (error) {
-      console.warn('[LogSnapshotWriter] Failed to write snapshot', file.path, error)
+    if (shouldBackup && previousRaw) {
+      await this.writeBackup(monthKey, previousRaw)
     }
+    await this.plugin.app.vault.modify(file, payload)
   }
 
   private async writeBackup(monthKey: string, contents: string): Promise<void> {

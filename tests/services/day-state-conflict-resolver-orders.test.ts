@@ -108,6 +108,31 @@ describe('mergeOrders', () => {
     expect(result.merged).toEqual({ a: 1, b: 2 })
     expect(result.hasConflicts).toBe(false)
   })
+
+  it('preserves local-only key when preferRemoteWithoutMeta is true and remote has no value', () => {
+    const result = mergeOrders(
+      { a: 1, b: 2 },
+      {},
+      { a: 5 },
+      {},
+      { preferRemoteWithoutMeta: true },
+    )
+    // 'a' is remote-preferred (no-meta, both have value → remote wins)
+    expect(result.merged.a).toBe(5)
+    // 'b' is local-only → preserved (absence in remote does not imply deletion)
+    expect(result.merged.b).toBe(2)
+  })
+
+  it('takes remote-only key when preferRemoteWithoutMeta is true', () => {
+    const result = mergeOrders(
+      {},
+      {},
+      { c: 10 },
+      {},
+      { preferRemoteWithoutMeta: true },
+    )
+    expect(result.merged.c).toBe(10)
+  })
 })
 
 describe('mergeDuplicatedInstances', () => {

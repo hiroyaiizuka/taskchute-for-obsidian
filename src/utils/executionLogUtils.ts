@@ -43,6 +43,7 @@ export function parseTaskLogSnapshot(
       processedCursor: parsed.meta?.processedCursor && typeof parsed.meta.processedCursor === 'object'
         ? { ...parsed.meta.processedCursor }
         : {},
+      cursorSnapshotRevision: parseCursorSnapshotRevision(parsed.meta?.cursorSnapshotRevision),
       lastBackupAt: typeof parsed.meta?.lastBackupAt === 'string' ? parsed.meta.lastBackupAt : undefined,
     }
 
@@ -59,6 +60,21 @@ export function parseTaskLogSnapshot(
     }
     return createEmptyTaskLogSnapshot()
   }
+}
+
+export function parseCursorSnapshotRevision(
+  source: unknown
+): Record<string, number> | undefined {
+  if (!source || typeof source !== 'object') return undefined
+  const result: Record<string, number> = {}
+  let hasEntry = false
+  for (const [deviceId, rev] of Object.entries(source as Record<string, unknown>)) {
+    if (typeof rev === 'number' && Number.isFinite(rev)) {
+      result[deviceId] = rev
+      hasEntry = true
+    }
+  }
+  return hasEntry ? result : undefined
 }
 
 export function isExecutionLogEntryCompleted(entry: TaskLogEntry): boolean {

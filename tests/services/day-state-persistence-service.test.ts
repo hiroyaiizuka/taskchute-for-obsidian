@@ -439,7 +439,7 @@ describe('DayStatePersistenceService.mergeExternalChange', () => {
     })
   })
 
-  it('drops local orders when remote removes a key without ordersMeta', async () => {
+  it('preserves local-only orders when remote has empty orders without ordersMeta', async () => {
     const { plugin, store } = createPlugin()
     const service = new DayStatePersistenceService(plugin)
 
@@ -477,7 +477,67 @@ describe('DayStatePersistenceService.mergeExternalChange', () => {
 
     const result = await service.mergeExternalChange('2026-01')
 
-    expect(result.merged?.days['2026-01-12']?.orders).toEqual({})
+    // Local-only keys are preserved: absence in remote orders
+    // does not imply deletion (deletion propagates via deletedInstances)
+    expect(result.merged?.days['2026-01-12']?.orders).toEqual({ 'TASKS/foo.md::none': 150 })
+  })
+
+  it('applies remote permanent deletion tombstone and marks date as affected', async () => {
+    const { plugin, store } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    const date = new Date('2026-01-14T00:00:00.000Z')
+    await service.saveDay(date, {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    })
+
+    store.set(
+      'LOGS/2026-01-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-01-14': {
+              hiddenRoutines: [],
+              deletedInstances: [
+                {
+                  taskId: 'tc-task-remote',
+                  path: 'TASKS/remote-deleted.md',
+                  deletionType: 'permanent',
+                  deletedAt: 2500,
+                },
+              ],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-01-14T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    const result = await service.mergeExternalChange('2026-01')
+
+    expect(result.affectedDateKeys).toContain('2026-01-14')
+    expect(result.merged?.days['2026-01-14']?.deletedInstances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: 'tc-task-remote',
+          path: 'TASKS/remote-deleted.md',
+          deletionType: 'permanent',
+          deletedAt: 2500,
+        }),
+      ]),
+    )
   })
 
   it('removes duplicatedInstances when a matching temporary deletion exists', async () => {

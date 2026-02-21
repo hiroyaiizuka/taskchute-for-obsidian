@@ -1,11 +1,13 @@
 import { TFile, TFolder } from 'obsidian'
 import { LogReconciler } from '../../src/features/log/services/LogReconciler'
+import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
 import { SnapshotConflictError } from '../../src/types/ExecutionLog'
 import { createPluginStub, seedDeltaFile, seedSnapshot } from './logTestUtils'
 
 describe('Snapshot Conflict Detection', () => {
   beforeEach(() => {
     jest.useFakeTimers()
+    MonthSyncCoordinator._testReset()
   })
 
   afterEach(() => {
@@ -343,7 +345,7 @@ describe('Snapshot Conflict Detection', () => {
   })
 
   describe('Delete Record with Legacy Entries', () => {
-    test('deletes legacy entry without instanceId using taskId fallback', async () => {
+    test('does not delete legacy entry without instanceId in strict instanceId mode', async () => {
       const { plugin, store, deltaStore, abstractStore } = createPluginStub()
 
       // Snapshot with legacy entry (no instanceId)
@@ -370,9 +372,9 @@ describe('Snapshot Conflict Detection', () => {
       await rec.reconcilePendingDeltas()
 
       const saved = JSON.parse(store.get('LOGS/2026-02-tasks.json')!)
-      // Legacy entry should be deleted via taskId fallback
+      // strict modeでは instanceId がないため削除されない
       const entries = saved.taskExecutions['2026-02-01'] ?? []
-      expect(entries.length).toBe(0)
+      expect(entries.length).toBe(1)
     })
   })
 
@@ -415,7 +417,7 @@ describe('Snapshot Conflict Detection', () => {
   })
 
   describe('Multiple Legacy Entries Deletion (Codex Issue #4)', () => {
-    test('deletes only first matching legacy entry when multiple entries have same taskId', async () => {
+    test('does not delete legacy entries by taskId when instanceId is missing', async () => {
       const { plugin, store, deltaStore, abstractStore } = createPluginStub()
 
       // Snapshot with multiple legacy entries having same taskId (no instanceId)
@@ -445,8 +447,8 @@ describe('Snapshot Conflict Detection', () => {
 
       const saved = JSON.parse(store.get('LOGS/2026-02-tasks.json')!)
       const entries = saved.taskExecutions['2026-02-01'] ?? []
-      // Should only delete ONE entry, not all three
-      expect(entries.length).toBe(2)
+      // strict modeでは taskId フォールバック削除をしないため3件残る
+      expect(entries.length).toBe(3)
     })
   })
 
@@ -1236,18 +1238,15 @@ describe('Snapshot Conflict Detection', () => {
       await rec.reconcilePendingDeltas()
       consoleSpy.mockRestore()
 
-      // 期待: deleteは1回だけ適用され、Entry 1のみ削除
-      // Entry 2とEntry 3は残るべき
+      // strict modeでは instanceId なし delete は無視されるため、全件残る
       const saved = JSON.parse(store.get('LOGS/2026-02-tasks.json')!)
       const entries = saved.taskExecutions['2026-02-01'] ?? []
 
-      // 二重適用バグがある場合: Entry 1とEntry 2が削除され、Entry 3のみ残る (length=1)
-      // 修正後: Entry 1のみ削除され、Entry 2とEntry 3が残る (length=2)
-      expect(entries.length).toBe(2)
+      expect(entries.length).toBe(3)
       const titles = entries.map((e: { taskTitle: string }) => e.taskTitle)
+      expect(titles).toContain('Entry 1')
       expect(titles).toContain('Entry 2')
       expect(titles).toContain('Entry 3')
-      expect(titles).not.toContain('Entry 1')
     })
   })
 
@@ -2204,7 +2203,7 @@ describe('Snapshot Conflict Detection', () => {
       expect(summaryOnly.completedTasks).toBe(0)
     })
 
-    test('createMergedSnapshot should dedupe legacy entries without instanceId', async () => {
+    test('createMergedSnapshot keeps duplicate legacy entries without instanceId in strict mode', async () => {
       // 同一レガシースナップショットを複数デバイスで移行した場合の重複を防ぐ
       jest.useRealTimers()
       const { plugin } = createPluginStub()
@@ -2239,7 +2238,7 @@ describe('Snapshot Conflict Detection', () => {
       }).createMergedSnapshot(legacySnapshot, currentSnapshot)
 
       const entries = mergedSnapshot.taskExecutions['2026-02-01'] ?? []
-      expect(entries).toHaveLength(1)
+      expect(entries).toHaveLength(2)
       expect(entries[0].taskId).toBe('task-legacy')
       expect(entries[0].startTime).toBe('09:00')
     })

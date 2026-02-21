@@ -45,6 +45,7 @@ export interface TaskLogSnapshotMeta {
   revision?: number
   lastProcessedAt?: string
   processedCursor?: Record<string, number>
+  cursorSnapshotRevision?: Record<string, number>
   lastBackupAt?: string
   [key: string]: unknown
 }

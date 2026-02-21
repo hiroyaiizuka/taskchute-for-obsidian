@@ -1,6 +1,10 @@
 import { TFile, TFolder } from 'obsidian'
 import type { TaskChutePluginLike } from '../../src/types'
 import { BackupRestoreService } from '../../src/features/log/services/BackupRestoreService'
+import { LogSnapshotWriter } from '../../src/features/log/services/LogSnapshotWriter'
+import { LogReconciler } from '../../src/features/log/services/LogReconciler'
+import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
+import { RecordsWriter } from '../../src/features/log/services/RecordsWriter'
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>
@@ -25,6 +29,7 @@ function createFile(path: string, mtime: number): FileNode {
   Object.setPrototypeOf(file, TFile.prototype)
   file.path = path
   const filename = path.split('/').pop() ?? path
+  file.name = filename
   const dotIndex = filename.lastIndexOf('.')
   file.basename = dotIndex >= 0 ? filename.slice(0, dotIndex) : filename
   file.extension = dotIndex >= 0 ? filename.slice(dotIndex + 1) : ''
@@ -40,6 +45,8 @@ function attachChild(parent: FolderNode, child: FolderNode | FileNode): void {
 function createRestoreContext() {
   const backupRoot = createFolder('LOGS/backups')
   const legacyRoot = createFolder('LOGS/.backups')
+  const inboxRoot = createFolder('LOGS/inbox')
+  const legacyInboxRoot = createFolder('LOGS/.inbox')
   const taskFolder = createFolder('TaskChute/Task')
   const fileContents: Record<string, string> = {}
   const fileNodes = new Map<string, FileNode>()
@@ -71,6 +78,8 @@ function createRestoreContext() {
     getAbstractFileByPath: jest.fn((path: string) => {
       if (path === 'LOGS/backups') return backupRoot
       if (path === 'LOGS/.backups') return legacyRoot
+      if (path === 'LOGS/inbox') return inboxRoot
+      if (path === 'LOGS/.inbox') return legacyInboxRoot
       if (path === 'TaskChute/Task') return taskFolder
       if (fileContents[path] !== undefined) {
         return ensureFileNode(path)
@@ -98,7 +107,15 @@ function createRestoreContext() {
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault, metadataCache } as TaskChutePluginLike['app'],
+    app: {
+      vault,
+      metadataCache,
+      fileManager: {
+        trashFile: jest.fn(async (file: TFile) => {
+          delete fileContents[file.path]
+        }),
+      },
+    } as unknown as TaskChutePluginLike['app'],
     pathManager: {
       getLogDataPath: () => 'LOGS',
       getTaskFolderPath: () => 'TaskChute/Task',
@@ -123,10 +140,24 @@ function createRestoreContext() {
     },
   }
 
-  return { plugin, backupRoot, legacyRoot, taskFolder, fileContents, vault, fileFrontmatterMap }
+  return {
+    plugin,
+    backupRoot,
+    legacyRoot,
+    inboxRoot,
+    legacyInboxRoot,
+    taskFolder,
+    fileContents,
+    vault,
+    fileFrontmatterMap,
+  }
 }
 
 describe('BackupRestoreService', () => {
+  beforeEach(() => {
+    MonthSyncCoordinator._testReset()
+  })
+
   describe('listBackups', () => {
     test('returns empty map when no backup folders exist', async () => {
       const { plugin } = createRestoreContext()
@@ -285,11 +316,438 @@ describe('BackupRestoreService', () => {
 
       const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
       const expected = JSON.parse(backupData)
-      expect(restored.taskExecutions).toEqual(expected.taskExecutions)
+      expect(Array.isArray(restored.taskExecutions['2025-12-08'])).toBe(true)
+      expect(restored.taskExecutions['2025-12-08']).toHaveLength(1)
+      expect(restored.taskExecutions['2025-12-08'][0].completedAt).toBe('2025-12-08T09:00:00Z')
       expect(restored.dailySummary).toEqual(expected.dailySummary)
-      expect(restored.meta.revision).toBe(1)
+      expect(restored.meta.revision).toBe(6)
       expect(restored.meta.processedCursor).toEqual({})
       expect(typeof restored.meta.lastBackupAt).toBe('string')
+    })
+
+    test('preserves cursorSnapshotRevision from backup', async () => {
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
+
+      // Setup backup file
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      // Backup contains cursorSnapshotRevision in meta
+      const backupData = JSON.stringify({
+        taskExecutions: { '2025-12-08': { task1: { completedAt: '2025-12-08T09:00:00Z' } } },
+        dailySummary: { '2025-12-08': { completedTasks: 1, totalTasks: 1 } },
+        meta: {
+          revision: 7,
+          cursorSnapshotRevision: { 'dev-1': 5, 'dev-2': 3 },
+        },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json'] = backupData
+
+      // Current log file
+      fileContents['LOGS/2025-12-tasks.json'] = JSON.stringify({
+        taskExecutions: {},
+        dailySummary: {},
+        meta: { revision: 10 },
+      })
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json')
+
+      const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      expect(restored.meta.cursorSnapshotRevision).toEqual({ 'dev-1': 5, 'dev-2': 3 })
+    })
+
+    test('restoring older backup should not downgrade revision', async () => {
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      const backupData = JSON.stringify({
+        taskExecutions: { '2025-12-08': { task1: { completedAt: '2025-12-08T09:00:00Z' } } },
+        dailySummary: { '2025-12-08': { completedTasks: 1, totalTasks: 1 } },
+        meta: { revision: 2 },
+      })
+      fileContents['LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json'] = backupData
+
+      // Current snapshot is newer
+      fileContents['LOGS/2025-12-tasks.json'] = JSON.stringify({
+        taskExecutions: { '2025-12-08': { task1: {}, task2: {} } },
+        dailySummary: { '2025-12-08': { completedTasks: 2, totalTasks: 2 } },
+        meta: { revision: 10 },
+      })
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json')
+
+      const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      expect(Array.isArray(restored.taskExecutions['2025-12-08'])).toBe(true)
+      expect(restored.taskExecutions['2025-12-08']).toHaveLength(1)
+      expect(restored.taskExecutions['2025-12-08'][0].completedAt).toBe('2025-12-08T09:00:00Z')
+      expect(restored.dailySummary).toEqual(JSON.parse(backupData).dailySummary)
+      expect(restored.meta.revision).toBe(11)
+    })
+
+    test('continues restore when current snapshot json is corrupted', async () => {
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', Date.now())
+      attachChild(dec2025, backup)
+
+      const backupData = JSON.stringify({
+        taskExecutions: { '2025-12-08': [{ taskTitle: 'Recovered Task', instanceId: 'inst-1' }] },
+        dailySummary: { '2025-12-08': { completedTasks: 1, totalTasks: 1 } },
+        meta: { revision: 4 },
+      })
+      fileContents[backup.path] = backupData
+      fileContents['LOGS/2025-12-tasks.json'] = '{"broken":'
+
+      const service = new BackupRestoreService(plugin)
+      await expect(service.restoreFromBackup('2025-12', backup.path)).resolves.toBeUndefined()
+
+      const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      expect(restored.taskExecutions).toEqual(JSON.parse(backupData).taskExecutions)
+      expect(restored.dailySummary).toEqual(JSON.parse(backupData).dailySummary)
+    })
+
+    test('does not delete delta files when restore write fails', async () => {
+      const { plugin, backupRoot, inboxRoot, legacyInboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      const archivedDelta = createFile('LOGS/inbox/device-alpha/2025-12.archived.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      attachChild(inboxDevice, archivedDelta)
+
+      const legacyDevice = createFolder('LOGS/.inbox/device-beta')
+      attachChild(legacyInboxRoot, legacyDevice)
+      const legacyNormalDelta = createFile('LOGS/.inbox/device-beta/2025-12.jsonl', now)
+      attachChild(legacyDevice, legacyNormalDelta)
+
+      fileContents[normalDelta.path] = '{"delta":"normal"}'
+      fileContents[archivedDelta.path] = '{"delta":"archived"}'
+      fileContents[legacyNormalDelta.path] = '{"delta":"legacy-normal"}'
+
+      const writeSpy = jest.spyOn(LogSnapshotWriter.prototype, 'writeWithConflictDetection')
+        .mockRejectedValueOnce(new Error('conflict'))
+      const service = new BackupRestoreService(plugin)
+
+      await expect(service.restoreFromBackup('2025-12', backup.path)).rejects.toThrow('conflict')
+      expect(fileContents[normalDelta.path]).toBe('{"delta":"normal"}')
+      expect(fileContents[archivedDelta.path]).toBe('{"delta":"archived"}')
+      expect(fileContents[legacyNormalDelta.path]).toBe('{"delta":"legacy-normal"}')
+      const quarantineFiles = Object.keys(fileContents).filter((path) => path.includes('/.restore-quarantine/'))
+      expect(quarantineFiles.length).toBe(0)
+
+      writeSpy.mockRestore()
+    })
+
+    test('merges rollback restore with newly appended delta content', async () => {
+      const { plugin, backupRoot, inboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      fileContents[normalDelta.path] = '{"delta":"original"}\n'
+
+      const writeSpy = jest.spyOn(LogSnapshotWriter.prototype, 'writeWithConflictDetection')
+        .mockImplementationOnce(async () => {
+          // Simulate delta append by another writer while restore is in progress.
+          fileContents[normalDelta.path] = '{"delta":"new"}\n'
+          throw new Error('conflict')
+        })
+
+      const service = new BackupRestoreService(plugin)
+      await expect(service.restoreFromBackup('2025-12', backup.path)).rejects.toThrow('conflict')
+
+      expect(fileContents[normalDelta.path]).toBe('{"delta":"original"}\n{"delta":"new"}\n')
+      const quarantineFiles = Object.keys(fileContents).filter((path) => path.includes('/.restore-quarantine/'))
+      expect(quarantineFiles.length).toBe(0)
+
+      writeSpy.mockRestore()
+    })
+
+    test('keeps quarantined delta file when rollback restore write fails', async () => {
+      const { plugin, backupRoot, inboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      fileContents[normalDelta.path] = '{"delta":"normal"}'
+
+      const writeSpy = jest.spyOn(LogSnapshotWriter.prototype, 'writeWithConflictDetection')
+        .mockRejectedValueOnce(new Error('conflict'))
+      ;(plugin.app.vault.adapter.write as jest.Mock).mockImplementation(async (path: string, content: string) => {
+        if (path === normalDelta.path) {
+          throw new Error('io-error')
+        }
+        fileContents[path] = content
+      })
+
+      const service = new BackupRestoreService(plugin)
+      await expect(service.restoreFromBackup('2025-12', backup.path)).rejects.toThrow('conflict')
+
+      const quarantinedDeltaPaths = Object.keys(fileContents).filter(
+        (path) => path.includes('/.restore-quarantine/') && path.endsWith('/2025-12.jsonl'),
+      )
+      expect(quarantinedDeltaPaths).toHaveLength(1)
+      expect(fileContents[quarantinedDeltaPaths[0]]).toBe('{"delta":"normal"}')
+      expect(fileContents[normalDelta.path]).toBeUndefined()
+
+      writeSpy.mockRestore()
+    })
+
+    test('restores quarantined delta files when post-write restore steps fail', async () => {
+      const { plugin, backupRoot, inboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      fileContents[normalDelta.path] = '{"delta":"normal"}'
+
+      const service = new BackupRestoreService(plugin)
+      const rebuildSpy = jest.spyOn(service as unknown as {
+        rebuildRecordsForMonth: (snapshot: unknown) => Promise<void>
+      }, 'rebuildRecordsForMonth').mockRejectedValueOnce(new Error('rebuild-failed'))
+      await expect(service.restoreFromBackup('2025-12', backup.path)).rejects.toThrow('rebuild-failed')
+
+      expect(fileContents[normalDelta.path]).toBe('{"delta":"normal"}')
+      const quarantineFiles = Object.keys(fileContents).filter((path) => path.includes('/.restore-quarantine/'))
+      expect(quarantineFiles.length).toBe(0)
+
+      rebuildSpy.mockRestore()
+    })
+
+    test('quarantines month delta files before snapshot write to block stale replay window', async () => {
+      const { plugin, backupRoot, inboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      fileContents[normalDelta.path] = '{"delta":"normal"}'
+
+      const writeSpy = jest.spyOn(LogSnapshotWriter.prototype, 'writeWithConflictDetection')
+        .mockImplementationOnce(async () => {
+          expect(fileContents[normalDelta.path]).toBeUndefined()
+          const quarantineFiles = Object.keys(fileContents).filter(
+            (path) => path.includes('/.restore-quarantine/') && path.endsWith('/2025-12.jsonl'),
+          )
+          expect(quarantineFiles.length).toBeGreaterThan(0)
+        })
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', backup.path)
+
+      writeSpy.mockRestore()
+    })
+
+    test('waits for existing month lock before starting restore write', async () => {
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 1 },
+      })
+
+      let releaseLock!: () => void
+      const blocker = MonthSyncCoordinator.withMonthLock('2025-12', async () => {
+        await new Promise<void>((resolve) => {
+          releaseLock = resolve
+        })
+      })
+
+      const writeSpy = jest.spyOn(LogSnapshotWriter.prototype, 'writeWithConflictDetection')
+      const service = new BackupRestoreService(plugin)
+      const restorePromise = service.restoreFromBackup('2025-12', backup.path)
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(writeSpy).not.toHaveBeenCalled()
+
+      releaseLock()
+      await blocker
+      await restorePromise
+
+      expect(writeSpy).toHaveBeenCalled()
+      writeSpy.mockRestore()
+    })
+
+    test('restore queued before reconcile should block stale delta replay and keep restored snapshot', async () => {
+      const { plugin, backupRoot, inboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: {
+          '2025-12-08': [
+            {
+              instanceId: 'inst-restored',
+              taskId: 'tc-inst-restored',
+              taskTitle: 'Restored from backup',
+              taskPath: 'TASKS/restored.md',
+              durationSec: 1200,
+              stopTime: '10:20',
+              entryId: 'backup:1',
+              deviceId: 'backup',
+              recordedAt: '2025-12-08T10:20:00Z',
+            },
+          ],
+        },
+        dailySummary: {
+          '2025-12-08': { totalMinutes: 20, completedTasks: 1, totalTasks: 1, procrastinatedTasks: 0, completionRate: 1 },
+        },
+        meta: { revision: 5, processedCursor: { 'device-mobile': 0 } },
+      })
+
+      // Current snapshot contains stale data that should be replaced by restore.
+      fileContents['LOGS/2025-12-tasks.json'] = JSON.stringify({
+        taskExecutions: {
+          '2025-12-08': [
+            {
+              instanceId: 'inst-stale',
+              taskId: 'tc-inst-stale',
+              taskTitle: 'Stale task',
+              taskPath: 'TASKS/stale.md',
+              durationSec: 300,
+              stopTime: '09:05',
+              entryId: 'stale:1',
+              deviceId: 'device-mobile',
+              recordedAt: '2025-12-08T09:05:00Z',
+            },
+          ],
+        },
+        dailySummary: {
+          '2025-12-08': { totalMinutes: 5, completedTasks: 1, totalTasks: 1, procrastinatedTasks: 0, completionRate: 1 },
+        },
+        meta: { revision: 8, processedCursor: { 'device-mobile': 1 }, cursorSnapshotRevision: { 'device-mobile': 8 } },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-mobile')
+      attachChild(inboxRoot, inboxDevice)
+      const staleDelta = createFile('LOGS/inbox/device-mobile/2025-12.jsonl', now)
+      attachChild(inboxDevice, staleDelta)
+      fileContents[staleDelta.path] = `${JSON.stringify({
+        schemaVersion: 1,
+        op: 'upsert',
+        entryId: 'device-mobile:1',
+        deviceId: 'device-mobile',
+        monthKey: '2025-12',
+        dateKey: '2025-12-08',
+        recordedAt: '2025-12-08T09:05:00Z',
+        payload: {
+          instanceId: 'inst-stale',
+          taskId: 'tc-inst-stale',
+          taskTitle: 'Stale task',
+          taskPath: 'TASKS/stale.md',
+          durationSec: 300,
+          stopTime: '09:05',
+        },
+      })}\n`
+
+      let releaseLock!: () => void
+      const blocker = MonthSyncCoordinator.withMonthLock('2025-12', async () => {
+        await new Promise<void>((resolve) => {
+          releaseLock = resolve
+        })
+      })
+
+      const service = new BackupRestoreService(plugin)
+      const reconciler = new LogReconciler(plugin)
+
+      // Queue restore first, then reconcile.
+      const restorePromise = service.restoreFromBackup('2025-12', backup.path)
+      const reconcilePromise = reconciler.reconcilePendingDeltas()
+
+      // Still blocked by month lock.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(fileContents['LOGS/2025-12-tasks.json']).toContain('inst-stale')
+
+      releaseLock()
+      await blocker
+      await restorePromise
+      const reconcileStats = await reconcilePromise
+
+      expect(reconcileStats.processedEntries).toBe(0)
+      const restoredSnapshot = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      expect(restoredSnapshot.taskExecutions['2025-12-08']).toHaveLength(1)
+      expect(restoredSnapshot.taskExecutions['2025-12-08'][0].instanceId).toBe('inst-restored')
+      expect(fileContents[staleDelta.path]).toBeUndefined()
     })
 
     test('throws error if backup file cannot be read', async () => {
@@ -300,6 +758,108 @@ describe('BackupRestoreService', () => {
       await expect(
         service.restoreFromBackup('2025-12', 'LOGS/backups/2025-12/nonexistent.json')
       ).rejects.toThrow()
+    })
+
+    test('moves month delta files to quarantine and clears yearly heatmap cache after successful restore', async () => {
+      const { plugin, backupRoot, inboxRoot, legacyInboxRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-08T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: { '2025-12-08': [] },
+        dailySummary: {},
+        meta: { revision: 3 },
+      })
+
+      const inboxDevice = createFolder('LOGS/inbox/device-alpha')
+      attachChild(inboxRoot, inboxDevice)
+      const normalDelta = createFile('LOGS/inbox/device-alpha/2025-12.jsonl', now)
+      const archivedDelta = createFile('LOGS/inbox/device-alpha/2025-12.archived.jsonl', now)
+      const otherMonthDelta = createFile('LOGS/inbox/device-alpha/2025-11.jsonl', now)
+      attachChild(inboxDevice, normalDelta)
+      attachChild(inboxDevice, archivedDelta)
+      attachChild(inboxDevice, otherMonthDelta)
+
+      const legacyDevice = createFolder('LOGS/.inbox/device-beta')
+      attachChild(legacyInboxRoot, legacyDevice)
+      const legacyNormalDelta = createFile('LOGS/.inbox/device-beta/2025-12.jsonl', now)
+      const legacyArchivedDelta = createFile('LOGS/.inbox/device-beta/2025-12.archived.jsonl', now)
+      attachChild(legacyDevice, legacyNormalDelta)
+      attachChild(legacyDevice, legacyArchivedDelta)
+
+      fileContents[normalDelta.path] = '{"delta":"normal"}'
+      fileContents[archivedDelta.path] = '{"delta":"archived"}'
+      fileContents[otherMonthDelta.path] = '{"delta":"other-month"}'
+      fileContents[legacyNormalDelta.path] = '{"delta":"legacy-normal"}'
+      fileContents[legacyArchivedDelta.path] = '{"delta":"legacy-archived"}'
+
+      const currentHeatmapPath = 'LOGS/heatmap/2025/yearly-heatmap.json'
+      const legacyHeatmapPath = 'LOGS/.heatmap/2025/yearly-heatmap.json'
+      const otherYearHeatmapPath = 'LOGS/heatmap/2024/yearly-heatmap.json'
+      fileContents[currentHeatmapPath] = '{"year":2025}'
+      fileContents[legacyHeatmapPath] = '{"year":2025}'
+      fileContents[otherYearHeatmapPath] = '{"year":2024}'
+
+      const trashFile = (plugin.app as unknown as {
+        fileManager: { trashFile: jest.Mock }
+      }).fileManager.trashFile
+
+      const service = new BackupRestoreService(plugin)
+      await service.restoreFromBackup('2025-12', backup.path)
+
+      const trashedPaths = trashFile.mock.calls.map((args) => (args[0] as TFile).path)
+      expect(trashedPaths).toEqual(expect.arrayContaining([
+        'LOGS/inbox/device-alpha/2025-12.jsonl',
+        'LOGS/inbox/device-alpha/2025-12.archived.jsonl',
+        'LOGS/.inbox/device-beta/2025-12.jsonl',
+        'LOGS/.inbox/device-beta/2025-12.archived.jsonl',
+        currentHeatmapPath,
+        legacyHeatmapPath,
+      ]))
+      expect(trashedPaths).not.toContain('LOGS/inbox/device-alpha/2025-11.jsonl')
+      expect(trashedPaths).not.toContain(otherYearHeatmapPath)
+      const quarantinePaths = Object.keys(fileContents).filter((path) => path.includes('/.restore-quarantine/'))
+      expect(quarantinePaths.length).toBe(0)
+    })
+
+    test('normalizes malformed taskExecutions entries to arrays during restore', async () => {
+      const { plugin, backupRoot, fileContents } = createRestoreContext()
+      const now = Date.now()
+
+      const dec2025 = createFolder('LOGS/backups/2025-12')
+      attachChild(backupRoot, dec2025)
+      const backup = createFile('LOGS/backups/2025-12/2025-12-17T10-00-00-000Z.json', now)
+      attachChild(dec2025, backup)
+      fileContents[backup.path] = JSON.stringify({
+        taskExecutions: {
+          '2025-12-17': { broken: true },
+          '2025-12-18': null,
+        },
+        dailySummary: {
+          '2025-12-17': { totalTasks: 3, completedTasks: 0 },
+          '2025-12-18': { totalTasks: 0, completedTasks: 0 },
+        },
+        meta: { revision: 2 },
+      })
+
+      const writeDaySpy = jest.spyOn(RecordsWriter.prototype, 'writeDay')
+
+      const service = new BackupRestoreService(plugin)
+      await expect(service.restoreFromBackup('2025-12', backup.path)).resolves.toBeUndefined()
+
+      const restored = JSON.parse(fileContents['LOGS/2025-12-tasks.json'])
+      expect(Array.isArray(restored.taskExecutions['2025-12-17'])).toBe(true)
+      expect(Array.isArray(restored.taskExecutions['2025-12-18'])).toBe(true)
+
+      const entryPayloads = writeDaySpy.mock.calls.map((call) => call[0] as { dateKey: string; entries: unknown[] })
+      const malformedDay = entryPayloads.find((payload) => payload.dateKey === '2025-12-17')
+      expect(malformedDay).toBeDefined()
+      expect(Array.isArray(malformedDay?.entries)).toBe(true)
+
+      writeDaySpy.mockRestore()
     })
   })
 

@@ -87,6 +87,48 @@ describe('TaskScheduleController', () => {
     expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
   })
 
+  test('moveTaskToDate keeps non-routine slot assignment across date move', async () => {
+    const moveNonRoutineSlotOverrideToDate = jest.fn().mockResolvedValue(undefined)
+    const { host } = createHost({
+      moveNonRoutineSlotOverrideToDate,
+    })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      slotKey: '16:00-0:00',
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        isRoutine: false,
+      },
+    })
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveNonRoutineSlotOverrideToDate).toHaveBeenCalledWith(instance, '2025-10-10')
+  })
+
+  test('moveTaskToDate does not copy slot assignment for routine task', async () => {
+    const moveNonRoutineSlotOverrideToDate = jest.fn().mockResolvedValue(undefined)
+    const { host } = createHost({
+      moveNonRoutineSlotOverrideToDate,
+    })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      slotKey: '16:00-0:00',
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        isRoutine: true,
+      },
+    })
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveNonRoutineSlotOverrideToDate).not.toHaveBeenCalled()
+  })
+
   test('clearTaskTargetDate removes frontmatter and reloads', async () => {
     const { host, fileManager } = createHost()
     const controller = new TaskScheduleController(host)

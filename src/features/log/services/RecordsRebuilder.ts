@@ -6,14 +6,18 @@ import type {
   TaskLogSnapshot,
   TaskLogSnapshotMeta,
 } from '../../../types/ExecutionLog'
+import { SnapshotConflictError, SnapshotCorruptedError } from '../../../types/ExecutionLog'
 import {
   createEmptyTaskLogSnapshot,
   isExecutionLogEntryCompleted,
   minutesFromLogEntries,
+  parseCursorSnapshotRevision,
+  parseTaskLogSnapshot,
 } from '../../../utils/executionLogUtils'
 import { computeExecutionInstanceKey } from '../../../utils/logKeys'
 import { computeRecordsHash, RECORDS_VERSION, RecordsEntry } from './RecordsWriter'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
+import { MonthSyncCoordinator } from './MonthSyncCoordinator'
 
 interface RecordDayPayload {
   dateKey: string
@@ -84,6 +88,7 @@ export class RecordsRebuilder {
             revision,
             lastProcessedAt: payload.snapshotMeta.lastProcessedAt,
             processedCursor: { ...(payload.snapshotMeta.processedCursor ?? {}) },
+            cursorSnapshotRevision: parseCursorSnapshotRevision(payload.snapshotMeta.cursorSnapshotRevision),
             lastBackupAt: payload.snapshotMeta.lastBackupAt,
           }
         }
@@ -96,17 +101,62 @@ export class RecordsRebuilder {
     let rebuiltDays = 0
 
     for (const [monthKey, context] of monthContexts.entries()) {
-      if (!context.snapshot.meta) {
-        context.snapshot.meta = createEmptyTaskLogSnapshot().meta
-      } else if (!context.snapshot.meta.processedCursor) {
-        context.snapshot.meta.processedCursor = {}
-      }
-      await this.snapshotWriter.write(monthKey, context.snapshot, { forceBackup: true })
-      rebuiltMonths += 1
-      rebuiltDays += context.days.size
+      await MonthSyncCoordinator.withMonthLock(monthKey, async () => {
+        if (!context.snapshot.meta) {
+          context.snapshot.meta = createEmptyTaskLogSnapshot().meta
+        } else if (!context.snapshot.meta.processedCursor) {
+          context.snapshot.meta.processedCursor = {}
+        }
+        try {
+          const expectedRevision = await this.resolveExpectedRevision(
+            monthKey,
+            context.snapshot.meta.revision ?? 0,
+          )
+          await this.snapshotWriter.writeWithConflictDetection(
+            monthKey,
+            context.snapshot,
+            expectedRevision,
+            { forceBackup: true },
+          )
+          rebuiltMonths += 1
+          rebuiltDays += context.days.size
+        } catch (error) {
+          if (error instanceof SnapshotConflictError) {
+            console.warn('[RecordsRebuilder] Snapshot conflict detected, skipping month rebuild', monthKey)
+            return
+          }
+          if (error instanceof SnapshotCorruptedError) {
+            console.warn('[RecordsRebuilder] Corrupted snapshot detected, forcing rebuild write', monthKey)
+            await this.snapshotWriter.write(monthKey, context.snapshot, { forceBackup: true })
+            rebuiltMonths += 1
+            rebuiltDays += context.days.size
+            return
+          }
+          console.warn('[RecordsRebuilder] Failed to rebuild month snapshot, keeping existing data', monthKey, error)
+        }
+      })
     }
 
     return { rebuiltMonths, rebuiltDays }
+  }
+
+  private async resolveExpectedRevision(monthKey: string, fallbackRevision: number): Promise<number> {
+    const logBase = this.plugin.pathManager.getLogDataPath()
+    const logPath = normalizePath(`${logBase}/${monthKey}-tasks.json`)
+    const file = this.plugin.app.vault.getAbstractFileByPath(logPath)
+    if (!(file instanceof TFile)) {
+      return Math.max(0, fallbackRevision - 1)
+    }
+
+    try {
+      const raw = await this.plugin.app.vault.read(file)
+      const current = parseTaskLogSnapshot(raw, { throwOnError: true })
+      const revision = current.meta?.revision
+      return typeof revision === 'number' ? revision : 0
+    } catch (error) {
+      console.warn('[RecordsRebuilder] Failed to read current revision, using fallback revision', monthKey, error)
+      return Math.max(0, fallbackRevision - 1)
+    }
   }
 
   private collectRecordFiles(folder: TFolder): TFile[] {
@@ -254,6 +304,7 @@ export class RecordsRebuilder {
       revision: typeof source.revision === 'number' ? source.revision : undefined,
       lastProcessedAt: typeof source.lastProcessedAt === 'string' ? source.lastProcessedAt : undefined,
       processedCursor: {},
+      cursorSnapshotRevision: parseCursorSnapshotRevision(source.cursorSnapshotRevision),
       lastBackupAt: typeof source.lastBackupAt === 'string' ? source.lastBackupAt : undefined,
     }
     const cursorSource = source.processedCursor
