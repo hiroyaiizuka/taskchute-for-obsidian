@@ -193,7 +193,7 @@ describe('TaskExecutionService', () => {
     expect(host.saveRunningTasksState).not.toHaveBeenCalled()
   })
 
-  it('moves cross-day routine tasks without updating frontmatter', async () => {
+  it('sets target_date for cross-day routine tasks', async () => {
     const current = new Date('2025-01-02T09:00:00.000Z')
     jest.useFakeTimers().setSystemTime(current)
 
@@ -205,6 +205,11 @@ describe('TaskExecutionService', () => {
     })
     const mockFile = createMockTFile('TASKS/routine.md')
     ;(host.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile)
+    ;(host.app.fileManager.processFrontMatter as jest.Mock).mockImplementation(
+      async (_file: TFile, cb: (frontmatter: Record<string, unknown>) => Record<string, unknown>) => {
+        cb({})
+      },
+    )
     const service = new TaskExecutionService(host)
     const instance: TaskInstance = {
       task: {
@@ -222,13 +227,135 @@ describe('TaskExecutionService', () => {
     await service.startInstance(instance)
 
     expect(handleCrossDayStart).toHaveBeenCalledTimes(1)
-    expect(host.app.fileManager.processFrontMatter).not.toHaveBeenCalled()
+    expect(host.app.fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
+    expect(host.app.fileManager.processFrontMatter).toHaveBeenCalledWith(
+      mockFile,
+      expect.any(Function),
+    )
     const [payload] = handleCrossDayStart.mock.calls[0]
     expect(payload.instance).toBe(instance)
     expect(payload.todayKey).toBe('2025-01-02')
     expect(instance.state).toBe('running')
     expect(instance.date).toBe('2025-01-02')
     expect(host.saveRunningTasksState).not.toHaveBeenCalled()
+  })
+
+  it('cross-day routine start sets target_date to todayKey in frontmatter', async () => {
+    const current = new Date('2025-02-22T01:22:00.000Z')
+    jest.useFakeTimers().setSystemTime(current)
+
+    const capturedFrontmatter: Record<string, unknown> = {}
+    const handleCrossDayStart = jest.fn().mockResolvedValue(undefined)
+    const host = createHost({
+      getViewDate: () => new Date('2025-02-21T00:00:00.000Z'),
+      handleCrossDayStart,
+      renderTaskList: jest.fn(),
+    })
+    const mockFile = createMockTFile('TASKS/english.md')
+    ;(host.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile)
+    ;(host.app.fileManager.processFrontMatter as jest.Mock).mockImplementation(
+      async (_file: TFile, cb: (frontmatter: Record<string, unknown>) => Record<string, unknown>) => {
+        cb(capturedFrontmatter)
+      },
+    )
+    const service = new TaskExecutionService(host)
+    const instance: TaskInstance = {
+      task: {
+        file: null,
+        frontmatter: {},
+        path: 'TASKS/english.md',
+        name: 'English Conversation',
+        isRoutine: true,
+      },
+      instanceId: 'inst-eng',
+      state: 'idle',
+      slotKey: 'none',
+    }
+
+    await service.startInstance(instance)
+
+    expect(capturedFrontmatter.target_date).toBe('2025-02-22')
+    expect(instance.date).toBe('2025-02-22')
+  })
+
+  it('does not set target_date for cross-day duplicated routine tasks', async () => {
+    const current = new Date('2025-01-02T09:00:00.000Z')
+    jest.useFakeTimers().setSystemTime(current)
+
+    const handleCrossDayStart = jest.fn().mockResolvedValue(undefined)
+    const host = createHost({
+      getViewDate: () => new Date('2025-01-01T00:00:00.000Z'),
+      handleCrossDayStart,
+      renderTaskList: jest.fn(),
+    }) as TaskExecutionHost & {
+      isDuplicateInstance?: (inst: TaskInstance) => boolean
+    }
+    host.isDuplicateInstance = jest.fn().mockReturnValue(true)
+
+    const mockFile = createMockTFile('TASKS/routine.md')
+    ;(host.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile)
+    ;(host.app.fileManager.processFrontMatter as jest.Mock).mockImplementation(
+      async (_file: TFile, cb: (frontmatter: Record<string, unknown>) => Record<string, unknown>) => {
+        cb({})
+      },
+    )
+    const service = new TaskExecutionService(host)
+    const instance: TaskInstance = {
+      task: {
+        file: null,
+        frontmatter: {},
+        path: 'TASKS/routine.md',
+        name: 'Routine Task',
+        isRoutine: true,
+      },
+      instanceId: 'inst-dup-routine',
+      state: 'idle',
+      slotKey: 'none',
+    }
+
+    await service.startInstance(instance)
+
+    expect(host.isDuplicateInstance).toHaveBeenCalledWith(instance)
+    expect(host.app.fileManager.processFrontMatter).not.toHaveBeenCalled()
+    expect(handleCrossDayStart).toHaveBeenCalledTimes(1)
+    expect(instance.state).toBe('running')
+    expect(instance.date).toBe('2025-01-02')
+  })
+
+  it('cross-day routine start completes even if processFrontMatter fails', async () => {
+    const current = new Date('2025-01-02T09:00:00.000Z')
+    jest.useFakeTimers().setSystemTime(current)
+
+    const handleCrossDayStart = jest.fn().mockResolvedValue(undefined)
+    const host = createHost({
+      getViewDate: () => new Date('2025-01-01T00:00:00.000Z'),
+      handleCrossDayStart,
+      renderTaskList: jest.fn(),
+    })
+    const mockFile = createMockTFile('TASKS/routine.md')
+    ;(host.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(mockFile)
+    ;(host.app.fileManager.processFrontMatter as jest.Mock).mockRejectedValue(
+      new Error('file locked'),
+    )
+    const service = new TaskExecutionService(host)
+    const instance: TaskInstance = {
+      task: {
+        file: null,
+        frontmatter: {},
+        path: 'TASKS/routine.md',
+        name: 'Routine Task',
+        isRoutine: true,
+      },
+      instanceId: 'inst-1',
+      state: 'idle',
+      slotKey: 'none',
+    }
+
+    await service.startInstance(instance)
+
+    expect(handleCrossDayStart).toHaveBeenCalledTimes(1)
+    expect(instance.state).toBe('running')
+    expect(instance.date).toBe('2025-01-02')
   })
 
   it('does not resave running tasks after handleCrossDayStart for routine cross-day start', async () => {
