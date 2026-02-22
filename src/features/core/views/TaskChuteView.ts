@@ -1117,6 +1117,10 @@ export class TaskChuteView
       .slice(2, 11)}`
   }
 
+  public isDuplicateInstance(inst: TaskInstance): boolean {
+    return this.taskMutationService.isDuplicatedTask(inst)
+  }
+
   public updateDateLabel(_element: Element): void {
     this.taskHeaderController.refreshDateLabel()
   }
@@ -1387,9 +1391,9 @@ export class TaskChuteView
     inst: TaskInstance,
     fromDateKey: string,
     toDateKey: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!inst || fromDateKey === toDateKey) {
-      return
+      return false
     }
     const instanceId = inst.instanceId
     const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
@@ -1410,7 +1414,7 @@ export class TaskChuteView
       return false
     })
     if (sourceIndex < 0) {
-      return
+      return false
     }
 
     const [sourceEntry] = sourceEntries.splice(sourceIndex, 1)
@@ -1447,7 +1451,7 @@ export class TaskChuteView
     const resolvedInstanceId = sourceEntry.instanceId ?? instanceId
     const resolvedPath = sourceEntry.originalPath ?? taskPath
     if (!resolvedInstanceId || !resolvedPath) {
-      return
+      return true
     }
 
     await this.ensureDayStateForDate(toDateKey)
@@ -1459,7 +1463,7 @@ export class TaskChuteView
       (entry) => entry?.instanceId === resolvedInstanceId,
     )
     if (alreadyExists) {
-      return
+      return true
     }
 
     const now = Date.now()
@@ -1473,6 +1477,7 @@ export class TaskChuteView
       originalTaskId: sourceEntry.originalTaskId ?? inst.task?.taskId,
     })
     await this.persistDayState(toDateKey)
+    return true
   }
 
   private async clearTaskDeletionForDate(inst: TaskInstance, dateKey: string): Promise<void> {
@@ -1579,7 +1584,12 @@ export class TaskChuteView
   public async handleCrossDayStart(payload: CrossDayStartPayload): Promise<void> {
     const { today, todayKey, instance } = payload
     const previousDateKey = this.getCurrentDateString()
-    await this.moveDuplicateEntryToDate(instance, previousDateKey, todayKey)
+    const movedDuplicate = await this.moveDuplicateEntryToDate(instance, previousDateKey, todayKey)
+    // 重複インスタンスは duplicatedInstances / deletedInstances で日跨ぎ移動する。
+    // ベース routine のみ、前日を非表示化して二重表示を防ぐ。
+    if (instance.task?.isRoutine && !movedDuplicate) {
+      await this.hideRoutineInstanceForDate(instance, previousDateKey)
+    }
     await this.clearTaskDeletionForDate(instance, todayKey)
     await this.persistCrossDayRunningTasks(todayKey, instance)
     const next = new Date(

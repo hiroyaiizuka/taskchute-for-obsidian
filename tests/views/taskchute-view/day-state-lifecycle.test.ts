@@ -2736,6 +2736,80 @@ describe('TaskChuteView cross-day start handling', () => {
     expect(refreshSpy).toHaveBeenCalled();
   });
 
+  test('does not add permanent deletion for duplicate routine moved across days', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const duplicateEntry = {
+      instanceId: 'dup-2',
+      originalPath: 'TASKS/weekly.md',
+      slotKey: '8:00-12:00',
+      originalSlotKey: '8:00-12:00',
+      timestamp: 10,
+      createdMillis: 10,
+      originalTaskId: 'tc-weekly',
+    };
+    view.getCurrentDayState().duplicatedInstances.push(duplicateEntry);
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const hideRoutineSpy = jest.spyOn(
+      view as unknown as {
+        hideRoutineInstanceForDate: (instance: TaskInstance, dateKey: string) => Promise<void>;
+      },
+      'hideRoutineInstanceForDate',
+    );
+
+    const routineTask = createTaskData({
+      path: 'TASKS/weekly.md',
+      name: 'Weekly',
+      isRoutine: true,
+      taskId: 'tc-weekly',
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      slotKey: '16:00-0:00',
+      originalSlotKey: '8:00-12:00',
+      instanceId: 'dup-2',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    expect(hideRoutineSpy).not.toHaveBeenCalled();
+
+    const prevDeleted = view.dayStateManager.getDeleted('2025-01-01');
+    const permanentEntry = prevDeleted.find(
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        (entry.taskId === 'tc-weekly' || entry.path === 'TASKS/weekly.md'),
+    );
+    expect(permanentEntry).toBeUndefined();
+
+    const temporaryEntry = prevDeleted.find(
+      (entry) => entry.deletionType === 'temporary' && entry.instanceId === 'dup-2',
+    );
+    expect(temporaryEntry).toBeDefined();
+  });
+
   test('clears permanent deletion for running task on today', async () => {
     const { view } = createView();
     await view.ensureDayStateForCurrentDate();
@@ -2799,6 +2873,158 @@ describe('TaskChuteView cross-day start handling', () => {
         path: 'TASKS/weekly.md',
       }),
     ).toBe(false);
+  });
+
+  test('adds permanent deletion marker for routine base task on previous date', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const routineTask = createTaskData({
+      path: 'TASKS/english.md',
+      name: 'English Conversation',
+      isRoutine: true,
+      taskId: 'tc-english',
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      instanceId: 'inst-eng',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    const prevDeleted = view.dayStateManager.getDeleted('2025-01-01');
+    const permanentEntry = prevDeleted.find(
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        (entry.taskId === 'tc-english' || entry.path === 'TASKS/english.md'),
+    );
+    expect(permanentEntry).toBeDefined();
+  });
+
+  test('does not call hideRoutineInstanceForDate for non-routine tasks', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const nonRoutineTask = createTaskData({
+      path: 'TASKS/onetime.md',
+      name: 'One Time Task',
+      isRoutine: false,
+      taskId: 'tc-onetime',
+    });
+    const instance = createTaskInstance(nonRoutineTask, {
+      state: 'running',
+      instanceId: 'inst-once',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    const prevDeleted = view.dayStateManager.getDeleted('2025-01-01');
+    const permanentEntry = prevDeleted.find(
+      (entry) =>
+        entry.deletionType === 'permanent' &&
+        (entry.taskId === 'tc-onetime' || entry.path === 'TASKS/onetime.md'),
+    );
+    expect(permanentEntry).toBeUndefined();
+  });
+
+  test('permanent deletion on previous day does not affect other dates', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    jest
+      .spyOn(view.runningTasksService, 'loadForDate')
+      .mockResolvedValue([]);
+    jest
+      .spyOn(view.runningTasksService, 'save')
+      .mockResolvedValue(undefined);
+
+    (view as Mutable<TaskChuteView>)['reloadTasksAndRestore'] = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view.taskHeaderController, 'refreshDateLabel')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const routineTask = createTaskData({
+      path: 'TASKS/english.md',
+      name: 'English Conversation',
+      isRoutine: true,
+      taskId: 'tc-english',
+    });
+    const instance = createTaskInstance(routineTask, {
+      state: 'running',
+      instanceId: 'inst-eng',
+    });
+
+    await view.handleCrossDayStart({
+      today: new Date(2025, 0, 2),
+      todayKey: '2025-01-02',
+      instance,
+    });
+
+    // Jan 1 should have permanent deletion
+    const jan1Deleted = view.dayStateManager.getDeleted('2025-01-01');
+    expect(jan1Deleted.some((e) => e.deletionType === 'permanent' && e.taskId === 'tc-english')).toBe(true);
+
+    // Jan 2 (today) should NOT have permanent deletion for this task
+    const jan2Deleted = view.dayStateManager.getDeleted('2025-01-02');
+    const jan2Entry = jan2Deleted.find(
+      (e) => e.deletionType === 'permanent' && e.taskId === 'tc-english',
+    );
+    expect(jan2Entry).toBeUndefined();
+
+    // Jan 3 (future) should not be affected either
+    await view.dayStateManager.ensure('2025-01-03');
+    const jan3Deleted = view.dayStateManager.getDeleted('2025-01-03');
+    const jan3Entry = jan3Deleted.find(
+      (e) => e.deletionType === 'permanent' && e.taskId === 'tc-english',
+    );
+    expect(jan3Entry).toBeUndefined();
   });
 });
 

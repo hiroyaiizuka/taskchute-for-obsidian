@@ -32,6 +32,7 @@ export interface TaskExecutionHost {
   hasRunningInstances(): boolean
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
   handleCrossDayStart?: (payload: CrossDayStartPayload) => Promise<void> | void
+  isDuplicateInstance?: (inst: TaskInstance) => boolean
   getSectionConfig: () => SectionConfigService
 }
 
@@ -86,7 +87,8 @@ export class TaskExecutionService {
         const m = String(today.getMonth() + 1).padStart(2, '0')
         const d = String(today.getDate()).toString().padStart(2, '0')
         const todayKey = `${y}-${m}-${d}`
-        if (!inst.task.isRoutine) {
+        const isDuplicate = this.host.isDuplicateInstance?.(inst) ?? false
+        if (!isDuplicate) {
           try {
             const file = this.host.app.vault.getAbstractFileByPath(inst.task.path)
             if (file instanceof TFile) {
