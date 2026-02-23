@@ -526,6 +526,63 @@ describe('TaskLoaderService', () => {
     expect(instances[0]?.instanceId).toBe('dup-reuse');
     expect(instances[0]?.slotKey).toBe('none');
   });
+
+  test('restores duplicated instance as done when execution log has matching instanceId', async () => {
+    const date = '2025-09-24';
+    const routinePath = 'TASKS/routine.md';
+    const { context } = createExecutionLogContext({
+      date,
+      executions: [
+        {
+          taskTitle: 'Completed Routine',
+          taskPath: routinePath,
+          slotKey: '8:00-12:00',
+          instanceId: 'dup-done',
+          startTime: '11:58',
+          stopTime: '13:41',
+        },
+      ],
+      hiddenRoutines: [
+        {
+          instanceId: null,
+          path: routinePath,
+        },
+      ],
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-done',
+          originalPath: routinePath,
+          slotKey: '8:00-12:00',
+          timestamp: 1_700_000_000_000,
+        },
+      ],
+      taskFiles: [
+        {
+          path: routinePath,
+          content: '#task',
+          frontmatter: {
+            isRoutine: true,
+            routine_type: 'daily',
+            routine_interval: 1,
+            routine_enabled: true,
+            routine_start: date,
+            開始時刻: '08:00',
+            taskId: 'tc-task-routine',
+          },
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'dup-done');
+    expect(restored).toBeDefined();
+    expect(restored?.state).toBe('done');
+    expect(restored?.startTime).toBeInstanceOf(Date);
+    expect(restored?.stopTime).toBeInstanceOf(Date);
+    expect(restored?.executedTitle).toBe('Completed Routine');
+  });
 });
 
 describe('isTaskFile', () => {
