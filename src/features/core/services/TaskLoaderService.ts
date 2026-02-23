@@ -295,7 +295,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
       }
     }
 
-    await addDuplicatedInstances(context, dateKey)
+    await addDuplicatedInstances(context, dateKey, executions)
     context.renderTaskList()
   } catch (error) {
     console.error('Failed to load tasks', error)
@@ -904,7 +904,11 @@ async function shouldShowNonRoutineTask(
   return createdKey === dateKey
 }
 
-async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string): Promise<void> {
+async function addDuplicatedInstances(
+  context: TaskLoaderHost,
+  dateKey: string,
+  executions: NormalizedExecution[] = [],
+): Promise<void> {
   try {
     const dayState = await ensureDayState(context, dateKey)
     const records = Array.isArray(dayState.duplicatedInstances)
@@ -964,15 +968,22 @@ async function addDuplicatedInstances(context: TaskLoaderHost, dateKey: string):
 
       context.tasks.push(taskData)
 
+      const matchedExecution = executions.find((e) => e.instanceId === instanceId)
       const instance: TaskInstance = {
         task: taskData,
         instanceId,
-        state: 'idle',
+        state: matchedExecution ? 'done' : 'idle',
         slotKey: slotKey
+          ?? (matchedExecution?.slotKey)
           ?? context.getSectionConfig().calculateSlotKeyFromTime(taskData.scheduledTime)
           ?? DEFAULT_SLOT_KEY,
         date: dateKey,
         createdMillis,
+        ...(matchedExecution ? {
+          startTime: parseDateTime(matchedExecution.startTime, dateKey),
+          stopTime: parseDateTime(matchedExecution.stopTime, dateKey),
+          executedTitle: matchedExecution.taskTitle,
+        } : {}),
       }
 
       if (
