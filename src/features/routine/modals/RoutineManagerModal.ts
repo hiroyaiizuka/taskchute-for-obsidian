@@ -11,6 +11,7 @@ import {
 import { getScheduledTime } from '../../../utils/fieldMigration';
 import { getToday } from '../../../utils/date';
 import RoutineEditModal from './RoutineEditModal';
+import { resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils';
 
 interface RoutineRow {
   file: TFile;
@@ -511,12 +512,31 @@ export class RoutineManagerModal extends Modal {
 
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
-      frontmatter.routine_enabled = enabled;
       const fmRecord = frontmatter as Record<string, unknown>;
+      const previousTargetDateValue = fmRecord['target_date'];
+      const previousTargetDate =
+        typeof previousTargetDateValue === 'string' && previousTargetDateValue.length > 0
+          ? previousTargetDateValue
+          : undefined;
+      const wasEnabled = frontmatter.routine_enabled !== false;
       if (!enabled) {
-        fmRecord['target_date'] = this.getCurrentViewDateString();
+        const viewDate = this.getCurrentViewDateString();
+        const newTargetDate = resolveTargetDateOnDisable(fmRecord, viewDate, {
+          wasEnabled,
+          previousTargetDate,
+        });
+        frontmatter.routine_enabled = false;
+        if (newTargetDate) {
+          fmRecord['target_date'] = newTargetDate;
+          delete fmRecord['routine_disabled_without_target_date'];
+        } else {
+          delete fmRecord['target_date'];
+          fmRecord['routine_disabled_without_target_date'] = true;
+        }
       } else {
+        frontmatter.routine_enabled = true;
         delete fmRecord['target_date'];
+        delete fmRecord['routine_disabled_without_target_date'];
       }
       return frontmatter;
     });

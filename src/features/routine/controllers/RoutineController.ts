@@ -2,7 +2,7 @@ import { Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
 import { t } from '../../../i18n'
 import { DATE_FORMAT_DISPLAY } from '../../../constants'
-import { applyRoutineFrontmatterMerge } from '../utils/RoutineFrontmatterUtils'
+import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils'
 import { TaskValidator } from '../../core/services/TaskValidator'
 import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
 import type { RoutineWeek } from '../../../types/TaskFields'
@@ -600,7 +600,7 @@ export default class RoutineController {
         }
         const routineFrontmatter = frontmatter as RoutineFrontmatter
         const routineFrontmatterRecord = routineFrontmatter as Record<string, unknown>
-        const previousTargetDateValue = routineFrontmatterRecord['target_date']
+        const previousTargetDateValue = routineFrontmatterRecord.target_date
         const previousTargetDate =
           typeof previousTargetDateValue === 'string' && previousTargetDateValue.length > 0
             ? previousTargetDateValue
@@ -622,14 +622,6 @@ export default class RoutineController {
         delete cleaned.routine_monthday
         delete cleaned.routine_monthdays
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
-
-        // Set target_date when disabling routine (after merge which deletes it)
-        if (details.enabled === false) {
-          routineFrontmatterRecord['target_date'] =
-            wasEnabled || !previousTargetDate
-              ? this.formatCurrentDate()
-              : previousTargetDate
-        }
 
         const mergedStart = routineFrontmatter.routine_start
         const mergedEnd = routineFrontmatter.routine_end
@@ -726,6 +718,23 @@ export default class RoutineController {
           delete routineFrontmatter.routine_weekday
           delete routineFrontmatter.routine_weeks
           delete routineFrontmatter.routine_weekdays
+        }
+
+        if (details.enabled === false) {
+          const newTargetDate = resolveTargetDateOnDisable(
+            routineFrontmatterRecord,
+            this.formatCurrentDate(),
+            { wasEnabled, previousTargetDate },
+          )
+          if (newTargetDate) {
+            routineFrontmatterRecord.target_date = newTargetDate
+            delete routineFrontmatterRecord.routine_disabled_without_target_date
+          } else {
+            delete routineFrontmatterRecord.target_date
+            routineFrontmatterRecord.routine_disabled_without_target_date = true
+          }
+        } else {
+          delete routineFrontmatterRecord.routine_disabled_without_target_date
         }
         return routineFrontmatter
       })

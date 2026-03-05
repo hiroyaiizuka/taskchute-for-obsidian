@@ -211,6 +211,41 @@ describe('NavigationRoutineController', () => {
     expect(frontmatter.get(routineFile)?.target_date).toBe('2025-12-25')
   })
 
+  it('does not force target_date when disabling non-due weekly routine', async () => {
+    const routineFile = createMockTFile('TASKS/routine.md')
+    const frontmatter: FrontmatterMap = new Map([
+      [
+        routineFile,
+        {
+          isRoutine: true,
+          routine_type: 'weekly',
+          routine_weekday: 1,
+          routine_interval: 1,
+          routine_enabled: true,
+        },
+      ],
+    ])
+
+    const host = createHost({
+      frontmatter,
+      files: [routineFile],
+      currentDate: new Date(2025, 11, 26), // Friday, routine is due on Monday
+    })
+    const controller = new NavigationRoutineController(host)
+
+    controller.renderRoutineList()
+
+    const toggle = host.navigationContent.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!toggle) throw new Error('toggle not found')
+    toggle.checked = false
+    toggle.dispatchEvent(new Event('change'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.get(routineFile)?.routine_enabled).toBe(false)
+    expect(frontmatter.get(routineFile)?.target_date).toBeUndefined()
+    expect(frontmatter.get(routineFile)?.routine_disabled_without_target_date).toBe(true)
+  })
+
   it('uses active taskchute view date when multiple taskchute leaves are open', async () => {
     const routineFile = createMockTFile('TASKS/routine.md')
     const frontmatter: FrontmatterMap = new Map([

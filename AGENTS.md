@@ -1,8 +1,5 @@
 # Obsidian community plugin
 
-## Active specifications
-- obsidian-plugin-spec-initialization: Initialize a new spec for Obsidian plugin structure and requirements workflow.
-
 ## Project overview
 
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
@@ -12,6 +9,7 @@
 ## Project rules
 - プラグインのソースコードは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/srcに作成にあります。
 - コードを実装したら、npm run testと、npm run lint、npm run buildを実行して、エラーがないことを確認してください。
+- TaskChute Plusのコード変更後は、完了報告前に必ず`obsidian-e2e-tester`スキルで実機E2Eを実施し、PASSを確認すること（詳細: /Users/hiroyaiizuka/Desktop/Evergreens/.agents/skills/obsidian-e2e-tester/SKILL.md）。
 - 要件定義や仕様書は、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/.kiro/steeringに作成してください。
 - 一時的に記載するドキュメントや実装のチェックリストは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/tmpに作成してください。
 - メモリーで記載するノートについては、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/memoryに作成してください。
@@ -109,48 +107,6 @@ memory/
 - Keep `minAppVersion` accurate when using newer APIs.
 - Canonical requirements are coded here: https://github.com/obsidianmd/obsidian-releases/blob/master/.github/workflows/validate-plugin-entry.yml
 
-## Testing
-
-- Manual install for testing: copy `main.js`, `manifest.json`, `styles.css` (if any) to:
-  ```
-  <Vault>/.obsidian/plugins/<plugin-id>/
-  ```
-- Reload Obsidian and enable the plugin in **Settings → Community plugins**.
-
-## Commands & settings
-
-- Any user-facing commands should be added via `this.addCommand(...)`.
-- If the plugin has configuration, provide a settings tab and sensible defaults.
-- Persist settings using `this.loadData()` / `this.saveData()`.
-- Use stable command IDs; avoid renaming once released.
-
-## Security, privacy, and compliance
-
-Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particular:
-
-- Default to local/offline operation. Only make network requests when essential to the feature.
-- No hidden telemetry. If you collect optional analytics or call third-party services, require explicit opt-in and document clearly in `README.md` and in settings.
-- Never execute remote code, fetch and eval scripts, or auto-update plugin code outside of normal releases.
-- Minimize scope: read/write only what's necessary inside the vault. Do not access files outside the vault.
-- Clearly disclose any external services used, data sent, and risks.
-- Respect user privacy. Do not collect vault contents, filenames, or personal information unless absolutely necessary and explicitly consented.
-- Avoid deceptive patterns, ads, or spammy notifications.
-- Register and clean up all DOM, app, and interval listeners using the provided `register*` helpers so the plugin unloads safely.
-
-## UX & copy guidelines (for UI text, commands, settings)
-
-- Prefer sentence case for headings, buttons, and titles.
-- Use clear, action-oriented imperatives in step-by-step copy.
-- Use **bold** to indicate literal UI labels. Prefer "select" for interactions.
-- Use arrow notation for navigation: **Settings → Community plugins**.
-- Keep in-app strings short, consistent, and free of jargon.
-
-## Performance
-
-- Keep startup light. Defer heavy work until needed.
-- Avoid long-running tasks during `onload`; use lazy initialization.
-- Batch disk access and avoid excessive vault scans.
-- Debounce/throttle expensive operations in response to file system events.
 
 ## Coding conventions
 
@@ -162,11 +118,6 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 - Avoid Node/Electron APIs if you want mobile compatibility; set `isDesktopOnly` accordingly.
 - Prefer `async/await` over promise chains; handle errors gracefully.
 
-## Mobile
-
-- Where feasible, test on iOS and Android.
-- Don't assume desktop-only behavior unless `isDesktopOnly` is `true`.
-- Avoid large in-memory structures; be mindful of memory and storage constraints.
 
 ## Agent do/don't
 

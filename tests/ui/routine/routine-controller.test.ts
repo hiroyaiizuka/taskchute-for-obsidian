@@ -316,6 +316,26 @@ describe('RoutineController', () => {
     expect(fm?.target_date).toBe('2025-11-30')
   })
 
+  it('sets target_date when disabling a weekly routine due on current view date', async () => {
+    const { host, frontmatterStore } = createHost({
+      getCurrentDate: () => new Date('2025-10-09T00:00:00Z'), // Thu (4)
+    })
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(task, button, '09:00', 'weekly', {
+      weekdays: [4],
+      interval: 1,
+      enabled: false,
+    })
+
+    const fm = frontmatterStore.get(task.path)
+    expect(fm?.routine_enabled).toBe(false)
+    expect(fm?.routine_weekday).toBe(4)
+    expect(fm?.target_date).toBe('2025-10-09')
+  })
+
   it('does not set target_date when setting routine with enabled=true', async () => {
     const { host, frontmatterStore } = createHost()
     const controller = new RoutineController(host)

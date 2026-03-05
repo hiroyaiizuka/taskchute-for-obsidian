@@ -230,6 +230,46 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect((frontmatter as Record<string, unknown>).target_date).toBe('2025-12-24')
   })
 
+  it('re-evaluates target_date after applying weekly selection when disabling on save', async () => {
+    const frontmatter: RoutineFrontmatter = {
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: true,
+    }
+    const app = createApp(frontmatter, {
+      currentDate: new Date(2025, 11, 24), // Wed (3)
+    })
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    expect(overlay).not.toBeNull()
+
+    const typeSelect = overlay?.querySelector('select') as HTMLSelectElement
+    const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
+    const weeklyCheckbox = overlay?.querySelector('.routine-form__weekly input[value="3"]') as HTMLInputElement
+    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    expect(typeSelect).toBeTruthy()
+    expect(enabledToggle).toBeTruthy()
+    expect(weeklyCheckbox).toBeTruthy()
+    expect(saveButton).toBeTruthy()
+
+    typeSelect.value = 'weekly'
+    typeSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    weeklyCheckbox.checked = true
+    weeklyCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+    enabledToggle.checked = false
+    saveButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.routine_type).toBe('weekly')
+    expect(frontmatter.routine_weekday).toBe(3)
+    expect(frontmatter.routine_enabled).toBe(false)
+    expect((frontmatter as Record<string, unknown>).target_date).toBe('2025-12-24')
+  })
+
   it('preserves existing target_date when saving already-disabled routine', async () => {
     const frontmatter: RoutineFrontmatter = {
       isRoutine: true,
