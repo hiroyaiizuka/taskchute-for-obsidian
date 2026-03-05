@@ -22,12 +22,60 @@ interface TaskReloadCoordinatorHost {
 interface ReloadOptions {
   runBoundaryCheck?: boolean
   clearDayStateCache?: DayStateCacheClearMode
+  queueIfInProgress?: boolean
 }
 
 export class TaskReloadCoordinator {
+  private reloadPromise: Promise<void> | null = null
+  private pendingOptions: ReloadOptions | null = null
+
   constructor(private readonly view: TaskReloadCoordinatorHost) {}
 
   async reloadTasksAndRestore(options: ReloadOptions = {}): Promise<void> {
+    if (this.reloadPromise) {
+      this.pendingOptions = this.mergeReloadOptions(this.pendingOptions, options)
+      if (options.queueIfInProgress) {
+        await this.reloadPromise
+        return
+      }
+      await this.reloadPromise
+      return
+    }
+    let resolveCycle!: () => void
+    let rejectCycle!: (error: unknown) => void
+    const cyclePromise = new Promise<void>((resolve, reject) => {
+      resolveCycle = resolve
+      rejectCycle = reject
+    })
+    this.reloadPromise = cyclePromise
+    void this.runReloadCycle(options).then(
+      () => resolveCycle(),
+      (error) => rejectCycle(error),
+    )
+    try {
+      await cyclePromise
+    } finally {
+      if (this.reloadPromise === cyclePromise) {
+        this.reloadPromise = null
+      }
+    }
+  }
+
+  private async runReloadCycle(options: ReloadOptions): Promise<void> {
+    let current: ReloadOptions | null = options
+    while (current) {
+      try {
+        await this.executeReload(current)
+      } catch (error) {
+        this.pendingOptions = null
+        throw error
+      }
+      current = this.pendingOptions
+      this.pendingOptions = null
+    }
+  }
+
+  private async executeReload(options: ReloadOptions): Promise<void> {
     await this.view.loadTasks({ clearDayStateCache: options.clearDayStateCache })
     await this.view.restoreRunningTaskState()
     this.view.renderTaskList()
@@ -35,6 +83,25 @@ export class TaskReloadCoordinator {
       await this.checkBoundaryTasks()
     }
     this.scheduleBoundaryCheck()
+  }
+
+  private mergeReloadOptions(
+    existing: ReloadOptions | null,
+    incoming: ReloadOptions,
+  ): ReloadOptions {
+    if (!existing) {
+      return {
+        runBoundaryCheck: incoming.runBoundaryCheck,
+        clearDayStateCache: incoming.clearDayStateCache,
+      }
+    }
+    const priority: Record<string, number> = { none: 0, current: 1, all: 2 }
+    const a = existing.clearDayStateCache ?? 'current'
+    const b = incoming.clearDayStateCache ?? 'current'
+    return {
+      runBoundaryCheck: existing.runBoundaryCheck || incoming.runBoundaryCheck,
+      clearDayStateCache: (priority[a] ?? 0) >= (priority[b] ?? 0) ? a : b,
+    }
   }
 
   scheduleBoundaryCheck(): void {

@@ -2064,7 +2064,10 @@ describe('TaskChuteView state file modify listener', () => {
     expect(clearSpy).toHaveBeenCalledWith('2025-01-01');
     expect(clearSpy).toHaveBeenCalledWith('2024-12-31');
     expect(reloadSpy).toHaveBeenCalledTimes(1);
-    expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'none' });
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'none',
+    });
   });
 
   test('queues debounced external change when barrier starts before timer fires', async () => {
@@ -2130,7 +2133,11 @@ describe('TaskChuteView state file modify listener', () => {
 
     expect(mergeSpy).toHaveBeenCalledWith('2025-01');
     expect(clearSpy).toHaveBeenCalledWith('2025-01-01');
-    expect(reloadSpy).toHaveBeenCalledWith({ runBoundaryCheck: false, clearDayStateCache: 'none' });
+    expect(reloadSpy).toHaveBeenCalledWith({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'none',
+      queueIfInProgress: true,
+    });
   });
 
   test('clears debounce pending state when view starts closing before timer fires', async () => {
@@ -2261,6 +2268,7 @@ describe('TaskChuteView state file modify listener', () => {
     expect(reloadSpy).toHaveBeenCalledWith({
       runBoundaryCheck: false,
       clearDayStateCache: 'all',
+      queueIfInProgress: true,
     });
   });
 
@@ -2455,6 +2463,7 @@ describe('TaskChuteView barrier pending external changes', () => {
     expect(reloadSpy).toHaveBeenCalledWith({
       runBoundaryCheck: false,
       clearDayStateCache: 'all',
+      queueIfInProgress: true,
     });
   });
 
@@ -2479,6 +2488,7 @@ describe('TaskChuteView barrier pending external changes', () => {
     expect(reloadSpy).toHaveBeenCalledWith({
       runBoundaryCheck: false,
       clearDayStateCache: 'all',
+      queueIfInProgress: true,
     });
   });
 
@@ -2505,6 +2515,7 @@ describe('TaskChuteView barrier pending external changes', () => {
     expect(reloadSpy).toHaveBeenCalledWith({
       runBoundaryCheck: false,
       clearDayStateCache: 'none',
+      queueIfInProgress: true,
     });
   });
 

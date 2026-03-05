@@ -26,14 +26,43 @@
 
 ## Basic Memory ワークフロー
 
-- 最初に、Basic Memory MCPで、switch_project()コマンドを実行し、`taskchute-plus-memory`にプロジェクトをセットしてください。
-- ユーザーから実装や調査などの依頼を受けたら着手前に必ずBasic Memoryで既存メモを検索し、`basic-memory__search_notes` や `basic-memory__build_context` などのリード系コマンドで関連知識を取得すること。
-- 関連メモが見つかった場合は内容を把握し、既存の決定や方針に従う。該当メモがなければ必要なカテゴリを検討し、作業計画に反映する。
-- 実装や検証が完了したらBasic Memoryを起動し、`/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/memory` 配下に新しいメモを作成する。既存ディレクトリが無い場合は命名規則に沿って新規作成する。
-- メモは、`/Users/hiroyaiizuka/.basic-memory/knowledge-format.md`に従って作成する。
-- メモには最低限、実施日 (YYYY-MM-DD)、依頼内容の要約、実施した変更や調査結果、残課題/フォローアップ、関連ファイルパスやテスト結果を含めること。
-- 1つの依頼につき1メモを作成し、再検索しやすいタイトルとタグ付けを心掛ける。
+メモリの読み書き・検索・構造の詳細は **memory-manager スキル** に集約。
 
+- **セッション開始時**: `memories/corrections/lessons.md` を読む
+
+
+### メモリ構造
+
+```
+memory/
+├── schemas/           # スキーマ定義（触らない）
+├── events/            # 実装ログ・機能追加
+├── bugfixes/          # バグ調査と修正
+├── investigations/    # アーキテクチャ探索・原因調査
+├── designs/           # 設計決定・ADR
+├── corrections/       # 失敗と教訓の蒸留
+│   ├── inbox.md       # ミスをすぐ書く
+│   ├── lessons.md     # 蒸留された教訓
+│   └── graduated.md   # 仕組み化済み
+├── reviews/           # コードレビュー所見
+└── archive/           # 古いメモ
+```
+
+### 記録ルール
+
+| 何をした | カテゴリ | 保存先 | type |
+|---------|----------|--------|------|
+| 機能実装・リファクタリング | event | `events/` | event |
+| バグ修正 | bugfix | `bugfixes/` | bugfix |
+| コード調査・分析 | investigation | `investigations/` | investigation |
+| 設計決定・技術選定 | design | `designs/` | design |
+| コードレビュー | review | `reviews/` | review |
+| ミス・失敗 | correction | `corrections/inbox.md` に追記 | correction |
+
+### 検索
+```bash
+/Users/hiroyaiizuka/.local/bin/bm -p taskchute-plus-memory tool search-notes "{検索語}"
+```
 ## Environment & tooling
 
 - Node.js: use current LTS (Node 18+ recommended).
@@ -94,13 +123,6 @@
 - If the plugin has configuration, provide a settings tab and sensible defaults.
 - Persist settings using `this.loadData()` / `this.saveData()`.
 - Use stable command IDs; avoid renaming once released.
-
-## Versioning & releases
-
-- Bump `version` in `manifest.json` (SemVer) and update `versions.json` to map plugin version → minimum app version.
-- Create a GitHub release whose tag exactly matches `manifest.json`'s `version`. Do not use a leading `v`.
-- Attach `manifest.json`, `main.js`, and `styles.css` (if present) to the release as individual assets.
-- After the initial release, follow the process to add/update your plugin in the community catalog as required.
 
 ## Security, privacy, and compliance
 
@@ -185,18 +207,6 @@ npm test       # Jest (ts-jest, jsdom)
 - `main.ts` はプラグイン登録処理のみを担当させ、ロジックは各機能モジュールへ委譲
 - esbuild バンドルによりランタイム依存を残さない（外部 `obsidian` などは external）
 
-## Slot & Sorting Behavior (2025-09-23 redesign)
-- ルーチンのドラッグオーバーライドは日別 `DayState.slotOverrides[path]` に保存
-  - `persistSlotAssignment` が更新を反映
-  - スロットがデフォルト（frontmatter `開始時刻` 由来）に戻った場合はオーバーライドを削除
-  - 非ルーチンは `plugin.settings.slotKeys` を使用
-- `createRoutineTask` + `getScheduledSlotKey`
-  - `slotOverrides` を優先し、なければ `calculateSlotKeyFromTime`（0-8/8-12/12-16/16-0）でバケット化、最終的に `'none'`
-  - Tests: `task-sort-slot-overrides.test.ts`
-- 非ルーチン `shouldShowNonRoutineTask`
-  - `deletionType === 'permanent'` のみ非表示
-  - 一時削除は基のタスクを可視のまま保持（テスト済）
-- 日別表示は `metadata.target_date` を尊重（対象日のみ表示）
 
 ## Routine Logic
 - `RoutineService.parseFrontmatter` normalizes daily/weekly/monthly rules
