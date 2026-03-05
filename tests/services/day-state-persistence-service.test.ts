@@ -114,6 +114,133 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
     const cached = await service.loadDay(targetDate)
     expect(cached.slotOverrides['TASKS/new.md']).toBe('8:00-12:00')
   })
+
+  it('records local write hash so self-writes are not detected as external changes', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2025-09-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2025-09-14': {
+              hiddenRoutines: [{ path: 'TASKS/old.md', instanceId: null }],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: { 'TASKS/old.md': '8:00-12:00' },
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2025-09-14T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    // Capture the content written via vault.modify
+    let writtenContent = ''
+    vault.modify = jest.fn(async (file: TFile, content: string) => {
+      writtenContent = content
+      store.set(file.path, content)
+    })
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md')
+
+    expect(vault.modify).toHaveBeenCalled()
+    // The written content should be consumable as a local write (not external)
+    expect(service.consumeLocalStateWrite('LOGS/2025-09-state.json', writtenContent)).toBe(true)
+  })
+
+  it('clears local write hash when vault.modify fails', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2025-10-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2025-10-01': {
+              hiddenRoutines: [{ path: 'TASKS/old.md', instanceId: null }],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2025-10-01T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    vault.modify = jest.fn().mockRejectedValue(new Error('disk full'))
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md')
+
+    // After failure, no local write hash should remain
+    const anyContent = JSON.stringify({ anything: true })
+    expect(service.consumeLocalStateWrite('LOGS/2025-10-state.json', anyContent)).toBe(false)
+  })
+
+  it('keeps existing local write hashes when rename fails before vault.modify', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2025-09-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2025-09-14': {
+              hiddenRoutines: [{ path: 'TASKS/old.md', instanceId: null }],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: { 'TASKS/old.md': '8:00-12:00' },
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2025-09-14T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    let firstWrittenContent = ''
+    vault.modify = jest.fn(async (file: TFile, content: string) => {
+      if (!firstWrittenContent) {
+        firstWrittenContent = content
+      }
+      store.set(file.path, content)
+    })
+
+    await service.renameTaskPath('TASKS/old.md', 'TASKS/intermediate.md')
+
+    store.set('LOGS/2025-09-state.json', '{invalid-json')
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      await service.renameTaskPath('TASKS/intermediate.md', 'TASKS/new.md')
+    } finally {
+      warnSpy.mockRestore()
+    }
+
+    expect(vault.modify).toHaveBeenCalledTimes(1)
+    expect(firstWrittenContent).not.toBe('')
+    expect(service.consumeLocalStateWrite('LOGS/2025-09-state.json', firstWrittenContent)).toBe(true)
+  })
 })
 
 describe('DayStatePersistenceService.loadDay', () => {
@@ -841,5 +968,54 @@ describe('DayStatePersistenceService local write tracking', () => {
     })
 
     expect(vault.modify).toHaveBeenCalled()
+  })
+
+  it('keeps local write marker when adapter throws after content was already written', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2026-03-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2026-03-01': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2026-03-01T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    let writtenContent = ''
+    vault.modify = jest.fn(async (file: TFile, content: string) => {
+      writtenContent = content
+      store.set(file.path, content)
+      throw new Error('post-write failure')
+    })
+
+    const date = new Date('2026-03-01T00:00:00.000Z')
+    await expect(
+      service.saveDay(date, {
+        hiddenRoutines: [{ path: 'TASKS/foo.md', instanceId: null }],
+        deletedInstances: [],
+        duplicatedInstances: [],
+        slotOverrides: {},
+        orders: {},
+      }),
+    ).rejects.toThrow('post-write failure')
+
+    expect(writtenContent).not.toBe('')
+    expect(service.consumeLocalStateWrite('LOGS/2026-03-state.json', writtenContent)).toBe(true)
   })
 })

@@ -637,7 +637,7 @@ export class TaskChuteView
 
   // Utility: reload tasks and immediately restore running-state from persistence
   public async reloadTasksAndRestore(
-    options: { runBoundaryCheck?: boolean; clearDayStateCache?: DayStateCacheClearMode } = {},
+    options: { runBoundaryCheck?: boolean; clearDayStateCache?: DayStateCacheClearMode; queueIfInProgress?: boolean } = {},
   ): Promise<void> {
     await this.taskReloadCoordinator.reloadTasksAndRestore(options)
   }
@@ -802,10 +802,7 @@ export class TaskChuteView
     if (this.isClosingOrClosed) return
     if (!needsReload) return
     if (requiresFullReload || pendingMonthKeys.length === 0) {
-      await this.reloadTasksAndRestore({
-        runBoundaryCheck: false,
-        clearDayStateCache: 'all',
-      })
+      this.queueReloadAfterBarrier('all')
       return
     }
 
@@ -817,10 +814,7 @@ export class TaskChuteView
     }
 
     if (typeof dayStateService.mergeExternalChange !== 'function') {
-      await this.reloadTasksAndRestore({
-        runBoundaryCheck: false,
-        clearDayStateCache: 'all',
-      })
+      this.queueReloadAfterBarrier('all')
       return
     }
 
@@ -842,10 +836,7 @@ export class TaskChuteView
     }
 
     if (mergeFailed) {
-      await this.reloadTasksAndRestore({
-        runBoundaryCheck: false,
-        clearDayStateCache: 'all',
-      })
+      this.queueReloadAfterBarrier('all')
       return
     }
 
@@ -856,9 +847,16 @@ export class TaskChuteView
         this.dayStateManager.clear(dateKey)
       }
     }
-    await this.reloadTasksAndRestore({
+    this.queueReloadAfterBarrier('none')
+  }
+
+  private queueReloadAfterBarrier(clearDayStateCache: DayStateCacheClearMode): void {
+    void this.reloadTasksAndRestore({
       runBoundaryCheck: false,
-      clearDayStateCache: 'none',
+      clearDayStateCache,
+      queueIfInProgress: true,
+    }).catch((error) => {
+      console.warn('[TaskChuteView] queued barrier reload failed:', error)
     })
   }
 

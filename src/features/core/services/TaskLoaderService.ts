@@ -780,8 +780,28 @@ async function shouldShowDisabledRoutineTask(
     return targetDate === dateKey
   }
 
+  const disabledWithoutTargetDate =
+    metaRecord?.['routine_disabled_without_target_date'] === true
+  if (disabledWithoutTargetDate) {
+    return false
+  }
+
   // 3. Fallback for existing data without target_date: show on today only
-  return dateKey === formatDate(new Date())
+  // But respect date bounds - don't show expired or not-yet-started routines
+  const routineEnd = metaRecord?.['routine_end'] as string | undefined
+  if (routineEnd && routineEnd < dateKey) return false
+  const routineStart = metaRecord?.['routine_start'] as string | undefined
+  if (routineStart && routineStart > dateKey) return false
+  const todayKey = formatDate(new Date())
+  if (dateKey !== todayKey) return false
+
+  const dueRule = RoutineService.parseFrontmatter({
+    ...(metaRecord ?? {}),
+    isRoutine: true,
+    routine_enabled: true,
+  })
+  if (!dueRule) return false
+  return RoutineService.isDue(dateKey, dueRule)
 }
 
 async function shouldShowNonRoutineTask(

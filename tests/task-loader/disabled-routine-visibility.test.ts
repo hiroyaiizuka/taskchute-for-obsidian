@@ -75,6 +75,101 @@ describe('Disabled routine visibility', () => {
       expect(context.tasks).toHaveLength(1)
     })
 
+    test('disabled weekly routine without target_date is hidden on today when not due', async () => {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const d = String(now.getDate()).padStart(2, '0')
+      const today = `${y}-${m}-${d}`
+      const todayWeekday = now.getDay()
+      const nonDueWeekday = (todayWeekday + 1) % 7
+
+      const { context, load } = createRoutineLoadContext({
+        date: today,
+        metadataOverrides: {
+          routine_enabled: false,
+          routine_type: 'weekly',
+          routine_interval: 1,
+          routine_weekday: nonDueWeekday,
+          routine_start: '2020-01-01',
+        },
+      })
+
+      await load()
+
+      expect(context.taskInstances).toHaveLength(0)
+      expect(context.tasks).toHaveLength(0)
+    })
+
+    test('disabled routine without target_date is hidden when new-disable marker exists', async () => {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const d = String(now.getDate()).padStart(2, '0')
+      const today = `${y}-${m}-${d}`
+      const todayWeekday = now.getDay()
+
+      const { context, load } = createRoutineLoadContext({
+        date: today,
+        metadataOverrides: {
+          routine_enabled: false,
+          routine_type: 'weekly',
+          routine_interval: 1,
+          routine_weekday: todayWeekday,
+          routine_start: '2020-01-01',
+          routine_disabled_without_target_date: true,
+        },
+      })
+
+      await load()
+
+      expect(context.taskInstances).toHaveLength(0)
+      expect(context.tasks).toHaveLength(0)
+    })
+
+    test('disabled routine without target_date is hidden when routine_end is in the past', async () => {
+      // Even if dateKey === today, routine_end being in the past should prevent display
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const d = String(now.getDate()).padStart(2, '0')
+      const today = `${y}-${m}-${d}`
+
+      const { context, load } = createRoutineLoadContext({
+        date: today,
+        metadataOverrides: {
+          routine_enabled: false,
+          routine_end: '2020-01-01',
+        },
+      })
+
+      await load()
+
+      expect(context.taskInstances).toHaveLength(0)
+      expect(context.tasks).toHaveLength(0)
+    })
+
+    test('disabled routine without target_date is hidden when routine_start is in the future', async () => {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const d = String(now.getDate()).padStart(2, '0')
+      const today = `${y}-${m}-${d}`
+
+      const { context, load } = createRoutineLoadContext({
+        date: today,
+        metadataOverrides: {
+          routine_enabled: false,
+          routine_start: '2099-01-01',
+        },
+      })
+
+      await load()
+
+      expect(context.taskInstances).toHaveLength(0)
+      expect(context.tasks).toHaveLength(0)
+    })
+
     test('disabled routine without target_date is hidden on non-today date', async () => {
       // Use a date that is definitely not today
       const { context, load } = createRoutineLoadContext({

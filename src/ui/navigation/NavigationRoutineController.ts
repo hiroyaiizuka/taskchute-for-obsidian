@@ -2,6 +2,7 @@
 import { App, Notice, TFile } from 'obsidian'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
 import { getToday } from '../../utils/date'
+import { resolveTargetDateOnDisable } from '../../features/routine/utils/RoutineFrontmatterUtils'
 import type { RoutineTaskShape } from '../../types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
 
@@ -83,11 +84,29 @@ export default class NavigationRoutineController {
 
   private async updateRoutineEnabled(file: TFile, enabled: boolean): Promise<void> {
     await this.host.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-      frontmatter.routine_enabled = enabled
       if (!enabled) {
-        frontmatter['target_date'] = this.getCurrentViewDateString()
+        const previousTargetDateValue = frontmatter['target_date']
+        const previousTargetDate =
+          typeof previousTargetDateValue === 'string' && previousTargetDateValue.length > 0
+            ? previousTargetDateValue
+            : undefined
+        const wasEnabled = frontmatter.routine_enabled !== false
+        const newTargetDate = resolveTargetDateOnDisable(frontmatter, this.getCurrentViewDateString(), {
+          wasEnabled,
+          previousTargetDate,
+        })
+        frontmatter.routine_enabled = false
+        if (newTargetDate) {
+          frontmatter['target_date'] = newTargetDate
+          delete frontmatter['routine_disabled_without_target_date']
+        } else {
+          delete frontmatter['target_date']
+          frontmatter['routine_disabled_without_target_date'] = true
+        }
       } else {
+        frontmatter.routine_enabled = true
         delete frontmatter['target_date']
+        delete frontmatter['routine_disabled_without_target_date']
       }
       return frontmatter
     })

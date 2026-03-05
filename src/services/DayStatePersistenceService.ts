@@ -334,7 +334,10 @@ export class DayStatePersistenceService {
         await this.plugin.app.vault.create(path, payload);
       }
     } catch (error) {
-      this.recentLocalWriteHashes.delete(path);
+      const persistedDespiteError = await this.didPersistPayload(path, payload);
+      if (!persistedDespiteError) {
+        this.removeRecordedLocalWrite(path, payload);
+      }
       throw error;
     }
     this.cache.set(monthKey, month);
@@ -497,6 +500,7 @@ export class DayStatePersistenceService {
 
     const files = this.collectStateFiles();
     for (const file of files) {
+      let recordedPayload: string | null = null;
       try {
         const raw = await this.plugin.app.vault.read(file);
         const parsed: unknown = raw ? JSON.parse(raw) : {};
@@ -506,12 +510,21 @@ export class DayStatePersistenceService {
           continue;
         }
         this.ensureMetadata(monthly);
-        await this.plugin.app.vault.modify(file, JSON.stringify(monthly, null, 2));
+        const payload = JSON.stringify(monthly, null, 2);
+        recordedPayload = payload;
+        this.recordLocalWrite(file.path, payload);
+        await this.plugin.app.vault.modify(file, payload);
         const monthKey = this.extractMonthKeyFromPath(file.path);
         if (monthKey) {
           this.cache.set(monthKey, monthly);
         }
       } catch (error) {
+        if (recordedPayload !== null) {
+          const persistedDespiteError = await this.didPersistPayload(file.path, recordedPayload);
+          if (!persistedDespiteError) {
+            this.removeRecordedLocalWrite(file.path, recordedPayload);
+          }
+        }
         console.warn('[DayStatePersistenceService] Failed to rename task path', file.path, error);
       }
     }
@@ -905,6 +918,41 @@ export class DayStatePersistenceService {
       });
     }
     this.pruneLocalWrites(now);
+  }
+
+  private removeRecordedLocalWrite(path: string, content: string): void {
+    const recorded = this.recentLocalWriteHashes.get(path);
+    if (!recorded) {
+      return;
+    }
+    const hash = computeContentHash(content);
+    if (!recorded.hashes.delete(hash)) {
+      return;
+    }
+    if (recorded.hashes.size === 0) {
+      this.recentLocalWriteHashes.delete(path);
+      return;
+    }
+    let latestTimestamp = 0;
+    for (const timestamp of recorded.hashes.values()) {
+      if (timestamp > latestTimestamp) {
+        latestTimestamp = timestamp;
+      }
+    }
+    recorded.timestamp = latestTimestamp;
+  }
+
+  private async didPersistPayload(path: string, payload: string): Promise<boolean> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      return false;
+    }
+    try {
+      const actual = await this.plugin.app.vault.read(file);
+      return computeContentHash(actual) === computeContentHash(payload);
+    } catch {
+      return false;
+    }
   }
 
   private pruneLocalWrites(now: number): void {

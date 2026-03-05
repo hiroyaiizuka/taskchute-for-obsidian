@@ -1,8 +1,5 @@
 # Obsidian community plugin
 
-## Active specifications
-- obsidian-plugin-spec-initialization: Initialize a new spec for Obsidian plugin structure and requirements workflow.
-
 ## Project overview
 
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
@@ -12,6 +9,7 @@
 ## Project rules
 - プラグインのソースコードは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/srcに作成にあります。
 - コードを実装したら、npm run testと、npm run lint、npm run buildを実行して、エラーがないことを確認してください。
+- TaskChute Plusのコード変更後は、完了報告前に必ず`obsidian-e2e-tester`スキルで実機E2Eを実施し、PASSを確認すること（詳細: /Users/hiroyaiizuka/Desktop/Evergreens/.agents/skills/obsidian-e2e-tester/SKILL.md）。
 - 要件定義や仕様書は、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/.kiro/steeringに作成してください。
 - 一時的に記載するドキュメントや実装のチェックリストは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/tmpに作成してください。
 - メモリーで記載するノートについては、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/memoryに作成してください。
@@ -26,14 +24,43 @@
 
 ## Basic Memory ワークフロー
 
-- 最初に、Basic Memory MCPで、switch_project()コマンドを実行し、`taskchute-plus-memory`にプロジェクトをセットしてください。
-- ユーザーから実装や調査などの依頼を受けたら着手前に必ずBasic Memoryで既存メモを検索し、`basic-memory__search_notes` や `basic-memory__build_context` などのリード系コマンドで関連知識を取得すること。
-- 関連メモが見つかった場合は内容を把握し、既存の決定や方針に従う。該当メモがなければ必要なカテゴリを検討し、作業計画に反映する。
-- 実装や検証が完了したらBasic Memoryを起動し、`/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/memory` 配下に新しいメモを作成する。既存ディレクトリが無い場合は命名規則に沿って新規作成する。
-- メモは、`/Users/hiroyaiizuka/.basic-memory/knowledge-format.md`に従って作成する。
-- メモには最低限、実施日 (YYYY-MM-DD)、依頼内容の要約、実施した変更や調査結果、残課題/フォローアップ、関連ファイルパスやテスト結果を含めること。
-- 1つの依頼につき1メモを作成し、再検索しやすいタイトルとタグ付けを心掛ける。
+メモリの読み書き・検索・構造の詳細は **memory-manager スキル** に集約。
 
+- **セッション開始時**: `memories/corrections/lessons.md` を読む
+
+
+### メモリ構造
+
+```
+memory/
+├── schemas/           # スキーマ定義（触らない）
+├── events/            # 実装ログ・機能追加
+├── bugfixes/          # バグ調査と修正
+├── investigations/    # アーキテクチャ探索・原因調査
+├── designs/           # 設計決定・ADR
+├── corrections/       # 失敗と教訓の蒸留
+│   ├── inbox.md       # ミスをすぐ書く
+│   ├── lessons.md     # 蒸留された教訓
+│   └── graduated.md   # 仕組み化済み
+├── reviews/           # コードレビュー所見
+└── archive/           # 古いメモ
+```
+
+### 記録ルール
+
+| 何をした | カテゴリ | 保存先 | type |
+|---------|----------|--------|------|
+| 機能実装・リファクタリング | event | `events/` | event |
+| バグ修正 | bugfix | `bugfixes/` | bugfix |
+| コード調査・分析 | investigation | `investigations/` | investigation |
+| 設計決定・技術選定 | design | `designs/` | design |
+| コードレビュー | review | `reviews/` | review |
+| ミス・失敗 | correction | `corrections/inbox.md` に追記 | correction |
+
+### 検索
+```bash
+/Users/hiroyaiizuka/.local/bin/bm -p taskchute-plus-memory tool search-notes "{検索語}"
+```
 ## Environment & tooling
 
 - Node.js: use current LTS (Node 18+ recommended).
@@ -80,55 +107,6 @@
 - Keep `minAppVersion` accurate when using newer APIs.
 - Canonical requirements are coded here: https://github.com/obsidianmd/obsidian-releases/blob/master/.github/workflows/validate-plugin-entry.yml
 
-## Testing
-
-- Manual install for testing: copy `main.js`, `manifest.json`, `styles.css` (if any) to:
-  ```
-  <Vault>/.obsidian/plugins/<plugin-id>/
-  ```
-- Reload Obsidian and enable the plugin in **Settings → Community plugins**.
-
-## Commands & settings
-
-- Any user-facing commands should be added via `this.addCommand(...)`.
-- If the plugin has configuration, provide a settings tab and sensible defaults.
-- Persist settings using `this.loadData()` / `this.saveData()`.
-- Use stable command IDs; avoid renaming once released.
-
-## Versioning & releases
-
-- Bump `version` in `manifest.json` (SemVer) and update `versions.json` to map plugin version → minimum app version.
-- Create a GitHub release whose tag exactly matches `manifest.json`'s `version`. Do not use a leading `v`.
-- Attach `manifest.json`, `main.js`, and `styles.css` (if present) to the release as individual assets.
-- After the initial release, follow the process to add/update your plugin in the community catalog as required.
-
-## Security, privacy, and compliance
-
-Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particular:
-
-- Default to local/offline operation. Only make network requests when essential to the feature.
-- No hidden telemetry. If you collect optional analytics or call third-party services, require explicit opt-in and document clearly in `README.md` and in settings.
-- Never execute remote code, fetch and eval scripts, or auto-update plugin code outside of normal releases.
-- Minimize scope: read/write only what's necessary inside the vault. Do not access files outside the vault.
-- Clearly disclose any external services used, data sent, and risks.
-- Respect user privacy. Do not collect vault contents, filenames, or personal information unless absolutely necessary and explicitly consented.
-- Avoid deceptive patterns, ads, or spammy notifications.
-- Register and clean up all DOM, app, and interval listeners using the provided `register*` helpers so the plugin unloads safely.
-
-## UX & copy guidelines (for UI text, commands, settings)
-
-- Prefer sentence case for headings, buttons, and titles.
-- Use clear, action-oriented imperatives in step-by-step copy.
-- Use **bold** to indicate literal UI labels. Prefer "select" for interactions.
-- Use arrow notation for navigation: **Settings → Community plugins**.
-- Keep in-app strings short, consistent, and free of jargon.
-
-## Performance
-
-- Keep startup light. Defer heavy work until needed.
-- Avoid long-running tasks during `onload`; use lazy initialization.
-- Batch disk access and avoid excessive vault scans.
-- Debounce/throttle expensive operations in response to file system events.
 
 ## Coding conventions
 
@@ -140,11 +118,6 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 - Avoid Node/Electron APIs if you want mobile compatibility; set `isDesktopOnly` accordingly.
 - Prefer `async/await` over promise chains; handle errors gracefully.
 
-## Mobile
-
-- Where feasible, test on iOS and Android.
-- Don't assume desktop-only behavior unless `isDesktopOnly` is `true`.
-- Avoid large in-memory structures; be mindful of memory and storage constraints.
 
 ## Agent do/don't
 
@@ -185,18 +158,6 @@ npm test       # Jest (ts-jest, jsdom)
 - `main.ts` はプラグイン登録処理のみを担当させ、ロジックは各機能モジュールへ委譲
 - esbuild バンドルによりランタイム依存を残さない（外部 `obsidian` などは external）
 
-## Slot & Sorting Behavior (2025-09-23 redesign)
-- ルーチンのドラッグオーバーライドは日別 `DayState.slotOverrides[path]` に保存
-  - `persistSlotAssignment` が更新を反映
-  - スロットがデフォルト（frontmatter `開始時刻` 由来）に戻った場合はオーバーライドを削除
-  - 非ルーチンは `plugin.settings.slotKeys` を使用
-- `createRoutineTask` + `getScheduledSlotKey`
-  - `slotOverrides` を優先し、なければ `calculateSlotKeyFromTime`（0-8/8-12/12-16/16-0）でバケット化、最終的に `'none'`
-  - Tests: `task-sort-slot-overrides.test.ts`
-- 非ルーチン `shouldShowNonRoutineTask`
-  - `deletionType === 'permanent'` のみ非表示
-  - 一時削除は基のタスクを可視のまま保持（テスト済）
-- 日別表示は `metadata.target_date` を尊重（対象日のみ表示）
 
 ## Routine Logic
 - `RoutineService.parseFrontmatter` normalizes daily/weekly/monthly rules

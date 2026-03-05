@@ -15,7 +15,7 @@ import {
   setScheduledTime,
 } from "../../../utils/fieldMigration"
 import { getToday } from "../../../utils/date"
-import { applyRoutineFrontmatterMerge } from "../utils/RoutineFrontmatterUtils"
+import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
 import { attachCloseButtonIcon } from "../../../ui/components/iconUtils"
 
 interface TaskChuteViewLike {
@@ -570,27 +570,6 @@ export default class RoutineEditModal {
               hadTemporaryMoveDate,
             })
 
-            // Set target_date when disabling routine (after merge which deletes it)
-            if (!enabledToggle.checked) {
-              fmRecord['target_date'] =
-                wasEnabled || !previousTargetDate
-                  ? this.getCurrentViewDateString()
-                  : previousTargetDate
-            }
-
-            // Notify only when target_date is truly removed from final frontmatter
-            const finalTargetDate = fmRecord["target_date"]
-            const hasFinalTargetDate =
-              typeof finalTargetDate === "string" && finalTargetDate.length > 0
-            if (hadTargetDate && !hasFinalTargetDate) {
-              new Notice(
-                this.tv(
-                  "notices.legacyTargetDateRemoved",
-                  "Removed legacy target_date automatically.",
-                ),
-              )
-            }
-
             // Clean up values that should be removed
             if (!timeValue) setScheduledTime(fm, undefined, { preferNew: true })
             if (!start) delete fm.routine_start
@@ -651,6 +630,36 @@ export default class RoutineEditModal {
                 delete fm.routine_monthdays
                 delete fm.routine_monthday
               }
+            }
+
+            if (!enabledToggle.checked) {
+              const newTargetDate = resolveTargetDateOnDisable(
+                fmRecord,
+                this.getCurrentViewDateString(),
+                { wasEnabled, previousTargetDate },
+              )
+              if (newTargetDate) {
+                fmRecord.target_date = newTargetDate
+                delete fmRecord.routine_disabled_without_target_date
+              } else {
+                delete fmRecord.target_date
+                fmRecord.routine_disabled_without_target_date = true
+              }
+            } else {
+              delete fmRecord.routine_disabled_without_target_date
+            }
+
+            // Notify only when target_date is truly removed from final frontmatter
+            const finalTargetDate = fmRecord["target_date"]
+            const hasFinalTargetDate =
+              typeof finalTargetDate === "string" && finalTargetDate.length > 0
+            if (hadTargetDate && !hasFinalTargetDate) {
+              new Notice(
+                this.tv(
+                  "notices.legacyTargetDateRemoved",
+                  "Removed legacy target_date automatically.",
+                ),
+              )
             }
 
             updatedFrontmatter = { ...fm }

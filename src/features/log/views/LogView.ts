@@ -26,6 +26,7 @@ interface TaskChuteViewLike {
   currentDate?: Date;
   containerEl?: HTMLElement;
   loadTasks(): Promise<void>;
+  reloadTasksAndRestore?(): Promise<void>;
   updateDateLabel?(element: Element): void;
 }
 
@@ -930,7 +931,11 @@ export class LogView {
         }
       }
 
-      await view.loadTasks()
+      if (typeof view.reloadTasksAndRestore === 'function') {
+        await view.reloadTasksAndRestore()
+      } else {
+        await view.loadTasks()
+      }
       workspace.setActiveLeaf(leaf)
 
       const modal = this.container.closest('.taskchute-log-modal-overlay')
