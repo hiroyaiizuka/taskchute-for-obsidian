@@ -1,5 +1,23 @@
 import { App, Modal } from 'obsidian'
 import type { BackupEntry, BackupPreview } from '../services/BackupRestoreService'
+import { getCurrentLocale } from '../../../i18n'
+
+const JA_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
+const EN_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const EN_MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
 
 export interface BackupRestoreModalCallbacks {
   onRestore: (monthKey: string, backupPath: string) => Promise<void>
@@ -172,11 +190,15 @@ export class BackupRestoreModal extends Modal {
     const hours = String(date.getHours()).padStart(2, '0')
     const minutes = String(date.getMinutes()).padStart(2, '0')
 
+    if (getCurrentLocale() !== 'ja') {
+      return `${month}/${day}/${year} (${weekday}) ${hours}:${minutes}`
+    }
+
     return `${year}年${month}月${day}日(${weekday}) ${hours}:${minutes}`
   }
 
   private getWeekdayLabel(dayIndex: number): string {
-    const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+    const weekdays = getCurrentLocale() === 'ja' ? JA_WEEKDAYS : EN_WEEKDAYS
     return weekdays[dayIndex] ?? ''
   }
 }
@@ -343,14 +365,28 @@ class BackupConfirmModal extends Modal {
 
   private formatDisplayDate(dateKey: string): string {
     const [year, month, day] = dateKey.split('-')
-    const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10))
-    const weekdays = ['日', '月', '火', '水', '木', '金', '土']
+    const numericYear = parseInt(year, 10)
+    const numericMonth = parseInt(month, 10)
+    const numericDay = parseInt(day, 10)
+    const date = new Date(numericYear, numericMonth - 1, numericDay)
+    const weekdays = getCurrentLocale() === 'ja' ? JA_WEEKDAYS : EN_WEEKDAYS
     const weekday = weekdays[date.getDay()] ?? ''
+
+    if (getCurrentLocale() !== 'ja') {
+      return `${numericMonth}/${numericDay} (${weekday})`
+    }
+
     return `${parseInt(month, 10)}月${parseInt(day, 10)}日(${weekday})`
   }
 
   private formatMonthLabel(monthKey: string): string {
     const [year, month] = monthKey.split('-')
+    if (getCurrentLocale() !== 'ja') {
+      const monthIndex = parseInt(month, 10) - 1
+      const monthLabel = EN_MONTHS[monthIndex] ?? month
+      return `${monthLabel} ${year}`
+    }
+
     return `${year}年${parseInt(month, 10)}月`
   }
 
@@ -360,6 +396,10 @@ class BackupConfirmModal extends Modal {
     const day = date.getDate()
     const hours = String(date.getHours()).padStart(2, '0')
     const minutes = String(date.getMinutes()).padStart(2, '0')
+
+    if (getCurrentLocale() !== 'ja') {
+      return `${month}/${day}/${year} ${hours}:${minutes}`
+    }
 
     return `${year}年${month}月${day}日 ${hours}:${minutes}`
   }

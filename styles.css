@@ -481,6 +481,16 @@ select.form-input {
   pointer-events: none;
 }
 
+.form-input-icon-wrapper .form-input--date-native {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+}
+
 .form-input-icon-button {
   width: 28px;
   height: 28px;
