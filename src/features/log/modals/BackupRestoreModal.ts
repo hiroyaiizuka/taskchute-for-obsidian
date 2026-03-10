@@ -15,7 +15,8 @@ export class BackupRestoreModal extends Modal {
   constructor(
     app: App,
     private readonly backups: Map<string, BackupEntry[]>,
-    private readonly callbacks: BackupRestoreModalCallbacks
+    private readonly callbacks: BackupRestoreModalCallbacks,
+    private readonly tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string = (_k, fb) => fb
   ) {
     super(app)
   }
@@ -41,13 +42,13 @@ export class BackupRestoreModal extends Modal {
   private renderHeader(): void {
     const header = this.contentEl.createEl('div', { cls: 'backup-restore-header' })
 
-    header.createEl('h2', { text: 'ログデータの復元', cls: 'backup-restore-title' })
+    header.createEl('h2', { text: this.tv('title', 'Restore log data'), cls: 'backup-restore-title' })
 
     const actions = header.createEl('div', { cls: 'backup-restore-actions' })
 
     // Cancel button
     const cancelButton = actions.createEl('button', {
-      text: 'キャンセル',
+      text: this.tv('cancel', 'Cancel'),
       cls: 'backup-cancel-button',
     })
     cancelButton.addEventListener('click', () => {
@@ -56,7 +57,7 @@ export class BackupRestoreModal extends Modal {
 
     // Restore button
     this.restoreButton = actions.createEl('button', {
-      text: 'このバージョンを復元',
+      text: this.tv('restoreVersion', 'Restore this version'),
       cls: 'backup-restore-button',
     })
     this.restoreButton.disabled = true
@@ -67,9 +68,9 @@ export class BackupRestoreModal extends Modal {
 
   private renderEmptyState(): void {
     const emptyState = this.contentEl.createEl('div', { cls: 'backup-empty-state' })
-    emptyState.createEl('p', { text: 'バックアップが見つかりませんでした。' })
+    emptyState.createEl('p', { text: this.tv('emptyMessage', 'No backups found.') })
     emptyState.createEl('p', {
-      text: 'バックアップは設定で指定した間隔で自動的に作成されます。',
+      text: this.tv('emptyHint', 'Backups are created automatically at the interval specified in settings.'),
       cls: 'backup-empty-hint',
     })
   }
@@ -156,7 +157,8 @@ export class BackupRestoreModal extends Modal {
         entry,
         preview,
         resolve,
-        this.callbacks.getPreview
+        this.callbacks.getPreview,
+        this.tv
       )
       modal.open()
     })
@@ -190,7 +192,8 @@ class BackupConfirmModal extends Modal {
     private readonly entry: BackupEntry,
     initialPreview: BackupPreview,
     private readonly resolve: (confirmed: boolean) => void,
-    private readonly getPreview: (backupPath: string, targetDate?: string) => Promise<BackupPreview>
+    private readonly getPreview: (backupPath: string, targetDate?: string) => Promise<BackupPreview>,
+    private readonly tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string = (_k, fb) => fb
   ) {
     super(app)
     this.currentDate = initialPreview.targetDate
@@ -202,22 +205,22 @@ class BackupConfirmModal extends Modal {
     this.contentEl.empty()
 
     // Header
-    this.contentEl.createEl('h2', { text: '復元の確認', cls: 'backup-confirm-title' })
+    this.contentEl.createEl('h2', { text: this.tv('confirmTitle', 'Confirm restore'), cls: 'backup-confirm-title' })
 
     // Warning message
     const warningEl = this.contentEl.createEl('div', { cls: 'backup-confirm-warning' })
     warningEl.createEl('p', {
-      text: `${this.formatMonthLabel(this.entry.monthKey)}のログデータを以下の時点でのバックアップに置き換えます。`,
+      text: this.tv('confirmWarning', 'Log data for {month} will be replaced with the following backup.', { month: this.formatMonthLabel(this.entry.monthKey) }),
     })
     warningEl.createEl('p', {
-      text: 'この操作は取り消せません。',
+      text: this.tv('confirmCaution', 'This action cannot be undone.'),
       cls: 'backup-confirm-caution',
     })
 
     // Backup info
     const infoEl = this.contentEl.createEl('div', { cls: 'backup-confirm-info' })
     infoEl.createEl('div', {
-      text: `バックアップ日時: ${this.formatDateLabel(this.entry.timestamp)}`,
+      text: this.tv('confirmBackupDate', 'Backup date: {date}', { date: this.formatDateLabel(this.entry.timestamp) }),
       cls: 'backup-confirm-date',
     })
 
@@ -229,7 +232,7 @@ class BackupConfirmModal extends Modal {
     const buttonGroup = this.contentEl.createEl('div', { cls: 'backup-confirm-buttons' })
 
     const cancelButton = buttonGroup.createEl('button', {
-      text: 'キャンセル',
+      text: this.tv('confirmCancel', 'Cancel'),
       cls: 'backup-cancel-button',
     })
     cancelButton.addEventListener('click', () => {
@@ -238,7 +241,7 @@ class BackupConfirmModal extends Modal {
     })
 
     const confirmButton = buttonGroup.createEl('button', {
-      text: '復元する',
+      text: this.tv('confirmRestore', 'Restore'),
       cls: 'backup-confirm-button',
     })
     confirmButton.addEventListener('click', () => {
@@ -269,7 +272,7 @@ class BackupConfirmModal extends Modal {
     const prevButton = headerEl.createEl('button', {
       text: '←',
       cls: 'backup-preview-nav-button',
-      attr: { 'aria-label': '前日' },
+      attr: { 'aria-label': this.tv('prevDay', 'Previous day') },
     })
     prevButton.addEventListener('click', () => {
       void this.navigateDate(-1)
@@ -277,7 +280,7 @@ class BackupConfirmModal extends Modal {
 
     // Date title
     headerEl.createEl('h3', {
-      text: `${this.formatDisplayDate(this.currentDate)} の実行記録`,
+      text: this.tv('previewTitle', 'Execution records for {date}', { date: this.formatDisplayDate(this.currentDate) }),
       cls: 'backup-preview-title',
     })
 
@@ -285,7 +288,7 @@ class BackupConfirmModal extends Modal {
     const nextButton = headerEl.createEl('button', {
       text: '→',
       cls: 'backup-preview-nav-button',
-      attr: { 'aria-label': '翌日' },
+      attr: { 'aria-label': this.tv('nextDay', 'Next day') },
     })
     nextButton.addEventListener('click', () => {
       void this.navigateDate(1)
@@ -294,7 +297,7 @@ class BackupConfirmModal extends Modal {
     // Execution records (scrollable)
     if (this.currentPreview.executions.length === 0) {
       this.previewContainer.createEl('div', {
-        text: '実行記録がありません。',
+        text: this.tv('previewEmpty', 'No execution records.'),
         cls: 'backup-preview-empty',
       })
     } else {

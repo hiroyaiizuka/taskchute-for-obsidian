@@ -134,6 +134,12 @@ function createMockCallbacks(overrides?: Partial<BackupRestoreModalCallbacks>): 
   }
 }
 
+// Simple tv mock that expands {var} placeholders in fallback strings
+function mockTv(_key: string, fallback: string, vars?: Record<string, string | number>): string {
+  if (!vars) return fallback
+  return Object.entries(vars).reduce((s, [k, v]) => s.replace(`{${k}}`, String(v)), fallback)
+}
+
 describe('BackupRestoreModal', () => {
   let modal: BackupRestoreModal
   let callbacks: BackupRestoreModalCallbacks
@@ -141,7 +147,7 @@ describe('BackupRestoreModal', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     callbacks = createMockCallbacks()
-    modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks)
+    modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks, mockTv)
   })
 
   afterEach(() => {
@@ -185,7 +191,7 @@ describe('BackupRestoreModal', () => {
     })
 
     test('shows empty state when no backups', () => {
-      modal = new BackupRestoreModal(new App(), new Map(), callbacks)
+      modal = new BackupRestoreModal(new App(), new Map(), callbacks, mockTv)
       modal.open()
 
       const emptyMessage = document.querySelector('.backup-empty-state')

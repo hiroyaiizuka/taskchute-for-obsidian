@@ -981,7 +981,8 @@ export class LogView {
         getLatestDateInBackup: async (backupPath: string) => {
           return restoreService.getLatestDateInBackup(backupPath)
         },
-      }
+      },
+      (key, fallback, vars) => this.tv(`restore.${key}`, fallback, vars)
     )
     modal.open()
   }
