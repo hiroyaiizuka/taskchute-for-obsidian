@@ -35,6 +35,7 @@ export type TaskListRendererHost = {
   showStartTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showStopTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showReminderSettingsModal: (inst: TaskInstance) => void
+  isCollapsibleEnabled: () => boolean
   updateTotalTasksCount: () => void
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
@@ -44,6 +45,8 @@ export type TaskListRendererHost = {
 export default class TaskListRenderer {
   private readonly actions: TaskItemActionController
   private readonly rowController: TaskRowController
+  private collapsedByDate = new Map<string, Set<string>>()
+  private isDragging = false
 
   constructor(private readonly host: TaskListRendererHost) {
     const showProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showProjectModal
@@ -82,6 +85,31 @@ export default class TaskListRenderer {
     })
   }
 
+  private get collapsedSlots(): Set<string> {
+    const key = this.dateKey()
+    let set = this.collapsedByDate.get(key)
+    if (!set) {
+      set = new Set<string>()
+      this.collapsedByDate.set(key, set)
+    }
+    return set
+  }
+
+  private dateKey(): string {
+    const d = this.host.currentDate
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  private toggleSlotCollapse(slot: string): void {
+    const slots = this.collapsedSlots
+    if (slots.has(slot)) {
+      slots.delete(slot)
+    } else {
+      slots.add(slot)
+    }
+    this.render()
+  }
+
   render(): void {
     const { taskList, taskInstances } = this.host
     const scrollTop = taskList.scrollTop
@@ -110,6 +138,11 @@ export default class TaskListRenderer {
       }
     })
 
+    // Clear collapsed state when feature is disabled
+    if (!this.host.isCollapsibleEnabled()) {
+      this.collapsedSlots.clear()
+    }
+
     this.renderNoTimeGroup(noTimeInstances)
     this.host.getTimeSlotKeys().forEach((slot) => {
       this.renderTimeSlotGroup(slot, timeSlots[slot] || [])
@@ -125,25 +158,68 @@ export default class TaskListRenderer {
   }
 
   private renderNoTimeGroup(instances: TaskInstance[]): void {
+    const collapsible = this.host.isCollapsibleEnabled()
+    const isCollapsed = collapsible && this.collapsedSlots.has('none')
+
     const header = this.host.taskList.createEl('div', {
-      cls: 'time-slot-header other',
-      text: this.host.tv('lists.noTime', 'No time'),
+      cls: `time-slot-header other${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
+
+    if (collapsible) {
+      header.createEl('span', {
+        cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
+        text: isCollapsed ? '\u25B6' : '\u25BC',
+      })
+      header.createEl('span', {
+        cls: 'tc-slot-label',
+        text: this.host.tv('lists.noTime', 'No time'),
+      })
+      header.addEventListener('click', () => {
+        if (this.isDragging) return
+        this.toggleSlotCollapse('none')
+      })
+    } else {
+      header.textContent = this.host.tv('lists.noTime', 'No time')
+    }
+
     this.setupTimeSlotDragHandlers(header, 'none')
-    this.host
-      .sortByOrder(instances)
-      .forEach((inst, idx) => this.createTaskInstanceItem(inst, 'none', idx))
+
+    if (!isCollapsed) {
+      this.host
+        .sortByOrder(instances)
+        .forEach((inst, idx) => this.createTaskInstanceItem(inst, 'none', idx))
+    }
   }
 
   private renderTimeSlotGroup(slot: string, instances: TaskInstance[]): void {
+    const collapsible = this.host.isCollapsibleEnabled()
+    const isCollapsed = collapsible && this.collapsedSlots.has(slot)
+
     const header = this.host.taskList.createEl('div', {
-      cls: 'time-slot-header',
-      text: slot,
+      cls: `time-slot-header${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
+
+    if (collapsible) {
+      header.createEl('span', {
+        cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
+        text: isCollapsed ? '\u25B6' : '\u25BC',
+      })
+      header.createEl('span', { cls: 'tc-slot-label', text: slot })
+      header.addEventListener('click', () => {
+        if (this.isDragging) return
+        this.toggleSlotCollapse(slot)
+      })
+    } else {
+      header.textContent = slot
+    }
+
     this.setupTimeSlotDragHandlers(header, slot)
-    this.host
-      .sortByOrder(instances)
-      .forEach((inst, idx) => this.createTaskInstanceItem(inst, slot, idx))
+
+    if (!isCollapsed) {
+      this.host
+        .sortByOrder(instances)
+        .forEach((inst, idx) => this.createTaskInstanceItem(inst, slot, idx))
+    }
   }
 
   private createTaskInstanceItem(inst: TaskInstance, slot: string, idx: number): void {
@@ -304,16 +380,23 @@ export default class TaskListRenderer {
     this.host.registerManagedDomEvent(header, 'dragover', (event) => {
       if (!(event instanceof DragEvent)) return
       event.preventDefault()
+      this.isDragging = true
       header.classList.add('dragover')
     })
     this.host.registerManagedDomEvent(header, 'dragleave', () => {
       header.classList.remove('dragover')
+      this.isDragging = false
     })
     this.host.registerManagedDomEvent(header, 'drop', (event) => {
       if (!(event instanceof DragEvent)) return
       event.preventDefault()
       header.classList.remove('dragover')
+      this.collapsedSlots.delete(slot)
+      this.isDragging = false
       this.host.handleSlotDrop(event, slot)
+    })
+    this.host.registerManagedDomEvent(header, 'dragend', () => {
+      this.isDragging = false
     })
   }
 }

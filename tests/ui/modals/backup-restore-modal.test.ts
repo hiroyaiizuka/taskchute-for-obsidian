@@ -1,6 +1,7 @@
 import { App } from 'obsidian'
 import { BackupRestoreModal, BackupRestoreModalCallbacks } from '../../../src/features/log/modals/BackupRestoreModal'
 import type { BackupEntry, BackupPreview } from '../../../src/features/log/services/BackupRestoreService'
+import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
 
 // Add Obsidian-specific methods to HTMLElement
 function addObsidianMethods(el: HTMLElement): void {
@@ -134,14 +135,25 @@ function createMockCallbacks(overrides?: Partial<BackupRestoreModalCallbacks>): 
   }
 }
 
+// Simple tv mock that expands {var} placeholders in fallback strings
+function mockTv(_key: string, fallback: string, vars?: Record<string, string | number>): string {
+  if (!vars) return fallback
+  return Object.entries(vars).reduce((s, [k, v]) => s.replace(`{${k}}`, String(v)), fallback)
+}
+
 describe('BackupRestoreModal', () => {
   let modal: BackupRestoreModal
   let callbacks: BackupRestoreModalCallbacks
 
+  beforeAll(() => {
+    initializeLocaleManager('ja')
+  })
+
   beforeEach(() => {
     document.body.innerHTML = ''
+    setLocaleOverride('ja')
     callbacks = createMockCallbacks()
-    modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks)
+    modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks, mockTv)
   })
 
   afterEach(() => {
@@ -185,7 +197,7 @@ describe('BackupRestoreModal', () => {
     })
 
     test('shows empty state when no backups', () => {
-      modal = new BackupRestoreModal(new App(), new Map(), callbacks)
+      modal = new BackupRestoreModal(new App(), new Map(), callbacks, mockTv)
       modal.open()
 
       const emptyMessage = document.querySelector('.backup-empty-state')
@@ -419,6 +431,34 @@ describe('BackupRestoreModal', () => {
       // Verify empty state shown (no executions on Dec 9)
       const emptyMessage = document.querySelector('.backup-preview-empty')
       expect(emptyMessage).toBeTruthy()
+    })
+  })
+
+  describe('i18n date formatting', () => {
+    test('renders month/date labels in English locale without Japanese date tokens', async () => {
+      setLocaleOverride('en')
+      modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks, mockTv)
+      modal.open()
+
+      const listDateLabel = document.querySelector('.backup-entry .backup-entry-date')?.textContent ?? ''
+      expect(listDateLabel).not.toMatch(/[年月日]/)
+
+      const firstEntry = document.querySelector('.backup-entry') as HTMLElement
+      firstEntry?.click()
+
+      const restoreButton = document.querySelector('.backup-restore-button') as HTMLButtonElement
+      restoreButton?.click()
+
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const warning = document.querySelector('.backup-confirm-warning p')?.textContent ?? ''
+      const backupDate = document.querySelector('.backup-confirm-date')?.textContent ?? ''
+      const previewTitle = document.querySelector('.backup-preview-title')?.textContent ?? ''
+
+      expect(warning).toContain('2025')
+      expect(warning).not.toMatch(/[年月日]/)
+      expect(backupDate).not.toMatch(/[年月日]/)
+      expect(previewTitle).not.toMatch(/[年月日]/)
     })
   })
 

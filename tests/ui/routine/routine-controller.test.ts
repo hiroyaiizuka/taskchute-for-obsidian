@@ -5,6 +5,7 @@ import RoutineController, {
 } from '../../../src/features/routine/controllers/RoutineController'
 import type { RoutineTaskShape } from '../../../src/types/Routine'
 import type { TaskChutePluginLike } from '../../../src/types'
+import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
 
 describe('RoutineController', () => {
   const baseWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -88,6 +89,8 @@ describe('RoutineController', () => {
   })
 
   beforeEach(() => {
+    initializeLocaleManager('en')
+    setLocaleOverride('en')
     noticeMock.mockClear()
     document.body.innerHTML = ''
   })
@@ -247,6 +250,64 @@ describe('RoutineController', () => {
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.value).toBe('2025-10-09')
     expect(dateInputs?.[1]?.value).toBe('')
+  })
+
+  it('uses en-US locale for native date inputs when locale is English', () => {
+    setLocaleOverride('en')
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    expect(dateInputs?.length).toBe(2)
+    expect(dateInputs?.[0]?.getAttribute('lang')).toBe('en-US')
+    expect(dateInputs?.[1]?.getAttribute('lang')).toBe('en-US')
+  })
+
+  it('uses ja-JP locale for native date inputs when locale is Japanese', () => {
+    setLocaleOverride('ja')
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    expect(dateInputs?.length).toBe(2)
+    expect(dateInputs?.[0]?.getAttribute('lang')).toBe('ja-JP')
+    expect(dateInputs?.[1]?.getAttribute('lang')).toBe('ja-JP')
+  })
+
+  it('shows English end-date placeholder when locale is English', () => {
+    setLocaleOverride('en')
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const displayInputs = overlay?.querySelectorAll('.form-input-icon-wrapper input.form-input--bare')
+    expect(displayInputs?.length).toBe(2)
+    expect(displayInputs?.[1]?.getAttribute('placeholder')).toBe('YYYY-MM-DD')
+  })
+
+  it('shows Japanese end-date placeholder when locale is Japanese', () => {
+    setLocaleOverride('ja')
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({ isRoutine: false })
+
+    controller.showRoutineEditModal(task)
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const displayInputs = overlay?.querySelectorAll('.form-input-icon-wrapper input.form-input--bare')
+    expect(displayInputs?.length).toBe(2)
+    expect(displayInputs?.[1]?.getAttribute('placeholder')).toBe('年/月/日')
   })
 
   it('prevents Enter key presses inside routine modal inputs from closing the modal', () => {
