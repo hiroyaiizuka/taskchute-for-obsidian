@@ -55,6 +55,9 @@ export interface TaskChuteSettings {
 
   // Section customization (undefined = default boundaries [0:00, 8:00, 12:00, 16:00])
   customSections?: SectionBoundary[]
+
+  // Collapsible time slots (click header to collapse/expand)
+  collapsibleTimeSlots?: boolean
 }
 
 export interface GoogleCalendarSettings {

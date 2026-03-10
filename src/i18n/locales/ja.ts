@@ -81,6 +81,8 @@ export const ja = {
         },
         migrationFailed: "セクション割り当ての再計算中にエラーが発生しました。",
       },
+      collapsibleTimeSlots: "セクションの折りたたみ",
+      collapsibleTimeSlotsDesc: "セクションヘッダーをクリックして折りたためるようにします",
     },
     reminder: {
       heading: "リマインダー",

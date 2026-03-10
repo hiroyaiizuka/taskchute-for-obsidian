@@ -507,6 +507,7 @@ export class TaskChuteView
       showStartTimePopup: (inst, anchor) => view.showStartTimePopup(inst, anchor),
       showStopTimePopup: (inst, anchor) => view.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => view.showReminderSettingsModal(inst),
+      isCollapsibleEnabled: () => view.plugin.settings.collapsibleTimeSlots ?? false,
       updateTotalTasksCount: () => view.updateTotalTasksCount(),
       showProjectModal: (inst) => view.projectController.showProjectModal(inst),
       showUnifiedProjectModal: (inst) =>

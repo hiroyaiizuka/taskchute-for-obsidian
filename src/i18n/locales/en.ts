@@ -83,6 +83,8 @@ export const en = {
         },
         migrationFailed: "An error occurred while recalculating slot assignments.",
       },
+      collapsibleTimeSlots: "Collapsible time slots",
+      collapsibleTimeSlotsDesc: "Click time slot headers to collapse/expand sections",
     },
     reminder: {
       heading: "Reminders",

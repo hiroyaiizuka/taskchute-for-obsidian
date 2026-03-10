@@ -492,6 +492,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
 
     const content = details.createEl('div', { cls: 'taskchute-advanced-content' })
     this.renderSectionCustomization(content)
+    this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
   }
 
@@ -683,6 +684,27 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         console.error('[SettingsTab] section update failed', r.reason)
       }
     }
+  }
+
+  private renderCollapsibleTimeSlotsToggle(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t("settings.advanced.collapsibleTimeSlots", "Collapsible time slots"))
+      .setDesc(t("settings.advanced.collapsibleTimeSlotsDesc", "Click time slot headers to collapse/expand sections"))
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.collapsibleTimeSlots ?? false)
+          .onChange(async (v) => {
+            this.plugin.settings.collapsibleTimeSlots = v
+            await this.plugin.saveSettings()
+            // Notify open views to re-render
+            const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+            for (const leaf of leaves) {
+              const view = leaf.view as { renderTaskList?: () => void }
+              if (typeof view.renderTaskList === 'function') {
+                view.renderTaskList()
+              }
+            }
+          })
+      })
   }
 
   private renderFeaturesSection(container: HTMLElement): void {

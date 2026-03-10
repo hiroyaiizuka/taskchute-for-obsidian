@@ -910,6 +910,32 @@ select.form-input {
   transition: all 0.2s ease;
 }
 
+/* Collapsible time slot headers */
+.time-slot-header.tc-collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+.time-slot-header.tc-collapsible:hover {
+  background: var(--background-modifier-hover);
+}
+.tc-slot-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  font-size: 8px;
+  color: var(--text-muted);
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+.tc-slot-label {
+  flex: 1;
+}
+.time-slot-header.collapsed {
+  margin-bottom: 0;
+  opacity: 0.85;
+}
+
 /* Buttons */
 .comment-button,
 .settings-task-button,
@@ -6365,6 +6391,7 @@ select.form-input {
 
 .taskchute-section-notice {
   margin-top: 8px;
+  margin-bottom: 16px;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }

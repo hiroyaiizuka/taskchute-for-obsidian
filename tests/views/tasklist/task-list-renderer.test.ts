@@ -1,6 +1,17 @@
 import TaskListRenderer, { TaskListRendererHost } from '../../../src/ui/tasklist/TaskListRenderer';
 import { TaskData, TaskInstance } from '../../../src/types';
 
+// JSDOM lacks DragEvent; provide a minimal polyfill
+if (typeof globalThis.DragEvent === 'undefined') {
+  (globalThis as Record<string, unknown>).DragEvent = class DragEvent extends Event {
+    readonly dataTransfer: DataTransfer | null;
+    constructor(type: string, init?: EventInit & { dataTransfer?: DataTransfer | null }) {
+      super(type, init);
+      this.dataTransfer = init?.dataTransfer ?? null;
+    }
+  };
+}
+
 describe('TaskListRenderer', () => {
   function attachCreateEl(target: HTMLElement): void {
     const typed = target as HTMLElement & {
@@ -89,6 +100,7 @@ describe('TaskListRenderer', () => {
       calculateCrossDayDuration: (start: Date, stop: Date) => stop.getTime() - start.getTime(),
       showStartTimePopup: jest.fn(),
       showStopTimePopup: jest.fn(),
+      isCollapsibleEnabled: () => false,
       updateTotalTasksCount: jest.fn(),
       showProjectModal: jest.fn(),
       showUnifiedProjectModal: jest.fn(),
@@ -230,6 +242,59 @@ describe('TaskListRenderer', () => {
     const button = host.taskList.querySelector('.routine-button');
     expect(button).not.toBeNull();
     expect(button?.classList.contains('active')).toBe(false);
+  });
+
+  test('dragleave on slot header resets isDragging so click still works', () => {
+    const inst = createInstance({ instanceId: 'drag-1', slotKey: '8:00-12:00' });
+    const { host, renderer, taskList } = createHost([inst]);
+    host.isCollapsibleEnabled = () => true;
+
+    renderer.render();
+
+    // Find the 8:00-12:00 slot header
+    const headers = Array.from(taskList.querySelectorAll('.time-slot-header.tc-collapsible'));
+    const slotHeader = headers.find((h) => h.textContent?.includes('8:00-12:00')) as HTMLElement;
+    expect(slotHeader).toBeTruthy();
+
+    // Simulate: dragover (sets isDragging=true) → dragleave (should reset)
+    slotHeader.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }));
+    slotHeader.dispatchEvent(new Event('dragleave'));
+
+    // Now click should still toggle collapse (isDragging should be false)
+    slotHeader.click();
+
+    // If isDragging was properly reset, click should have collapsed the slot
+    // Re-render would remove the task items under that slot
+    const items = taskList.querySelectorAll('[data-slot="8:00-12:00"]');
+    expect(items).toHaveLength(0);
+  });
+
+  test('collapsed state is scoped per date and does not leak across days', () => {
+    const inst = createInstance({ instanceId: 'scope-1', slotKey: '8:00-12:00' });
+    const { host, renderer, taskList } = createHost([inst]);
+    host.isCollapsibleEnabled = () => true;
+
+    // Render for March 10 and collapse the 8:00-12:00 slot
+    host.currentDate = new Date(2026, 2, 10);
+    renderer.render();
+    const getSlotHeader = () => {
+      const headers = Array.from(taskList.querySelectorAll('.time-slot-header.tc-collapsible'));
+      return headers.find((h) => h.textContent?.includes('8:00-12:00')) as HTMLElement;
+    };
+    getSlotHeader().click(); // collapse
+
+    // Verify collapsed on March 10
+    expect(taskList.querySelectorAll('[data-slot="8:00-12:00"]')).toHaveLength(0);
+
+    // Switch to March 9 — slot should NOT be collapsed
+    host.currentDate = new Date(2026, 2, 9);
+    renderer.render();
+    expect(taskList.querySelectorAll('[data-slot="8:00-12:00"]')).toHaveLength(1);
+
+    // Switch back to March 10 — slot should still be collapsed
+    host.currentDate = new Date(2026, 2, 10);
+    renderer.render();
+    expect(taskList.querySelectorAll('[data-slot="8:00-12:00"]')).toHaveLength(0);
   });
 
   test('routine button is active when routine is enabled', () => {

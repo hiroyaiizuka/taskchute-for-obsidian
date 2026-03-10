@@ -20,6 +20,9 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   // Reminder defaults
   defaultReminderMinutes: 5,
 
+  // Collapsible time slots
+  collapsibleTimeSlots: false,
+
   // Google Calendar export (URL scheme push-only)
   googleCalendar: {
     enabled: false,
