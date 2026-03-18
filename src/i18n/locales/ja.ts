@@ -444,6 +444,11 @@ export const ja = {
       disambiguateStopTimeDateMessage: "入力された終了時刻は、開始日と翌日のどちらにも該当する可能性があります。",
       disambiguateStopTimeSameDay: "{date} (当日)",
       disambiguateStopTimeNextDay: "{date} (翌日)",
+      selectTime: "時刻を選択",
+      hour: "時",
+      minute: "分",
+      cancel: "キャンセル",
+      save: "保存",
     },
     calendar: {
       export: {
