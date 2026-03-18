@@ -593,6 +593,9 @@ export const ja = {
       previewTitle: "{date} の実行記録",
       prevDay: "前日",
       nextDay: "翌日",
+      minutesAgo: "{count}分前",
+      hoursAgo: "{count}時間前",
+      daysAgo: "{count}日前",
     },
     notices: {
       reloadSuccess: "{year}年のデータを更新しました",
