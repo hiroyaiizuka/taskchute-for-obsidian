@@ -1,6 +1,6 @@
 import { App, Notice, TFile } from "obsidian"
 
-import { t } from "../../../i18n"
+import { t, getCurrentLocale } from "../../../i18n"
 import { DATE_FORMAT_DISPLAY } from "../../../constants"
 
 import {
@@ -16,7 +16,7 @@ import {
 } from "../../../utils/fieldMigration"
 import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
-import { attachCloseButtonIcon } from "../../../ui/components/iconUtils"
+import { attachCloseButtonIcon, attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
@@ -246,11 +246,14 @@ export default class RoutineEditModal {
     datesGroup.createEl("label", {
       text: this.tv("fields.startDateLabel", "Start date:"),
     })
-    const startInput = datesGroup.createEl("input", { type: "date" })
-    startInput.value =
-      typeof frontmatter.routine_start === "string"
-        ? frontmatter.routine_start
-        : ""
+    const startValue = typeof frontmatter.routine_start === "string"
+      ? frontmatter.routine_start
+      : ""
+    const startInput = this.createDateInputWithIcon(
+      datesGroup,
+      startValue,
+      this.tv("fields.startDateLabel", "Start date:"),
+    )
     const endLabel = datesGroup.createEl("label", {
       text: this.tv("fields.endDateLabel", "End date:"),
     })
@@ -258,9 +261,12 @@ export default class RoutineEditModal {
       "routine-form__inline-label",
       "routine-form__inline-label--gap",
     )
-    const endInput = datesGroup.createEl("input", { type: "date" })
-    endInput.value =
-      typeof frontmatter.routine_end === "string" ? frontmatter.routine_end : ""
+    const endValue = typeof frontmatter.routine_end === "string" ? frontmatter.routine_end : ""
+    const endInput = this.createDateInputWithIcon(
+      datesGroup,
+      endValue,
+      this.tv("fields.endDateLabel", "End date:"),
+    )
 
     // Enabled toggle
     const enabledGroup = form.createEl("div", {
@@ -461,11 +467,11 @@ export default class RoutineEditModal {
           )
         }
 
-        const start = (startInput.value || "").trim()
-        const end = (endInput.value || "").trim()
-        const isDate = (value: string) =>
-          !value || /^\d{4}-\d{2}-\d{2}$/.test(value)
-        if (!isDate(start)) {
+        const resolvedStart = this.resolveDateInputValue(startInput)
+        const resolvedEnd = this.resolveDateInputValue(endInput)
+        const start = resolvedStart ?? ""
+        const end = resolvedEnd ?? ""
+        if (resolvedStart === null) {
           errors.push(
             this.tv(
               "errors.startDateFormat",
@@ -473,7 +479,7 @@ export default class RoutineEditModal {
             ),
           )
         }
-        if (!isDate(end)) {
+        if (resolvedEnd === null) {
           errors.push(
             this.tv(
               "errors.endDateFormat",
@@ -972,5 +978,132 @@ export default class RoutineEditModal {
       return `${y}-${m}-${d}`
     }
     return getToday()
+  }
+
+  private createDateInputWithIcon(
+    container: HTMLElement,
+    value: string,
+    ariaLabel: string,
+  ): HTMLInputElement {
+    const wrapper = container.createEl("div", { cls: "form-input-icon-wrapper" })
+    const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
+    const placeholder = getCurrentLocale() === "ja"
+      ? this.tv("fields.datePlaceholderJa", "年/月/日")
+      : this.tv("fields.datePlaceholderEn", "YYYY-MM-DD")
+    const displayInput = wrapper.createEl("input", {
+      type: "text",
+      cls: "form-input--date form-input--bare",
+      value: this.formatDateForDisplay(value),
+      attr: {
+        placeholder,
+        "aria-label": ariaLabel,
+      },
+    })
+    displayInput.setAttribute("inputmode", "numeric")
+    displayInput.setAttribute("autocomplete", "off")
+
+    const input = wrapper.createEl("input", {
+      type: "date",
+      cls: "form-input--date form-input--date-native",
+      value,
+    })
+    input.setAttribute("lang", localeCode)
+    input.setAttribute("tabindex", "-1")
+    input.setAttribute("aria-hidden", "true")
+
+    const extendedInput = input as HTMLInputElement & { __displayInput?: HTMLInputElement }
+    extendedInput.__displayInput = displayInput
+
+    const syncDisplayFromNative = () => {
+      displayInput.value = this.formatDateForDisplay(input.value)
+    }
+    const syncNativeFromDisplay = () => {
+      const normalized = this.normalizeDateInputText(displayInput.value)
+      if (normalized === null) return
+      input.value = normalized
+      displayInput.value = this.formatDateForDisplay(normalized)
+    }
+    input.addEventListener("change", syncDisplayFromNative)
+    displayInput.addEventListener("change", syncNativeFromDisplay)
+    displayInput.addEventListener("blur", syncNativeFromDisplay)
+
+    const button = wrapper.createEl("button", {
+      type: "button",
+      cls: "form-input-icon-button",
+      attr: {
+        "aria-label": ariaLabel,
+        title: ariaLabel,
+      },
+    })
+    attachCalendarButtonIcon(button)
+    button.addEventListener("click", (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const picker = input as HTMLInputElement & { showPicker?: () => void }
+      if (picker.showPicker) {
+        picker.showPicker()
+      } else {
+        input.focus()
+        input.click()
+      }
+    })
+    return input
+  }
+
+  private resolveDateInputValue(input: HTMLInputElement): string | null {
+    const displayInput = (input as HTMLInputElement & { __displayInput?: HTMLInputElement }).__displayInput
+    const raw = (displayInput?.value ?? input.value ?? "").trim()
+    const normalized = this.normalizeDateInputText(raw)
+    if (normalized === null) return null
+    input.value = normalized
+    if (displayInput) {
+      displayInput.value = this.formatDateForDisplay(normalized)
+    }
+    return normalized
+  }
+
+  private normalizeDateInputText(raw: string): string | null {
+    if (!raw) return ""
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (isoMatch) {
+      return this.toIsoDate(
+        parseInt(isoMatch[1] ?? "", 10),
+        parseInt(isoMatch[2] ?? "", 10),
+        parseInt(isoMatch[3] ?? "", 10),
+      )
+    }
+    const slashYmdMatch = raw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
+    if (slashYmdMatch) {
+      return this.toIsoDate(
+        parseInt(slashYmdMatch[1] ?? "", 10),
+        parseInt(slashYmdMatch[2] ?? "", 10),
+        parseInt(slashYmdMatch[3] ?? "", 10),
+      )
+    }
+    if (getCurrentLocale() !== "ja") {
+      const slashMdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+      if (slashMdyMatch) {
+        return this.toIsoDate(
+          parseInt(slashMdyMatch[3] ?? "", 10),
+          parseInt(slashMdyMatch[1] ?? "", 10),
+          parseInt(slashMdyMatch[2] ?? "", 10),
+        )
+      }
+    }
+    return null
+  }
+
+  private toIsoDate(year: number, month: number, day: number): string | null {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null
+    const date = new Date(year, month - 1, day)
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+    return `${year.toString().padStart(4, "0")}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`
+  }
+
+  private formatDateForDisplay(value: string): string {
+    if (!value) return ""
+    if (getCurrentLocale() === "ja") return value.replace(/-/g, "/")
+    return value
   }
 }

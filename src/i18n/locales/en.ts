@@ -592,6 +592,9 @@ export const en = {
       previewTitle: "Execution records for {date}",
       prevDay: "Previous day",
       nextDay: "Next day",
+      minutesAgo: "{count} min ago",
+      hoursAgo: "{count} hours ago",
+      daysAgo: "{count} days ago",
     },
     notices: {
       reloadSuccess: "Updated data for {year}",

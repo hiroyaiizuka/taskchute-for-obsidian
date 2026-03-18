@@ -14,6 +14,7 @@ import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { RecordsWriter } from './RecordsWriter'
 import { parseCursorSnapshotRevision, parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'
+import { t } from '../../../i18n'
 
 export interface BackupEntry {
   path: string
@@ -501,11 +502,11 @@ export class BackupRestoreService {
     const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
 
     if (diffMinutes < 60) {
-      return `${diffMinutes}分前`
+      return t('logView.restore.minutesAgo', `${diffMinutes} min ago`, { count: diffMinutes })
     } else if (diffHours < 24) {
-      return `${diffHours}時間前`
+      return t('logView.restore.hoursAgo', `${diffHours} hours ago`, { count: diffHours })
     } else {
-      return `${diffDays}日前`
+      return t('logView.restore.daysAgo', `${diffDays} days ago`, { count: diffDays })
     }
   }
 

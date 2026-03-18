@@ -5,6 +5,7 @@ import { LogSnapshotWriter } from '../../src/features/log/services/LogSnapshotWr
 import { LogReconciler } from '../../src/features/log/services/LogReconciler'
 import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
 import { RecordsWriter } from '../../src/features/log/services/RecordsWriter'
+import { initializeLocaleManager, setLocaleOverride } from '../../src/i18n'
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>
@@ -864,6 +865,11 @@ describe('BackupRestoreService', () => {
   })
 
   describe('formatRelativeTime', () => {
+    beforeEach(() => {
+      initializeLocaleManager('en')
+      setLocaleOverride('en')
+    })
+
     test('formats hours correctly', () => {
       const { plugin } = createRestoreContext()
       const service = new BackupRestoreService(plugin)
@@ -884,6 +890,19 @@ describe('BackupRestoreService', () => {
       const label = service.formatRelativeTime(threeDaysAgo, now)
 
       expect(label).toMatch(/3.*日前|3 days? ago/i)
+    })
+
+    test('uses logView.restore translation keys for ja locale', () => {
+      const { plugin } = createRestoreContext()
+      const service = new BackupRestoreService(plugin)
+      setLocaleOverride('ja')
+
+      const now = new Date('2026-03-18T12:00:00.000Z')
+      const twoHoursAgo = new Date('2026-03-18T10:00:00.000Z')
+      const threeDaysAgo = new Date('2026-03-15T12:00:00.000Z')
+
+      expect(service.formatRelativeTime(twoHoursAgo, now)).toBe('2時間前')
+      expect(service.formatRelativeTime(threeDaysAgo, now)).toBe('3日前')
     })
   })
 
