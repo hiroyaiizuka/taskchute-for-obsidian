@@ -59,7 +59,7 @@ memory/
 
 ### 検索
 ```bash
-/Users/hiroyaiizuka/.local/bin/bm -p taskchute-plus-memory tool search-notes "{検索語}"
+/Users/hiroyaiizuka/.local/bin/bm tool search-notes "{検索語}" --project taskchute-plus-memory
 ```
 ## Environment & tooling
 
