@@ -53,8 +53,8 @@ export class MobileTimePicker implements TimePicker {
     const header = document.createElement('div')
     header.classList.add('taskchute-mobile-time-picker-header')
     header.textContent = options.tv
-      ? options.tv('forms.selectTime', '時刻を選択')
-      : '時刻を選択'
+      ? options.tv('forms.selectTime', 'Select time')
+      : 'Select time'
     this.containerEl.appendChild(header)
 
     // Wheels container
@@ -72,7 +72,7 @@ export class MobileTimePicker implements TimePicker {
 
     const hourLabel = document.createElement('div')
     hourLabel.classList.add('taskchute-mobile-time-picker-label')
-    hourLabel.textContent = options.tv ? options.tv('forms.hour', '時') : '時'
+    hourLabel.textContent = options.tv ? options.tv('forms.hour', 'H') : 'H'
     hourSection.appendChild(hourLabel)
 
     wheelsContainer.appendChild(hourSection)
@@ -94,7 +94,7 @@ export class MobileTimePicker implements TimePicker {
 
     const minuteLabel = document.createElement('div')
     minuteLabel.classList.add('taskchute-mobile-time-picker-label')
-    minuteLabel.textContent = options.tv ? options.tv('forms.minute', '分') : '分'
+    minuteLabel.textContent = options.tv ? options.tv('forms.minute', 'M') : 'M'
     minuteSection.appendChild(minuteLabel)
 
     wheelsContainer.appendChild(minuteSection)
@@ -130,8 +130,8 @@ export class MobileTimePicker implements TimePicker {
       'taskchute-mobile-time-picker-btn-cancel',
     )
     cancelBtn.textContent = options.tv
-      ? options.tv('forms.cancel', 'キャンセル')
-      : 'キャンセル'
+      ? options.tv('forms.cancel', 'Cancel')
+      : 'Cancel'
     cancelBtn.addEventListener('click', this.handleCancel)
     buttonsContainer.appendChild(cancelBtn)
 
@@ -142,7 +142,7 @@ export class MobileTimePicker implements TimePicker {
       'taskchute-mobile-time-picker-btn',
       'taskchute-mobile-time-picker-btn-save',
     )
-    saveBtn.textContent = options.tv ? options.tv('forms.save', '保存') : '保存'
+    saveBtn.textContent = options.tv ? options.tv('forms.save', 'Save') : 'Save'
     saveBtn.addEventListener('click', this.handleSave)
     buttonsContainer.appendChild(saveBtn)
 

@@ -445,6 +445,11 @@ export const en = {
       disambiguateStopTimeDateMessage: "The stop time you entered could apply to the start day or the next day.",
       disambiguateStopTimeSameDay: "{date} (same day)",
       disambiguateStopTimeNextDay: "{date} (next day)",
+      selectTime: "Select time",
+      hour: "H",
+      minute: "M",
+      cancel: "Cancel",
+      save: "Save",
     },
     calendar: {
       export: {
