@@ -314,6 +314,8 @@ export class TaskChuteView
         this.removeTaskLogForInstanceOnCurrentDate(instanceId, taskId),
       getCurrentDate: () => new Date(this.currentDate),
       getSectionConfig: () => this.sectionConfig,
+      syncDuplicateSlotWithScheduledTime: (inst, params) =>
+        this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
     })
     this.taskCreationController = new TaskCreationController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),

@@ -168,6 +168,27 @@ describe('ScheduledTimeModal', () => {
     expect(document.querySelector('.scheduled-time-modal')).toBeNull()
   })
 
+  test('calls onScheduledTimeSaved with previous and next scheduled time', async () => {
+    const host = createHost()
+    const onScheduledTimeSaved = jest.fn().mockResolvedValue(undefined)
+    Object.assign(host, { onScheduledTimeSaved })
+    const instance = createInstance()
+    const modal = new ScheduledTimeModal({ host, instance })
+
+    modal.open()
+
+    const input = document.querySelector('.scheduled-time-form input[type="time"]') as HTMLInputElement
+    input.value = '09:15'
+    const form = document.querySelector('.scheduled-time-form') as HTMLFormElement
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(onScheduledTimeSaved).toHaveBeenCalledWith(instance, {
+      previousScheduledTime: '08:30',
+      nextScheduledTime: '09:15',
+    })
+  })
+
   test('clearing value removes scheduled time', async () => {
     const host = createHost()
     const instance = createInstance()

@@ -3,11 +3,13 @@ import { t } from '../../../i18n'
 import type { TaskChutePluginLike } from '../../../types'
 import { TaskIdManager, extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
+import { getScheduledTime } from '../../../utils/fieldMigration'
+import { SectionConfigService } from '../../../services/SectionConfigService'
 
 export class TaskReuseService {
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
-  async reuseTaskAtDate(path: string, dateStr: string, slotKey: string = 'none'): Promise<TFile> {
+  async reuseTaskAtDate(path: string, dateStr: string, slotKey?: string): Promise<TFile> {
     const file = this.plugin.app.vault.getAbstractFileByPath(path)
     if (!(file instanceof TFile)) {
       throw new Error(
@@ -27,7 +29,7 @@ export class TaskReuseService {
     return file
   }
 
-  private async recordDuplicateForDate(file: TFile, dateStr: string, slotKey: string): Promise<void> {
+  private async recordDuplicateForDate(file: TFile, dateStr: string, slotKey?: string): Promise<void> {
     const date = this.plugin.dayStateService.getDateFromKey(dateStr)
     const dayState = (await this.plugin.dayStateService.loadDay(date))
     if (!Array.isArray(dayState.duplicatedInstances)) {
@@ -79,6 +81,8 @@ export class TaskReuseService {
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)
+    const scheduledTime = getScheduledTime(metadata?.frontmatter as Record<string, unknown> | undefined)
+    const resolvedSlotKey = this.resolveSlotKey(slotKey, scheduledTime)
     let taskId = extractTaskIdFromFrontmatter(metadata?.frontmatter as Record<string, unknown> | undefined)
     if (!taskId) {
       try {
@@ -91,7 +95,7 @@ export class TaskReuseService {
     dayState.duplicatedInstances.push({
       instanceId: this.generateInstanceId(file.basename, dateStr),
       originalPath: file.path,
-      slotKey,
+      slotKey: resolvedSlotKey,
       timestamp,
       createdMillis: timestamp,
       originalTaskId: taskId,
@@ -107,5 +111,16 @@ export class TaskReuseService {
     }
     const random = Math.random().toString(36).slice(2, 10)
     return `reuse-${seed}-${dateStr}-${random}`
+  }
+
+  private resolveSlotKey(slotKey: string | undefined, scheduledTime: string | undefined): string {
+    if (typeof slotKey === 'string' && slotKey.trim().length > 0) {
+      return slotKey
+    }
+    if (!scheduledTime) {
+      return 'none'
+    }
+    const sectionConfig = new SectionConfigService(this.plugin.settings.customSections)
+    return sectionConfig.calculateSlotKeyFromTime(scheduledTime) ?? 'none'
   }
 }
