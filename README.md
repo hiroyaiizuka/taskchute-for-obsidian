@@ -1,135 +1,130 @@
 # TaskChute Plus
 
-**Execute tasks, don't just organize them - The path emerges where you walk**
+[English](./README.md) | [日本語](./README.ja.md)
+
+**Execute tasks, don't just organize them.**
 
 ![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
 
-TaskChute Plus brings the revolutionary TaskChute methodology to Obsidian, transforming your task management from endless planning to continuous execution.
+TaskChute Plus is an Obsidian plugin focused on execution-first task management:
+you decide what to do now, run it, and keep a reliable log of what actually happened.
 
-## 🌟 The TaskChute Philosophy
+## What You Can Do
 
-Traditional task management is like a map - it shows you where to go but leaves you to figure out how. TaskChute is like GPS navigation - it tells you "turn right at the next corner" and guides you through actual execution.
+- Manage daily tasks in one TaskChute view with date navigation.
+- Start/stop tasks and track actual execution time.
+- Group tasks by configurable time slots plus a `No time` section.
+- Create and run routines (daily, weekly, monthly patterns).
+- Move, duplicate, reset, and delete task instances with day-state persistence.
+- Link tasks to projects and open project board views.
+- Review history from execution logs and yearly heatmap data.
+- Set reminder times per task.
+- Export tasks to Google Calendar URL scheme.
+- Use Japanese/English UI (or follow Obsidian language).
 
-### The Core Difference
+## Commands
 
-| Aspect | Todo List | TaskChute |
-|--------|-----------|-----------|
-| **Where to focus?** | Future (Goals) | Present |
-| **Planning approach** | Plan backwards from goals | Build forward from reality |
-| **Task organization** | By priority | By execution order |
-| **What matters in tasks?** | Completing them | Starting them |
-| **When tasks end** | They disappear | They remain as logs |
-| **When stuck** | Revise the plan | Refer to the record |
+Available from Obsidian Command Palette:
 
-## ✨ Key Features
+- `Open TaskChute`
+- `TaskChute settings`
+- `Show today's tasks`
+- `Reorganize idle tasks to current slot`
+- `Duplicate selected task` (when TaskChute view is active)
+- `Delete selected task` (when TaskChute view is active)
+- `Reset selected task` (when TaskChute view is active)
 
-### 🎯 **Execution-Focused Task Management**
-- **Automatic task detection**: Identifies notes with `#task` tag automatically
-- **Real-time status tracking**: Pending (⏸), Running (▶️), Completed (☑️)
-- **1-minute rule**: Start any task for just 1 minute to achieve zero procrastination
-- **Log-based routines**: Build routines from actual execution patterns, not wishful thinking
+## Getting Started
 
-### ⏰ **Time-Based Organization**
-- **Time slot management**: Organize tasks by when you'll do them (Morning/Afternoon/Evening/Night)
-- **Dynamic task flow**: Automatic idle task migration to current time slots
-- **Actual vs Estimated**: Track real time spent to improve future estimates
-- **Daily constraints**: Focus on today only - tomorrow's plan is tomorrow's problem
+### Install in Obsidian
 
-### 📊 **Visual Progress & Reflection**
-- **Daily Review**: Focus/fatigue graphs with task comments
-- **Procrastination Heatmap**: GitHub-style visualization of task procrastination
+1. Open `Settings -> Community plugins`.
+2. Install/enable `TaskChute Plus`.
+3. Run the command `Open TaskChute`.
 
-### 🔄 **Smart Routine Management**
-- **Flexible scheduling**: Daily, weekly, monthly patterns with specific day selection
-- **History preservation**: Maintains execution history even when routine names change
-- **Cross-day movement**: Enable temporary rescheduling for routine tasks
-- **Pattern-based creation**: Generate routines from successful execution logs
+### First Task
 
-### ⚡ **Frictionless Execution**
-- **Quick capture**: Create tasks with simple `#task` tags
-- **Hotkey access**: Option+T (Mac) / Alt+T (Win/Linux) for today's tasks
-- **Drag & drop**: Intuitive task reorganization with visual indicators
-- **Auto-completion**: Smart suggestions from existing task and project names
+You can create tasks from the TaskChute UI, or manually create a note in your task folder.
 
-## 🚀 Getting Started
+Minimal manual example:
 
-### Installation
-1. Open Obsidian Settings
-2. Go to Community Plugins
-3. Search for "TaskChute Plus"
-4. Install and Enable
-
-### Basic Usage
-
-#### Create Your First Task
-1. Create a Markdown file in `TaskChute/Task/` folder
-2. Add `#task` tag to the file
-3. The task appears in TaskChute view automatically
-
-#### Start Small
-- Begin with just 3 tasks for today
-- Focus on starting, not completing
-- Track actual time, not estimates
-- Build routines from successful patterns
-
-#### Execute and Log
-1. Open TaskChute view
-2. Click ▶️ to start a task
-3. Click ⏹ to stop
-4. Completed tasks show ☑️
-5. All executions are logged automatically
-
-## ⚙️ Configuration
-
-Access plugin settings through: Settings → Community Plugins → TaskChute Plus
-
-### Path Configuration
-- **Task folder**: Where task files are stored (default: `TaskChute/Task/`)
-- **Project folder**: Project files location (default: `TaskChute/Project/`)
-- **Log folder**: Execution history storage (default: `TaskChute/Log/`)
-
-### Execution Log Backups
-- **Backup interval (hours)**: Minimum time between automatic JSON snapshot backups. Default is 24 hours.
-- **Backup retention (days)**: Backups older than this window are deleted automatically (default: 30 days).
-
-## 📈 Advanced Features
-
-### Reminders
-Get notified before your scheduled tasks begin:
-- **Customizable timing**: Set reminder notifications minutes before task start time
-- **Per-task settings**: Configure individual reminder times for each task
-- **Smart detection**: Automatically skips notifications when you're actively working (typing)
-- **System notifications**: Desktop notifications to keep you on track
-
-### Daily Review
-Requires Dataview and Obsidian Charts plugins for visualization:
-- Time-based focus/fatigue tracking
-- Comprehensive task comment overview
-- Visual progress analysis
-
-### Procrastination Heatmap
-GitHub-style contribution graph showing:
-- Annual task procrastination patterns
-- Special blue animation for zero-procrastination days
-- Click navigation to specific dates
-
-
-## 🤝 Community & Support
-
-- **GitHub**: [Report issues and contribute](https://github.com/hiroyaiizuka/taskchute-plus)
-- **Discussions**: Share your execution stories and tips
-- **Documentation**: Comprehensive guides and tutorials
-
-## 📝 License
-
-MIT License
-
-## 👤 Author
-
-Hiroya Iizuka
-
+```md
+---
+tags:
+  - task
+target_date: "2026-04-16"
+scheduled_time: "09:00"
 ---
 
-**Remember**: TaskChute Plus doesn't help you organize tasks better - it helps you execute them. It's not about having the perfect plan; it's about taking the next step, logging it, and building from what actually works.
+# Online consultation
+```
 
-> **"The path emerges where you walk"** - This is the essence of TaskChute.
+`#task` in note body is also supported for legacy compatibility.
+
+## Settings Overview
+
+Open `TaskChute settings` to configure:
+
+- Storage location mode (`vaultRoot` or `specifiedFolder`)
+- Project folder path (optional, independent path)
+- Review template path and filename pattern
+- Language override (`auto`, `en`, `ja`)
+- Reminder default minutes
+- Backup interval/retention for execution snapshots
+- Custom time-slot boundaries and collapsible slot UI
+- Google Calendar export defaults
+
+Current default values in code:
+
+- `backupIntervalHours: 2`
+- `backupRetentionDays: 1`
+- `defaultReminderMinutes: 5`
+- `locationMode: vaultRoot`
+
+## Default Paths
+
+With default `vaultRoot` mode, TaskChute-managed folders are:
+
+- `TaskChute/Task`
+- `TaskChute/Log`
+- `TaskChute/Review`
+
+`projectsFolder` is intentionally unset by default and can be configured separately.
+
+## Development
+
+### Requirements
+
+- Node.js 18+
+- npm
+
+### Setup
+
+```bash
+npm install
+```
+
+### Scripts
+
+```bash
+npm run dev       # esbuild watch
+npm run build     # production bundle
+npm run lint      # eslint for src/tests
+npm test          # jest
+```
+
+### Release Artifacts
+
+Obsidian loads these files from the plugin root:
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+## License
+
+MIT
+
+## Author
+
+Hiroya Iizuka
