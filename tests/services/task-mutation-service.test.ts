@@ -468,6 +468,59 @@ describe('TaskMutationService', () => {
     expect(host.renderTaskList).toHaveBeenCalled()
   })
 
+  test('syncDuplicateSlotWithScheduledTime moves duplicate from none to scheduled slot', async () => {
+    const task = createTask('TASKS/dup-sync.md', { taskId: 'tc-task-dup-sync', isRoutine: false })
+    const inst: TaskInstance = {
+      task,
+      instanceId: 'dup-sync-1',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [inst], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-sync-1',
+      originalPath: task.path,
+      slotKey: 'none',
+      originalTaskId: task.taskId,
+    })
+    const service = new TaskMutationService(host)
+    const moveSpy = jest.spyOn(service, 'moveInstanceToSlot').mockResolvedValue(undefined)
+
+    await service.syncDuplicateSlotWithScheduledTime(inst, {
+      nextScheduledTime: '09:00',
+    })
+
+    expect(moveSpy).toHaveBeenCalledWith(inst, '8:00-12:00')
+    moveSpy.mockRestore()
+  })
+
+  test('syncDuplicateSlotWithScheduledTime keeps manual slot override for duplicate', async () => {
+    const task = createTask('TASKS/dup-manual.md', { taskId: 'tc-task-dup-manual', isRoutine: false })
+    const inst: TaskInstance = {
+      task,
+      instanceId: 'dup-manual-1',
+      state: 'idle',
+      slotKey: '16:00-0:00',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [inst], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-manual-1',
+      originalPath: task.path,
+      slotKey: '16:00-0:00',
+      originalTaskId: task.taskId,
+    })
+    const service = new TaskMutationService(host)
+    const moveSpy = jest.spyOn(service, 'moveInstanceToSlot').mockResolvedValue(undefined)
+
+    await service.syncDuplicateSlotWithScheduledTime(inst, {
+      previousScheduledTime: '09:00',
+      nextScheduledTime: '10:00',
+    })
+
+    expect(moveSpy).not.toHaveBeenCalled()
+    moveSpy.mockRestore()
+  })
+
   test('moveInstanceToSlot handles failure and restores previous slot', async () => {
     const task = createTask('TASKS/error-move.md')
     const inst: TaskInstance = {

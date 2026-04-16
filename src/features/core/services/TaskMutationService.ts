@@ -349,6 +349,41 @@ export default class TaskMutationService {
     return dayState.duplicatedInstances.some((entry) => entry.instanceId === inst.instanceId)
   }
 
+  async syncDuplicateSlotWithScheduledTime(
+    inst: TaskInstance,
+    params: { previousScheduledTime?: string; nextScheduledTime?: string },
+  ): Promise<void> {
+    if (!inst?.task || inst.task.isRoutine) {
+      return
+    }
+
+    await this.host.ensureDayStateForCurrentDate()
+    if (!this.isDuplicatedTask(inst)) {
+      return
+    }
+
+    const sectionConfig = this.host.getSectionConfig()
+    const previousSlot = params.previousScheduledTime
+      ? sectionConfig.calculateSlotKeyFromTime(params.previousScheduledTime)
+      : undefined
+    const nextSlot = params.nextScheduledTime
+      ? sectionConfig.calculateSlotKeyFromTime(params.nextScheduledTime)
+      : undefined
+    const currentSlot = inst.slotKey || 'none'
+    const shouldSync = currentSlot === 'none' || (previousSlot !== undefined && currentSlot === previousSlot)
+
+    if (!shouldSync) {
+      return
+    }
+
+    const targetSlot = nextSlot ?? 'none'
+    if (targetSlot === currentSlot) {
+      return
+    }
+
+    await this.moveInstanceToSlot(inst, targetSlot)
+  }
+
   async moveInstanceToSlot(inst: TaskInstance, newSlot: string, stateInsertIndex?: number): Promise<void> {
     const previousSlot = inst.slotKey ?? 'none'
     const previousOrder = inst.order

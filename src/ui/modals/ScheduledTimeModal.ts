@@ -18,6 +18,10 @@ export interface ScheduledTimeModalHost {
     }
   }
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
+  onScheduledTimeSaved?: (
+    instance: TaskInstance,
+    params: { previousScheduledTime?: string; nextScheduledTime?: string },
+  ) => Promise<void>
 }
 
 export interface ScheduledTimeModalOptions {
@@ -95,6 +99,8 @@ export default class ScheduledTimeModal extends Modal {
       void (async () => {
         event.preventDefault()
         const value = input.value.trim()
+        const previousScheduledTime = getScheduledTime(instance.task.frontmatter || {}) || undefined
+        const nextScheduledTime = value || undefined
         try {
           const path = instance.task.path
           if (!path) {
@@ -109,6 +115,16 @@ export default class ScheduledTimeModal extends Modal {
           await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
             setScheduledTime(frontmatter, value || undefined, { preferNew: true })
           })
+          if (typeof host.onScheduledTimeSaved === 'function') {
+            try {
+              await host.onScheduledTimeSaved(instance, {
+                previousScheduledTime,
+                nextScheduledTime,
+              })
+            } catch (error) {
+              console.warn('[ScheduledTimeModal] Failed to sync duplicate slot', error)
+            }
+          }
           await host.reloadTasksAndRestore({ runBoundaryCheck: true })
           new Notice(
             value

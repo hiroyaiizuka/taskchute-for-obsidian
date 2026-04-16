@@ -91,6 +91,22 @@ describe('TaskReuseService', () => {
     expect(NoticeMock).toHaveBeenCalled()
   })
 
+  test('reuseTaskAtDate derives duplicate slot from scheduled_time when slot is omitted', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+    const metadataCache = plugin.app.metadataCache as { getFileCache: jest.Mock }
+    metadataCache.getFileCache.mockReturnValue({
+      frontmatter: { taskId: 'tc-task-sample', scheduled_time: '09:00' },
+    })
+    const service = new TaskReuseService(plugin)
+
+    await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+    expect(dayState.duplicatedInstances[0]?.slotKey).toBe('8:00-12:00')
+  })
+
   test('reuseTaskAtDate marks path-level hidden as restored and records duplicate', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService

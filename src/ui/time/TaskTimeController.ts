@@ -27,13 +27,32 @@ export interface TaskTimeControllerHost {
   getCurrentDate: () => Date
   disambiguateStopTimeDate?: (sameDayDate: Date, nextDayDate: Date) => Promise<'same-day' | 'next-day' | 'cancel'>
   getSectionConfig: () => SectionConfigService
+  syncDuplicateSlotWithScheduledTime?: (
+    inst: TaskInstance,
+    params: { previousScheduledTime?: string; nextScheduledTime?: string },
+  ) => Promise<void>
 }
 
 export default class TaskTimeController {
   constructor(private readonly host: TaskTimeControllerHost) {}
 
   showScheduledTimeEditModal(inst: TaskInstance): void {
-    const modal = new ScheduledTimeModal({ host: this.host, instance: inst })
+    const modal = new ScheduledTimeModal({
+      host: {
+        tv: this.host.tv,
+        app: this.host.app,
+        reloadTasksAndRestore: this.host.reloadTasksAndRestore,
+        onScheduledTimeSaved: async (
+          instance,
+          params,
+        ) => {
+          if (typeof this.host.syncDuplicateSlotWithScheduledTime === 'function') {
+            await this.host.syncDuplicateSlotWithScheduledTime(instance, params)
+          }
+        },
+      },
+      instance: inst,
+    })
     modal.open()
   }
 
