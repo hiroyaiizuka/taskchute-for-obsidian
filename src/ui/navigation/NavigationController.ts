@@ -27,6 +27,7 @@ interface NavigationControllerHost extends NavigationSectionHost {
 
 export default class NavigationController {
   private readonly sectionController: NavigationSectionController
+  private navMenu?: HTMLElement
 
   constructor(
     private readonly view: NavigationControllerHost,
@@ -64,17 +65,37 @@ export default class NavigationController {
     })
     const navMenu = panel.createEl('nav', { cls: 'navigation-nav' })
     const navContent = panel.createEl('div', { cls: 'navigation-content' })
+    this.navMenu = navMenu
 
     this.view.navigationOverlay = overlay
     this.view.navigationPanel = panel
     this.view.navigationContent = navContent
 
+    this.renderNavigationItems(navMenu)
+  }
+
+  refreshNavigationItems(): void {
+    if (!this.navMenu) return
+    while (this.navMenu.firstChild) {
+      this.navMenu.removeChild(this.navMenu.firstChild)
+    }
+    this.renderNavigationItems(this.navMenu)
+  }
+
+  private isRecipeFeatureEnabled(): boolean {
+    return this.view.plugin.settings.recipeFeatureEnabled === true
+  }
+
+  private renderNavigationItems(navMenu: HTMLElement): void {
     const items: NavigationItem[] = [
-      { key: 'routine', label: this.view.tv('navigation.routine', 'Routine'), icon: '🔄' },
-      { key: 'review', label: this.view.tv('navigation.review', 'Review'), icon: '📋' },
-      { key: 'log', label: this.view.tv('navigation.log', 'Log'), icon: '📊' },
-      { key: 'projects', label: this.view.tv('navigation.projects', 'Projects'), icon: '📁' },
-      { key: 'settings', label: this.view.tv('navigation.settings', 'Settings'), icon: '⚙️' },
+      { key: 'routine', label: this.view.tv('navigation.routine', 'ルーチン'), icon: '🔄' },
+      { key: 'review', label: this.view.tv('navigation.review', 'デビュー'), icon: '📋' },
+      { key: 'log', label: this.view.tv('navigation.log', 'ログ'), icon: '📊' },
+      ...(this.isRecipeFeatureEnabled()
+        ? [{ key: 'recipes' as const, label: this.view.tv('navigation.recipes', 'レシピ'), icon: '📄' }]
+        : []),
+      { key: 'projects', label: this.view.tv('navigation.projects', 'プロジェクト'), icon: '📁' },
+      { key: 'settings', label: this.view.tv('navigation.settings', '設定'), icon: '⚙️' },
     ]
 
     items.forEach((item) => {

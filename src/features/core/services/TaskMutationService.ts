@@ -88,6 +88,7 @@ export default class TaskMutationService {
         slotKey,
         originalSlotKey,
         createdMillis,
+        isDuplicate: true,
       }
 
       this.assignDuplicateOrder(newInstance, inst)

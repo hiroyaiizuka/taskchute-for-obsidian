@@ -17,6 +17,7 @@ import DayStateStoreService from '../../../services/DayStateStoreService'
 import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
 import type { SectionConfigService } from '../../../services/SectionConfigService'
+import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -380,6 +381,7 @@ function createTaskFromExecutions(
     project: toStringField(metadata?.project),
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
+    recipePath: normalizeRecipeReference(metadata?.recipe),
     isRoutine: isRoutineTask,
     createdMillis,
     routine_type: isRoutineTask ? metadata?.routine_type : undefined,
@@ -438,6 +440,7 @@ async function createNonRoutineTask(
     project: toStringField(metadata?.project),
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
+    recipePath: normalizeRecipeReference(metadata?.recipe),
     isRoutine: isRoutineTask,
     createdMillis,
     routine_type: isRoutineTask ? metadata?.routine_type : undefined,
@@ -641,6 +644,7 @@ async function createRoutineTask(
     project: toStringField(metadata.project),
     projectPath: projectInfo?.path,
     projectTitle: projectInfo?.title,
+    recipePath: normalizeRecipeReference(metadata.recipe),
     isRoutine: true,
     createdMillis,
     routine_type: rule.type,
@@ -938,7 +942,18 @@ async function addDuplicatedInstances(
     for (const record of records) {
       const { instanceId, originalPath, slotKey } = record
       if (!instanceId || !originalPath) continue
-      if (context.taskInstances.some((instance) => instance.instanceId === instanceId)) {
+      const existingInstance = context.taskInstances.find((instance) => instance.instanceId === instanceId)
+      if (existingInstance) {
+        existingInstance.isDuplicate = true
+        if (!existingInstance.originalSlotKey && record.originalSlotKey) {
+          existingInstance.originalSlotKey = record.originalSlotKey
+        }
+        if (!existingInstance.createdMillis && (record.createdMillis ?? record.timestamp)) {
+          existingInstance.createdMillis = record.createdMillis ?? record.timestamp
+        }
+        if (!existingInstance.task.taskId && record.originalTaskId) {
+          existingInstance.task.taskId = record.originalTaskId
+        }
         continue
       }
 
@@ -960,6 +975,7 @@ async function addDuplicatedInstances(
               project: toStringField(metadata.project),
               projectPath: projectInfo?.path,
               projectTitle: projectInfo?.title,
+              recipePath: normalizeRecipeReference(metadata.recipe),
               isRoutine: metadata.isRoutine === true,
               scheduledTime: getScheduledTime(metadata) || undefined,
               reminder_time: normalizeReminderTime(metadata.reminder_time),
@@ -999,6 +1015,7 @@ async function addDuplicatedInstances(
           ?? DEFAULT_SLOT_KEY,
         date: dateKey,
         createdMillis,
+        isDuplicate: true,
         ...(matchedExecution ? {
           startTime: parseDateTime(matchedExecution.startTime, dateKey),
           stopTime: parseDateTime(matchedExecution.stopTime, dateKey),

@@ -244,6 +244,26 @@ describe('TaskListRenderer', () => {
     expect(button?.classList.contains('active')).toBe(false);
   });
 
+  test('does not render recipe badge when recipe feature is disabled', () => {
+    const instance = createInstance({
+      task: {
+        name: 'Recipe task',
+        path: 'TASKS/recipe.md',
+        recipePath: 'TaskChute/Recipes/Gym.md',
+        isRoutine: false,
+      } as TaskData,
+    });
+    const { host, taskList } = createHost([instance]);
+    host.getRecipeProgressSummary = jest.fn(async () => ({ total: 1, checked: 0 }));
+    host.showRecipeRunPopover = jest.fn();
+    host.isRecipeFeatureEnabled = () => false;
+    const renderer = new TaskListRenderer(host);
+
+    renderer.render();
+
+    expect(taskList.querySelector('.recipe-task-badge')).toBeNull();
+  });
+
   test('dragleave on slot header resets isDragging so click still works', () => {
     const inst = createInstance({ instanceId: 'drag-1', slotKey: '8:00-12:00' });
     const { host, renderer, taskList } = createHost([inst]);

@@ -491,9 +491,54 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     })
 
     const content = details.createEl('div', { cls: 'taskchute-advanced-content' })
+    this.renderRecipeFeatureSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
+  }
+
+  private renderRecipeFeatureSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.recipe.heading", "Recipes"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(t("settings.recipe.enable", "Enable recipe feature"))
+      .setDesc(
+        t(
+          "settings.recipe.enableDesc",
+          "Show recipe setup and management entry points in the task menu and side navigation.",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.recipeFeatureEnabled ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.recipeFeatureEnabled = value
+            await this.plugin.saveSettings()
+            this.notifyRecipeFeatureSettingsChanged()
+          })
+      })
+  }
+
+  private notifyRecipeFeatureSettingsChanged(): void {
+    const workspace = this.app.workspace as {
+      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
+    }
+    const leaves = typeof workspace.getLeavesOfType === "function"
+      ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+      : []
+    leaves.forEach((leaf) => {
+      const view = leaf.view as {
+        onRecipeFeatureSettingsChanged?: () => void
+        renderTaskList?: () => void
+      } | undefined
+      if (typeof view?.onRecipeFeatureSettingsChanged === "function") {
+        view.onRecipeFeatureSettingsChanged()
+        return
+      }
+      view?.renderTaskList?.()
+    })
   }
 
   private renderSectionCustomization(container: HTMLElement): void {

@@ -66,9 +66,13 @@ import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsMod
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
 import { SectionConfigService } from "../../../services/SectionConfigService"
 import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
+import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/services/RecipeService"
+import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
+import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
+import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
 
 class NavigationStateManager implements NavigationState {
-  selectedSection: "routine" | "review" | "log" | "settings" | null = null
+  selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
 
@@ -108,6 +112,8 @@ export class TaskChuteView
   public readonly routineController: RoutineController
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
+  public readonly recipeService: RecipeService
+  private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
 
   // Date Navigation
@@ -236,6 +242,21 @@ export class TaskChuteView
     this.taskReuseService = new TaskReuseService(this.plugin)
     this.taskLoader = new TaskLoaderService()
     this.taskReloadCoordinator = new TaskReloadCoordinator(this)
+    this.recipeService = new RecipeService(this.plugin)
+    this.recipeRunPopover = new RecipeRunPopover({
+      service: this.recipeService,
+      getDateKey: () => this.getCurrentDateString(),
+      getProgress: (key, dateKey) => this.dayStateManager.getRecipeProgress(dateKey)[key],
+      setProgress: (key, progress, dateKey) => this.dayStateManager.setRecipeProgress(key, progress, dateKey),
+      openRecipeEditor: (path) => {
+        if (!this.isRecipeFeatureEnabled()) return
+        new RecipeManagerModal(this.app, this.plugin, {
+          initialRecipePath: path,
+          onRecipesChanged: () => this.reloadTasksAndRestore({ runBoundaryCheck: true }),
+        }).open()
+      },
+      onProgressChanged: () => this.renderTaskList(),
+    })
     this.navigationController = new NavigationController(this)
     this.projectController = new ProjectController({
       app: this.app,
@@ -386,6 +407,9 @@ export class TaskChuteView
       hasExecutionHistory: (path) => this.hasExecutionHistory(path),
       showDeleteConfirmDialog: (inst) => this.showDeleteConfirmDialog(inst),
       showReminderSettingsDialog: (inst) => this.showReminderSettingsDialog(inst),
+      showRecipeSelectModal: (inst) => this.showRecipeSelectModal(inst),
+      hasRecipeAssigned: (inst) => this.recipeService.hasRecipe(inst.task.recipePath),
+      isRecipeFeatureEnabled: () => this.isRecipeFeatureEnabled(),
       openGoogleCalendarExport: (inst) =>
         this.openGoogleCalendarExport(inst),
       isGoogleCalendarEnabled: () =>
@@ -509,6 +533,9 @@ export class TaskChuteView
       showStartTimePopup: (inst, anchor) => view.showStartTimePopup(inst, anchor),
       showStopTimePopup: (inst, anchor) => view.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => view.showReminderSettingsModal(inst),
+      getRecipeProgressSummary: (inst) => view.getRecipeProgressSummary(inst),
+      showRecipeRunPopover: (inst, anchor) => view.showRecipeRunPopover(inst, anchor),
+      isRecipeFeatureEnabled: () => view.isRecipeFeatureEnabled(),
       isCollapsibleEnabled: () => view.plugin.settings.collapsibleTimeSlots ?? false,
       updateTotalTasksCount: () => view.updateTotalTasksCount(),
       showProjectModal: (inst) => view.projectController.showProjectModal(inst),
@@ -620,6 +647,7 @@ export class TaskChuteView
 
   async onClose(): Promise<void> {
     this.isClosingOrClosed = true
+    this.recipeRunPopover.close()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -1132,6 +1160,10 @@ export class TaskChuteView
 
   renderTaskList(): void {
     this.taskListRenderer.render()
+  }
+
+  private isRecipeFeatureEnabled(): boolean {
+    return this.plugin.settings.recipeFeatureEnabled === true
   }
 
   // ===========================================
@@ -1827,6 +1859,35 @@ export class TaskChuteView
     modal.open()
   }
 
+  private showRecipeSelectModal(inst: TaskInstance): void {
+    if (!this.isRecipeFeatureEnabled()) return
+    new RecipeSelectModal(this.app, {
+      service: this.recipeService,
+      instance: inst,
+      onAssigned: () => this.reloadTasksAndRestore({ runBoundaryCheck: true }),
+    }).open()
+  }
+
+  private showRecipeRunPopover(inst: TaskInstance, anchor: HTMLElement): void {
+    if (!this.isRecipeFeatureEnabled()) return
+    void this.recipeRunPopover.show(inst, anchor)
+  }
+
+  private async getRecipeProgressSummary(inst: TaskInstance): Promise<{ total: number; checked: number } | null> {
+    if (!this.isRecipeFeatureEnabled()) return null
+    const recipePath = inst.task.recipePath
+    if (!recipePath) return null
+    const recipe = await this.recipeService.loadRecipe(recipePath)
+    const key = createRecipeProgressKeyForInstance(inst, recipe.path)
+    const progress = this.dayStateManager.getRecipeProgress(this.getCurrentDateString())[key]
+    const validStepIds = new Set(recipe.steps.map((step) => step.id))
+    const checked = (progress?.checkedStepIds ?? []).filter((stepId) => validStepIds.has(stepId)).length
+    return {
+      total: recipe.steps.length,
+      checked,
+    }
+  }
+
   private async updateTaskReminderTime(inst: TaskInstance, time: string | null): Promise<void> {
     const file = inst.task.file
     if (!file) {
@@ -2073,6 +2134,12 @@ export class TaskChuteView
   async onSectionSettingsChanged(): Promise<void> {
     this.sectionConfig.updateBoundaries(this.plugin.settings.customSections)
     await this.reloadTasksAndRestore({ runBoundaryCheck: true })
+  }
+
+  public onRecipeFeatureSettingsChanged(): void {
+    this.recipeRunPopover.close()
+    this.navigationController.refreshNavigationItems()
+    this.renderTaskList()
   }
 
   public sortTaskInstancesByTimeOrder(): void {

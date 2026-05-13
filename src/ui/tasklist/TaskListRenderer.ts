@@ -2,6 +2,7 @@ import { Platform } from 'obsidian'
 import { TaskInstance } from '../../types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
+import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -35,6 +36,9 @@ export type TaskListRendererHost = {
   showStartTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showStopTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showReminderSettingsModal: (inst: TaskInstance) => void
+  getRecipeProgressSummary?: (inst: TaskInstance) => Promise<RecipeProgressSummary | null>
+  showRecipeRunPopover?: (inst: TaskInstance, anchor: HTMLElement) => void
+  isRecipeFeatureEnabled?: () => boolean
   isCollapsibleEnabled: () => boolean
   updateTotalTasksCount: () => void
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
@@ -80,6 +84,15 @@ export default class TaskListRenderer {
       showStartTimePopup: (inst, anchor) => this.host.showStartTimePopup(inst, anchor),
       showStopTimePopup: (inst, anchor) => this.host.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => this.host.showReminderSettingsModal(inst),
+      getRecipeProgressSummary: this.host.getRecipeProgressSummary
+        ? (inst) => this.host.getRecipeProgressSummary!(inst)
+        : undefined,
+      showRecipeRunPopover: this.host.showRecipeRunPopover
+        ? (inst, anchor) => this.host.showRecipeRunPopover!(inst, anchor)
+        : undefined,
+      isRecipeFeatureEnabled: this.host.isRecipeFeatureEnabled
+        ? () => this.host.isRecipeFeatureEnabled!()
+        : undefined,
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })

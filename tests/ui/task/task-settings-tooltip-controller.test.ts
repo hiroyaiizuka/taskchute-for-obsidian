@@ -278,6 +278,77 @@ const createTimeController = () => {
     })
   })
 
+  describe('recipe menu item', () => {
+    test('does not render when recipe feature is disabled', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        isRecipeFeatureEnabled: jest.fn(() => false),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Gym.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip.textContent).not.toContain('レシピ')
+    })
+
+    test('shows set recipe when linked recipe is no longer available', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        hasRecipeAssigned: jest.fn(() => false),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Missing.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      expect(queryTooltipItem('レシピを設定')).toBeTruthy()
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip.textContent).not.toContain('レシピを変更')
+    })
+
+    test('shows change recipe when linked recipe is available', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        hasRecipeAssigned: jest.fn(() => true),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Gym.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      expect(queryTooltipItem('レシピを変更')).toBeTruthy()
+    })
+  })
+
   test('show replaces existing tooltip', () => {
     const host = createHost()
     const controller = new TaskSettingsTooltipController(host)

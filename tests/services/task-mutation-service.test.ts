@@ -150,6 +150,7 @@ describe('TaskMutationService', () => {
 
     expect(result).toBeDefined()
     expect(result.createdMillis).toEqual(expect.any(Number))
+    expect(result.isDuplicate).toBe(true)
     expect(host.taskInstances).toHaveLength(2)
     expect(host.renderTaskList).toHaveBeenCalled()
     const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)

@@ -1059,6 +1059,60 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
     const duplicate = context.taskInstances.find((inst) => inst.instanceId === 'dup-visible');
     expect(duplicate?.slotKey).toBe('12:00-16:00');
     expect(duplicate?.task.path).toBe('TASKS/routine.md');
+    expect(duplicate?.isDuplicate).toBe(true);
+  });
+
+  test('marks completed duplicated routine restored from execution log as duplicate', async () => {
+    const instanceId = 'TASKS/routine.md_2025-09-24_123_dup';
+    const duplicatedRecord = {
+      instanceId,
+      originalPath: 'TASKS/routine.md',
+      slotKey: '12:00-16:00',
+      timestamp: 20,
+    };
+    const { context, load } = createRoutineLoadContext({
+      duplicatedInstances: [duplicatedRecord],
+    });
+    const logFile = new TFile();
+    logFile.path = 'LOGS/2025-09-tasks.json';
+    Object.setPrototypeOf(logFile, TFile.prototype);
+
+    (context.app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+      if (path === 'TASKS') return { children: [(context.app.vault.getAbstractFileByPath as jest.Mock)('TASKS/routine.md')] };
+      if (path === 'TASKS/routine.md') {
+        const file = new TFile();
+        file.path = 'TASKS/routine.md';
+        (file as { basename?: string }).basename = 'routine';
+        (file as { extension?: string }).extension = 'md';
+        Object.setPrototypeOf(file, TFile.prototype);
+        return file;
+      }
+      if (path === 'LOGS/2025-09-tasks.json') return logFile;
+      return null;
+    });
+    (context.app.vault.read as jest.Mock).mockImplementation(async (file: TFile) => {
+      if (file === logFile) {
+        return JSON.stringify({
+          taskExecutions: {
+            '2025-09-24': [{
+              taskTitle: 'routine',
+              taskPath: 'TASKS/routine.md',
+              instanceId,
+              startTime: '2025-09-24T12:00:00.000Z',
+              stopTime: '2025-09-24T12:30:00.000Z',
+              slotKey: '12:00-16:00',
+            }],
+          },
+        });
+      }
+      return '#task';
+    });
+
+    await load();
+
+    const duplicate = context.taskInstances.find((inst) => inst.instanceId === instanceId);
+    expect(duplicate?.state).toBe('done');
+    expect(duplicate?.isDuplicate).toBe(true);
   });
 
   test('skips duplicated routine when hidden entry targets instance', async () => {
@@ -2570,6 +2624,10 @@ describe('TaskChuteView onClose cleanup', () => {
     (view as Mutable<TaskChuteView>).timerService = {
       dispose: disposeMock,
     } as unknown as TimerServiceStub;
+    const recipePopoverClose = jest.fn();
+    (view as Mutable<TaskChuteView>).recipeRunPopover = {
+      close: recipePopoverClose,
+    } as unknown as TaskChuteView['recipeRunPopover'];
 
     const fakeInterval = {} as ReturnType<typeof setInterval>;
     const fakeTimeout = {} as ReturnType<typeof setTimeout>;
@@ -2605,6 +2663,7 @@ describe('TaskChuteView onClose cleanup', () => {
 
       expect(disposeMock).toHaveBeenCalledTimes(1);
       expect(view['timerService']).toBeNull();
+      expect(recipePopoverClose).toHaveBeenCalledTimes(1);
 
       expect(clearIntervalSpy).toHaveBeenCalledWith(fakeInterval);
       expect(view['globalTimerInterval']).toBeNull();

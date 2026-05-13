@@ -83,6 +83,13 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
               ],
               slotOverrides: { 'TASKS/old.md': '8:00-12:00' },
               orders: { 'TASKS/old.md::none': 200 },
+              recipeProgress: {
+                'task:TASKS/old.md::RECIPES/a.md': {
+                  recipePath: 'RECIPES/a.md',
+                  checkedStepIds: ['step-a'],
+                  updatedAt: 789,
+                },
+              },
             },
           },
           metadata: {
@@ -107,12 +114,66 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
     expect(day.slotOverrides['TASKS/new.md']).toBe('8:00-12:00')
     expect(day.slotOverrides['TASKS/old.md']).toBeUndefined()
     expect(day.orders['TASKS/new.md::none']).toBe(200)
+    expect(day.recipeProgress['task:TASKS/new.md::RECIPES/a.md']?.checkedStepIds).toEqual(['step-a'])
+    expect(day.recipeProgress['task:TASKS/old.md::RECIPES/a.md']).toBeUndefined()
     expect(day.hiddenRoutines[0]?.path).toBe('TASKS/new.md')
     expect(day.deletedInstances[0]?.path).toBe('TASKS/new.md')
     expect(day.duplicatedInstances[0]?.originalPath).toBe('TASKS/new.md')
 
     const cached = await service.loadDay(targetDate)
     expect(cached.slotOverrides['TASKS/new.md']).toBe('8:00-12:00')
+  })
+
+  it('updates recipe progress keys and recipePath when a recipe note path changes', async () => {
+    const { plugin, store, vault } = createPlugin()
+    const service = new DayStatePersistenceService(plugin)
+
+    store.set(
+      'LOGS/2025-09-state.json',
+      JSON.stringify(
+        {
+          days: {
+            '2025-09-14': {
+              hiddenRoutines: [],
+              deletedInstances: [],
+              duplicatedInstances: [],
+              slotOverrides: {},
+              orders: {},
+              recipeProgress: {
+                'task:task-1::RECIPES/old.md': {
+                  recipePath: 'RECIPES/old.md',
+                  checkedStepIds: ['step-a'],
+                  stepOrder: ['step-a'],
+                  completedAtByStepId: { 'step-a': '2025-09-14T10:00:00.000Z' },
+                  updatedAt: 100,
+                },
+              },
+            },
+          },
+          metadata: {
+            version: '1.0',
+            lastUpdated: '2025-09-14T00:00:00.000Z',
+          },
+        },
+        null,
+        2,
+      ),
+    )
+
+    await service.renameTaskPath('RECIPES/old.md', 'RECIPES/new.md')
+
+    expect(vault.modify).toHaveBeenCalled()
+
+    const updatedPayload = JSON.parse(store.get('LOGS/2025-09-state.json') ?? '{}')
+    const progress = updatedPayload.days['2025-09-14'].recipeProgress
+    expect(progress['task:task-1::RECIPES/new.md']).toEqual({
+      recipePath: 'RECIPES/new.md',
+      checkedStepIds: ['step-a'],
+      stepOrder: ['step-a'],
+      completedAtByStepId: { 'step-a': '2025-09-14T10:00:00.000Z' },
+      updatedAt: 100,
+    })
+    expect(progress['task:task-1::RECIPES/old.md']).toBeUndefined()
   })
 
   it('records local write hash so self-writes are not detected as external changes', async () => {

@@ -1,4 +1,4 @@
-import { DayState, HiddenRoutine, MonthlyDayStateFile, SlotOverrideEntry } from '../../types'
+import { DayState, HiddenRoutine, MonthlyDayStateFile, RecipeProgressEntry, SlotOverrideEntry } from '../../types'
 
 const isString = (value: unknown): value is string => typeof value === 'string'
 
@@ -9,6 +9,26 @@ const normalizeString = (value: unknown): string | undefined => {
   if (!isString(value)) return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
+}
+
+const selectRecipeProgressEntry = (
+  current: RecipeProgressEntry | undefined,
+  incoming: RecipeProgressEntry,
+): RecipeProgressEntry => {
+  if (!current) return incoming
+  const currentUpdatedAt = Number.isFinite(current.updatedAt) ? current.updatedAt : 0
+  const incomingUpdatedAt = Number.isFinite(incoming.updatedAt) ? incoming.updatedAt : 0
+  return incomingUpdatedAt >= currentUpdatedAt ? incoming : current
+}
+
+const renameRecipeProgressKey = (key: string, oldPath: string, newPath: string): string => {
+  if (key.startsWith(`task:${oldPath}::`)) {
+    return `task:${newPath}::${key.slice(`task:${oldPath}::`.length)}`
+  }
+  if (key.endsWith(`::${oldPath}`)) {
+    return `${key.slice(0, key.length - oldPath.length)}${newPath}`
+  }
+  return key
 }
 
 export const renamePathsInDayState = (state: DayState, oldPath: string, newPath: string): boolean => {
@@ -115,6 +135,27 @@ export const renamePathsInDayState = (state: DayState, oldPath: string, newPath:
       }
     }
     state.ordersMeta = updated
+  }
+
+  if (state.recipeProgress && typeof state.recipeProgress === 'object') {
+    const updated: Record<string, RecipeProgressEntry> = {}
+    for (const [key, value] of Object.entries(state.recipeProgress)) {
+      if (!value) continue
+      const newKey = renameRecipeProgressKey(key, oldPath, newPath)
+      let newValue = value
+
+      if (newKey !== key) {
+        mutated = true
+      }
+
+      if (normalizeString(value.recipePath) === oldPath) {
+        newValue = { ...value, recipePath: newPath }
+        mutated = true
+      }
+
+      updated[newKey] = selectRecipeProgressEntry(updated[newKey], newValue)
+    }
+    state.recipeProgress = updated
   }
 
   return mutated

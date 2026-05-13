@@ -1,4 +1,4 @@
-import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI } from '../types';
+import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI, RecipeProgressEntry } from '../types';
 import { renamePathsInDayState } from './dayState/pathRename';
 import { getEffectiveDeletedAt, isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from './dayState/conflictResolver';
 
@@ -203,6 +203,22 @@ export class DayStateStoreService {
     this.persistAsync(dateKey);
   }
 
+  getRecipeProgress(dateKey?: string): Record<string, RecipeProgressEntry> {
+    const state = this.getStateFor(dateKey);
+    return state.recipeProgress ?? {};
+  }
+
+  setRecipeProgress(key: string, entry: RecipeProgressEntry, dateKey?: string): void {
+    const normalizedKey = typeof key === 'string' ? key.trim() : '';
+    if (!normalizedKey) return;
+    const state = this.getStateFor(dateKey);
+    state.recipeProgress = {
+      ...(state.recipeProgress ?? {}),
+      [normalizedKey]: entry,
+    };
+    this.persistAsync(dateKey);
+  }
+
   isDeleted(target: { taskId?: string; instanceId?: string; path?: string; dateKey?: string }): boolean {
     const { taskId, instanceId, path } = target;
     const deleted = this.getDeleted(target.dateKey);
@@ -266,7 +282,7 @@ export class DayStateStoreService {
     if (!state) {
       return this.createEmptyState();
     }
-    return {
+    const normalized: DayState = {
       hiddenRoutines: state.hiddenRoutines ?? [],
       deletedInstances: state.deletedInstances ?? [],
       duplicatedInstances: state.duplicatedInstances ?? [],
@@ -275,6 +291,10 @@ export class DayStateStoreService {
       orders: state.orders ?? {},
       ordersMeta: state.ordersMeta,
     };
+    if (state.recipeProgress && Object.keys(state.recipeProgress).length > 0) {
+      normalized.recipeProgress = state.recipeProgress;
+    }
+    return normalized;
   }
 
   private createEmptyState(): DayState {

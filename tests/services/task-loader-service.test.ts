@@ -19,6 +19,20 @@ describe('TaskLoaderService', () => {
     expect(context.renderTaskList).toHaveBeenCalled();
   });
 
+  test('loads recipe path from task frontmatter', async () => {
+    const { context } = createNonRoutineLoadContext({
+      metadataOverrides: {
+        recipe: 'TaskChute/Recipes/Gym',
+      },
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks[0]?.recipePath).toBe('TaskChute/Recipes/Gym.md');
+    expect(context.taskInstances[0]?.task.recipePath).toBe('TaskChute/Recipes/Gym.md');
+  });
+
   test('uses day-state slot override for non-routine task', async () => {
     const { context } = createNonRoutineLoadContext({
       dayStateOverrides: {

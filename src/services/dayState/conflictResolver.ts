@@ -7,7 +7,7 @@
  * - 復元は restoredAt タイムスタンプで記録
  * - マージ時は max(deletedAt, restoredAt) で勝敗決定
  */
-import type { DeletedInstance, DuplicatedInstance, HiddenRoutine, SlotOverrideEntry } from '../../types'
+import type { DeletedInstance, DuplicatedInstance, HiddenRoutine, RecipeProgressEntry, SlotOverrideEntry } from '../../types'
 
 export interface ConflictResolution<T> {
   merged: T[]
@@ -25,6 +25,12 @@ export interface SlotOverrideResolution {
 export interface OrdersResolution {
   merged: Record<string, number>
   meta: Record<string, { order: number; updatedAt: number }>
+  hasConflicts: boolean
+  conflictCount: number
+}
+
+export interface RecipeProgressResolution {
+  merged: Record<string, RecipeProgressEntry>
   hasConflicts: boolean
   conflictCount: number
 }
@@ -517,6 +523,50 @@ export function mergeOrders(
   return {
     merged,
     meta,
+    hasConflicts: conflictCount > 0,
+    conflictCount,
+  }
+}
+
+export function mergeRecipeProgress(
+  local: Record<string, RecipeProgressEntry>,
+  remote: Record<string, RecipeProgressEntry>,
+): RecipeProgressResolution {
+  const merged: Record<string, RecipeProgressEntry> = {}
+  let conflictCount = 0
+  const keys = new Set([...Object.keys(local), ...Object.keys(remote)])
+
+  for (const key of keys) {
+    const localEntry = local[key]
+    const remoteEntry = remote[key]
+    if (!localEntry && remoteEntry) {
+      merged[key] = { ...remoteEntry }
+      continue
+    }
+    if (localEntry && !remoteEntry) {
+      merged[key] = { ...localEntry }
+      continue
+    }
+    if (!localEntry || !remoteEntry) {
+      continue
+    }
+
+    const localUpdatedAt = Number.isFinite(localEntry.updatedAt) ? localEntry.updatedAt : 0
+    const remoteUpdatedAt = Number.isFinite(remoteEntry.updatedAt) ? remoteEntry.updatedAt : 0
+    if (
+      localUpdatedAt !== remoteUpdatedAt ||
+      JSON.stringify(localEntry.checkedStepIds ?? []) !== JSON.stringify(remoteEntry.checkedStepIds ?? []) ||
+      JSON.stringify(localEntry.stepOrder ?? []) !== JSON.stringify(remoteEntry.stepOrder ?? [])
+    ) {
+      conflictCount++
+    }
+    merged[key] = localUpdatedAt >= remoteUpdatedAt
+      ? { ...localEntry }
+      : { ...remoteEntry }
+  }
+
+  return {
+    merged,
     hasConflicts: conflictCount > 0,
     conflictCount,
   }

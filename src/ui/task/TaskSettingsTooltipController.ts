@@ -13,6 +13,9 @@ export interface TaskSettingsTooltipHost {
   hasExecutionHistory: (path: string) => Promise<boolean>
   showDeleteConfirmDialog: (inst: TaskInstance) => Promise<boolean>
   showReminderSettingsDialog?: (inst: TaskInstance) => void
+  showRecipeSelectModal?: (inst: TaskInstance) => void
+  hasRecipeAssigned?: (inst: TaskInstance) => boolean
+  isRecipeFeatureEnabled?: () => boolean
   openGoogleCalendarExport?: (inst: TaskInstance) => void
   isGoogleCalendarEnabled?: () => boolean
   showProjectModal?: (inst: TaskInstance) => void
@@ -70,6 +73,7 @@ export default class TaskSettingsTooltipController {
     void this.appendDelete(inst, tooltip)
     this.appendReset(inst, tooltip)
     this.appendProject(inst, tooltip)
+    this.appendRecipe(inst, tooltip)
     this.appendStartTime(inst, tooltip)
     this.appendReminder(inst, tooltip)
     this.appendGoogleCalendar(inst, tooltip)
@@ -154,6 +158,33 @@ export default class TaskSettingsTooltipController {
       event.stopPropagation()
       tooltip.remove()
       this.host.showProjectModal!(inst)
+    })
+  }
+
+  private appendRecipe(inst: TaskInstance, tooltip: HTMLElement): void {
+    if (!this.host.showRecipeSelectModal) {
+      return
+    }
+    if (this.host.isRecipeFeatureEnabled && !this.host.isRecipeFeatureEnabled()) {
+      return
+    }
+    const hasRecipe = this.host.hasRecipeAssigned
+      ? this.host.hasRecipeAssigned(inst)
+      : Boolean(inst.task.recipePath)
+    const label = hasRecipe
+      ? this.host.tv('buttons.changeRecipe', '🍽 レシピを変更')
+      : this.host.tv('buttons.setRecipe', '🍽 レシピを設定')
+    const item = tooltip.createEl('div', {
+      cls: 'tooltip-item',
+      text: label,
+      attr: {
+        title: this.host.tv('forms.recipeDescription', 'Assign a reusable recipe to this task'),
+      },
+    })
+    item.addEventListener('click', (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.showRecipeSelectModal!(inst)
     })
   }
 

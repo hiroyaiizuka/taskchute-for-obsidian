@@ -53,6 +53,12 @@ export const ja = {
       robotButtonDesc:
         "Terminal から AI 連携が可能になります（Terminal プラグインが必要です）。",
     },
+    recipe: {
+      heading: "レシピ",
+      enable: "レシピ機能を有効化",
+      enableDesc:
+        "タスク設定メニューと左上メニューに、レシピの設定・管理項目を表示します。",
+    },
     advanced: {
       heading: "詳細設定",
       sectionCustomize: {
@@ -188,6 +194,7 @@ export const ja = {
     navigation: {
       routine: "ルーチン",
       projects: "プロジェクト",
+      recipes: "レシピ",
       review: "レビュー",
       log: "ログ",
       settings: "設定",
@@ -218,6 +225,8 @@ export const ja = {
       duplicateTask: "📄 タスクを複製",
       deleteTask: "🗑️ タスクを削除",
       setProject: "📁 プロジェクトを設定",
+      setRecipe: "🍽 レシピを設定",
+      changeRecipe: "🍽 レシピを変更",
       removeProject: "➖ プロジェクトを外す",
       removeRoutine: "ルーチンを外す",
       cancel: "キャンセル",
@@ -440,6 +449,7 @@ export const ja = {
       nameRequired: "タスク名を入力してください",
       reminderDescription: "リマインダーの通知時刻を設定します",
       projectDescription: "プロジェクトを設定または変更",
+      recipeDescription: "再利用できるレシピをこのタスクに紐付けます",
       disambiguateStopTimeDateTitle: "終了時刻の日付を選択",
       disambiguateStopTimeDateMessage: "入力された終了時刻は、開始日と翌日のどちらにも該当する可能性があります。",
       disambiguateStopTimeSameDay: "{date} (当日)",
@@ -749,10 +759,13 @@ export const ja = {
     duplicateTask: "📄 タスクを複製",
     deleteTask: "🗑️ タスクを削除",
     setProject: "📁 プロジェクトを設定",
+    setRecipe: "🍽 レシピを設定",
+    changeRecipe: "🍽 レシピを変更",
   },
   forms: {
     reminderDescription: "リマインダーの通知時刻を設定します",
     projectDescription: "プロジェクトを設定または変更",
+    recipeDescription: "再利用できるレシピをこのタスクに紐付けます",
   },
   calendar: {
     export: {
@@ -774,6 +787,66 @@ export const ja = {
       cannotOpen: "プレビューを作成できません。開始時刻と所要時間を確認してください。",
       tooltip: "Googleカレンダーをブラウザで開きます",
       toGoogle: "📅 Googleカレンダーに登録",
+    },
+  },
+  recipes: {
+    empty: {
+      title: "レシピがありません。",
+      message: "このモーダルで作成しますか？",
+      createButton: "レシピを作成",
+    },
+    manager: {
+      listTitle: "レシピ一覧",
+      editTitle: "レシピ編集",
+      createTitle: "レシピ新規作成",
+      searchPlaceholder: "レシピを検索",
+      createButton: "新規",
+      noMatches: "一致するレシピがありません",
+      openSource: "レシピ原本を開く",
+      cardMeta: "{steps} 手順 / 使用中: {usages} タスク",
+      emptyPreview: "手順なし",
+      editButton: "編集",
+      deleteRecipe: "レシピを削除",
+      nameLabel: "レシピ名",
+      stepsLabel: "手順",
+      addStep: "+ 手順を追加",
+      saveButton: "保存",
+      reorderStep: "ドラッグして並び替え",
+      stepPlaceholder: "手順",
+      removeStep: "手順を削除",
+      deleteConfirmTitle: "「{title}」を削除しますか？",
+      deleteConfirmMessage: "紐付いているタスクからも解除されます。",
+      notices: {
+        loadFailed: "レシピ管理画面の読み込みに失敗しました",
+        openSourceFailed: "レシピ原本を開けませんでした",
+        saved: "レシピを保存しました",
+        saveFailed: "レシピの保存に失敗しました",
+        deleted: "レシピを削除しました",
+        deleteFailed: "レシピの削除に失敗しました",
+      },
+    },
+    select: {
+      title: "レシピを設定",
+      nameLabel: "レシピ名:",
+      stepCount: "{steps} 手順",
+      typeToSearch: "レシピ名を入力して検索または新規作成",
+      useExisting: "既存レシピを使う",
+      createFromQuery: "「{title}」を新しく作る",
+      createMeta: "新規作成",
+      notices: {
+        assigned: "レシピを設定しました",
+        loadFailed: "レシピ一覧の読み込みに失敗しました",
+        assignFailed: "レシピの設定に失敗しました",
+        createFailed: "レシピの作成に失敗しました",
+      },
+    },
+    run: {
+      editRecipe: "レシピを編集",
+      emptySteps: "手順がありません",
+      reorderStep: "ドラッグして並び替え",
+      notices: {
+        loadFailed: "レシピを読み込めませんでした",
+      },
     },
   },
   routineEdit: {
