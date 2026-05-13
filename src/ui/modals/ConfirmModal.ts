@@ -89,7 +89,7 @@ class ConfirmModal extends Modal {
       if (index > 0) {
         createElCompat(messageEl, 'br')
       }
-      messageEl.appendChild(document.createTextNode(line))
+      messageEl.appendChild(activeDocument.createTextNode(line))
     })
 
     if (this.description) {
@@ -98,7 +98,7 @@ class ConfirmModal extends Modal {
         if (index > 0) {
           createElCompat(descriptionEl, 'br')
         }
-        descriptionEl.appendChild(document.createTextNode(line))
+        descriptionEl.appendChild(activeDocument.createTextNode(line))
       })
     }
 

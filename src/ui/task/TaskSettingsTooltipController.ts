@@ -26,7 +26,9 @@ export default class TaskSettingsTooltipController {
   constructor(private readonly host: TaskSettingsTooltipHost) {}
 
   show(inst: TaskInstance, anchor: HTMLElement): void {
-    const existing = document.querySelector('.task-settings-tooltip')
+    const ownerDocument = anchor.ownerDocument ?? activeDocument
+    const ownerWindow = ownerDocument.defaultView ?? window
+    const existing = ownerDocument.querySelector('.task-settings-tooltip')
     existing?.remove()
 
     const tooltip = createDiv()
@@ -81,7 +83,7 @@ export default class TaskSettingsTooltipController {
 
     // Add tooltip to DOM first to measure actual dimensions
     tooltip.classList.add('is-measuring')
-    document.body.appendChild(tooltip)
+    ownerDocument.body.appendChild(tooltip)
 
     const rect = anchor.getBoundingClientRect()
     const tooltipRect = tooltip.getBoundingClientRect()
@@ -89,12 +91,12 @@ export default class TaskSettingsTooltipController {
     const height = Math.max(tooltipRect.height, tooltip.scrollHeight, tooltip.offsetHeight)
 
     let top = rect.bottom + 5
-    if (top + height > window.innerHeight) {
+    if (top + height > ownerWindow.innerHeight) {
       top = Math.max(rect.top - height - 5, 0)
     }
     let left = rect.left
-    if (left + width > window.innerWidth) {
-      left = Math.max(window.innerWidth - width - 10, 0)
+    if (left + width > ownerWindow.innerWidth) {
+      left = Math.max(ownerWindow.innerWidth - width - 10, 0)
     }
     tooltip.style.setProperty('--taskchute-tooltip-left', `${left}px`)
     tooltip.style.setProperty('--taskchute-tooltip-top', `${top}px`)
@@ -112,14 +114,14 @@ export default class TaskSettingsTooltipController {
       const target = event.target as Node
       if (!tooltip.contains(target) && target !== anchor) {
         tooltip.remove()
-        document.removeEventListener('click', handleOutsideInteraction)
-        document.removeEventListener('touchend', handleOutsideInteraction)
+        ownerDocument.removeEventListener('click', handleOutsideInteraction)
+        ownerDocument.removeEventListener('touchend', handleOutsideInteraction)
       }
     }
 
     // Register both click and touchend for better mobile support
-    document.addEventListener('click', handleOutsideInteraction)
-    document.addEventListener('touchend', handleOutsideInteraction)
+    ownerDocument.addEventListener('click', handleOutsideInteraction)
+    ownerDocument.addEventListener('touchend', handleOutsideInteraction)
   }
 
   private appendReset(inst: TaskInstance, tooltip: HTMLElement): void {

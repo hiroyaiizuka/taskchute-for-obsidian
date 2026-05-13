@@ -12,6 +12,8 @@ export default class TimeEditPopup implements TimePicker {
     this.close()
 
     const { anchor, currentValue, viewDate, validationDate, onSave, onCancel } = options
+    const popupDocument = anchor.ownerDocument ?? activeDocument
+    const popupWindow = popupDocument.defaultView ?? window
 
     const container = createDiv()
     container.classList.add('taskchute-time-popup')
@@ -48,7 +50,7 @@ export default class TimeEditPopup implements TimePicker {
     container.appendChild(resetBtn)
 
     // Position below anchor
-    document.body.appendChild(container)
+    popupDocument.body.appendChild(container)
     const rect = anchor.getBoundingClientRect()
     container.style.setProperty('--time-popup-left', `${rect.left}px`)
     container.style.setProperty('--time-popup-top', `${rect.bottom + 4}px`)
@@ -151,7 +153,7 @@ export default class TimeEditPopup implements TimePicker {
     // Click-away behavior differs by device type:
     // - Desktop (pointer: fine): click outside = save (traditional behavior)
     // - Touch/Mobile (pointer: coarse): click outside = cancel (explicit save button required)
-    const isPointerFine = window.matchMedia?.('(pointer: fine)').matches ?? true
+    const isPointerFine = popupWindow.matchMedia?.('(pointer: fine)').matches ?? true
 
     // Record open time to ignore events from the same interaction that opened the popup
     const openTime = Date.now()
@@ -174,12 +176,12 @@ export default class TimeEditPopup implements TimePicker {
     }
 
     // Register both click and touchend for better mobile support
-    document.addEventListener('click', handleOutsideInteraction, true)
-    document.addEventListener('touchend', handleOutsideInteraction, true)
+    popupDocument.addEventListener('click', handleOutsideInteraction, true)
+    popupDocument.addEventListener('touchend', handleOutsideInteraction, true)
 
     this.removeListeners = () => {
-      document.removeEventListener('click', handleOutsideInteraction, true)
-      document.removeEventListener('touchend', handleOutsideInteraction, true)
+      popupDocument.removeEventListener('click', handleOutsideInteraction, true)
+      popupDocument.removeEventListener('touchend', handleOutsideInteraction, true)
     }
 
     input.focus()

@@ -11,6 +11,7 @@ class RecipeDeleteConfirmModal {
   private resolver: ((result: boolean) => void) | null = null
   private overlayEl: HTMLDivElement | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+  private escapeKeyDocument: Document | null = null
 
   constructor(
     private readonly recipe: Recipe,
@@ -24,6 +25,7 @@ class RecipeDeleteConfirmModal {
   }
 
   private render(): void {
+    const modalDocument = activeDocument
     this.overlayEl = createDiv()
     this.overlayEl.className = 'task-modal-overlay recipe-delete-confirm-overlay'
     const contentEl = this.overlayEl.createDiv( { cls: 'task-modal-content recipe-delete-confirm-modal' })
@@ -63,15 +65,18 @@ class RecipeDeleteConfirmModal {
         this.closeWith(false)
       }
     }
-    document.addEventListener('keydown', this.escapeKeyHandler)
-    document.body.appendChild(this.overlayEl)
+    this.escapeKeyDocument = modalDocument
+    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
+    modalDocument.body.appendChild(this.overlayEl)
     deleteButton.focus()
   }
 
   private closeWith(result: boolean): void {
     if (this.escapeKeyHandler) {
-      document.removeEventListener('keydown', this.escapeKeyHandler)
+      const listenerDocument = this.escapeKeyDocument ?? activeDocument
+      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
       this.escapeKeyHandler = null
+      this.escapeKeyDocument = null
     }
     this.overlayEl?.remove()
     this.overlayEl = null
@@ -96,6 +101,7 @@ export default class RecipeManagerModal {
   private modalEl: HTMLDivElement | null = null
   private contentEl: HTMLDivElement | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+  private escapeKeyDocument: Document | null = null
   private draggedStepIndex: number | null = null
   private pendingInitialRecipePath: string | undefined
   private directEditFromRecipePath = false
@@ -106,6 +112,7 @@ export default class RecipeManagerModal {
   }
 
   open(): void {
+    const modalDocument = activeDocument
     this.modalEl = createDiv()
     this.modalEl.className = 'task-modal-overlay'
     this.contentEl = this.modalEl.createDiv( {
@@ -116,23 +123,26 @@ export default class RecipeManagerModal {
         this.close()
       }
     })
-    document.body.appendChild(this.modalEl)
+    modalDocument.body.appendChild(this.modalEl)
     this.escapeKeyHandler = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (document.querySelector('.recipe-delete-confirm-overlay')) {
+        if (modalDocument.querySelector('.recipe-delete-confirm-overlay')) {
           return
         }
         this.close()
       }
     }
-    document.addEventListener('keydown', this.escapeKeyHandler)
+    this.escapeKeyDocument = modalDocument
+    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
     void this.reload()
   }
 
   close(): void {
     if (this.escapeKeyHandler) {
-      document.removeEventListener('keydown', this.escapeKeyHandler)
+      const listenerDocument = this.escapeKeyDocument ?? activeDocument
+      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
       this.escapeKeyHandler = null
+      this.escapeKeyDocument = null
     }
     this.modalEl?.remove()
     this.modalEl = null

@@ -52,7 +52,9 @@ export default class RoutineEditModal {
   private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void
   private readonly onClosed?: () => void
   private monthdayOutsideClickHandler: ((event: MouseEvent) => void) | null = null
+  private monthdayOutsideClickDocument: Document | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+  private escapeKeyDocument: Document | null = null
 
   private modalEl: HTMLDivElement | null = null
   private contentEl: HTMLDivElement | null = null
@@ -120,6 +122,7 @@ export default class RoutineEditModal {
   }
 
   open(): void {
+    const modalDocument = activeDocument
     // Create overlay
     this.modalEl = createDiv()
     this.modalEl.className = "task-modal-overlay"
@@ -145,10 +148,10 @@ export default class RoutineEditModal {
     closeButton.addEventListener("click", () => this.close())
 
     // Build the form content
-    this.buildFormContent()
+    this.buildFormContent(modalDocument)
 
     // Add to DOM
-    document.body.appendChild(this.modalEl)
+    modalDocument.body.appendChild(this.modalEl)
 
     // Prevent parent Obsidian Modal focus trap from stealing focus
     // (focusin propagation to document triggers the parent's focus redirect)
@@ -162,22 +165,27 @@ export default class RoutineEditModal {
         this.close()
       }
     }
-    document.addEventListener("keydown", this.escapeKeyHandler)
+    this.escapeKeyDocument = modalDocument
+    modalDocument.addEventListener("keydown", this.escapeKeyHandler)
   }
 
   close(): void {
     // Cleanup event listeners
     if (this.monthdayOutsideClickHandler) {
-      document.removeEventListener(
+      const listenerDocument = this.monthdayOutsideClickDocument ?? activeDocument
+      listenerDocument.removeEventListener(
         "click",
         this.monthdayOutsideClickHandler,
         true,
       )
       this.monthdayOutsideClickHandler = null
+      this.monthdayOutsideClickDocument = null
     }
     if (this.escapeKeyHandler) {
-      document.removeEventListener("keydown", this.escapeKeyHandler)
+      const listenerDocument = this.escapeKeyDocument ?? activeDocument
+      listenerDocument.removeEventListener("keydown", this.escapeKeyHandler)
       this.escapeKeyHandler = null
+      this.escapeKeyDocument = null
     }
 
     // Remove from DOM
@@ -190,7 +198,7 @@ export default class RoutineEditModal {
     this.onClosed?.()
   }
 
-  private buildFormContent(): void {
+  private buildFormContent(modalDocument: Document): void {
     if (!this.contentEl) return
 
     const frontmatter = this.getFrontmatterSnapshot()
@@ -417,8 +425,9 @@ export default class RoutineEditModal {
     }
     // Use capture phase so outside-click detection still runs even when
     // modal overlay stops bubbling click events.
-    document.addEventListener("click", handleMonthdayOutsideClick, true)
+    modalDocument.addEventListener("click", handleMonthdayOutsideClick, true)
     this.monthdayOutsideClickHandler = handleMonthdayOutsideClick
+    this.monthdayOutsideClickDocument = modalDocument
 
     const updateVisibility = () => {
       const selected = this.normalizeRoutineType(typeSelect.value)

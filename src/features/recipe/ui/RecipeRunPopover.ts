@@ -15,6 +15,7 @@ export interface RecipeRunPopoverHost {
 export class RecipeRunPopover {
   private popover: HTMLElement | null = null
   private outsideHandler: ((event: MouseEvent | TouchEvent) => void) | null = null
+  private outsideHandlerDocument: Document | null = null
   private draggedStepIndex: number | null = null
   private showToken = 0
 
@@ -25,15 +26,18 @@ export class RecipeRunPopover {
     this.popover?.remove()
     this.popover = null
     if (this.outsideHandler) {
-      document.removeEventListener('click', this.outsideHandler)
-      document.removeEventListener('touchend', this.outsideHandler)
+      const listenerDocument = this.outsideHandlerDocument ?? activeDocument
+      listenerDocument.removeEventListener('click', this.outsideHandler)
+      listenerDocument.removeEventListener('touchend', this.outsideHandler)
       this.outsideHandler = null
+      this.outsideHandlerDocument = null
     }
   }
 
   async show(instance: TaskInstance, anchor: HTMLElement): Promise<void> {
     this.close()
     const token = this.showToken
+    const ownerDocument = anchor.ownerDocument ?? activeDocument
     const recipePath = instance.task.recipePath
     if (!recipePath) return
     const dateKey = this.host.getDateKey()
@@ -159,8 +163,8 @@ export class RecipeRunPopover {
     }
 
     renderBody()
-    document.body.appendChild(popover)
-    this.position(anchor, popover)
+    ownerDocument.body.appendChild(popover)
+    this.position(anchor, popover, ownerDocument.defaultView ?? window)
 
     const openTime = Date.now()
     this.outsideHandler = (event: MouseEvent | TouchEvent) => {
@@ -169,8 +173,9 @@ export class RecipeRunPopover {
       if (target && (popover.contains(target) || target === anchor)) return
       this.close()
     }
-    document.addEventListener('click', this.outsideHandler)
-    document.addEventListener('touchend', this.outsideHandler)
+    this.outsideHandlerDocument = ownerDocument
+    ownerDocument.addEventListener('click', this.outsideHandler)
+    ownerDocument.addEventListener('touchend', this.outsideHandler)
   }
 
   private appendDragHandleIcon(container: HTMLElement): void {
@@ -270,7 +275,7 @@ export class RecipeRunPopover {
     }, dateKey)
   }
 
-  private position(anchor: HTMLElement, popover: HTMLElement): void {
+  private position(anchor: HTMLElement, popover: HTMLElement, ownerWindow: Window): void {
     if (Platform?.isMobile) {
       return
     }
@@ -278,12 +283,12 @@ export class RecipeRunPopover {
     const rect = anchor.getBoundingClientRect()
     const popoverRect = popover.getBoundingClientRect()
     let top = rect.bottom + 6
-    if (top + popoverRect.height > window.innerHeight) {
+    if (top + popoverRect.height > ownerWindow.innerHeight) {
       top = Math.max(rect.top - popoverRect.height - 6, 0)
     }
     let left = rect.left
-    if (left + popoverRect.width > window.innerWidth) {
-      left = Math.max(window.innerWidth - popoverRect.width - 10, 0)
+    if (left + popoverRect.width > ownerWindow.innerWidth) {
+      left = Math.max(ownerWindow.innerWidth - popoverRect.width - 10, 0)
     }
     popover.style.setProperty('--taskchute-tooltip-left', `${left}px`)
     popover.style.setProperty('--taskchute-tooltip-top', `${top}px`)

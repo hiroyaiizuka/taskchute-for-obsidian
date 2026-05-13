@@ -22,6 +22,7 @@ export default class TaskCompletionController {
   constructor(private readonly host: TaskCompletionControllerHost) {}
 
   async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
+    const modalDocument = activeDocument
     const existingComment = await this.getExistingTaskComment(inst)
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
 
@@ -119,7 +120,7 @@ export default class TaskCompletionController {
     const closeModal = () => {
       if (modalClosed) return
       modalClosed = true
-      document.removeEventListener('keydown', handleEsc)
+      modalDocument.removeEventListener('keydown', handleEsc)
       modal.remove()
     }
 
@@ -144,8 +145,8 @@ export default class TaskCompletionController {
       })()
     })
 
-    document.addEventListener('keydown', handleEsc)
-    document.body.appendChild(modal)
+    modalDocument.addEventListener('keydown', handleEsc)
+    modalDocument.body.appendChild(modal)
     commentInput.focus()
   }
 

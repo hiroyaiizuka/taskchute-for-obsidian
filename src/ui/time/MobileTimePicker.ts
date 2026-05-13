@@ -149,8 +149,8 @@ export class MobileTimePicker implements TimePicker {
     this.containerEl.appendChild(buttonsContainer)
 
     // Append to DOM
-    document.body.appendChild(this.overlayEl)
-    document.body.appendChild(this.containerEl)
+    activeDocument.body.appendChild(this.overlayEl)
+    activeDocument.body.appendChild(this.containerEl)
 
     // Trigger animation
     requestAnimationFrame(() => {

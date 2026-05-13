@@ -54,6 +54,7 @@ export default class RoutineController {
 
   showRoutineEditModal(task: RoutineTaskShape, anchor?: HTMLElement): void {
     this.ensureDomHelpers()
+    const modalDocument = activeDocument
     const modal = createDiv()
     modal.className = 'task-modal-overlay'
     const modalContent = modal.createDiv( { cls: 'task-modal-content routine-edit-modal' })
@@ -354,7 +355,7 @@ export default class RoutineController {
         closeMonthdayDropdown()
       }
     }
-    document.addEventListener('click', handleMonthdayOutsideClick)
+    modalDocument.addEventListener('click', handleMonthdayOutsideClick)
 
     const syncVisibility = () => {
       const selectedType = typeSelect.value
@@ -393,7 +394,7 @@ export default class RoutineController {
     }
 
     const closeModal = () => {
-      document.removeEventListener('click', handleMonthdayOutsideClick)
+      modalDocument.removeEventListener('click', handleMonthdayOutsideClick)
       modal.remove()
     }
     closeButton.addEventListener('click', closeModal)
@@ -521,7 +522,7 @@ export default class RoutineController {
       })()
     })
 
-    document.body.appendChild(modal)
+    modalDocument.body.appendChild(modal)
     // Removed timeInput.focus() - prevents native time picker from auto-opening on mobile
   }
 

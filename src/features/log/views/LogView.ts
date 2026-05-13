@@ -956,7 +956,7 @@ export class LogView {
 
   private openRestoreModal(): void {
     // Close the parent log modal overlay first
-    const logModalOverlay = document.querySelector('.taskchute-log-modal-overlay')
+    const logModalOverlay = activeDocument.querySelector('.taskchute-log-modal-overlay')
     logModalOverlay?.remove()
 
     // BackupRestoreService expects TaskChutePluginLike, but LogPlugin has compatible structure

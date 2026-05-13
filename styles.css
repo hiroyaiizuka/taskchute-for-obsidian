@@ -348,37 +348,11 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-.task-form {
-  padding: 20px;
-}
 .task-modal-content .task-form {
   padding-top: 10px;
 }
 .task-modal-content .task-form .form-button-group {
   margin-top: 28px;
-}
-.form-group {
-  margin-bottom: 15px;
-}
-.form-label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: 500;
-  color: var(--text-normal);
-}
-
-.form-input,
-.form-textarea {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  box-sizing: border-box;
 }
 
 .form-input:disabled {
@@ -390,13 +364,6 @@ select.form-input {
   min-height: 36px;
   line-height: 1.5;
   padding: 8px 12px;
-}
-
-.form-input:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
 .form-input-icon-wrapper {
@@ -532,18 +499,6 @@ select.form-input {
   background-color: transparent;
 }
 
-.form-textarea {
-  min-height: 80px;
-  resize: vertical;
-}
-
-.form-button-group {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
 .scheduled-time-modal .modal-header {
   border-bottom: none;
   padding: 20px 20px 12px;
@@ -630,17 +585,6 @@ select.form-input {
   outline-offset: 2px;
 }
 
-.form-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 80px;
-}
-
 .form-button.danger {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -648,28 +592,6 @@ select.form-input {
 
 .form-button.danger:hover {
   background: var(--interactive-accent-hover);
-}
-
-.form-button.cancel {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-.form-button.cancel:hover {
-  background: var(--background-modifier-border-hover);
-}
-.form-button.create {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.form-button.create:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.form-description {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.4;
 }
 
 /* Time display (clickable to edit) */
@@ -682,20 +604,6 @@ select.form-input {
   display: flex;
   justify-content: center;
   align-items: center;
-}
-.task-time-range.editable {
-  cursor: pointer;
-  text-decoration: none;
-}
-.task-time-range.editable:hover {
-  color: var(--interactive-accent);
-}
-.task-time-range.idle-placeholder {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.task-time-range.idle-placeholder:hover {
-  opacity: 1;
 }
 .task-timer-display {
   font-size: 12px;
@@ -718,11 +626,6 @@ select.form-input {
   gap: 10px;
   min-height: 0;
   height: 100%;
-}
-.task-list-container {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .task-list {
@@ -751,16 +654,6 @@ select.form-input {
   margin: 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
-.task-item:last-child {
-  border-bottom: none;
-}
-.task-item:hover {
-  background: var(--background-secondary);
-}
-.task-item.selected {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
 
 /* Drag handle */
 .drag-handle {
@@ -774,24 +667,6 @@ select.form-input {
   opacity: 0;
   transition: opacity 0.2s ease, background-color 0.2s ease;
   border-radius: 4px;
-}
-.task-item:hover .drag-handle {
-  opacity: 0.6;
-}
-.drag-handle:hover {
-  opacity: 1;
-  color: var(--text-normal);
-  background-color: var(--background-modifier-hover);
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
-.drag-handle.disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-.task-item:hover .drag-handle.disabled {
-  opacity: 0.3;
 }
 
 /* Play/Stop */
@@ -810,11 +685,6 @@ select.form-input {
   align-items: center;
   justify-content: center;
   line-height: 1;
-}
-.play-stop-button.stop {
-  color: #e74c3c;
-  font-weight: bold;
-  background: var(--background-modifier-border);
 }
 
 /* Task name */
@@ -835,10 +705,6 @@ select.form-input {
   border-radius: 3px;
   padding: 2px 4px;
   transition: background 0.15s;
-}
-.task-name.wikilink:hover {
-  background: var(--background-modifier-hover);
-  color: var(--link-color-hover);
 }
 
 /* Project display */
@@ -876,10 +742,6 @@ select.form-input {
   transition: all 0.2s ease;
   color: var(--text-muted);
 }
-.taskchute-external-link:hover {
-  background: var(--background-modifier-hover);
-  color: var(--interactive-accent);
-}
 .taskchute-project-placeholder {
   display: inline-flex;
   align-items: center;
@@ -910,14 +772,6 @@ select.form-input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.time-slot-header.other {
-  border-left-color: var(--background-modifier-border);
-}
-.time-slot-header.dragover {
-  background: var(--background-modifier-hover);
-  border-left-width: 5px;
-  transition: all 0.2s ease;
 }
 
 /* Collapsible time slot headers */
@@ -999,10 +853,6 @@ select.form-input {
 .add-task-button:hover {
   background: var(--background-modifier-hover);
 }
-.add-task-button.repositioned {
-  margin-left: 0;
-  margin-right: 0;
-}
 .robot-terminal-button {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -1011,9 +861,6 @@ select.form-input {
   cursor: pointer;
   font-size: 16px;
   transition: background-color 0.2s ease;
-}
-.robot-terminal-button:hover {
-  background: var(--background-modifier-hover);
 }
 
 /* Containers (top bar / date nav minimal) */
@@ -1057,35 +904,6 @@ select.form-input {
   min-width: 90px;
   text-align: center;
   letter-spacing: 0.5px;
-}
-.date-nav-container.is-not-today .calendar-btn {
-  margin-left: 14px;
-}
-.date-nav-container.is-not-today .date-nav-label,
-.date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px;
-}
-.is-mobile .date-nav-container.is-not-today .date-nav-label,
-.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px;
-}
-.calendar-btn {
-  background: none;
-  border: none;
-  font-size: 16px;
-  padding: 2px;
-  margin-left: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 24px;
-  width: 24px;
-  border-radius: 6px;
-  transition: background 0.2s;
-}
-.calendar-btn:hover {
-  background: var(--background-modifier-border);
 }
 
 /* Drawer / Navigation */
@@ -1134,27 +952,6 @@ select.form-input {
 }
 .navigation-nav {
   padding: 20px 0;
-}
-.navigation-nav-item {
-  display: flex;
-  align-items: center;
-  padding: 10px 15px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-.navigation-nav-item:hover {
-  background: var(--background-modifier-hover);
-}
-.navigation-nav-item.active {
-  background: var(--background-modifier-active);
-  font-weight: 500;
-}
-.navigation-nav-icon {
-  margin-right: 10px;
-  font-size: 16px;
-}
-.navigation-nav-label {
-  font-size: 13px;
 }
 
 /* オートコンプリート候補リスト */
@@ -1480,10 +1277,6 @@ select.form-input {
   display: inline-block;
   user-select: none;
   /* 絵文字はfilterで色を変更できないため、opacity とtransformで制御 */
-}
-
-.star-rating .star:hover {
-  transform: scale(1.2);
 }
 
 .star-rating .star.taskchute-star-filled {
@@ -3886,7 +3679,7 @@ select.form-input {
   background: none;
   border: none;
   font-size: 16px;
-  padding: 2px 2px;
+  padding: 2px;
   margin-left: 6px;
   cursor: pointer;
   display: flex;
@@ -6543,13 +6336,15 @@ select.form-input {
   }
 
   /* Done state without comments: invisible but tappable, shows on :active */
-  .comment-button.no-comment {
-    opacity: 0 !important;
-    visibility: visible !important;
+  .comment-button.no-comment,
+  .task-item:hover .comment-button.no-comment:not(:active) {
+    opacity: 0;
+    visibility: visible;
   }
 
-  .comment-button.no-comment:active {
-    opacity: 0.8 !important;
+  .comment-button.no-comment:active,
+  .task-item:hover .comment-button.no-comment:active {
+    opacity: 0.8;
   }
 
   /* Idle/running state (disabled): completely hidden */

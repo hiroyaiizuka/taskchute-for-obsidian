@@ -72,7 +72,7 @@ export default class ScheduledTimeModal extends Modal {
       if (index > 0) {
         description.createEl('br')
       }
-      description.appendChild(document.createTextNode(line))
+      description.appendChild(activeDocument.createTextNode(line))
     })
 
     const footer = form.createDiv( { cls: 'form-button-group' })

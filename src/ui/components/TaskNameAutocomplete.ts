@@ -385,7 +385,7 @@ export class TaskNameAutocomplete {
     this.suggestionsElement.style.left = `${rect.left}px`;
     this.suggestionsElement.style.width = `${rect.width}px`;
 
-    const body = this.doc.body ?? document.body;
+    const body = this.doc.body ?? activeDocument.body;
     body.appendChild(this.suggestionsElement);
 
     this.isVisible = true;

@@ -33,10 +33,12 @@ export class RecipeSelectModal {
   private modalEl: HTMLDivElement | null = null
   private contentEl: HTMLDivElement | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+  private escapeKeyDocument: Document | null = null
 
   constructor(private readonly app: App, private readonly options: RecipeSelectModalOptions) {}
 
   open(): void {
+    const modalDocument = activeDocument
     this.modalEl = createDiv()
     this.modalEl.className = 'task-modal-overlay'
     this.contentEl = this.modalEl.createDiv( {
@@ -47,20 +49,23 @@ export class RecipeSelectModal {
         this.close()
       }
     })
-    document.body.appendChild(this.modalEl)
+    modalDocument.body.appendChild(this.modalEl)
     this.escapeKeyHandler = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         this.close()
       }
     }
-    document.addEventListener('keydown', this.escapeKeyHandler)
+    this.escapeKeyDocument = modalDocument
+    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
     void this.loadRecipes()
   }
 
   close(): void {
     if (this.escapeKeyHandler) {
-      document.removeEventListener('keydown', this.escapeKeyHandler)
+      const listenerDocument = this.escapeKeyDocument ?? activeDocument
+      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
       this.escapeKeyHandler = null
+      this.escapeKeyDocument = null
     }
     this.modalEl?.remove()
     this.hideSuggestions()
@@ -199,7 +204,7 @@ export class RecipeSelectModal {
     suggestions.style.top = `${rect.bottom + 2}px`
     suggestions.style.left = `${rect.left}px`
     suggestions.style.width = `${rect.width}px`
-    document.body.appendChild(suggestions)
+    activeDocument.body.appendChild(suggestions)
     this.suggestionsEl = suggestions
   }
 

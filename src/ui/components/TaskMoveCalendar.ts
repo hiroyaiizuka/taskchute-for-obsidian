@@ -50,6 +50,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
   private currentMonth: Date
   private selectedDate: Date
   private outsideClickHandler?: (event: MouseEvent) => void
+  private outsideClickDocument?: Document
 
   constructor(options: TaskMoveCalendarOptions) {
     this.anchor = options.anchor
@@ -91,12 +92,13 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.close()
     }
 
+    const ownerDocument = this.anchor.ownerDocument ?? activeDocument
     this.container = createDiv()
     this.container.className = "taskchute-move-calendar"
 
     this.render()
 
-    document.body.appendChild(this.container)
+    ownerDocument.body.appendChild(this.container)
     this.position()
 
     this.outsideClickHandler = (event) => {
@@ -109,19 +111,22 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
         this.close()
       }
     }
+    this.outsideClickDocument = ownerDocument
 
     // Defer registration to avoid immediately closing due to same click
     activeWindow.setTimeout(() => {
       if (this.outsideClickHandler) {
-        document.addEventListener("mousedown", this.outsideClickHandler, true)
+        ownerDocument.addEventListener("mousedown", this.outsideClickHandler, true)
       }
     }, 0)
   }
 
   close(): void {
     if (this.outsideClickHandler) {
-      document.removeEventListener("mousedown", this.outsideClickHandler, true)
+      const listenerDocument = this.outsideClickDocument ?? activeDocument
+      listenerDocument.removeEventListener("mousedown", this.outsideClickHandler, true)
       this.outsideClickHandler = undefined
+      this.outsideClickDocument = undefined
     }
 
     if (this.container?.parentElement) {
@@ -311,8 +316,9 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
 
     const rect = this.anchor.getBoundingClientRect()
     const calendarRect = this.container.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const ownerWindow = this.container.ownerDocument.defaultView ?? this.anchor.ownerDocument.defaultView ?? window
+    const viewportWidth = ownerWindow.innerWidth
+    const viewportHeight = ownerWindow.innerHeight
 
     let left = rect.left
     let top = rect.bottom + 8

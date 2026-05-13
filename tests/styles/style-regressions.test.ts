@@ -78,20 +78,24 @@ describe('style regressions', () => {
   test('touch devices keep the no-comment button override stronger than hover', () => {
     const mobileNoCommentRule = readRuleAfter(
       styles(),
-      '.comment-button.no-comment {',
+      '.comment-button.no-comment,',
       '@media (hover: none)',
     )
 
-    expect(mobileNoCommentRule).toMatch(/opacity:\s*0\s*!important;/)
-    expect(mobileNoCommentRule).toMatch(/visibility:\s*visible\s*!important;/)
+    expect(mobileNoCommentRule).toContain('.task-item:hover .comment-button.no-comment:not(:active)')
+    expect(mobileNoCommentRule).toMatch(/opacity:\s*0;/)
+    expect(mobileNoCommentRule).toMatch(/visibility:\s*visible;/)
+    expect(mobileNoCommentRule).not.toContain('!important')
 
     const mobileNoCommentActiveRule = readRuleAfter(
       styles(),
-      '.comment-button.no-comment:active {',
+      '.comment-button.no-comment:active,',
       '@media (hover: none)',
     )
 
-    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*0\.8\s*!important;/)
+    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*0\.8;/)
+    expect(mobileNoCommentActiveRule).toContain('.task-item:hover .comment-button.no-comment:active')
+    expect(mobileNoCommentActiveRule).not.toContain('!important')
   })
 
   test('future task play button keeps disabled styling over generic play-stop styles', () => {

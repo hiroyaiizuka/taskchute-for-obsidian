@@ -8,6 +8,10 @@ import { Notice, TFile } from 'obsidian'
 
 type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 function ensureCreateEl(): void {
   const proto = HTMLElement.prototype as unknown as {
     createEl?: CreateEl
@@ -102,6 +106,45 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
   })
 
+  test('recipe select modal removes Escape listener from the document that registered it', () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const modal = new RecipeSelectModal({} as never, {
+      service: {
+        loadRecipes: jest.fn(async () => []),
+        assignRecipeToTask: jest.fn(),
+        saveRecipe: jest.fn(),
+      } as never,
+      instance: {
+        task: { path: 'TaskChute/Task/Workout.md', name: '運動 - 有酸素 15分' },
+      } as never,
+      onAssigned: jest.fn(),
+    })
+
+    try {
+      setActiveDocument(sourceDoc)
+      modal.open()
+
+      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+
+      setActiveDocument(focusedDoc)
+      modal.close()
+
+      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+    } finally {
+      modal.close()
+      setActiveDocument(originalActiveDocument)
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
+    }
+  })
+
   test('recipe manager can be closed when no recipes exist', async () => {
     const plugin = {
       app: {
@@ -134,6 +177,54 @@ describe('recipe UI helpers', () => {
     closeButton?.click()
 
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
+  })
+
+  test('recipe manager removes Escape listener from the document that registered it', () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const plugin = {
+      app: {
+        vault: {
+          getMarkdownFiles: jest.fn(() => []),
+          getAbstractFileByPath: jest.fn(),
+          read: jest.fn(),
+          modify: jest.fn(),
+          create: jest.fn(),
+        },
+        metadataCache: { getFileCache: jest.fn() },
+        fileManager: { trashFile: jest.fn(), processFrontMatter: jest.fn() },
+        workspace: { openLinkText: jest.fn() },
+      },
+      pathManager: {
+        getRecipeFolderPath: () => 'TaskChute/Recipes',
+        getTaskFolderPath: () => 'TaskChute/Task',
+        ensureFolderExists: jest.fn(),
+      },
+    }
+    const modal = new RecipeManagerModal(plugin.app as never, plugin as never)
+
+    try {
+      setActiveDocument(sourceDoc)
+      modal.open()
+
+      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+
+      setActiveDocument(focusedDoc)
+      modal.close()
+
+      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+    } finally {
+      modal.close()
+      setActiveDocument(originalActiveDocument)
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
+    }
   })
 
   test('recipe select modal shows simple autocomplete suggestions only after typing', async () => {
@@ -618,6 +709,141 @@ describe('recipe UI helpers', () => {
     expect(document.body.textContent).toContain('new recipe')
     expect(document.body.textContent).not.toContain('old recipe')
     popover.close()
+  })
+
+  test('run popover removes outside listeners from the document that registered them', async () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const anchor = sourceDoc.createElement('button')
+    sourceDoc.body.appendChild(anchor)
+    const popover = new RecipeRunPopover({
+      service: {
+        loadRecipe: jest.fn(async () => ({
+          path: 'TaskChute/Recipes/A.md',
+          title: 'aaa',
+          file: {},
+          steps: [{ id: 'step-1-a', text: 'a' }],
+        })),
+      } as never,
+      getDateKey: () => '2026-05-04',
+      getProgress: () => undefined,
+      setProgress: jest.fn(),
+      openRecipeEditor: jest.fn(),
+      onProgressChanged: jest.fn(),
+    })
+
+    try {
+      setActiveDocument(sourceDoc)
+      await popover.show({
+        instanceId: 'TaskChute/Task/A.md_2026-05-04_111_aaa',
+        task: { path: 'TaskChute/Task/A.md', recipePath: 'TaskChute/Recipes/A.md' },
+      } as never, anchor)
+
+      expect(sourceAdd).toHaveBeenCalledWith('click', expect.any(Function))
+      expect(sourceAdd).toHaveBeenCalledWith('touchend', expect.any(Function))
+
+      setActiveDocument(focusedDoc)
+      popover.close()
+
+      expect(sourceRemove).toHaveBeenCalledWith('click', expect.any(Function))
+      expect(sourceRemove).toHaveBeenCalledWith('touchend', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('click', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('touchend', expect.any(Function))
+    } finally {
+      popover.close()
+      setActiveDocument(originalActiveDocument)
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
+    }
+  })
+
+  test('run popover clamps position using the anchor document window', async () => {
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    const popoutDocument = iframe.contentDocument
+    const popoutWindow = iframe.contentWindow
+    if (!popoutDocument || !popoutWindow) {
+      throw new Error('iframe window unavailable')
+    }
+    Object.defineProperty(popoutWindow, 'innerWidth', { configurable: true, value: 120 })
+    Object.defineProperty(popoutWindow, 'innerHeight', { configurable: true, value: 100 })
+    const anchor = popoutDocument.createElement('button')
+    popoutDocument.body.appendChild(anchor)
+    Object.defineProperty(anchor, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 80,
+        right: 110,
+        bottom: 90,
+        left: 100,
+        width: 10,
+        height: 10,
+        x: 100,
+        y: 80,
+        toJSON: () => ({}),
+      } as DOMRect),
+    })
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('recipe-run-popover')) {
+        return {
+          top: 0,
+          right: 50,
+          bottom: 40,
+          left: 0,
+          width: 50,
+          height: 40,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect
+    })
+    const popover = new RecipeRunPopover({
+      service: {
+        loadRecipe: jest.fn(async () => ({
+          path: 'TaskChute/Recipes/A.md',
+          title: 'aaa',
+          file: {},
+          steps: [{ id: 'step-1-a', text: 'a' }],
+        })),
+      } as never,
+      getDateKey: () => '2026-05-04',
+      getProgress: () => undefined,
+      setProgress: jest.fn(),
+      openRecipeEditor: jest.fn(),
+      onProgressChanged: jest.fn(),
+    })
+
+    try {
+      await popover.show({
+        instanceId: 'TaskChute/Task/A.md_2026-05-04_111_aaa',
+        task: { path: 'TaskChute/Task/A.md', recipePath: 'TaskChute/Recipes/A.md' },
+      } as never, anchor)
+
+      const popoverEl = popoutDocument.querySelector<HTMLElement>('.recipe-run-popover')
+      expect(popoverEl?.style.getPropertyValue('--taskchute-tooltip-left')).toBe('60px')
+      expect(popoverEl?.style.getPropertyValue('--taskchute-tooltip-top')).toBe('34px')
+    } finally {
+      popover.close()
+      rectSpy.mockRestore()
+      iframe.remove()
+    }
   })
 
   test('run popover preserves existing completion timestamps when another step is checked', async () => {

@@ -2,6 +2,10 @@ import { createCommandRegistrar } from '../../src/commands/registerTaskCommands'
 import type { CommandHost, ViewActions } from '../../src/types/Commands'
 import type { Command } from 'obsidian'
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 describe('registerTaskCommands checkCallback', () => {
   const createMocks = () => {
     const registeredCommands: Record<string, Command> = {}
@@ -123,6 +127,36 @@ describe('registerTaskCommands checkCallback', () => {
 
       expect(result).toBe(false)
       expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+    })
+
+    test('checking=false: does not execute when popout document input is focused', () => {
+      const originalActiveDocument = activeDocument
+      const iframe = document.createElement('iframe')
+      document.body.appendChild(iframe)
+      const popoutDocument = iframe.contentDocument
+      if (!popoutDocument) {
+        throw new Error('iframe document unavailable')
+      }
+      const popoutInput = popoutDocument.createElement('input')
+      popoutDocument.body.appendChild(popoutInput)
+      popoutInput.focus()
+
+      const { host, view, registeredCommands } = createMocks()
+      const registrar = createCommandRegistrar(host, view)
+      registrar.initialize()
+
+      try {
+        setActiveDocument(popoutDocument)
+        const check = getCheckCallback(registeredCommands, commandId)
+        const result = check(false)
+
+        expect(popoutInput instanceof HTMLElement).toBe(false)
+        expect(result).toBe(false)
+        expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      } finally {
+        setActiveDocument(originalActiveDocument)
+        iframe.remove()
+      }
     })
 
     test('checking=false: does not execute when contenteditable element is focused', () => {

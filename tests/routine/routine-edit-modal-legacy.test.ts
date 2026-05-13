@@ -11,6 +11,10 @@ jest.mock('obsidian')
 
 const NoticeMock = Notice as unknown as jest.Mock
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 const ensureCreateEl = () => {
   const proto = HTMLElement.prototype as unknown as {
     createEl?: (
@@ -198,6 +202,42 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(dropdown.classList.contains('is-hidden')).toBe(true)
 
     modal.close()
+  })
+
+  it('removes Escape and monthday listeners from the document that registered them', () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const frontmatter: RoutineFrontmatter = {
+      routine_type: 'monthly_date',
+    }
+    const app = createApp(frontmatter)
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
+
+    try {
+      setActiveDocument(sourceDoc)
+      modal.open()
+
+      expect(sourceAdd).toHaveBeenCalledWith('click', expect.any(Function), true)
+      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+
+      setActiveDocument(focusedDoc)
+      modal.close()
+
+      expect(sourceRemove).toHaveBeenCalledWith('click', expect.any(Function), true)
+      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('click', expect.any(Function), true)
+      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+    } finally {
+      modal.close()
+      setActiveDocument(originalActiveDocument)
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
+    }
   })
 
   it('uses current view date as target_date when disabling routine on save', async () => {
