@@ -9,7 +9,7 @@ export interface NameModalOptions {
   closeLabel: string
   context?: {
     doc?: Document
-    win?: Window & typeof globalThis
+    win?: Window
   }
 }
 

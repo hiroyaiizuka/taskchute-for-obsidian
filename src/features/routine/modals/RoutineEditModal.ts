@@ -1,4 +1,4 @@
-import { App, Notice, TFile } from "obsidian"
+import { App, Notice, TFile } from 'obsidian'
 
 import { t, getCurrentLocale } from "../../../i18n"
 import { DATE_FORMAT_DISPLAY } from "../../../constants"
@@ -121,14 +121,14 @@ export default class RoutineEditModal {
 
   open(): void {
     // Create overlay
-    this.modalEl = document.createElement("div")
+    this.modalEl = createDiv()
     this.modalEl.className = "task-modal-overlay"
 
     // Create modal content container
-    this.contentEl = this.modalEl.createEl("div", { cls: "task-modal-content routine-edit-modal" })
+    this.contentEl = this.modalEl.createDiv( { cls: "task-modal-content routine-edit-modal" })
 
     // Create header with title and close button
-    const header = this.contentEl.createEl("div", { cls: "modal-header" })
+    const header = this.contentEl.createDiv( { cls: "modal-header" })
     header.createEl("h3", {
       text: this.tv("title", `Routine settings for "${this.file.basename}"`, {
         name: this.file.basename,
@@ -196,10 +196,10 @@ export default class RoutineEditModal {
     const frontmatter = this.getFrontmatterSnapshot()
     const initialType = this.normalizeRoutineType(frontmatter.routine_type)
 
-    const form = this.contentEl.createEl("div", { cls: "routine-form" })
+    const form = this.contentEl.createDiv( { cls: "routine-form" })
 
     // Type selector
-    const typeGroup = form.createEl("div", { cls: "form-group" })
+    const typeGroup = form.createDiv( { cls: "form-group" })
     typeGroup.createEl("label", {
       text: this.tv("fields.typeLabel", "Type:"),
     })
@@ -210,7 +210,7 @@ export default class RoutineEditModal {
     typeSelect.value = initialType
 
     // Start time
-    const timeGroup = form.createEl("div", { cls: "form-group" })
+    const timeGroup = form.createDiv( { cls: "form-group" })
     timeGroup.createEl("label", {
       text: this.tv("fields.startTimeLabel", "Scheduled time:"),
     })
@@ -221,12 +221,12 @@ export default class RoutineEditModal {
     // when the modal opens (mobile touch event propagation issue)
     // Use disabled attribute which is more reliable than pointer-events
     timeInput.disabled = true
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       timeInput.disabled = false
     }, 500)
 
     // Interval
-    const intervalGroup = form.createEl("div", { cls: "form-group" })
+    const intervalGroup = form.createDiv( { cls: "form-group" })
     intervalGroup.createEl("label", {
       text: this.tv("fields.intervalLabel", "Interval:"),
     })
@@ -240,7 +240,7 @@ export default class RoutineEditModal {
     )
 
     // Start / End dates
-    const datesGroup = form.createEl("div", {
+    const datesGroup = form.createDiv( {
       cls: "form-group form-group--date-range",
     })
     datesGroup.createEl("label", {
@@ -269,7 +269,7 @@ export default class RoutineEditModal {
     )
 
     // Enabled toggle
-    const enabledGroup = form.createEl("div", {
+    const enabledGroup = form.createDiv( {
       cls: "form-group form-group--inline",
     })
     const enabledLabel = enabledGroup.createEl("label", {
@@ -280,7 +280,7 @@ export default class RoutineEditModal {
     enabledToggle.checked = frontmatter.routine_enabled !== false
 
     // Weekly controls
-    const weeklyGroup = form.createEl("div", {
+    const weeklyGroup = form.createDiv( {
       cls: "form-group routine-form__weekly routine-chip-panel",
       attr: { "data-kind": "weekly" },
     })
@@ -298,7 +298,7 @@ export default class RoutineEditModal {
       cls: "form-label routine-monthly-group__heading",
     })
     monthlyLabel.classList.add("is-hidden")
-    const monthlyGroup = form.createEl("div", {
+    const monthlyGroup = form.createDiv( {
       cls: "form-group routine-form__monthly routine-chip-panel",
       attr: { "data-kind": "monthly" },
     })
@@ -324,7 +324,7 @@ export default class RoutineEditModal {
       frontmatter,
     )
 
-    const monthlyDateGroup = form.createEl("div", {
+    const monthlyDateGroup = form.createDiv( {
       cls: "form-group routine-form__monthly-date",
       attr: { "data-kind": "monthly_date" },
     })
@@ -332,7 +332,7 @@ export default class RoutineEditModal {
       text: this.tv("fields.monthDaysLabel", "Dates (multi-select):"),
     })
     monthdayLabel.classList.add("routine-form__inline-label")
-    const monthdaySelect = monthlyDateGroup.createEl("div", {
+    const monthdaySelect = monthlyDateGroup.createDiv( {
       cls: "routine-monthday-select",
     })
     const monthdayTrigger = monthdaySelect.createEl("button", {
@@ -343,10 +343,10 @@ export default class RoutineEditModal {
         "aria-expanded": "false",
       },
     })
-    const monthdayDropdown = monthdaySelect.createEl("div", {
+    const monthdayDropdown = monthdaySelect.createDiv( {
       cls: "routine-monthday-dropdown is-hidden",
     })
-    const monthdayOptions = monthdayDropdown.createEl("div", {
+    const monthdayOptions = monthdayDropdown.createDiv( {
       cls: "routine-monthday-options",
     })
     const monthdayCheckboxes: HTMLInputElement[] = []
@@ -358,7 +358,7 @@ export default class RoutineEditModal {
         type: "checkbox",
         attr: { value: String(day) },
       })
-      option.createEl("span", {
+      option.createSpan( {
         text: this.tv("labels.monthdayNth", "{day}", { day }),
         cls: "routine-monthday-option__label",
       })
@@ -372,7 +372,7 @@ export default class RoutineEditModal {
         type: "checkbox",
         attr: { value: "last" },
       })
-      option.createEl("span", {
+      option.createSpan( {
         text: this.tv("labels.monthdayLast", "Last day"),
         cls: "routine-monthday-option__label",
       })
@@ -438,7 +438,7 @@ export default class RoutineEditModal {
     typeSelect.addEventListener("change", updateVisibility)
 
     // Buttons
-    const buttonRow = this.contentEl.createEl("div", {
+    const buttonRow = this.contentEl.createDiv( {
       cls: "routine-editor__buttons",
     })
     const saveButton = buttonRow.createEl("button", {
@@ -878,16 +878,16 @@ export default class RoutineEditModal {
     labelText: string,
     options: Array<{ value: string; label: string }>,
   ): HTMLInputElement[] {
-    const fieldset = parent.createEl("div", { cls: "routine-chip-fieldset" })
-    fieldset.createEl("div", { cls: "routine-chip-fieldset__label", text: labelText })
-    const chipContainer = fieldset.createEl("div", { cls: "routine-chip-fieldset__chips" })
+    const fieldset = parent.createDiv( { cls: "routine-chip-fieldset" })
+    fieldset.createDiv( { cls: "routine-chip-fieldset__label", text: labelText })
+    const chipContainer = fieldset.createDiv( { cls: "routine-chip-fieldset__chips" })
     return options.map(({ value, label }) => {
       const chip = chipContainer.createEl("label", { cls: "routine-chip" })
       const checkbox = chip.createEl("input", {
         type: "checkbox",
         value,
       })
-      chip.createEl("span", { text: label, cls: "routine-chip__text" })
+      chip.createSpan( { text: label, cls: "routine-chip__text" })
       return checkbox
     })
   }
@@ -985,7 +985,7 @@ export default class RoutineEditModal {
     value: string,
     ariaLabel: string,
   ): HTMLInputElement {
-    const wrapper = container.createEl("div", { cls: "form-input-icon-wrapper" })
+    const wrapper = container.createDiv( { cls: "form-input-icon-wrapper" })
     const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
     const placeholder = getCurrentLocale() === "ja"
       ? this.tv("fields.datePlaceholderJa", "年/月/日")

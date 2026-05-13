@@ -51,17 +51,17 @@ export default class NavigationRoutineController {
     if (!container) return
     container.empty()
 
-    const header = container.createEl('div', { cls: 'routine-list-header' })
+    const header = container.createDiv( { cls: 'routine-list-header' })
     header.createEl('h3', {
       text: this.host.tv('labels.routineList', 'Routine list'),
     })
-    const hint = container.createEl('div', { cls: 'routine-list-hint' })
+    const hint = container.createDiv( { cls: 'routine-list-hint' })
     hint.textContent = this.host.tv(
       'labels.routineToggleHelp',
       "Toggle routines on or off here. Edit details from each task's settings.",
     )
 
-    const list = container.createEl('div', { cls: 'routine-list' })
+    const list = container.createDiv( { cls: 'routine-list' })
     const taskFolderPath = this.host.plugin.pathManager.getTaskFolderPath()
     const files = this.host.app.vault
       .getMarkdownFiles()
@@ -77,7 +77,7 @@ export default class NavigationRoutineController {
     })
 
     if (files.length === 0) {
-      const empty = container.createEl('div', { cls: 'routine-empty' })
+      const empty = container.createDiv( { cls: 'routine-empty' })
       empty.textContent = this.host.tv('status.noRoutineFound', 'No routines found')
     }
   }

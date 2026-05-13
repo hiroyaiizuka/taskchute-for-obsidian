@@ -9,5 +9,6 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
   },
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/obsidian-dom-globals.ts'],
   verbose: true,
 };

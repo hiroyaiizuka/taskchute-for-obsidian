@@ -63,6 +63,22 @@ type TimerServiceStub = {
   dispose: jest.Mock<void, []>;
 };
 
+type TimeoutWindow = Window & {
+  setTimeout: jest.Mock<number, [TimerHandler, number?]>
+  clearTimeout: jest.Mock<void, [number]>
+}
+
+const setActiveWindow = (win: Window): void => {
+  ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow = win
+}
+
+const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
+  {
+    setTimeout: jest.fn(() => timeoutId),
+    clearTimeout: jest.fn(),
+  } as unknown as TimeoutWindow
+)
+
 function createDayState(overrides: Partial<DayState> = {}): DayState {
   return {
     hiddenRoutines: [],
@@ -2122,6 +2138,45 @@ describe('TaskChuteView state file modify listener', () => {
       runBoundaryCheck: false,
       clearDayStateCache: 'none',
     });
+  });
+
+  test('clears state file debounce on the same Window that created it', () => {
+    const originalActiveWindow = activeWindow;
+    const { view, plugin } = createView();
+    const sourceWindow = createTimeoutWindow(111);
+    const focusedWindow = createTimeoutWindow(222);
+    const processor = view as unknown as {
+      scheduleExternalStateChangeProcessing: (
+        filePath: string,
+        dayStateService: {
+          getMonthKeyFromPath?: (path: string) => string | null
+          mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] } | null>
+        },
+      ) => void
+    };
+    const dayStateService = plugin.dayStateService as unknown as {
+      getMonthKeyFromPath?: (path: string) => string | null
+      mergeExternalChange?: (monthKey: string) => Promise<{ merged: unknown; affectedDateKeys: string[] } | null>
+    };
+    dayStateService.getMonthKeyFromPath = jest.fn(() => '2025-01');
+    dayStateService.mergeExternalChange = jest.fn(async () => ({
+      merged: {},
+      affectedDateKeys: ['2025-01-01'],
+    }));
+
+    try {
+      setActiveWindow(sourceWindow);
+      processor.scheduleExternalStateChangeProcessing('LOGS/2025-01-state.json', dayStateService);
+
+      setActiveWindow(focusedWindow);
+      processor.scheduleExternalStateChangeProcessing('LOGS/2025-01-state.json', dayStateService);
+
+      expect(sourceWindow.setTimeout).toHaveBeenCalledTimes(1);
+      expect(sourceWindow.clearTimeout).toHaveBeenCalledWith(111);
+      expect(focusedWindow.clearTimeout).not.toHaveBeenCalledWith(111);
+    } finally {
+      setActiveWindow(originalActiveWindow);
+    }
   });
 
   test('queues debounced external change when barrier starts before timer fires', async () => {

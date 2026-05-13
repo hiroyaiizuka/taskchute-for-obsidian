@@ -25,6 +25,22 @@ jest.mock('../../../src/ui/components/TaskNameAutocomplete', () => ({
   })),
 }))
 
+type TimeoutWindow = Window & {
+  setTimeout: jest.Mock<number, [TimerHandler, number?]>
+  clearTimeout: jest.Mock<void, [number]>
+}
+
+const setActiveWindow = (win: Window): void => {
+  ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow = win
+}
+
+const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
+  {
+    setTimeout: jest.fn(() => timeoutId),
+    clearTimeout: jest.fn(),
+  } as unknown as TimeoutWindow
+)
+
 describe('TaskCreationController', () => {
   beforeAll(() => {
     const proto = HTMLElement.prototype as unknown as {
@@ -222,6 +238,38 @@ describe('TaskCreationController', () => {
     const ctorArgs = autocompleteMock.mock.calls[0]
     expect(ctorArgs[3]?.doc).toBe(popoutDoc)
     expect(ctorArgs[3]?.win).toBe(fakeWindow)
+  })
+
+  test('task name validation clears pending timer on the same Window that created it', () => {
+    const originalActiveWindow = activeWindow
+    const { host } = createHost()
+    const sourceWindow = createTimeoutWindow(123)
+    const focusedWindow = createTimeoutWindow(456)
+    const controller = new TaskCreationController(host)
+    const input = document.createElement('input')
+    const submitButton = document.createElement('button')
+    const warningElement = document.createElement('div')
+    const validation = (controller as unknown as {
+      setupTaskNameValidation: (
+        inputElement: HTMLInputElement,
+        submitButton: HTMLButtonElement,
+        warningElement: HTMLElement,
+      ) => { dispose: () => void }
+    }).setupTaskNameValidation(input, submitButton, warningElement)
+
+    try {
+      setActiveWindow(sourceWindow)
+      input.dispatchEvent(new Event('input'))
+
+      setActiveWindow(focusedWindow)
+      validation.dispose()
+
+      expect(sourceWindow.setTimeout).toHaveBeenCalledWith(expect.any(Function), 150)
+      expect(sourceWindow.clearTimeout).toHaveBeenCalledWith(123)
+      expect(focusedWindow.clearTimeout).not.toHaveBeenCalled()
+    } finally {
+      setActiveWindow(originalActiveWindow)
+    }
   })
 
   test('shows inline restore banner when deleted task candidate is found', async () => {

@@ -55,7 +55,7 @@ export class RecipeRunPopover {
     const completedAtByStepId = { ...(current?.completedAtByStepId ?? {}) }
     let stepOrder = this.normalizeStepOrder(recipe.steps, current?.stepOrder)
 
-    const popover = document.createElement('div')
+    const popover = createDiv()
     popover.className = Platform?.isMobile
       ? 'recipe-run-popover recipe-run-popover--mobile'
       : 'recipe-run-popover taskchute-tooltip'
@@ -63,9 +63,9 @@ export class RecipeRunPopover {
 
     const renderBody = () => {
       popover.empty()
-      const header = popover.createEl('div', { cls: 'recipe-run-header' })
-      const titleRow = header.createEl('div', { cls: 'recipe-run-title-row' })
-      titleRow.createEl('div', { cls: 'recipe-run-title', text: recipe.title })
+      const header = popover.createDiv( { cls: 'recipe-run-header' })
+      const titleRow = header.createDiv( { cls: 'recipe-run-title-row' })
+      titleRow.createDiv( { cls: 'recipe-run-title', text: recipe.title })
       const editButton = header.createEl('button', {
         cls: 'recipe-run-edit-button',
         attr: {
@@ -82,13 +82,13 @@ export class RecipeRunPopover {
         this.host.openRecipeEditor(recipe.path)
       })
 
-      const list = popover.createEl('div', { cls: 'recipe-run-steps' })
+      const list = popover.createDiv( { cls: 'recipe-run-steps' })
       const displaySteps = this.applyStepOrder(recipe.steps, stepOrder)
       if (displaySteps.length === 0) {
-        list.createEl('div', { cls: 'recipe-empty-state', text: t('recipes.run.emptySteps', '手順がありません') })
+        list.createDiv( { cls: 'recipe-empty-state', text: t('recipes.run.emptySteps', '手順がありません') })
       }
       displaySteps.forEach((step, index) => {
-        const row = list.createEl('div', { cls: 'recipe-run-step', attr: { 'data-step-index': String(index) } })
+        const row = list.createDiv( { cls: 'recipe-run-step', attr: { 'data-step-index': String(index) } })
         row.addEventListener('dragover', (event) => {
           if (this.draggedStepIndex === null || this.draggedStepIndex === index) return
           event.preventDefault()
@@ -139,7 +139,7 @@ export class RecipeRunPopover {
         const label = row.createEl('label', { cls: 'recipe-run-step-check' })
         const checkbox = label.createEl('input', { attr: { type: 'checkbox' } })
         checkbox.checked = checked.has(step.id)
-        label.createEl('span', { cls: 'recipe-run-step-text', text: step.text })
+        label.createSpan( { cls: 'recipe-run-step-text', text: step.text })
         checkbox.addEventListener('change', () => {
           const now = Date.now()
           if (checkbox.checked) {
@@ -174,7 +174,7 @@ export class RecipeRunPopover {
   }
 
   private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 12 16')
     svg.setAttribute('width', '12')
     svg.setAttribute('height', '16')
@@ -189,7 +189,7 @@ export class RecipeRunPopover {
       { cx: '8', cy: '14' },
     ]
     dots.forEach(({ cx, cy }) => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      const circle = createSvg('circle')
       circle.setAttribute('cx', cx)
       circle.setAttribute('cy', cy)
       circle.setAttribute('r', '1.5')
@@ -199,7 +199,7 @@ export class RecipeRunPopover {
   }
 
   private appendEditIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 24 24')
     svg.setAttribute('width', '14')
     svg.setAttribute('height', '14')
@@ -209,9 +209,9 @@ export class RecipeRunPopover {
     svg.setAttribute('stroke-width', '2')
     svg.setAttribute('stroke-linecap', 'round')
     svg.setAttribute('stroke-linejoin', 'round')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    const path = createSvg('path')
     path.setAttribute('d', 'M12 20h9')
-    const pencil = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    const pencil = createSvg('path')
     pencil.setAttribute('d', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z')
     svg.append(path, pencil)
     container.appendChild(svg)

@@ -124,40 +124,40 @@
 }
 
 .is-mobile .task-modal-overlay {
-  align-items: flex-start !important;
-  padding-top: 50px !important;
-  padding-bottom: 20px !important;
+  align-items: flex-start;
+  padding-top: 50px;
+  padding-bottom: 20px;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content {
-  max-height: calc(100vh - 100px) !important;
-  overflow-y: auto !important;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header {
-  padding: 16px 50px 12px 16px !important;
-  position: relative !important;
+  padding: 16px 50px 12px 16px;
+  position: relative;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header h3 {
-  font-size: 1rem !important;
-  line-height: 1.4 !important;
-  word-break: break-word !important;
+  font-size: 1rem;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header .modal-close-button {
-  position: absolute !important;
-  top: 6px !important;
-  right: 10px !important;
+  position: absolute;
+  top: 6px;
+  right: 10px;
 }
 
 .is-mobile .taskchute-comment-modal {
-  align-items: flex-start !important;
-  padding-top: 70px !important;
+  align-items: flex-start;
+  padding-top: 70px;
 }
 
 .is-mobile .taskchute-comment-modal .taskchute-comment-content {
-  max-height: 50vh !important;
+  max-height: 50vh;
 }
 
 .taskchute-calendar-export-modal .setting-item .setting-item-description:empty {
@@ -190,11 +190,11 @@
   gap: 12px;
   margin-top: 16px;
   padding-top: 8px;
-  border-top: 0 !important;
+  border-top: 0;
 }
 .taskchute-calendar-export-modal .modal-close-button {
-  top: 25px !important;
-  right: 16px !important;
+  top: 25px;
+  right: 16px;
 }
 .taskchute-calendar-export-modal .modal-title {
   padding-bottom: 12px;
@@ -208,8 +208,8 @@
   font-weight: 600;
 }
 .taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-name {
-  font-size: 1rem !important;
-  font-weight: 600 !important;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.2;
 }
 .taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-info {
@@ -403,7 +403,7 @@ select.form-input {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  column-gap: 8px;
+  gap: 8px;
   width: 100%;
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
@@ -441,10 +441,10 @@ select.form-input {
   font-size: 14px;
   color: var(--text-normal);
   text-align: left;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .form-input-icon-wrapper input[type="date"] {
@@ -460,7 +460,7 @@ select.form-input {
 .form-input--date::-webkit-datetime-edit-year-field {
   padding: 0;
   margin: 0;
-  background: transparent !important;
+  background: transparent;
   color: inherit;
   text-align: left;
 }
@@ -469,7 +469,7 @@ select.form-input {
 .form-input--date::-webkit-datetime-edit-day-field:focus,
 .form-input--date::-webkit-datetime-edit-year-field:focus,
 .form-input--date::-webkit-datetime-edit-text:focus {
-  background: transparent !important;
+  background: transparent;
   color: inherit;
 }
 
@@ -495,10 +495,10 @@ select.form-input {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: none !important;
+  border: none;
   border-radius: 2px;
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
@@ -506,7 +506,7 @@ select.form-input {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 .form-input-icon-button svg {
@@ -516,20 +516,20 @@ select.form-input {
 
 .form-input-icon-button:hover {
   color: var(--text-normal);
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
 }
 
 .form-input-icon-button:focus-visible {
   outline: none;
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
 }
 
 .form-input-icon-button:focus {
   outline: none;
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
 }
 
 .form-textarea {
@@ -546,7 +546,7 @@ select.form-input {
 
 .scheduled-time-modal .modal-header {
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 4px;
 }
 
@@ -572,7 +572,7 @@ select.form-input {
 
 .time-edit-modal .modal-header {
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 4px;
 }
 
@@ -586,7 +586,7 @@ select.form-input {
 
 .taskchute-confirm-modal .modal-header {
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 0;
 }
 
@@ -596,7 +596,7 @@ select.form-input {
 }
 
 .project-create-modal .modal-header {
-  padding: 20px 20px 0 20px;
+  padding: 20px 20px 0;
 }
 
 .project-create-form {
@@ -779,7 +779,7 @@ select.form-input {
   opacity: 0.6;
 }
 .drag-handle:hover {
-  opacity: 1 !important;
+  opacity: 1;
   color: var(--text-normal);
   background-color: var(--background-modifier-hover);
 }
@@ -904,7 +904,7 @@ select.form-input {
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
-  margin: 8px 0 4px 0;
+  margin: 8px 0 4px;
   border-radius: 4px;
   border-left: 3px solid var(--interactive-accent);
   display: flex;
@@ -988,7 +988,7 @@ select.form-input {
   color: var(--text-normal);
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
-  padding: 6px 12px 8px 12px; /* larger touch target */
+  padding: 6px 12px 8px; /* larger touch target */
   min-width: 36px; /* a bit wider */
   cursor: pointer;
   font-size: 17px; /* ~1.2x larger + icon */
@@ -1063,11 +1063,11 @@ select.form-input {
 }
 .date-nav-container.is-not-today .date-nav-label,
 .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px !important;
+  margin-left: -14px;
 }
 .is-mobile .date-nav-container.is-not-today .date-nav-label,
 .is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px !important;
+  margin-left: -22px;
 }
 .calendar-btn {
   background: none;
@@ -1615,7 +1615,7 @@ select.form-input {
 }
 
 .is-hidden {
-  display: none !important;
+  display: none;
 }
 
 /* ステータスバッジ */
@@ -1907,12 +1907,12 @@ select.form-input {
 
 .taskchute-routine-group.hidden,
 .taskchute-hidden {
-  display: none !important;
+  display: none;
 }
 
 .taskchute-routine-group.visible,
 .taskchute-visible {
-  display: block !important;
+  display: block;
 }
 
 /* Additional styles for guideline compliance */
@@ -1955,7 +1955,7 @@ select.form-input {
 
 /* タスク移動時のハイライト */
 .taskchute-task-moved {
-  background-color: var(--background-secondary) !important;
+  background-color: var(--background-secondary);
   transition: background-color 0.3s ease;
 }
 
@@ -2258,9 +2258,8 @@ select.form-input {
   grid-template-rows: repeat(7, var(--heatmap-cell-size));
   grid-auto-columns: var(--heatmap-cell-size);
   grid-auto-flow: column;
-  column-gap: var(--heatmap-week-gap);
-  row-gap: var(--heatmap-week-gap);
-  width: var(--heatmap-grid-width);
+  gap: var(--heatmap-week-gap);
+    width: var(--heatmap-grid-width);
 }
 
 .heatmap-cell {
@@ -2950,9 +2949,9 @@ select.form-input {
 }
 
 .future-task-button {
-  background-color: var(--background-modifier-border) !important;
-  color: transparent !important;
-  cursor: not-allowed !important;
+  background-color: var(--background-modifier-border);
+  color: transparent;
+  cursor: not-allowed;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2982,7 +2981,7 @@ select.form-input {
 }
 
 .task-list-container h5 {
-  margin: 0 0 10px 0;
+  margin: 0 0 10px;
   color: var(--text-muted);
 }
 
@@ -3068,8 +3067,14 @@ select.form-input {
   opacity: 0.6;
 }
 
+.task-item:hover .drag-handle:hover {
+  opacity: 1;
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
 .drag-handle:hover {
-  opacity: 1 !important;
+  opacity: 1;
   color: var(--text-normal);
   background-color: var(--background-modifier-hover);
 }
@@ -3192,7 +3197,7 @@ select.form-input {
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
-  margin: 8px 0 4px 0;
+  margin: 8px 0 4px;
   border-radius: 4px;
   border-left: 3px solid var(--interactive-accent);
 }
@@ -3258,8 +3263,14 @@ select.form-input {
   opacity: 0.6;
 }
 
+.task-item:hover .comment-button:not(.disabled):hover {
+  opacity: 1;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
 .comment-button:not(.disabled):hover {
-  opacity: 1 !important;
+  opacity: 1;
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
@@ -3384,7 +3395,7 @@ select.form-input {
 
 /* ホバー時の明るくなる効果を削除 */
 .taskchute-project-placeholder:hover {
-  /* opacity: 1 !important; 削除 */
+  /* opacity: 1; 削除 */
   /* background: var(--background-modifier-hover); 削除 */
   /* border-color: var(--interactive-accent); 削除 */
   /* color: var(--text-normal); 削除 */
@@ -3508,7 +3519,7 @@ select.form-input {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 20px 0 20px;
+  padding: 20px 20px 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -3662,6 +3673,13 @@ select.form-input {
   font-weight: bold;
   background: var(--background-modifier-border);
 }
+
+.play-stop-button.future-task-button {
+  background: var(--background-modifier-border);
+  color: transparent;
+  cursor: not-allowed;
+}
+
 .task-item.selected {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -3710,7 +3728,7 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px 0 11px 0;
+  padding: 4px 0 11px;
   min-width: 140px;
   font-size: 13px;
   z-index: 1000;
@@ -3734,7 +3752,7 @@ select.form-input {
 .tooltip-header {
   display: flex;
   justify-content: flex-end;
-  padding: 4px 8px 0 8px;
+  padding: 4px 8px 0;
   margin-bottom: 4px;
 }
 
@@ -3818,7 +3836,7 @@ select.form-input {
   background: none;
   border: none;
   font-size: 28px;
-  color: #888;
+  color: #888888;
   cursor: pointer;
   padding: 0 8px;
   transition: color 0.2s;
@@ -3851,11 +3869,11 @@ select.form-input {
 }
 .date-nav-container.is-not-today .date-nav-label,
 .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px !important;
+  margin-left: -14px;
 }
 .is-mobile .date-nav-container.is-not-today .date-nav-label,
 .is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px !important;
+  margin-left: -22px;
 }
 
 .date-nav-container.compact .date-nav-label {
@@ -3883,7 +3901,7 @@ select.form-input {
   background: var(--background-modifier-border);
 }
 .date-wikilink {
-  color: #1976d2 !important;
+  color: #1976d2;
   font-weight: bold;
   text-decoration: none;
   display: inline-block;
@@ -4181,7 +4199,7 @@ select.form-input {
 }
 
 .completion-rating-section h4 {
-  margin: 0 0 16px 0;
+  margin: 0 0 16px;
   font-size: 16px;
   color: var(--text-normal);
 }
@@ -4493,7 +4511,7 @@ select.form-input {
 /* タスク名検証スタイル */
 .form-input.error {
   border-color: #e74c3c;
-  background-color: #fee;
+  background-color: #ffeeee;
 }
 
 .task-name-warning {
@@ -4501,7 +4519,7 @@ select.form-input {
   font-size: 12px;
   margin-top: 4px;
   padding: 4px 8px;
-  background-color: #fee;
+  background-color: #ffeeee;
   border-radius: 4px;
 }
 
@@ -4524,7 +4542,7 @@ select.form-input {
 }
 
 .form-button.disabled {
-  background-color: #ccc;
+  background-color: #cccccc;
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -4631,7 +4649,7 @@ select.form-input {
 
 /* Hide Obsidian's default close button (direct child of modal) */
 .routine-edit-modal > .modal-close-button {
-  display: none !important;
+  display: none;
 }
 
 /* Header with title and close button - applies to all custom modals */
@@ -4734,6 +4752,14 @@ select.form-input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.routine-form__weekly.is-hidden,
+.routine-form__monthly.is-hidden,
+.routine-form__monthly-date.is-hidden,
+.routine-monthly-date-group.is-hidden,
+.routine-monthly-group__heading.is-hidden {
+  display: none;
 }
 
 .routine-monthday-select {
@@ -5508,7 +5534,7 @@ select.form-input {
 }
 
 .reminder-modal-header {
-  padding: 0 0 16px 0;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 16px;
 }
@@ -5520,14 +5546,14 @@ select.form-input {
 }
 
 .reminder-modal-content {
-  padding: 0 0 20px 0;
+  padding: 0 0 20px;
 }
 
 .reminder-task-name {
   font-size: 1.1em;
   font-weight: 600;
   color: var(--text-normal);
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
 }
 
 .reminder-message {
@@ -5574,7 +5600,7 @@ select.form-input {
 }
 
 .reminder-settings-header {
-  padding: 0 0 12px 0;
+  padding: 0 0 12px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 16px;
 }
@@ -5891,8 +5917,15 @@ select.form-input {
   opacity: 0.6;
 }
 
+.recipe-step-row:hover .recipe-step-drag-handle:hover,
+.recipe-run-step:hover .recipe-step-drag-handle:hover {
+  opacity: 1;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .recipe-step-drag-handle:hover {
-  opacity: 1 !important;
+  opacity: 1;
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
@@ -6303,7 +6336,7 @@ select.form-input {
 }
 
 .backup-confirm-title {
-  margin: 0 0 16px 0;
+  margin: 0 0 16px;
   padding: 16px 20px 0;
   font-size: 18px;
   font-weight: 600;
@@ -6315,7 +6348,7 @@ select.form-input {
 }
 
 .backup-confirm-warning p {
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
   line-height: 1.5;
 }
 
@@ -6482,24 +6515,31 @@ select.form-input {
 @media (hover: none) {
   /* Disable task-item hover background change on mobile */
   .task-item:hover {
-    background: inherit !important;
+    background: inherit;
   }
 
   /* Show routine/settings buttons at default visible opacity instead of hidden */
   .routine-button,
   .settings-task-button {
-    opacity: 0.6 !important;
+    opacity: 0.6;
   }
 
   .routine-button.active {
-    opacity: 1 !important;
+    opacity: 1;
+  }
+
+  .routine-button:hover:not(:active):not(.active),
+  .settings-task-button:hover:not(:active) {
+    opacity: 0.6;
+    background: transparent;
+    color: var(--text-muted);
   }
 
   /* Comment button: transparent by default, visible on tap */
   /* Has comments (done state with active class): always visible */
   .comment-button.active {
-    opacity: 1 !important;
-    visibility: visible !important;
+    opacity: 1;
+    visibility: visible;
   }
 
   /* Done state without comments: invisible but tappable, shows on :active */
@@ -6514,55 +6554,57 @@ select.form-input {
 
   /* Idle/running state (disabled): completely hidden */
   .comment-button:disabled {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   /* Drag handle: invisible by default, visible on tap */
   .drag-handle:not(.disabled) {
-    opacity: 0 !important;
+    opacity: 0;
   }
 
   .drag-handle:not(.disabled):active {
-    opacity: 0.6 !important;
+    opacity: 0.6;
   }
 
   .drag-handle.disabled {
-    opacity: 0 !important;
-    pointer-events: none !important;
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* Time range (start time): invisible by default, visible on tap/hover */
   /* On iOS, tapping triggers :hover state which persists until tapping elsewhere */
   .task-time-range.time-hidden {
-    opacity: 0 !important;
-    visibility: visible !important;
+    opacity: 0;
+    visibility: visible;
   }
 
   .task-time-range.time-hidden:hover,
   .task-time-range.time-hidden:active {
-    opacity: 1 !important;
+    opacity: 1;
   }
 
   /* Tap feedback using :active instead of :hover */
   .routine-button:active,
   .settings-task-button:active {
-    opacity: 1 !important;
-    background: var(--background-modifier-border) !important;
+    opacity: 1;
+    background: var(--background-modifier-border);
   }
 
   /* Disable hover-triggered visibility/opacity changes on mobile */
-  .task-item:hover .task-time-range.time-hidden,
-  .task-item:hover .comment-button,
-  .task-item:hover .comment-button.no-comment,
-  .task-item:hover .comment-button.active,
-  .task-item:hover .drag-handle,
-  .task-item:hover .drag-handle.disabled,
-  .task-item:hover .taskchute-project-placeholder,
-  .task-item:hover .routine-button,
-  .task-item:hover .settings-task-button {
-    /* Override hover states - inherit from base mobile styles above */
+  .task-item:hover .task-time-range.time-hidden:not(:active),
+  .task-time-range.time-hidden:hover:not(:active) {
+    opacity: 0;
+  }
+
+  .task-item:hover .drag-handle:not(.disabled):not(:active) {
+    opacity: 0;
+  }
+
+  .task-item:hover .drag-handle.disabled {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
@@ -6596,10 +6638,10 @@ select.form-input {
   right: 0;
   bottom: 0;
   background: var(--background-primary);
-  border-radius: 16px 16px 0 0;
+  border-radius: 16px 16px 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
   z-index: 9999;
-  padding: 16px 16px 32px 16px;
+  padding: 16px 16px 32px;
   transform: translateY(100%);
   transition: transform 0.3s ease;
 }

@@ -37,9 +37,9 @@ export class RecipeSelectModal {
   constructor(private readonly app: App, private readonly options: RecipeSelectModalOptions) {}
 
   open(): void {
-    this.modalEl = document.createElement('div')
+    this.modalEl = createDiv()
     this.modalEl.className = 'task-modal-overlay'
-    this.contentEl = this.modalEl.createEl('div', {
+    this.contentEl = this.modalEl.createDiv( {
       cls: 'task-modal-content routine-edit-modal recipe-modal-content',
     })
     this.modalEl.addEventListener('click', (event) => {
@@ -83,7 +83,7 @@ export class RecipeSelectModal {
     this.renderHeader(t('recipes.select.title', 'レシピを設定'), true)
 
     if (this.recipes.length > 0) {
-      const titleGroup = this.contentEl.createEl('div', { cls: 'form-group recipe-select-name-group' })
+      const titleGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-name-group' })
       titleGroup.createEl('label', { cls: 'form-label', text: t('recipes.select.nameLabel', 'レシピ名:') })
       this.searchInput = this.contentEl.createEl('input', {
         cls: 'form-input recipe-search-input',
@@ -102,7 +102,7 @@ export class RecipeSelectModal {
       this.selectStepsList = null
       this.selectStepsGroup = null
     }
-    this.listEl = this.contentEl.createEl('div', { cls: 'recipe-select-list recipe-select-list--empty' })
+    this.listEl = this.contentEl.createDiv( { cls: 'recipe-select-list recipe-select-list--empty' })
     if (this.recipes.length > 0) {
       this.renderSelectFooter()
     } else {
@@ -117,9 +117,9 @@ export class RecipeSelectModal {
 
   private renderInlineCreateSteps(): void {
     if (!this.contentEl) return
-    this.selectStepsGroup = this.contentEl.createEl('div', { cls: 'form-group recipe-select-create-steps-group' })
+    this.selectStepsGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-create-steps-group' })
     this.selectStepsGroup.createEl('label', { cls: 'form-label', text: `${t('recipes.manager.stepsLabel', '手順')}:` })
-    this.selectStepsList = this.selectStepsGroup.createEl('div', { cls: 'recipe-steps-list' })
+    this.selectStepsList = this.selectStepsGroup.createDiv( { cls: 'recipe-steps-list' })
     let stepValues = ['']
     const renderSteps = () => {
       if (!this.selectStepsList) return
@@ -176,14 +176,14 @@ export class RecipeSelectModal {
     })
     if (recipes.length === 0) return
 
-    const suggestions = document.createElement('div')
+    const suggestions = createDiv()
     suggestions.className = 'taskchute-autocomplete-suggestions recipe-autocomplete-suggestions'
     recipes.slice(0, 15).forEach((recipe) => {
-      const item = document.createElement('div')
+      const item = createDiv()
       item.className = 'suggestion-item'
-      const title = document.createElement('div')
+      const title = createDiv()
       title.className = 'suggestion-title'
-      const label = document.createElement('span')
+      const label = createSpan()
       label.textContent = recipe.title
       title.appendChild(label)
       item.appendChild(title)
@@ -208,7 +208,7 @@ export class RecipeSelectModal {
     this.renderHeader(t('recipes.manager.createTitle', 'レシピ新規作成'), true)
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
-    const titleGroup = form.createEl('div', { cls: 'form-group' })
+    const titleGroup = form.createDiv( { cls: 'form-group' })
     titleGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.nameLabel', 'レシピ名') })
     const titleInput = titleGroup.createEl('input', {
       cls: 'form-input recipe-title-input',
@@ -216,9 +216,9 @@ export class RecipeSelectModal {
     })
     titleInput.value = this.createInitialTitle
 
-    const stepsGroup = form.createEl('div', { cls: 'form-group' })
+    const stepsGroup = form.createDiv( { cls: 'form-group' })
     stepsGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.stepsLabel', '手順') })
-    const stepsList = stepsGroup.createEl('div', { cls: 'recipe-steps-list' })
+    const stepsList = stepsGroup.createDiv( { cls: 'recipe-steps-list' })
     let stepValues = ['']
     const renderSteps = () => {
       stepsList.empty()
@@ -257,7 +257,7 @@ export class RecipeSelectModal {
       renderSteps()
     })
 
-    const buttonGroup = form.createEl('div', { cls: 'form-button-group' })
+    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
       cls: 'form-button cancel',
       text: t('common.cancel', 'キャンセル'),
@@ -290,7 +290,7 @@ export class RecipeSelectModal {
 
   private renderSelectFooter(): void {
     if (!this.contentEl) return
-    const buttonGroup = this.contentEl.createEl('div', { cls: 'form-button-group recipe-select-footer' })
+    const buttonGroup = this.contentEl.createDiv( { cls: 'form-button-group recipe-select-footer' })
     const cancelButton = buttonGroup.createEl('button', {
       cls: 'form-button cancel',
       text: t('common.cancel', 'キャンセル'),
@@ -364,7 +364,7 @@ export class RecipeSelectModal {
   }
 
   private renderHeader(title: string, showClose: boolean): void {
-    const header = this.contentEl?.createEl('div', { cls: 'modal-header recipe-modal-header' })
+    const header = this.contentEl?.createDiv( { cls: 'modal-header recipe-modal-header' })
     if (!header) return
     header.createEl('h3', { text: title })
     if (!showClose) return
@@ -381,7 +381,7 @@ export class RecipeSelectModal {
   }
 
   private appendStepRow(container: HTMLElement, value: string, index: number, callbacks: StepRowCallbacks): void {
-    const row = container.createEl('div', { cls: 'recipe-step-row' })
+    const row = container.createDiv( { cls: 'recipe-step-row' })
     row.addEventListener('dragover', (event) => {
       if (this.draggedStepIndex === null || this.draggedStepIndex === index) return
       event.preventDefault()
@@ -465,7 +465,7 @@ export class RecipeSelectModal {
   }
 
   private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 12 16')
     svg.setAttribute('width', '12')
     svg.setAttribute('height', '16')
@@ -480,7 +480,7 @@ export class RecipeSelectModal {
       { cx: '8', cy: '14' },
     ]
     dots.forEach(({ cx, cy }) => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      const circle = createSvg('circle')
       circle.setAttribute('cx', cx)
       circle.setAttribute('cy', cy)
       circle.setAttribute('r', '1.5')

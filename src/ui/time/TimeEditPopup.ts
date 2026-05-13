@@ -13,18 +13,18 @@ export default class TimeEditPopup implements TimePicker {
 
     const { anchor, currentValue, viewDate, validationDate, onSave, onCancel } = options
 
-    const container = document.createElement('div')
+    const container = createDiv()
     container.classList.add('taskchute-time-popup')
     this.containerEl = container
 
-    const input = document.createElement('input')
+    const input = createEl('input')
     input.type = 'time'
     input.value = currentValue
     input.classList.add('taskchute-time-popup-input')
     container.appendChild(input)
 
     // Save button (✓)
-    const saveBtn = document.createElement('button')
+    const saveBtn = createEl('button')
     saveBtn.type = 'button'
     saveBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-save')
     saveBtn.textContent = '✓'
@@ -32,7 +32,7 @@ export default class TimeEditPopup implements TimePicker {
     container.appendChild(saveBtn)
 
     // Cancel button (✕)
-    const cancelBtn = document.createElement('button')
+    const cancelBtn = createEl('button')
     cancelBtn.type = 'button'
     cancelBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-cancel')
     cancelBtn.textContent = '✕'
@@ -40,7 +40,7 @@ export default class TimeEditPopup implements TimePicker {
     container.appendChild(cancelBtn)
 
     // Reset button (clear time)
-    const resetBtn = document.createElement('button')
+    const resetBtn = createEl('button')
     resetBtn.type = 'button'
     resetBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-reset')
     resetBtn.textContent = '↺'

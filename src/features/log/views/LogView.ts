@@ -114,7 +114,7 @@ export class LogView {
     this.selectedDateKey = null
     this.dayDetailContainer = null
 
-    const loading = this.container.createEl('div', {
+    const loading = this.container.createDiv( {
       cls: 'heatmap-loading',
       text: this.tv('header.loading', 'データを読み込み中...'),
     })
@@ -141,13 +141,13 @@ export class LogView {
   }
 
   private createHeader(): void {
-    const header = this.container.createEl('div', { cls: 'taskchute-log-header' })
+    const header = this.container.createDiv( { cls: 'taskchute-log-header' })
     header.createEl('h2', {
       text: this.tv('header.title', 'タスク実行ログ'),
       cls: 'log-title',
     });
 
-    const controls = header.createEl('div', { cls: 'log-controls' })
+    const controls = header.createDiv( { cls: 'log-controls' })
     const yearSelector = controls.createEl('select', { cls: 'year-selector' })
     const currentYear = new Date().getFullYear()
 
@@ -210,7 +210,7 @@ export class LogView {
     this.selectedDateKey = null
     this.dayDetailContainer = null
 
-    const loading = this.container.createEl('div', {
+    const loading = this.container.createDiv( {
       cls: 'heatmap-loading',
       text: loadingText,
     })
@@ -252,25 +252,25 @@ export class LogView {
     const existing = this.container.querySelector('.heatmap-container');
     if (existing) existing.remove();
 
-    const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' });
-    const layout = heatmapContainer.createEl('div', {
+    const heatmapContainer = this.container.createDiv( { cls: 'heatmap-container' });
+    const layout = heatmapContainer.createDiv( {
       cls: 'heatmap-modal-body',
     });
 
-    const gridSection = layout.createEl('div', { cls: 'heatmap-grid-section' });
+    const gridSection = layout.createDiv( { cls: 'heatmap-grid-section' });
     const grid = this.createHeatmapGrid(this.heatmapData.year);
     gridSection.appendChild(grid);
 
     // Legend outside of scroll area, centered
-    const legend = layout.createEl('div', { cls: 'heatmap-legend' });
-    legend.createEl('span', { cls: 'legend-label', text: 'Less' });
-    const legendScale = legend.createEl('div', { cls: 'legend-scale' });
+    const legend = layout.createDiv( { cls: 'heatmap-legend' });
+    legend.createSpan( { cls: 'legend-label', text: 'Less' });
+    const legendScale = legend.createDiv( { cls: 'legend-scale' });
     for (let level = 0; level <= 4; level++) {
-      legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(level) } });
+      legendScale.createDiv( { cls: 'legend-cell', attr: { 'data-level': String(level) } });
     }
-    legend.createEl('span', { cls: 'legend-label', text: 'More' });
+    legend.createSpan( { cls: 'legend-label', text: 'More' });
 
-    this.dayDetailContainer = layout.createEl('div', {
+    this.dayDetailContainer = layout.createDiv( {
       cls: 'heatmap-detail-section',
     });
 
@@ -290,13 +290,13 @@ export class LogView {
     const existing = this.container.querySelector('.heatmap-container');
     if (existing) existing.remove();
 
-    const heatmapContainer = this.container.createEl('div', { cls: 'heatmap-container' });
-    const layout = heatmapContainer.createEl('div', {
+    const heatmapContainer = this.container.createDiv( { cls: 'heatmap-container' });
+    const layout = heatmapContainer.createDiv( {
       cls: 'heatmap-modal-body',
     });
 
-    const gridSection = layout.createEl('div', { cls: 'heatmap-grid-section' });
-    gridSection.createEl('div', {
+    const gridSection = layout.createDiv( { cls: 'heatmap-grid-section' });
+    gridSection.createDiv( {
       cls: 'heatmap-error',
       text: this.tv('notices.yearUnavailable', `${year}年のデータは利用できません`, {
         year,
@@ -311,37 +311,37 @@ export class LogView {
     });
 
     // Legend outside of scroll area, centered
-    const legend = layout.createEl('div', { cls: 'heatmap-legend' });
-    legend.createEl('span', { cls: 'legend-label', text: 'Less' });
-    const legendScale = legend.createEl('div', { cls: 'legend-scale' });
+    const legend = layout.createDiv( { cls: 'heatmap-legend' });
+    legend.createSpan( { cls: 'legend-label', text: 'Less' });
+    const legendScale = legend.createDiv( { cls: 'legend-scale' });
     for (let level = 0; level <= 4; level++) {
-      legendScale.createEl('div', { cls: 'legend-cell', attr: { 'data-level': String(level) } });
+      legendScale.createDiv( { cls: 'legend-cell', attr: { 'data-level': String(level) } });
     }
-    legend.createEl('span', { cls: 'legend-label', text: 'More' });
+    legend.createSpan( { cls: 'legend-label', text: 'More' });
 
-    this.dayDetailContainer = layout.createEl('div', {
+    this.dayDetailContainer = layout.createDiv( {
       cls: 'heatmap-detail-section',
     });
     this.renderDayDetail({ status: 'placeholder' });
   }
 
   private createHeatmapGrid(year: number): HTMLElement {
-    const container = document.createElement('div');
+    const container = createDiv();
     container.className = 'heatmap-grid-container';
 
-    const monthLabels = container.createEl('div', { cls: 'heatmap-months' });
-    const weekdayWrapper = container.createEl('div', { cls: 'heatmap-weekdays-container' });
-    const weekdayColumn = weekdayWrapper.createEl('div', { cls: 'heatmap-weekdays' });
+    const monthLabels = container.createDiv( { cls: 'heatmap-months' });
+    const weekdayWrapper = container.createDiv( { cls: 'heatmap-weekdays-container' });
+    const weekdayColumn = weekdayWrapper.createDiv( { cls: 'heatmap-weekdays' });
 
     const weekdayLabels = this.getWeekdayLabels();
     weekdayLabels.forEach((labelText, index) => {
-      const label = weekdayColumn.createEl('span', { cls: 'weekday-label' });
+      const label = weekdayColumn.createSpan( { cls: 'weekday-label' });
       if (index % 2 !== 0) {
         label.textContent = labelText;
       }
     });
 
-    const grid = weekdayWrapper.createEl('div', { cls: 'heatmap-grid' });
+    const grid = weekdayWrapper.createDiv( { cls: 'heatmap-grid' });
 
     const firstDay = new Date(year, 0, 1);
     const firstSunday = new Date(firstDay);
@@ -355,7 +355,7 @@ export class LogView {
       const dateString = this.formatDate(currentDate);
       const inYear = currentDate.getFullYear() === year;
 
-      const cell = grid.createEl('div', {
+      const cell = grid.createDiv( {
         cls: inYear ? 'heatmap-cell' : 'heatmap-cell empty',
         attr: { 'data-date': dateString },
       });
@@ -375,7 +375,7 @@ export class LogView {
         this.addCellEventListeners(cell, dateString);
         const monthIndex = currentDate.getMonth();
         if (monthIndex !== lastMonthIndex) {
-          const monthLabel = monthLabels.createEl('span', {
+          const monthLabel = monthLabels.createSpan( {
             cls: 'month-label',
             text: MONTH_LABELS[monthIndex],
           });
@@ -526,13 +526,13 @@ export class LogView {
 
     switch (state.status) {
       case 'placeholder':
-        this.dayDetailContainer.createEl('div', {
+        this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
           text: this.tv('labels.selectDate', '日付を選択してください'),
         });
         break;
       case 'loading':
-        this.dayDetailContainer.createEl('div', {
+        this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-loading',
           text: this.tv('labels.loadingDate', `${state.dateKey} のデータを読み込み中...`, {
             date: state.dateKey,
@@ -540,13 +540,13 @@ export class LogView {
         });
         break;
       case 'future':
-        this.dayDetailContainer.createEl('div', {
+        this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
           text: this.tv('labels.futureDate', '未来の日付です。記録はまだありません。'),
         });
         break;
       case 'error':
-        this.dayDetailContainer.createEl('div', {
+        this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-error',
           text: this.tv('notices.loadFailedGeneric', 'データの読み込みに失敗しました。'),
         });
@@ -555,7 +555,7 @@ export class LogView {
         this.renderDayDetailContent(state.detail);
         break;
       default:
-        this.dayDetailContainer.createEl('div', {
+        this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
           text: this.tv('labels.selectDatePrompt', '日付を選択してください'),
         });
@@ -565,11 +565,11 @@ export class LogView {
   private renderDayDetailContent(detail: HeatmapDayDetail): void {
     if (!this.dayDetailContainer) return;
 
-    const header = this.dayDetailContainer.createEl('div', {
+    const header = this.dayDetailContainer.createDiv( {
       cls: 'heatmap-detail-header',
     });
 
-    const heading = header.createEl('div', { cls: 'heatmap-detail-heading' });
+    const heading = header.createDiv( { cls: 'heatmap-detail-heading' });
     heading.createEl('h3', {
       cls: 'heatmap-detail-date',
       text: this.formatHeaderDate(detail.date),
@@ -590,7 +590,7 @@ export class LogView {
       void this.navigateToDate(detail.date);
     });
 
-    const summary = this.dayDetailContainer.createEl('div', {
+    const summary = this.dayDetailContainer.createDiv( {
       cls: 'heatmap-detail-summary',
     });
 
@@ -605,7 +605,7 @@ export class LogView {
       String(detail.summary.completedTasks),
     );
     if (detail.executions.length === 0) {
-      this.dayDetailContainer.createEl('div', {
+      this.dayDetailContainer.createDiv( {
         cls: 'heatmap-detail-empty',
         text: this.tv('labels.noEntries', 'この日に記録された実行ログはありません。'),
       });
@@ -637,14 +637,14 @@ export class LogView {
       const row = tbody.createEl('tr');
 
       const nameCell = row.createEl('td', { cls: 'heatmap-detail-name' });
-      const titleRow = nameCell.createEl('div', {
+      const titleRow = nameCell.createDiv( {
         cls: 'heatmap-detail-title-row',
       });
-      titleRow.createEl('span', {
+      titleRow.createSpan( {
         cls: 'heatmap-detail-status',
         text: entry.isCompleted ? '✅' : '⬜️',
       });
-      titleRow.createEl('span', {
+      titleRow.createSpan( {
         cls: 'heatmap-detail-title',
         text: entry.title,
       });
@@ -674,9 +674,9 @@ export class LogView {
   }
 
   private createSummaryItem(parent: HTMLElement, label: string, value: string): void {
-    const item = parent.createEl('div', { cls: 'heatmap-summary-item' });
-    item.createEl('span', { cls: 'heatmap-summary-label', text: label });
-    item.createEl('span', { cls: 'heatmap-summary-value', text: value });
+    const item = parent.createDiv( { cls: 'heatmap-summary-item' });
+    item.createSpan( { cls: 'heatmap-summary-label', text: label });
+    item.createSpan( { cls: 'heatmap-summary-value', text: value });
   }
 
   private formatHeaderDate(dateKey: string): string {
@@ -880,7 +880,7 @@ export class LogView {
     const tooltipText = cell.dataset.tooltip;
     if (!tooltipText) return;
 
-    const tooltip = document.createElement('div');
+    const tooltip = createDiv();
     tooltip.classList.add('heatmap-tooltip');
     tooltip.textContent = tooltipText;
 
@@ -916,7 +916,7 @@ export class LogView {
         leaf = workspace.getRightLeaf(false)
         if (!leaf) return
         await leaf.setViewState({ type: 'taskchute-view', active: true })
-        await new Promise((resolve) => window.setTimeout(resolve, 300))
+        await new Promise((resolve) => activeWindow.setTimeout(resolve, 300))
         leaf = workspace.getLeavesOfType('taskchute-view')[0] ?? leaf
       }
 

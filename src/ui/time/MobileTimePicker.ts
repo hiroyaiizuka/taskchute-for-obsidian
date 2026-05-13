@@ -37,11 +37,11 @@ export class MobileTimePicker implements TimePicker {
     }
 
     // Create overlay
-    this.overlayEl = document.createElement('div')
+    this.overlayEl = createDiv()
     this.overlayEl.classList.add('taskchute-mobile-time-picker-overlay')
 
     // Create container
-    this.containerEl = document.createElement('div')
+    this.containerEl = createDiv()
     this.containerEl.classList.add('taskchute-mobile-time-picker')
 
     // Prevent any events on the container from bubbling up
@@ -50,7 +50,7 @@ export class MobileTimePicker implements TimePicker {
     this.containerEl.addEventListener('touchend', (e) => e.stopPropagation())
 
     // Header
-    const header = document.createElement('div')
+    const header = createDiv()
     header.classList.add('taskchute-mobile-time-picker-header')
     header.textContent = options.tv
       ? options.tv('forms.selectTime', 'Select time')
@@ -58,11 +58,11 @@ export class MobileTimePicker implements TimePicker {
     this.containerEl.appendChild(header)
 
     // Wheels container
-    const wheelsContainer = document.createElement('div')
+    const wheelsContainer = createDiv()
     wheelsContainer.classList.add('taskchute-mobile-time-picker-wheels')
 
     // Hour wheel
-    const hourSection = document.createElement('div')
+    const hourSection = createDiv()
     hourSection.classList.add('taskchute-mobile-time-picker-section')
 
     this.hourWheel = this.createWheel(24, this.selectedHour, (value) => {
@@ -70,7 +70,7 @@ export class MobileTimePicker implements TimePicker {
     })
     hourSection.appendChild(this.hourWheel)
 
-    const hourLabel = document.createElement('div')
+    const hourLabel = createDiv()
     hourLabel.classList.add('taskchute-mobile-time-picker-label')
     hourLabel.textContent = options.tv ? options.tv('forms.hour', 'H') : 'H'
     hourSection.appendChild(hourLabel)
@@ -78,13 +78,13 @@ export class MobileTimePicker implements TimePicker {
     wheelsContainer.appendChild(hourSection)
 
     // Separator
-    const separator = document.createElement('div')
+    const separator = createDiv()
     separator.classList.add('taskchute-mobile-time-picker-separator')
     separator.textContent = ':'
     wheelsContainer.appendChild(separator)
 
     // Minute wheel
-    const minuteSection = document.createElement('div')
+    const minuteSection = createDiv()
     minuteSection.classList.add('taskchute-mobile-time-picker-section')
 
     this.minuteWheel = this.createWheel(60, this.selectedMinute, (value) => {
@@ -92,7 +92,7 @@ export class MobileTimePicker implements TimePicker {
     })
     minuteSection.appendChild(this.minuteWheel)
 
-    const minuteLabel = document.createElement('div')
+    const minuteLabel = createDiv()
     minuteLabel.classList.add('taskchute-mobile-time-picker-label')
     minuteLabel.textContent = options.tv ? options.tv('forms.minute', 'M') : 'M'
     minuteSection.appendChild(minuteLabel)
@@ -102,16 +102,16 @@ export class MobileTimePicker implements TimePicker {
     this.containerEl.appendChild(wheelsContainer)
 
     // Highlight bar (centered selection indicator)
-    const highlightBar = document.createElement('div')
+    const highlightBar = createDiv()
     highlightBar.classList.add('taskchute-mobile-time-picker-highlight')
     wheelsContainer.appendChild(highlightBar)
 
     // Buttons
-    const buttonsContainer = document.createElement('div')
+    const buttonsContainer = createDiv()
     buttonsContainer.classList.add('taskchute-mobile-time-picker-buttons')
 
     // Reset button
-    const resetBtn = document.createElement('button')
+    const resetBtn = createEl('button')
     resetBtn.type = 'button'
     resetBtn.classList.add(
       'taskchute-mobile-time-picker-btn',
@@ -123,7 +123,7 @@ export class MobileTimePicker implements TimePicker {
     buttonsContainer.appendChild(resetBtn)
 
     // Cancel button
-    const cancelBtn = document.createElement('button')
+    const cancelBtn = createEl('button')
     cancelBtn.type = 'button'
     cancelBtn.classList.add(
       'taskchute-mobile-time-picker-btn',
@@ -136,7 +136,7 @@ export class MobileTimePicker implements TimePicker {
     buttonsContainer.appendChild(cancelBtn)
 
     // Save button
-    const saveBtn = document.createElement('button')
+    const saveBtn = createEl('button')
     saveBtn.type = 'button'
     saveBtn.classList.add(
       'taskchute-mobile-time-picker-btn',
@@ -166,7 +166,7 @@ export class MobileTimePicker implements TimePicker {
 
     // Mark as ready and add overlay click listener after a delay
     // This prevents the same tap that opened the picker from closing it
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       this.isReady = true
       this.overlayEl?.addEventListener('click', this.handleOverlayClick)
       this.overlayEl?.addEventListener('touchend', this.handleOverlayClick)
@@ -194,7 +194,7 @@ export class MobileTimePicker implements TimePicker {
     this.options = null
     this.isReady = false
 
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       overlayToRemove?.remove()
       containerToRemove?.remove()
     }, 300)
@@ -205,31 +205,31 @@ export class MobileTimePicker implements TimePicker {
     initialValue: number,
     onChange: (value: number) => void,
   ): HTMLDivElement {
-    const wheel = document.createElement('div')
+    const wheel = createDiv()
     wheel.classList.add('taskchute-time-wheel')
 
     // Add padding items at top and bottom for proper centering
-    const paddingTop = document.createElement('div')
+    const paddingTop = createDiv()
     paddingTop.classList.add('taskchute-time-wheel-padding')
     wheel.appendChild(paddingTop)
 
     for (let i = 0; i < count; i++) {
-      const item = document.createElement('div')
+      const item = createDiv()
       item.classList.add('taskchute-time-wheel-item')
       item.textContent = String(i).padStart(2, '0')
       item.dataset.value = String(i)
       wheel.appendChild(item)
     }
 
-    const paddingBottom = document.createElement('div')
+    const paddingBottom = createDiv()
     paddingBottom.classList.add('taskchute-time-wheel-padding')
     wheel.appendChild(paddingBottom)
 
     // Handle scroll end to snap to nearest value
     let scrollTimeout: ReturnType<typeof setTimeout> | null = null
     wheel.addEventListener('scroll', () => {
-      if (scrollTimeout) clearTimeout(scrollTimeout)
-      scrollTimeout = setTimeout(() => {
+      if (scrollTimeout) activeWindow.clearTimeout(scrollTimeout)
+      scrollTimeout = activeWindow.setTimeout(() => {
         const value = this.getSelectedValue(wheel)
         if (value !== null) {
           onChange(value)

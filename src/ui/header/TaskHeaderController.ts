@@ -74,13 +74,13 @@ export default class TaskHeaderController {
         'aria-label': this.host.tv('header.openNavigation', 'Open navigation'),
       },
     })
-    drawerToggle.createEl('span', { cls: 'drawer-toggle-icon', text: '☰' })
+    drawerToggle.createSpan( { cls: 'drawer-toggle-icon', text: '☰' })
     this.host.registerManagedDomEvent(drawerToggle, 'click', (event) => {
       event.stopPropagation()
       this.host.toggleNavigation()
     })
 
-    const navContainer = container.createEl('div', {
+    const navContainer = container.createDiv( {
       cls: 'date-nav-container compact',
     })
     this.navContainerEl = navContainer
@@ -97,7 +97,7 @@ export default class TaskHeaderController {
         'aria-label': this.host.tv('header.openCalendar', 'Open calendar'),
       },
     })
-    const dateLabel = navContainer.createEl('span', { cls: 'date-nav-label' })
+    const dateLabel = navContainer.createSpan( { cls: 'date-nav-label' })
     const rightBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',
       text: '>',
@@ -126,11 +126,11 @@ export default class TaskHeaderController {
 
     this.attachCalendarButton(calendarBtn)
 
-    container.createEl('div', { cls: 'header-divider' })
+    container.createDiv( { cls: 'header-divider' })
   }
 
   private renderActionButtons(container: HTMLElement): void {
-    const actionSection = container.createEl('div', {
+    const actionSection = container.createDiv( {
       cls: 'header-action-section',
     })
 

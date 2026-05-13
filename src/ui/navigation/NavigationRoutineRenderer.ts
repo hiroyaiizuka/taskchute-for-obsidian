@@ -17,7 +17,7 @@ export default class NavigationRoutineRenderer {
   constructor(private readonly host: RoutineListHost, private readonly callbacks: RoutineRowCallbacks) {}
 
   createRow(task: RoutineTaskWithFile): HTMLElement {
-    const row = document.createElement('div')
+    const row = createDiv()
     row.className = 'routine-row'
 
     row.appendChild(this.createTitle(task))
@@ -29,23 +29,23 @@ export default class NavigationRoutineRenderer {
   }
 
   private createTitle(task: RoutineTaskWithFile): HTMLElement {
-    const title = document.createElement('div')
+    const title = createDiv()
     title.className = 'routine-title'
     title.textContent = task.displayTitle ?? task.name
     return title
   }
 
   private createTypeBadge(task: RoutineTaskWithFile): HTMLElement {
-    const badge = document.createElement('span')
+    const badge = createSpan()
     badge.className = 'routine-type-badge'
     badge.textContent = this.getRoutineTypeLabel(task)
     return badge
   }
 
   private createToggle(task: RoutineTaskWithFile, badge: HTMLElement): HTMLElement {
-    const wrapper = document.createElement('label')
+    const wrapper = createEl('label')
     wrapper.className = 'routine-enabled-toggle'
-    const toggle = document.createElement('input')
+    const toggle = createEl('input')
     toggle.type = 'checkbox'
     toggle.checked = task.routine_enabled !== false
     toggle.title = this.host.tv('tooltips.toggleRoutine', 'Toggle enabled state')
@@ -60,7 +60,7 @@ export default class NavigationRoutineRenderer {
   }
 
   private createEditButton(task: RoutineTaskWithFile): HTMLElement {
-    const button = document.createElement('button')
+    const button = createEl('button')
     button.className = 'routine-edit-btn'
     button.textContent = this.host.tv('buttons.edit', 'Edit')
     button.addEventListener('click', (event) => {

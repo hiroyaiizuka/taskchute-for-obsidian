@@ -1,4 +1,4 @@
-import { Notice, TFile, App } from 'obsidian'
+import { App, Notice, TFile } from 'obsidian'
 import { t } from '../../i18n'
 import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '../../types'
@@ -25,11 +25,11 @@ export default class TaskCompletionController {
     const existingComment = await this.getExistingTaskComment(inst)
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
 
-    const modal = document.createElement('div')
+    const modal = createDiv()
     modal.className = 'taskchute-comment-modal'
-    const modalContent = modal.createEl('div', { cls: 'taskchute-comment-content' })
+    const modalContent = modal.createDiv( { cls: 'taskchute-comment-content' })
 
-    const header = modalContent.createEl('div', { cls: 'taskchute-modal-header' })
+    const header = modalContent.createDiv( { cls: 'taskchute-modal-header' })
     const headerText = existingComment
       ? this.host.tv('comment.editTitle', `✏️ Edit comment for "${displayTitle}"`, {
           title: displayTitle,
@@ -42,9 +42,9 @@ export default class TaskCompletionController {
     header.createEl('h2', { text: headerText })
 
     if (inst.state === 'done' && typeof inst.actualTime === 'number') {
-      const timeInfo = modalContent.createEl('div', { cls: 'taskchute-time-info' })
+      const timeInfo = modalContent.createDiv( { cls: 'taskchute-time-info' })
       const duration = this.formatDuration(inst.actualTime)
-      timeInfo.createEl('div', {
+      timeInfo.createDiv( {
         cls: 'time-duration',
         text: this.host.tv('comment.duration', `Duration: ${duration}`, {
           duration,
@@ -54,7 +54,7 @@ export default class TaskCompletionController {
       if (inst.startTime && inst.stopTime) {
         const startStr = this.toTimeString(inst.startTime)
         const stopStr = this.toTimeString(inst.stopTime)
-        timeInfo.createEl('div', {
+        timeInfo.createDiv( {
           cls: 'time-range',
           text: this.host.tv('comment.timeRange', `Start: ${startStr} End: ${stopStr}`, {
             start: startStr,
@@ -64,7 +64,7 @@ export default class TaskCompletionController {
       }
     }
 
-    const ratingSection = modalContent.createEl('div', {
+    const ratingSection = modalContent.createDiv( {
       cls: 'taskchute-rating-section',
     })
     ratingSection.createEl('h3', {
@@ -83,7 +83,7 @@ export default class TaskCompletionController {
       initial: this.convertToFiveScale(existingComment?.energyLevel ?? 0),
     })
 
-    const commentSection = modalContent.createEl('div', {
+    const commentSection = modalContent.createDiv( {
       cls: 'taskchute-comment-section',
     })
     commentSection.createEl('label', {
@@ -101,7 +101,7 @@ export default class TaskCompletionController {
       commentInput.value = existingComment.executionComment
     }
 
-    const buttonGroup = modalContent.createEl('div', {
+    const buttonGroup = modalContent.createDiv( {
       cls: 'taskchute-comment-actions',
     })
     const cancelButton = buttonGroup.createEl('button', {
@@ -164,17 +164,17 @@ export default class TaskCompletionController {
     container: HTMLElement,
     options: { labelKey: string; fallback: string; initial: number },
   ): HTMLElement {
-    const group = container.createEl('div', { cls: 'rating-group' })
+    const group = container.createDiv( { cls: 'rating-group' })
     group.createEl('label', {
       text: this.host.tv(options.labelKey, options.fallback),
       cls: 'rating-label',
     })
-    const ratingEl = group.createEl('div', {
+    const ratingEl = group.createDiv( {
       cls: 'star-rating',
       attr: { 'data-rating': options.initial.toString() },
     })
     for (let i = 1; i <= 5; i += 1) {
-      const star = ratingEl.createEl('span', {
+      const star = ratingEl.createSpan( {
         cls: `star ${i <= options.initial ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
         text: '⭐',
       })

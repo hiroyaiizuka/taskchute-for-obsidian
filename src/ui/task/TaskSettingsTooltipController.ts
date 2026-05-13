@@ -1,3 +1,4 @@
+import 'obsidian'
 import { t } from '../../i18n'
 import type { TaskInstance } from '../../types'
 import { normalizeReminderTime } from '../../features/reminder/services/ReminderFrontmatterService'
@@ -28,10 +29,10 @@ export default class TaskSettingsTooltipController {
     const existing = document.querySelector('.task-settings-tooltip')
     existing?.remove()
 
-    const tooltip = document.createElement('div')
+    const tooltip = createDiv()
     tooltip.className = 'task-settings-tooltip taskchute-tooltip'
 
-    const header = tooltip.createEl('div', { cls: 'tooltip-header' })
+    const header = tooltip.createDiv( { cls: 'tooltip-header' })
     const closeButton = header.createEl('button', {
       cls: 'tooltip-close-button',
       attr: {
@@ -40,7 +41,7 @@ export default class TaskSettingsTooltipController {
         type: 'button',
       },
     })
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('width', '14')
     svg.setAttribute('height', '14')
     svg.setAttribute('viewBox', '0 0 24 24')
@@ -49,12 +50,12 @@ export default class TaskSettingsTooltipController {
     svg.setAttribute('stroke-width', '2')
     svg.setAttribute('stroke-linecap', 'round')
     svg.setAttribute('stroke-linejoin', 'round')
-    const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    const line1 = createSvg('line')
     line1.setAttribute('x1', '18')
     line1.setAttribute('y1', '6')
     line1.setAttribute('x2', '6')
     line1.setAttribute('y2', '18')
-    const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    const line2 = createSvg('line')
     line2.setAttribute('x1', '6')
     line2.setAttribute('y1', '6')
     line2.setAttribute('x2', '18')
@@ -123,7 +124,7 @@ export default class TaskSettingsTooltipController {
 
   private appendReset(inst: TaskInstance, tooltip: HTMLElement): void {
     const label = this.host.tv('buttons.resetToNotStarted', '↩️ Reset to not started')
-    const item = tooltip.createEl('div', { cls: 'tooltip-item', text: label })
+    const item = tooltip.createDiv( { cls: 'tooltip-item', text: label })
     if (inst.state === 'idle') {
       item.classList.add('disabled')
       item.setAttribute('title', this.host.tv('forms.feedbackPrompt', 'This task is not started'))
@@ -146,7 +147,7 @@ export default class TaskSettingsTooltipController {
 
     const label = this.host.tv('buttons.setProject', '📁 Set project')
 
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: label,
       attr: {
@@ -174,7 +175,7 @@ export default class TaskSettingsTooltipController {
     const label = hasRecipe
       ? this.host.tv('buttons.changeRecipe', '🍽 レシピを変更')
       : this.host.tv('buttons.setRecipe', '🍽 レシピを設定')
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: label,
       attr: {
@@ -189,7 +190,7 @@ export default class TaskSettingsTooltipController {
   }
 
   private appendStartTime(inst: TaskInstance, tooltip: HTMLElement): void {
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: this.host.tv('buttons.setStartTime', '🕐 Set start time'),
       attr: {
@@ -223,7 +224,7 @@ export default class TaskSettingsTooltipController {
       label = this.host.tv('buttons.setReminder', '⏰ リマインダーを設定')
     }
 
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: label,
       attr: {
@@ -252,7 +253,7 @@ export default class TaskSettingsTooltipController {
       return
     }
 
-    const item = tooltip.createEl("div", {
+    const item = tooltip.createDiv( {
       cls: "tooltip-item",
       text: this.host.tv("calendar.export.toGoogle", "🗓️ register calender"),
       attr: {
@@ -271,7 +272,7 @@ export default class TaskSettingsTooltipController {
   }
 
   private appendMove(inst: TaskInstance, tooltip: HTMLElement, anchor: HTMLElement): void {
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: this.host.tv('buttons.moveTask', '📅 Move task'),
       attr: {
@@ -286,7 +287,7 @@ export default class TaskSettingsTooltipController {
   }
 
   private appendDuplicate(inst: TaskInstance, tooltip: HTMLElement): void {
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: this.host.tv('buttons.duplicateTask', '📄 Duplicate task'),
       attr: {
@@ -303,7 +304,7 @@ export default class TaskSettingsTooltipController {
   }
 
   private appendDelete(inst: TaskInstance, tooltip: HTMLElement): void {
-    const item = tooltip.createEl('div', {
+    const item = tooltip.createDiv( {
       cls: 'tooltip-item delete-item',
       text: this.host.tv('buttons.deleteTask', '🗑️ Delete task'),
     })

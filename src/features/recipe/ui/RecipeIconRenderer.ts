@@ -17,7 +17,7 @@ export class RecipeIconRenderer {
 
   render(container: HTMLElement, inst: TaskInstance): void {
     if (!inst.task.recipePath) return
-    const iconContainer = container.createEl('span', {
+    const iconContainer = container.createSpan( {
       cls: 'recipe-task-badge',
       attr: {
         title: this.options.tv('recipes.openRecipe', 'Open recipe'),

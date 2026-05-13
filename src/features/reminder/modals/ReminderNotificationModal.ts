@@ -5,7 +5,8 @@
  * are unavailable. Also shown when desktop notification is clicked.
  */
 
-import { App, Modal } from 'obsidian';
+import { App, Modal } from 'obsidian'
+;
 
 export interface ReminderNotificationModalOptions {
   taskName: string;
@@ -33,7 +34,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K];
   }
-  const element = document.createElement(tag);
+  const element = createEl(tag);
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
     element.classList.add(...classes);

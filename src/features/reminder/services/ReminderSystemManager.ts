@@ -13,6 +13,11 @@ import { NotificationService, type ReminderNotificationOptions } from './Notific
 import { ReminderNotificationModal } from '../modals/ReminderNotificationModal';
 import type { ReminderSchedule } from './ReminderScheduleManager';
 import { normalizeReminderTime } from './ReminderFrontmatterService';
+import {
+  stableTimerSource,
+  type StableIntervalId,
+  type StableTimerSource,
+} from '../../../utils/stableTimer';
 
 // Default values for settings (internal, not exposed to users)
 const DEFAULT_CHECK_INTERVAL_SEC = 5;
@@ -21,8 +26,9 @@ const DEFAULT_EDIT_DETECTION_SEC = 10;
 export interface ReminderSystemManagerOptions {
   app: App;
   settings: TaskChuteSettings;
-  registerInterval: (callback: () => void, intervalMs: number) => number;
+  registerInterval?: (callback: () => void, intervalMs: number) => number;
   registerEvent: (eventRef: EventRef) => EventRef;
+  timerSource?: StableTimerSource;
 }
 
 export interface TaskInstanceForReminder {
@@ -55,8 +61,8 @@ function parseTimeToDate(timeStr: string): Date | null {
 export class ReminderSystemManager {
   private readonly app: App;
   private readonly settings: TaskChuteSettings;
-  private readonly registerInterval: (callback: () => void, intervalMs: number) => number;
   private readonly registerEvent: (eventRef: EventRef) => EventRef;
+  private readonly timerSource: StableTimerSource;
 
   private editDetector: EditDetector;
   private reminderService: ReminderService;
@@ -64,13 +70,20 @@ export class ReminderSystemManager {
 
   private pendingNotifications: ReminderSchedule[] = [];
   private isShowingNotification: boolean = false;
-  private intervalId: number | null = null;
+  private intervalId: StableIntervalId | null = null;
 
   constructor(options: ReminderSystemManagerOptions) {
     this.app = options.app;
     this.settings = options.settings;
-    this.registerInterval = options.registerInterval;
     this.registerEvent = options.registerEvent;
+    this.timerSource = options.timerSource ?? (
+      options.registerInterval
+        ? {
+            setInterval: options.registerInterval,
+            clearInterval: (intervalId) => stableTimerSource.clearInterval(intervalId),
+          }
+        : stableTimerSource
+    );
 
     // Initialize EditDetector with fixed internal value
     this.editDetector = new EditDetector({
@@ -121,12 +134,16 @@ export class ReminderSystemManager {
    * Start the periodic reminder check task.
    */
   startPeriodicTask(): void {
+    if (this.intervalId !== null) {
+      return;
+    }
+
     const intervalMs = DEFAULT_CHECK_INTERVAL_SEC * 1000;
 
     // Run once immediately to avoid missing near-future reminders right after startup.
     this.tick();
 
-    this.intervalId = this.registerInterval(() => {
+    this.intervalId = this.timerSource.setInterval(() => {
       this.tick();
     }, intervalMs);
   }
@@ -166,8 +183,9 @@ export class ReminderSystemManager {
   dispose(): void {
     // Clear the periodic interval
     if (this.intervalId !== null) {
-      window.clearInterval(this.intervalId);
+      const intervalId = this.intervalId;
       this.intervalId = null;
+      this.timerSource.clearInterval(intervalId);
     }
 
     this.reminderService.clearAllSchedules();

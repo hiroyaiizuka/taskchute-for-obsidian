@@ -18,9 +18,9 @@ export default class NavigationLogController {
     const existing = document.querySelector(`.${OVERLAY_CLASS}`)
     existing?.remove()
 
-    const overlay = document.createElement('div')
+    const overlay = createDiv()
     overlay.className = OVERLAY_CLASS
-    const container = document.createElement('div')
+    const container = createDiv()
     container.className = CONTAINER_CLASS
     overlay.appendChild(container)
 

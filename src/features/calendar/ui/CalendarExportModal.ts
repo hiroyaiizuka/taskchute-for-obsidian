@@ -124,9 +124,9 @@ export class CalendarExportModal extends Modal {
         this.descriptionPreview = area.inputEl
       })
 
-    this.errorEl = contentEl.createEl("div", { cls: "calendar-export-error" })
+    this.errorEl = contentEl.createDiv( { cls: "calendar-export-error" })
 
-    const buttonBar = contentEl.createEl("div", { cls: "calendar-export-buttons" })
+    const buttonBar = contentEl.createDiv( { cls: "calendar-export-buttons" })
     const cancelButton = buttonBar.createEl("button", { text: this.opts.tv("common.cancel", "キャンセル") })
     cancelButton.addEventListener("click", () => this.close())
 

@@ -15,6 +15,22 @@ jest.mock('../../src/utils/time', () => {
 
 const { calculateNextBoundary } = jest.requireMock('../../src/utils/time');
 
+type TimeoutWindow = Window & {
+  setTimeout: jest.Mock<number, [TimerHandler, number?]>
+  clearTimeout: jest.Mock<void, [number]>
+}
+
+const setActiveWindow = (win: Window): void => {
+  ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow = win
+}
+
+const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
+  {
+    setTimeout: jest.fn(() => timeoutId),
+    clearTimeout: jest.fn(),
+  } as unknown as TimeoutWindow
+)
+
 interface ViewStub extends TaskReloadCoordinatorHost {
   getCurrentDateString: () => string;
 }
@@ -30,6 +46,7 @@ function createViewStub(): ViewStub {
     saveTaskOrders: jest.fn().mockResolvedValue(undefined),
     taskInstances: [],
     boundaryCheckTimeout: null,
+    boundaryCheckWindow: null,
     currentDate: new Date('2025-10-09T00:00:00.000Z'),
     getCurrentDateString: () => '2025-10-09',
     getTimeSlotKeys: () => ['0:00-8:00', '8:00-12:00', '12:00-16:00', '16:00-0:00'],
@@ -82,6 +99,28 @@ describe('TaskReloadCoordinator', () => {
 
     expect(calculateNextBoundary).toHaveBeenCalledTimes(1);
     expect(view.boundaryCheckTimeout).not.toBe(timeout);
+  });
+
+  test('scheduleBoundaryCheck clears prior timeout on the same Window that created it', () => {
+    const originalActiveWindow = activeWindow
+    const view = createViewStub();
+    const coordinator = new TaskReloadCoordinator(view);
+    const sourceWindow = createTimeoutWindow(123);
+    const focusedWindow = createTimeoutWindow(456);
+
+    try {
+      setActiveWindow(sourceWindow)
+      coordinator.scheduleBoundaryCheck()
+
+      setActiveWindow(focusedWindow)
+      coordinator.scheduleBoundaryCheck()
+
+      expect(sourceWindow.setTimeout).toHaveBeenCalledTimes(1)
+      expect(sourceWindow.clearTimeout).toHaveBeenCalledWith(123)
+      expect(focusedWindow.clearTimeout).not.toHaveBeenCalledWith(123)
+    } finally {
+      setActiveWindow(originalActiveWindow)
+    }
   });
 
   test('concurrent reloadTasksAndRestore calls are serialized (second waits for first)', async () => {

@@ -1,3 +1,4 @@
+import 'obsidian'
 import { calculateNextBoundary } from '../../../utils/time'
 import type { TaskInstance } from '../../../types'
 import type { SectionConfigService } from '../../../services/SectionConfigService'
@@ -6,6 +7,7 @@ export type DayStateCacheClearMode = 'none' | 'current' | 'all'
 
 interface TaskReloadCoordinatorHost {
   boundaryCheckTimeout: ReturnType<typeof setTimeout> | null
+  boundaryCheckWindow: Window | null
   currentDate: Date
   taskInstances: TaskInstance[]
   loadTasks: (options?: { clearDayStateCache?: DayStateCacheClearMode }) => Promise<void>
@@ -107,15 +109,21 @@ export class TaskReloadCoordinator {
   scheduleBoundaryCheck(): void {
     const { view } = this
     if (view.boundaryCheckTimeout) {
-      clearTimeout(view.boundaryCheckTimeout)
+      const timeout = view.boundaryCheckTimeout
+      const timeoutWindow = view.boundaryCheckWindow ?? activeWindow
+      view.boundaryCheckTimeout = null
+      view.boundaryCheckWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
     const now = new Date()
     const boundaries = this.view.getSectionConfig().getTimeBoundaries()
 
     const next = calculateNextBoundary(now, boundaries)
     const delay = Math.max(0, next.getTime() - now.getTime() + 1000)
+    const timeoutWindow = activeWindow
 
-    view.boundaryCheckTimeout = setTimeout(() => {
+    view.boundaryCheckWindow = timeoutWindow
+    view.boundaryCheckTimeout = timeoutWindow.setTimeout(() => {
       this.checkBoundaryTasks().catch((error) => {
         console.error('[TaskReloadCoordinator] boundary check failed', error)
       })

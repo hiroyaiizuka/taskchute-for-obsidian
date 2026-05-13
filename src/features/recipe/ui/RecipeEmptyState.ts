@@ -8,12 +8,12 @@ export interface RecipeEmptyStateOptions {
 }
 
 export function renderRecipeEmptyState(container: HTMLElement, options: RecipeEmptyStateOptions): void {
-  const empty = container.createEl('div', { cls: 'recipe-empty-create-state' })
-  empty.createEl('div', {
+  const empty = container.createDiv( { cls: 'recipe-empty-create-state' })
+  empty.createDiv( {
     cls: 'recipe-empty-create-title',
     text: options.title ?? t('recipes.empty.title', 'レシピがありません。'),
   })
-  empty.createEl('div', {
+  empty.createDiv( {
     cls: 'recipe-empty-create-message',
     text: options.message ?? t('recipes.empty.message', 'このモーダルで作成しますか？'),
   })

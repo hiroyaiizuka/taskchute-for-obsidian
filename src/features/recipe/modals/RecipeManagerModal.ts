@@ -24,17 +24,17 @@ class RecipeDeleteConfirmModal {
   }
 
   private render(): void {
-    this.overlayEl = document.createElement('div')
+    this.overlayEl = createDiv()
     this.overlayEl.className = 'task-modal-overlay recipe-delete-confirm-overlay'
-    const contentEl = this.overlayEl.createEl('div', { cls: 'task-modal-content recipe-delete-confirm-modal' })
-    const body = contentEl.createEl('div', { cls: 'routine-confirm' })
+    const contentEl = this.overlayEl.createDiv( { cls: 'task-modal-content recipe-delete-confirm-modal' })
+    const body = contentEl.createDiv( { cls: 'routine-confirm' })
     body.createEl('h3', { text: t('routineManager.confirm.heading', '確認') })
     body.createEl('p', {
       text: t('recipes.manager.deleteConfirmTitle', '「{title}」を削除しますか？', { title: this.recipe.title }),
     })
     body.createEl('p', { text: t('recipes.manager.deleteConfirmMessage', '紐付いているタスクからも解除されます。') })
 
-    const buttonRow = body.createEl('div', { cls: 'routine-confirm__buttons' })
+    const buttonRow = body.createDiv( { cls: 'routine-confirm__buttons' })
     const deleteButton = buttonRow.createEl('button', {
       text: t('common.delete', '削除'),
       cls: 'routine-confirm__button mod-danger',
@@ -106,9 +106,9 @@ export default class RecipeManagerModal {
   }
 
   open(): void {
-    this.modalEl = document.createElement('div')
+    this.modalEl = createDiv()
     this.modalEl.className = 'task-modal-overlay'
-    this.contentEl = this.modalEl.createEl('div', {
+    this.contentEl = this.modalEl.createDiv( {
       cls: 'task-modal-content routine-edit-modal recipe-modal-content',
     })
     this.modalEl.addEventListener('click', (event) => {
@@ -175,7 +175,7 @@ export default class RecipeManagerModal {
     this.renderHeader(t('recipes.manager.listTitle', 'レシピ一覧'), true)
 
     if (this.recipes.length > 0) {
-      const toolbar = this.contentEl.createEl('div', { cls: 'recipe-list-toolbar' })
+      const toolbar = this.contentEl.createDiv( { cls: 'recipe-list-toolbar' })
       const search = toolbar.createEl('input', {
         cls: 'form-input recipe-search-input',
         attr: { type: 'search', placeholder: t('recipes.manager.searchPlaceholder', 'レシピを検索') },
@@ -198,7 +198,7 @@ export default class RecipeManagerModal {
       })
     }
 
-    this.contentEl.createEl('div', { cls: 'recipe-manager-list' })
+    this.contentEl.createDiv( { cls: 'recipe-manager-list' })
     this.renderListBody()
   }
 
@@ -223,7 +223,7 @@ export default class RecipeManagerModal {
       return
     }
     if (recipes.length === 0) {
-      list.createEl('div', { cls: 'recipe-empty-state', text: t('recipes.manager.noMatches', '一致するレシピがありません') })
+      list.createDiv( { cls: 'recipe-empty-state', text: t('recipes.manager.noMatches', '一致するレシピがありません') })
       return
     }
     recipes.forEach((recipe) => {
@@ -233,10 +233,10 @@ export default class RecipeManagerModal {
 
   private renderRecipeCard(list: HTMLElement, recipe: Recipe): void {
     const usages = this.service.findUsages(recipe.path)
-    const card = list.createEl('div', { cls: 'recipe-card' })
-    const main = card.createEl('div', { cls: 'recipe-card-main' })
-    const titleRow = main.createEl('div', { cls: 'recipe-card-title-row' })
-    titleRow.createEl('div', { cls: 'recipe-card-title', text: recipe.title })
+    const card = list.createDiv( { cls: 'recipe-card' })
+    const main = card.createDiv( { cls: 'recipe-card-main' })
+    const titleRow = main.createDiv( { cls: 'recipe-card-title-row' })
+    titleRow.createDiv( { cls: 'recipe-card-title', text: recipe.title })
     const openSourceButton = titleRow.createEl('button', {
       cls: 'recipe-source-open-button',
       attr: {
@@ -251,7 +251,7 @@ export default class RecipeManagerModal {
       event.stopPropagation()
       void this.openRecipeSource(recipe.path)
     })
-    main.createEl('div', {
+    main.createDiv( {
       cls: 'recipe-card-meta',
       text: t('recipes.manager.cardMeta', '{steps} 手順 / 使用中: {usages} タスク', {
         steps: recipe.steps.length,
@@ -259,8 +259,8 @@ export default class RecipeManagerModal {
       }),
     })
     const preview = recipe.steps.slice(0, 3).map((step) => step.text).join(' / ')
-    main.createEl('div', { cls: 'recipe-card-preview', text: preview || t('recipes.manager.emptyPreview', '手順なし') })
-    const actions = card.createEl('div', { cls: 'recipe-card-actions' })
+    main.createDiv( { cls: 'recipe-card-preview', text: preview || t('recipes.manager.emptyPreview', '手順なし') })
+    const actions = card.createDiv( { cls: 'recipe-card-actions' })
     const editButton = actions.createEl('button', {
       cls: 'form-button cancel recipe-card-edit-button',
       text: t('recipes.manager.editButton', '編集'),
@@ -298,7 +298,7 @@ export default class RecipeManagerModal {
     )
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
-    const titleGroup = form.createEl('div', { cls: 'form-group' })
+    const titleGroup = form.createDiv( { cls: 'form-group' })
     titleGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.nameLabel', 'レシピ名') })
     const titleInput = titleGroup.createEl('input', {
       cls: 'form-input recipe-title-input',
@@ -306,9 +306,9 @@ export default class RecipeManagerModal {
     })
     titleInput.value = recipe?.title ?? ''
 
-    const stepsGroup = form.createEl('div', { cls: 'form-group' })
+    const stepsGroup = form.createDiv( { cls: 'form-group' })
     stepsGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.stepsLabel', '手順') })
-    const stepsList = stepsGroup.createEl('div', { cls: 'recipe-steps-list' })
+    const stepsList = stepsGroup.createDiv( { cls: 'recipe-steps-list' })
     let stepValues = recipe?.steps.map((step) => step.text) ?? ['']
 
     const renderSteps = () => {
@@ -349,7 +349,7 @@ export default class RecipeManagerModal {
       renderSteps()
     })
 
-    const buttonGroup = form.createEl('div', { cls: 'form-button-group' })
+    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
       cls: 'form-button cancel',
       text: t('common.cancel', 'キャンセル'),
@@ -380,7 +380,7 @@ export default class RecipeManagerModal {
   }
 
   private renderHeader(title: string, showClose: boolean): void {
-    const header = this.contentEl?.createEl('div', { cls: 'modal-header recipe-modal-header' })
+    const header = this.contentEl?.createDiv( { cls: 'modal-header recipe-modal-header' })
     if (!header) return
     header.createEl('h3', { text: title })
     if (!showClose) return
@@ -406,7 +406,7 @@ export default class RecipeManagerModal {
       onReorder: (fromIndex: number, toIndex: number) => void
     },
   ): void {
-    const row = container.createEl('div', { cls: 'recipe-step-row' })
+    const row = container.createDiv( { cls: 'recipe-step-row' })
     row.addEventListener('dragover', (event) => {
       if (this.draggedStepIndex === null || this.draggedStepIndex === index) return
       event.preventDefault()
@@ -491,7 +491,7 @@ export default class RecipeManagerModal {
   }
 
   private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 12 16')
     svg.setAttribute('width', '12')
     svg.setAttribute('height', '16')
@@ -506,7 +506,7 @@ export default class RecipeManagerModal {
       { cx: '8', cy: '14' },
     ]
     dots.forEach(({ cx, cy }) => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+      const circle = createSvg('circle')
       circle.setAttribute('cx', cx)
       circle.setAttribute('cy', cy)
       circle.setAttribute('r', '1.5')
@@ -516,7 +516,7 @@ export default class RecipeManagerModal {
   }
 
   private appendOpenSourceIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 24 24')
     svg.setAttribute('width', '14')
     svg.setAttribute('height', '14')
@@ -526,16 +526,16 @@ export default class RecipeManagerModal {
     svg.setAttribute('stroke-width', '2')
     svg.setAttribute('stroke-linecap', 'round')
     svg.setAttribute('stroke-linejoin', 'round')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    const path = createSvg('path')
     path.setAttribute('d', 'M7 17L17 7')
-    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    const arrow = createSvg('path')
     arrow.setAttribute('d', 'M9 7h8v8')
     svg.append(path, arrow)
     container.appendChild(svg)
   }
 
   private appendTrashIcon(container: HTMLElement): void {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    const svg = createSvg('svg')
     svg.setAttribute('viewBox', '0 0 24 24')
     svg.setAttribute('width', '14')
     svg.setAttribute('height', '14')
@@ -553,7 +553,7 @@ export default class RecipeManagerModal {
       'M14 11v5',
     ]
     paths.forEach((d) => {
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      const path = createSvg('path')
       path.setAttribute('d', d)
       svg.appendChild(path)
     })

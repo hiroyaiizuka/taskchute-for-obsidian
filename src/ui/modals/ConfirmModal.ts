@@ -27,7 +27,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K]
   }
-  const element = document.createElement(tag)
+  const element = createEl(tag)
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls]
     element.classList.add(...classes)

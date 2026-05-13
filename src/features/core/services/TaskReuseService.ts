@@ -105,7 +105,7 @@ export class TaskReuseService {
   }
 
   private generateInstanceId(seed: string, dateStr: string): string {
-    const cryptoApi = globalThis.crypto as Crypto | undefined
+    const cryptoApi = activeWindow.crypto as Crypto | undefined
     if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
       return cryptoApi.randomUUID()
     }

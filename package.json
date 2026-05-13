@@ -16,7 +16,6 @@
     "@eslint/js": "^9.36.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.3.1",
-    "builtin-modules": "^5.0.0",
     "esbuild": "^0.25.9",
     "eslint": "^9.36.0",
     "eslint-plugin-obsidianmd": "^0.1.9",

@@ -1,4 +1,4 @@
-import { Notice, App } from "obsidian"
+import { App, Notice } from 'obsidian'
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
 import {
@@ -38,7 +38,7 @@ export interface TaskCreationControllerHost {
   plugin: TaskChutePluginLike
   getDocumentContext?: () => {
     doc: Document
-    win: Window & typeof globalThis
+    win: Window
   }
   findDeletedTaskRestoreCandidate?: (taskName: string) => DeletedTaskRestoreCandidate | null
   restoreDeletedTaskCandidate?: (candidate: DeletedTaskRestoreCandidate) => Promise<boolean>
@@ -374,6 +374,7 @@ export default class TaskCreationController {
     warningElement: HTMLElement,
   ): { runValidation: () => void; dispose: () => void } {
     let validationTimer: number | null = null
+    let validationTimerWindow: Window | null = null
 
     const runValidation = () => {
       const validation = this.host
@@ -389,10 +390,17 @@ export default class TaskCreationController {
 
     const onInput = () => {
       if (validationTimer !== null) {
-        window.clearTimeout(validationTimer)
-      }
-      validationTimer = window.setTimeout(() => {
+        const timer = validationTimer
+        const timerWindow = validationTimerWindow ?? activeWindow
         validationTimer = null
+        validationTimerWindow = null
+        timerWindow.clearTimeout(timer)
+      }
+      const timerWindow = activeWindow
+      validationTimerWindow = timerWindow
+      validationTimer = timerWindow.setTimeout(() => {
+        validationTimer = null
+        validationTimerWindow = null
         runValidation()
       }, 150)
     }
@@ -403,8 +411,11 @@ export default class TaskCreationController {
       runValidation,
       dispose: () => {
         if (validationTimer !== null) {
-          window.clearTimeout(validationTimer)
+          const timer = validationTimer
+          const timerWindow = validationTimerWindow ?? activeWindow
           validationTimer = null
+          validationTimerWindow = null
+          timerWindow.clearTimeout(timer)
         }
         inputElement.removeEventListener("input", onInput)
       },
@@ -437,7 +448,7 @@ export default class TaskCreationController {
 
   private highlightWarning(warningElement: HTMLElement): void {
     warningElement.classList.add("highlight")
-    window.setTimeout(() => warningElement.classList.remove("highlight"), 300)
+    activeWindow.setTimeout(() => warningElement.classList.remove("highlight"), 300)
   }
 
   private validateTaskNameBeforeSubmit(nameInput: HTMLInputElement): boolean {
@@ -462,7 +473,7 @@ export default class TaskCreationController {
     }
 
     while (Date.now() - start < timeoutMs) {
-      await new Promise((resolve) => window.setTimeout(resolve, 120))
+      await new Promise((resolve) => activeWindow.setTimeout(resolve, 120))
       if (hasFrontmatter()) {
         return
       }

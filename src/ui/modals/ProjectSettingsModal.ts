@@ -12,7 +12,7 @@ export interface ProjectSettingsModalOptions {
   onSubmit: (projectPath: string) => Promise<void>
   context?: {
     doc?: Document
-    win?: Window & typeof globalThis
+    win?: Window
   }
 }
 

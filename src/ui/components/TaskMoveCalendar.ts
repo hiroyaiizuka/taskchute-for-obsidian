@@ -1,3 +1,4 @@
+import 'obsidian'
 import type { LocaleKey } from "../../i18n"
 import { getCurrentLocale, t } from "../../i18n"
 
@@ -90,7 +91,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.close()
     }
 
-    this.container = document.createElement("div")
+    this.container = createDiv()
     this.container.className = "taskchute-move-calendar"
 
     this.render()
@@ -110,7 +111,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
     }
 
     // Defer registration to avoid immediately closing due to same click
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       if (this.outsideClickHandler) {
         document.addEventListener("mousedown", this.outsideClickHandler, true)
       }
@@ -140,7 +141,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.container.removeChild(this.container.firstChild)
     }
 
-    const header = this.container.createEl("div", {
+    const header = this.container.createDiv( {
       cls: "taskchute-move-calendar__header",
     })
 
@@ -158,7 +159,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.changeMonth(-1)
     })
 
-    header.createEl("div", {
+    header.createDiv( {
       cls: "taskchute-move-calendar__title",
       text: this.monthFormatter.format(this.currentMonth),
     })
@@ -177,11 +178,11 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.changeMonth(1)
     })
 
-    const weekdayRow = this.container.createEl("div", {
+    const weekdayRow = this.container.createDiv( {
       cls: "taskchute-move-calendar__weekdays",
     })
     this.weekdayLabels.forEach((day, index) => {
-      const cell = weekdayRow.createEl("div", {
+      const cell = weekdayRow.createDiv( {
         cls: "taskchute-move-calendar__weekday",
         text: day,
       })
@@ -189,7 +190,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       if (index === 6) cell.classList.add("is-saturday")
     })
 
-    const grid = this.container.createEl("div", {
+    const grid = this.container.createDiv( {
       cls: "taskchute-move-calendar__grid",
     })
 
@@ -242,7 +243,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.createDayButton(grid, date, false)
     }
 
-    const footer = this.container.createEl("div", {
+    const footer = this.container.createDiv( {
       cls: "taskchute-move-calendar__footer",
     })
 

@@ -1,4 +1,5 @@
-import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian';
+import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian'
+;
 import { t } from '../../i18n';
 import type { TaskNameValidator } from '../../types';
 import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
@@ -6,7 +7,7 @@ import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
 export interface TaskNameAutocompleteOptions {
   view?: TaskChuteView;
   doc?: Document;
-  win?: Window & typeof globalThis;
+  win?: Window;
 }
 
 export type TaskNameSuggestionType = 'task' | 'project';
@@ -53,7 +54,7 @@ export class TaskNameAutocomplete {
   private fileEventRefs: EventRef[] = [];
   private view?: TaskChuteView;
   private doc: Document;
-  private win: Window & typeof globalThis;
+  private win: Window;
 
   private handleInput = (event: Event) => {
     if (this.debounceTimer) {
@@ -144,7 +145,8 @@ export class TaskNameAutocomplete {
       return;
     }
 
-    const NodeCtor: typeof Node | undefined = this.win.Node ??
+    const NodeCtor: typeof Node | undefined = (this.win as Window & { Node?: typeof Node }).Node ??
+      this.doc.defaultView?.Node ??
       (typeof Node !== 'undefined' ? Node : undefined);
     const target = NodeCtor && event.target instanceof NodeCtor
       ? (event.target)

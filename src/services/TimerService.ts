@@ -1,3 +1,4 @@
+import 'obsidian'
 import { TaskInstance } from "../types";
 
 export interface TimerServiceOptions {
@@ -8,6 +9,7 @@ export interface TimerServiceOptions {
 
 export class TimerService {
   private interval: ReturnType<typeof setInterval> | null = null;
+  private intervalWindow: Window | null = null;
   private readonly getRunningInstances: () => TaskInstance[];
   private readonly onTick: (inst: TaskInstance) => void;
   private readonly intervalMs: number;
@@ -19,15 +21,19 @@ export class TimerService {
   }
 
   start(): void {
-    if (this.interval) return;
-    this.interval = setInterval(() => this.tick(), this.intervalMs);
+    if (this.interval !== null) return;
+    this.intervalWindow = activeWindow;
+    this.interval = this.intervalWindow.setInterval(() => this.tick(), this.intervalMs);
   }
 
   stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
+    if (this.interval === null) return;
+
+    const interval = this.interval;
+    const intervalWindow = this.intervalWindow ?? activeWindow;
+    this.interval = null;
+    this.intervalWindow = null;
+    intervalWindow.clearInterval(interval);
   }
 
   restart(): void {
@@ -40,7 +46,7 @@ export class TimerService {
   }
 
   isRunning(): boolean {
-    return !!this.interval;
+    return this.interval !== null;
   }
 
   private tick(): void {

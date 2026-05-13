@@ -1,13 +1,4 @@
-import {
-  App,
-  Notice,
-  Plugin,
-  PluginSettingTab,
-  Setting,
-  TFile,
-  TFolder,
-  AbstractInputSuggest,
-} from "obsidian"
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest } from "obsidian"
 import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
 import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
@@ -485,12 +476,12 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   private renderAdvancedSection(container: HTMLElement): void {
     const details = container.createEl('details', { cls: 'taskchute-advanced-settings' })
     const summary = details.createEl('summary', { cls: 'taskchute-advanced-summary' })
-    summary.createEl('span', {
+    summary.createSpan( {
       cls: 'taskchute-advanced-heading',
       text: t('settings.advanced.heading', 'Advanced settings'),
     })
 
-    const content = details.createEl('div', { cls: 'taskchute-advanced-content' })
+    const content = details.createDiv( { cls: 'taskchute-advanced-content' })
     this.renderRecipeFeatureSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
@@ -551,14 +542,14 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       ?? [...SectionConfigService.DEFAULT_BOUNDARIES]
     const draft: SectionBoundary[] = current.map(b => ({ ...b }))
 
-    const listEl = container.createEl('div', { cls: 'taskchute-section-boundaries' })
+    const listEl = container.createDiv( { cls: 'taskchute-section-boundaries' })
 
     const renderBoundaryList = () => {
       listEl.empty()
       draft.forEach((boundary, idx) => {
-        const row = listEl.createEl('div', { cls: 'taskchute-boundary-row' })
+        const row = listEl.createDiv( { cls: 'taskchute-boundary-row' })
 
-        row.createEl('span', {
+        row.createSpan( {
           cls: 'taskchute-boundary-label',
           text: t('settings.advanced.sectionCustomize.boundaryLabel', `Boundary ${idx + 1}`, { index: idx + 1 }),
         })
@@ -602,7 +593,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     renderBoundaryList()
 
     // Buttons row
-    const buttonsEl = container.createEl('div', { cls: 'taskchute-section-buttons' })
+    const buttonsEl = container.createDiv( { cls: 'taskchute-section-buttons' })
 
     // Add boundary button
     const addBtn = buttonsEl.createEl('button', {

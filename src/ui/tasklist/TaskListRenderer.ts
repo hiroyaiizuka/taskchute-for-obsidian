@@ -174,16 +174,16 @@ export default class TaskListRenderer {
     const collapsible = this.host.isCollapsibleEnabled()
     const isCollapsed = collapsible && this.collapsedSlots.has('none')
 
-    const header = this.host.taskList.createEl('div', {
+    const header = this.host.taskList.createDiv( {
       cls: `time-slot-header other${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
 
     if (collapsible) {
-      header.createEl('span', {
+      header.createSpan( {
         cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
         text: isCollapsed ? '\u25B6' : '\u25BC',
       })
-      header.createEl('span', {
+      header.createSpan( {
         cls: 'tc-slot-label',
         text: this.host.tv('lists.noTime', 'No time'),
       })
@@ -208,16 +208,16 @@ export default class TaskListRenderer {
     const collapsible = this.host.isCollapsibleEnabled()
     const isCollapsed = collapsible && this.collapsedSlots.has(slot)
 
-    const header = this.host.taskList.createEl('div', {
+    const header = this.host.taskList.createDiv( {
       cls: `time-slot-header${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
 
     if (collapsible) {
-      header.createEl('span', {
+      header.createSpan( {
         cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
         text: isCollapsed ? '\u25B6' : '\u25BC',
       })
-      header.createEl('span', { cls: 'tc-slot-label', text: slot })
+      header.createSpan( { cls: 'tc-slot-label', text: slot })
       header.addEventListener('click', () => {
         if (this.isDragging) return
         this.toggleSlotCollapse(slot)
@@ -236,7 +236,7 @@ export default class TaskListRenderer {
   }
 
   private createTaskInstanceItem(inst: TaskInstance, slot: string, idx: number): void {
-    const taskItem = this.host.taskList.createEl('div', { cls: 'task-item' })
+    const taskItem = this.host.taskList.createDiv( { cls: 'task-item' })
     if (inst.task.path) {
       taskItem.setAttribute('data-task-path', inst.task.path)
     }
@@ -269,7 +269,7 @@ export default class TaskListRenderer {
 
   private createDragHandle(taskItem: HTMLElement, inst: TaskInstance, slot: string, idx: number): void {
     const isDraggable = inst.state !== 'done'
-    const dragHandle = taskItem.createEl('div', {
+    const dragHandle = taskItem.createDiv( {
       cls: 'drag-handle',
       attr: isDraggable
         ? { draggable: 'true', title: this.host.tv('tooltips.dragToMove', 'Drag to move') }

@@ -33,7 +33,7 @@ export default class TimeEditModal extends Modal {
     const { host, instance, callbacks } = this.options
     const displayTitle = host.getInstanceDisplayTitle(instance)
 
-    const header = contentEl.createEl('div', { cls: 'modal-header' })
+    const header = contentEl.createDiv( { cls: 'modal-header' })
     header.createEl('h3', {
       text: host.tv('forms.timeEditTitle', `Edit times for "${displayTitle}"`, {
         title: displayTitle,
@@ -65,7 +65,7 @@ export default class TimeEditModal extends Modal {
       })
     }
 
-    const startGroup = form.createEl('div', { cls: 'form-group' })
+    const startGroup = form.createDiv( { cls: 'form-group' })
     startGroup.createEl('label', {
       text: host.tv('forms.scheduledTimeLabel', 'Start time:'),
       cls: 'form-label',
@@ -90,7 +90,7 @@ export default class TimeEditModal extends Modal {
 
     let stopInput: HTMLInputElement | null = null
     if (instance.state === 'done' && instance.stopTime) {
-      const stopGroup = form.createEl('div', { cls: 'form-group' })
+      const stopGroup = form.createDiv( { cls: 'form-group' })
       stopGroup.createEl('label', {
         text: host.tv('forms.stopTimeLabel', 'Stop time:'),
         cls: 'form-label',
@@ -129,16 +129,16 @@ export default class TimeEditModal extends Modal {
       const lines = normalized.split('\n')
       description.textContent = ''
       lines.forEach((line, index) => {
-        const span = document.createElement('span')
+        const span = createSpan()
         span.textContent = line
         description.appendChild(span)
         if (index < lines.length - 1) {
-          description.appendChild(document.createElement('br'))
+          description.appendChild(createEl('br'))
         }
       })
     }
 
-    const buttonGroup = form.createEl('div', { cls: 'form-button-group' })
+    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
       type: 'button',
       cls: 'form-button cancel',

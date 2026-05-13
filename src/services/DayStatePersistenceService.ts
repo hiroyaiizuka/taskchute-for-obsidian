@@ -1,4 +1,5 @@
-import { TFile } from 'obsidian';
+import { TFile } from 'obsidian'
+;
 import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';

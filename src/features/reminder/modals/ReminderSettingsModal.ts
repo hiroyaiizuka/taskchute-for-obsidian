@@ -5,7 +5,8 @@
  * Time is stored in HH:mm format.
  */
 
-import { App, Modal } from 'obsidian';
+import { App, Modal } from 'obsidian'
+;
 import { t } from '../../../i18n';
 
 export interface ReminderSettingsModalOptions {
@@ -42,7 +43,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K];
   }
-  const element = document.createElement(tag);
+  const element = createEl(tag);
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
     element.classList.add(...classes);

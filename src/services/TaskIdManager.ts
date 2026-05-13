@@ -36,7 +36,7 @@ export function extractTaskIdFromFrontmatter(frontmatter?: Record<string, unknow
 
 export function generateTaskId(): string {
   try {
-    const cryptoApi = globalThis.crypto as Crypto | undefined
+    const cryptoApi = activeWindow.crypto as Crypto | undefined
     if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
       return `tc-task-${cryptoApi.randomUUID()}`
     }

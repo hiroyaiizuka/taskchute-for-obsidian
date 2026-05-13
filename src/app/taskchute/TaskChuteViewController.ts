@@ -1,4 +1,5 @@
-import { Notice } from "obsidian";
+import { Notice } from 'obsidian'
+;
 
 import { t } from "../../i18n";
 import { VIEW_TYPE_TASKCHUTE } from "../../types";
@@ -60,7 +61,7 @@ export class TaskChuteViewController {
     }
 
     await this.activateView();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => activeWindow.setTimeout(resolve, 50));
 
     view = this.getView();
     if (hasAll(view)) return view;

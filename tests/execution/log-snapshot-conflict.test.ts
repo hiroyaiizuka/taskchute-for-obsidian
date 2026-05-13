@@ -4,6 +4,22 @@ import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncC
 import { SnapshotConflictError } from '../../src/types/ExecutionLog'
 import { createPluginStub, seedDeltaFile, seedSnapshot } from './logTestUtils'
 
+type TimeoutWindow = Window & {
+  setTimeout: jest.Mock<number, [TimerHandler, number?]>
+  clearTimeout: jest.Mock<void, [number]>
+}
+
+const setActiveWindow = (win: Window): void => {
+  ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow = win
+}
+
+const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
+  {
+    setTimeout: jest.fn(() => timeoutId),
+    clearTimeout: jest.fn(),
+  } as unknown as TimeoutWindow
+)
+
 describe('Snapshot Conflict Detection', () => {
   beforeEach(() => {
     jest.useFakeTimers()
@@ -16,6 +32,28 @@ describe('Snapshot Conflict Detection', () => {
   })
 
   describe('Basic Reconciliation with New Format', () => {
+    test('default retry sleep uses a stable timer instead of activeWindow', async () => {
+      const originalActiveWindow = activeWindow
+      const popoutWindow = createTimeoutWindow(999)
+      const { plugin } = createPluginStub()
+      const reconciler = new LogReconciler(plugin)
+      const sleepFn = (reconciler as unknown as {
+        deps: { sleepFn: (ms: number) => Promise<void> }
+      }).deps.sleepFn
+
+      try {
+        setActiveWindow(popoutWindow)
+        const sleepPromise = sleepFn(25)
+
+        expect(popoutWindow.setTimeout).not.toHaveBeenCalled()
+
+        await jest.advanceTimersByTimeAsync(25)
+        await sleepPromise
+      } finally {
+        setActiveWindow(originalActiveWindow)
+      }
+    })
+
     test('applies delta entries and increments revision', async () => {
       const { plugin, store, deltaStore, abstractStore } = createPluginStub()
       seedDeltaFile(abstractStore, deltaStore, 'device-alpha', '2026-02', [

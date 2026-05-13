@@ -1,3 +1,4 @@
+import 'obsidian'
 import { TaskChuteView } from "../features/core/views/TaskChuteView"
 import { TaskChuteSettingTab } from "../settings"
 import { VIEW_TYPE_TASKCHUTE, VIEW_TYPE_PROJECT_BOARD, type TaskChutePlugin } from "../types"
@@ -153,8 +154,6 @@ export async function bootstrapPlugin(
     reminderManager = new ReminderSystemManager({
       app: plugin.app,
       settings: plugin.settings,
-      registerInterval: (callback, intervalMs) =>
-        window.setInterval(callback, intervalMs),
       registerEvent: (eventRef) => {
         plugin.registerEvent(eventRef)
         return eventRef

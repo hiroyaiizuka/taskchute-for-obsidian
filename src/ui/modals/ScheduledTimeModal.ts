@@ -41,11 +41,11 @@ export default class ScheduledTimeModal extends Modal {
     contentEl.classList.add('scheduled-time-modal')
 
     const title = host.tv('forms.scheduledTimeModalTitle', 'Set scheduled start time')
-    const header = contentEl.createEl('div', { cls: 'modal-header' })
+    const header = contentEl.createDiv( { cls: 'modal-header' })
     header.createEl('h3', { text: title })
 
     const form = contentEl.createEl('form', { cls: 'task-form scheduled-time-form' })
-    const group = form.createEl('div', { cls: 'form-group' })
+    const group = form.createDiv( { cls: 'form-group' })
     group.createEl('label', {
       text: host.tv('forms.scheduledTimeLabel', 'Scheduled start time:'),
       cls: 'form-label',
@@ -75,7 +75,7 @@ export default class ScheduledTimeModal extends Modal {
       description.appendChild(document.createTextNode(line))
     })
 
-    const footer = form.createEl('div', { cls: 'form-button-group' })
+    const footer = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = footer.createEl('button', {
       type: 'button',
       cls: 'form-button cancel',

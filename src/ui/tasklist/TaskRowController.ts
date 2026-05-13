@@ -140,11 +140,11 @@ export default class TaskRowController {
     })()
 
     // Container for task name and reminder icon
-    const taskNameContainer = taskItem.createEl('span', {
+    const taskNameContainer = taskItem.createSpan( {
       cls: 'task-name-container',
     })
 
-    const taskName = taskNameContainer.createEl('span', {
+    const taskName = taskNameContainer.createSpan( {
       cls: 'task-name task-name--accent',
       text: displayName,
     })
@@ -188,12 +188,12 @@ export default class TaskRowController {
   }
 
   renderTimeRangeDisplay(taskItem: HTMLElement, inst: TaskInstance): void {
-    const timeRangeEl = taskItem.createEl('span', { cls: 'task-time-range' })
+    const timeRangeEl = taskItem.createSpan( { cls: 'task-time-range' })
     const formatTime = (date: Date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 
-    const startSpan = timeRangeEl.createEl('span', { cls: 'task-time-start editable' })
-    const arrowSpan = timeRangeEl.createEl('span', { cls: 'task-time-arrow', text: ' → ' })
-    const stopSpan = timeRangeEl.createEl('span', { cls: 'task-time-stop' })
+    const startSpan = timeRangeEl.createSpan( { cls: 'task-time-start editable' })
+    const arrowSpan = timeRangeEl.createSpan( { cls: 'task-time-arrow', text: ' → ' })
+    const stopSpan = timeRangeEl.createSpan( { cls: 'task-time-stop' })
 
     // Determine if we have actual time values to show
     const hasTimeValues = Boolean(inst.startTime || inst.stopTime)
@@ -240,7 +240,7 @@ export default class TaskRowController {
 
   renderDurationDisplay(taskItem: HTMLElement, inst: TaskInstance): void {
     if (inst.state === 'done' && inst.startTime && inst.stopTime) {
-      const durationEl = taskItem.createEl('span', { cls: 'task-duration' })
+      const durationEl = taskItem.createSpan( { cls: 'task-duration' })
       const duration = this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime)
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
@@ -249,10 +249,10 @@ export default class TaskRowController {
         durationEl.setAttribute('title', this.host.tv('tooltips.crossDayTask', 'Cross-day task'))
       }
     } else if (inst.state === 'running') {
-      const timerEl = taskItem.createEl('span', { cls: 'task-timer-display' })
+      const timerEl = taskItem.createSpan( { cls: 'task-timer-display' })
       this.updateTimerDisplay(timerEl, inst)
     } else {
-      taskItem.createEl('span', { cls: 'task-duration-placeholder' })
+      taskItem.createSpan( { cls: 'task-duration-placeholder' })
     }
   }
 

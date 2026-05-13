@@ -57,14 +57,14 @@ export default class NavigationController {
   }
 
   createNavigationUI(contentContainer: HTMLElement): void {
-    const overlay = contentContainer.createEl('div', {
+    const overlay = contentContainer.createDiv( {
       cls: 'navigation-overlay navigation-overlay-hidden',
     })
-    const panel = contentContainer.createEl('div', {
+    const panel = contentContainer.createDiv( {
       cls: 'navigation-panel navigation-panel-hidden',
     })
     const navMenu = panel.createEl('nav', { cls: 'navigation-nav' })
-    const navContent = panel.createEl('div', { cls: 'navigation-content' })
+    const navContent = panel.createDiv( { cls: 'navigation-content' })
     this.navMenu = navMenu
 
     this.view.navigationOverlay = overlay
@@ -99,12 +99,12 @@ export default class NavigationController {
     ]
 
     items.forEach((item) => {
-      const navItem = navMenu.createEl('div', {
+      const navItem = navMenu.createDiv( {
         cls: 'navigation-nav-item',
         attr: { 'data-section': item.key },
       })
-      navItem.createEl('span', { cls: 'navigation-nav-icon', text: item.icon })
-      navItem.createEl('span', { cls: 'navigation-nav-label', text: item.label })
+      navItem.createSpan( { cls: 'navigation-nav-icon', text: item.icon })
+      navItem.createSpan( { cls: 'navigation-nav-label', text: item.label })
       this.bindDomEvent(navItem, 'click', () => {
         void this.handleNavigationItemClick(item.key)
       })

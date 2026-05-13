@@ -1,4 +1,5 @@
-import { normalizePath, TFile, TFolder } from 'obsidian';
+import { normalizePath, TFile, TFolder } from 'obsidian'
+;
 import type { TaskChutePluginLike } from '../../../types';
 import type { TaskInstance } from '../../../types';
 import { DeviceIdentityService } from '../../../services/DeviceIdentityService';

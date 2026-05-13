@@ -71,20 +71,20 @@ export class TaskItemActionController {
   }
 
   renderProject(container: HTMLElement, inst: TaskInstance): void {
-    const wrapper = container.createEl('span', { cls: 'taskchute-project-display' })
+    const wrapper = container.createSpan( { cls: 'taskchute-project-display' })
     const projectTitle = inst.task.projectTitle || ''
     const normalized = projectTitle.replace(/^Project\s*-\s*/u, '')
     const displayTitle = normalized.trim().length > 0 ? normalized : projectTitle || this.host.tv('project.none', 'No project')
 
     if (inst.task.projectPath && projectTitle) {
-      const projectButton = wrapper.createEl('span', {
+      const projectButton = wrapper.createSpan( {
         cls: 'taskchute-project-button',
         attr: {
           title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title: displayTitle }),
         },
       })
-      projectButton.createEl('span', { cls: 'taskchute-project-icon', text: '📁' })
-      projectButton.createEl('span', { cls: 'taskchute-project-name', text: displayTitle })
+      projectButton.createSpan( { cls: 'taskchute-project-icon', text: '📁' })
+      projectButton.createSpan( { cls: 'taskchute-project-name', text: displayTitle })
       this.registerTapEvent(projectButton, (event) => {
         event.stopPropagation()
         if (typeof this.host.showUnifiedProjectModal === 'function') {
@@ -94,7 +94,7 @@ export class TaskItemActionController {
         }
       })
 
-      const externalLink = wrapper.createEl('span', {
+      const externalLink = wrapper.createSpan( {
         cls: 'taskchute-external-link',
         text: '🔗',
         attr: {
@@ -113,7 +113,7 @@ export class TaskItemActionController {
       })
     } else {
       const label = this.host.tv('project.clickToSet', 'Set project')
-      const placeholder = wrapper.createEl('span', {
+      const placeholder = wrapper.createSpan( {
         cls: 'taskchute-project-placeholder',
         text: label,
         attr: { title: label },
@@ -178,7 +178,7 @@ export class TaskItemActionController {
       if (inst.task.isRoutine) {
         // Delay modal opening to ensure touch events are fully processed
         // This prevents touch events from propagating to modal content
-        setTimeout(() => {
+        activeWindow.setTimeout(() => {
           this.host.showRoutineEditModal(inst.task, button)
         }, 50)
       } else {

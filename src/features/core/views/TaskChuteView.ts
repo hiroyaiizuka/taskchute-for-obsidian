@@ -1,11 +1,4 @@
-import {
-  ItemView,
-  WorkspaceLeaf,
-  Notice,
-  EventRef,
-  TAbstractFile,
-  TFile,
-} from "obsidian"
+import { EventRef, ItemView, Notice, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
 import {
   TaskData,
   TaskInstance,
@@ -139,6 +132,7 @@ export class TaskChuteView
 
   // Boundary Check (idle-task-auto-move feature)
   public boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  public boundaryCheckWindow: Window | null = null
 
   // Debounce Timer
   public renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -146,6 +140,7 @@ export class TaskChuteView
   // Debounce Timer for state file modification detection (cross-device sync)
   private stateFileModifyDebounceTimer: ReturnType<typeof setTimeout> | null =
     null
+  private stateFileModifyDebounceWindow: Window | null = null
   private stateFileModifyPendingMonthKeys: Set<string> = new Set()
   private stateFileModifyRequiresFullReload = false
 
@@ -929,10 +924,17 @@ export class TaskChuteView
 
     // Debounce to avoid excessive reloads during rapid changes
     if (this.stateFileModifyDebounceTimer) {
-      clearTimeout(this.stateFileModifyDebounceTimer)
-    }
-    this.stateFileModifyDebounceTimer = setTimeout(() => {
+      const timeout = this.stateFileModifyDebounceTimer
+      const timeoutWindow = this.stateFileModifyDebounceWindow ?? activeWindow
       this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
+      timeoutWindow.clearTimeout(timeout)
+    }
+    const timeoutWindow = activeWindow
+    this.stateFileModifyDebounceWindow = timeoutWindow
+    this.stateFileModifyDebounceTimer = timeoutWindow.setTimeout(() => {
+      this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
       if (this.isClosingOrClosed) {
         this.stateFileModifyPendingMonthKeys.clear()
         this.stateFileModifyRequiresFullReload = false
@@ -2282,23 +2284,29 @@ export class TaskChuteView
   private cleanupTimers(): void {
     // Legacy interval cleanup (no-op after TimerService)
     if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval)
+      activeWindow.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
 
     if (this.boundaryCheckTimeout) {
-      clearTimeout(this.boundaryCheckTimeout)
+      const timeout = this.boundaryCheckTimeout
+      const timeoutWindow = this.boundaryCheckWindow ?? activeWindow
       this.boundaryCheckTimeout = null
+      this.boundaryCheckWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
 
     if (this.renderDebounceTimer) {
-      clearTimeout(this.renderDebounceTimer)
+      activeWindow.clearTimeout(this.renderDebounceTimer)
       this.renderDebounceTimer = null
     }
 
     if (this.stateFileModifyDebounceTimer) {
-      clearTimeout(this.stateFileModifyDebounceTimer)
+      const timeout = this.stateFileModifyDebounceTimer
+      const timeoutWindow = this.stateFileModifyDebounceWindow ?? activeWindow
       this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
     this.stateFileModifyPendingMonthKeys.clear()
     this.stateFileModifyRequiresFullReload = false

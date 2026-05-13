@@ -1,4 +1,5 @@
-import { Plugin, normalizePath } from 'obsidian';
+import { Plugin, normalizePath } from 'obsidian'
+;
 import { TaskChuteSettings } from '../types';
 import { t } from '../i18n';
 
