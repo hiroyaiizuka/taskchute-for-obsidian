@@ -192,4 +192,41 @@ describe('style regressions', () => {
     expect(routineHoverRule).toMatch(/opacity:\s*0\.6;/)
     expect(routineHoverRule).toMatch(/background:\s*transparent;/)
   })
+
+  test('closed navigation panel stays out of the focus tree', () => {
+    const hiddenPanelRule = readRule(styles(), '.navigation-panel-hidden {')
+
+    expect(hiddenPanelRule).toMatch(/display:\s*none;/)
+  })
+
+  test('project board drop indicators keep pseudo-elements outside :is selectors', () => {
+    const css = styles()
+
+    expect(css).not.toMatch(/:is\([^{}]*::(?:before|after)[^{}]*\)\s*\{/)
+  })
+
+  test('mobile touch-action covers non-button tap targets', () => {
+    const touchActionRule = readRule(styles(), '.taskchute-container button,')
+
+    expect(touchActionRule).toContain('.taskchute-container .task-time-start.editable')
+    expect(touchActionRule).toContain('.taskchute-container .task-time-stop.editable')
+    expect(touchActionRule).toContain('.taskchute-container .drag-handle')
+    expect(touchActionRule).toContain('.taskchute-container .taskchute-project-button')
+    expect(touchActionRule).toContain('.taskchute-tooltip .tooltip-item')
+    expect(touchActionRule).toContain('.taskchute-comment-modal button')
+    expect(touchActionRule).toContain('[class~="drawer-toggle"]')
+    expect(touchActionRule).toContain('[class~="date-nav-arrow"]')
+    expect(touchActionRule).toContain('[class~="add-task-button"]')
+    expect(touchActionRule).toContain('[class~="calendar-btn"]')
+    expect(touchActionRule).toContain('[class~="form-button"]')
+    expect(touchActionRule).toContain('[class~="taskchute-button-save"]')
+    expect(touchActionRule).toContain('[class~="taskchute-button-cancel"]')
+    expect(touchActionRule).toContain('[class~="taskchute-button-primary"]')
+    expect(touchActionRule).toContain('[class~="taskchute-button-secondary"]')
+    expect(touchActionRule).toContain('[class~="taskchute-nav-button"]')
+    expect(touchActionRule).toContain('[class~="task-button"]')
+    expect(touchActionRule).toContain('[class~="tooltip-close-button"]')
+    expect(touchActionRule).toContain('[class~="modal-close-button"]')
+    expect(touchActionRule).toMatch(/touch-action:\s*manipulation;/)
+  })
 })

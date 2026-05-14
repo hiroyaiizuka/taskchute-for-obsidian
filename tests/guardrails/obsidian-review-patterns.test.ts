@@ -3,6 +3,7 @@ import path from 'path'
 
 const ROOT = path.resolve(__dirname, '../..')
 const SRC_ROOT = path.join(ROOT, 'src')
+const DUPLICATE_CSS_SELECTOR_BUDGET = 0
 
 const rawBrowserTimerPatterns = [
   {
@@ -80,6 +81,149 @@ function findDuplicateCssBlocks(css: string): string[] {
     .map((entries) => entries.join(' | '))
 }
 
+function findDuplicateCssSelectors(css: string): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  const cssWithoutComments = stripCssComments(css)
+  const blockPattern = /([^{}@][^{}]*)\{([^{}]*)\}/g
+  let match: RegExpExecArray | null
+
+  while ((match = blockPattern.exec(cssWithoutComments)) !== null) {
+    const context = getCssAtRuleContextAt(cssWithoutComments, match.index)
+    for (const rawSelector of splitSelectorList(match[1])) {
+      for (const selector of expandCssSelectors(rawSelector)) {
+        if (!selector || /^\d+%$/.test(selector) || selector === 'from' || selector === 'to') {
+          continue
+        }
+        const selectorKey = `${context}\u0000${selector}`
+        if (seen.has(selectorKey)) {
+          duplicates.add(selector)
+          continue
+        }
+        seen.add(selectorKey)
+      }
+    }
+  }
+
+  return Array.from(duplicates).sort()
+}
+
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '')
+}
+
+function expandCssSelectors(rawSelector: string): string[] {
+  const selector = rawSelector.trim().replace(/\s+/g, ' ')
+  if (!selector) return []
+
+  return expandCssPseudoClassGroups(selector)
+}
+
+function expandCssPseudoClassGroups(selector: string): string[] {
+  const group = findFirstCssPseudoClassGroup(selector)
+  if (!group) {
+    return [selector]
+  }
+
+  const options = splitSelectorList(group.inner)
+    .map((option) => option.trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+
+  if (options.length === 0) {
+    return [selector]
+  }
+
+  return options.flatMap((option) => {
+    const expanded = `${selector.slice(0, group.start)}${option}${selector.slice(group.end)}`
+    return expandCssPseudoClassGroups(expanded.trim().replace(/\s+/g, ' '))
+  })
+}
+
+function findFirstCssPseudoClassGroup(selector: string): { start: number; end: number; inner: string } | null {
+  const pseudoPattern = /:(?:is|where)\(/g
+  const match = pseudoPattern.exec(selector)
+  if (!match) return null
+
+  const openIndex = selector.indexOf('(', match.index)
+  let depth = 0
+  for (let index = openIndex; index < selector.length; index += 1) {
+    const char = selector[index]
+    if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      depth -= 1
+      if (depth === 0) {
+        return {
+          start: match.index,
+          end: index + 1,
+          inner: selector.slice(openIndex + 1, index),
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function getCssAtRuleContextAt(css: string, index: number): string {
+  const atRuleStack: string[] = []
+  const blockStack: Array<string | null> = []
+  let segmentStart = 0
+
+  for (let offset = 0; offset < index; offset += 1) {
+    const char = css[offset]
+    if (char === '{') {
+      const prelude = css.slice(segmentStart, offset).trim().replace(/\s+/g, ' ')
+      const atRule = prelude.startsWith('@') ? prelude : null
+      blockStack.push(atRule)
+      if (atRule) {
+        atRuleStack.push(atRule)
+      }
+      segmentStart = offset + 1
+      continue
+    }
+
+    if (char === '}') {
+      const atRule = blockStack.pop()
+      if (atRule) {
+        atRuleStack.pop()
+      }
+      segmentStart = offset + 1
+      continue
+    }
+
+    if (char === ';' && blockStack.length === 0) {
+      segmentStart = offset + 1
+    }
+  }
+
+  return atRuleStack.join(' > ')
+}
+
+function splitSelectorList(selectorList: string): string[] {
+  const selectors: string[] = []
+  let current = ''
+  let depth = 0
+
+  for (const char of selectorList) {
+    if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      depth = Math.max(0, depth - 1)
+    }
+
+    if (char === ',' && depth === 0) {
+      selectors.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+
+  selectors.push(current)
+  return selectors
+}
+
 describe('Obsidian review guardrails', () => {
   test('source avoids global DOM creation and raw browser timers', () => {
     const files = collectFiles(SRC_ROOT, (filePath) => filePath.endsWith('.ts'))
@@ -132,6 +276,91 @@ describe('Obsidian review guardrails', () => {
     const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
 
     expect(findDuplicateCssBlocks(css)).toEqual([])
+  })
+
+  test('styles keep duplicate selectors under the review budget', () => {
+    const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
+
+    expect(findDuplicateCssSelectors(css).length).toBeLessThanOrEqual(DUPLICATE_CSS_SELECTOR_BUDGET)
+  })
+
+  test('duplicate selector count ignores CSS comments before selector normalization', () => {
+    const css = `
+      /* ===== Core list layout ===== */
+      .taskchute-container {
+        color: var(--text-normal);
+      }
+
+      .taskchute-container {
+        background: var(--background-primary);
+      }
+    `
+
+    expect(findDuplicateCssSelectors(css)).toContain('.taskchute-container')
+  })
+
+  test('duplicate selector count normalizes single selector :is and :where wrappers', () => {
+    const css = `
+      :is(.task-modal-overlay) {
+        color: var(--text-normal);
+      }
+
+      .task-modal-overlay {
+        background: var(--background-primary);
+      }
+
+      :where(.taskchute-container) {
+        color: var(--text-normal);
+      }
+
+      .taskchute-container {
+        background: var(--background-primary);
+      }
+    `
+
+    expect(findDuplicateCssSelectors(css)).toEqual(
+      expect.arrayContaining(['.task-modal-overlay', '.taskchute-container']),
+    )
+  })
+
+  test('duplicate selector count expands grouped :is and :where wrappers', () => {
+    const css = `
+      :is(.task-modal-overlay, .taskchute-log-modal-overlay) {
+        color: var(--text-normal);
+      }
+
+      .taskchute-log-modal-overlay {
+        background: var(--background-primary);
+      }
+
+      :where(.taskchute-container, .main-container) {
+        color: var(--text-normal);
+      }
+
+      .main-container {
+        background: var(--background-primary);
+      }
+    `
+
+    expect(findDuplicateCssSelectors(css)).toEqual(
+      expect.arrayContaining(['.taskchute-log-modal-overlay', '.main-container']),
+    )
+  })
+
+  test('duplicate selector count treats at-rule contexts separately', () => {
+    const css = `
+      .task-item {
+        display: grid;
+      }
+
+      @container taskchute-list (max-width: 640px) {
+        :is(.task-item) {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    `
+
+    expect(findDuplicateCssSelectors(css)).not.toContain('.task-item')
   })
 
   test('release root and direct dependencies stay review-safe', () => {
