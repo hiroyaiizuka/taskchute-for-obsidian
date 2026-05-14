@@ -365,6 +365,102 @@ describe('TaskChuteView execution history helpers', () => {
   });
 });
 
+describe('TaskChuteView reminder scheduling', () => {
+  test('buildReminderSchedules uses stable path keys for base rows and instance ids for duplicate rows', () => {
+    const { view, plugin } = createView();
+    const buildTodaySchedules = jest.fn();
+    plugin.reminderManager = {
+      buildTodaySchedules,
+      onTaskReminderTimeChanged: jest.fn(),
+      onTaskComplete: jest.fn(),
+    };
+    jest
+      .spyOn(view as unknown as { getActualTodayString: () => string }, 'getActualTodayString')
+      .mockReturnValue('2025-01-01');
+
+    const task = createTaskData({
+      path: 'TASKS/base.md',
+      name: 'Base',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+    });
+    view.taskInstances = [
+      createTaskInstance(task, { instanceId: 'base-inst' }),
+      createTaskInstance(
+        {
+          ...task,
+          scheduledTime: '10:00',
+          reminder_time: '09:55',
+        },
+        { instanceId: 'dup-inst', isDuplicate: true },
+      ),
+    ];
+
+    (view as unknown as { buildReminderSchedules: () => void }).buildReminderSchedules();
+
+    const payload = buildTodaySchedules.mock.calls[0]?.[0] as Array<{ filePath: string; instanceId?: string }>;
+    expect(payload).toHaveLength(2);
+    expect(payload[0]).toMatchObject({ filePath: 'TASKS/base.md' });
+    expect(payload[0]).not.toHaveProperty('instanceId');
+    expect(payload[1]).toMatchObject({
+      filePath: 'TASKS/base.md',
+      instanceId: 'dup-inst',
+    });
+  });
+
+  test('buildReminderSchedules passes inherited duplicates even before a reminder exists', () => {
+    const { view, plugin } = createView();
+    const buildTodaySchedules = jest.fn();
+    plugin.reminderManager = {
+      buildTodaySchedules,
+      onTaskReminderTimeChanged: jest.fn(),
+      onTaskComplete: jest.fn(),
+    };
+    jest
+      .spyOn(view as unknown as { getActualTodayString: () => string }, 'getActualTodayString')
+      .mockReturnValue('2025-01-01');
+
+    const baseTask = createTaskData({
+      path: 'TASKS/no-reminder.md',
+      name: 'Base',
+      scheduledTime: '10:00',
+    });
+    const duplicateTask = createTaskData({
+      path: 'TASKS/no-reminder.md',
+      name: 'Base',
+      scheduledTime: '10:30',
+    });
+    view.taskInstances = [
+      createTaskInstance(baseTask, { instanceId: 'base-no-reminder' }),
+      createTaskInstance(duplicateTask, { instanceId: 'dup-no-reminder', isDuplicate: true }),
+    ];
+    view.getCurrentDayState().duplicatedInstances.push({
+      instanceId: 'dup-no-reminder',
+      originalPath: 'TASKS/no-reminder.md',
+      timestamp: 10,
+    });
+
+    (view as unknown as { buildReminderSchedules: () => void }).buildReminderSchedules();
+
+    const payload = buildTodaySchedules.mock.calls[0]?.[0] as Array<{
+      filePath: string;
+      instanceId?: string;
+      inheritsBaseReminder?: boolean;
+      task: { reminder_time?: string; scheduledTime?: string };
+    }>;
+    expect(payload).toHaveLength(2);
+    expect(payload[1]).toMatchObject({
+      filePath: 'TASKS/no-reminder.md',
+      instanceId: 'dup-no-reminder',
+      inheritsBaseReminder: true,
+      task: {
+        scheduledTime: '10:30',
+      },
+    });
+    expect(payload[1]?.task).not.toHaveProperty('reminder_time');
+  });
+});
+
 describe('TaskChuteView handleFileRename', () => {
   test('keeps instanceId stable when task path changes', async () => {
     const { view } = createView();
@@ -599,6 +695,571 @@ describe('TaskChuteView duplication and deletion', () => {
 
     idSpy.mockRestore();
     persistSpy.mockRestore();
+  });
+
+  test('moveDuplicateInstanceToDate preserves schedule overrides for moved duplicate', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+    const idSpy = jest
+      .spyOn(view as unknown as { generateInstanceId: (task: TaskData, date: string) => string }, 'generateInstanceId')
+      .mockReturnValue('dup-moved');
+
+    const task = createTaskData({
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+      taskId: 'tc-base',
+      frontmatter: {
+        scheduled_time: '09:00',
+        reminder_time: '08:55',
+      },
+    });
+    const duplicate = createTaskInstance(task, {
+      instanceId: 'dup-1',
+      slotKey: '8:00-12:00',
+      originalSlotKey: 'none',
+    });
+
+    await (view as unknown as {
+      moveDuplicateInstanceToDate: (inst: TaskInstance, dateStr: string) => Promise<void>;
+    }).moveDuplicateInstanceToDate(duplicate, '2025-01-03');
+
+    const targetState = view.dayStateManager.getStateFor('2025-01-03');
+    expect(targetState.duplicatedInstances).toEqual([
+      expect.objectContaining({
+        instanceId: 'dup-moved',
+        originalPath: 'TASKS/base.md',
+        originalTaskId: 'tc-base',
+        scheduledTime: '09:00',
+        reminderTime: '08:55',
+      }),
+    ]);
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-03');
+
+    idSpy.mockRestore();
+    persistSpy.mockRestore();
+  });
+
+  test('updateTaskReminderTime stores duplicate reminder edits in dayState only', async () => {
+    const { view, plugin } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(async () => undefined);
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+    plugin.reminderManager = {
+      buildTodaySchedules: jest.fn(),
+      onTaskReminderTimeChanged: jest.fn(),
+      onTaskComplete: jest.fn(),
+    };
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+    jest
+      .spyOn(view as unknown as { getActualTodayString: () => string }, 'getActualTodayString')
+      .mockReturnValue('2025-01-01');
+
+    const task = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+      frontmatter: {
+        scheduled_time: '09:00',
+        reminder_time: '08:55',
+      },
+    });
+    const duplicate = createTaskInstance(task, {
+      instanceId: 'dup-reminder',
+      isDuplicate: true,
+    });
+    const base = createTaskInstance(task, {
+      instanceId: 'base-reminder',
+    });
+    view.taskInstances = [base, duplicate];
+    view.getCurrentDayState().duplicatedInstances.push({
+      instanceId: 'dup-reminder',
+      originalPath: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      timestamp: 10,
+    });
+
+    await (view as unknown as {
+      updateTaskReminderTime: (inst: TaskInstance, time: string | null) => Promise<void>;
+    }).updateTaskReminderTime(duplicate, '09:10');
+
+    expect(processFrontMatter).not.toHaveBeenCalled();
+    expect(view.getCurrentDayState().duplicatedInstances[0]).toMatchObject({
+      instanceId: 'dup-reminder',
+      reminderTime: '09:10',
+    });
+    expect(duplicate.task).not.toBe(base.task);
+    expect(duplicate.task.reminder_time).toBe('09:10');
+    expect(base.task.reminder_time).toBe('08:55');
+    expect(base.task.frontmatter.reminder_time).toBe('08:55');
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
+    expect(plugin.reminderManager.onTaskReminderTimeChanged).toHaveBeenCalledWith(
+      'TASKS/base.md',
+      '09:10',
+      'Base Task',
+      '09:00',
+      'dup-reminder',
+    );
+
+    persistSpy.mockRestore();
+  });
+
+  test('updateTaskReminderTime stores duplicate reminder clear as null override', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(async () => undefined);
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const task = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+    });
+    const duplicate = createTaskInstance(task, {
+      instanceId: 'dup-clear-reminder',
+      isDuplicate: true,
+    });
+    const base = createTaskInstance(task, {
+      instanceId: 'base-clear-reminder',
+    });
+    view.taskInstances = [base, duplicate];
+    view.getCurrentDayState().duplicatedInstances.push({
+      instanceId: 'dup-clear-reminder',
+      originalPath: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      timestamp: 10,
+    });
+
+    await (view as unknown as {
+      updateTaskReminderTime: (inst: TaskInstance, time: string | null) => Promise<void>;
+    }).updateTaskReminderTime(duplicate, null);
+
+    expect(processFrontMatter).not.toHaveBeenCalled();
+    expect(view.getCurrentDayState().duplicatedInstances[0]).toMatchObject({
+      instanceId: 'dup-clear-reminder',
+      reminderTime: null,
+    });
+    expect(duplicate.task).not.toBe(base.task);
+    expect(duplicate.task.reminder_time).toBeUndefined();
+    expect(base.task.reminder_time).toBe('08:55');
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
+
+    persistSpy.mockRestore();
+  });
+
+  test('updateTaskReminderTime applies base changes to inherited duplicate task data', async () => {
+    const { view, plugin } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(
+      async (_file: TFile, updater: (frontmatter: Record<string, unknown>) => void) => {
+        updater({ reminder_time: '08:55' });
+      },
+    );
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+    plugin.reminderManager = {
+      buildTodaySchedules: jest.fn(),
+      onTaskReminderTimeChanged: jest.fn(),
+      onTaskComplete: jest.fn(),
+    };
+    jest
+      .spyOn(view as unknown as { getActualTodayString: () => string }, 'getActualTodayString')
+      .mockReturnValue('2025-01-01');
+
+    const baseTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+      frontmatter: {
+        scheduled_time: '09:00',
+        reminder_time: '08:55',
+      },
+    });
+    const inheritedTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:30',
+      reminder_time: '08:55',
+      frontmatter: {
+        scheduled_time: '09:30',
+        reminder_time: '08:55',
+      },
+    });
+    const overrideTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '10:00',
+      reminder_time: '09:10',
+      frontmatter: {
+        scheduled_time: '10:00',
+        reminder_time: '09:10',
+      },
+    });
+    const base = createTaskInstance(baseTask, {
+      instanceId: 'base-reminder-update',
+    });
+    const inheritedDuplicate = createTaskInstance(inheritedTask, {
+      instanceId: 'dup-reminder-inherit',
+      isDuplicate: true,
+    });
+    const overrideDuplicate = createTaskInstance(overrideTask, {
+      instanceId: 'dup-reminder-override',
+      isDuplicate: true,
+    });
+    view.taskInstances = [base, inheritedDuplicate, overrideDuplicate];
+    view.getCurrentDayState().duplicatedInstances.push(
+      {
+        instanceId: 'dup-reminder-inherit',
+        originalPath: 'TASKS/base.md',
+        scheduledTime: '09:30',
+        timestamp: 10,
+      },
+      {
+        instanceId: 'dup-reminder-override',
+        originalPath: 'TASKS/base.md',
+        scheduledTime: '10:00',
+        reminderTime: '09:10',
+        timestamp: 11,
+      },
+    );
+
+    await (view as unknown as {
+      updateTaskReminderTime: (inst: TaskInstance, time: string | null) => Promise<void>;
+    }).updateTaskReminderTime(base, '08:45');
+
+    expect(processFrontMatter).toHaveBeenCalledTimes(1);
+    expect(base.task.reminder_time).toBe('08:45');
+    expect(inheritedDuplicate.task.reminder_time).toBe('08:45');
+    expect(inheritedDuplicate.task.frontmatter?.reminder_time).toBe('08:45');
+    expect(overrideDuplicate.task.reminder_time).toBe('09:10');
+    expect(overrideDuplicate.task.frontmatter?.reminder_time).toBe('09:10');
+    expect(plugin.reminderManager.onTaskReminderTimeChanged).toHaveBeenCalledWith(
+      'TASKS/base.md',
+      '08:45',
+      'Base Task',
+      '09:00',
+      undefined,
+    );
+  });
+
+  test('updateTaskReminderTime clears inherited duplicate task data when base is cleared', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(
+      async (_file: TFile, updater: (frontmatter: Record<string, unknown>) => void) => {
+        updater({ reminder_time: '08:55' });
+      },
+    );
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+
+    const baseTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+      frontmatter: {
+        scheduled_time: '09:00',
+        reminder_time: '08:55',
+      },
+    });
+    const inheritedTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:30',
+      reminder_time: '08:55',
+      frontmatter: {
+        scheduled_time: '09:30',
+        reminder_time: '08:55',
+      },
+    });
+    const overrideTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '10:00',
+      reminder_time: '09:10',
+      frontmatter: {
+        scheduled_time: '10:00',
+        reminder_time: '09:10',
+      },
+    });
+    const base = createTaskInstance(baseTask, {
+      instanceId: 'base-reminder-clear',
+    });
+    const inheritedDuplicate = createTaskInstance(inheritedTask, {
+      instanceId: 'dup-reminder-clear-inherit',
+      isDuplicate: true,
+    });
+    const overrideDuplicate = createTaskInstance(overrideTask, {
+      instanceId: 'dup-reminder-clear-override',
+      isDuplicate: true,
+    });
+    view.taskInstances = [base, inheritedDuplicate, overrideDuplicate];
+    view.getCurrentDayState().duplicatedInstances.push(
+      {
+        instanceId: 'dup-reminder-clear-inherit',
+        originalPath: 'TASKS/base.md',
+        scheduledTime: '09:30',
+        timestamp: 10,
+      },
+      {
+        instanceId: 'dup-reminder-clear-override',
+        originalPath: 'TASKS/base.md',
+        scheduledTime: '10:00',
+        reminderTime: '09:10',
+        timestamp: 11,
+      },
+    );
+
+    await (view as unknown as {
+      updateTaskReminderTime: (inst: TaskInstance, time: string | null) => Promise<void>;
+    }).updateTaskReminderTime(base, null);
+
+    expect(base.task.reminder_time).toBeUndefined();
+    expect(inheritedDuplicate.task.reminder_time).toBeUndefined();
+    expect(inheritedDuplicate.task.frontmatter?.reminder_time).toBeUndefined();
+    expect(overrideDuplicate.task.reminder_time).toBe('09:10');
+    expect(overrideDuplicate.task.frontmatter?.reminder_time).toBe('09:10');
+  });
+
+  test('updateTaskScheduledTime stores duplicate scheduled time edits in dayState only', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    view.renderTaskList = jest.fn();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(async () => undefined);
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const task = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '17:30',
+      frontmatter: { scheduled_time: '17:30' },
+    });
+    const base = createTaskInstance(task, {
+      instanceId: 'base-scheduled',
+    });
+    const duplicate = createTaskInstance(task, {
+      instanceId: 'dup-scheduled',
+      isDuplicate: true,
+    });
+    view.taskInstances = [base, duplicate];
+    view.getCurrentDayState().duplicatedInstances.push({
+      instanceId: 'dup-scheduled',
+      originalPath: 'TASKS/base.md',
+      timestamp: 10,
+    });
+
+    const handled = await (view as unknown as {
+      updateTaskScheduledTime: (inst: TaskInstance, time: string | undefined) => Promise<boolean>;
+    }).updateTaskScheduledTime(duplicate, '09:30');
+
+    expect(handled).toBe(true);
+    expect(processFrontMatter).not.toHaveBeenCalled();
+    expect(view.getCurrentDayState().duplicatedInstances[0]).toMatchObject({
+      instanceId: 'dup-scheduled',
+      scheduledTime: '09:30',
+    });
+    expect(duplicate.task).not.toBe(base.task);
+    expect(duplicate.task.scheduledTime).toBe('09:30');
+    expect(duplicate.task.frontmatter?.scheduled_time).toBe('09:30');
+    expect(base.task.scheduledTime).toBe('17:30');
+    expect(base.task.frontmatter?.scheduled_time).toBe('17:30');
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
+
+    persistSpy.mockRestore();
+  });
+
+  test('updateTaskScheduledTime stores duplicate scheduled time clear as null override', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+
+    const file = new TFile();
+    file.path = 'TASKS/base.md';
+    Object.setPrototypeOf(file, TFile.prototype);
+    const processFrontMatter = jest.fn(async () => undefined);
+    view.app = {
+      ...view.app,
+      fileManager: {
+        processFrontMatter,
+      },
+    } as typeof view.app;
+    const persistSpy = jest
+      .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
+      .mockResolvedValue(undefined);
+
+    const baseTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '17:30',
+      frontmatter: { scheduled_time: '17:30' },
+    });
+    const duplicateTask = createTaskData({
+      file,
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      frontmatter: { scheduled_time: '09:00' },
+    });
+    const base = createTaskInstance(baseTask, {
+      instanceId: 'base-clear-scheduled',
+    });
+    const duplicate = createTaskInstance(duplicateTask, {
+      instanceId: 'dup-clear-scheduled',
+      isDuplicate: true,
+    });
+    view.taskInstances = [base, duplicate];
+    view.getCurrentDayState().duplicatedInstances.push({
+      instanceId: 'dup-clear-scheduled',
+      originalPath: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      timestamp: 10,
+    });
+
+    const handled = await (view as unknown as {
+      updateTaskScheduledTime: (inst: TaskInstance, time: string | undefined) => Promise<boolean>;
+    }).updateTaskScheduledTime(duplicate, undefined);
+
+    expect(handled).toBe(true);
+    expect(processFrontMatter).not.toHaveBeenCalled();
+    expect(view.getCurrentDayState().duplicatedInstances[0]).toMatchObject({
+      instanceId: 'dup-clear-scheduled',
+      scheduledTime: null,
+    });
+    expect(duplicate.task.scheduledTime).toBeUndefined();
+    expect(duplicate.task.frontmatter?.scheduled_time).toBeUndefined();
+    expect(duplicate.task.frontmatter?.['開始時刻']).toBeUndefined();
+    expect(base.task.scheduledTime).toBe('17:30');
+    expect(base.task.frontmatter?.scheduled_time).toBe('17:30');
+    expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
+
+    persistSpy.mockRestore();
+  });
+
+  test('openGoogleCalendarExportForCreatedTask opens Google Calendar URL for the created instance directly', async () => {
+    const { view, plugin } = createView();
+    plugin.settings.googleCalendar = {
+      enabled: true,
+      defaultDurationMinutes: 60,
+      includeNoteContent: true,
+    };
+    const baseTask = createTaskData({
+      path: 'TASKS/base.md',
+      scheduledTime: '17:30',
+      frontmatter: { scheduled_time: '17:30' },
+    });
+    const createdTask = createTaskData({
+      path: 'TASKS/base.md',
+      scheduledTime: '09:00',
+      frontmatter: { scheduled_time: '09:00' },
+    });
+    const baseInstance = createTaskInstance(baseTask, {
+      instanceId: 'base-1',
+      date: '2025-01-01',
+    });
+    const createdInstance = createTaskInstance(createdTask, {
+      instanceId: 'dup-1',
+      date: '2025-01-01',
+    });
+    view.taskInstances = [baseInstance, createdInstance];
+    const event = {
+      title: 'Base Task',
+      start: new Date(2025, 0, 1, 9, 0),
+      end: new Date(2025, 0, 1, 10, 0),
+      dateKey: '2025-01-01',
+      startTimeText: '09:00',
+      endTimeText: '10:00',
+      description: '',
+    };
+    const buildSpy = jest
+      .spyOn(view.googleCalendarService, 'buildEventFromTask')
+      .mockResolvedValue(event);
+    const urlSpy = jest
+      .spyOn(view.googleCalendarService, 'buildEventUrl')
+      .mockReturnValue('https://calendar.google.com/calendar/render?action=TEMPLATE');
+    const openSpy = jest
+      .spyOn(view.googleCalendarService, 'open')
+      .mockImplementation(() => undefined);
+
+    await (view as unknown as {
+      openGoogleCalendarExportForCreatedTask: (target: { path: string; instanceId?: string }) => Promise<void>;
+    }).openGoogleCalendarExportForCreatedTask({
+      path: 'TASKS/base.md',
+      instanceId: 'dup-1',
+    });
+
+    expect(buildSpy).toHaveBeenCalledWith(
+      createdInstance,
+      plugin.settings.googleCalendar,
+      expect.objectContaining({ defaultDurationMinutes: 60 }),
+    );
+    expect(buildSpy.mock.calls[0]?.[2].viewDate).toEqual(new Date(2025, 0, 1));
+    expect(urlSpy).toHaveBeenCalledWith(event);
+    expect(openSpy).toHaveBeenCalledWith('https://calendar.google.com/calendar/render?action=TEMPLATE');
+
+    buildSpy.mockRestore();
+    urlSpy.mockRestore();
+    openSpy.mockRestore();
   });
 
   test('removeDuplicateInstanceFromCurrentDate records temporary deletion entry', async () => {
@@ -2806,6 +3467,8 @@ describe('TaskChuteView cross-day start handling', () => {
       timestamp: 10,
       createdMillis: 10,
       originalTaskId: 'tc-weekly',
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
     };
     view.getCurrentDayState().duplicatedInstances.push(duplicateEntry);
 
@@ -2855,6 +3518,8 @@ describe('TaskChuteView cross-day start handling', () => {
       slotKey: '16:00-0:00',
       originalSlotKey: '8:00-12:00',
       originalTaskId: 'tc-weekly',
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
     });
     expect(persistSpy).toHaveBeenCalledWith('2025-01-01');
     expect(persistSpy).toHaveBeenCalledWith('2025-01-02');

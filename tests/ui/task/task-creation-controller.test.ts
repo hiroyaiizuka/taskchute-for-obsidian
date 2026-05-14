@@ -86,9 +86,12 @@ describe('TaskCreationController', () => {
     getErrorMessage: (chars: string[]) => `Invalid: ${chars.join(',')}`,
   }
 
-  const createHost = () => {
+  const createHost = (settings: Partial<TaskChutePluginLike['settings']> = {}) => {
+    const createdFile = new (TFile)()
+    createdFile.path = 'TASKS/New Task.md'
+
     const taskCreationService = {
-      createTaskFile: jest.fn().mockResolvedValue(new (TFile)()),
+      createTaskFile: jest.fn().mockResolvedValue(createdFile),
     }
 
     const pluginStub: TaskChutePluginLike = {
@@ -96,6 +99,7 @@ describe('TaskCreationController', () => {
       settings: {
         useOrderBasedSort: true,
         slotKeys: {},
+        ...settings,
       },
       pathManager: {
         getTaskFolderPath: () => 'TASKS',
@@ -122,7 +126,10 @@ describe('TaskCreationController', () => {
     }
 
     const taskReuseService = {
-      reuseTaskAtDate: jest.fn().mockResolvedValue(new (TFile)()),
+      reuseTaskAtDate: jest.fn().mockResolvedValue({
+        file: new (TFile)(),
+        instanceId: 'reuse-instance-1',
+      }),
     }
 
     const host: TaskCreationControllerHost = {
@@ -148,11 +155,15 @@ describe('TaskCreationController', () => {
       },
       plugin: pluginStub,
       hasInstanceForPathToday: jest.fn(() => false),
-      duplicateInstanceForPath: jest.fn().mockResolvedValue(true),
+      duplicateInstanceForPath: jest.fn().mockResolvedValue({
+        path: 'TaskChute/Task/sample.md',
+        instanceId: 'dup-instance-1',
+      }),
       invalidateDayStateCache: jest.fn(),
       getDocumentContext: undefined,
       findDeletedTaskRestoreCandidate: jest.fn(() => null),
       restoreDeletedTaskCandidate: jest.fn().mockResolvedValue(true),
+      openGoogleCalendarExportForCreatedTask: jest.fn(),
     }
 
     return { host, taskCreationService, taskReuseService }
@@ -185,6 +196,100 @@ describe('TaskCreationController', () => {
     expect(document.querySelector('.task-modal-overlay')).toBeNull()
   })
 
+  test('showAddTaskModal does not render advanced settings when disabled', () => {
+    const { host } = createHost()
+    const controller = new TaskCreationController(host)
+
+    controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+
+    expect(modal.querySelector('.task-creation-advanced')).toBeNull()
+  })
+
+  test('showAddTaskModal saves advanced schedule options and opens calendar export', async () => {
+    const { host, taskCreationService } = createHost({
+      showTaskCreationAdvancedSettings: true,
+      defaultReminderMinutes: 5,
+      googleCalendar: {
+        enabled: true,
+        defaultDurationMinutes: 60,
+        includeNoteContent: true,
+      },
+    })
+    const controller = new TaskCreationController(host)
+
+    controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    const scheduledInput = modal.querySelector('.task-creation-scheduled-time') as HTMLInputElement
+    const reminderRow = modal.querySelector('.task-creation-reminder-row') as HTMLElement
+    const calendarRow = modal.querySelector('.task-creation-calendar-row') as HTMLElement
+    const reminderToggle = modal.querySelector('.task-creation-reminder-toggle') as HTMLInputElement
+    const calendarToggle = modal.querySelector('.task-creation-calendar-toggle') as HTMLInputElement
+    const form = modal.querySelector('form') as HTMLFormElement
+
+    expect(reminderRow.classList.contains('hidden')).toBe(true)
+    expect(calendarRow.classList.contains('hidden')).toBe(true)
+    expect(modal.textContent).toContain('Start time:')
+    expect(modal.textContent).toContain('Set reminder:')
+    expect(modal.textContent).toContain('Register to calendar:')
+    expect(modal.textContent).not.toContain('Enter a start time to enable reminder')
+    expect(modal.textContent).not.toContain('Open the registration window after saving')
+
+    nameInput.value = 'New Task'
+    scheduledInput.value = '09:00'
+    scheduledInput.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(reminderRow.classList.contains('hidden')).toBe(false)
+    expect(calendarRow.classList.contains('hidden')).toBe(false)
+    reminderToggle.checked = true
+    reminderToggle.dispatchEvent(new Event('change', { bubbles: true }))
+    calendarToggle.checked = true
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'New Task',
+      '2025-10-09',
+      '09:00',
+      { reminderTime: '08:55' },
+    )
+    expect(host.reloadTasksAndRestore).toHaveBeenCalled()
+    expect(host.openGoogleCalendarExportForCreatedTask).toHaveBeenCalledWith({
+      path: 'TASKS/New Task.md',
+    })
+  })
+
+  test('showAddTaskModal keeps advanced settings visible after autocomplete selection', () => {
+    const { host } = createHost({
+      showTaskCreationAdvancedSettings: true,
+    })
+    const controller = new TaskCreationController(host)
+
+    controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const input = modal.querySelector('input.form-input') as HTMLInputElement
+    const advanced = modal.querySelector('.task-creation-advanced') as HTMLElement
+
+    input.value = 'Existing Task'
+    input.dispatchEvent(new CustomEvent('autocomplete-selected', {
+      detail: {
+        value: 'Existing Task',
+        suggestion: {
+          type: 'task',
+          name: 'Existing Task',
+          path: 'TaskChute/Task/existing.md',
+        },
+      },
+    }))
+
+    const modeGroup = modal.querySelector('.task-mode-group') as HTMLElement
+    expect(modeGroup.classList.contains('hidden')).toBe(false)
+    expect(advanced).not.toBeNull()
+    expect(advanced.classList.contains('hidden')).toBe(false)
+  })
+
   test('reuseExistingTask records duplicate via reuse service and invalidates cache', async () => {
     const { host } = createHost()
     host.hasInstanceForPathToday = jest.fn(() => false)
@@ -193,10 +298,65 @@ describe('TaskCreationController', () => {
     const result = await (controller as unknown as { reuseExistingTask: (path: string) => Promise<boolean> }).reuseExistingTask('TaskChute/Task/sample.md')
 
     expect(result).toBe(true)
-    expect(host.taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith('TaskChute/Task/sample.md', '2025-10-09')
+    expect(host.taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith('TaskChute/Task/sample.md', '2025-10-09', undefined)
     expect(host.invalidateDayStateCache).toHaveBeenCalledWith('2025-10-09')
     expect(host.duplicateInstanceForPath).not.toHaveBeenCalled()
     expect(host.reloadTasksAndRestore).toHaveBeenCalled()
+  })
+
+  test('showAddTaskModal applies advanced schedule options when reusing existing task', async () => {
+    const { host } = createHost({
+      showTaskCreationAdvancedSettings: true,
+      defaultReminderMinutes: 5,
+      googleCalendar: {
+        enabled: true,
+        defaultDurationMinutes: 60,
+        includeNoteContent: true,
+      },
+    })
+    host.hasInstanceForPathToday = jest.fn(() => false)
+    const controller = new TaskCreationController(host)
+
+    controller.showAddTaskModal()
+    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    const scheduledInput = modal.querySelector('.task-creation-scheduled-time') as HTMLInputElement
+    const reminderToggle = modal.querySelector('.task-creation-reminder-toggle') as HTMLInputElement
+    const calendarToggle = modal.querySelector('.task-creation-calendar-toggle') as HTMLInputElement
+    const form = modal.querySelector('form') as HTMLFormElement
+
+    nameInput.value = 'Existing Task'
+    nameInput.dispatchEvent(new CustomEvent('autocomplete-selected', {
+      detail: {
+        value: 'Existing Task',
+        suggestion: {
+          type: 'task',
+          name: 'Existing Task',
+          path: 'TaskChute/Task/existing.md',
+        },
+      },
+    }))
+    scheduledInput.value = '09:00'
+    scheduledInput.dispatchEvent(new Event('input', { bubbles: true }))
+    reminderToggle.checked = true
+    calendarToggle.checked = true
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
+
+    expect(host.taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith(
+      'TaskChute/Task/existing.md',
+      '2025-10-09',
+      {
+        scheduledTime: '09:00',
+        reminderTime: '08:55',
+      },
+    )
+    expect(host.openGoogleCalendarExportForCreatedTask).toHaveBeenCalledWith({
+      path: 'TaskChute/Task/existing.md',
+      instanceId: 'reuse-instance-1',
+    })
   })
 
   test('reuseExistingTask duplicates locally when already visible', async () => {
@@ -207,7 +367,7 @@ describe('TaskCreationController', () => {
     const result = await (controller as unknown as { reuseExistingTask: (path: string) => Promise<boolean> }).reuseExistingTask('TaskChute/Task/sample.md')
 
     expect(result).toBe(true)
-    expect(host.duplicateInstanceForPath).toHaveBeenCalledWith('TaskChute/Task/sample.md')
+    expect(host.duplicateInstanceForPath).toHaveBeenCalledWith('TaskChute/Task/sample.md', undefined)
     expect(host.taskReuseService.reuseTaskAtDate).not.toHaveBeenCalled()
     expect(host.invalidateDayStateCache).not.toHaveBeenCalled()
   })

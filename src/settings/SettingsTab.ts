@@ -473,6 +473,58 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
   }
 
+  private renderTaskCreationSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.taskCreation.heading", "Task creation"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(
+        t(
+          "settings.taskCreation.showAdvancedName",
+          "Show advanced settings in the task creation modal",
+        ),
+      )
+      .setDesc(
+        t(
+          "settings.taskCreation.showAdvancedDesc",
+          "Adds start time, reminder, and calendar options to the new task modal.",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.showTaskCreationAdvancedSettings ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.showTaskCreationAdvancedSettings = value
+            await this.plugin.saveSettings()
+          })
+      })
+
+    const defaultReminderSetting = new Setting(container)
+      .setName(t("settings.reminder.defaultMinutesName", "Default reminder time (minutes)"))
+      .setDesc(t("settings.reminder.defaultMinutesDesc", "Default value when setting a new reminder."))
+      .addText((text) => {
+        text.inputEl.type = "number"
+        text.inputEl.min = "0"
+        text.inputEl.step = "1"
+        const current = this.plugin.settings.defaultReminderMinutes ?? 5
+        text
+          .setPlaceholder("5")
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw)
+            const normalized = Number.isFinite(parsed)
+              ? Math.max(0, Math.round(parsed))
+              : 5
+            this.plugin.settings.defaultReminderMinutes = normalized
+            await this.plugin.saveSettings()
+          })
+      })
+
+    defaultReminderSetting.controlEl?.addClass("taskchute-number-input")
+    this.renderGoogleCalendarSection(container)
+  }
+
   private renderAdvancedSection(container: HTMLElement): void {
     const details = container.createEl('details', { cls: 'taskchute-advanced-settings' })
     const summary = details.createEl('summary', { cls: 'taskchute-advanced-summary' })
@@ -482,6 +534,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     })
 
     const content = details.createDiv( { cls: 'taskchute-advanced-content' })
+    this.renderTaskCreationSection(content)
     this.renderRecipeFeatureSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
@@ -764,8 +817,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings()
         })
       })
-
-    this.renderGoogleCalendarSection(container)
   }
 }
 

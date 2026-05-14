@@ -61,6 +61,12 @@ export const en = {
       enableDesc:
         "Show recipe setup and management entry points in the task menu and side navigation.",
     },
+    taskCreation: {
+      heading: "Task creation",
+      showAdvancedName: "Show advanced settings in the task creation modal",
+      showAdvancedDesc:
+        "Adds start time, reminder, and calendar options to the new task modal.",
+    },
     advanced: {
       heading: "Advanced settings",
       sectionCustomize: {
@@ -367,6 +373,10 @@ export const en = {
       title: 'Add new task',
       nameLabel: 'Task name:',
       namePlaceholder: 'Enter task name',
+      advancedSummary: 'Advanced settings',
+      scheduledTimeLabel: 'Start time:',
+      reminderToggle: 'Set reminder:',
+      calendarToggle: 'Register to calendar:',
       modeLabel: 'Mode',
       modeReuse: 'Reuse existing task',
       modeCopy: 'Create new copy',
@@ -741,7 +751,7 @@ export const en = {
   reminder: {
     modal: {
       title: "Reminder settings",
-      description: "Set the time to receive a reminder",
+      description: "Reminder time:",
       scheduledInfo: "Scheduled start: {time}",
       clear: "Clear",
       save: "Save",

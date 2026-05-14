@@ -6,10 +6,25 @@ import { getEffectiveDeletedAt } from '../../../services/dayState/conflictResolv
 import { getScheduledTime } from '../../../utils/fieldMigration'
 import { SectionConfigService } from '../../../services/SectionConfigService'
 
+export interface ReuseTaskAtDateOptions {
+  slotKey?: string
+  scheduledTime?: string
+  reminderTime?: string | null
+}
+
+export interface ReuseTaskAtDateResult {
+  file: TFile
+  instanceId: string
+}
+
 export class TaskReuseService {
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
-  async reuseTaskAtDate(path: string, dateStr: string, slotKey?: string): Promise<TFile> {
+  async reuseTaskAtDate(
+    path: string,
+    dateStr: string,
+    options?: string | ReuseTaskAtDateOptions,
+  ): Promise<ReuseTaskAtDateResult> {
     const file = this.plugin.app.vault.getAbstractFileByPath(path)
     if (!(file instanceof TFile)) {
       throw new Error(
@@ -17,7 +32,10 @@ export class TaskReuseService {
       )
     }
 
-    await this.recordDuplicateForDate(file, dateStr, slotKey)
+    const normalizedOptions = typeof options === 'string'
+      ? { slotKey: options }
+      : options
+    const instanceId = await this.recordDuplicateForDate(file, dateStr, normalizedOptions)
 
     new Notice(
       t('addTask.reuseSuccess', 'Reused "{name}" for {date}', {
@@ -26,10 +44,14 @@ export class TaskReuseService {
       }),
     )
 
-    return file
+    return { file, instanceId }
   }
 
-  private async recordDuplicateForDate(file: TFile, dateStr: string, slotKey?: string): Promise<void> {
+  private async recordDuplicateForDate(
+    file: TFile,
+    dateStr: string,
+    options?: ReuseTaskAtDateOptions,
+  ): Promise<string> {
     const date = this.plugin.dayStateService.getDateFromKey(dateStr)
     const dayState = (await this.plugin.dayStateService.loadDay(date))
     if (!Array.isArray(dayState.duplicatedInstances)) {
@@ -81,8 +103,10 @@ export class TaskReuseService {
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)
-    const scheduledTime = getScheduledTime(metadata?.frontmatter as Record<string, unknown> | undefined)
-    const resolvedSlotKey = this.resolveSlotKey(slotKey, scheduledTime)
+    const frontmatter = metadata?.frontmatter as Record<string, unknown> | undefined
+    const scheduledTime = options?.scheduledTime
+      ?? getScheduledTime(frontmatter)
+    const resolvedSlotKey = this.resolveSlotKey(options?.slotKey, scheduledTime)
     let taskId = extractTaskIdFromFrontmatter(metadata?.frontmatter as Record<string, unknown> | undefined)
     if (!taskId) {
       try {
@@ -92,8 +116,11 @@ export class TaskReuseService {
         this.plugin._log?.('warn', '[TaskReuseService] Failed to ensure taskId for duplicate', error)
       }
     }
+    const instanceId = this.generateInstanceId(file.basename, dateStr)
     dayState.duplicatedInstances.push({
-      instanceId: this.generateInstanceId(file.basename, dateStr),
+      ...(options?.scheduledTime ? { scheduledTime: options.scheduledTime } : {}),
+      ...(options && options.reminderTime !== undefined ? { reminderTime: options.reminderTime } : {}),
+      instanceId,
       originalPath: file.path,
       slotKey: resolvedSlotKey,
       timestamp,
@@ -102,6 +129,7 @@ export class TaskReuseService {
     })
 
     await this.plugin.dayStateService.saveDay(date, dayState)
+    return instanceId
   }
 
   private generateInstanceId(seed: string, dateStr: string): string {

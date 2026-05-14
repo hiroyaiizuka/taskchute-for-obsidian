@@ -59,6 +59,12 @@ export const ja = {
       enableDesc:
         "タスク設定メニューと左上メニューに、レシピの設定・管理項目を表示します。",
     },
+    taskCreation: {
+      heading: "タスク作成",
+      showAdvancedName: "新規作成モーダルで詳細設定を表示",
+      showAdvancedDesc:
+        "新規作成モーダルに開始時刻、リマインダー、カレンダー追加を表示します。",
+    },
     advanced: {
       heading: "詳細設定",
       sectionCustomize: {
@@ -366,6 +372,10 @@ export const ja = {
       title: "新しいタスクを追加",
       nameLabel: "タスク名:",
       namePlaceholder: "タスク名を入力",
+      advancedSummary: "詳細設定",
+      scheduledTimeLabel: "開始時刻:",
+      reminderToggle: "リマインダーを設定:",
+      calendarToggle: "カレンダーに登録:",
       modeLabel: "モード",
       modeReuse: "既存タスクを再利用",
       modeCopy: "新規コピーを作成",
@@ -742,7 +752,7 @@ export const ja = {
   reminder: {
     modal: {
       title: "リマインダー設定",
-      description: "通知する時刻を設定してください",
+      description: "通知時刻:",
       scheduledInfo: "タスク開始予定: {time}",
       clear: "解除",
       save: "設定",

@@ -18,6 +18,11 @@ export interface ScheduledTimeModalHost {
     }
   }
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
+  saveScheduledTime?: (
+    instance: TaskInstance,
+    scheduledTime: string | undefined,
+    params: { previousScheduledTime?: string; nextScheduledTime?: string },
+  ) => Promise<boolean>
   onScheduledTimeSaved?: (
     instance: TaskInstance,
     params: { previousScheduledTime?: string; nextScheduledTime?: string },
@@ -101,26 +106,34 @@ export default class ScheduledTimeModal extends Modal {
         const value = input.value.trim()
         const previousScheduledTime = getScheduledTime(instance.task.frontmatter || {}) || undefined
         const nextScheduledTime = value || undefined
+        const params = {
+          previousScheduledTime,
+          nextScheduledTime,
+        }
         try {
-          const path = instance.task.path
-          if (!path) {
-            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-            return
+          const handledByHost = typeof host.saveScheduledTime === 'function'
+            ? await host.saveScheduledTime(instance, nextScheduledTime, params)
+            : false
+
+          if (!handledByHost) {
+            const path = instance.task.path
+            if (!path) {
+              new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+              return
+            }
+            const file = host.app.vault.getAbstractFileByPath(path)
+            if (!(file instanceof TFile)) {
+              new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+              return
+            }
+            await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+              setScheduledTime(frontmatter, value || undefined, { preferNew: true })
+            })
           }
-          const file = host.app.vault.getAbstractFileByPath(path)
-          if (!(file instanceof TFile)) {
-            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-            return
-          }
-          await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-            setScheduledTime(frontmatter, value || undefined, { preferNew: true })
-          })
+
           if (typeof host.onScheduledTimeSaved === 'function') {
             try {
-              await host.onScheduledTimeSaved(instance, {
-                previousScheduledTime,
-                nextScheduledTime,
-              })
+              await host.onScheduledTimeSaved(instance, params)
             } catch (error) {
               console.warn('[ScheduledTimeModal] Failed to sync duplicate slot', error)
             }

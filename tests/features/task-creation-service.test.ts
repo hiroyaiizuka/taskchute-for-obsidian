@@ -62,4 +62,18 @@ describe('TaskCreationService', () => {
     const content = lastCall?.[1] as string
     expect(content).toContain('taskId: "tc-task-restore"')
   })
+
+  test('createTaskFile writes reminder_time when supplied', async () => {
+    const plugin = createPlugin()
+    const service = new TaskCreationService(plugin)
+
+    await service.createTaskFile('My Task', '2025-11-16', '09:00', {
+      reminderTime: '08:55',
+    })
+
+    const lastCall = plugin.app.vault.create.mock.calls[plugin.app.vault.create.mock.calls.length - 1]
+    const content = lastCall?.[1] as string
+    expect(content).toContain('scheduled_time: "09:00"')
+    expect(content).toContain('reminder_time: "08:55"')
+  })
 })

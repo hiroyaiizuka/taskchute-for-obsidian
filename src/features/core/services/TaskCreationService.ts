@@ -13,6 +13,7 @@ interface PluginLike {
 export interface CreateTaskFileOptions {
   taskId?: string
   basename?: string
+  reminderTime?: string
 }
 
 export class TaskCreationService {
@@ -73,6 +74,9 @@ export class TaskCreationService {
     // Add scheduled_time if provided
     if (scheduledTime) {
       frontmatterLines.push(`scheduled_time: "${scheduledTime}"`)
+    }
+    if (options?.reminderTime) {
+      frontmatterLines.push(`reminder_time: "${options.reminderTime}"`)
     }
 
     frontmatterLines.push('---')

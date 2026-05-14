@@ -51,6 +51,8 @@ interface NormalizedExecution {
 interface DuplicatedRecord extends DuplicatedInstance {
   slotKey?: string
   originalSlotKey?: string
+  scheduledTime?: string | null
+  reminderTime?: string | null
 }
 
 interface VaultStat {
@@ -938,6 +940,9 @@ async function addDuplicatedInstances(
     const records = Array.isArray(dayState.duplicatedInstances)
       ? (dayState.duplicatedInstances as DuplicatedRecord[])
       : []
+    const originalTasksByPath = new Map<string, TaskData>(
+      context.tasks.map((task) => [task.path, task]),
+    )
 
     for (const record of records) {
       const { instanceId, originalPath, slotKey } = record
@@ -945,6 +950,13 @@ async function addDuplicatedInstances(
       const existingInstance = context.taskInstances.find((instance) => instance.instanceId === instanceId)
       if (existingInstance) {
         existingInstance.isDuplicate = true
+        const duplicateTaskData = applyDuplicatedRecordOverrides(existingInstance.task, record)
+        if (duplicateTaskData !== existingInstance.task) {
+          existingInstance.task = duplicateTaskData
+          if (!context.tasks.includes(duplicateTaskData)) {
+            context.tasks.push(duplicateTaskData)
+          }
+        }
         if (!existingInstance.originalSlotKey && record.originalSlotKey) {
           existingInstance.originalSlotKey = record.originalSlotKey
         }
@@ -959,7 +971,7 @@ async function addDuplicatedInstances(
 
       const createdMillis = record.createdMillis ?? record.timestamp ?? Date.now()
 
-      let taskData = context.tasks.find((task) => task.path === originalPath)
+      let taskData = originalTasksByPath.get(originalPath)
       if (!taskData) {
         const file = context.app.vault.getAbstractFileByPath(originalPath)
         if (file instanceof TFile) {
@@ -981,6 +993,7 @@ async function addDuplicatedInstances(
               reminder_time: normalizeReminderTime(metadata.reminder_time),
               taskId: record.originalTaskId ?? resolveTaskId(metadata),
             }
+            originalTasksByPath.set(originalPath, taskData)
           }
         }
       }
@@ -1002,16 +1015,17 @@ async function addDuplicatedInstances(
         taskData.taskId = record.originalTaskId
       }
 
-      context.tasks.push(taskData)
+      const duplicateTaskData = applyDuplicatedRecordOverrides(taskData, record)
+      context.tasks.push(duplicateTaskData)
 
       const matchedExecution = executions.find((e) => e.instanceId === instanceId)
       const instance: TaskInstance = {
-        task: taskData,
+        task: duplicateTaskData,
         instanceId,
         state: matchedExecution ? 'done' : 'idle',
         slotKey: slotKey
           ?? (matchedExecution?.slotKey)
-          ?? context.getSectionConfig().calculateSlotKeyFromTime(taskData.scheduledTime)
+          ?? context.getSectionConfig().calculateSlotKeyFromTime(duplicateTaskData.scheduledTime)
           ?? DEFAULT_SLOT_KEY,
         date: dateKey,
         createdMillis,
@@ -1027,9 +1041,9 @@ async function addDuplicatedInstances(
         isVisibleInstance(
           context,
           instance.instanceId,
-          taskData.path,
+          duplicateTaskData.path,
           dateKey,
-          taskData.taskId,
+          duplicateTaskData.taskId,
           { ignorePathHidden: true },
         )
       ) {
@@ -1039,6 +1053,51 @@ async function addDuplicatedInstances(
   } catch (error) {
     console.error('Failed to restore duplicated instances', error)
   }
+}
+
+function applyDuplicatedRecordOverrides(taskData: TaskData, record: DuplicatedRecord): TaskData {
+  const hasScheduleOverride =
+    record.scheduledTime !== undefined || record.reminderTime !== undefined
+  if (!hasScheduleOverride) {
+    return taskData
+  }
+
+  const frontmatter = {
+    ...(taskData.frontmatter ?? {}),
+  }
+  const cloned: TaskData = {
+    ...taskData,
+    frontmatter,
+  }
+
+  if (record.scheduledTime !== undefined) {
+    if (record.scheduledTime === null) {
+      delete cloned.scheduledTime
+      delete frontmatter.scheduled_time
+    } else {
+      cloned.scheduledTime = record.scheduledTime
+      frontmatter.scheduled_time = record.scheduledTime
+    }
+    delete frontmatter['開始時刻']
+  }
+
+  if (record.reminderTime !== undefined) {
+    if (record.reminderTime === null) {
+      delete cloned.reminder_time
+      delete frontmatter.reminder_time
+    } else {
+      const normalized = normalizeReminderTime(record.reminderTime)
+      if (normalized) {
+        cloned.reminder_time = normalized
+        frontmatter.reminder_time = normalized
+      } else {
+        delete cloned.reminder_time
+        delete frontmatter.reminder_time
+      }
+    }
+  }
+
+  return cloned
 }
 
 async function ensureDayState(context: TaskLoaderHost, dateKey: string): Promise<DayState> {

@@ -230,6 +230,100 @@ describe('TaskLoaderService', () => {
     expect(restored?.createdMillis).toBe(duplicatedInstances[0].timestamp);
   });
 
+  test('restores duplicated instance with day-state schedule overrides', async () => {
+    const { context } = createRoutineLoadContext({
+      metadataOverrides: {
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-overridden',
+          originalPath: 'TASKS/routine.md',
+          scheduledTime: '09:00',
+          reminderTime: '08:55',
+          timestamp: 1_700_000_000_000,
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'dup-overridden');
+    expect(restored).toBeDefined();
+    expect(restored?.task.scheduledTime).toBe('09:00');
+    expect(restored?.task.reminder_time).toBe('08:55');
+    expect(restored?.task.frontmatter).toMatchObject({
+      scheduled_time: '09:00',
+      reminder_time: '08:55',
+    });
+    expect(restored?.slotKey).toBe('8:00-12:00');
+    const base = context.taskInstances.find((inst) => inst.instanceId !== 'dup-overridden');
+    expect(base?.task.scheduledTime).toBe('17:30');
+  });
+
+  test('restores duplicated instance with cleared scheduled time override', async () => {
+    const { context } = createRoutineLoadContext({
+      metadataOverrides: {
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-cleared-scheduled',
+          originalPath: 'TASKS/routine.md',
+          scheduledTime: null,
+          timestamp: 1_700_000_000_000,
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'dup-cleared-scheduled');
+    expect(restored).toBeDefined();
+    expect(restored?.task.scheduledTime).toBeUndefined();
+    expect(restored?.task.frontmatter?.scheduled_time).toBeUndefined();
+    expect(restored?.task.frontmatter?.['開始時刻']).toBeUndefined();
+    const base = context.taskInstances.find((inst) => inst.instanceId !== 'dup-cleared-scheduled');
+    expect(base?.task.scheduledTime).toBe('17:30');
+  });
+
+  test('restores each duplicated instance from original metadata, not a prior duplicate clone', async () => {
+    const { context } = createRoutineLoadContext({
+      metadataOverrides: {
+        routine_start: '2025-10-01',
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-clear-reminder',
+          originalPath: 'TASKS/routine.md',
+          reminderTime: null,
+          timestamp: 1_700_000_000_000,
+        },
+        {
+          instanceId: 'dup-inherit-reminder',
+          originalPath: 'TASKS/routine.md',
+          timestamp: 1_700_000_000_001,
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const clearReminder = context.taskInstances.find((inst) => inst.instanceId === 'dup-clear-reminder');
+    const inheritReminder = context.taskInstances.find((inst) => inst.instanceId === 'dup-inherit-reminder');
+    expect(clearReminder?.task.reminder_time).toBeUndefined();
+    expect(clearReminder?.task.frontmatter.reminder_time).toBeUndefined();
+    expect(inheritReminder?.task.reminder_time).toBe('17:25');
+    expect(inheritReminder?.task.frontmatter.reminder_time).toBe('17:25');
+  });
+
   test('hydrates execution log driven instances when log file exists', async () => {
     const { context } = createExecutionLogContext();
     const loader = new TaskLoaderService();
@@ -596,6 +690,64 @@ describe('TaskLoaderService', () => {
     expect(restored?.startTime).toBeInstanceOf(Date);
     expect(restored?.stopTime).toBeInstanceOf(Date);
     expect(restored?.executedTitle).toBe('Completed Routine');
+  });
+
+  test('applies day-state schedule overrides to execution-log restored duplicate instances', async () => {
+    const date = '2025-09-24';
+    const taskPath = 'TASKS/routine.md';
+    const { context } = createExecutionLogContext({
+      date,
+      executions: [
+        {
+          taskTitle: 'Completed Routine',
+          taskPath,
+          slotKey: '8:00-12:00',
+          instanceId: 'dup-done-overridden',
+          startTime: '11:58',
+          stopTime: '13:41',
+        },
+      ],
+      duplicatedInstances: [
+        {
+          instanceId: 'dup-done-overridden',
+          originalPath: taskPath,
+          slotKey: '8:00-12:00',
+          scheduledTime: '09:00',
+          reminderTime: '08:55',
+          timestamp: 1_700_000_000_000,
+        },
+      ],
+      taskFiles: [
+        {
+          path: taskPath,
+          content: '#task',
+          frontmatter: {
+            isRoutine: true,
+            routine_type: 'daily',
+            routine_interval: 1,
+            routine_enabled: true,
+            routine_start: date,
+            scheduled_time: '17:30',
+            reminder_time: '17:25',
+            taskId: 'tc-task-routine',
+          },
+        },
+      ],
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    const restored = context.taskInstances.find((inst) => inst.instanceId === 'dup-done-overridden');
+    expect(restored).toBeDefined();
+    expect(restored?.state).toBe('done');
+    expect(restored?.isDuplicate).toBe(true);
+    expect(restored?.task.scheduledTime).toBe('09:00');
+    expect(restored?.task.reminder_time).toBe('08:55');
+    expect(restored?.task.frontmatter).toMatchObject({
+      scheduled_time: '09:00',
+      reminder_time: '08:55',
+    });
   });
 });
 

@@ -122,10 +122,10 @@ export default class TaskScheduleController {
 
       if (isDuplicate && this.host.moveDuplicateInstanceToDate) {
         // For duplicate instances, move via dayState without modifying the original file
+        await this.host.moveDuplicateInstanceToDate(inst, dateStr)
         if (this.host.removeDuplicateInstanceFromCurrentDate) {
           await this.host.removeDuplicateInstanceFromCurrentDate(inst)
         }
-        await this.host.moveDuplicateInstanceToDate(inst, dateStr)
       } else {
         // For non-duplicate instances, modify the file's frontmatter (original behavior)
         const file = this.resolveTaskFile(inst.task)

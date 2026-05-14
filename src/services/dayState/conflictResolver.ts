@@ -609,7 +609,9 @@ export function mergeDuplicatedInstances(
     a.createdMillis === b.createdMillis &&
     a.restoredAt === b.restoredAt &&
     a.slotKey === b.slotKey &&
-    a.originalSlotKey === b.originalSlotKey
+    a.originalSlotKey === b.originalSlotKey &&
+    a.scheduledTime === b.scheduledTime &&
+    a.reminderTime === b.reminderTime
 
   for (const item of local) {
     if (item?.instanceId) {

@@ -33,6 +33,17 @@ export async function prepareSettings(
   if (typeof settings.useOrderBasedSort !== "boolean")
     settings.useOrderBasedSort = true
   if (!settings.languageOverride) settings.languageOverride = "auto"
+  if (typeof settings.showTaskCreationAdvancedSettings !== "boolean") {
+    settings.showTaskCreationAdvancedSettings = false
+  }
+  if (!Number.isFinite(settings.defaultReminderMinutes)) {
+    settings.defaultReminderMinutes = 5
+  } else {
+    settings.defaultReminderMinutes = Math.max(
+      0,
+      Math.round(settings.defaultReminderMinutes ?? 5),
+    )
+  }
 
   // Lightweight migration from legacy individual paths -> new base model
   if (!settings.locationMode) {

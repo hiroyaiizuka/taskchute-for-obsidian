@@ -9,12 +9,25 @@ import {
 import { createNameModal } from "../components/NameModal"
 import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
 import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
+import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
 import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
+import { addMinutesToTime } from "../../utils/date"
 
 export interface DeletedTaskRestoreCandidate {
   entry: DeletedInstance
   displayTitle: string
   fileExists: boolean
+}
+
+export interface CreatedTaskTarget {
+  path: string
+  instanceId?: string
+}
+
+interface TaskCreationAdvancedOptions {
+  scheduledTime?: string
+  reminderTime?: string | null
+  openCalendarAfterCreate?: boolean
 }
 
 export interface TaskCreationControllerHost {
@@ -27,7 +40,10 @@ export interface TaskCreationControllerHost {
   taskCreationService: TaskCreationService
   taskReuseService: TaskReuseService
   hasInstanceForPathToday: (path: string) => boolean
-  duplicateInstanceForPath: (path: string) => Promise<boolean>
+  duplicateInstanceForPath: (
+    path: string,
+    options?: TaskCreationAdvancedOptions,
+  ) => Promise<CreatedTaskTarget | null>
   invalidateDayStateCache: (dateKey: string) => void
   registerAutocompleteCleanup: (cleanup: () => void) => void
   reloadTasksAndRestore: (options?: {
@@ -42,6 +58,7 @@ export interface TaskCreationControllerHost {
   }
   findDeletedTaskRestoreCandidate?: (taskName: string) => DeletedTaskRestoreCandidate | null
   restoreDeletedTaskCandidate?: (candidate: DeletedTaskRestoreCandidate) => Promise<boolean>
+  openGoogleCalendarExportForCreatedTask?: (target: CreatedTaskTarget) => Promise<void> | void
 }
 
 type CreationMode = "reuse" | "copy"
@@ -123,8 +140,13 @@ export default class TaskCreationController {
     restoreBanner.appendChild(restoreMessage)
     restoreBanner.appendChild(restoreButton)
 
+    const advancedControls = this.createAdvancedControls(doc)
+
     form.insertBefore(restoreBanner, buttonGroup ?? null)
-    form.insertBefore(modeGroup, restoreBanner)
+    if (advancedControls) {
+      form.insertBefore(advancedControls.root, restoreBanner)
+    }
+    form.insertBefore(modeGroup, advancedControls?.root ?? restoreBanner)
 
     let selectedSuggestion: TaskNameSuggestion | null = null
     let selectedValue = ""
@@ -239,6 +261,7 @@ export default class TaskCreationController {
         }
 
         const creationMode = resolveCreationMode()
+        const advancedOptions = advancedControls?.getOptions(creationMode)
 
         let created = false
         if (
@@ -246,9 +269,13 @@ export default class TaskCreationController {
           selectedSuggestion?.type === "task" &&
           selectedSuggestion.path
         ) {
-          created = await this.reuseExistingTask(selectedSuggestion.path)
+          created = await this.reuseExistingTask(selectedSuggestion.path, advancedOptions)
         } else {
-          created = await this.createNewTask(taskName, 30)
+          created = await this.createNewTask(
+            taskName,
+            30,
+            advancedOptions,
+          )
         }
         if (created) {
           close()
@@ -312,18 +339,149 @@ export default class TaskCreationController {
     updateRestoreCandidate()
   }
 
+  private createAdvancedControls(doc: Document): {
+    root: HTMLDetailsElement
+    getOptions: (creationMode: CreationMode) => TaskCreationAdvancedOptions | undefined
+  } | null {
+    if (this.host.plugin.settings.showTaskCreationAdvancedSettings !== true) {
+      return null
+    }
+
+    const root = doc.createElement("details")
+    root.className = "task-creation-advanced"
+
+    const summary = doc.createElement("summary")
+    summary.textContent = this.host.tv("addTask.advancedSummary", "Advanced settings")
+    root.appendChild(summary)
+
+    const body = doc.createElement("div")
+    body.className = "task-creation-advanced-body"
+    root.appendChild(body)
+
+    const scheduledGroup = doc.createElement("div")
+    scheduledGroup.className = "task-creation-advanced-field"
+    const scheduledLabel = doc.createElement("label")
+    scheduledLabel.className = "form-label"
+    scheduledLabel.textContent = this.withTrailingColon(
+      this.host.tv("addTask.scheduledTimeLabel", "Start time"),
+    )
+    const scheduledInput = doc.createElement("input")
+    scheduledInput.type = "time"
+    scheduledInput.className = "form-input task-creation-scheduled-time"
+    scheduledGroup.appendChild(scheduledLabel)
+    scheduledGroup.appendChild(scheduledInput)
+    body.appendChild(scheduledGroup)
+
+    const defaultReminderMinutes = this.getDefaultReminderMinutes()
+    const reminderRow = doc.createElement("label")
+    reminderRow.className = "task-creation-toggle-row task-creation-reminder-row hidden"
+    const reminderText = doc.createElement("span")
+    reminderText.textContent = this.withTrailingColon(
+      this.host.tv("addTask.reminderToggle", "Set reminder"),
+    )
+    const reminderToggle = doc.createElement("input")
+    reminderToggle.type = "checkbox"
+    reminderToggle.className = "task-creation-reminder-toggle"
+    reminderRow.appendChild(reminderText)
+    reminderRow.appendChild(reminderToggle)
+    body.appendChild(reminderRow)
+
+    const calendarEnabled = this.host.plugin.settings.googleCalendar?.enabled === true
+    const calendarRow = doc.createElement("label")
+    calendarRow.className = "task-creation-toggle-row task-creation-calendar-row hidden"
+    const calendarText = doc.createElement("span")
+    calendarText.textContent = this.withTrailingColon(
+      this.host.tv("addTask.calendarToggle", "Register to calendar"),
+    )
+    const calendarToggle = doc.createElement("input")
+    calendarToggle.type = "checkbox"
+    calendarToggle.className = "task-creation-calendar-toggle"
+    calendarRow.appendChild(calendarText)
+    calendarRow.appendChild(calendarToggle)
+    if (calendarEnabled) {
+      body.appendChild(calendarRow)
+    }
+
+    const updateScheduledDependentControls = () => {
+      const scheduledTime = normalizeReminderTime(scheduledInput.value)
+      if (!scheduledTime) {
+        reminderToggle.checked = false
+        calendarToggle.checked = false
+        reminderRow.classList.add("hidden")
+        calendarRow.classList.add("hidden")
+        return
+      }
+
+      reminderRow.classList.remove("hidden")
+      if (calendarEnabled) {
+        calendarRow.classList.remove("hidden")
+      }
+    }
+
+    scheduledInput.addEventListener("input", updateScheduledDependentControls)
+    updateScheduledDependentControls()
+
+    return {
+      root,
+      getOptions: () => {
+        const scheduledTime = normalizeReminderTime(scheduledInput.value)
+        if (!scheduledTime) {
+          return undefined
+        }
+        const reminderTime = reminderToggle.checked
+          ? this.calculateReminderTime(scheduledTime, defaultReminderMinutes)
+          : null
+        const openCalendarAfterCreate =
+          calendarEnabled && calendarToggle.checked
+        return {
+          scheduledTime,
+          reminderTime,
+          openCalendarAfterCreate,
+        }
+      },
+    }
+  }
+
+  private getDefaultReminderMinutes(): number {
+    const value = this.host.plugin.settings.defaultReminderMinutes ?? 5
+    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 5
+  }
+
+  private withTrailingColon(label: string): string {
+    const trimmed = label.trimEnd()
+    if (trimmed.endsWith(":") || trimmed.endsWith("：")) {
+      return trimmed
+    }
+    return `${trimmed}:`
+  }
+
+  private calculateReminderTime(scheduledTime: string, minutesBefore: number): string {
+    return addMinutesToTime(scheduledTime, -minutesBefore)
+  }
+
   private async createNewTask(
     taskName: string,
     estimatedMinutes: number,
+    options?: TaskCreationAdvancedOptions,
   ): Promise<boolean> {
     try {
       const dateStr = this.host.getCurrentDateString()
-      const file = await this.host.taskCreationService.createTaskFile(
-        taskName,
-        dateStr,
+      const hasFrontmatterOptions = Boolean(
+        options?.scheduledTime || typeof options?.reminderTime === "string",
       )
+      const file = hasFrontmatterOptions
+        ? await this.host.taskCreationService.createTaskFile(
+          taskName,
+          dateStr,
+          options?.scheduledTime,
+          { reminderTime: typeof options?.reminderTime === "string" ? options.reminderTime : undefined },
+        )
+        : await this.host.taskCreationService.createTaskFile(taskName, dateStr)
       await this.waitForFrontmatter(file)
       await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      if (options?.openCalendarAfterCreate && file.path) {
+        await this.host.openGoogleCalendarExportForCreatedTask?.({ path: file.path })
+      }
       return true
     } catch (error) {
       console.error("[TaskCreationController] Failed to create task", error)
@@ -347,17 +505,39 @@ export default class TaskCreationController {
     }
   }
 
-  private async reuseExistingTask(filePath: string): Promise<boolean> {
+  private async reuseExistingTask(
+    filePath: string,
+    options?: TaskCreationAdvancedOptions,
+  ): Promise<boolean> {
     try {
       const dateStr = this.host.getCurrentDateString()
       const alreadyVisible = this.host.hasInstanceForPathToday(filePath)
+      let target: CreatedTaskTarget | null = null
       if (alreadyVisible) {
-        await this.host.duplicateInstanceForPath(filePath)
+        target = await this.host.duplicateInstanceForPath(filePath, options)
       } else {
-        await this.host.taskReuseService.reuseTaskAtDate(filePath, dateStr)
+        const result = await this.host.taskReuseService.reuseTaskAtDate(
+          filePath,
+          dateStr,
+          options
+            ? {
+              scheduledTime: options.scheduledTime,
+              reminderTime: options.reminderTime,
+            }
+            : undefined,
+        )
+        target = {
+          path: filePath,
+          instanceId: result.instanceId,
+        }
         this.host.invalidateDayStateCache(dateStr)
       }
       await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+      if (options?.openCalendarAfterCreate) {
+        await this.host.openGoogleCalendarExportForCreatedTask?.(
+          target ?? { path: filePath },
+        )
+      }
       return true
     } catch (error) {
       console.error("[TaskCreationController] Failed to reuse task", error)

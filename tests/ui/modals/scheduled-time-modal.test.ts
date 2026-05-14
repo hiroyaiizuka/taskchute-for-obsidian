@@ -189,6 +189,35 @@ describe('ScheduledTimeModal', () => {
     })
   })
 
+  test('uses host saveScheduledTime and skips frontmatter when handled', async () => {
+    const host = createHost()
+    const saveScheduledTime = jest.fn().mockResolvedValue(true)
+    const onScheduledTimeSaved = jest.fn().mockResolvedValue(undefined)
+    Object.assign(host, { saveScheduledTime, onScheduledTimeSaved })
+    const instance = createInstance()
+    const modal = new ScheduledTimeModal({ host, instance })
+
+    modal.open()
+
+    const input = document.querySelector('.scheduled-time-form input[type="time"]') as HTMLInputElement
+    input.value = '09:15'
+    const form = document.querySelector('.scheduled-time-form') as HTMLFormElement
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(saveScheduledTime).toHaveBeenCalledWith(instance, '09:15', {
+      previousScheduledTime: '08:30',
+      nextScheduledTime: '09:15',
+    })
+    expect(host.app.vault.getAbstractFileByPath).not.toHaveBeenCalled()
+    expect(host.app.fileManager.processFrontMatter).not.toHaveBeenCalled()
+    expect(onScheduledTimeSaved).toHaveBeenCalledWith(instance, {
+      previousScheduledTime: '08:30',
+      nextScheduledTime: '09:15',
+    })
+    expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: true })
+  })
+
   test('clearing value removes scheduled time', async () => {
     const host = createHost()
     const instance = createInstance()

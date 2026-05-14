@@ -31,17 +31,30 @@ export interface TaskTimeControllerHost {
     inst: TaskInstance,
     params: { previousScheduledTime?: string; nextScheduledTime?: string },
   ) => Promise<void>
+  saveScheduledTime?: (
+    inst: TaskInstance,
+    scheduledTime: string | undefined,
+  ) => Promise<boolean>
 }
 
 export default class TaskTimeController {
   constructor(private readonly host: TaskTimeControllerHost) {}
 
   showScheduledTimeEditModal(inst: TaskInstance): void {
+    const saveScheduledTime = this.host.saveScheduledTime
     const modal = new ScheduledTimeModal({
       host: {
         tv: this.host.tv,
         app: this.host.app,
         reloadTasksAndRestore: this.host.reloadTasksAndRestore,
+        ...(typeof saveScheduledTime === 'function'
+          ? {
+              saveScheduledTime: (
+                instance: TaskInstance,
+                scheduledTime: string | undefined,
+              ) => saveScheduledTime(instance, scheduledTime),
+            }
+          : {}),
         onScheduledTimeSaved: async (
           instance,
           params,

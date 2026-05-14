@@ -243,6 +243,40 @@ describe('TaskTimeController', () => {
     expect(modalInstance.open).toHaveBeenCalledTimes(1)
   })
 
+  test('showScheduledTimeEditModal wires scheduled time save hook', async () => {
+    const saveScheduledTime = jest.fn().mockResolvedValue(true)
+    const host = {
+      ...createHost(),
+      saveScheduledTime,
+    } as TaskTimeControllerHost & {
+      saveScheduledTime: jest.Mock<Promise<boolean>, [TaskInstance, string | undefined]>
+    }
+    const controller = new TaskTimeController(host)
+    const instance = {
+      state: 'idle',
+      task: {
+        path: 'Tasks/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        taskId: 'tc-task-sample',
+      },
+    } as TaskInstance
+
+    controller.showScheduledTimeEditModal(instance)
+
+    const modalMock = ScheduledTimeModal as unknown as jest.Mock
+    const [options] = modalMock.mock.calls[0]
+    expect(options.host.saveScheduledTime).toEqual(expect.any(Function))
+
+    const handled = await options.host.saveScheduledTime(instance, '09:15', {
+      previousScheduledTime: '08:30',
+      nextScheduledTime: '09:15',
+    })
+
+    expect(handled).toBe(true)
+    expect(saveScheduledTime).toHaveBeenCalledWith(instance, '09:15')
+  })
+
   test('updateInstanceTimes rolls stop time into next day when needed', async () => {
     const host = createHost()
     const controller = new TaskTimeController(host)

@@ -732,6 +732,80 @@
   margin: 0;
 }
 
+.task-creation-advanced {
+  margin-top: 21px;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+}
+
+.task-creation-advanced.hidden {
+  display: none;
+}
+
+.task-creation-advanced summary {
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.task-creation-advanced summary::marker {
+  font-size: 0.8em;
+}
+
+.task-creation-advanced summary::-webkit-details-marker {
+  font-size: 0.8em;
+}
+
+.task-creation-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 0 10px;
+}
+
+.task-creation-advanced-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-creation-advanced-field .form-label {
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.task-creation-toggle-row {
+  display: grid;
+  grid-template-columns: 12em auto;
+  align-items: center;
+  gap: 8px;
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--text-normal);
+  justify-content: start;
+  width: fit-content;
+}
+
+.task-creation-toggle-row.hidden {
+  display: none;
+}
+
+.task-creation-reminder-row {
+  margin-top: 10px;
+}
+
+.task-creation-toggle-row span {
+  white-space: nowrap;
+}
+
+.task-creation-toggle-row input[type="checkbox"] {
+  margin: 0;
+}
+
 .task-restore-banner {
   margin-top: 12px;
   padding: 10px 12px;
@@ -4955,20 +5029,66 @@ textarea.form-textarea {
 }
 
 /* ===== Reminder Settings Modal ===== */
-.taskchute-reminder-settings-modal .modal-content {
-  padding: 20px;
+.taskchute-reminder-settings-modal {
+  width: 90%;
+  max-width: 500px;
+  padding: 0;
+  background: var(--background-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .reminder-settings-header {
-  padding: 0 0 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 56px 10px 20px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 16px;
+  position: relative;
 }
 
 .reminder-settings-header h3 {
   margin: 0;
   color: var(--text-normal);
-  font-size: 1.1em;
+  padding-right: 40px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.reminder-settings-header .modal-close-button {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.reminder-settings-header .modal-close-button:hover {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.reminder-settings-header .modal-close-button svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
 }
 
 .reminder-settings-task {
@@ -4982,20 +5102,23 @@ textarea.form-textarea {
 }
 
 .reminder-settings-input-section {
-  margin-bottom: 20px;
+  padding: 10px 20px 0;
+  margin-bottom: 0;
 }
 
 .reminder-settings-input-section label {
   display: block;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 0.9em;
+  margin-bottom: 5px;
+  color: var(--text-normal);
+  font-size: inherit;
+  font-weight: 500;
 }
 
 .reminder-input-container {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .reminder-input-container input[type="number"] {
@@ -5013,22 +5136,50 @@ textarea.form-textarea {
   outline: none;
 }
 
+.reminder-input-container input[type="time"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.reminder-input-container input[type="time"]:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+  outline: none;
+}
+
 .reminder-input-suffix {
   color: var(--text-muted);
 }
 
+.reminder-scheduled-info {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .reminder-settings-buttons {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   justify-content: flex-end;
+  margin-top: 28px;
+  padding: 0 20px 20px;
 }
 
 .reminder-settings-buttons .form-button {
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 6px;
   cursor: pointer;
   border: none;
   font-size: 14px;
+  font-weight: 500;
+  min-width: 80px;
   transition: all 0.2s ease;
 }
 
@@ -5051,12 +5202,13 @@ textarea.form-textarea {
 }
 
 .reminder-settings-buttons .form-button.danger {
-  background: var(--text-error);
-  color: white;
+  background: var(--background-modifier-border);
+  color: var(--text-error);
 }
 
 .reminder-settings-buttons .form-button.danger:hover {
-  opacity: 0.9;
+  background: var(--background-modifier-hover);
+  color: var(--text-error);
 }
 
 /* ===== Reminder Icon in Task Row ===== */
