@@ -45,7 +45,16 @@ type HostStub = TaskMutationHost & {
   dayState: {
     hiddenRoutines: HiddenRoutine[]
     deletedInstances: DeletedInstance[]
-    duplicatedInstances: Array<{ instanceId?: string; path?: string; slotKey?: string; createdMillis?: number }>
+    duplicatedInstances: Array<{
+      instanceId?: string
+      path?: string
+      originalPath?: string
+      slotKey?: string
+      originalSlotKey?: string
+      createdMillis?: number
+      scheduledTime?: string | null
+      reminderTime?: string | null
+    }>
     slotOverrides: Record<string, string>
     slotOverridesMeta?: Record<string, { slotKey: string; updatedAt: number }>
     orders: Record<string, number>
@@ -150,6 +159,7 @@ describe('TaskMutationService', () => {
 
     expect(result).toBeDefined()
     expect(result.createdMillis).toEqual(expect.any(Number))
+    expect(result.isDuplicate).toBe(true)
     expect(host.taskInstances).toHaveLength(2)
     expect(host.renderTaskList).toHaveBeenCalled()
     const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)
@@ -178,6 +188,209 @@ describe('TaskMutationService', () => {
     const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)
     expect(record?.slotKey).toBe('none')
     expect(record?.originalSlotKey).toBe('8:00-12:00')
+  })
+
+  test('duplicateInstance applies schedule overrides to cloned instance metadata', async () => {
+    const task = createTask('TASKS/base.md', {
+      scheduledTime: '17:30',
+      reminder_time: '17:25',
+      frontmatter: {
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+    })
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'instance-1',
+      state: 'idle',
+      slotKey: '16:00-0:00',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [instance], tasks: [task] })
+    const service = new TaskMutationService(host)
+
+    const result = (await service.duplicateInstance(instance, {
+      returnInstance: true,
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })) as TaskInstance
+
+    expect(result.task).not.toBe(task)
+    expect(result.task.scheduledTime).toBe('09:00')
+    expect(result.task.reminder_time).toBe('08:55')
+    expect(result.task.frontmatter).toMatchObject({
+      scheduled_time: '09:00',
+      reminder_time: '08:55',
+    })
+    expect(result.slotKey).toBe('8:00-12:00')
+    expect(task.scheduledTime).toBe('17:30')
+    const record = host.dayState.duplicatedInstances.find((dup) => dup.instanceId === result.instanceId)
+    expect(record).toMatchObject({
+      originalPath: 'TASKS/base.md',
+      slotKey: '8:00-12:00',
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })
+  })
+
+  test('duplicateInstance persists source duplicate schedule overrides when duplicated again', async () => {
+    const baseTask = createTask('TASKS/base.md', {
+      scheduledTime: '17:30',
+      reminder_time: '17:25',
+      frontmatter: {
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+    })
+    const duplicateTask = {
+      ...baseTask,
+      scheduledTime: '09:00',
+      frontmatter: {
+        ...baseTask.frontmatter,
+        scheduled_time: '09:00',
+      },
+    }
+    delete duplicateTask.reminder_time
+    delete duplicateTask.frontmatter.reminder_time
+    const sourceDuplicate: TaskInstance = {
+      task: duplicateTask,
+      instanceId: 'dup-source',
+      state: 'idle',
+      slotKey: '8:00-12:00',
+      originalSlotKey: '16:00-0:00',
+      isDuplicate: true,
+      createdMillis: 1000,
+    } as TaskInstance
+    const host = createHost({ taskInstances: [sourceDuplicate], tasks: [baseTask] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-source',
+      originalPath: baseTask.path,
+      slotKey: '8:00-12:00',
+      originalSlotKey: '16:00-0:00',
+      createdMillis: 1000,
+      scheduledTime: '09:00',
+      reminderTime: null,
+    })
+    const service = new TaskMutationService(host)
+
+    const result = (await service.duplicateInstance(sourceDuplicate, {
+      returnInstance: true,
+    })) as TaskInstance
+
+    const newRecord = host.dayState.duplicatedInstances.find(
+      (dup) => dup.instanceId === result.instanceId,
+    )
+    expect(newRecord).toMatchObject({
+      originalPath: 'TASKS/base.md',
+      slotKey: '8:00-12:00',
+      originalSlotKey: '8:00-12:00',
+      scheduledTime: '09:00',
+      reminderTime: null,
+    })
+  })
+
+  test('duplicateInstance preserves manually moved duplicate slot when inheriting schedule override', async () => {
+    const baseTask = createTask('TASKS/base.md', {
+      scheduledTime: '17:30',
+      reminder_time: '17:25',
+      frontmatter: {
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+    })
+    const duplicateTask = {
+      ...baseTask,
+      scheduledTime: '09:00',
+      reminder_time: '08:55',
+      frontmatter: {
+        ...baseTask.frontmatter,
+        scheduled_time: '09:00',
+        reminder_time: '08:55',
+      },
+    }
+    const sourceDuplicate: TaskInstance = {
+      task: duplicateTask,
+      instanceId: 'dup-source-manual-slot',
+      state: 'idle',
+      slotKey: '12:00-16:00',
+      originalSlotKey: '8:00-12:00',
+      isDuplicate: true,
+      createdMillis: 1000,
+    } as TaskInstance
+    const host = createHost({ taskInstances: [sourceDuplicate], tasks: [baseTask] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-source-manual-slot',
+      originalPath: baseTask.path,
+      slotKey: '12:00-16:00',
+      originalSlotKey: '8:00-12:00',
+      createdMillis: 1000,
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })
+    const service = new TaskMutationService(host)
+
+    const result = (await service.duplicateInstance(sourceDuplicate, {
+      returnInstance: true,
+    })) as TaskInstance
+
+    const newRecord = host.dayState.duplicatedInstances.find(
+      (dup) => dup.instanceId === result.instanceId,
+    )
+    expect(result.slotKey).toBe('12:00-16:00')
+    expect(newRecord).toMatchObject({
+      originalPath: 'TASKS/base.md',
+      slotKey: '12:00-16:00',
+      originalSlotKey: '12:00-16:00',
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })
+  })
+
+  test('duplicateInstance falls back to saved duplicate slot when current instance slot is missing', async () => {
+    const baseTask = createTask('TASKS/base.md', {
+      scheduledTime: '17:30',
+      frontmatter: {
+        scheduled_time: '17:30',
+      },
+    })
+    const duplicateTask = {
+      ...baseTask,
+      scheduledTime: '09:00',
+      frontmatter: {
+        ...baseTask.frontmatter,
+        scheduled_time: '09:00',
+      },
+    }
+    const sourceDuplicate: TaskInstance = {
+      task: duplicateTask,
+      instanceId: 'dup-source-saved-slot',
+      state: 'idle',
+      isDuplicate: true,
+      createdMillis: 1000,
+    } as TaskInstance
+    const host = createHost({ taskInstances: [sourceDuplicate], tasks: [baseTask] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: 'dup-source-saved-slot',
+      originalPath: baseTask.path,
+      slotKey: '12:00-16:00',
+      originalSlotKey: '8:00-12:00',
+      createdMillis: 1000,
+      scheduledTime: '09:00',
+    })
+    const service = new TaskMutationService(host)
+
+    const result = (await service.duplicateInstance(sourceDuplicate, {
+      returnInstance: true,
+    })) as TaskInstance
+
+    const newRecord = host.dayState.duplicatedInstances.find(
+      (dup) => dup.instanceId === result.instanceId,
+    )
+    expect(result.slotKey).toBe('12:00-16:00')
+    expect(newRecord).toMatchObject({
+      slotKey: '12:00-16:00',
+      originalSlotKey: '12:00-16:00',
+      scheduledTime: '09:00',
+    })
   })
 
   test('deleteInstance on duplicate does not mark base task permanent', async () => {

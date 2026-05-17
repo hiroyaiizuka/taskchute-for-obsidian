@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian"
+import { Notice, Plugin } from 'obsidian'
 
 import type { TaskChuteSettings } from "./types"
 import type { PathService } from "./services/PathService"
@@ -58,7 +58,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   onunload(): void {
     // Clear timer intervals
     if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval)
+      activeWindow.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
 
@@ -70,8 +70,11 @@ export default class TaskChutePlusPlugin extends Plugin {
     // Clear boundary check timeout
     const view = this.viewController?.getView?.()
     if (view && view.boundaryCheckTimeout) {
-      clearTimeout(view.boundaryCheckTimeout)
+      const timeout = view.boundaryCheckTimeout
+      const timeoutWindow = view.boundaryCheckWindow ?? activeWindow
       view.boundaryCheckTimeout = null
+      view.boundaryCheckWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
 
     // Clean up views

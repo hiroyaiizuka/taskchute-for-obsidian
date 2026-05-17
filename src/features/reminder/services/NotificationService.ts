@@ -5,7 +5,8 @@
  * falls back to builtin modal on mobile or when notifications are unavailable.
  */
 
-import { Platform } from 'obsidian';
+import { Platform } from 'obsidian'
+;
 
 export interface ReminderNotificationOptions {
   taskName: string;

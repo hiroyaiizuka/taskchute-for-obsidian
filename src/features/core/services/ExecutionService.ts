@@ -1,4 +1,5 @@
-import { TFile } from 'obsidian';
+import { TFile } from 'obsidian'
+;
 import type { TaskChutePluginLike } from '../../../types';
 import type { SectionConfigService } from '../../../services/SectionConfigService';
 

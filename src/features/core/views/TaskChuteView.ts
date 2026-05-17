@@ -1,11 +1,4 @@
-import {
-  ItemView,
-  WorkspaceLeaf,
-  Notice,
-  EventRef,
-  TAbstractFile,
-  TFile,
-} from "obsidian"
+import { EventRef, ItemView, Notice, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
 import {
   TaskData,
   TaskInstance,
@@ -44,12 +37,13 @@ import { GoogleCalendarService } from "../../calendar/services/GoogleCalendarSer
 import { CalendarExportModal } from "../../calendar/ui/CalendarExportModal"
 import TaskDragController from "../../../ui/tasklist/TaskDragController"
 import TaskMutationService from "../../../features/core/services/TaskMutationService"
-import type { TaskMutationHost } from "../../../features/core/services/TaskMutationService"
+import type { DuplicateInstanceOptions, TaskMutationHost } from "../../../features/core/services/TaskMutationService"
 import TaskListRenderer from "../../../ui/tasklist/TaskListRenderer"
 import type { TaskListRendererHost } from "../../../ui/tasklist/TaskListRenderer"
 import TaskContextMenuController from "../../../ui/tasklist/TaskContextMenuController"
 import TaskTimeController from "../../../ui/time/TaskTimeController"
 import TaskCreationController, {
+  CreatedTaskTarget,
   DeletedTaskRestoreCandidate,
 } from "../../../ui/task/TaskCreationController"
 import TaskScheduleController from "../../../ui/task/TaskScheduleController"
@@ -66,9 +60,13 @@ import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsMod
 import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
 import { SectionConfigService } from "../../../services/SectionConfigService"
 import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
+import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/services/RecipeService"
+import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
+import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
+import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
 
 class NavigationStateManager implements NavigationState {
-  selectedSection: "routine" | "review" | "log" | "settings" | null = null
+  selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
 
@@ -108,6 +106,8 @@ export class TaskChuteView
   public readonly routineController: RoutineController
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
+  public readonly recipeService: RecipeService
+  private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
 
   // Date Navigation
@@ -133,6 +133,7 @@ export class TaskChuteView
 
   // Boundary Check (idle-task-auto-move feature)
   public boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  public boundaryCheckWindow: Window | null = null
 
   // Debounce Timer
   public renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -140,6 +141,7 @@ export class TaskChuteView
   // Debounce Timer for state file modification detection (cross-device sync)
   private stateFileModifyDebounceTimer: ReturnType<typeof setTimeout> | null =
     null
+  private stateFileModifyDebounceWindow: Window | null = null
   private stateFileModifyPendingMonthKeys: Set<string> = new Set()
   private stateFileModifyRequiresFullReload = false
 
@@ -236,6 +238,21 @@ export class TaskChuteView
     this.taskReuseService = new TaskReuseService(this.plugin)
     this.taskLoader = new TaskLoaderService()
     this.taskReloadCoordinator = new TaskReloadCoordinator(this)
+    this.recipeService = new RecipeService(this.plugin)
+    this.recipeRunPopover = new RecipeRunPopover({
+      service: this.recipeService,
+      getDateKey: () => this.getCurrentDateString(),
+      getProgress: (key, dateKey) => this.dayStateManager.getRecipeProgress(dateKey)[key],
+      setProgress: (key, progress, dateKey) => this.dayStateManager.setRecipeProgress(key, progress, dateKey),
+      openRecipeEditor: (path) => {
+        if (!this.isRecipeFeatureEnabled()) return
+        new RecipeManagerModal(this.app, this.plugin, {
+          initialRecipePath: path,
+          onRecipesChanged: () => this.reloadTasksAndRestore({ runBoundaryCheck: true }),
+        }).open()
+      },
+      onProgressChanged: () => this.renderTaskList(),
+    })
     this.navigationController = new NavigationController(this)
     this.projectController = new ProjectController({
       app: this.app,
@@ -316,6 +333,8 @@ export class TaskChuteView
       getSectionConfig: () => this.sectionConfig,
       syncDuplicateSlotWithScheduledTime: (inst, params) =>
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
+      saveScheduledTime: (inst, scheduledTime) =>
+        this.updateTaskScheduledTime(inst, scheduledTime),
     })
     this.taskCreationController = new TaskCreationController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -323,7 +342,8 @@ export class TaskChuteView
       taskCreationService: this.taskCreationService,
       taskReuseService: this.taskReuseService,
       hasInstanceForPathToday: (path) => this.hasInstanceForPathToday(path),
-      duplicateInstanceForPath: (path) => this.duplicateInstanceForPath(path),
+      duplicateInstanceForPath: (path, options) =>
+        this.duplicateInstanceForPath(path, options),
       invalidateDayStateCache: (dateKey) => this.invalidateDayStateCache(dateKey),
       registerAutocompleteCleanup: (cleanup) =>
         this.registerAutocompleteCleanup(cleanup),
@@ -343,6 +363,8 @@ export class TaskChuteView
         this.findDeletedTaskRestoreCandidate(taskName),
       restoreDeletedTaskCandidate: (candidate) =>
         this.restoreDeletedTaskCandidate(candidate),
+      openGoogleCalendarExportForCreatedTask: (target) =>
+        this.openGoogleCalendarExportForCreatedTask(target),
     })
     this.taskScheduleController = new TaskScheduleController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -386,6 +408,9 @@ export class TaskChuteView
       hasExecutionHistory: (path) => this.hasExecutionHistory(path),
       showDeleteConfirmDialog: (inst) => this.showDeleteConfirmDialog(inst),
       showReminderSettingsDialog: (inst) => this.showReminderSettingsDialog(inst),
+      showRecipeSelectModal: (inst) => this.showRecipeSelectModal(inst),
+      hasRecipeAssigned: (inst) => this.recipeService.hasRecipe(inst.task.recipePath),
+      isRecipeFeatureEnabled: () => this.isRecipeFeatureEnabled(),
       openGoogleCalendarExport: (inst) =>
         this.openGoogleCalendarExport(inst),
       isGoogleCalendarEnabled: () =>
@@ -509,6 +534,9 @@ export class TaskChuteView
       showStartTimePopup: (inst, anchor) => view.showStartTimePopup(inst, anchor),
       showStopTimePopup: (inst, anchor) => view.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => view.showReminderSettingsModal(inst),
+      getRecipeProgressSummary: (inst) => view.getRecipeProgressSummary(inst),
+      showRecipeRunPopover: (inst, anchor) => view.showRecipeRunPopover(inst, anchor),
+      isRecipeFeatureEnabled: () => view.isRecipeFeatureEnabled(),
       isCollapsibleEnabled: () => view.plugin.settings.collapsibleTimeSlots ?? false,
       updateTotalTasksCount: () => view.updateTotalTasksCount(),
       showProjectModal: (inst) => view.projectController.showProjectModal(inst),
@@ -620,6 +648,7 @@ export class TaskChuteView
 
   async onClose(): Promise<void> {
     this.isClosingOrClosed = true
+    this.recipeRunPopover.close()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -901,10 +930,17 @@ export class TaskChuteView
 
     // Debounce to avoid excessive reloads during rapid changes
     if (this.stateFileModifyDebounceTimer) {
-      clearTimeout(this.stateFileModifyDebounceTimer)
-    }
-    this.stateFileModifyDebounceTimer = setTimeout(() => {
+      const timeout = this.stateFileModifyDebounceTimer
+      const timeoutWindow = this.stateFileModifyDebounceWindow ?? activeWindow
       this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
+      timeoutWindow.clearTimeout(timeout)
+    }
+    const timeoutWindow = activeWindow
+    this.stateFileModifyDebounceWindow = timeoutWindow
+    this.stateFileModifyDebounceTimer = timeoutWindow.setTimeout(() => {
+      this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
       if (this.isClosingOrClosed) {
         this.stateFileModifyPendingMonthKeys.clear()
         this.stateFileModifyRequiresFullReload = false
@@ -1005,23 +1041,27 @@ export class TaskChuteView
     }
 
     // Prepare task data for reminder system
-    const tasksWithReminders = this.taskInstances
+    const tasksForReminder = this.taskInstances
       .map((inst) => {
         const normalized = normalizeReminderTime(inst.task.reminder_time)
-        if (!normalized) return null
+        const isDuplicate = inst.isDuplicate === true || this.isDuplicateInstance(inst)
+        const duplicateEntry = isDuplicate
+          ? this.findDuplicateEntryForDate(inst, viewingDate)
+          : undefined
         return {
           filePath: inst.task.path,
+          ...(isDuplicate && inst.instanceId ? { instanceId: inst.instanceId } : {}),
+          ...(isDuplicate ? { inheritsBaseReminder: duplicateEntry?.reminderTime === undefined } : {}),
           task: {
             name: inst.task.name || inst.task.displayTitle || 'Task',
             scheduledTime: inst.task.scheduledTime || '',
-            reminder_time: normalized,
+            ...(normalized ? { reminder_time: normalized } : {}),
             isRoutine: inst.task.isRoutine,
           },
         }
       })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
-    reminderManager.buildTodaySchedules(tasksWithReminders)
+    reminderManager.buildTodaySchedules(tasksForReminder)
   }
 
   /**
@@ -1134,6 +1174,10 @@ export class TaskChuteView
     this.taskListRenderer.render()
   }
 
+  private isRecipeFeatureEnabled(): boolean {
+    return this.plugin.settings.recipeFeatureEnabled === true
+  }
+
   // ===========================================
   // Missing Method Placeholders
   // ===========================================
@@ -1150,10 +1194,12 @@ export class TaskChuteView
     inst: TaskInstance,
     returnOnly: boolean = false,
     slotKey?: string,
+    options: Omit<DuplicateInstanceOptions, 'returnInstance' | 'slotKey'> = {},
   ): Promise<TaskInstance | void> {
     return this.taskMutationService.duplicateInstance(inst, {
       returnInstance: returnOnly,
       slotKey,
+      ...options,
     })
   }
 
@@ -1162,12 +1208,78 @@ export class TaskChuteView
     return this.taskInstances.some((inst) => inst.task?.path === path)
   }
 
-  private async duplicateInstanceForPath(path: string): Promise<boolean> {
-    if (!path) return false
+  private async duplicateInstanceForPath(
+    path: string,
+    options?: Omit<DuplicateInstanceOptions, 'returnInstance' | 'slotKey'>,
+  ): Promise<CreatedTaskTarget | null> {
+    if (!path) return null
     const existing = this.taskInstances.find((inst) => inst.task?.path === path)
-    if (!existing) return false
-    await this.duplicateInstance(existing, true, 'none')
-    return true
+    if (!existing) return null
+    const slotKey = options?.scheduledTime ? undefined : 'none'
+    const duplicated = await this.duplicateInstance(existing, true, slotKey, options)
+    if (!duplicated) return null
+    return {
+      path: duplicated.task.path,
+      instanceId: duplicated.instanceId,
+    }
+  }
+
+  private async openGoogleCalendarExportForCreatedTask(target: CreatedTaskTarget): Promise<void> {
+    if (this.plugin.settings.googleCalendar?.enabled !== true) {
+      new Notice(
+        this.tv(
+          "calendar.export.disabled",
+          "Googleカレンダー連携は設定で有効化してください",
+        ),
+      )
+      return
+    }
+
+    const created = this.findCreatedTaskForCalendarExport(target)
+    if (!created) {
+      console.warn("[TaskChuteView] Created task was not found for calendar export", target)
+      return
+    }
+    try {
+      const settings = this.plugin.settings.googleCalendar ?? {}
+      const event = await this.googleCalendarService.buildEventFromTask(
+        created,
+        settings,
+        {
+          viewDate: this.getViewDate(),
+          defaultDurationMinutes: settings.defaultDurationMinutes ?? 60,
+        },
+      )
+      const url = this.googleCalendarService.buildEventUrl(event)
+      this.googleCalendarService.open(url)
+      new Notice(this.tv("calendar.export.opened", "ブラウザでGoogleカレンダーを開きました"))
+    } catch (error) {
+      console.error("[TaskChuteView] Failed to open calendar export for created task", error)
+      new Notice(
+        this.tv(
+          "calendar.export.cannotOpen",
+          "プレビューを作成できません。開始時刻と所要時間を確認してください。",
+        ),
+      )
+    }
+  }
+
+  private findCreatedTaskForCalendarExport(target: CreatedTaskTarget): TaskInstance | null {
+    if (target.instanceId) {
+      const byInstanceId = this.taskInstances.find((inst) => inst.instanceId === target.instanceId)
+      if (byInstanceId) {
+        return byInstanceId
+      }
+    }
+    const matchingPath = this.taskInstances.filter((inst) => inst.task?.path === target.path)
+    if (matchingPath.length === 0) {
+      return null
+    }
+    return matchingPath.reduce((latest, candidate) => {
+      const latestMillis = latest.createdMillis ?? 0
+      const candidateMillis = candidate.createdMillis ?? 0
+      return candidateMillis >= latestMillis ? candidate : latest
+    }, matchingPath[0])
   }
 
   private invalidateDayStateCache(dateKey: string): void {
@@ -1299,9 +1411,11 @@ export class TaskChuteView
       // Ensure dayState for target date exists
       await this.ensureDayStateForDate(dateStr)
       const targetDayState = this.dayStateManager.getStateFor(dateStr)
+      const sourceEntry = this.findDuplicateEntryForDate(inst, this.getCurrentDateString())
+      const scheduleOverrides = this.getDuplicateScheduleOverrides(inst, sourceEntry)
 
       // Create a new duplicate entry for the target date
-      const newEntry = {
+      const newEntry: DayState['duplicatedInstances'][number] = {
         instanceId: this.generateInstanceId(inst.task, dateStr),
         originalPath: inst.task.path,
         slotKey: inst.slotKey ?? 'none',
@@ -1309,6 +1423,7 @@ export class TaskChuteView
         timestamp: Date.now(),
         createdMillis: Date.now(),
         originalTaskId: inst.task.taskId,
+        ...scheduleOverrides,
       }
 
       // Add to target date's duplicatedInstances
@@ -1322,6 +1437,50 @@ export class TaskChuteView
     } catch (error) {
       console.warn('[TaskChuteView] Failed to move duplicate instance to date', error)
     }
+  }
+
+  private findDuplicateEntryForDate(
+    inst: TaskInstance,
+    dateKey: string,
+  ): DayState['duplicatedInstances'][number] | undefined {
+    const state = this.dayStateManager.getStateFor(dateKey)
+    const entries = Array.isArray(state.duplicatedInstances)
+      ? state.duplicatedInstances
+      : []
+    const instanceId = inst.instanceId
+    const taskPath = typeof inst.task?.path === 'string' ? inst.task.path : undefined
+
+    return entries.find((entry) => {
+      if (!entry) return false
+      if (instanceId && entry.instanceId === instanceId) {
+        return true
+      }
+      return !instanceId && !!taskPath && entry.originalPath === taskPath
+    })
+  }
+
+  private getDuplicateScheduleOverrides(
+    inst: TaskInstance,
+    sourceEntry?: DayState['duplicatedInstances'][number],
+  ): { scheduledTime?: string | null; reminderTime?: string | null } {
+    const overrides: { scheduledTime?: string | null; reminderTime?: string | null } = {}
+
+    if (sourceEntry?.scheduledTime !== undefined) {
+      overrides.scheduledTime = sourceEntry.scheduledTime
+    } else if (!sourceEntry && typeof inst.task?.scheduledTime === 'string' && inst.task.scheduledTime.length > 0) {
+      overrides.scheduledTime = inst.task.scheduledTime
+    }
+
+    if (sourceEntry?.reminderTime !== undefined) {
+      overrides.reminderTime = sourceEntry.reminderTime
+    } else if (!sourceEntry) {
+      const normalized = normalizeReminderTime(inst.task?.reminder_time)
+      if (normalized !== undefined) {
+        overrides.reminderTime = normalized
+      }
+    }
+
+    return overrides
   }
 
   private async moveNonRoutineSlotOverrideToDate(
@@ -1468,6 +1627,7 @@ export class TaskChuteView
     }
 
     const now = Date.now()
+    const scheduleOverrides = this.getDuplicateScheduleOverrides(inst, sourceEntry)
     targetState.duplicatedInstances.push({
       instanceId: resolvedInstanceId,
       originalPath: resolvedPath,
@@ -1476,6 +1636,7 @@ export class TaskChuteView
       timestamp: sourceEntry.timestamp ?? now,
       createdMillis: sourceEntry.createdMillis ?? now,
       originalTaskId: sourceEntry.originalTaskId ?? inst.task?.taskId,
+      ...scheduleOverrides,
     })
     await this.persistDayState(toDateKey)
     return true
@@ -1827,27 +1988,83 @@ export class TaskChuteView
     modal.open()
   }
 
-  private async updateTaskReminderTime(inst: TaskInstance, time: string | null): Promise<void> {
-    const file = inst.task.file
-    if (!file) {
-      new Notice(this.tv('errors.taskFileNotFound', 'Task file not found'))
-      return
+  private showRecipeSelectModal(inst: TaskInstance): void {
+    if (!this.isRecipeFeatureEnabled()) return
+    new RecipeSelectModal(this.app, {
+      service: this.recipeService,
+      instance: inst,
+      onAssigned: () => this.reloadTasksAndRestore({ runBoundaryCheck: true }),
+    }).open()
+  }
+
+  private showRecipeRunPopover(inst: TaskInstance, anchor: HTMLElement): void {
+    if (!this.isRecipeFeatureEnabled()) return
+    void this.recipeRunPopover.show(inst, anchor)
+  }
+
+  private async getRecipeProgressSummary(inst: TaskInstance): Promise<{ total: number; checked: number } | null> {
+    if (!this.isRecipeFeatureEnabled()) return null
+    const recipePath = inst.task.recipePath
+    if (!recipePath) return null
+    const recipe = await this.recipeService.loadRecipe(recipePath)
+    const key = createRecipeProgressKeyForInstance(inst, recipe.path)
+    const progress = this.dayStateManager.getRecipeProgress(this.getCurrentDateString())[key]
+    const validStepIds = new Set(recipe.steps.map((step) => step.id))
+    const checked = (progress?.checkedStepIds ?? []).filter((stepId) => validStepIds.has(stepId)).length
+    return {
+      total: recipe.steps.length,
+      checked,
+    }
+  }
+
+  private async updateTaskScheduledTime(
+    inst: TaskInstance,
+    time: string | undefined,
+  ): Promise<boolean> {
+    await this.ensureDayStateForCurrentDate()
+    const dateKey = this.getCurrentDateString()
+    const duplicateEntry = this.findDuplicateEntryForDate(inst, dateKey)
+    if (!duplicateEntry) {
+      return false
     }
 
-    try {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-        if (time === null) {
-          delete frontmatter.reminder_time
-        } else {
-          frontmatter.reminder_time = time
-        }
-      })
+    this.detachTaskDataForDuplicateOverride(inst)
+    duplicateEntry.scheduledTime = time ?? null
+    this.applyScheduledTimeToInstance(inst, time)
+    await this.persistDayState(dateKey)
+    return true
+  }
 
-      // Update the in-memory task data
-      if (time === null) {
-        delete inst.task.reminder_time
+  private async updateTaskReminderTime(inst: TaskInstance, time: string | null): Promise<void> {
+    try {
+      await this.ensureDayStateForCurrentDate()
+      const dateKey = this.getCurrentDateString()
+      const duplicateEntry = this.findDuplicateEntryForDate(inst, dateKey)
+      const reminderInstanceId = duplicateEntry && inst.instanceId ? inst.instanceId : undefined
+
+      if (duplicateEntry) {
+        this.detachTaskDataForDuplicateOverride(inst)
+        duplicateEntry.reminderTime = time
+        await this.persistDayState(dateKey)
       } else {
-        inst.task.reminder_time = time
+        const file = inst.task.file
+        if (!file) {
+          new Notice(this.tv('errors.taskFileNotFound', 'Task file not found'))
+          return
+        }
+
+        await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+          if (time === null) {
+            delete frontmatter.reminder_time
+          } else {
+            frontmatter.reminder_time = time
+          }
+        })
+      }
+
+      this.applyReminderTimeToInstance(inst, time)
+      if (!duplicateEntry) {
+        this.applyReminderTimeToInheritedDuplicateInstances(inst, time, dateKey)
       }
 
       // Update the reminder schedule only when viewing today
@@ -1859,7 +2076,8 @@ export class TaskChuteView
           inst.task.path,
           time,
           inst.task.name || inst.task.displayTitle || 'Task',
-          inst.task.scheduledTime || ''
+          inst.task.scheduledTime || '',
+          reminderInstanceId,
         )
       }
 
@@ -1874,6 +2092,76 @@ export class TaskChuteView
       console.error('[TaskChute] Failed to update reminder:', error)
       new Notice(this.tv('errors.reminderUpdateFailed', 'Failed to update reminder'))
     }
+  }
+
+  private applyReminderTimeToInheritedDuplicateInstances(
+    baseInst: TaskInstance,
+    time: string | null,
+    dateKey: string,
+  ): void {
+    const basePath = baseInst.task?.path
+    if (!basePath) {
+      return
+    }
+
+    for (const candidate of this.taskInstances) {
+      if (candidate === baseInst || candidate.task?.path !== basePath) {
+        continue
+      }
+
+      const duplicateEntry = this.findDuplicateEntryForDate(candidate, dateKey)
+      if (!duplicateEntry || duplicateEntry.reminderTime !== undefined) {
+        continue
+      }
+
+      this.applyReminderTimeToInstance(candidate, time)
+    }
+  }
+
+  private detachTaskDataForDuplicateOverride(inst: TaskInstance): void {
+    inst.task = {
+      ...inst.task,
+      frontmatter: {
+        ...(inst.task.frontmatter ?? {}),
+      },
+    }
+  }
+
+  private applyScheduledTimeToInstance(
+    inst: TaskInstance,
+    time: string | undefined,
+  ): void {
+    if (time === undefined) {
+      delete inst.task.scheduledTime
+      if (inst.task.frontmatter) {
+        delete inst.task.frontmatter.scheduled_time
+        delete inst.task.frontmatter['開始時刻']
+      }
+      return
+    }
+
+    inst.task.scheduledTime = time
+    if (!inst.task.frontmatter) {
+      inst.task.frontmatter = {}
+    }
+    inst.task.frontmatter.scheduled_time = time
+    delete inst.task.frontmatter['開始時刻']
+  }
+
+  private applyReminderTimeToInstance(inst: TaskInstance, time: string | null): void {
+    if (time === null) {
+      delete inst.task.reminder_time
+      if (inst.task.frontmatter) {
+        delete inst.task.frontmatter.reminder_time
+      }
+      return
+    }
+
+    inst.task.reminder_time = time
+    if (!inst.task.frontmatter) {
+      inst.task.frontmatter = {}
+    }
+    inst.task.frontmatter.reminder_time = time
   }
 
   private stopGlobalTimer(): void {}
@@ -2075,6 +2363,12 @@ export class TaskChuteView
     await this.reloadTasksAndRestore({ runBoundaryCheck: true })
   }
 
+  public onRecipeFeatureSettingsChanged(): void {
+    this.recipeRunPopover.close()
+    this.navigationController.refreshNavigationItems()
+    this.renderTaskList()
+  }
+
   public sortTaskInstancesByTimeOrder(): void {
     this.taskOrderManager.sortTaskInstancesByTimeOrder(this.taskInstances)
   }
@@ -2215,23 +2509,29 @@ export class TaskChuteView
   private cleanupTimers(): void {
     // Legacy interval cleanup (no-op after TimerService)
     if (this.globalTimerInterval) {
-      clearInterval(this.globalTimerInterval)
+      activeWindow.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
 
     if (this.boundaryCheckTimeout) {
-      clearTimeout(this.boundaryCheckTimeout)
+      const timeout = this.boundaryCheckTimeout
+      const timeoutWindow = this.boundaryCheckWindow ?? activeWindow
       this.boundaryCheckTimeout = null
+      this.boundaryCheckWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
 
     if (this.renderDebounceTimer) {
-      clearTimeout(this.renderDebounceTimer)
+      activeWindow.clearTimeout(this.renderDebounceTimer)
       this.renderDebounceTimer = null
     }
 
     if (this.stateFileModifyDebounceTimer) {
-      clearTimeout(this.stateFileModifyDebounceTimer)
+      const timeout = this.stateFileModifyDebounceTimer
+      const timeoutWindow = this.stateFileModifyDebounceWindow ?? activeWindow
       this.stateFileModifyDebounceTimer = null
+      this.stateFileModifyDebounceWindow = null
+      timeoutWindow.clearTimeout(timeout)
     }
     this.stateFileModifyPendingMonthKeys.clear()
     this.stateFileModifyRequiresFullReload = false

@@ -58,11 +58,11 @@ export class BackupRestoreModal extends Modal {
   }
 
   private renderHeader(): void {
-    const header = this.contentEl.createEl('div', { cls: 'backup-restore-header' })
+    const header = this.contentEl.createDiv( { cls: 'backup-restore-header' })
 
     header.createEl('h2', { text: this.tv('title', 'Restore log data'), cls: 'backup-restore-title' })
 
-    const actions = header.createEl('div', { cls: 'backup-restore-actions' })
+    const actions = header.createDiv( { cls: 'backup-restore-actions' })
 
     // Cancel button
     const cancelButton = actions.createEl('button', {
@@ -85,7 +85,7 @@ export class BackupRestoreModal extends Modal {
   }
 
   private renderEmptyState(): void {
-    const emptyState = this.contentEl.createEl('div', { cls: 'backup-empty-state' })
+    const emptyState = this.contentEl.createDiv( { cls: 'backup-empty-state' })
     emptyState.createEl('p', { text: this.tv('emptyMessage', 'No backups found.') })
     emptyState.createEl('p', {
       text: this.tv('emptyHint', 'Backups are created automatically at the interval specified in settings.'),
@@ -94,10 +94,10 @@ export class BackupRestoreModal extends Modal {
   }
 
   private renderContent(): void {
-    const content = this.contentEl.createEl('div', { cls: 'backup-restore-content' })
+    const content = this.contentEl.createDiv( { cls: 'backup-restore-content' })
 
     // Left panel: backup list
-    this.listContainer = content.createEl('div', { cls: 'backup-list-panel' })
+    this.listContainer = content.createDiv( { cls: 'backup-list-panel' })
     this.renderBackupList()
   }
 
@@ -117,17 +117,17 @@ export class BackupRestoreModal extends Modal {
   }
 
   private renderBackupEntry(container: HTMLElement, entry: BackupEntry): void {
-    const entryEl = container.createEl('div', { cls: 'backup-entry' })
+    const entryEl = container.createDiv( { cls: 'backup-entry' })
 
     // Main info container
-    const infoEl = entryEl.createEl('div', { cls: 'backup-entry-info' })
+    const infoEl = entryEl.createDiv( { cls: 'backup-entry-info' })
 
     // Date and time as primary label
     const dateLabel = this.formatDateLabel(entry.timestamp)
-    infoEl.createEl('div', { text: dateLabel, cls: 'backup-entry-date' })
+    infoEl.createDiv( { text: dateLabel, cls: 'backup-entry-date' })
 
     // Relative time as secondary label
-    infoEl.createEl('div', { text: entry.label, cls: 'backup-entry-relative' })
+    infoEl.createDiv( { text: entry.label, cls: 'backup-entry-relative' })
 
     // Click handler
     entryEl.addEventListener('click', () => {
@@ -230,7 +230,7 @@ class BackupConfirmModal extends Modal {
     this.contentEl.createEl('h2', { text: this.tv('confirmTitle', 'Confirm restore'), cls: 'backup-confirm-title' })
 
     // Warning message
-    const warningEl = this.contentEl.createEl('div', { cls: 'backup-confirm-warning' })
+    const warningEl = this.contentEl.createDiv( { cls: 'backup-confirm-warning' })
     warningEl.createEl('p', {
       text: this.tv('confirmWarning', 'Log data for {month} will be replaced with the following backup.', { month: this.formatMonthLabel(this.entry.monthKey) }),
     })
@@ -240,18 +240,18 @@ class BackupConfirmModal extends Modal {
     })
 
     // Backup info
-    const infoEl = this.contentEl.createEl('div', { cls: 'backup-confirm-info' })
-    infoEl.createEl('div', {
+    const infoEl = this.contentEl.createDiv( { cls: 'backup-confirm-info' })
+    infoEl.createDiv( {
       text: this.tv('confirmBackupDate', 'Backup date: {date}', { date: this.formatDateLabel(this.entry.timestamp) }),
       cls: 'backup-confirm-date',
     })
 
     // Preview section container
-    this.previewContainer = this.contentEl.createEl('div', { cls: 'backup-preview' })
+    this.previewContainer = this.contentEl.createDiv( { cls: 'backup-preview' })
     this.renderPreview()
 
     // Buttons
-    const buttonGroup = this.contentEl.createEl('div', { cls: 'backup-confirm-buttons' })
+    const buttonGroup = this.contentEl.createDiv( { cls: 'backup-confirm-buttons' })
 
     const cancelButton = buttonGroup.createEl('button', {
       text: this.tv('confirmCancel', 'Cancel'),
@@ -288,7 +288,7 @@ class BackupConfirmModal extends Modal {
     this.previewContainer.empty()
 
     // Header with date navigation
-    const headerEl = this.previewContainer.createEl('div', { cls: 'backup-preview-header' })
+    const headerEl = this.previewContainer.createDiv( { cls: 'backup-preview-header' })
 
     // Left arrow
     const prevButton = headerEl.createEl('button', {
@@ -318,24 +318,24 @@ class BackupConfirmModal extends Modal {
 
     // Execution records (scrollable)
     if (this.currentPreview.executions.length === 0) {
-      this.previewContainer.createEl('div', {
+      this.previewContainer.createDiv( {
         text: this.tv('previewEmpty', 'No execution records.'),
         cls: 'backup-preview-empty',
       })
     } else {
-      const listEl = this.previewContainer.createEl('div', { cls: 'backup-preview-task-list' })
+      const listEl = this.previewContainer.createDiv( { cls: 'backup-preview-task-list' })
 
       for (const exec of this.currentPreview.executions) {
-        const taskRow = listEl.createEl('div', { cls: 'backup-preview-task' })
+        const taskRow = listEl.createDiv( { cls: 'backup-preview-task' })
 
         // Time range
-        taskRow.createEl('span', {
+        taskRow.createSpan( {
           text: `${exec.startTime} - ${exec.endTime}`,
           cls: 'backup-preview-time-range',
         })
 
         // Task name
-        taskRow.createEl('span', { text: exec.taskName, cls: 'backup-preview-task-name' })
+        taskRow.createSpan( { text: exec.taskName, cls: 'backup-preview-task-name' })
       }
     }
   }

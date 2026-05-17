@@ -28,6 +28,21 @@ describe('ProjectBoardView', () => {
     statusDefs: Array<{ id: ProjectBoardStatus; label: string }>
     render: () => void
   }
+  type TimeoutWindow = Window & {
+    setTimeout: jest.Mock<number, [TimerHandler, number?]>
+    clearTimeout: jest.Mock<void, [number]>
+  }
+
+  const setActiveWindow = (win: Window): void => {
+    ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow = win
+  }
+
+  const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
+    {
+      setTimeout: jest.fn(() => timeoutId),
+      clearTimeout: jest.fn(),
+    } as unknown as TimeoutWindow
+  )
 
   const flushMicrotasks = () => new Promise<void>((resolve) => {
     void Promise.resolve().then(() => resolve())
@@ -278,6 +293,53 @@ describe('ProjectBoardView', () => {
     expect(inProgressCards[0].textContent).toBe('New project')
     expect(todoCards.length).toBe(0)
     expect(scheduleMetadataRefresh).toHaveBeenCalledWith(createdItem.path, 'in-progress')
+  })
+
+  test('clears metadata sync timeout on the same Window that created it', async () => {
+    const originalActiveWindow = activeWindow
+    const sourceWindow = createTimeoutWindow(789)
+    const focusedWindow = createTimeoutWindow(456)
+    const file = new TFile()
+    file.path = 'Projects/Alpha.md'
+    let cachedStatus: ProjectBoardStatus = 'todo'
+    let changedHandler: ((changedFile: TFile) => void) | null = null
+    const eventRef = { unload: jest.fn() }
+    const metadataCache = {
+      getCache: jest.fn(() => ({ frontmatter: { status: cachedStatus } })),
+      on: jest.fn((_eventName: string, handler: (changedFile: TFile) => void) => {
+        changedHandler = handler
+        return eventRef
+      }),
+      offref: jest.fn(),
+    }
+    const { view, plugin } = createView({})
+    ;(plugin.app as unknown as { metadataCache: typeof metadataCache }).metadataCache = metadataCache
+    view.app = plugin.app
+
+    try {
+      setActiveWindow(sourceWindow)
+      const waitPromise = (view as unknown as {
+        waitForMetadataSync: (
+          path: string,
+          status: ProjectBoardStatus,
+          timeout?: number,
+        ) => Promise<void>
+      }).waitForMetadataSync(file.path, 'done', 2000)
+
+      expect(sourceWindow.setTimeout).toHaveBeenCalledWith(expect.any(Function), 2000)
+      expect(changedHandler).not.toBeNull()
+
+      cachedStatus = 'done'
+      setActiveWindow(focusedWindow)
+      changedHandler?.(file)
+      await waitPromise
+
+      expect(metadataCache.offref).toHaveBeenCalledWith(eventRef)
+      expect(sourceWindow.clearTimeout).toHaveBeenCalledWith(789)
+      expect(focusedWindow.clearTimeout).not.toHaveBeenCalled()
+    } finally {
+      setActiveWindow(originalActiveWindow)
+    }
   })
 
   describe('reloadItemsPreservingState', () => {

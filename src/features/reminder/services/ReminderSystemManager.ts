@@ -11,8 +11,16 @@ import { EditDetector } from './EditDetector';
 import { ReminderService } from './ReminderService';
 import { NotificationService, type ReminderNotificationOptions } from './NotificationService';
 import { ReminderNotificationModal } from '../modals/ReminderNotificationModal';
-import type { ReminderSchedule } from './ReminderScheduleManager';
+import {
+  getReminderScheduleKey,
+  type ReminderSchedule,
+} from './ReminderScheduleManager';
 import { normalizeReminderTime } from './ReminderFrontmatterService';
+import {
+  stableTimerSource,
+  type StableIntervalId,
+  type StableTimerSource,
+} from '../../../utils/stableTimer';
 
 // Default values for settings (internal, not exposed to users)
 const DEFAULT_CHECK_INTERVAL_SEC = 5;
@@ -21,12 +29,15 @@ const DEFAULT_EDIT_DETECTION_SEC = 10;
 export interface ReminderSystemManagerOptions {
   app: App;
   settings: TaskChuteSettings;
-  registerInterval: (callback: () => void, intervalMs: number) => number;
+  registerInterval?: (callback: () => void, intervalMs: number) => number;
   registerEvent: (eventRef: EventRef) => EventRef;
+  timerSource?: StableTimerSource;
 }
 
 export interface TaskInstanceForReminder {
   filePath: string;
+  instanceId?: string;
+  inheritsBaseReminder?: boolean;
   task: {
     name?: string;
     scheduledTime?: string;
@@ -55,8 +66,8 @@ function parseTimeToDate(timeStr: string): Date | null {
 export class ReminderSystemManager {
   private readonly app: App;
   private readonly settings: TaskChuteSettings;
-  private readonly registerInterval: (callback: () => void, intervalMs: number) => number;
   private readonly registerEvent: (eventRef: EventRef) => EventRef;
+  private readonly timerSource: StableTimerSource;
 
   private editDetector: EditDetector;
   private reminderService: ReminderService;
@@ -64,13 +75,21 @@ export class ReminderSystemManager {
 
   private pendingNotifications: ReminderSchedule[] = [];
   private isShowingNotification: boolean = false;
-  private intervalId: number | null = null;
+  private intervalId: StableIntervalId | null = null;
+  private todayTasksByScheduleKey: Map<string, TaskInstanceForReminder> = new Map();
 
   constructor(options: ReminderSystemManagerOptions) {
     this.app = options.app;
     this.settings = options.settings;
-    this.registerInterval = options.registerInterval;
     this.registerEvent = options.registerEvent;
+    this.timerSource = options.timerSource ?? (
+      options.registerInterval
+        ? {
+            setInterval: options.registerInterval,
+            clearInterval: (intervalId) => stableTimerSource.clearInterval(intervalId),
+          }
+        : stableTimerSource
+    );
 
     // Initialize EditDetector with fixed internal value
     this.editDetector = new EditDetector({
@@ -121,12 +140,16 @@ export class ReminderSystemManager {
    * Start the periodic reminder check task.
    */
   startPeriodicTask(): void {
+    if (this.intervalId !== null) {
+      return;
+    }
+
     const intervalMs = DEFAULT_CHECK_INTERVAL_SEC * 1000;
 
     // Run once immediately to avoid missing near-future reminders right after startup.
     this.tick();
 
-    this.intervalId = this.registerInterval(() => {
+    this.intervalId = this.timerSource.setInterval(() => {
       this.tick();
     }, intervalMs);
   }
@@ -166,8 +189,9 @@ export class ReminderSystemManager {
   dispose(): void {
     // Clear the periodic interval
     if (this.intervalId !== null) {
-      window.clearInterval(this.intervalId);
+      const intervalId = this.intervalId;
       this.intervalId = null;
+      this.timerSource.clearInterval(intervalId);
     }
 
     this.reminderService.clearAllSchedules();
@@ -177,8 +201,8 @@ export class ReminderSystemManager {
   /**
    * Handle task completion - remove from schedule.
    */
-  onTaskComplete(taskPath: string): void {
-    this.reminderService.onTaskComplete(taskPath);
+  onTaskComplete(taskPath: string, instanceId?: string): void {
+    this.reminderService.onTaskComplete(taskPath, instanceId);
   }
 
   /**
@@ -192,10 +216,24 @@ export class ReminderSystemManager {
     taskPath: string,
     newReminderTime: string | null,
     taskName?: string,
-    scheduledTime?: string
+    scheduledTime?: string,
+    instanceId?: string
   ): void {
+    if (instanceId) {
+      this.markInstanceReminderAsOverride(
+        taskPath,
+        instanceId,
+        newReminderTime,
+        taskName,
+        scheduledTime,
+      );
+    }
+
     if (!newReminderTime) {
-      this.reminderService.removeSchedule(taskPath);
+      this.reminderService.removeSchedule(taskPath, instanceId);
+      if (!instanceId) {
+        this.removeInheritedBaseReminderSchedules(taskPath);
+      }
       return;
     }
 
@@ -204,25 +242,128 @@ export class ReminderSystemManager {
       return;
     }
 
-    const existingSchedule = this.reminderService.getScheduleByPath(taskPath);
+    const existingSchedule = this.reminderService.getScheduleByPath(taskPath, instanceId);
     if (existingSchedule) {
       // Update existing schedule
-      this.reminderService.removeSchedule(taskPath);
+      this.reminderService.removeSchedule(taskPath, instanceId);
       this.reminderService.addScheduleDirectly({
         ...existingSchedule,
         reminderTime: reminderDate,
         fired: false,
+        ...(instanceId ? { inheritsBaseReminder: false } : {}),
       });
     } else {
       // Create new schedule
       this.reminderService.addScheduleDirectly({
         taskPath,
+        instanceId,
+        ...(instanceId ? { inheritsBaseReminder: false } : {}),
         taskName: taskName ?? 'Task',
         scheduledTime: scheduledTime ?? '',
         reminderTime: reminderDate,
         fired: false,
         beingDisplayed: false,
       });
+    }
+
+    if (!instanceId) {
+      this.updateInheritedBaseReminderSchedules(taskPath, reminderDate);
+    }
+  }
+
+  private markInstanceReminderAsOverride(
+    taskPath: string,
+    instanceId: string,
+    reminderTime: string | null,
+    taskName?: string,
+    scheduledTime?: string,
+  ): void {
+    const key = getReminderScheduleKey({ taskPath, instanceId });
+    const existing = this.todayTasksByScheduleKey.get(key);
+    if (!existing) {
+      return;
+    }
+
+    this.todayTasksByScheduleKey.set(key, {
+      ...existing,
+      inheritsBaseReminder: false,
+      task: {
+        ...existing.task,
+        ...(taskName !== undefined ? { name: taskName } : {}),
+        ...(scheduledTime !== undefined ? { scheduledTime } : {}),
+        reminder_time: reminderTime ?? undefined,
+      },
+    });
+  }
+
+  private updateInheritedBaseReminderSchedules(taskPath: string, reminderDate: Date): void {
+    const updatedKeys = new Set<string>();
+
+    for (const task of this.todayTasksByScheduleKey.values()) {
+      if (
+        task.filePath !== taskPath ||
+        !task.instanceId ||
+        task.inheritsBaseReminder !== true
+      ) {
+        continue;
+      }
+
+      const key = getReminderScheduleKey({
+        taskPath,
+        instanceId: task.instanceId,
+      });
+      updatedKeys.add(key);
+
+      const existingSchedule = this.reminderService.getScheduleByPath(
+        taskPath,
+        task.instanceId,
+      );
+      if (existingSchedule) {
+        this.reminderService.removeSchedule(taskPath, task.instanceId);
+      }
+
+      this.reminderService.addScheduleDirectly({
+        taskPath,
+        instanceId: task.instanceId,
+        inheritsBaseReminder: true,
+        taskName: existingSchedule?.taskName ?? task.task.name ?? 'Task',
+        scheduledTime: existingSchedule?.scheduledTime ?? task.task.scheduledTime ?? '',
+        reminderTime: new Date(reminderDate.getTime()),
+        fired: false,
+        beingDisplayed: existingSchedule?.beingDisplayed ?? false,
+      });
+    }
+
+    const inheritedSchedules = this.reminderService
+      .getSchedules()
+      .filter((schedule) =>
+        schedule.taskPath === taskPath &&
+        schedule.instanceId &&
+        schedule.inheritsBaseReminder === true &&
+        !updatedKeys.has(getReminderScheduleKey(schedule))
+      );
+
+    for (const schedule of inheritedSchedules) {
+      this.reminderService.removeSchedule(schedule.taskPath, schedule.instanceId);
+      this.reminderService.addScheduleDirectly({
+        ...schedule,
+        reminderTime: new Date(reminderDate.getTime()),
+        fired: false,
+      });
+    }
+  }
+
+  private removeInheritedBaseReminderSchedules(taskPath: string): void {
+    const inheritedSchedules = this.reminderService
+      .getSchedules()
+      .filter((schedule) =>
+        schedule.taskPath === taskPath &&
+        schedule.instanceId &&
+        schedule.inheritsBaseReminder === true
+      );
+
+    for (const schedule of inheritedSchedules) {
+      this.reminderService.removeSchedule(schedule.taskPath, schedule.instanceId);
     }
   }
 
@@ -231,11 +372,21 @@ export class ReminderSystemManager {
    * Removes stale schedules (tasks no longer in the list or without reminder_time).
    */
   buildTodaySchedules(tasks: unknown[]): void {
-    // Collect paths of tasks with valid reminder_time
-    const validPaths = new Set<string>();
+    // Collect schedule keys for tasks with valid reminder_time
+    const validKeys = new Set<string>();
+    this.todayTasksByScheduleKey.clear();
 
     for (const taskData of tasks) {
       const task = taskData as TaskInstanceForReminder;
+      if (!task || typeof task.filePath !== 'string' || !task.task) {
+        continue;
+      }
+
+      const scheduleKey = getReminderScheduleKey({
+        taskPath: task.filePath,
+        instanceId: task.instanceId,
+      });
+      this.todayTasksByScheduleKey.set(scheduleKey, task);
 
       // Normalize and skip tasks without valid reminder_time
       const normalizedTime = normalizeReminderTime(task.task.reminder_time);
@@ -248,10 +399,12 @@ export class ReminderSystemManager {
         continue;
       }
 
-      validPaths.add(task.filePath);
+      validKeys.add(scheduleKey);
 
       const schedule: ReminderSchedule = {
         taskPath: task.filePath,
+        instanceId: task.instanceId,
+        inheritsBaseReminder: task.inheritsBaseReminder,
         taskName: task.task.name ?? 'Untitled task',
         scheduledTime: task.task.scheduledTime ?? '',
         reminderTime: reminderDate,
@@ -265,8 +418,8 @@ export class ReminderSystemManager {
     // Remove stale schedules (paths not in current task list)
     const existingSchedules = this.reminderService.getSchedules();
     for (const schedule of existingSchedules) {
-      if (!validPaths.has(schedule.taskPath)) {
-        this.reminderService.removeSchedule(schedule.taskPath);
+      if (!validKeys.has(getReminderScheduleKey(schedule))) {
+        this.reminderService.removeSchedule(schedule.taskPath, schedule.instanceId);
       }
     }
   }

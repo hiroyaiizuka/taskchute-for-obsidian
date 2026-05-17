@@ -3,6 +3,7 @@ import RoutineManagerModal from '../../../src/features/routine/modals/RoutineMan
 import { ReviewService } from '../../../src/features/review/services/ReviewService'
 import { LogView } from '../../../src/features/log/views/LogView'
 import NavigationSettingsController from '../../../src/ui/navigation/NavigationSettingsController'
+import RecipeManagerModal from '../../../src/features/recipe/modals/RecipeManagerModal'
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
 jest.mock('obsidian', () => {
@@ -16,6 +17,7 @@ jest.mock('obsidian', () => {
 type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
 jest.mock('../../../src/features/routine/modals/RoutineManagerModal')
+jest.mock('../../../src/features/recipe/modals/RecipeManagerModal')
 jest.mock('../../../src/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
@@ -72,13 +74,14 @@ function ensurePrototypeAugmentations(): void {
 }
 
 const MockedRoutineManagerModal = RoutineManagerModal as jest.MockedClass<typeof RoutineManagerModal>
+const MockedRecipeManagerModal = RecipeManagerModal as jest.MockedClass<typeof RecipeManagerModal>
 const MockedReviewService = ReviewService as jest.MockedClass<typeof ReviewService>
 const MockedLogView = LogView as jest.MockedClass<typeof LogView>
 const MockedSettingsController = NavigationSettingsController as jest.MockedClass<typeof NavigationSettingsController>
 const NoticeMock = Notice as unknown as jest.Mock
 
 describe('NavigationSectionController', () => {
-  function createHost(): NavigationSectionHost & {
+  function createHost(options: { recipeFeatureEnabled?: boolean } = {}): NavigationSectionHost & {
     closeNavigation: jest.Mock
     openNavigation: jest.Mock
     reloadTasksAndRestore: jest.Mock
@@ -181,6 +184,7 @@ describe('NavigationSectionController', () => {
           logDataPath: 'LOGS',
           reviewDataPath: 'REVIEWS',
           useOrderBasedSort: true,
+          recipeFeatureEnabled: options.recipeFeatureEnabled ?? true,
         },
         saveSettings: jest.fn(),
       } as unknown as NavigationSectionHost['plugin'],
@@ -300,6 +304,42 @@ describe('NavigationSectionController', () => {
     const settingsInstance = MockedSettingsController.mock.results.at(-1)?.value
       ?? MockedSettingsController.mock.instances.at(-1)
     expect(settingsInstance?.openSettings).toHaveBeenCalledTimes(1)
+    expect(host.closeNavigation).toHaveBeenCalled()
+  })
+
+  test('handleNavigationItemClick opens recipe manager', async () => {
+    const host = createHost()
+    const open = jest.fn()
+    MockedRecipeManagerModal.mockImplementationOnce(() => ({ open }) as unknown as RecipeManagerModal)
+    const controller = new NavigationSectionController(host, {
+      closeNavigation: host.closeNavigation,
+      openNavigation: host.openNavigation,
+    })
+
+    await controller.handleNavigationItemClick('recipes')
+
+    expect(MockedRecipeManagerModal).toHaveBeenCalledWith(
+      host.app,
+      host.plugin,
+      expect.objectContaining({ onRecipesChanged: expect.any(Function) }),
+    )
+    const options = MockedRecipeManagerModal.mock.calls[0]?.[2]
+    await options?.onRecipesChanged?.()
+    expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({ runBoundaryCheck: true })
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(host.closeNavigation).toHaveBeenCalled()
+  })
+
+  test('handleNavigationItemClick ignores recipe manager when recipe feature is disabled', async () => {
+    const host = createHost({ recipeFeatureEnabled: false })
+    const controller = new NavigationSectionController(host, {
+      closeNavigation: host.closeNavigation,
+      openNavigation: host.openNavigation,
+    })
+
+    await controller.handleNavigationItemClick('recipes')
+
+    expect(MockedRecipeManagerModal).not.toHaveBeenCalled()
     expect(host.closeNavigation).toHaveBeenCalled()
   })
 

@@ -36,6 +36,8 @@ export interface TaskChuteSettings {
 
   // UI/Features
   aiRobotButtonEnabled?: boolean // default false; show robot button if true
+  recipeFeatureEnabled?: boolean // default false; show recipe UI entry points if true
+  showTaskCreationAdvancedSettings?: boolean // default false; show advanced controls in task creation modal
   // Field migration settings
   preferNewFieldFormat?: boolean // Use scheduled_time for new tasks
   autoMigrateOnLoad?: boolean // Auto-migrate old fields when loading
@@ -118,6 +120,7 @@ export interface TaskData {
   project?: string
   projectPath?: string
   projectTitle?: string
+  recipePath?: string
   isRoutine?: boolean
   createdMillis?: number
   routine_type?: "daily" | "weekly" | "monthly" | "monthly_date" | "weekdays" | "weekends"
@@ -168,6 +171,8 @@ export interface TaskInstance {
   energyLevel?: number
   date?: string
   projectName?: string
+  /** True when this instance comes from dayState.duplicatedInstances. */
+  isDuplicate?: boolean
 }
 
 export interface DeletedInstance {
@@ -198,12 +203,25 @@ export interface DuplicatedInstance {
   timestamp?: number
   createdMillis?: number
   originalTaskId?: string
+  /** Per-duplicate scheduled time override. null explicitly clears inherited scheduled_time. */
+  scheduledTime?: string | null
+  /** Per-duplicate reminder override. null explicitly clears inherited reminder_time. */
+  reminderTime?: string | null
   /** Timestamp when the duplicate was removed. If restoredAt > createdMillis, duplicate is removed. */
   restoredAt?: number
 }
 
 export interface SlotOverrideEntry {
   slotKey: string
+  updatedAt: number
+}
+
+export interface RecipeProgressEntry {
+  recipePath: string
+  checkedStepIds: string[]
+  /** Per-day, per-task display order for recipe steps. Source recipe order is unchanged. */
+  stepOrder?: string[]
+  completedAtByStepId?: Record<string, string>
   updatedAt: number
 }
 
@@ -222,6 +240,8 @@ export interface DayState {
   orders: Record<string, number>
   /** Metadata for orders with per-key update timestamps for conflict resolution */
   ordersMeta?: Record<string, { order: number; updatedAt: number }>
+  /** Per-day recipe execution progress, keyed by instanceId::recipePath */
+  recipeProgress?: Record<string, RecipeProgressEntry>
 }
 
 export interface MonthlyDayStateFile {
@@ -242,7 +262,9 @@ export type PathManagerLike = Pick<
   | "getLogYearPath"
   | "ensureYearFolder"
   | "validatePath"
->
+> & {
+  getRecipeFolderPath?: () => string
+}
 
 export interface DayStateServiceAPI {
   loadDay(date: Date): Promise<DayState>
@@ -332,7 +354,7 @@ export interface HeatmapDayDetail {
 }
 
 export interface NavigationState {
-  selectedSection: "routine" | "review" | "log" | "settings" | null
+  selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null
   isOpen: boolean
 }
 
@@ -396,17 +418,19 @@ export interface ReminderManagerLike {
    * @param newReminderTime The new reminder time in HH:mm format, or null to clear
    * @param taskName Optional task name for creating new schedules
    * @param scheduledTime Optional scheduled time for creating new schedules
+   * @param instanceId Optional display instance id for duplicate task rows
    */
   onTaskReminderTimeChanged(
     taskPath: string,
     newReminderTime: string | null,
     taskName?: string,
-    scheduledTime?: string
+    scheduledTime?: string,
+    instanceId?: string
   ): void
 
   /**
    * Called when a task is completed.
    * Removes the reminder schedule for the task.
    */
-  onTaskComplete(taskPath: string): void
+  onTaskComplete(taskPath: string, instanceId?: string): void
 }

@@ -107,6 +107,35 @@ describe('TaskReuseService', () => {
     expect(dayState.duplicatedInstances[0]?.slotKey).toBe('8:00-12:00')
   })
 
+  test('reuseTaskAtDate records schedule overrides instead of falling back to original frontmatter', async () => {
+    const plugin = createPlugin()
+    const dateService = plugin.dayStateService
+    const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+    const metadataCache = plugin.app.metadataCache as { getFileCache: jest.Mock }
+    metadataCache.getFileCache.mockReturnValue({
+      frontmatter: {
+        taskId: 'tc-task-sample',
+        scheduled_time: '17:30',
+        reminder_time: '17:25',
+      },
+    })
+    const service = new TaskReuseService(plugin)
+
+    const result = await service.reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07', {
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })
+
+    expect(result.instanceId).toEqual(expect.any(String))
+    expect(dayState.duplicatedInstances).toHaveLength(1)
+    expect(dayState.duplicatedInstances[0]).toMatchObject({
+      originalPath: 'TaskChute/Task/sample.md',
+      slotKey: '8:00-12:00',
+      scheduledTime: '09:00',
+      reminderTime: '08:55',
+    })
+  })
+
   test('reuseTaskAtDate marks path-level hidden as restored and records duplicate', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService

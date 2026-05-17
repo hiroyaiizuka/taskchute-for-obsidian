@@ -211,20 +211,20 @@ export default class ProjectController {
         displayName = inst.task.projectTitle || this.host.tv('project.none', 'No project')
       }
 
-      const projectButton = projectDisplay.createEl('span', {
+      const projectButton = projectDisplay.createSpan( {
         cls: 'taskchute-project-button',
         attr: {
           title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title: displayName }),
         },
       })
-      projectButton.createEl('span', { cls: 'taskchute-project-icon', text: '📁' })
-      projectButton.createEl('span', { cls: 'taskchute-project-name', text: displayName })
+      projectButton.createSpan( { cls: 'taskchute-project-icon', text: '📁' })
+      projectButton.createSpan( { cls: 'taskchute-project-name', text: displayName })
       projectButton.addEventListener('click', (event) => {
         event.stopPropagation()
         this.showUnifiedProjectModal(inst)
       })
 
-      const externalLink = projectDisplay.createEl('span', {
+      const externalLink = projectDisplay.createSpan( {
         cls: 'taskchute-external-link',
         text: '🔗',
         attr: { title: this.host.tv('project.openNote', 'Open project note') },
@@ -239,7 +239,7 @@ export default class ProjectController {
       })
     } else {
       const placeholderLabel = this.host.tv('project.clickToSet', 'Click to set project')
-      const placeholder = projectDisplay.createEl('span', {
+      const placeholder = projectDisplay.createSpan( {
         cls: 'taskchute-project-placeholder',
         text: placeholderLabel,
         attr: { title: placeholderLabel },

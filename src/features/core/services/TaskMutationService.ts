@@ -21,6 +21,15 @@ type DuplicatedEntry = {
   timestamp?: number
   createdMillis?: number
   originalTaskId?: string
+  scheduledTime?: string | null
+  reminderTime?: string | null
+}
+
+export interface DuplicateInstanceOptions {
+  returnInstance?: boolean
+  slotKey?: string
+  scheduledTime?: string | null
+  reminderTime?: string | null
 }
 
 interface MutationDayState {
@@ -73,36 +82,42 @@ export default class TaskMutationService {
 
   async duplicateInstance(
     inst: TaskInstance,
-    options: { returnInstance?: boolean; slotKey?: string } = {},
+    options: DuplicateInstanceOptions = {},
   ): Promise<TaskInstance | void> {
     try {
       await this.host.ensureDayStateForCurrentDate()
       const dateKey = this.host.getCurrentDateString()
+      const dayState = this.host.getCurrentDayState()
+      const sourceDuplicateEntry = this.findDuplicateEntry(dayState, inst)
+      const resolvedOptions = this.resolveDuplicateScheduleOptions(options, sourceDuplicateEntry)
       const createdMillis = Date.now()
-      const slotKey = options.slotKey ?? inst.slotKey ?? 'none'
-      const originalSlotKey = inst.slotKey ?? slotKey
+      const slotKey = this.resolveDuplicateSlotKey(inst, options, sourceDuplicateEntry)
+      const originalSlotKey = inst.slotKey ?? sourceDuplicateEntry?.slotKey ?? slotKey
+      const task = this.buildDuplicateTask(inst.task, resolvedOptions)
       const newInstance: TaskInstance = {
-        task: inst.task,
-        instanceId: this.host.generateInstanceId(inst.task, dateKey),
+        task,
+        instanceId: this.host.generateInstanceId(task, dateKey),
         state: 'idle',
         slotKey,
         originalSlotKey,
         createdMillis,
+        isDuplicate: true,
       }
 
       this.assignDuplicateOrder(newInstance, inst)
       this.host.taskInstances.push(newInstance)
 
-      const dayState = this.host.getCurrentDayState()
       if (!dayState.duplicatedInstances.some((dup) => dup.instanceId === newInstance.instanceId)) {
         dayState.duplicatedInstances.push({
           instanceId: newInstance.instanceId,
-          originalPath: inst.task.path,
+          originalPath: sourceDuplicateEntry?.originalPath ?? inst.task.path,
           slotKey: newInstance.slotKey,
           originalSlotKey,
           timestamp: createdMillis,
           createdMillis,
-          originalTaskId: inst.task.taskId,
+          originalTaskId: sourceDuplicateEntry?.originalTaskId ?? inst.task.taskId,
+          ...(resolvedOptions.scheduledTime !== undefined ? { scheduledTime: resolvedOptions.scheduledTime } : {}),
+          ...(resolvedOptions.reminderTime !== undefined ? { reminderTime: resolvedOptions.reminderTime } : {}),
         })
         await this.host.persistDayState(dateKey)
       }
@@ -122,6 +137,93 @@ export default class TaskMutationService {
       new Notice(this.host.tv('notices.taskDuplicateFailed', 'Failed to duplicate task'))
     }
     return undefined
+  }
+
+  private resolveDuplicateSlotKey(
+    inst: TaskInstance,
+    options: DuplicateInstanceOptions,
+    sourceEntry?: DuplicatedEntry,
+  ): string {
+    if (options.slotKey !== undefined) {
+      return options.slotKey
+    }
+
+    if (typeof options.scheduledTime === 'string') {
+      return this.host.getSectionConfig().calculateSlotKeyFromTime(options.scheduledTime)
+        ?? inst.slotKey
+        ?? sourceEntry?.slotKey
+        ?? 'none'
+    }
+
+    return inst.slotKey ?? sourceEntry?.slotKey ?? 'none'
+  }
+
+  private findDuplicateEntry(
+    dayState: MutationDayState,
+    inst: TaskInstance,
+  ): DuplicatedEntry | undefined {
+    if (!inst.instanceId || !Array.isArray(dayState.duplicatedInstances)) {
+      return undefined
+    }
+    return dayState.duplicatedInstances.find((entry) => entry.instanceId === inst.instanceId)
+  }
+
+  private resolveDuplicateScheduleOptions(
+    options: DuplicateInstanceOptions,
+    sourceEntry?: DuplicatedEntry,
+  ): DuplicateInstanceOptions {
+    if (!sourceEntry) {
+      return options
+    }
+
+    return {
+      ...options,
+      scheduledTime: options.scheduledTime !== undefined
+        ? options.scheduledTime
+        : sourceEntry.scheduledTime,
+      reminderTime: options.reminderTime !== undefined
+        ? options.reminderTime
+        : sourceEntry.reminderTime,
+    }
+  }
+
+  private buildDuplicateTask(task: TaskData, options: DuplicateInstanceOptions): TaskData {
+    const hasScheduleOverride =
+      options.scheduledTime !== undefined || options.reminderTime !== undefined
+    if (!hasScheduleOverride) {
+      return task
+    }
+
+    const frontmatter = {
+      ...(task.frontmatter ?? {}),
+    }
+    const cloned: TaskData = {
+      ...task,
+      frontmatter,
+    }
+
+    if (options.scheduledTime !== undefined) {
+      if (options.scheduledTime === null) {
+        delete cloned.scheduledTime
+        delete frontmatter.scheduled_time
+      } else {
+        cloned.scheduledTime = options.scheduledTime
+        frontmatter.scheduled_time = options.scheduledTime
+      }
+      delete frontmatter['開始時刻']
+    }
+
+    if (options.reminderTime !== undefined) {
+      if (options.reminderTime === null) {
+        delete cloned.reminder_time
+        delete frontmatter.reminder_time
+      } else {
+        cloned.reminder_time = options.reminderTime
+        frontmatter.reminder_time = options.reminderTime
+      }
+    }
+
+    return cloned
   }
 
   async deleteTask(inst: TaskInstance): Promise<void> {

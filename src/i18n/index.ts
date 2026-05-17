@@ -1,3 +1,4 @@
+import { getLanguage } from "obsidian"
 import { en } from "./locales/en"
 import { ja } from "./locales/ja"
 
@@ -76,15 +77,7 @@ class LocaleManager {
   }
 
   detectObsidianLocale(): LocaleKey {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = window.localStorage?.getItem("language")
-        return normalizeLocale(stored)
-      } catch {
-        // Ignore access errors (Safari private mode, etc.)
-      }
-    }
-    return "en"
+    return normalizeLocale(getLanguage())
   }
 
   resolveLocale(override: LanguageOverride): LocaleKey {

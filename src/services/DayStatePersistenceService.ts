@@ -1,4 +1,5 @@
-import { TFile } from 'obsidian';
+import { TFile } from 'obsidian'
+;
 import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
@@ -8,6 +9,7 @@ import {
   mergeDuplicatedInstances,
   mergeHiddenRoutines,
   mergeOrders,
+  mergeRecipeProgress,
   mergeSlotOverrides,
   isDeleted as isDeletedEntry,
   isLegacyDeletionEntry,
@@ -286,6 +288,49 @@ export class DayStatePersistenceService {
         )
       }
     }
+    const recipeProgress = record.recipeProgress;
+    if (recipeProgress && typeof recipeProgress === 'object') {
+      const entries = Object.entries(recipeProgress as Record<string, unknown>).filter(
+        ([key, val]) => {
+          if (typeof key !== 'string') return false;
+          if (!val || typeof val !== 'object') return false;
+          const progress = val as { recipePath?: unknown; checkedStepIds?: unknown; updatedAt?: unknown };
+          return (
+            typeof progress.recipePath === 'string' &&
+            Array.isArray(progress.checkedStepIds) &&
+            typeof progress.updatedAt === 'number'
+          );
+        },
+      );
+      if (entries.length > 0) {
+        day.recipeProgress = Object.fromEntries(
+          entries.map(([key, val]) => {
+            const progress = val as NonNullable<DayState['recipeProgress']>[string];
+            return [
+              key,
+              {
+                recipePath: progress.recipePath,
+                checkedStepIds: Array.isArray(progress.checkedStepIds)
+                  ? progress.checkedStepIds.filter((item): item is string => typeof item === 'string')
+                  : [],
+                stepOrder: Array.isArray(progress.stepOrder)
+                  ? progress.stepOrder.filter((item): item is string => typeof item === 'string')
+                  : undefined,
+                completedAtByStepId:
+                  progress.completedAtByStepId && typeof progress.completedAtByStepId === 'object'
+                    ? Object.fromEntries(
+                        Object.entries(progress.completedAtByStepId).filter(
+                          ([stepId, completedAt]) => typeof stepId === 'string' && typeof completedAt === 'string',
+                        ),
+                      )
+                    : undefined,
+                updatedAt: progress.updatedAt,
+              },
+            ];
+          }),
+        );
+      }
+    }
 
     return day;
   }
@@ -351,6 +396,9 @@ export class DayStatePersistenceService {
       slotOverrides: state.slotOverrides ?? {},
       orders: state.orders ?? {},
     };
+    if (state.recipeProgress && Object.keys(state.recipeProgress).length > 0) {
+      comparable.recipeProgress = state.recipeProgress;
+    }
     if (state.slotOverridesMeta && Object.keys(state.slotOverridesMeta).length > 0) {
       comparable.slotOverridesMeta = state.slotOverridesMeta;
     }
@@ -665,6 +713,10 @@ export class DayStatePersistenceService {
         remoteDay.duplicatedInstances ?? [],
         { deletedInstanceIds, deletedPaths, deletedTaskIds },
       );
+      const recipeProgressResult = mergeRecipeProgress(
+        localDay.recipeProgress ?? {},
+        remoteDay.recipeProgress ?? {},
+      );
 
       const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
@@ -675,6 +727,9 @@ export class DayStatePersistenceService {
         orders: ordersResult.merged,
         ordersMeta: Object.keys(ordersResult.meta).length > 0 ? ordersResult.meta : undefined,
       };
+      if (Object.keys(recipeProgressResult.merged).length > 0) {
+        mergedDay.recipeProgress = recipeProgressResult.merged;
+      }
 
       const mergedDiffersFromLocal = !this.areDayStatesEqual(mergedDay, localDay);
 
@@ -684,6 +739,7 @@ export class DayStatePersistenceService {
         hiddenResult.hasConflicts ||
         slotResult.hasConflicts ||
         ordersResult.hasConflicts ||
+        recipeProgressResult.hasConflicts ||
         mergedDiffersFromLocal
       ) {
         hasChanges = true;
@@ -813,8 +869,12 @@ export class DayStatePersistenceService {
         diskDay.duplicatedInstances ?? [],
         { deletedInstanceIds, deletedPaths, deletedTaskIds },
       );
+      const recipeProgressResult = mergeRecipeProgress(
+        localDay.recipeProgress ?? {},
+        diskDay.recipeProgress ?? {},
+      );
 
-      mergedMonthly.days[dateKey] = {
+      const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
         deletedInstances: deletedResult.merged,
         duplicatedInstances: duplicatedResult.merged,
@@ -823,6 +883,10 @@ export class DayStatePersistenceService {
         orders: ordersResult.merged,
         ordersMeta: Object.keys(ordersResult.meta).length > 0 ? ordersResult.meta : undefined,
       };
+      if (Object.keys(recipeProgressResult.merged).length > 0) {
+        mergedDay.recipeProgress = recipeProgressResult.merged;
+      }
+      mergedMonthly.days[dateKey] = mergedDay;
     }
 
     mergedMonthly.metadata.lastUpdated = new Date().toISOString();

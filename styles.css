@@ -40,7 +40,7 @@
 
 /* Show buttons only on touch devices (mobile) */
 @media (pointer: coarse) {
-  .taskchute-time-popup-btn {
+  .taskchute-time-popup .taskchute-time-popup-btn {
     display: flex;
   }
 }
@@ -100,7 +100,7 @@
 
 /* ===== Restored original CSS (from full-css.ts) ===== */
 /* Modal overlay/content (used by time edit, settings, etc.) */
-.task-modal-overlay {
+:is(.task-modal-overlay) {
   position: fixed;
   top: 0;
   left: 0;
@@ -124,40 +124,40 @@
 }
 
 .is-mobile .task-modal-overlay {
-  align-items: flex-start !important;
-  padding-top: 50px !important;
-  padding-bottom: 20px !important;
+  align-items: flex-start;
+  padding-top: 50px;
+  padding-bottom: 20px;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content {
-  max-height: calc(100vh - 100px) !important;
-  overflow-y: auto !important;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header {
-  padding: 16px 50px 12px 16px !important;
-  position: relative !important;
+  padding: 16px 50px 12px 16px;
+  position: relative;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header h3 {
-  font-size: 1rem !important;
-  line-height: 1.4 !important;
-  word-break: break-word !important;
+  font-size: 1rem;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .is-mobile .task-modal-overlay .task-modal-content .modal-header .modal-close-button {
-  position: absolute !important;
-  top: 6px !important;
-  right: 10px !important;
+  position: absolute;
+  top: 6px;
+  right: 10px;
 }
 
 .is-mobile .taskchute-comment-modal {
-  align-items: flex-start !important;
-  padding-top: 70px !important;
+  align-items: flex-start;
+  padding-top: 70px;
 }
 
 .is-mobile .taskchute-comment-modal .taskchute-comment-content {
-  max-height: 50vh !important;
+  max-height: 50vh;
 }
 
 .taskchute-calendar-export-modal .setting-item .setting-item-description:empty {
@@ -190,11 +190,11 @@
   gap: 12px;
   margin-top: 16px;
   padding-top: 8px;
-  border-top: 0 !important;
+  border-top: 0;
 }
 .taskchute-calendar-export-modal .modal-close-button {
-  top: 25px !important;
-  right: 16px !important;
+  top: 25px;
+  right: 16px;
 }
 .taskchute-calendar-export-modal .modal-title {
   padding-bottom: 12px;
@@ -208,24 +208,15 @@
   font-weight: 600;
 }
 .taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-name {
-  font-size: 1rem !important;
-  font-weight: 600 !important;
+  font-size: 1rem;
+  font-weight: 600;
   line-height: 1.2;
 }
 .taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-info {
   margin-top: 4px;
 }
-.task-modal-content .modal-header {
-  padding-bottom: 10px;
-}
-
 :where(
-    .task-modal-content,
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
+    .project-settings-modal-content
   )
   .modal-header {
   display: flex;
@@ -237,11 +228,9 @@
 }
 
 :where(
-    .task-modal-content,
     .taskchute-confirm-modal,
     .scheduled-time-modal,
     .time-edit-modal,
-    .project-settings-modal-content,
     .project-create-modal
   )
   .modal-header
@@ -251,7 +240,6 @@
 }
 
 :where(
-    .task-modal-content,
     .taskchute-confirm-modal,
     .scheduled-time-modal,
     .time-edit-modal,
@@ -275,7 +263,6 @@
   transition: all 0.2s ease;
 }
 :where(
-    .task-modal-content,
     .taskchute-confirm-modal,
     .scheduled-time-modal,
     .time-edit-modal,
@@ -348,37 +335,11 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-.task-form {
-  padding: 20px;
-}
 .task-modal-content .task-form {
   padding-top: 10px;
 }
 .task-modal-content .task-form .form-button-group {
   margin-top: 28px;
-}
-.form-group {
-  margin-bottom: 15px;
-}
-.form-label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: 500;
-  color: var(--text-normal);
-}
-
-.form-input,
-.form-textarea {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  box-sizing: border-box;
 }
 
 .form-input:disabled {
@@ -386,24 +347,11 @@
   cursor: not-allowed;
 }
 
-select.form-input {
-  min-height: 36px;
-  line-height: 1.5;
-  padding: 8px 12px;
-}
-
-.form-input:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
 .form-input-icon-wrapper {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  column-gap: 8px;
+  gap: 8px;
   width: 100%;
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
@@ -441,10 +389,10 @@ select.form-input {
   font-size: 14px;
   color: var(--text-normal);
   text-align: left;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .form-input-icon-wrapper input[type="date"] {
@@ -460,7 +408,7 @@ select.form-input {
 .form-input--date::-webkit-datetime-edit-year-field {
   padding: 0;
   margin: 0;
-  background: transparent !important;
+  background: transparent;
   color: inherit;
   text-align: left;
 }
@@ -469,7 +417,7 @@ select.form-input {
 .form-input--date::-webkit-datetime-edit-day-field:focus,
 .form-input--date::-webkit-datetime-edit-year-field:focus,
 .form-input--date::-webkit-datetime-edit-text:focus {
-  background: transparent !important;
+  background: transparent;
   color: inherit;
 }
 
@@ -495,10 +443,10 @@ select.form-input {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: none !important;
+  border: none;
   border-radius: 2px;
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
@@ -506,7 +454,7 @@ select.form-input {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 .form-input-icon-button svg {
@@ -516,38 +464,30 @@ select.form-input {
 
 .form-input-icon-button:hover {
   color: var(--text-normal);
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
 }
 
 .form-input-icon-button:focus-visible {
   outline: none;
-  background: transparent !important;
-  background-color: transparent !important;
+  background: transparent;
+  background-color: transparent;
 }
 
 .form-input-icon-button:focus {
   outline: none;
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-.form-textarea {
-  min-height: 80px;
-  resize: vertical;
-}
-
-.form-button-group {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 20px;
+  background: transparent;
+  background-color: transparent;
 }
 
 .scheduled-time-modal .modal-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 4px;
+  position: relative;
 }
 
 .scheduled-time-modal .task-form {
@@ -571,9 +511,13 @@ select.form-input {
 }
 
 .time-edit-modal .modal-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 4px;
+  position: relative;
 }
 
 .time-edit-modal .form-group {
@@ -585,9 +529,13 @@ select.form-input {
 }
 
 .taskchute-confirm-modal .modal-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
   border-bottom: none;
-  padding: 20px 20px 12px 20px;
+  padding: 20px 20px 12px;
   margin-bottom: 0;
+  position: relative;
 }
 
 .project-create-modal {
@@ -596,7 +544,12 @@ select.form-input {
 }
 
 .project-create-modal .modal-header {
-  padding: 20px 20px 0 20px;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 20px 20px 0;
+  position: relative;
 }
 
 .project-create-form {
@@ -630,17 +583,6 @@ select.form-input {
   outline-offset: 2px;
 }
 
-.form-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 80px;
-}
-
 .form-button.danger {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -648,276 +590,6 @@ select.form-input {
 
 .form-button.danger:hover {
   background: var(--interactive-accent-hover);
-}
-
-.form-button.cancel {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-.form-button.cancel:hover {
-  background: var(--background-modifier-border-hover);
-}
-.form-button.create {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.form-button.create:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.form-description {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-/* Time display (clickable to edit) */
-.task-time-range {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-family: monospace;
-  white-space: nowrap;
-  text-align: center;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-.task-time-range.editable {
-  cursor: pointer;
-  text-decoration: none;
-}
-.task-time-range.editable:hover {
-  color: var(--interactive-accent);
-}
-.task-time-range.idle-placeholder {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.task-time-range.idle-placeholder:hover {
-  opacity: 1;
-}
-.task-timer-display {
-  font-size: 12px;
-  color: var(--interactive-accent);
-  font-family: monospace;
-  font-weight: bold;
-  text-align: center;
-}
-
-/* ===== Core list layout ===== */
-.taskchute-container {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.main-container {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  min-height: 0;
-  height: 100%;
-}
-.task-list-container {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.task-list {
-  flex: 1 1 auto;
-  height: 100%;
-  min-height: 0;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
-  padding-bottom: 50px;
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
-  container-type: inline-size;
-  container-name: taskchute-list;
-}
-
-.task-item {
-  display: grid;
-  grid-template-columns:
-    18px 36px minmax(0, 2.4fr) minmax(0, 1.2fr)
-    minmax(60px, 0.9fr) minmax(52px, 0.8fr) 28px 28px 28px;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 25px 4px 10px;
-  margin: 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.task-item:last-child {
-  border-bottom: none;
-}
-.task-item:hover {
-  background: var(--background-secondary);
-}
-.task-item.selected {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-/* Drag handle */
-.drag-handle {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--text-muted);
-  opacity: 0;
-  transition: opacity 0.2s ease, background-color 0.2s ease;
-  border-radius: 4px;
-}
-.task-item:hover .drag-handle {
-  opacity: 0.6;
-}
-.drag-handle:hover {
-  opacity: 1 !important;
-  color: var(--text-normal);
-  background-color: var(--background-modifier-hover);
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
-.drag-handle.disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-.task-item:hover .drag-handle.disabled {
-  opacity: 0.3;
-}
-
-/* Play/Stop */
-.play-stop-button {
-  font-size: 18px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  transition: color 0.2s;
-  color: #3498db;
-  padding: 2px;
-  padding-top: 4px;
-  border-radius: 4px;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-.play-stop-button.stop {
-  color: #e74c3c;
-  font-weight: bold;
-  background: var(--background-modifier-border);
-}
-
-/* Task name */
-.task-name {
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 13px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: -4px;
-}
-.task-name.wikilink {
-  color: var(--link-color);
-  text-decoration: none;
-  cursor: pointer;
-  border-radius: 3px;
-  padding: 2px 4px;
-  transition: background 0.15s;
-}
-.task-name.wikilink:hover {
-  background: var(--background-modifier-hover);
-  color: var(--link-color-hover);
-}
-
-/* Project display */
-.taskchute-project-display {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.taskchute-project-button {
-  cursor: pointer;
-  color: var(--text-muted);
-  opacity: 0.7;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-.taskchute-project-button:hover {
-  opacity: 1;
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-.taskchute-project-icon {
-  margin-right: 4px;
-}
-.taskchute-project-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.taskchute-external-link {
-  font-size: 14px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  color: var(--text-muted);
-}
-.taskchute-external-link:hover {
-  background: var(--background-modifier-hover);
-  color: var(--interactive-accent);
-}
-.taskchute-project-placeholder {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  opacity: 0;
-  border: 1px dashed var(--background-modifier-border);
-  color: var(--text-muted);
-  font-size: 13px;
-  min-width: 100px;
-}
-.task-item:hover .taskchute-project-placeholder {
-  opacity: 0.6;
-}
-
-/* Time slot header */
-.time-slot-header {
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 12px;
-  margin: 8px 0 4px 0;
-  border-radius: 4px;
-  border-left: 3px solid var(--interactive-accent);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.time-slot-header.other {
-  border-left-color: var(--background-modifier-border);
-}
-.time-slot-header.dragover {
-  background: var(--background-modifier-hover);
-  border-left-width: 5px;
-  transition: all 0.2s ease;
 }
 
 /* Collapsible time slot headers */
@@ -946,62 +618,23 @@ select.form-input {
   opacity: 0.85;
 }
 
-/* Buttons */
-.comment-button,
-.settings-task-button,
-.routine-button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  opacity: 0.7;
-  transition: all 0.2s ease;
-  padding: 2px;
-  padding-top: 4px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-.comment-button:hover,
-.settings-task-button:hover,
-.routine-button:hover {
-  opacity: 1;
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-/* Header area buttons */
-.header-divider {
-  flex: 1;
-  height: 1px;
-  background: transparent;
-}
-.header-action-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .add-task-button {
   background: var(--background-primary);
   color: var(--text-normal);
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
-  padding: 6px 12px 8px 12px; /* larger touch target */
+  padding: 6px 12px 8px; /* larger touch target */
   min-width: 36px; /* a bit wider */
   cursor: pointer;
   font-size: 17px; /* ~1.2x larger + icon */
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02);
   transition: background-color 0.2s ease, border-color 0.2s ease;
+  margin-left: 0;
+  margin-right: 15px;
 }
 .add-task-button:hover {
   background: var(--background-modifier-hover);
-}
-.add-task-button.repositioned {
-  margin-left: 0;
-  margin-right: 0;
 }
 .robot-terminal-button {
   background: var(--background-primary);
@@ -1011,150 +644,7 @@ select.form-input {
   cursor: pointer;
   font-size: 16px;
   transition: background-color 0.2s ease;
-}
-.robot-terminal-button:hover {
-  background: var(--background-modifier-hover);
-}
-
-/* Containers (top bar / date nav minimal) */
-.top-bar-container {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 120px; /* drawer | center | actions */
-  align-items: center;
-  margin-bottom: 8px;
-  gap: 8px;
-}
-.header-divider {
-  display: none;
-}
-.date-nav-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 36px;
-}
-.date-nav-container.compact {
-  justify-content: center;
-  gap: 1px;
-}
-.date-nav-arrow {
-  background: none;
-  border: none;
-  font-size: 20px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0 6px;
-  transition: color 0.2s;
-}
-.date-nav-arrow:hover {
-  color: var(--interactive-accent);
-}
-.date-nav-label {
-  font-size: 15px;
-  font-weight: bold;
-  color: var(--interactive-accent);
-  min-width: 90px;
-  text-align: center;
-  letter-spacing: 0.5px;
-}
-.date-nav-container.is-not-today .calendar-btn {
-  margin-left: 14px;
-}
-.date-nav-container.is-not-today .date-nav-label,
-.date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px !important;
-}
-.is-mobile .date-nav-container.is-not-today .date-nav-label,
-.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px !important;
-}
-.calendar-btn {
-  background: none;
-  border: none;
-  font-size: 16px;
-  padding: 2px;
-  margin-left: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 24px;
-  width: 24px;
-  border-radius: 6px;
-  transition: background 0.2s;
-}
-.calendar-btn:hover {
-  background: var(--background-modifier-border);
-}
-
-/* Drawer / Navigation */
-.drawer-toggle {
-  background: none;
-  border: none;
-  padding: 4px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-muted);
-}
-.drawer-toggle:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-.drawer-toggle-icon {
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding-bottom: 2px;
-}
-.navigation-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  z-index: 900;
-}
-.navigation-overlay-hidden {
-  display: none;
-}
-.navigation-panel {
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 240px;
-  background: var(--background-primary);
-  border-right: 1px solid var(--background-modifier-border);
-  z-index: 901;
-  padding: 16px 8px;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
-}
-.navigation-panel-hidden {
-  display: none;
-}
-.navigation-nav {
-  padding: 20px 0;
-}
-.navigation-nav-item {
-  display: flex;
-  align-items: center;
-  padding: 10px 15px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-.navigation-nav-item:hover {
-  background: var(--background-modifier-hover);
-}
-.navigation-nav-item.active {
-  background: var(--background-modifier-active);
-  font-weight: 500;
-}
-.navigation-nav-icon {
-  margin-right: 10px;
-  font-size: 16px;
-}
-.navigation-nav-label {
-  font-size: 13px;
+  margin-right: 15px;
 }
 
 /* オートコンプリート候補リスト */
@@ -1239,6 +729,80 @@ select.form-input {
 }
 
 .task-mode-option input[type="radio"] {
+  margin: 0;
+}
+
+.task-creation-advanced {
+  margin-top: 21px;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+}
+
+.task-creation-advanced.hidden {
+  display: none;
+}
+
+.task-creation-advanced summary {
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.task-creation-advanced summary::marker {
+  font-size: 0.8em;
+}
+
+.task-creation-advanced summary::-webkit-details-marker {
+  font-size: 0.8em;
+}
+
+.task-creation-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 0 10px;
+}
+
+.task-creation-advanced-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-creation-advanced-field .form-label {
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.task-creation-toggle-row {
+  display: grid;
+  grid-template-columns: 12em auto;
+  align-items: center;
+  gap: 8px;
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--text-normal);
+  justify-content: start;
+  width: fit-content;
+}
+
+.task-creation-toggle-row.hidden {
+  display: none;
+}
+
+.task-creation-reminder-row {
+  margin-top: 10px;
+}
+
+.task-creation-toggle-row span {
+  white-space: nowrap;
+}
+
+.task-creation-toggle-row input[type="checkbox"] {
   margin: 0;
 }
 
@@ -1472,20 +1036,6 @@ select.form-input {
   transition: opacity 0.2s, transform 0.2s;
 }
 
-/* 星の評価表示用のスタイル */
-.star-rating .star {
-  font-size: 24px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-block;
-  user-select: none;
-  /* 絵文字はfilterで色を変更できないため、opacity とtransformで制御 */
-}
-
-.star-rating .star:hover {
-  transform: scale(1.2);
-}
-
 .star-rating .star.taskchute-star-filled {
   /* 選択された星は元の絵文字の色をそのまま使用（濃い金色） */
   opacity: 1;
@@ -1567,22 +1117,6 @@ select.form-input {
   margin-bottom: -2px;
 }
 
-.task-item.dragover-invalid {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.task-item.dragging {
-  opacity: 0.5;
-  cursor: move;
-}
-
-/* タイムスロットヘッダーのドラッグオーバー */
-.time-slot-header.dragover {
-  background-color: var(--background-modifier-hover);
-  border: 1px dashed var(--interactive-accent);
-}
-
 /* プロジェクト選択ドロップダウン */
 .taskchute-project-select {
   padding: 4px 8px;
@@ -1615,7 +1149,7 @@ select.form-input {
 }
 
 .is-hidden {
-  display: none !important;
+  display: none;
 }
 
 /* ステータスバッジ */
@@ -1736,13 +1270,9 @@ select.form-input {
   color: var(--text-normal);
 }
 
-.taskchute-move-calendar__weekdays,
-.taskchute-move-calendar__grid {
+.taskchute-move-calendar__weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-}
-
-.taskchute-move-calendar__weekdays {
   margin-bottom: 4px;
   font-size: 12px;
   color: var(--text-muted);
@@ -1762,6 +1292,8 @@ select.form-input {
 }
 
 .taskchute-move-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
   gap: 4px;
   margin-bottom: 8px;
 }
@@ -1907,12 +1439,12 @@ select.form-input {
 
 .taskchute-routine-group.hidden,
 .taskchute-hidden {
-  display: none !important;
+  display: none;
 }
 
 .taskchute-routine-group.visible,
 .taskchute-visible {
-  display: block !important;
+  display: block;
 }
 
 /* Additional styles for guideline compliance */
@@ -1955,7 +1487,7 @@ select.form-input {
 
 /* タスク移動時のハイライト */
 .taskchute-task-moved {
-  background-color: var(--background-secondary) !important;
+  background-color: var(--background-secondary);
   transition: background-color 0.3s ease;
 }
 
@@ -2110,6 +1642,8 @@ select.form-input {
 }
 
 .project-settings-modal-content .modal-header h3 {
+  margin: 0;
+  color: var(--text-normal);
   font-size: 1.15rem;
 }
 
@@ -2258,9 +1792,8 @@ select.form-input {
   grid-template-rows: repeat(7, var(--heatmap-cell-size));
   grid-auto-columns: var(--heatmap-cell-size);
   grid-auto-flow: column;
-  column-gap: var(--heatmap-week-gap);
-  row-gap: var(--heatmap-week-gap);
-  width: var(--heatmap-grid-width);
+  gap: var(--heatmap-week-gap);
+    width: var(--heatmap-grid-width);
 }
 
 .heatmap-cell {
@@ -2312,18 +1845,6 @@ select.form-input {
 .theme-dark .heatmap-cell[data-level="0"] {
   background: #ebedf0;
   border-color: rgba(240, 246, 252, 0.55);
-}
-
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(118, 75, 162, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(118, 75, 162, 0);
-  }
 }
 
 .heatmap-cell:hover {
@@ -2493,7 +2014,6 @@ select.form-input {
   background: var(--background-modifier-hover);
 }
 
-.heatmap-detail-table th,
 .heatmap-detail-table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
@@ -2501,6 +2021,9 @@ select.form-input {
 }
 
 .heatmap-detail-table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  vertical-align: top;
   text-align: left;
   font-size: 12px;
   color: var(--text-muted);
@@ -2535,18 +2058,20 @@ select.form-input {
 }
 
 .heatmap-detail-time,
-.heatmap-detail-duration,
-.heatmap-detail-rating,
-.heatmap-detail-comment {
+.heatmap-detail-duration {
   font-size: 13px;
   color: var(--text-normal);
 }
 
 .heatmap-detail-rating {
+  font-size: 13px;
+  color: var(--text-normal);
   white-space: nowrap;
 }
 
 .heatmap-detail-comment {
+  font-size: 13px;
+  color: var(--text-normal);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2581,18 +2106,20 @@ select.form-input {
 }
 
 @media (max-width: 900px) {
-  .heatmap-modal-body {
+  :is(.heatmap-modal-body) {
     max-width: 100%;
     padding-bottom: 20px;
   }
 
-  .heatmap-detail-section {
+  :is(.heatmap-detail-section) {
     max-height: none;
   }
 
-  .heatmap-detail-table,
-  .heatmap-detail-table th,
-  .heatmap-detail-table td {
+  :is(
+    .heatmap-detail-table,
+    .heatmap-detail-table th,
+    .heatmap-detail-table td
+  ) {
     font-size: 12px;
   }
 }
@@ -2600,8 +2127,7 @@ select.form-input {
 /* Mobile-specific styles for log detail section */
 @media (max-width: 600px) {
   /* Prevent horizontal scroll on the entire modal/view */
-  .heatmap-container,
-  .heatmap-modal-body {
+  :is(.heatmap-container, .heatmap-modal-body) {
     width: 100%;
     max-width: 100vw;
     overflow-x: hidden;
@@ -2611,7 +2137,7 @@ select.form-input {
   }
 
   /* Heatmap section: bordered box with horizontal scroll inside */
-  .heatmap-grid-section {
+  :is(.heatmap-grid-section) {
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
@@ -2625,14 +2151,13 @@ select.form-input {
   }
 
   /* Left-align heatmap elements on mobile for proper scroll */
-  .heatmap-months,
-  .heatmap-weekdays-container {
+  :is(.heatmap-months, .heatmap-weekdays-container) {
     margin-left: 0;
     margin-right: auto;
   }
 
   /* Detail section: fixed width within viewport, no horizontal scroll */
-  .heatmap-detail-section {
+  .heatmap-detail-section.heatmap-detail-section {
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
@@ -2641,25 +2166,24 @@ select.form-input {
   }
 
   /* Compact summary stats for mobile */
-  .heatmap-detail-summary {
+  :is(.heatmap-detail-summary) {
     flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-start;
   }
 
-  .heatmap-detail-summary > * {
+  :is(.heatmap-detail-summary) > * {
     font-size: 12px;
     min-width: auto;
   }
 
   /* Compact table for mobile - prevent horizontal scroll */
-  .heatmap-detail-table {
+  :is(.heatmap-detail-table) {
     table-layout: fixed;
     width: 100%;
   }
 
-  .heatmap-detail-table th,
-  .heatmap-detail-table td {
+  :is(.heatmap-detail-table th, .heatmap-detail-table td) {
     padding: 6px 2px;
     font-size: 11px;
   }
@@ -2673,31 +2197,31 @@ select.form-input {
   }
 
   /* Task name column: 35% */
-  .heatmap-detail-name {
+  :is(.heatmap-detail-name) {
     word-break: break-word;
     width: 35%;
   }
 
-  .heatmap-detail-title {
+  :is(.heatmap-detail-title) {
     font-size: 11px;
   }
 
   /* Time column: 25% */
-  .heatmap-detail-time {
+  :is(.heatmap-detail-time) {
     font-size: 10px;
     white-space: nowrap;
     width: 25%;
   }
 
   /* Comment column: 40% */
-  .heatmap-detail-comment {
+  :is(.heatmap-detail-comment) {
     font-size: 10px;
     word-break: break-word;
     width: 40%;
   }
 
   /* Header adjustments - row layout with inline action */
-  .heatmap-detail-header {
+  :is(.heatmap-detail-header) {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -2705,7 +2229,7 @@ select.form-input {
     gap: 8px;
   }
 
-  .heatmap-detail-heading {
+  :is(.heatmap-detail-heading) {
     font-size: 14px;
     display: flex;
     align-items: center;
@@ -2715,12 +2239,12 @@ select.form-input {
     flex-wrap: wrap;
   }
 
-  .heatmap-detail-date {
+  :is(.heatmap-detail-date) {
     font-size: 11px;
     white-space: nowrap;
   }
 
-  .heatmap-detail-open-button {
+  :is(.heatmap-detail-open-button) {
     font-size: 10px;
     padding: 4px 8px;
   }
@@ -2766,8 +2290,11 @@ select.form-input {
 /* Main Container Layout */
 .main-container {
   display: flex;
+  flex-direction: row;
+  gap: 10px;
   position: relative;
   flex: 1;
+  height: 100%;
   min-height: 0;
 }
 
@@ -2782,6 +2309,7 @@ select.form-input {
 
 /* Header Divider */
 .header-divider {
+  display: none;
   width: 1px;
   height: 20px;
   background-color: var(--background-modifier-border);
@@ -2851,6 +2379,7 @@ select.form-input {
 }
 
 .navigation-panel-hidden {
+  display: none;
   transform: translateX(-100%);
 }
 
@@ -2893,12 +2422,6 @@ select.form-input {
 .navigation-nav-label {
   font-size: 13px;
 }
-.task-list-container {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
 .button-container {
   display: flex;
   gap: 10px;
@@ -2950,9 +2473,9 @@ select.form-input {
 }
 
 .future-task-button {
-  background-color: var(--background-modifier-border) !important;
-  color: transparent !important;
-  cursor: not-allowed !important;
+  background-color: var(--background-modifier-border);
+  color: transparent;
+  cursor: not-allowed;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2979,10 +2502,11 @@ select.form-input {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .task-list-container h5 {
-  margin: 0 0 10px 0;
+  margin: 0 0 10px;
   color: var(--text-muted);
 }
 
@@ -2997,13 +2521,20 @@ select.form-input {
   display: flex;
   flex-direction: column;
   overflow: auto;
+  container-type: inline-size;
+  container-name: taskchute-list;
 }
 
 .task-item {
-  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 15px 4px 10px;
   cursor: default;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background-color 0.2s ease;
+  margin: 0;
 }
 
 .task-item:last-child {
@@ -3017,6 +2548,7 @@ select.form-input {
 .task-item.selected {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+  font-weight: bold;
 }
 
 .task-item.keyboard-selected {
@@ -3041,15 +2573,6 @@ select.form-input {
   opacity: 0.3;
 }
 
-.task-item {
-  display: grid;
-  grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 15px 4px 10px;
-  margin: 0;
-}
-
 /* ドラッグハンドルのスタイル */
 .drag-handle {
   width: 20px;
@@ -3068,8 +2591,14 @@ select.form-input {
   opacity: 0.6;
 }
 
+.task-item:hover .drag-handle:hover {
+  opacity: 1;
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
 .drag-handle:hover {
-  opacity: 1 !important;
+  opacity: 1;
   color: var(--text-normal);
   background-color: var(--background-modifier-hover);
 }
@@ -3094,6 +2623,7 @@ select.form-input {
 
 .task-item.dragging {
   opacity: 0.5;
+  cursor: move;
   background: var(--background-modifier-hover);
   transform: scale(0.98);
   transition: all 0.2s ease;
@@ -3133,6 +2663,7 @@ select.form-input {
   cursor: pointer;
   font-weight: 500;
   font-size: 13px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3167,8 +2698,7 @@ select.form-input {
 .task-time-range.idle-placeholder:hover {
   opacity: 1;
 }
-.task-duration,
-.task-timer-display {
+.task-duration {
   font-size: 12px;
   color: var(--text-muted);
   text-align: right;
@@ -3182,7 +2712,16 @@ select.form-input {
 }
 
 .task-timer-display {
+  font-size: 12px;
   color: var(--interactive-accent);
+  text-align: right;
+  font-family: monospace;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
   font-weight: bold;
 }
 
@@ -3192,9 +2731,12 @@ select.form-input {
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
-  margin: 8px 0 4px 0;
+  margin: 8px 0 4px;
   border-radius: 4px;
   border-left: 3px solid var(--interactive-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .time-slot-header.other {
@@ -3203,6 +2745,7 @@ select.form-input {
 
 .time-slot-header.dragover {
   background: var(--background-modifier-hover);
+  border: 1px dashed var(--interactive-accent);
   border-left-width: 5px;
   transition: all 0.2s ease;
 }
@@ -3258,8 +2801,14 @@ select.form-input {
   opacity: 0.6;
 }
 
+.task-item:hover .comment-button:not(.disabled):hover {
+  opacity: 1;
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
 .comment-button:not(.disabled):hover {
-  opacity: 1 !important;
+  opacity: 1;
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
@@ -3384,45 +2933,10 @@ select.form-input {
 
 /* ホバー時の明るくなる効果を削除 */
 .taskchute-project-placeholder:hover {
-  /* opacity: 1 !important; 削除 */
+  /* opacity: 1; 削除 */
   /* background: var(--background-modifier-hover); 削除 */
   /* border-color: var(--interactive-accent); 削除 */
   /* color: var(--text-normal); 削除 */
-}
-
-/* プロジェクトボタンスタイル */
-.project-button,
-.project-placeholder {
-  margin-left: 15px;
-  margin-right: 4px;
-  font-size: 14px;
-  border: none;
-  background: none;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  min-width: 26px; /* 一定の幅を確保 */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.project-button {
-  cursor: pointer;
-  color: var(--text-muted);
-  opacity: 0.7;
-}
-
-.project-button:hover {
-  opacity: 1;
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.project-placeholder {
-  /* 透明でスペースのみ確保 */
-  opacity: 0;
-  pointer-events: none;
 }
 
 .task-list-header {
@@ -3455,25 +2969,9 @@ select.form-input {
   pointer-events: none;
 }
 
-.add-task-button {
-  margin-left: 0;
-  margin-right: 15px;
-}
-
 .add-task-button.repositioned {
   margin-left: 0;
   margin-right: 0;
-}
-
-.robot-terminal-button {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s ease;
-  margin-right: 15px;
 }
 
 .robot-terminal-button:hover {
@@ -3481,19 +2979,6 @@ select.form-input {
 }
 
 /* モーダルスタイル */
-.task-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
 .task-modal-content {
   background: var(--background-primary);
   border-radius: 8px;
@@ -3508,7 +2993,7 @@ select.form-input {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 20px 0 20px;
+  padding: 20px 20px 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -3554,7 +3039,7 @@ select.form-input {
 }
 
 .form-input,
-.form-textarea {
+:is(.form-textarea) {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--background-modifier-border);
@@ -3580,27 +3065,9 @@ select.form-input {
   box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
-.form-textarea {
+textarea.form-textarea {
   min-height: 80px;
   resize: vertical;
-}
-
-.form-button-group {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.form-button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 80px;
 }
 
 .form-button.cancel {
@@ -3662,11 +3129,13 @@ select.form-input {
   font-weight: bold;
   background: var(--background-modifier-border);
 }
-.task-item.selected {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-weight: bold;
+
+.play-stop-button.future-task-button {
+  background: var(--background-modifier-border);
+  color: transparent;
+  cursor: not-allowed;
 }
+
 .delete-task-button {
   margin-left: 8px;
   font-size: 15px;
@@ -3710,7 +3179,7 @@ select.form-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px 0 11px 0;
+  padding: 4px 0 11px;
   min-width: 140px;
   font-size: 13px;
   z-index: 1000;
@@ -3734,7 +3203,7 @@ select.form-input {
 .tooltip-header {
   display: flex;
   justify-content: flex-end;
-  padding: 4px 8px 0 8px;
+  padding: 4px 8px 0;
   margin-bottom: 4px;
 }
 
@@ -3818,7 +3287,7 @@ select.form-input {
   background: none;
   border: none;
   font-size: 28px;
-  color: #888;
+  color: #888888;
   cursor: pointer;
   padding: 0 8px;
   transition: color 0.2s;
@@ -3851,11 +3320,11 @@ select.form-input {
 }
 .date-nav-container.is-not-today .date-nav-label,
 .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px !important;
+  margin-left: -14px;
 }
 .is-mobile .date-nav-container.is-not-today .date-nav-label,
 .is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px !important;
+  margin-left: -22px;
 }
 
 .date-nav-container.compact .date-nav-label {
@@ -3868,7 +3337,7 @@ select.form-input {
   background: none;
   border: none;
   font-size: 16px;
-  padding: 2px 2px;
+  padding: 2px;
   margin-left: 6px;
   cursor: pointer;
   display: flex;
@@ -3883,7 +3352,7 @@ select.form-input {
   background: var(--background-modifier-border);
 }
 .date-wikilink {
-  color: #1976d2 !important;
+  color: #1976d2;
   font-weight: bold;
   text-decoration: none;
   display: inline-block;
@@ -3920,16 +3389,6 @@ select.form-input {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-
 .fireworks-container {
   position: absolute;
   top: 0;
@@ -3963,7 +3422,17 @@ select.form-input {
 }
 
 /* 花火の追加エフェクト */
-.firework::before,
+.firework::before {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: inherit;
+  animation: fireworkSparkle 2s ease-out forwards;
+  animation-delay: 0.1s;
+}
+
 .firework::after {
   content: "";
   position: absolute;
@@ -3972,13 +3441,6 @@ select.form-input {
   border-radius: 50%;
   background: inherit;
   animation: fireworkSparkle 2s ease-out forwards;
-}
-
-.firework::before {
-  animation-delay: 0.1s;
-}
-
-.firework::after {
   animation-delay: 0.2s;
 }
 
@@ -4181,16 +3643,16 @@ select.form-input {
 }
 
 .completion-rating-section h4 {
-  margin: 0 0 16px 0;
+  margin: 0 0 16px;
   font-size: 16px;
   color: var(--text-normal);
 }
 
-.rating-group {
+.completion-rating-section .rating-group {
   margin-bottom: 16px;
 }
 
-.rating-label {
+.completion-rating-section .rating-label {
   display: block;
   margin-bottom: 8px;
   font-size: 14px;
@@ -4198,7 +3660,7 @@ select.form-input {
   color: var(--text-normal);
 }
 
-.star-rating {
+.completion-rating-section .star-rating {
   display: flex;
   gap: 4px;
   margin-bottom: 8px;
@@ -4208,6 +3670,7 @@ select.form-input {
   font-size: 20px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-block;
   user-select: none;
   opacity: 0.3;
 }
@@ -4493,7 +3956,7 @@ select.form-input {
 /* タスク名検証スタイル */
 .form-input.error {
   border-color: #e74c3c;
-  background-color: #fee;
+  background-color: #ffeeee;
 }
 
 .task-name-warning {
@@ -4501,7 +3964,7 @@ select.form-input {
   font-size: 12px;
   margin-top: 4px;
   padding: 4px 8px;
-  background-color: #fee;
+  background-color: #ffeeee;
   border-radius: 4px;
 }
 
@@ -4524,15 +3987,9 @@ select.form-input {
 }
 
 .form-button.disabled {
-  background-color: #ccc;
+  background-color: #cccccc;
   cursor: not-allowed;
   opacity: 0.6;
-}
-
-/* Phase 1: 最下部へのドロップインジケーター */
-.task-item.dragover-bottom {
-  border-bottom: 2px solid var(--interactive-accent);
-  margin-bottom: -2px;
 }
 
 .task-list.dragover-bottom::after {
@@ -4544,7 +4001,7 @@ select.form-input {
 }
 
 @container taskchute-list (max-width: 900px) {
-  .task-item {
+  :is(.task-item) {
     grid-template-columns:
       18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
       50px 30px 30px;
@@ -4560,7 +4017,7 @@ select.form-input {
 
 @container taskchute-list (max-width: 640px) {
   /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-  .task-item {
+  :is(.task-item) {
     grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
     gap: 6px;
     padding-left: 6px;
@@ -4573,13 +4030,13 @@ select.form-input {
     display: none;
   }
 
-  .task-item .task-time-range {
+  :is(.task-item .task-time-range) {
     justify-content: flex-start;
     text-align: left;
     padding-left: 4px;
   }
 
-  .task-item .settings-task-button {
+  :is(.task-item .settings-task-button) {
     width: auto;
     min-width: 26px;
   }
@@ -4587,21 +4044,21 @@ select.form-input {
 
 @container taskchute-list (max-width: 520px) {
   /* 520px以下: さらにコンパクト */
-  .task-item {
+  :is(.task-item) {
     grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
     gap: 4px;
     padding-left: 4px;
     padding-right: 12px;
   }
 
-  .task-item .task-time-range {
+  :is(.task-item .task-time-range) {
     font-size: 11px;
     justify-content: flex-start;
     text-align: left;
     padding-left: 4px;
   }
 
-  .task-item .settings-task-button {
+  :is(.task-item .settings-task-button) {
     justify-self: flex-end;
     width: auto;
     min-width: 24px;
@@ -4631,21 +4088,24 @@ select.form-input {
 
 /* Hide Obsidian's default close button (direct child of modal) */
 .routine-edit-modal > .modal-close-button {
-  display: none !important;
+  display: none;
 }
 
 /* Header with title and close button - applies to all custom modals */
-.task-modal-content .modal-header {
+:is(.task-modal-content .modal-header) {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  padding: 20px 56px 10px 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
   position: relative;
 }
 
 .task-modal-content .modal-header h3,
 .task-modal-content .modal-header h4 {
   margin: 0;
+  color: var(--text-normal);
   padding-right: 40px;
   font-size: 1.25rem;
   font-weight: 600;
@@ -4734,6 +4194,14 @@ select.form-input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.routine-form__weekly.is-hidden,
+.routine-form__monthly.is-hidden,
+.routine-form__monthly-date.is-hidden,
+.routine-monthly-date-group.is-hidden,
+.routine-monthly-group__heading.is-hidden {
+  display: none;
 }
 
 .routine-monthday-select {
@@ -5318,50 +4786,42 @@ select.form-input {
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
 }
 
-.project-board-card--drop-before::before,
-.project-board-card--drop-before::after,
-.project-board-card--drop-after::before,
-.project-board-card--drop-after::after {
+.project-board-card--drop-before {
+  --project-board-drop-line-top: -6px;
+  --project-board-drop-plus-top: -10px;
+}
+
+.project-board-card--drop-after {
+  --project-board-drop-line-bottom: -6px;
+  --project-board-drop-plus-bottom: -10px;
+}
+
+:is(.project-board-card--drop-before, .project-board-card--drop-after)::before {
   position: absolute;
   pointer-events: none;
   content: "";
-}
-
-.project-board-card--drop-before::before,
-.project-board-card--drop-after::before {
   left: 12px;
   right: 12px;
+  top: var(--project-board-drop-line-top, auto);
+  bottom: var(--project-board-drop-line-bottom, auto);
   height: 2px;
   background: var(--interactive-accent);
   border-radius: 999px;
 }
 
-.project-board-card--drop-before::before {
-  top: -6px;
-}
-
-.project-board-card--drop-after::before {
-  bottom: -6px;
-}
-
-.project-board-card--drop-before::after,
-.project-board-card--drop-after::after {
+:is(.project-board-card--drop-before, .project-board-card--drop-after)::after {
+  position: absolute;
+  pointer-events: none;
   content: "＋";
   font-size: 14px;
   font-weight: 600;
   color: var(--interactive-accent);
   left: 8px;
+  top: var(--project-board-drop-plus-top, auto);
+  bottom: var(--project-board-drop-plus-bottom, auto);
   padding: 0 4px;
   background: var(--background-primary);
   border-radius: 999px;
-}
-
-.project-board-card--drop-before::after {
-  top: -10px;
-}
-
-.project-board-card--drop-after::after {
-  bottom: -10px;
 }
 
 .project-board-card:active {
@@ -5428,7 +4888,7 @@ select.form-input {
 }
 
 @supports (background: color-mix(in srgb, red 10%, transparent)) {
-  .project-board-column__new {
+  :is(.project-board-column__new) {
     background: color-mix(
       in srgb,
       var(--interactive-accent) 16%,
@@ -5436,7 +4896,7 @@ select.form-input {
     );
   }
 
-  .project-board-column__new:hover {
+  :is(.project-board-column__new:hover) {
     background: color-mix(
       in srgb,
       var(--interactive-accent) 80%,
@@ -5488,16 +4948,16 @@ select.form-input {
 }
 
 @media (max-width: 1200px) {
-  .project-board-modal {
+  :is(.project-board-modal) {
     min-width: auto;
     width: min(95vw, 860px);
   }
 
-  .project-board-view {
+  :is(.project-board-view) {
     max-width: none;
   }
 
-  .project-board-columns {
+  :is(.project-board-columns) {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 }
@@ -5508,7 +4968,7 @@ select.form-input {
 }
 
 .reminder-modal-header {
-  padding: 0 0 16px 0;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 16px;
 }
@@ -5520,14 +4980,14 @@ select.form-input {
 }
 
 .reminder-modal-content {
-  padding: 0 0 20px 0;
+  padding: 0 0 20px;
 }
 
 .reminder-task-name {
   font-size: 1.1em;
   font-weight: 600;
   color: var(--text-normal);
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
 }
 
 .reminder-message {
@@ -5569,20 +5029,66 @@ select.form-input {
 }
 
 /* ===== Reminder Settings Modal ===== */
-.taskchute-reminder-settings-modal .modal-content {
-  padding: 20px;
+.taskchute-reminder-settings-modal {
+  width: 90%;
+  max-width: 500px;
+  padding: 0;
+  background: var(--background-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .reminder-settings-header {
-  padding: 0 0 12px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 56px 10px 20px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin-bottom: 16px;
+  position: relative;
 }
 
 .reminder-settings-header h3 {
   margin: 0;
   color: var(--text-normal);
-  font-size: 1.1em;
+  padding-right: 40px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.reminder-settings-header .modal-close-button {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.reminder-settings-header .modal-close-button:hover {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.reminder-settings-header .modal-close-button svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
 }
 
 .reminder-settings-task {
@@ -5596,20 +5102,23 @@ select.form-input {
 }
 
 .reminder-settings-input-section {
-  margin-bottom: 20px;
+  padding: 10px 20px 0;
+  margin-bottom: 0;
 }
 
 .reminder-settings-input-section label {
   display: block;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 0.9em;
+  margin-bottom: 5px;
+  color: var(--text-normal);
+  font-size: inherit;
+  font-weight: 500;
 }
 
 .reminder-input-container {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .reminder-input-container input[type="number"] {
@@ -5627,22 +5136,50 @@ select.form-input {
   outline: none;
 }
 
+.reminder-input-container input[type="time"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.reminder-input-container input[type="time"]:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+  outline: none;
+}
+
 .reminder-input-suffix {
   color: var(--text-muted);
 }
 
+.reminder-scheduled-info {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .reminder-settings-buttons {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   justify-content: flex-end;
+  margin-top: 28px;
+  padding: 0 20px 20px;
 }
 
 .reminder-settings-buttons .form-button {
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 6px;
   cursor: pointer;
   border: none;
   font-size: 14px;
+  font-weight: 500;
+  min-width: 80px;
   transition: all 0.2s ease;
 }
 
@@ -5665,12 +5202,13 @@ select.form-input {
 }
 
 .reminder-settings-buttons .form-button.danger {
-  background: var(--text-error);
-  color: white;
+  background: var(--background-modifier-border);
+  color: var(--text-error);
 }
 
 .reminder-settings-buttons .form-button.danger:hover {
-  opacity: 0.9;
+  background: var(--background-modifier-hover);
+  color: var(--text-error);
 }
 
 /* ===== Reminder Icon in Task Row ===== */
@@ -5706,6 +5244,474 @@ select.form-input {
 /* Position reminder icon after task name */
 .task-item .task-name + .reminder-icon {
   margin-left: 6px;
+}
+
+/* ===== Recipe v1 ===== */
+.recipe-task-badge {
+  color: var(--text-normal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-left: 6px;
+  opacity: 0.72;
+  line-height: 1;
+  transform: translateY(0);
+  transform-origin: center;
+  transition: opacity 0.2s ease, transform 0.15s ease, color 0.2s ease;
+}
+
+.recipe-task-badge:hover {
+  color: var(--text-normal);
+  opacity: 1;
+  transform: translateY(0) scale(1.15);
+}
+
+.recipe-task-badge--complete {
+  color: var(--color-green, #2e7d32);
+}
+
+.recipe-file-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.recipe-run-popover {
+  position: fixed;
+  z-index: 10000;
+  left: var(--taskchute-tooltip-left, 0);
+  top: var(--taskchute-tooltip-top, 0);
+  width: min(360px, calc(100vw - 20px));
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+}
+
+.recipe-run-popover--mobile {
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  top: auto;
+  width: auto;
+}
+
+:is(.recipe-editor-footer, .recipe-run-footer) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recipe-run-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 8px;
+}
+
+.recipe-card-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.recipe-run-title {
+  font-weight: 600;
+  color: var(--text-normal);
+  font-size: 1.2em;
+}
+
+.recipe-run-title-row {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.recipe-run-edit-button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.recipe-run-edit-button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.recipe-run-summary {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.recipe-run-summary--complete {
+  color: var(--color-green, #2e7d32);
+  border-color: var(--color-green, #2e7d32);
+}
+
+:is(.recipe-steps-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recipe-run-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.recipe-run-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.recipe-run-step--drop-target {
+  background: var(--background-modifier-hover);
+}
+
+.recipe-run-step--dragging {
+  opacity: 0.55;
+}
+
+.recipe-run-step input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+
+.recipe-run-step-check {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
+.recipe-run-step-text {
+  overflow-wrap: anywhere;
+}
+
+.recipe-step-drag-handle {
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.recipe-step-row:hover .recipe-step-drag-handle,
+.recipe-run-step:hover .recipe-step-drag-handle {
+  opacity: 0.6;
+}
+
+.recipe-step-row:hover .recipe-step-drag-handle:hover,
+.recipe-run-step:hover .recipe-step-drag-handle:hover {
+  opacity: 1;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.recipe-step-drag-handle:hover {
+  opacity: 1;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.recipe-step-drag-handle:active {
+  cursor: grabbing;
+}
+
+.recipe-step-row.recipe-run-step--dragging .recipe-step-drag-handle,
+.recipe-run-step.recipe-run-step--dragging .recipe-step-drag-handle {
+  opacity: 0.6;
+}
+
+.recipe-step-drag-handle-icon {
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+.recipe-modal-content {
+  width: 600px;
+  max-width: min(600px, 90vw);
+  padding: 20px;
+}
+
+.recipe-modal-content > .modal-header {
+  padding: 0 40px 12px 0;
+  margin-bottom: 16px;
+}
+
+.recipe-modal-subtitle,
+.recipe-card-meta,
+.recipe-card-preview,
+.recipe-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.recipe-list-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.recipe-search-input,
+.recipe-title-input,
+.recipe-step-input {
+  width: 100%;
+}
+
+.recipe-select-list {
+  margin-top: 12px;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+}
+
+.recipe-manager-list {
+  margin-top: 12px;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recipe-select-name-group {
+  margin-top: 20px;
+}
+
+.recipe-select-create-steps-group {
+  margin-top: 5px;
+}
+
+.recipe-card {
+  width: 100%;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+.recipe-select-item {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-normal);
+  padding: 7px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+.recipe-card + .recipe-card {
+  margin-top: 8px;
+}
+
+.recipe-select-item + .recipe-select-item {
+  margin-top: 2px;
+}
+
+:is(.recipe-select-item:hover, .recipe-card:hover) {
+  background: var(--background-secondary);
+}
+
+.recipe-select-item.is-selected {
+  background: var(--background-secondary);
+  color: var(--text-accent);
+}
+
+.recipe-select-footer {
+  margin-top: 28px;
+}
+
+.recipe-card-main {
+  min-width: 0;
+}
+
+.recipe-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.recipe-card-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.recipe-source-open-button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.recipe-source-open-button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.recipe-card-delete-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recipe-card-delete-button:hover {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+
+.recipe-delete-confirm-overlay {
+  z-index: 1100;
+}
+
+.recipe-delete-confirm-modal {
+  width: min(460px, 90vw);
+  max-width: 460px;
+}
+
+.recipe-edit-form,
+.recipe-steps-section,
+.recipe-usages-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recipe-step-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.recipe-step-remove-button {
+  min-width: 34px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.recipe-add-step-button {
+  align-self: center;
+  margin-top: 15px;
+}
+
+.recipe-usage-details {
+  gap: 0;
+}
+
+.recipe-usage-summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.recipe-usage-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recipe-danger-button {
+  color: var(--text-error);
+}
+
+.recipe-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.recipe-empty-state {
+  color: var(--text-muted);
+  padding: 16px;
+  text-align: center;
+}
+
+.recipe-empty-create-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.recipe-empty-create-title {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.recipe-empty-create-message {
+  font-size: 13px;
+}
+
+.recipe-empty-create-button {
+  margin-top: 4px;
 }
 
 /* ===== Backup Restore Modal ===== */
@@ -5850,7 +5856,7 @@ select.form-input {
 }
 
 .backup-confirm-title {
-  margin: 0 0 16px 0;
+  margin: 0 0 16px;
   padding: 16px 20px 0;
   font-size: 18px;
   font-weight: 600;
@@ -5862,7 +5868,7 @@ select.form-input {
 }
 
 .backup-confirm-warning p {
-  margin: 0 0 8px 0;
+  margin: 0 0 8px;
   line-height: 1.5;
 }
 
@@ -5998,29 +6004,42 @@ select.form-input {
 
 /* ===== Mobile Touch Improvements ===== */
 /* Disable double-tap zoom on interactive elements for better touch responsiveness */
-.routine-button,
-.settings-task-button,
-.comment-button,
-.time-display,
-.task-time-start.editable,
-.task-time-stop.editable,
-.task-time-range.editable,
-.drag-handle,
-.add-task-button,
-.date-nav-arrow,
-.calendar-btn,
-.drawer-toggle,
-.taskchute-button-save,
-.taskchute-button-cancel,
-.taskchute-button-primary,
-.taskchute-button-secondary,
-.taskchute-nav-button,
-.taskchute-project-button,
-.task-button,
-.form-button,
-.tooltip-item,
-.tooltip-close-button,
-.modal-close-button {
+.taskchute-container button,
+.taskchute-tooltip button,
+.task-modal-overlay button,
+.taskchute-log-modal-overlay button,
+.project-board-view button,
+.recipe-modal-content button,
+.taskchute-move-calendar button,
+.taskchute-comment-modal button,
+.taskchute-container .task-time-start.editable,
+.taskchute-container .task-time-stop.editable,
+.taskchute-container .drag-handle,
+.taskchute-container .taskchute-project-button,
+.taskchute-tooltip .tooltip-item,
+[class~="routine-button"],
+[class~="settings-task-button"],
+[class~="comment-button"],
+[class~="time-display"],
+[class~="task-time-start"][class~="editable"],
+[class~="task-time-stop"][class~="editable"],
+[class~="task-time-range"][class~="editable"],
+[class~="drag-handle"],
+[class~="add-task-button"],
+[class~="date-nav-arrow"],
+[class~="calendar-btn"],
+[class~="drawer-toggle"],
+[class~="taskchute-button-save"],
+[class~="taskchute-button-cancel"],
+[class~="taskchute-button-primary"],
+[class~="taskchute-button-secondary"],
+[class~="taskchute-nav-button"],
+[class~="taskchute-project-button"],
+[class~="task-button"],
+[class~="form-button"],
+[class~="tooltip-item"],
+[class~="tooltip-close-button"],
+[class~="modal-close-button"] {
   touch-action: manipulation;
 }
 
@@ -6028,95 +6047,104 @@ select.form-input {
 /* This prevents unwanted hover effects when tapping settings button */
 @media (hover: none) {
   /* Disable task-item hover background change on mobile */
-  .task-item:hover {
-    background: inherit !important;
+  :is(.task-item:hover) {
+    background: inherit;
   }
 
   /* Show routine/settings buttons at default visible opacity instead of hidden */
-  .routine-button,
-  .settings-task-button {
-    opacity: 0.6 !important;
+  :is(.routine-button, .settings-task-button) {
+    opacity: 0.6;
   }
 
-  .routine-button.active {
-    opacity: 1 !important;
+  :is(.routine-button.active) {
+    opacity: 1;
+  }
+
+  .routine-button:hover:not(:active):not(.active),
+  .settings-task-button:hover:not(:active) {
+    opacity: 0.6;
+    background: transparent;
+    color: var(--text-muted);
   }
 
   /* Comment button: transparent by default, visible on tap */
   /* Has comments (done state with active class): always visible */
-  .comment-button.active {
-    opacity: 1 !important;
-    visibility: visible !important;
+  :is(.comment-button.active) {
+    opacity: 1;
+    visibility: visible;
   }
 
   /* Done state without comments: invisible but tappable, shows on :active */
-  .comment-button.no-comment {
-    opacity: 0 !important;
-    visibility: visible !important;
+  .comment-button.no-comment,
+  .task-item:hover .comment-button.no-comment:not(:active) {
+    opacity: 0;
+    visibility: visible;
   }
 
-  .comment-button.no-comment:active {
-    opacity: 0.8 !important;
+  .comment-button.no-comment:active,
+  .task-item:hover .comment-button.no-comment:active {
+    opacity: 0.8;
   }
 
   /* Idle/running state (disabled): completely hidden */
   .comment-button:disabled {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   /* Drag handle: invisible by default, visible on tap */
   .drag-handle:not(.disabled) {
-    opacity: 0 !important;
+    opacity: 0;
   }
 
   .drag-handle:not(.disabled):active {
-    opacity: 0.6 !important;
+    opacity: 0.6;
   }
 
-  .drag-handle.disabled {
-    opacity: 0 !important;
-    pointer-events: none !important;
+  :is(.drag-handle.disabled) {
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* Time range (start time): invisible by default, visible on tap/hover */
   /* On iOS, tapping triggers :hover state which persists until tapping elsewhere */
-  .task-time-range.time-hidden {
-    opacity: 0 !important;
-    visibility: visible !important;
+  :is(.task-time-range.time-hidden) {
+    opacity: 0;
+    visibility: visible;
   }
 
   .task-time-range.time-hidden:hover,
   .task-time-range.time-hidden:active {
-    opacity: 1 !important;
+    opacity: 1;
   }
 
   /* Tap feedback using :active instead of :hover */
   .routine-button:active,
   .settings-task-button:active {
-    opacity: 1 !important;
-    background: var(--background-modifier-border) !important;
+    opacity: 1;
+    background: var(--background-modifier-border);
   }
 
   /* Disable hover-triggered visibility/opacity changes on mobile */
-  .task-item:hover .task-time-range.time-hidden,
-  .task-item:hover .comment-button,
-  .task-item:hover .comment-button.no-comment,
-  .task-item:hover .comment-button.active,
-  .task-item:hover .drag-handle,
-  .task-item:hover .drag-handle.disabled,
-  .task-item:hover .taskchute-project-placeholder,
-  .task-item:hover .routine-button,
-  .task-item:hover .settings-task-button {
-    /* Override hover states - inherit from base mobile styles above */
+  .task-item:hover .task-time-range.time-hidden:not(:active),
+  .task-time-range.time-hidden:hover:not(:active) {
+    opacity: 0;
+  }
+
+  .task-item:hover .drag-handle:not(.disabled):not(:active) {
+    opacity: 0;
+  }
+
+  .task-item:hover .drag-handle.disabled {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
 /* PC only: enable hover styles */
 @media (hover: hover) and (pointer: fine) {
-  .routine-button:hover,
-  .settings-task-button:hover {
+  :is(.routine-button:hover, .settings-task-button:hover) {
     opacity: 1;
   }
 }
@@ -6143,10 +6171,10 @@ select.form-input {
   right: 0;
   bottom: 0;
   background: var(--background-primary);
-  border-radius: 16px 16px 0 0;
+  border-radius: 16px 16px 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
   z-index: 9999;
-  padding: 16px 16px 32px 16px;
+  padding: 16px 16px 32px;
   transform: translateY(100%);
   transition: transform 0.3s ease;
 }

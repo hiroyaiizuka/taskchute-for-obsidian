@@ -9,6 +9,16 @@ import { NotificationService } from '../../src/features/reminder/services/Notifi
 import type { TaskChuteSettings } from '../../src/types';
 import type { App } from 'obsidian';
 
+type IntervalTimerSource = {
+  setInterval: jest.Mock<number, [() => void, number]>
+  clearInterval: jest.Mock<void, [number]>
+}
+
+const createIntervalTimerSource = (intervalId: number): IntervalTimerSource => ({
+  setInterval: jest.fn(() => intervalId),
+  clearInterval: jest.fn(),
+})
+
 // Mock createEl for testing
 const mockCreateEl = (tag: string, options?: Record<string, unknown>): HTMLElement => {
   const el = document.createElement(tag);
@@ -207,6 +217,27 @@ describe('ReminderSystemManager', () => {
       // Restore
       reminderService.hasDateChanged = originalHasDateChanged;
     });
+
+    it('should use the stable timer source when provided', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+      const timerSource = createIntervalTimerSource(321);
+      const registerInterval = jest.fn(() => 123);
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval,
+        registerEvent: jest.fn(),
+        timerSource,
+      });
+
+      manager.startPeriodicTask();
+      manager.dispose();
+
+      expect(timerSource.setInterval).toHaveBeenCalledWith(expect.any(Function), 5000);
+      expect(timerSource.clearInterval).toHaveBeenCalledWith(321);
+      expect(registerInterval).not.toHaveBeenCalled();
+    });
   });
 
   describe('registerEditorEvents', () => {
@@ -312,6 +343,27 @@ describe('ReminderSystemManager', () => {
 
       expect(mockClearInterval).toHaveBeenCalledWith(123);
       mockClearInterval.mockRestore();
+    });
+
+    it('should clear interval on the same stable timer source that registered it', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+      const timerSource = createIntervalTimerSource(123);
+      const registerInterval = jest.fn(() => 456);
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval,
+        registerEvent: jest.fn(),
+        timerSource,
+      });
+
+      manager.startPeriodicTask();
+      manager.dispose();
+
+      expect(timerSource.setInterval).toHaveBeenCalledWith(expect.any(Function), 5000);
+      expect(timerSource.clearInterval).toHaveBeenCalledWith(123);
+      expect(registerInterval).not.toHaveBeenCalled();
     });
 
     it('should not throw when disposing without starting periodic task', () => {

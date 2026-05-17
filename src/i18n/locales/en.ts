@@ -55,6 +55,18 @@ export const en = {
       robotButtonDesc:
         `Enable AI integration via ${TERMINAL_NAME} (requires ${TERMINAL_NAME} plugin).`,
     },
+    recipe: {
+      heading: "Recipes",
+      enable: "Enable recipe feature",
+      enableDesc:
+        "Show recipe setup and management entry points in the task menu and side navigation.",
+    },
+    taskCreation: {
+      heading: "Task creation",
+      showAdvancedName: "Show advanced settings in the task creation modal",
+      showAdvancedDesc:
+        "Adds start time, reminder, and calendar options to the new task modal.",
+    },
     advanced: {
       heading: "Advanced settings",
       sectionCustomize: {
@@ -190,6 +202,7 @@ export const en = {
     navigation: {
       routine: "Routine",
       projects: "Projects",
+      recipes: "Recipes",
       review: "Review",
       log: "Log",
       settings: "Settings",
@@ -220,6 +233,8 @@ export const en = {
       duplicateTask: "📄 duplicate task",
       deleteTask: "🗑️ delete task",
       setProject: "📁 set project",
+      setRecipe: "🍽 set recipe",
+      changeRecipe: "🍽 change recipe",
       removeProject: "➖ remove project",
       removeRoutine: "Remove from routine",
       cancel: "Cancel",
@@ -358,6 +373,10 @@ export const en = {
       title: 'Add new task',
       nameLabel: 'Task name:',
       namePlaceholder: 'Enter task name',
+      advancedSummary: 'Advanced settings',
+      scheduledTimeLabel: 'Start time:',
+      reminderToggle: 'Set reminder:',
+      calendarToggle: 'Register to calendar:',
       modeLabel: 'Mode',
       modeReuse: 'Reuse existing task',
       modeCopy: 'Create new copy',
@@ -441,6 +460,7 @@ export const en = {
       nameRequired: "Please enter a task name",
       reminderDescription: "Set a reminder notification time",
       projectDescription: "Assign or change project",
+      recipeDescription: "Assign a reusable recipe to this task",
       disambiguateStopTimeDateTitle: "Select stop time date",
       disambiguateStopTimeDateMessage: "The stop time you entered could apply to the start day or the next day.",
       disambiguateStopTimeSameDay: "{date} (same day)",
@@ -731,7 +751,7 @@ export const en = {
   reminder: {
     modal: {
       title: "Reminder settings",
-      description: "Set the time to receive a reminder",
+      description: "Reminder time:",
       scheduledInfo: "Scheduled start: {time}",
       clear: "Clear",
       save: "Save",
@@ -748,10 +768,13 @@ export const en = {
     duplicateTask: "📄 duplicate task",
     deleteTask: "🗑️ delete task",
     setProject: "📁 set project",
+    setRecipe: "🍽 set recipe",
+    changeRecipe: "🍽 change recipe",
   },
   forms: {
     reminderDescription: "Set a reminder notification time",
     projectDescription: "Assign or change project",
+    recipeDescription: "Assign a reusable recipe to this task",
   },
   calendar: {
     export: {
@@ -773,6 +796,66 @@ export const en = {
       cannotOpen: "Cannot create preview. Check start time and duration.",
       tooltip: "Open google calendar in browser",
       toGoogle: "🗓️ register calender",
+    },
+  },
+  recipes: {
+    empty: {
+      title: "No recipes yet.",
+      message: "Create one in this modal?",
+      createButton: "Create recipe",
+    },
+    manager: {
+      listTitle: "Recipes",
+      editTitle: "Edit recipe",
+      createTitle: "Create recipe",
+      searchPlaceholder: "Search recipes",
+      createButton: "New",
+      noMatches: "No matching recipes",
+      openSource: "Open recipe source",
+      cardMeta: "{steps} steps / used by {usages} tasks",
+      emptyPreview: "No steps",
+      editButton: "Edit",
+      deleteRecipe: "Delete recipe",
+      nameLabel: "Recipe name",
+      stepsLabel: "Steps",
+      addStep: "+ add step",
+      saveButton: "Save",
+      reorderStep: "Drag to reorder",
+      stepPlaceholder: "Step",
+      removeStep: "Remove step",
+      deleteConfirmTitle: "Delete \"{title}\"?",
+      deleteConfirmMessage: "Linked tasks will also be unassigned.",
+      notices: {
+        loadFailed: "Failed to load recipe manager",
+        openSourceFailed: "Failed to open recipe source",
+        saved: "Recipe saved",
+        saveFailed: "Failed to save recipe",
+        deleted: "Recipe deleted",
+        deleteFailed: "Failed to delete recipe",
+      },
+    },
+    select: {
+      title: "Set recipe",
+      nameLabel: "Recipe name:",
+      stepCount: "{steps} steps",
+      typeToSearch: "Type a recipe name to search or create one",
+      useExisting: "Use existing recipe",
+      createFromQuery: "Create \"{title}\"",
+      createMeta: "Create new",
+      notices: {
+        assigned: "Recipe set",
+        loadFailed: "Failed to load recipes",
+        assignFailed: "Failed to set recipe",
+        createFailed: "Failed to create recipe",
+      },
+    },
+    run: {
+      editRecipe: "Edit recipe",
+      emptySteps: "No steps",
+      reorderStep: "Drag to reorder",
+      notices: {
+        loadFailed: "Failed to load recipe",
+      },
     },
   },
   routineEdit: {

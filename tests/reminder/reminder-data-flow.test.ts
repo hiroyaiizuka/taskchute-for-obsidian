@@ -113,6 +113,42 @@ describe('Reminder Data Flow Integration', () => {
       expect(reviewSchedule?.reminderTime.getMinutes()).toBe(50);
     });
 
+    it('should build separate schedules for duplicate instances with the same file path', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval: jest.fn(),
+        registerEvent: jest.fn(),
+      });
+
+      manager.buildTodaySchedules([
+        {
+          filePath: 'tasks/base.md',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '09:00',
+            reminder_time: '08:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-inst',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:00',
+            reminder_time: '09:55',
+          },
+        },
+      ]);
+
+      const schedules = manager.getReminderService().getSchedules();
+      expect(schedules).toHaveLength(2);
+      expect(schedules.map((schedule) => schedule.reminderTime.getHours()).sort()).toEqual([8, 9]);
+    });
+
     it('should skip tasks without reminder_time', () => {
       const settings = createMockSettings();
       const app = createMockApp();
@@ -275,6 +311,171 @@ describe('Reminder Data Flow Integration', () => {
       expect(schedule?.fired).toBe(false); // Should reset fired flag
     });
 
+    it('should update duplicate schedules that inherit the base reminder', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval: jest.fn(),
+        registerEvent: jest.fn(),
+      });
+
+      manager.buildTodaySchedules([
+        {
+          filePath: 'tasks/base.md',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:00',
+            reminder_time: '09:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-inherit',
+          inheritsBaseReminder: true,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:30',
+            reminder_time: '09:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-override',
+          inheritsBaseReminder: false,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '11:00',
+            reminder_time: '10:50',
+          },
+        },
+      ]);
+
+      manager.onTaskReminderTimeChanged('tasks/base.md', '09:40', 'Base Task', '10:00');
+
+      const reminderService = manager.getReminderService();
+      const base = reminderService.getScheduleByPath('tasks/base.md');
+      const inherited = reminderService.getScheduleByPath('tasks/base.md', 'dup-inherit');
+      const overridden = reminderService.getScheduleByPath('tasks/base.md', 'dup-override');
+      expect(base?.reminderTime.getHours()).toBe(9);
+      expect(base?.reminderTime.getMinutes()).toBe(40);
+      expect(inherited?.reminderTime.getHours()).toBe(9);
+      expect(inherited?.reminderTime.getMinutes()).toBe(40);
+      expect(inherited?.scheduledTime).toBe('10:30');
+      expect(overridden?.reminderTime.getHours()).toBe(10);
+      expect(overridden?.reminderTime.getMinutes()).toBe(50);
+    });
+
+    it('should clear inheritance when a duplicate reminder is set individually', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval: jest.fn(),
+        registerEvent: jest.fn(),
+      });
+
+      manager.buildTodaySchedules([
+        {
+          filePath: 'tasks/base.md',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:00',
+            reminder_time: '09:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-inherit',
+          inheritsBaseReminder: true,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:30',
+            reminder_time: '09:55',
+          },
+        },
+      ]);
+
+      manager.onTaskReminderTimeChanged(
+        'tasks/base.md',
+        '10:10',
+        'Base Task',
+        '10:30',
+        'dup-inherit',
+      );
+
+      let duplicate = manager.getReminderService().getScheduleByPath('tasks/base.md', 'dup-inherit');
+      expect(duplicate?.inheritsBaseReminder).toBe(false);
+      expect(duplicate?.reminderTime.getHours()).toBe(10);
+      expect(duplicate?.reminderTime.getMinutes()).toBe(10);
+
+      manager.onTaskReminderTimeChanged('tasks/base.md', null);
+
+      duplicate = manager.getReminderService().getScheduleByPath('tasks/base.md', 'dup-inherit');
+      expect(duplicate).not.toBeNull();
+      expect(duplicate?.reminderTime.getHours()).toBe(10);
+      expect(duplicate?.reminderTime.getMinutes()).toBe(10);
+    });
+
+    it('should create inherited duplicate schedules when a base reminder is set for the first time', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval: jest.fn(),
+        registerEvent: jest.fn(),
+      });
+
+      manager.buildTodaySchedules([
+        {
+          filePath: 'tasks/base.md',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:00',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-inherit',
+          inheritsBaseReminder: true,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:30',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-cleared',
+          inheritsBaseReminder: false,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '11:00',
+          },
+        },
+      ]);
+
+      manager.onTaskReminderTimeChanged('tasks/base.md', '09:55', 'Base Task', '10:00');
+
+      const reminderService = manager.getReminderService();
+      const base = reminderService.getScheduleByPath('tasks/base.md');
+      const inherited = reminderService.getScheduleByPath('tasks/base.md', 'dup-inherit');
+      const cleared = reminderService.getScheduleByPath('tasks/base.md', 'dup-cleared');
+
+      expect(base).not.toBeNull();
+      expect(inherited).not.toBeNull();
+      expect(inherited?.inheritsBaseReminder).toBe(true);
+      expect(inherited?.scheduledTime).toBe('10:30');
+      expect(inherited?.reminderTime.getHours()).toBe(9);
+      expect(inherited?.reminderTime.getMinutes()).toBe(55);
+      expect(cleared).toBeNull();
+    });
+
     it('should remove schedule when reminder time is cleared', () => {
       const settings = createMockSettings();
       const app = createMockApp();
@@ -304,6 +505,56 @@ describe('Reminder Data Flow Integration', () => {
       manager.onTaskReminderTimeChanged('tasks/test.md', null);
 
       expect(reminderService.getSchedules().length).toBe(0);
+    });
+
+    it('should remove duplicate schedules that inherit the base reminder when base reminder is cleared', () => {
+      const settings = createMockSettings();
+      const app = createMockApp();
+
+      const manager = new ReminderSystemManager({
+        app,
+        settings,
+        registerInterval: jest.fn(),
+        registerEvent: jest.fn(),
+      });
+
+      manager.buildTodaySchedules([
+        {
+          filePath: 'tasks/base.md',
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:00',
+            reminder_time: '09:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-inherit',
+          inheritsBaseReminder: true,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '10:30',
+            reminder_time: '09:55',
+          },
+        },
+        {
+          filePath: 'tasks/base.md',
+          instanceId: 'dup-override',
+          inheritsBaseReminder: false,
+          task: {
+            name: 'Base Task',
+            scheduledTime: '11:00',
+            reminder_time: '10:50',
+          },
+        },
+      ]);
+
+      manager.onTaskReminderTimeChanged('tasks/base.md', null);
+
+      const reminderService = manager.getReminderService();
+      expect(reminderService.getScheduleByPath('tasks/base.md')).toBeNull();
+      expect(reminderService.getScheduleByPath('tasks/base.md', 'dup-inherit')).toBeNull();
+      expect(reminderService.getScheduleByPath('tasks/base.md', 'dup-override')).not.toBeNull();
     });
 
     it('should create new schedule when reminder time is set for task without existing schedule', () => {

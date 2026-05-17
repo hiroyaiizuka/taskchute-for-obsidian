@@ -9,7 +9,7 @@ export interface NameModalOptions {
   closeLabel: string
   context?: {
     doc?: Document
-    win?: Window & typeof globalThis
+    win?: Window
   }
 }
 
@@ -137,7 +137,7 @@ export function createNameModal(options: NameModalOptions): NameModalHandle {
   closeButton.addEventListener('click', close)
   cancelButton.addEventListener('click', close)
 
-  const targetBody = doc.body ?? document.body
+  const targetBody = doc.body ?? activeDocument.body
   targetBody.appendChild(overlay)
   input.focus()
 

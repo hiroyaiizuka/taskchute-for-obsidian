@@ -18,6 +18,9 @@ type NavigationViewStub = {
   };
   plugin: {
     manifest: { id: string };
+    settings: {
+      recipeFeatureEnabled?: boolean;
+    };
     pathManager: { getTaskFolderPath: () => string };
   };
   navigationState: { selectedSection: string | null; isOpen: boolean };
@@ -54,7 +57,7 @@ describe('NavigationController', () => {
     };
   }
 
-  function createController() {
+  function createController(recipeFeatureEnabled = false) {
     const registerManagedDomEvent: NavigationViewStub['registerManagedDomEvent'] = jest.fn(
       (target, event, handler) => {
         target.addEventListener(event, handler);
@@ -82,6 +85,9 @@ describe('NavigationController', () => {
       },
       plugin: {
         manifest: { id: 'taskchute-plus' },
+        settings: {
+          recipeFeatureEnabled,
+        },
         app: undefined,
         pathManager: {
           getTaskFolderPath: () => 'TASKS',
@@ -119,10 +125,42 @@ describe('NavigationController', () => {
     const navItems = container.querySelectorAll('.navigation-nav-item');
     expect(navItems).toHaveLength(5);
     expect(registerManagedDomEvent).toHaveBeenCalledTimes(5);
+    expect(Array.from(navItems).map((item) => item.getAttribute('data-section'))).toEqual([
+      'routine',
+      'review',
+      'log',
+      'projects',
+      'settings',
+    ]);
+    expect(Array.from(container.querySelectorAll('.navigation-nav-label')).map((item) => item.textContent)).toEqual([
+      'ルーチン',
+      'デビュー',
+      'ログ',
+      'プロジェクト',
+      '設定',
+    ]);
 
     navItems[0].dispatchEvent(new Event('click'));
     await Promise.resolve();
     expect(clickSpy).toHaveBeenCalledWith('routine');
+  });
+
+  test('createNavigationUI shows recipe item only when recipe feature is enabled', () => {
+    const { controller } = createController(true);
+    const container = document.createElement('div');
+    attachCreateEl(container);
+
+    controller.createNavigationUI(container);
+
+    expect(Array.from(container.querySelectorAll('.navigation-nav-item')).map((item) => item.getAttribute('data-section'))).toEqual([
+      'routine',
+      'review',
+      'log',
+      'recipes',
+      'projects',
+      'settings',
+    ]);
+    expect(Array.from(container.querySelectorAll('.navigation-nav-label')).map((item) => item.textContent)).toContain('レシピ');
   });
 
   test('initializeNavigationEventListeners connects overlay handler', () => {

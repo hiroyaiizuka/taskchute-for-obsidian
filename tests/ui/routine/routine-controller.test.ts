@@ -7,6 +7,10 @@ import type { RoutineTaskShape } from '../../../src/types/Routine'
 import type { TaskChutePluginLike } from '../../../src/types'
 import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 describe('RoutineController', () => {
   const baseWeekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   const noticeMock = Notice as unknown as jest.Mock
@@ -341,6 +345,44 @@ describe('RoutineController', () => {
     })
 
     expect(document.body.contains(overlay)).toBe(true)
+  })
+
+  it('removes monthday outside listener from the document that registered it', () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({
+      isRoutine: true,
+      routine_type: 'monthly_date',
+      routine_monthdays: [1],
+    })
+
+    try {
+      setActiveDocument(sourceDoc)
+      controller.showRoutineEditModal(task)
+
+      expect(sourceAdd).toHaveBeenCalledWith('click', expect.any(Function))
+
+      setActiveDocument(focusedDoc)
+      const cancelButton = sourceDoc.querySelector<HTMLButtonElement>('.form-button.cancel')
+      expect(cancelButton).not.toBeNull()
+      cancelButton?.click()
+
+      expect(sourceRemove).toHaveBeenCalledWith('click', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('click', expect.any(Function))
+    } finally {
+      sourceDoc.querySelector<HTMLElement>('.task-modal-overlay')?.remove()
+      focusedDoc.querySelector<HTMLElement>('.task-modal-overlay')?.remove()
+      setActiveDocument(originalActiveDocument)
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
+    }
   })
 
   it('sets target_date when setting routine with enabled=false', async () => {

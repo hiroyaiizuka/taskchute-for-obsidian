@@ -54,11 +54,12 @@ export default class RoutineController {
 
   showRoutineEditModal(task: RoutineTaskShape, anchor?: HTMLElement): void {
     this.ensureDomHelpers()
-    const modal = document.createElement('div')
+    const modalDocument = activeDocument
+    const modal = createDiv()
     modal.className = 'task-modal-overlay'
-    const modalContent = modal.createEl('div', { cls: 'task-modal-content routine-edit-modal' })
+    const modalContent = modal.createDiv( { cls: 'task-modal-content routine-edit-modal' })
 
-    const modalHeader = modalContent.createEl('div', { cls: 'modal-header' })
+    const modalHeader = modalContent.createDiv( { cls: 'modal-header' })
     const taskTitle = deriveRoutineModalTitle(task as TaskData)
     modalHeader.createEl('h3', {
       text: t('routineEdit.title', `Routine settings for "${taskTitle}"`, {
@@ -89,7 +90,7 @@ export default class RoutineController {
       event.preventDefault()
     }
     form.addEventListener('keydown', preventInputEnterSubmit)
-    const typeGroup = form.createEl('div', { cls: 'form-group' })
+    const typeGroup = form.createDiv( { cls: 'form-group' })
     typeGroup.createEl('label', {
       text: this.tv('forms.routineType', 'Routine type:'),
       cls: 'form-label',
@@ -118,7 +119,7 @@ export default class RoutineController {
         ? task.routine_type
         : 'daily'
 
-    const timeGroup = form.createEl('div', { cls: 'form-group' })
+    const timeGroup = form.createDiv( { cls: 'form-group' })
     timeGroup.createEl('label', {
       text: this.tv('forms.scheduledTimeLabel', 'Scheduled start time:'),
       cls: 'form-label',
@@ -132,11 +133,11 @@ export default class RoutineController {
     // Prevent touch events from immediately triggering the native time picker
     // when the modal opens (mobile touch event propagation issue)
     timeInput.disabled = true
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       timeInput.disabled = false
     }, 500)
 
-    const intervalGroup = form.createEl('div', { cls: 'form-group' })
+    const intervalGroup = form.createDiv( { cls: 'form-group' })
     intervalGroup.createEl('label', {
       text: this.tv('forms.interval', 'Interval:'),
       cls: 'form-label',
@@ -148,7 +149,7 @@ export default class RoutineController {
       value: String(task.routine_interval ?? 1),
     })
 
-    const startDateGroup = form.createEl('div', { cls: 'form-group' })
+    const startDateGroup = form.createDiv( { cls: 'form-group' })
     startDateGroup.createEl('label', {
       text: this.tv('forms.startDateLabel', 'Start date:'),
       cls: 'form-label',
@@ -159,7 +160,7 @@ export default class RoutineController {
       this.tv('forms.startDateLabel', 'Start date:'),
     )
 
-    const endDateGroup = form.createEl('div', { cls: 'form-group' })
+    const endDateGroup = form.createDiv( { cls: 'form-group' })
     endDateGroup.createEl('label', {
       text: this.tv('forms.endDateLabel', 'End date:'),
       cls: 'form-label',
@@ -170,7 +171,7 @@ export default class RoutineController {
       this.tv('forms.endDateLabel', 'End date:'),
     )
 
-    const enabledGroup = form.createEl('div', { cls: 'form-group' })
+    const enabledGroup = form.createDiv( { cls: 'form-group' })
     enabledGroup.createEl('label', {
       text: this.tv('forms.enabled', 'Enabled:'),
       cls: 'form-label',
@@ -180,7 +181,7 @@ export default class RoutineController {
     })
     enabledToggle.checked = task.routine_enabled !== false
 
-    const weeklyGroup = form.createEl('div', {
+    const weeklyGroup = form.createDiv( {
       cls: 'form-group routine-weekly-group routine-chip-panel',
     })
     weeklyGroup.classList.add('is-hidden')
@@ -200,7 +201,7 @@ export default class RoutineController {
       cls: 'form-label routine-monthly-group__heading',
     })
     monthlyLabel.classList.add('is-hidden')
-    const monthlyGroup = form.createEl('div', {
+    const monthlyGroup = form.createDiv( {
       cls: 'form-group routine-monthly-group routine-chip-panel',
     })
     monthlyGroup.classList.add('is-hidden')
@@ -255,7 +256,7 @@ export default class RoutineController {
       }
     })
 
-    const monthlyDateGroup = form.createEl('div', {
+    const monthlyDateGroup = form.createDiv( {
       cls: 'form-group routine-monthly-date-group',
     })
     monthlyDateGroup.classList.add('is-hidden')
@@ -263,7 +264,7 @@ export default class RoutineController {
       text: this.tv('forms.selectMonthDays', 'Select dates:'),
       cls: 'form-label',
     })
-    const monthdaySelect = monthlyDateGroup.createEl('div', {
+    const monthdaySelect = monthlyDateGroup.createDiv( {
       cls: 'routine-monthday-select',
     })
     const monthdayTrigger = monthdaySelect.createEl('button', {
@@ -274,17 +275,17 @@ export default class RoutineController {
         'aria-expanded': 'false',
       },
     })
-    const monthdayDropdown = monthdaySelect.createEl('div', {
+    const monthdayDropdown = monthdaySelect.createDiv( {
       cls: 'routine-monthday-dropdown is-hidden',
     })
-    const monthdayOptions = monthdayDropdown.createEl('div', {
+    const monthdayOptions = monthdayDropdown.createDiv( {
       cls: 'routine-monthday-options',
     })
     const monthdayCheckboxes: HTMLInputElement[] = []
     for (let day = 1; day <= 31; day += 1) {
       const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
       const checkbox = option.createEl('input', { type: 'checkbox', value: String(day) })
-      option.createEl('span', {
+      option.createSpan( {
         text: this.tv('labels.routineMonthdayNth', '{day}日', { day }),
         cls: 'routine-monthday-option__label',
       })
@@ -293,7 +294,7 @@ export default class RoutineController {
     {
       const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
       const checkbox = option.createEl('input', { type: 'checkbox', value: 'last' })
-      option.createEl('span', {
+      option.createSpan( {
         text: this.tv('labels.routineMonthdayLast', 'Last day'),
         cls: 'routine-monthday-option__label',
       })
@@ -354,7 +355,7 @@ export default class RoutineController {
         closeMonthdayDropdown()
       }
     }
-    document.addEventListener('click', handleMonthdayOutsideClick)
+    modalDocument.addEventListener('click', handleMonthdayOutsideClick)
 
     const syncVisibility = () => {
       const selectedType = typeSelect.value
@@ -372,7 +373,7 @@ export default class RoutineController {
     syncVisibility()
     typeSelect.addEventListener('change', syncVisibility)
 
-    const buttonGroup = form.createEl('div', { cls: 'form-button-group' })
+    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
       type: 'button',
       cls: 'form-button cancel',
@@ -393,7 +394,7 @@ export default class RoutineController {
     }
 
     const closeModal = () => {
-      document.removeEventListener('click', handleMonthdayOutsideClick)
+      modalDocument.removeEventListener('click', handleMonthdayOutsideClick)
       modal.remove()
     }
     closeButton.addEventListener('click', closeModal)
@@ -521,7 +522,7 @@ export default class RoutineController {
       })()
     })
 
-    document.body.appendChild(modal)
+    modalDocument.body.appendChild(modal)
     // Removed timeInput.focus() - prevents native time picker from auto-opening on mobile
   }
 
@@ -777,7 +778,7 @@ export default class RoutineController {
     value: string,
     ariaLabel: string,
   ): HTMLInputElement {
-    const wrapper = container.createEl('div', { cls: 'form-input-icon-wrapper' })
+    const wrapper = container.createDiv( { cls: 'form-input-icon-wrapper' })
     const localeCode = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US'
     const placeholder = getCurrentLocale() === 'ja'
       ? this.tv('forms.datePlaceholderJa', '年/月/日')
@@ -1292,16 +1293,16 @@ export default class RoutineController {
     labelText: string,
     options: Array<{ value: string; label: string }>,
   ): HTMLInputElement[] {
-    const fieldset = parent.createEl('div', { cls: 'routine-chip-fieldset' })
-    fieldset.createEl('div', { cls: 'routine-chip-fieldset__label', text: labelText })
-    const chipContainer = fieldset.createEl('div', { cls: 'routine-chip-fieldset__chips' })
+    const fieldset = parent.createDiv( { cls: 'routine-chip-fieldset' })
+    fieldset.createDiv( { cls: 'routine-chip-fieldset__label', text: labelText })
+    const chipContainer = fieldset.createDiv( { cls: 'routine-chip-fieldset__chips' })
     return options.map((option) => {
       const chip = chipContainer.createEl('label', { cls: 'routine-chip' })
       const checkbox = chip.createEl('input', {
         type: 'checkbox',
         value: option.value,
       })
-      chip.createEl('span', { text: option.label, cls: 'routine-chip__text' })
+      chip.createSpan( { text: option.label, cls: 'routine-chip__text' })
       return checkbox
     })
   }
@@ -1314,7 +1315,7 @@ export default class RoutineController {
       return
     }
     proto.createEl = function (this: HTMLElement, tag: string, options: CreateOptions = {}) {
-      const element = document.createElement(tag)
+      const element = createEl(tag as keyof HTMLElementTagNameMap)
       const cls = options.cls
       if (cls) {
         element.className = cls

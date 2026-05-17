@@ -1,3 +1,4 @@
+import 'obsidian'
 import type { TaskChutePluginLike } from '../types'
 
 const DEVICE_ID_LENGTH_LIMIT = 64
@@ -8,10 +9,7 @@ type CryptoLike = {
 }
 
 function getGlobalCrypto(): CryptoLike | undefined {
-  if (typeof globalThis === 'undefined') {
-    return undefined
-  }
-  const candidate = (globalThis as { crypto?: CryptoLike }).crypto
+  const candidate = activeWindow.crypto as CryptoLike | undefined
   return candidate
 }
 

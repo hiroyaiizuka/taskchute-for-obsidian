@@ -158,6 +158,34 @@ describe('ReminderScheduleManager', () => {
 
         expect(manager.getSchedules()).toHaveLength(2);
       });
+
+      it('should keep schedules with the same task path separate by instance id', () => {
+        manager.addSchedule({
+          taskPath: '/tasks/base.md',
+          taskName: 'Base Task',
+          scheduledTime: '09:00',
+          reminderTime: new Date('2025-01-15T08:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        manager.addSchedule({
+          taskPath: '/tasks/base.md',
+          instanceId: 'dup-inst',
+          taskName: 'Base Task',
+          scheduledTime: '10:00',
+          reminderTime: new Date('2025-01-15T09:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        expect(manager.getSchedules()).toHaveLength(2);
+
+        manager.markAsFired('/tasks/base.md', 'dup-inst');
+
+        expect(manager.getScheduleByPath('/tasks/base.md')?.fired).toBe(false);
+        expect(manager.getScheduleByPath('/tasks/base.md', 'dup-inst')?.fired).toBe(true);
+      });
     });
 
     describe('removeSchedule', () => {
@@ -200,6 +228,32 @@ describe('ReminderScheduleManager', () => {
         const schedules = manager.getSchedules();
         expect(schedules).toHaveLength(1);
         expect(schedules[0].taskPath).toBe('/tasks/task2.md');
+      });
+
+      it('should remove only the path-keyed schedule when duplicate schedules share the path', () => {
+        manager.addSchedule({
+          taskPath: '/tasks/base.md',
+          taskName: 'Base Task',
+          scheduledTime: '09:00',
+          reminderTime: new Date('2025-01-15T08:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        manager.addSchedule({
+          taskPath: '/tasks/base.md',
+          instanceId: 'dup-inst',
+          taskName: 'Base Task',
+          scheduledTime: '10:00',
+          reminderTime: new Date('2025-01-15T09:55:00'),
+          fired: false,
+          beingDisplayed: false,
+        });
+
+        manager.removeSchedule('/tasks/base.md');
+
+        expect(manager.getScheduleByPath('/tasks/base.md')).toBeNull();
+        expect(manager.getScheduleByPath('/tasks/base.md', 'dup-inst')).not.toBeNull();
       });
     });
 

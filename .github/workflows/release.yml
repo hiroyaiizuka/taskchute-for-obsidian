@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   auto-release:
@@ -97,10 +99,15 @@ jobs:
           fi
           cp "$SRC_CSS" "$PKG_DIR/styles.css"
 
-          (cd "$PKG_DIR" && zip -r "../${PKG_DIR}.zip" .)
-
-          echo "zip=${PKG_DIR}.zip" >> $GITHUB_OUTPUT
           echo "dir=${PKG_DIR}" >> $GITHUB_OUTPUT
+
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ steps.prep.outputs.dir }}/main.js
+            ${{ steps.prep.outputs.dir }}/manifest.json
+            ${{ steps.prep.outputs.dir }}/styles.css
 
       - name: Create GitHub Release (published)
         uses: softprops/action-gh-release@v2
@@ -109,7 +116,6 @@ jobs:
           name: ${{ steps.bump.outputs.new_version }}
           generate_release_notes: true
           files: |
-            ${{ steps.prep.outputs.zip }}
             ${{ steps.prep.outputs.dir }}/main.js
             ${{ steps.prep.outputs.dir }}/manifest.json
             ${{ steps.prep.outputs.dir }}/styles.css

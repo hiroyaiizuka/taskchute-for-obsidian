@@ -1,4 +1,5 @@
-import { Notice } from "obsidian";
+import { Notice } from "obsidian"
+;
 
 import { t } from "../../i18n";
 import type { TaskChutePluginLike } from "../../types";

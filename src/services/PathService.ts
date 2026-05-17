@@ -1,4 +1,5 @@
-import { Plugin, normalizePath } from 'obsidian';
+import { Plugin, normalizePath } from 'obsidian'
+;
 import { TaskChuteSettings } from '../types';
 import { t } from '../i18n';
 
@@ -18,7 +19,7 @@ export class PathService {
   };
 
   static GROUP = 'TaskChute' as const;
-  static SUBDIR = { task: 'Task', log: 'Log', review: 'Review' } as const;
+  static SUBDIR = { task: 'Task', log: 'Log', review: 'Review', recipe: 'Recipes' } as const;
 
   private resolveBase(): string {
     const mode = this.plugin.settings.locationMode ?? 'vaultRoot';
@@ -55,6 +56,11 @@ export class PathService {
   getReviewDataPath(): string {
     const base = this.resolveBase();
     return this.join(base, PathService.GROUP, PathService.SUBDIR.review);
+  }
+
+  getRecipeFolderPath(): string {
+    const base = this.resolveBase();
+    return this.join(base, PathService.GROUP, PathService.SUBDIR.recipe);
   }
 
   getLogYearPath(year: number | string): string {

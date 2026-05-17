@@ -1,3 +1,4 @@
+import 'obsidian'
 /**
  * ReminderIconRenderer - Renders reminder icon in task row
  *
@@ -89,7 +90,7 @@ export class ReminderIconRenderer {
     }
 
     // Fallback for non-Obsidian environments
-    const el = document.createElement(tag);
+    const el = createEl(tag as keyof HTMLElementTagNameMap);
     if (options?.cls) {
       const classes = options.cls.split(' ').filter(c => c.length > 0);
       if (classes.length > 0) {
@@ -128,7 +129,7 @@ export class ReminderIconRenderer {
     }
 
     // Fallback for non-Obsidian environments
-    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    const el = createSvg(tag as keyof SVGElementTagNameMap);
     if (options?.cls) {
       el.setAttribute('class', options.cls);
     }

@@ -1,13 +1,4 @@
-import {
-  App,
-  Notice,
-  Plugin,
-  PluginSettingTab,
-  Setting,
-  TFile,
-  TFolder,
-  AbstractInputSuggest,
-} from "obsidian"
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest } from "obsidian"
 import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
 import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
@@ -482,18 +473,116 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
   }
 
+  private renderTaskCreationSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.taskCreation.heading", "Task creation"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(
+        t(
+          "settings.taskCreation.showAdvancedName",
+          "Show advanced settings in the task creation modal",
+        ),
+      )
+      .setDesc(
+        t(
+          "settings.taskCreation.showAdvancedDesc",
+          "Adds start time, reminder, and calendar options to the new task modal.",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.showTaskCreationAdvancedSettings ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.showTaskCreationAdvancedSettings = value
+            await this.plugin.saveSettings()
+          })
+      })
+
+    const defaultReminderSetting = new Setting(container)
+      .setName(t("settings.reminder.defaultMinutesName", "Default reminder time (minutes)"))
+      .setDesc(t("settings.reminder.defaultMinutesDesc", "Default value when setting a new reminder."))
+      .addText((text) => {
+        text.inputEl.type = "number"
+        text.inputEl.min = "0"
+        text.inputEl.step = "1"
+        const current = this.plugin.settings.defaultReminderMinutes ?? 5
+        text
+          .setPlaceholder("5")
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw)
+            const normalized = Number.isFinite(parsed)
+              ? Math.max(0, Math.round(parsed))
+              : 5
+            this.plugin.settings.defaultReminderMinutes = normalized
+            await this.plugin.saveSettings()
+          })
+      })
+
+    defaultReminderSetting.controlEl?.addClass("taskchute-number-input")
+    this.renderGoogleCalendarSection(container)
+  }
+
   private renderAdvancedSection(container: HTMLElement): void {
     const details = container.createEl('details', { cls: 'taskchute-advanced-settings' })
     const summary = details.createEl('summary', { cls: 'taskchute-advanced-summary' })
-    summary.createEl('span', {
+    summary.createSpan( {
       cls: 'taskchute-advanced-heading',
       text: t('settings.advanced.heading', 'Advanced settings'),
     })
 
-    const content = details.createEl('div', { cls: 'taskchute-advanced-content' })
+    const content = details.createDiv( { cls: 'taskchute-advanced-content' })
+    this.renderTaskCreationSection(content)
+    this.renderRecipeFeatureSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
+  }
+
+  private renderRecipeFeatureSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.recipe.heading", "Recipes"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(t("settings.recipe.enable", "Enable recipe feature"))
+      .setDesc(
+        t(
+          "settings.recipe.enableDesc",
+          "Show recipe setup and management entry points in the task menu and side navigation.",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.recipeFeatureEnabled ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.recipeFeatureEnabled = value
+            await this.plugin.saveSettings()
+            this.notifyRecipeFeatureSettingsChanged()
+          })
+      })
+  }
+
+  private notifyRecipeFeatureSettingsChanged(): void {
+    const workspace = this.app.workspace as {
+      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
+    }
+    const leaves = typeof workspace.getLeavesOfType === "function"
+      ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+      : []
+    leaves.forEach((leaf) => {
+      const view = leaf.view as {
+        onRecipeFeatureSettingsChanged?: () => void
+        renderTaskList?: () => void
+      } | undefined
+      if (typeof view?.onRecipeFeatureSettingsChanged === "function") {
+        view.onRecipeFeatureSettingsChanged()
+        return
+      }
+      view?.renderTaskList?.()
+    })
   }
 
   private renderSectionCustomization(container: HTMLElement): void {
@@ -506,14 +595,14 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       ?? [...SectionConfigService.DEFAULT_BOUNDARIES]
     const draft: SectionBoundary[] = current.map(b => ({ ...b }))
 
-    const listEl = container.createEl('div', { cls: 'taskchute-section-boundaries' })
+    const listEl = container.createDiv( { cls: 'taskchute-section-boundaries' })
 
     const renderBoundaryList = () => {
       listEl.empty()
       draft.forEach((boundary, idx) => {
-        const row = listEl.createEl('div', { cls: 'taskchute-boundary-row' })
+        const row = listEl.createDiv( { cls: 'taskchute-boundary-row' })
 
-        row.createEl('span', {
+        row.createSpan( {
           cls: 'taskchute-boundary-label',
           text: t('settings.advanced.sectionCustomize.boundaryLabel', `Boundary ${idx + 1}`, { index: idx + 1 }),
         })
@@ -557,7 +646,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     renderBoundaryList()
 
     // Buttons row
-    const buttonsEl = container.createEl('div', { cls: 'taskchute-section-buttons' })
+    const buttonsEl = container.createDiv( { cls: 'taskchute-section-buttons' })
 
     // Add boundary button
     const addBtn = buttonsEl.createEl('button', {
@@ -728,8 +817,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings()
         })
       })
-
-    this.renderGoogleCalendarSection(container)
   }
 }
 

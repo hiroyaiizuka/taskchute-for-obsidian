@@ -15,12 +15,12 @@ export default class NavigationLogController {
   constructor(private readonly host: NavigationLogHost) {}
 
   openLogModal(): void {
-    const existing = document.querySelector(`.${OVERLAY_CLASS}`)
+    const existing = activeDocument.querySelector(`.${OVERLAY_CLASS}`)
     existing?.remove()
 
-    const overlay = document.createElement('div')
+    const overlay = createDiv()
     overlay.className = OVERLAY_CLASS
-    const container = document.createElement('div')
+    const container = createDiv()
     container.className = CONTAINER_CLASS
     overlay.appendChild(container)
 
@@ -34,7 +34,7 @@ export default class NavigationLogController {
       }
     }
     overlay.addEventListener('click', handleOverlay)
-    document.body.appendChild(overlay)
+    activeDocument.body.appendChild(overlay)
 
     const logView = new LogView(this.host.plugin, container)
     void logView.render()

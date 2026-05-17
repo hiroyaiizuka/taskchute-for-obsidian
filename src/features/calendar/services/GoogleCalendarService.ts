@@ -1,4 +1,4 @@
-import { App } from "obsidian"
+import { App } from 'obsidian'
 import type { GoogleCalendarSettings, TaskInstance } from "../../../types"
 import { ensureFrontmatterObject } from "../../../utils/frontmatter"
 import { isTimeString } from "../../../types/TaskFields"
@@ -107,7 +107,7 @@ export class GoogleCalendarService {
 
   open(url: string): void {
     if (typeof window !== "undefined") {
-      window.open(url, "_blank", "noopener")
+      activeWindow.open(url, "_blank", "noopener")
     }
   }
 

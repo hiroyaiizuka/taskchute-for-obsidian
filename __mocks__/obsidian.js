@@ -267,11 +267,14 @@ const createMockElement = (tag = 'div') => {
       this.appendChild(el)
       return el
     }),
+    createDiv: jest.fn(function(options = {}) {
+      return this.createEl('div', options)
+    }),
     createSpan: jest.fn(function(options = {}) {
-      const span = createMockElement('span')
-      if (options.text) span.textContent = options.text
-      this.appendChild(span)
-      return span
+      return this.createEl('span', options)
+    }),
+    createSvg: jest.fn(function(tag, options = {}) {
+      return this.createEl(tag, options)
     }),
     empty: jest.fn(function() {
       this.children = []
@@ -368,6 +371,43 @@ const normalizePath = (path) => {
   return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/\.$/, '')
 }
 
+const createEl = (tag, options = {}) => createMockElement(tag).createEl
+  ? (() => {
+      const parent = createMockElement('div')
+      return parent.createEl(tag, options)
+    })()
+  : createMockElement(tag)
+
+const createDiv = (options = {}) => {
+  const parent = createMockElement('div')
+  return parent.createDiv(options)
+}
+
+const createSpan = (options = {}) => {
+  const parent = createMockElement('div')
+  return parent.createSpan(options)
+}
+
+const createSvg = (tag, options = {}) => {
+  const parent = createMockElement('div')
+  return parent.createSvg(tag, options)
+}
+
+const activeDocument = document
+const activeWindow = window
+const getLanguage = jest.fn(() => 'en')
+
+if (typeof globalThis.createDiv === 'undefined') {
+  Object.assign(globalThis, {
+    activeDocument,
+    activeWindow,
+    createEl,
+    createDiv,
+    createSpan,
+    createSvg,
+  })
+}
+
 const TFolder = jest.fn().mockImplementation(() => ({
   path: "test-folder",
   name: "test-folder",
@@ -388,6 +428,13 @@ module.exports = {
   Setting,
   moment,
   requestUrl,
+  activeDocument,
+  activeWindow,
+  createEl,
+  createDiv,
+  createSpan,
+  createSvg,
+  getLanguage,
   normalizePath,
   mockApp,
   mockLeaf,

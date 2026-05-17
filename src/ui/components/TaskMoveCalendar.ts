@@ -1,3 +1,4 @@
+import 'obsidian'
 import type { LocaleKey } from "../../i18n"
 import { getCurrentLocale, t } from "../../i18n"
 
@@ -49,6 +50,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
   private currentMonth: Date
   private selectedDate: Date
   private outsideClickHandler?: (event: MouseEvent) => void
+  private outsideClickDocument?: Document
 
   constructor(options: TaskMoveCalendarOptions) {
     this.anchor = options.anchor
@@ -90,12 +92,13 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.close()
     }
 
-    this.container = document.createElement("div")
+    const ownerDocument = this.anchor.ownerDocument ?? activeDocument
+    this.container = createDiv()
     this.container.className = "taskchute-move-calendar"
 
     this.render()
 
-    document.body.appendChild(this.container)
+    ownerDocument.body.appendChild(this.container)
     this.position()
 
     this.outsideClickHandler = (event) => {
@@ -108,19 +111,22 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
         this.close()
       }
     }
+    this.outsideClickDocument = ownerDocument
 
     // Defer registration to avoid immediately closing due to same click
-    setTimeout(() => {
+    activeWindow.setTimeout(() => {
       if (this.outsideClickHandler) {
-        document.addEventListener("mousedown", this.outsideClickHandler, true)
+        ownerDocument.addEventListener("mousedown", this.outsideClickHandler, true)
       }
     }, 0)
   }
 
   close(): void {
     if (this.outsideClickHandler) {
-      document.removeEventListener("mousedown", this.outsideClickHandler, true)
+      const listenerDocument = this.outsideClickDocument ?? activeDocument
+      listenerDocument.removeEventListener("mousedown", this.outsideClickHandler, true)
       this.outsideClickHandler = undefined
+      this.outsideClickDocument = undefined
     }
 
     if (this.container?.parentElement) {
@@ -140,7 +146,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.container.removeChild(this.container.firstChild)
     }
 
-    const header = this.container.createEl("div", {
+    const header = this.container.createDiv( {
       cls: "taskchute-move-calendar__header",
     })
 
@@ -158,7 +164,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.changeMonth(-1)
     })
 
-    header.createEl("div", {
+    header.createDiv( {
       cls: "taskchute-move-calendar__title",
       text: this.monthFormatter.format(this.currentMonth),
     })
@@ -177,11 +183,11 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.changeMonth(1)
     })
 
-    const weekdayRow = this.container.createEl("div", {
+    const weekdayRow = this.container.createDiv( {
       cls: "taskchute-move-calendar__weekdays",
     })
     this.weekdayLabels.forEach((day, index) => {
-      const cell = weekdayRow.createEl("div", {
+      const cell = weekdayRow.createDiv( {
         cls: "taskchute-move-calendar__weekday",
         text: day,
       })
@@ -189,7 +195,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       if (index === 6) cell.classList.add("is-saturday")
     })
 
-    const grid = this.container.createEl("div", {
+    const grid = this.container.createDiv( {
       cls: "taskchute-move-calendar__grid",
     })
 
@@ -242,7 +248,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.createDayButton(grid, date, false)
     }
 
-    const footer = this.container.createEl("div", {
+    const footer = this.container.createDiv( {
       cls: "taskchute-move-calendar__footer",
     })
 
@@ -310,8 +316,9 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
 
     const rect = this.anchor.getBoundingClientRect()
     const calendarRect = this.container.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const ownerWindow = this.container.ownerDocument.defaultView ?? this.anchor.ownerDocument.defaultView ?? window
+    const viewportWidth = ownerWindow.innerWidth
+    const viewportHeight = ownerWindow.innerHeight
 
     let left = rect.left
     let top = rect.bottom + 8

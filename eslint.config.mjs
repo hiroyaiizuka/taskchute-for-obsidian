@@ -37,6 +37,12 @@ const sharedGlobals = {
   clearInterval: "readonly",
   requestAnimationFrame: "readonly",
   cancelAnimationFrame: "readonly",
+  activeDocument: "readonly",
+  activeWindow: "readonly",
+  createDiv: "readonly",
+  createEl: "readonly",
+  createSpan: "readonly",
+  createSvg: "readonly",
   Option: "readonly",
   confirm: "readonly",
 };

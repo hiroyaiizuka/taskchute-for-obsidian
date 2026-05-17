@@ -7,6 +7,7 @@ import NavigationRoutineController from './NavigationRoutineController'
 import NavigationSettingsController from './NavigationSettingsController'
 import { VIEW_TYPE_PROJECT_BOARD } from '../../types'
 import type { RoutineTaskShape } from '../../types/routine'
+import RecipeManagerModal from '../../features/recipe/modals/RecipeManagerModal'
 
 export interface NavigationSectionHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -21,7 +22,7 @@ export interface NavigationSectionHost {
   leaf: WorkspaceLeaf
 }
 
-export type NavigationSection = 'routine' | 'projects' | 'review' | 'log' | 'settings'
+export type NavigationSection = 'routine' | 'recipes' | 'projects' | 'review' | 'log' | 'settings'
 
 interface NavigationCallbacks {
   closeNavigation: () => void
@@ -108,6 +109,17 @@ export default class NavigationSectionController {
         this.renderRoutineList()
         this.callbacks.openNavigation()
       }
+      this.callbacks.closeNavigation()
+      return
+    }
+    if (section === 'recipes') {
+      if (this.host.plugin.settings.recipeFeatureEnabled !== true) {
+        this.callbacks.closeNavigation()
+        return
+      }
+      new RecipeManagerModal(this.host.app, this.host.plugin, {
+        onRecipesChanged: () => this.host.reloadTasksAndRestore?.({ runBoundaryCheck: true }),
+      }).open()
       this.callbacks.closeNavigation()
       return
     }

@@ -1,4 +1,5 @@
-import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian'
+;
 
 import { t } from '../../../i18n';
 
@@ -51,7 +52,7 @@ class RoutineConfirmModal extends Modal {
     });
     contentEl.createEl('p', { text: this.message });
 
-    const buttonRow = contentEl.createEl('div', { cls: 'routine-confirm__buttons' });
+    const buttonRow = contentEl.createDiv( { cls: 'routine-confirm__buttons' });
     const confirmBtn = buttonRow.createEl('button', {
       text: t('routineManager.confirm.removeButton', 'Remove'),
       cls: 'routine-confirm__button mod-danger',
@@ -120,12 +121,12 @@ export class RoutineManagerModal extends Modal {
     contentEl.addClass('routine-manager');
     this.modalEl?.classList.add('routine-manager-modal');
 
-    const header = contentEl.createEl('div', { cls: 'routine-manager__header' });
+    const header = contentEl.createDiv( { cls: 'routine-manager__header' });
     header.createEl('h3', {
       text: this.tv('dialog.title', 'Routine manager'),
     });
 
-    const controls = header.createEl('div', { cls: 'routine-manager__controls' });
+    const controls = header.createDiv( { cls: 'routine-manager__controls' });
     this.searchInput = controls.createEl('input', {
       type: 'search',
       attr: {
@@ -134,11 +135,11 @@ export class RoutineManagerModal extends Modal {
     });
     this.searchInput.addEventListener('input', () => this.applyFilters());
 
-    const body = contentEl.createEl('div', { cls: 'routine-manager__body' });
-    const tableWrapper = body.createEl('div', { cls: 'routine-table__wrapper' });
+    const body = contentEl.createDiv( { cls: 'routine-manager__body' });
+    const tableWrapper = body.createDiv( { cls: 'routine-table__wrapper' });
 
-    const table = tableWrapper.createEl('div', { cls: 'routine-table' });
-    const headRow = table.createEl('div', { cls: 'routine-table__row routine-table__row--head' });
+    const table = tableWrapper.createDiv( { cls: 'routine-table' });
+    const headRow = table.createDiv( { cls: 'routine-table__row routine-table__row--head' });
     const headerLabels = [
       this.tv('dialog.columns.title', 'Title'),
       this.tv('dialog.columns.type', 'Type'),
@@ -151,10 +152,10 @@ export class RoutineManagerModal extends Modal {
       this.tv('dialog.columns.enabled', 'Enabled'),
     ];
     headerLabels.forEach((label) => {
-      headRow.createEl('div', { cls: 'routine-table__cell', text: label });
+      headRow.createDiv( { cls: 'routine-table__cell', text: label });
     });
 
-    const actionsHeaderCell = headRow.createEl('div', {
+    const actionsHeaderCell = headRow.createDiv( {
       cls: 'routine-table__cell routine-table__cell--actions routine-table__cell--actions-header',
     });
     actionsHeaderCell.setAttr(
@@ -162,7 +163,7 @@ export class RoutineManagerModal extends Modal {
       this.tv('dialog.columns.actions', 'Actions'),
     );
 
-    this.tableBody = table.createEl('div', { cls: 'routine-table__body' });
+    this.tableBody = table.createDiv( { cls: 'routine-table__body' });
 
     this.loadRows();
     this.applyFilters();
@@ -212,7 +213,7 @@ export class RoutineManagerModal extends Modal {
     this.tableBody.empty();
 
     if (this.filtered.length === 0) {
-      this.tableBody.createEl('div', {
+      this.tableBody.createDiv( {
         cls: 'routine-empty',
         text: this.tv('status.noneFound', 'No routines found'),
       });
@@ -226,10 +227,10 @@ export class RoutineManagerModal extends Modal {
 
   private renderRow(row: RoutineRow, index: number): HTMLElement {
     const { file, fm } = row;
-    const rowEl = document.createElement('div');
+    const rowEl = createDiv();
     rowEl.classList.add('routine-table__row');
 
-    const titleCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
+    const titleCell = rowEl.createDiv( { cls: 'routine-table__cell' });
     const link = titleCell.createEl('a', {
       text: file.basename,
       attr: { href: '#' },
@@ -242,42 +243,42 @@ export class RoutineManagerModal extends Modal {
       })()
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: this.typeLabel(fm.routine_type),
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: String(Math.max(1, Number(fm.routine_interval ?? 1))),
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: this.weekdayLabel(fm),
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: this.weekLabel(fm),
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: this.scheduledTimeLabel(fm),
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: fm.routine_start || '-',
     });
 
-    rowEl.createEl('div', {
+    rowEl.createDiv( {
       cls: 'routine-table__cell',
       text: fm.routine_end || '-',
     });
 
-    const enabledCell = rowEl.createEl('div', { cls: 'routine-table__cell' });
+    const enabledCell = rowEl.createDiv( { cls: 'routine-table__cell' });
     const isEnabled = fm.routine_enabled !== false;
     const toggle = enabledCell.createEl('button', {
       text: isEnabled ? '✓' : '×',
@@ -293,12 +294,12 @@ export class RoutineManagerModal extends Modal {
         this.updateCachedEnabledState(file.path, newValue);
         this.renderTable();
         await this.updateRoutineEnabled(file, newValue);
-        window.setTimeout(() => void this.refreshRow(file, newValue), 200);
+        activeWindow.setTimeout(() => void this.refreshRow(file, newValue), 200);
         this.refreshActiveView();
       })()
     });
 
-    const actionsCell = rowEl.createEl('div', {
+    const actionsCell = rowEl.createDiv( {
       cls: 'routine-table__cell routine-table__cell--actions',
     });
     const editBtn = actionsCell.createEl('button', {
@@ -345,7 +346,7 @@ export class RoutineManagerModal extends Modal {
           this.pendingRemovalPaths.add(file.path);
           this.removeRowFromCaches(file.path);
           this.renderTable();
-          window.setTimeout(() => void this.reloadAll(), 250);
+          activeWindow.setTimeout(() => void this.reloadAll(), 250);
         }
       })()
     });

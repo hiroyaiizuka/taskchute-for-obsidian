@@ -17,6 +17,10 @@ jest.mock('obsidian', () => {
 
 const NoticeMock = Notice as unknown as jest.Mock
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 const ensureCreateEl = () => {
   const proto = HTMLElement.prototype as unknown as {
     createEl?: (
@@ -278,6 +282,77 @@ const createTimeController = () => {
     })
   })
 
+  describe('recipe menu item', () => {
+    test('does not render when recipe feature is disabled', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        isRecipeFeatureEnabled: jest.fn(() => false),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Gym.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip.textContent).not.toContain('レシピ')
+    })
+
+    test('shows set recipe when linked recipe is no longer available', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        hasRecipeAssigned: jest.fn(() => false),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Missing.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      expect(queryTooltipItem('レシピを設定')).toBeTruthy()
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip.textContent).not.toContain('レシピを変更')
+    })
+
+    test('shows change recipe when linked recipe is available', () => {
+      const showRecipeSelectModal = jest.fn()
+      const host = createHost({
+        showRecipeSelectModal,
+        hasRecipeAssigned: jest.fn(() => true),
+      })
+      const controller = new TaskSettingsTooltipController(host)
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      const instance = createInstance({
+        task: {
+          path: 'Tasks/sample.md',
+          name: 'Sample task',
+          recipePath: 'TaskChute/Recipes/Gym.md',
+        },
+      })
+
+      controller.show(instance, anchor)
+
+      expect(queryTooltipItem('レシピを変更')).toBeTruthy()
+    })
+  })
+
   test('show replaces existing tooltip', () => {
     const host = createHost()
     const controller = new TaskSettingsTooltipController(host)
@@ -294,6 +369,77 @@ const createTimeController = () => {
     const tooltips = document.querySelectorAll('.task-settings-tooltip')
     expect(tooltips).toHaveLength(1)
     expect(host.duplicateInstance).not.toHaveBeenCalled()
+  })
+
+  test('positions tooltip using the active document window', () => {
+    const originalActiveDocument = activeDocument
+    const iframe = document.createElement('iframe')
+    document.body.appendChild(iframe)
+    const popoutDocument = iframe.contentDocument
+    const popoutWindow = iframe.contentWindow
+    if (!popoutDocument || !popoutWindow) {
+      throw new Error('iframe window unavailable')
+    }
+    Object.defineProperty(popoutWindow, 'innerWidth', { configurable: true, value: 120 })
+    Object.defineProperty(popoutWindow, 'innerHeight', { configurable: true, value: 100 })
+    const anchor = popoutDocument.createElement('button')
+    popoutDocument.body.appendChild(anchor)
+    Object.defineProperty(anchor, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 80,
+        right: 110,
+        bottom: 90,
+        left: 100,
+        width: 10,
+        height: 10,
+        x: 100,
+        y: 80,
+        toJSON: () => ({}),
+      } as DOMRect),
+    })
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if (this.classList.contains('task-settings-tooltip')) {
+        return {
+          top: 0,
+          right: 50,
+          bottom: 40,
+          left: 0,
+          width: 50,
+          height: 40,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect
+    })
+    const host = createHost()
+    const controller = new TaskSettingsTooltipController(host)
+
+    try {
+      setActiveDocument(popoutDocument)
+      controller.show(createInstance(), anchor)
+
+      const tooltip = popoutDocument.querySelector<HTMLElement>('.task-settings-tooltip')
+      expect(tooltip?.style.getPropertyValue('--taskchute-tooltip-left')).toBe('60px')
+      expect(tooltip?.style.getPropertyValue('--taskchute-tooltip-top')).toBe('35px')
+    } finally {
+      popoutDocument.querySelector('.task-settings-tooltip')?.remove()
+      setActiveDocument(originalActiveDocument)
+      rectSpy.mockRestore()
+      iframe.remove()
+    }
   })
 
   test('reset action delegates to TaskTimeController', async () => {

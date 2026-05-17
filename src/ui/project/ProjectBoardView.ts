@@ -159,17 +159,17 @@ export class ProjectBoardView extends ItemView {
       return
     }
 
-    const header = container.createEl('div', { cls: 'project-board-view__header' })
+    const header = container.createDiv( { cls: 'project-board-view__header' })
     header.createEl('h2', { text: this.translate('projectBoard.heading', 'Project list') })
 
-    const body = container.createEl('div', {
+    const body = container.createDiv( {
       cls: 'project-board-view__body',
       attr: { 'data-layout': 'fixed' },
     })
-    const columnsWrapper = body.createEl('div', { cls: 'project-board-columns' })
+    const columnsWrapper = body.createDiv( { cls: 'project-board-columns' })
 
     this.statusDefs.forEach((definition) => {
-      const column = columnsWrapper.createEl('div', {
+      const column = columnsWrapper.createDiv( {
         cls: 'project-board-column',
         attr: { 'data-status': definition.id },
       })
@@ -181,10 +181,10 @@ export class ProjectBoardView extends ItemView {
   }
 
   private renderColumnHeader(parent: HTMLElement, definition: StatusDefinition): void {
-    const header = parent.createEl('div', { cls: 'project-board-column__header' })
-    header.createEl('span', { cls: 'project-board-column__title', text: definition.label })
+    const header = parent.createDiv( { cls: 'project-board-column__header' })
+    header.createSpan( { cls: 'project-board-column__title', text: definition.label })
 
-    const actions = header.createEl('div', { cls: 'project-board-column__actions' })
+    const actions = header.createDiv( { cls: 'project-board-column__actions' })
     const addButton = actions.createEl('button', {
       cls: 'project-board-button project-board-button--add',
       text: '+',
@@ -194,7 +194,7 @@ export class ProjectBoardView extends ItemView {
   }
 
   private renderColumnCards(parent: HTMLElement, status: ProjectBoardStatus): void {
-    const list = parent.createEl('div', {
+    const list = parent.createDiv( {
       cls: 'project-board-column__cards',
       attr: { 'data-scroll-region': 'cards' },
     })
@@ -245,7 +245,7 @@ export class ProjectBoardView extends ItemView {
   }
 
   private renderColumnFooter(parent: HTMLElement, status: ProjectBoardStatus): void {
-    const footer = parent.createEl('div', { cls: 'project-board-column__footer' })
+    const footer = parent.createDiv( { cls: 'project-board-column__footer' })
     const newButton = footer.createEl('button', {
       cls: 'project-board-column__new',
       text: this.translate('projectBoard.newProject', '＋ New project'),
@@ -261,13 +261,13 @@ export class ProjectBoardView extends ItemView {
   }
 
   private renderFolderUnset(parent: HTMLElement): void {
-    const wrapper = parent.createEl('div', { cls: 'project-board-view__message' })
+    const wrapper = parent.createDiv( { cls: 'project-board-view__message' })
     wrapper.createEl('h3', { text: this.translate('projectBoard.errors.folderUnsetTitle', 'Project folder not configured') })
     wrapper.createEl('p', { text: this.translate('projectBoard.errors.folderUnsetBody', 'Open settings and choose a folder for your project notes before using the project board.') })
   }
 
   private renderGenericError(parent: HTMLElement, error: Error): void {
-    const wrapper = parent.createEl('div', { cls: 'project-board-view__message' })
+    const wrapper = parent.createDiv( { cls: 'project-board-view__message' })
     wrapper.createEl('h3', { text: this.translate('projectBoard.errors.genericTitle', 'Unable to load projects') })
     wrapper.createEl('p', { text: error.message })
   }
@@ -749,7 +749,7 @@ export class ProjectBoardView extends ItemView {
         this.render()
         if (this.optimisticItems.has(path)) {
           // Metadata still not updated; attempt again with slight delay
-          window.setTimeout(() => {
+          activeWindow.setTimeout(() => {
             this.metadataSyncWaits.delete(path)
             this.scheduleMetadataRefresh(path, status)
           }, 150)
@@ -779,11 +779,21 @@ export class ProjectBoardView extends ItemView {
 
     await new Promise<void>((resolve) => {
       let timer: number | null = null
+      let timerWindow: Window | null = null
       let ref: EventRef | null = null
 
       const cleanup = () => {
-        if (ref) metadata.offref(ref)
-        if (timer) window.clearTimeout(timer)
+        if (ref) {
+          metadata.offref(ref)
+          ref = null
+        }
+        if (timer !== null) {
+          const timeout = timer
+          const timeoutWindow = timerWindow ?? activeWindow
+          timer = null
+          timerWindow = null
+          timeoutWindow.clearTimeout(timeout)
+        }
         resolve()
       }
 
@@ -795,7 +805,8 @@ export class ProjectBoardView extends ItemView {
       }
 
       ref = metadata.on('changed', handler)
-      timer = window.setTimeout(() => {
+      timerWindow = activeWindow
+      timer = timerWindow.setTimeout(() => {
         cleanup()
       }, timeout)
     })

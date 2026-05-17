@@ -7,27 +7,6 @@ import {
 } from '../../src/features/reminder/modals/ReminderSettingsModal';
 import { t } from '../../src/i18n';
 
-// Mock Obsidian App and Modal
-const mockOpen = jest.fn();
-const mockClose = jest.fn();
-
-jest.mock('obsidian', () => ({
-  Modal: class MockModal {
-    app: unknown;
-    contentEl: HTMLElement;
-    modalEl: HTMLElement;
-
-    constructor(app: unknown) {
-      this.app = app;
-      this.contentEl = document.createElement('div');
-      this.modalEl = document.createElement('div');
-    }
-
-    open = mockOpen;
-    close = mockClose;
-  },
-}));
-
 describe('ReminderSettingsModal', () => {
   let mockApp: unknown;
   let options: ReminderSettingsModalOptions;
@@ -37,6 +16,7 @@ describe('ReminderSettingsModal', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    document.body.innerHTML = '';
     mockApp = {};
     onSave = jest.fn();
     onClear = jest.fn();
@@ -53,6 +33,11 @@ describe('ReminderSettingsModal', () => {
     modal = new ReminderSettingsModal(mockApp as any, options);
   });
 
+  afterEach(() => {
+    modal.close();
+    document.body.innerHTML = '';
+  });
+
   describe('constructor', () => {
     it('should create modal with correct options', () => {
       expect(modal).toBeDefined();
@@ -65,6 +50,16 @@ describe('ReminderSettingsModal', () => {
       expect(modal.contentEl.textContent).toContain(
         t('reminder.modal.title', 'Reminder settings')
       );
+    });
+
+    it('should render with the same custom modal shell as task creation modal', () => {
+      modal.open();
+      expect(document.body.querySelector('.task-modal-overlay')).toBe(modal.containerEl);
+      expect(modal.containerEl.firstElementChild).toBe(modal.modalEl);
+      expect(modal.modalEl.classList.contains('task-modal-content')).toBe(true);
+      expect(modal.modalEl.classList.contains('taskchute-reminder-settings-modal')).toBe(true);
+      expect(Array.from(modal.modalEl.children).some((el) => el.classList.contains('modal-title'))).toBe(false);
+      expect(modal.modalEl.firstElementChild?.classList.contains('reminder-settings-header')).toBe(true);
     });
 
     it('should render input field for time', () => {
@@ -150,14 +145,15 @@ describe('ReminderSettingsModal', () => {
     });
 
     it('should close modal when save button is clicked', () => {
-      modal.onOpen();
+      modal.open();
       const buttons = modal.contentEl.querySelectorAll('button');
       const saveButton = Array.from(buttons).find(
         (btn) => btn.textContent === '設定' || btn.textContent === 'Save'
       );
       saveButton?.click();
 
-      expect(mockClose).toHaveBeenCalled();
+      expect(document.body.contains(modal.containerEl)).toBe(false);
+      expect(modal.contentEl.children.length).toBe(0);
     });
 
     it('should call onClear when clear button is clicked', () => {
@@ -179,7 +175,7 @@ describe('ReminderSettingsModal', () => {
       options.currentTime = '09:55';
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
-      modal.onOpen();
+      modal.open();
 
       const buttons = modal.contentEl.querySelectorAll('button');
       const clearButton = Array.from(buttons).find(
@@ -187,7 +183,8 @@ describe('ReminderSettingsModal', () => {
       );
       clearButton?.click();
 
-      expect(mockClose).toHaveBeenCalled();
+      expect(document.body.contains(modal.containerEl)).toBe(false);
+      expect(modal.contentEl.children.length).toBe(0);
     });
 
     it('should not call onSave with empty input', () => {

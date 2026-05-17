@@ -1,4 +1,5 @@
-import { Notice } from 'obsidian';
+import { Notice } from 'obsidian'
+;
 
 type ConsoleMethod = (...params: unknown[]) => void;
 

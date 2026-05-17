@@ -27,7 +27,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K]
   }
-  const element = document.createElement(tag)
+  const element = createEl(tag)
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls]
     element.classList.add(...classes)
@@ -89,7 +89,7 @@ class ConfirmModal extends Modal {
       if (index > 0) {
         createElCompat(messageEl, 'br')
       }
-      messageEl.appendChild(document.createTextNode(line))
+      messageEl.appendChild(activeDocument.createTextNode(line))
     })
 
     if (this.description) {
@@ -98,7 +98,7 @@ class ConfirmModal extends Modal {
         if (index > 0) {
           createElCompat(descriptionEl, 'br')
         }
-        descriptionEl.appendChild(document.createTextNode(line))
+        descriptionEl.appendChild(activeDocument.createTextNode(line))
       })
     }
 

@@ -8,6 +8,10 @@
 export interface ReminderSchedule {
   /** Task file path */
   taskPath: string;
+  /** Display instance id, used to distinguish duplicated task rows with the same file path */
+  instanceId?: string;
+  /** True when this duplicate schedule inherits reminder_time from the base task frontmatter. */
+  inheritsBaseReminder?: boolean;
   /** Task name */
   taskName: string;
   /** Scheduled start time (HH:mm format) */
@@ -61,6 +65,10 @@ export function calculateReminderTime(
   return reminderDate;
 }
 
+export function getReminderScheduleKey(schedule: Pick<ReminderSchedule, 'taskPath' | 'instanceId'>): string {
+  return schedule.instanceId ? `${schedule.taskPath}::${schedule.instanceId}` : schedule.taskPath;
+}
+
 export class ReminderScheduleManager {
   private schedules: ReminderSchedule[] = [];
   private currentDate: string = '';
@@ -71,7 +79,7 @@ export class ReminderScheduleManager {
    * is unchanged, the fired flag is preserved to prevent duplicate notifications.
    */
   addSchedule(schedule: ReminderSchedule): void {
-    const existing = this.getScheduleByPath(schedule.taskPath);
+    const existing = this.getScheduleByExactKey(schedule.taskPath, schedule.instanceId);
 
     if (existing) {
       // Preserve fired flag if reminder time is unchanged
@@ -80,7 +88,7 @@ export class ReminderScheduleManager {
       if (sameTime && existing.fired) {
         schedule.fired = true;
       }
-      this.removeSchedule(schedule.taskPath);
+      this.removeScheduleByExactKey(schedule.taskPath, schedule.instanceId);
     }
 
     this.schedules.push(schedule);
@@ -89,8 +97,8 @@ export class ReminderScheduleManager {
   /**
    * Remove a schedule by task path.
    */
-  removeSchedule(taskPath: string): void {
-    this.schedules = this.schedules.filter(s => s.taskPath !== taskPath);
+  removeSchedule(taskPath: string, instanceId?: string): void {
+    this.removeScheduleByExactKey(taskPath, instanceId);
   }
 
   /**
@@ -103,15 +111,15 @@ export class ReminderScheduleManager {
   /**
    * Get a schedule by task path.
    */
-  getScheduleByPath(taskPath: string): ReminderSchedule | null {
-    return this.schedules.find(s => s.taskPath === taskPath) ?? null;
+  getScheduleByPath(taskPath: string, instanceId?: string): ReminderSchedule | null {
+    return this.getScheduleByExactKey(taskPath, instanceId);
   }
 
   /**
    * Mark a schedule as fired.
    */
-  markAsFired(taskPath: string): void {
-    const schedule = this.schedules.find(s => s.taskPath === taskPath);
+  markAsFired(taskPath: string, instanceId?: string): void {
+    const schedule = this.getScheduleByExactKey(taskPath, instanceId);
     if (schedule) {
       schedule.fired = true;
     }
@@ -120,8 +128,8 @@ export class ReminderScheduleManager {
   /**
    * Set the beingDisplayed flag for a schedule.
    */
-  setBeingDisplayed(taskPath: string, displayed: boolean): void {
-    const schedule = this.schedules.find(s => s.taskPath === taskPath);
+  setBeingDisplayed(taskPath: string, displayed: boolean, instanceId?: string): void {
+    const schedule = this.getScheduleByExactKey(taskPath, instanceId);
     if (schedule) {
       schedule.beingDisplayed = displayed;
     }
@@ -145,8 +153,8 @@ export class ReminderScheduleManager {
    * Update the reminder time for a schedule.
    * This also resets the fired flag since the time has changed.
    */
-  updateScheduleTime(taskPath: string, newScheduledTime: string, newReminderTime: Date): void {
-    const schedule = this.schedules.find(s => s.taskPath === taskPath);
+  updateScheduleTime(taskPath: string, newScheduledTime: string, newReminderTime: Date, instanceId?: string): void {
+    const schedule = this.getScheduleByExactKey(taskPath, instanceId);
     if (schedule) {
       schedule.scheduledTime = newScheduledTime;
       schedule.reminderTime = newReminderTime;
@@ -173,5 +181,29 @@ export class ReminderScheduleManager {
    */
   getCurrentDate(): string {
     return this.currentDate;
+  }
+
+  private getScheduleByExactKey(taskPath: string, instanceId?: string): ReminderSchedule | null {
+    return this.schedules.find((schedule) => {
+      if (schedule.taskPath !== taskPath) {
+        return false;
+      }
+      if (instanceId !== undefined) {
+        return schedule.instanceId === instanceId;
+      }
+      return schedule.instanceId === undefined;
+    }) ?? null;
+  }
+
+  private removeScheduleByExactKey(taskPath: string, instanceId?: string): void {
+    this.schedules = this.schedules.filter((schedule) => {
+      if (schedule.taskPath !== taskPath) {
+        return true;
+      }
+      if (instanceId !== undefined) {
+        return schedule.instanceId !== instanceId;
+      }
+      return schedule.instanceId !== undefined;
+    });
   }
 }

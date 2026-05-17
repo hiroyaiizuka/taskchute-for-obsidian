@@ -12,6 +12,8 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   slotKeys: {},
   languageOverride: 'auto',
   aiRobotButtonEnabled: false,
+  recipeFeatureEnabled: false,
+  showTaskCreationAdvancedSettings: false,
   reviewTemplatePath: null,
   reviewFileNamePattern: 'Review - {{date}}.md',
   backupIntervalHours: 2,

@@ -183,7 +183,10 @@ export class TaskExecutionService {
       await this.host.executionLogService.saveTaskLog(inst, durationSec)
 
       // Remove reminder schedule for completed task
-      this.host.plugin.reminderManager?.onTaskComplete(inst.task.path)
+      this.host.plugin.reminderManager?.onTaskComplete(
+        inst.task.path,
+        this.host.isDuplicateInstance?.(inst) === true ? inst.instanceId : undefined,
+      )
 
       await this.host.saveRunningTasksState()
 

@@ -1,4 +1,4 @@
-import { normalizePath, TFile, TFolder } from 'obsidian'
+import { TFile, TFolder, normalizePath } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
 import type { TaskLogEntry, DailySummaryEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
 import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '../../../types/ExecutionLog'
@@ -15,6 +15,7 @@ import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { LOG_INBOX_FOLDER, LOG_INBOX_LEGACY_FOLDER, LEGACY_REVISION } from '../constants'
 import { BackupPruner } from './BackupPruner'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'
+import { sleepWithStableTimer } from '../../../utils/stableTimer'
 
 interface DeltaSource {
   deviceId: string
@@ -140,7 +141,7 @@ export class LogReconciler {
     this.deps = {
       snapshotWriter: this.snapshotWriter,
       recordsWriter: this.recordsWriter,
-      sleepFn: deps?.sleepFn ?? ((ms) => new Promise(r => setTimeout(r, ms))),
+      sleepFn: deps?.sleepFn ?? sleepWithStableTimer,
       randomFn: deps?.randomFn ?? Math.random,
     }
   }

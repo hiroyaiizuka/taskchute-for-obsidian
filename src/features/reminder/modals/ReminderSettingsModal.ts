@@ -5,8 +5,9 @@
  * Time is stored in HH:mm format.
  */
 
-import { App, Modal } from 'obsidian';
+import type { App } from 'obsidian';
 import { t } from '../../../i18n';
+import { attachCloseButtonIcon } from '../../../ui/components/iconUtils';
 
 export interface ReminderSettingsModalOptions {
   /** Current reminder time in HH:mm format, or undefined if not set */
@@ -42,7 +43,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K];
   }
-  const element = document.createElement(tag);
+  const element = parent.ownerDocument.createElement(tag);
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
     element.classList.add(...classes);
@@ -94,16 +95,39 @@ function calculateDefaultReminderTime(scheduledTime: string | undefined, minutes
   return `${String(newHours).padStart(2, '0')}:${String(newMins).padStart(2, '0')}`;
 }
 
-export class ReminderSettingsModal extends Modal {
+const getModalDocument = (): Document => {
+  if (typeof activeDocument !== 'undefined') {
+    return activeDocument;
+  }
+  return document;
+};
+
+export class ReminderSettingsModal {
+  readonly containerEl: HTMLDivElement;
+  readonly modalEl: HTMLDivElement;
+  readonly contentEl: HTMLDivElement;
   private readonly currentTime: string | undefined;
   private readonly scheduledTime: string | undefined;
   private readonly defaultMinutesBefore: number;
   private readonly onSaveCallback: (time: string) => void;
   private readonly onClearCallback: () => void;
   private inputEl: HTMLInputElement | null = null;
+  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+  private escapeKeyDocument: Document | null = null;
+  private readonly stopModalEvent = (event: Event): void => {
+    event.stopPropagation();
+  };
 
   constructor(app: App, options: ReminderSettingsModalOptions) {
-    super(app);
+    void app;
+    const modalDocument = getModalDocument();
+    this.containerEl = modalDocument.createElement('div');
+    this.containerEl.className = 'task-modal-overlay';
+    this.modalEl = modalDocument.createElement('div');
+    this.modalEl.className = 'task-modal-content taskchute-reminder-settings-modal';
+    this.contentEl = this.modalEl;
+    this.containerEl.appendChild(this.modalEl);
+
     this.currentTime = options.currentTime;
     this.scheduledTime = options.scheduledTime;
     this.defaultMinutesBefore = options.defaultMinutesBefore;
@@ -111,8 +135,37 @@ export class ReminderSettingsModal extends Modal {
     this.onClearCallback = options.onClear;
   }
 
+  open(): void {
+    this.onOpen();
+
+    const modalDocument = this.containerEl.ownerDocument ?? getModalDocument();
+    const targetBody = modalDocument.body ?? activeDocument.body;
+    if (!this.containerEl.parentElement) {
+      targetBody.appendChild(this.containerEl);
+    }
+
+    this.containerEl.addEventListener('focusin', this.stopModalEvent);
+    this.containerEl.addEventListener('mousedown', this.stopModalEvent);
+    this.containerEl.addEventListener('click', this.stopModalEvent);
+
+    this.escapeKeyHandler = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        this.close();
+      }
+    };
+    this.escapeKeyDocument = modalDocument;
+    modalDocument.addEventListener('keydown', this.escapeKeyHandler);
+
+    this.inputEl?.focus();
+  }
+
+  close(): void {
+    this.onClose();
+    this.containerEl.remove();
+  }
+
   onOpen(): void {
-    const { contentEl, modalEl } = this;
+    const { contentEl } = this;
 
     // Clear existing content
     if (typeof (contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
@@ -123,16 +176,29 @@ export class ReminderSettingsModal extends Modal {
       }
     }
 
-    modalEl?.classList.add('taskchute-reminder-settings-modal');
+    this.modalEl.className = 'task-modal-content taskchute-reminder-settings-modal';
 
     // Header
-    const header = createElCompat(contentEl, 'div', { cls: 'reminder-settings-header' });
+    const header = createElCompat(contentEl, 'div', { cls: ['reminder-settings-header', 'modal-header'] });
     createElCompat(header, 'h3', { text: t('reminder.modal.title', 'Reminder settings') });
+    const closeButton = createElCompat(header, 'button', {
+      type: 'button',
+      cls: 'modal-close-button',
+      attr: {
+        'aria-label': t('common.close', 'Close'),
+        title: t('common.close', 'Close'),
+      },
+    });
+    attachCloseButtonIcon(closeButton);
+    closeButton.addEventListener('click', () => {
+      this.close();
+    });
 
     // Input section
     const inputSection = createElCompat(contentEl, 'div', { cls: 'reminder-settings-input-section' });
     createElCompat(inputSection, 'label', {
-      text: t('reminder.modal.description', 'Set the time to receive a reminder'),
+      cls: 'form-label',
+      text: t('reminder.modal.description', 'Reminder time:'),
       attr: { for: 'reminder-time-input' },
     });
 
@@ -143,6 +209,7 @@ export class ReminderSettingsModal extends Modal {
 
     this.inputEl = createElCompat(inputContainer, 'input', {
       type: 'time',
+      cls: 'form-input',
       value: initialValue,
       attr: {
         id: 'reminder-time-input',
@@ -197,6 +264,16 @@ export class ReminderSettingsModal extends Modal {
   }
 
   onClose(): void {
+    if (this.escapeKeyHandler) {
+      const listenerDocument = this.escapeKeyDocument ?? getModalDocument();
+      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler);
+      this.escapeKeyHandler = null;
+      this.escapeKeyDocument = null;
+    }
+    this.containerEl.removeEventListener('focusin', this.stopModalEvent);
+    this.containerEl.removeEventListener('mousedown', this.stopModalEvent);
+    this.containerEl.removeEventListener('click', this.stopModalEvent);
+
     // Clear content
     if (typeof (this.contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
       (this.contentEl as HTMLElement & { empty?: () => void }).empty();
@@ -206,7 +283,6 @@ export class ReminderSettingsModal extends Modal {
       }
     }
 
-    this.modalEl?.classList.remove('taskchute-reminder-settings-modal');
     this.inputEl = null;
   }
 

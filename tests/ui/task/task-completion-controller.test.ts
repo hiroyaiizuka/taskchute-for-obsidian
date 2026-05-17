@@ -3,6 +3,10 @@ import TaskCompletionController, { TaskCompletionControllerHost } from '../../..
 import type { TaskInstance } from '../../../src/types'
 import { ProjectNoteSyncService } from '../../../src/features/project/services/ProjectNoteSyncService'
 
+const setActiveDocument = (doc: Document): void => {
+  ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
+}
+
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
   return {
@@ -186,6 +190,104 @@ describe('TaskCompletionController', () => {
     const syncInstance = SyncMock.mock.instances.at(-1)
     if (syncInstance && syncInstance.updateProjectNote) {
       expect(syncInstance.updateProjectNote).toHaveBeenCalled()
+    }
+  })
+
+  test('showTaskCompletionModal appends to the invocation document when initial comment load changes focus', async () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const { host, storage, vault } = createHost()
+    storage.set('LOGS/2025-10-tasks.json', '')
+    let resolveRead: (value: string) => void = () => undefined
+    ;(vault.read as jest.Mock).mockImplementationOnce(() => new Promise<string>((resolve) => {
+      resolveRead = resolve
+    }))
+    const controller = new TaskCompletionController(host)
+    const inst = {
+      instanceId: 'inst-popout-open',
+      state: 'done',
+      task: {
+        path: 'TASKS/sample.md',
+        name: 'sample',
+      },
+    } as unknown as TaskInstance
+
+    try {
+      setActiveDocument(sourceDoc)
+      const openPromise = controller.showTaskCompletionModal(inst)
+      await Promise.resolve()
+
+      setActiveDocument(focusedDoc)
+      resolveRead(JSON.stringify({ taskExecutions: { '2025-10-09': [] } }))
+      await openPromise
+
+      expect(sourceDoc.querySelector('.taskchute-comment-modal')).not.toBeNull()
+      expect(focusedDoc.querySelector('.taskchute-comment-modal')).toBeNull()
+    } finally {
+      sourceDoc.querySelector('.taskchute-button-cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      focusedDoc.querySelector('.taskchute-button-cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      setActiveDocument(originalActiveDocument)
+    }
+  })
+
+  test('showTaskCompletionModal removes Escape listener from the document that registered it after async save', async () => {
+    const originalActiveDocument = activeDocument
+    const sourceDoc = document.implementation.createHTMLDocument('source')
+    const focusedDoc = document.implementation.createHTMLDocument('focused')
+    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
+    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
+    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
+    const { host } = createHost()
+    const controller = new TaskCompletionController(host)
+    const inst = {
+      instanceId: 'inst-popout-save',
+      state: 'done',
+      task: {
+        path: 'TASKS/sample.md',
+        name: 'sample',
+      },
+    } as unknown as TaskInstance
+    let resolveSave: () => void = () => undefined
+    const savePending = new Promise<void>((resolve) => {
+      resolveSave = resolve
+    })
+    const privateController = controller as unknown as {
+      saveTaskComment: (
+        instance: TaskInstance,
+        payload: { comment: string; energy: number; focus: number },
+      ) => Promise<void>
+    }
+    const saveSpy = jest.spyOn(privateController, 'saveTaskComment').mockImplementation(async () => {
+      await savePending
+    })
+
+    try {
+      setActiveDocument(sourceDoc)
+      await controller.showTaskCompletionModal(inst)
+
+      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+
+      const saveButton = sourceDoc.querySelector('.taskchute-button-save') as HTMLButtonElement
+      expect(saveButton).toBeTruthy()
+      saveButton.click()
+      await Promise.resolve()
+
+      expect(saveSpy).toHaveBeenCalled()
+
+      setActiveDocument(focusedDoc)
+      resolveSave()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+    } finally {
+      setActiveDocument(originalActiveDocument)
+      saveSpy.mockRestore()
+      sourceAdd.mockRestore()
+      sourceRemove.mockRestore()
+      focusedRemove.mockRestore()
     }
   })
 })

@@ -44,10 +44,10 @@ export class ReminderService {
   }
 
   /**
-   * Get a schedule by task path.
+   * Get a schedule by task path and optional display instance id.
    */
-  getScheduleByPath(taskPath: string): ReminderSchedule | null {
-    return this.scheduleManager.getScheduleByPath(taskPath);
+  getScheduleByPath(taskPath: string, instanceId?: string): ReminderSchedule | null {
+    return this.scheduleManager.getScheduleByPath(taskPath, instanceId);
   }
 
   /**
@@ -73,7 +73,7 @@ export class ReminderService {
       for (const schedule of pendingSchedules) {
         if (this.shouldFireReminder(schedule, now)) {
           // Mark as fired first to prevent re-firing
-          this.scheduleManager.markAsFired(schedule.taskPath);
+          this.scheduleManager.markAsFired(schedule.taskPath, schedule.instanceId);
 
           // Fire notification
           this.onNotify(schedule);
@@ -112,8 +112,8 @@ export class ReminderService {
   /**
    * Called when a task is completed - removes the reminder from schedule.
    */
-  onTaskComplete(taskPath: string): void {
-    this.scheduleManager.removeSchedule(taskPath);
+  onTaskComplete(taskPath: string, instanceId?: string): void {
+    this.scheduleManager.removeSchedule(taskPath, instanceId);
   }
 
   /**
@@ -162,8 +162,8 @@ export class ReminderService {
   /**
    * Remove a schedule by task path.
    */
-  removeSchedule(taskPath: string): void {
-    this.scheduleManager.removeSchedule(taskPath);
+  removeSchedule(taskPath: string, instanceId?: string): void {
+    this.scheduleManager.removeSchedule(taskPath, instanceId);
   }
 
   /**

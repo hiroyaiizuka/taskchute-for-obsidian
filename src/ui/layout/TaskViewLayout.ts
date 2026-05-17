@@ -16,24 +16,24 @@ export default class TaskViewLayout {
   constructor(private readonly host: TaskViewLayoutHost) {}
 
   render(root: HTMLElement): TaskViewLayoutRenderResult {
-    const topBarContainer = root.createEl('div', { cls: 'top-bar-container' })
+    const topBarContainer = root.createDiv( { cls: 'top-bar-container' })
     this.host.renderHeader(topBarContainer)
 
-    const mainContainer = root.createEl('div', {
+    const mainContainer = root.createDiv( {
       cls: 'taskchute-container',
     })
 
-    const contentContainer = mainContainer.createEl('div', {
+    const contentContainer = mainContainer.createDiv( {
       cls: 'main-container',
     })
 
     this.host.createNavigation(contentContainer)
 
-    const taskListContainer = contentContainer.createEl('div', {
+    const taskListContainer = contentContainer.createDiv( {
       cls: 'task-list-container',
     })
 
-    const taskListElement = taskListContainer.createEl('div', {
+    const taskListElement = taskListContainer.createDiv( {
       cls: 'task-list',
     })
 

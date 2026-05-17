@@ -120,15 +120,16 @@ class CommandRegistrarImpl implements CommandRegistrar {
   }
 
   private hasOwnBlockingModal(): boolean {
-    if (document.querySelector(".task-modal-overlay")) return true;
-    return Array.from(document.querySelectorAll(".modal")).some(
+    if (activeDocument.querySelector(".task-modal-overlay")) return true;
+    return Array.from(activeDocument.querySelectorAll(".modal")).some(
       (modal) => !modal.classList.contains("mod-command-palette"),
     );
   }
 
   private hasFocusedTextInputOutsideCommandPalette(): boolean {
-    const activeElement = document.activeElement;
-    if (!(activeElement instanceof HTMLElement)) return false;
+    const activeElement = activeDocument.activeElement;
+    const HTMLElementCtor = activeDocument.defaultView?.HTMLElement ?? HTMLElement;
+    if (!(activeElement instanceof HTMLElementCtor)) return false;
     if (activeElement.closest(".mod-command-palette")) return false;
 
     const tagName = activeElement.tagName.toLowerCase();

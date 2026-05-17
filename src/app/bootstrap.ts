@@ -1,3 +1,4 @@
+import 'obsidian'
 import { TaskChuteView } from "../features/core/views/TaskChuteView"
 import { TaskChuteSettingTab } from "../settings"
 import { VIEW_TYPE_TASKCHUTE, VIEW_TYPE_PROJECT_BOARD, type TaskChutePlugin } from "../types"
@@ -32,6 +33,17 @@ export async function prepareSettings(
   if (typeof settings.useOrderBasedSort !== "boolean")
     settings.useOrderBasedSort = true
   if (!settings.languageOverride) settings.languageOverride = "auto"
+  if (typeof settings.showTaskCreationAdvancedSettings !== "boolean") {
+    settings.showTaskCreationAdvancedSettings = false
+  }
+  if (!Number.isFinite(settings.defaultReminderMinutes)) {
+    settings.defaultReminderMinutes = 5
+  } else {
+    settings.defaultReminderMinutes = Math.max(
+      0,
+      Math.round(settings.defaultReminderMinutes ?? 5),
+    )
+  }
 
   // Lightweight migration from legacy individual paths -> new base model
   if (!settings.locationMode) {
@@ -153,8 +165,6 @@ export async function bootstrapPlugin(
     reminderManager = new ReminderSystemManager({
       app: plugin.app,
       settings: plugin.settings,
-      registerInterval: (callback, intervalMs) =>
-        window.setInterval(callback, intervalMs),
       registerEvent: (eventRef) => {
         plugin.registerEvent(eventRef)
         return eventRef

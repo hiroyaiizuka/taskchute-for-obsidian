@@ -18,6 +18,11 @@ export interface ScheduledTimeModalHost {
     }
   }
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
+  saveScheduledTime?: (
+    instance: TaskInstance,
+    scheduledTime: string | undefined,
+    params: { previousScheduledTime?: string; nextScheduledTime?: string },
+  ) => Promise<boolean>
   onScheduledTimeSaved?: (
     instance: TaskInstance,
     params: { previousScheduledTime?: string; nextScheduledTime?: string },
@@ -41,11 +46,11 @@ export default class ScheduledTimeModal extends Modal {
     contentEl.classList.add('scheduled-time-modal')
 
     const title = host.tv('forms.scheduledTimeModalTitle', 'Set scheduled start time')
-    const header = contentEl.createEl('div', { cls: 'modal-header' })
+    const header = contentEl.createDiv( { cls: 'modal-header' })
     header.createEl('h3', { text: title })
 
     const form = contentEl.createEl('form', { cls: 'task-form scheduled-time-form' })
-    const group = form.createEl('div', { cls: 'form-group' })
+    const group = form.createDiv( { cls: 'form-group' })
     group.createEl('label', {
       text: host.tv('forms.scheduledTimeLabel', 'Scheduled start time:'),
       cls: 'form-label',
@@ -72,10 +77,10 @@ export default class ScheduledTimeModal extends Modal {
       if (index > 0) {
         description.createEl('br')
       }
-      description.appendChild(document.createTextNode(line))
+      description.appendChild(activeDocument.createTextNode(line))
     })
 
-    const footer = form.createEl('div', { cls: 'form-button-group' })
+    const footer = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = footer.createEl('button', {
       type: 'button',
       cls: 'form-button cancel',
@@ -101,26 +106,34 @@ export default class ScheduledTimeModal extends Modal {
         const value = input.value.trim()
         const previousScheduledTime = getScheduledTime(instance.task.frontmatter || {}) || undefined
         const nextScheduledTime = value || undefined
+        const params = {
+          previousScheduledTime,
+          nextScheduledTime,
+        }
         try {
-          const path = instance.task.path
-          if (!path) {
-            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-            return
+          const handledByHost = typeof host.saveScheduledTime === 'function'
+            ? await host.saveScheduledTime(instance, nextScheduledTime, params)
+            : false
+
+          if (!handledByHost) {
+            const path = instance.task.path
+            if (!path) {
+              new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+              return
+            }
+            const file = host.app.vault.getAbstractFileByPath(path)
+            if (!(file instanceof TFile)) {
+              new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
+              return
+            }
+            await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
+              setScheduledTime(frontmatter, value || undefined, { preferNew: true })
+            })
           }
-          const file = host.app.vault.getAbstractFileByPath(path)
-          if (!(file instanceof TFile)) {
-            new Notice(host.tv('notices.taskFileMissing', 'Task file not found'))
-            return
-          }
-          await host.app.fileManager.processFrontMatter(file, (frontmatter) => {
-            setScheduledTime(frontmatter, value || undefined, { preferNew: true })
-          })
+
           if (typeof host.onScheduledTimeSaved === 'function') {
             try {
-              await host.onScheduledTimeSaved(instance, {
-                previousScheduledTime,
-                nextScheduledTime,
-              })
+              await host.onScheduledTimeSaved(instance, params)
             } catch (error) {
               console.warn('[ScheduledTimeModal] Failed to sync duplicate slot', error)
             }

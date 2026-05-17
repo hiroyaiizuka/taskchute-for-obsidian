@@ -2,6 +2,7 @@ import { Platform } from 'obsidian'
 import { TaskInstance } from '../../types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
+import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -35,6 +36,9 @@ export type TaskListRendererHost = {
   showStartTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showStopTimePopup: (inst: TaskInstance, anchor: HTMLElement) => void
   showReminderSettingsModal: (inst: TaskInstance) => void
+  getRecipeProgressSummary?: (inst: TaskInstance) => Promise<RecipeProgressSummary | null>
+  showRecipeRunPopover?: (inst: TaskInstance, anchor: HTMLElement) => void
+  isRecipeFeatureEnabled?: () => boolean
   isCollapsibleEnabled: () => boolean
   updateTotalTasksCount: () => void
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
@@ -80,6 +84,15 @@ export default class TaskListRenderer {
       showStartTimePopup: (inst, anchor) => this.host.showStartTimePopup(inst, anchor),
       showStopTimePopup: (inst, anchor) => this.host.showStopTimePopup(inst, anchor),
       showReminderSettingsModal: (inst) => this.host.showReminderSettingsModal(inst),
+      getRecipeProgressSummary: this.host.getRecipeProgressSummary
+        ? (inst) => this.host.getRecipeProgressSummary!(inst)
+        : undefined,
+      showRecipeRunPopover: this.host.showRecipeRunPopover
+        ? (inst, anchor) => this.host.showRecipeRunPopover!(inst, anchor)
+        : undefined,
+      isRecipeFeatureEnabled: this.host.isRecipeFeatureEnabled
+        ? () => this.host.isRecipeFeatureEnabled!()
+        : undefined,
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })
@@ -161,16 +174,16 @@ export default class TaskListRenderer {
     const collapsible = this.host.isCollapsibleEnabled()
     const isCollapsed = collapsible && this.collapsedSlots.has('none')
 
-    const header = this.host.taskList.createEl('div', {
+    const header = this.host.taskList.createDiv( {
       cls: `time-slot-header other${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
 
     if (collapsible) {
-      header.createEl('span', {
+      header.createSpan( {
         cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
         text: isCollapsed ? '\u25B6' : '\u25BC',
       })
-      header.createEl('span', {
+      header.createSpan( {
         cls: 'tc-slot-label',
         text: this.host.tv('lists.noTime', 'No time'),
       })
@@ -195,16 +208,16 @@ export default class TaskListRenderer {
     const collapsible = this.host.isCollapsibleEnabled()
     const isCollapsed = collapsible && this.collapsedSlots.has(slot)
 
-    const header = this.host.taskList.createEl('div', {
+    const header = this.host.taskList.createDiv( {
       cls: `time-slot-header${collapsible ? ' tc-collapsible' : ''}${isCollapsed ? ' collapsed' : ''}`,
     })
 
     if (collapsible) {
-      header.createEl('span', {
+      header.createSpan( {
         cls: `tc-slot-chevron${isCollapsed ? ' collapsed' : ''}`,
         text: isCollapsed ? '\u25B6' : '\u25BC',
       })
-      header.createEl('span', { cls: 'tc-slot-label', text: slot })
+      header.createSpan( { cls: 'tc-slot-label', text: slot })
       header.addEventListener('click', () => {
         if (this.isDragging) return
         this.toggleSlotCollapse(slot)
@@ -223,7 +236,7 @@ export default class TaskListRenderer {
   }
 
   private createTaskInstanceItem(inst: TaskInstance, slot: string, idx: number): void {
-    const taskItem = this.host.taskList.createEl('div', { cls: 'task-item' })
+    const taskItem = this.host.taskList.createDiv( { cls: 'task-item' })
     if (inst.task.path) {
       taskItem.setAttribute('data-task-path', inst.task.path)
     }
@@ -256,7 +269,7 @@ export default class TaskListRenderer {
 
   private createDragHandle(taskItem: HTMLElement, inst: TaskInstance, slot: string, idx: number): void {
     const isDraggable = inst.state !== 'done'
-    const dragHandle = taskItem.createEl('div', {
+    const dragHandle = taskItem.createDiv( {
       cls: 'drag-handle',
       attr: isDraggable
         ? { draggable: 'true', title: this.host.tv('tooltips.dragToMove', 'Drag to move') }
