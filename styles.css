@@ -1,5 +1,10 @@
 /* TaskChute Plus Plugin Styles */
 
+:root {
+  --taskchute-mobile-top-obstruction: calc(64px + env(safe-area-inset-top, 0px));
+  --taskchute-mobile-bottom-obstruction: calc(136px + env(safe-area-inset-bottom, 0px));
+}
+
 /* ===== Time Edit Popup ===== */
 .taskchute-time-popup {
   position: fixed;
@@ -654,7 +659,6 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  max-height: 320px;
   max-height: min(320px, 60vh);
   overflow-y: auto;
   z-index: 1000;
@@ -4716,7 +4720,6 @@ textarea.form-textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 120px;
   position: relative;
   padding: 4px;
   border-radius: 12px;
@@ -4960,6 +4963,55 @@ textarea.form-textarea {
   :is(.project-board-columns) {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
+}
+
+.is-mobile .task-list {
+  padding-bottom: var(--taskchute-mobile-bottom-obstruction);
+  scroll-padding-bottom: var(--taskchute-mobile-bottom-obstruction);
+  -webkit-overflow-scrolling: touch;
+}
+
+.is-mobile .navigation-nav {
+  padding-top: var(--taskchute-mobile-top-obstruction);
+  padding-bottom: var(--taskchute-mobile-bottom-obstruction);
+  scroll-padding-top: var(--taskchute-mobile-top-obstruction);
+  scroll-padding-bottom: var(--taskchute-mobile-bottom-obstruction);
+}
+
+.is-mobile .project-board-view {
+  padding-top: var(--taskchute-mobile-top-obstruction);
+  padding-bottom: var(--taskchute-mobile-bottom-obstruction);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.is-mobile .project-board-view__header {
+  flex: 0 0 auto;
+}
+
+.is-mobile .project-board-view__body {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+
+.is-mobile .project-board-columns {
+  grid-template-columns: 1fr;
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+
+.is-mobile .project-board-column {
+  min-height: auto;
+  overflow: visible;
+}
+
+.is-mobile .project-board-column__cards {
+  flex: 0 0 auto;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 /* ===== Reminder Notification Modal ===== */

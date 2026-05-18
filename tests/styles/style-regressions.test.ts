@@ -229,4 +229,44 @@ describe('style regressions', () => {
     expect(touchActionRule).toContain('[class~="modal-close-button"]')
     expect(touchActionRule).toMatch(/touch-action:\s*manipulation;/)
   })
+
+  test('mobile task list reserves space above Obsidian bottom controls', () => {
+    const css = styles()
+    const mobileTaskListRule = readRule(css, '.is-mobile .task-list {')
+
+    expect(css).toContain('--taskchute-mobile-bottom-obstruction')
+    expect(mobileTaskListRule).toMatch(
+      /padding-bottom:\s*var\(--taskchute-mobile-bottom-obstruction\);/,
+    )
+    expect(mobileTaskListRule).toMatch(
+      /scroll-padding-bottom:\s*var\(--taskchute-mobile-bottom-obstruction\);/,
+    )
+  })
+
+  test('mobile navigation reserves top and bottom safe areas', () => {
+    const navigationRule = readRule(styles(), '.is-mobile .navigation-nav {')
+
+    expect(navigationRule).toMatch(
+      /padding-top:\s*var\(--taskchute-mobile-top-obstruction\);/,
+    )
+    expect(navigationRule).toMatch(
+      /padding-bottom:\s*var\(--taskchute-mobile-bottom-obstruction\);/,
+    )
+  })
+
+  test('mobile project board uses page scrolling with bottom clearance', () => {
+    const css = styles()
+    const viewRule = readRule(css, '.is-mobile .project-board-view {')
+    const bodyRule = readRule(css, '.is-mobile .project-board-view__body {')
+    const columnsRule = readRule(css, '.is-mobile .project-board-columns {')
+    const cardsRule = readRule(css, '.is-mobile .project-board-column__cards {')
+
+    expect(viewRule).toMatch(/overflow-y:\s*auto;/)
+    expect(viewRule).toMatch(
+      /padding-bottom:\s*var\(--taskchute-mobile-bottom-obstruction\);/,
+    )
+    expect(bodyRule).toMatch(/overflow:\s*visible;/)
+    expect(columnsRule).toMatch(/grid-template-columns:\s*1fr;/)
+    expect(cardsRule).toMatch(/overflow:\s*visible;/)
+  })
 })
