@@ -5,8 +5,10 @@ import { TERMINAL_NAME } from "../constants"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
+import { getPathSuggestParentFolder } from "./pathSuggestUtils"
 import { SectionConfigService } from "../services/SectionConfigService"
 import { showConfirmModal } from "../ui/modals/ConfirmModal"
+import { listFoldersInFolder, type VaultFolderEntry } from "../utils/vaultFiles"
 
 interface PluginWithSettings extends Plugin {
   app: App
@@ -820,7 +822,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 }
 
-class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
+class FolderPathSuggest extends AbstractInputSuggest<VaultFolderEntry> {
   private readonly onChoose: (folderPath: string) => void
   private readonly textInputEl: HTMLInputElement
 
@@ -838,19 +840,18 @@ class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
     this.textInputEl.value = value
   }
 
-  protected getSuggestions(query: string): TFolder[] {
+  protected getSuggestions(query: string): VaultFolderEntry[] {
     const lower = query.toLowerCase()
-    return this.app.vault
-      .getAllLoadedFiles()
-      .filter((file): file is TFolder => file instanceof TFolder)
+    const parentFolder = getPathSuggestParentFolder(query)
+    return listFoldersInFolder(this.app, parentFolder, { recursive: false })
       .filter((folder) => folder.path.toLowerCase().includes(lower))
   }
 
-  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+  renderSuggestion(folder: VaultFolderEntry, el: HTMLElement): void {
     el.setText(folder.path)
   }
 
-  selectSuggestion(folder: TFolder): void {
+  selectSuggestion(folder: VaultFolderEntry): void {
     void this.onChoose(folder.path)
     this.close()
   }

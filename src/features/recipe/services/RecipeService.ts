@@ -1,6 +1,7 @@
 import { Notice, TFile, normalizePath } from 'obsidian'
 import type { TaskChutePluginLike, TaskInstance } from '../../../types'
 import { t } from '../../../i18n'
+import { listFilesInFolder } from '../../../utils/vaultFiles'
 
 export interface RecipeStep {
   id: string
@@ -116,8 +117,7 @@ export class RecipeService {
 
   async loadRecipes(): Promise<Recipe[]> {
     const folderPath = this.getRecipeFolderPath()
-    const files = this.plugin.app.vault.getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${folderPath}/`))
+    const files = listFilesInFolder(this.plugin.app, folderPath, { markdownOnly: true })
       .sort((a, b) => a.basename.localeCompare(b.basename))
 
     const recipes: Recipe[] = []
@@ -224,8 +224,7 @@ export class RecipeService {
     const normalizedRecipePath = normalizeRecipeReference(recipePath)
     if (!normalizedRecipePath) return []
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-    return this.plugin.app.vault.getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
+    return listFilesInFolder(this.plugin.app, taskFolderPath, { markdownOnly: true })
       .reduce<Array<{ path: string; title: string }>>((usages, file) => {
         const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined
         const taskRecipePath = normalizeRecipeReference(frontmatter?.recipe)

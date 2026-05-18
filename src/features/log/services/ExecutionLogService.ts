@@ -7,6 +7,7 @@ import {
   createEmptyTaskLogSnapshot,
   parseTaskLogSnapshot,
 } from '../../../utils/executionLogUtils';
+import { listFilesInFolder } from '../../../utils/vaultFiles';
 import type { TaskLogEntry } from '../../../types/ExecutionLog';
 import {
   ExecutionLogDeltaWriter,
@@ -286,19 +287,10 @@ export class ExecutionLogService {
 
   private collectLogFiles(): TFile[] {
     const logBase = this.plugin.pathManager.getLogDataPath();
-    const vault = this.plugin.app.vault as { getFiles?: () => TFile[] };
     const suffix = '-tasks.json';
-    const files: TFile[] = [];
-    if (typeof vault.getFiles === 'function') {
-      const allFiles = vault.getFiles();
-      allFiles.forEach((file) => {
-        if (file instanceof TFile && file.path.startsWith(`${logBase}/`) && file.path.endsWith(suffix)) {
-          files.push(file);
-        }
-      });
-      if (files.length > 0) {
-        return files;
-      }
+    const files = listFilesInFolder(this.plugin.app, logBase, { suffix });
+    if (files.length > 0) {
+      return files;
     }
 
     const seen = new Set<string>();

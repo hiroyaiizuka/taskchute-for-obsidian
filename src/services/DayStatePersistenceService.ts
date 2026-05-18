@@ -4,6 +4,7 @@ import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
 import { SectionConfigService } from './SectionConfigService';
+import { listFilesInFolder } from '../utils/vaultFiles';
 import {
   mergeDeletedInstances,
   mergeDuplicatedInstances,
@@ -123,20 +124,10 @@ export class DayStatePersistenceService {
 
   private collectStateFiles(): TFile[] {
     const base = this.plugin.pathManager.getLogDataPath();
-    const vault = this.plugin.app.vault as { getFiles?: () => TFile[] };
     const suffix = '-state.json';
-    const files: TFile[] = [];
-
-    if (typeof vault.getFiles === 'function') {
-      const candidates = vault.getFiles();
-      candidates.forEach((candidate) => {
-        if (candidate instanceof TFile && candidate.path.startsWith(`${base}/`) && candidate.path.endsWith(suffix)) {
-          files.push(candidate);
-        }
-      });
-      if (files.length > 0) {
-        return files;
-      }
+    const files = listFilesInFolder(this.plugin.app, base, { suffix });
+    if (files.length > 0) {
+      return files;
     }
 
     const seen = new Set<string>();

@@ -69,6 +69,12 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
 
   const vault = {
     getAbstractFileByPath: jest.fn((path: string) => {
+      if (!options.disableGetFiles && path === 'LOGS') {
+        return {
+          path: 'LOGS',
+          children: Array.from(store.keys()).map((candidate) => createTFile(candidate)),
+        };
+      }
       if (store.has(path)) {
         return createTFile(path);
       }
@@ -290,7 +296,7 @@ describe('ExecutionLogService.removeTaskLogForInstanceOnDate', () => {
 });
 
 describe('ExecutionLogService.hasExecutionHistory', () => {
-  test('returns true when any log entry matches path using getFiles', async () => {
+  test('returns true when any log entry matches path using log folder listing', async () => {
     const { plugin, store, vault } = createPluginStub();
     store.set('LOGS/2025-10-tasks.json', {
       taskExecutions: {
@@ -306,11 +312,11 @@ describe('ExecutionLogService.hasExecutionHistory', () => {
     const result = await service.hasExecutionHistory('Tasks/sample.md');
 
     expect(result).toBe(true);
-    expect(vault.getFiles).toHaveBeenCalled();
+    expect(vault.getAbstractFileByPath).toHaveBeenCalledWith('LOGS');
     expect(vault.read).toHaveBeenCalled();
   });
 
-  test('falls back to month probing when getFiles unavailable', async () => {
+  test('falls back to month probing when log folder is unavailable', async () => {
     const { plugin, store, vault } = createPluginStub({ disableGetFiles: true });
     store.set('LOGS/2025-08-tasks.json', {
       taskExecutions: {

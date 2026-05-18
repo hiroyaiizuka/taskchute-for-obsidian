@@ -14,7 +14,17 @@ function createPlugin(files: Map<string, { file: TFile; content: string; frontma
     app: {
       vault: {
         getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-        getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+        getAbstractFileByPath: jest.fn((path: string) => {
+          if (path === 'TaskChute/Recipes' || path === 'TaskChute/Task') {
+            return {
+              path,
+              children: Array.from(files.values())
+                .map((entry) => entry.file)
+                .filter((file) => file.path.startsWith(`${path}/`)),
+            }
+          }
+          return files.get(path)?.file ?? null
+        }),
         read: jest.fn(async (file: TFile) => files.get(file.path)?.content ?? ''),
         modify: jest.fn(async (file: TFile, content: string) => {
           const entry = files.get(file.path)

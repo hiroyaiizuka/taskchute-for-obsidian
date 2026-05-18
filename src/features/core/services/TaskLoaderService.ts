@@ -18,6 +18,7 @@ import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
 import type { SectionConfigService } from '../../../services/SectionConfigService'
 import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
+import { listFilesInFolder } from '../../../utils/vaultFiles'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -1279,7 +1280,10 @@ function resolveProjectInfo(
   const title = extractProjectTitle(metadata.project)
   if (!title) return undefined
 
-  const candidates = context.app.vault.getMarkdownFiles?.() ?? []
+  const projectFolderPath = context.plugin.pathManager.getProjectFolderPath()
+  const candidates = projectFolderPath
+    ? listFilesInFolder(context.app, projectFolderPath, { markdownOnly: true })
+    : []
   const file = candidates.find((candidate) => candidate.basename === title)
   if (!file) return { title }
   return { title, path: file.path }
@@ -1329,40 +1333,7 @@ function deriveDisplayTitle(
 
 function getTaskFiles(context: TaskLoaderHost): TFile[] {
   const folderPath = context.plugin.pathManager.getTaskFolderPath()
-  const abstract = context.app.vault.getAbstractFileByPath(folderPath)
-
-  const collected: TFile[] = []
-
-  if (abstract && typeof abstract === 'object' && 'children' in abstract) {
-    const children = (abstract as { children?: unknown[] }).children ?? []
-    for (const child of children) {
-      if (isMarkdownFile(child)) {
-        collected.push(child)
-      }
-    }
-  }
-
-  if (collected.length > 0) {
-    return collected
-  }
-
-  const markdownFiles = context.app.vault.getMarkdownFiles?.() ?? []
-  return markdownFiles.filter((file) => file.path.startsWith(`${folderPath}/`))
-}
-
-function isMarkdownFile(candidate: unknown): candidate is TFile {
-  if (candidate instanceof TFile) {
-    return candidate.extension === 'md'
-  }
-  if (!candidate || typeof candidate !== 'object') {
-    return false
-  }
-  const maybe = candidate as { path?: unknown; extension?: unknown }
-  return (
-    typeof maybe.path === 'string' &&
-    typeof maybe.extension === 'string' &&
-    maybe.extension === 'md'
-  )
+  return listFilesInFolder(context.app, folderPath, { markdownOnly: true })
 }
 
 function toStringField(value: unknown): string | undefined {

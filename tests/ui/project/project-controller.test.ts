@@ -183,7 +183,13 @@ describe('ProjectController', () => {
     const projectFile = new TFile()
     projectFile.path = 'PROJ/Project - Alpha.md'
     projectFile.basename = 'Project - Alpha'
+    projectFile.extension = 'md'
     ;(app.vault.getMarkdownFiles as jest.Mock).mockReturnValue([projectFile])
+    ;(app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+      if (path === 'PROJ') return { path: 'PROJ', children: [projectFile] }
+      if (path === projectFile.path) return projectFile
+      return null
+    })
 
     MockedProjectSettingsModal.mockClear()
 
@@ -226,7 +232,13 @@ describe('ProjectController', () => {
     const projectFile = new TFile()
     projectFile.path = 'PROJ/Project - Beta.md'
     projectFile.basename = 'Project - Beta'
+    projectFile.extension = 'md'
     ;(app.vault.getMarkdownFiles as jest.Mock).mockReturnValue([projectFile])
+    ;(app.vault.getAbstractFileByPath as jest.Mock).mockImplementation((path: string) => {
+      if (path === 'PROJ') return { path: 'PROJ', children: [projectFile] }
+      if (path === projectFile.path) return projectFile
+      return null
+    })
 
     MockedProjectSettingsModal.mockClear()
 

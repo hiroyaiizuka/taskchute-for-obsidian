@@ -42,6 +42,26 @@ function ensureCreateEl(): void {
   }
 }
 
+type RecipeFileEntry = {
+  file: TFile
+  content: string
+  frontmatter: Record<string, unknown>
+}
+
+function createRecipeFolderLookup(files: Map<string, RecipeFileEntry>) {
+  return jest.fn((path: string) => {
+    if (path === 'TaskChute/Recipes' || path === 'TaskChute/Task') {
+      return {
+        path,
+        children: Array.from(files.values())
+          .map((entry) => entry.file)
+          .filter((file) => file.path.startsWith(`${path}/`)),
+      }
+    }
+    return files.get(path)?.file ?? null
+  })
+}
+
 describe('recipe UI helpers', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -926,7 +946,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(async (target: TFile, content: string) => {
             const entry = files.get(target.path)
@@ -991,7 +1011,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1035,7 +1055,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1083,7 +1103,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1134,7 +1154,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1195,7 +1215,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1241,7 +1261,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1289,7 +1309,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),

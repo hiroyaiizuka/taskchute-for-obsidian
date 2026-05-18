@@ -11,6 +11,7 @@ import {
 } from '../../../types';
 import { getScheduledTime } from '../../../utils/fieldMigration';
 import { getToday } from '../../../utils/date';
+import { listFilesInFolder } from '../../../utils/vaultFiles';
 import RoutineEditModal from './RoutineEditModal';
 import { resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils';
 
@@ -175,9 +176,7 @@ export class RoutineManagerModal extends Modal {
 
   private loadRows(): void {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath();
-    const files = this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${taskFolderPath}/`));
+    const files = listFilesInFolder(this.app, taskFolderPath, { markdownOnly: true });
 
     this.rows = files
       .map((file) => {
