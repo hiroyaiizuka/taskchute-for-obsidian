@@ -4,6 +4,8 @@
 
 **タスクを整理するだけでなく、実行するためのプラグイン。**
 
+**現在ベータ版で、公式ドキュメントを整備中です。近日中(2026年8月頃)に公開予定です。**
+
 ![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
 
 TaskChute Plus は、実行重視のタスク管理を Obsidian 上で行うためのプラグインです。  
