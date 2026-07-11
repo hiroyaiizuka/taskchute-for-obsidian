@@ -169,6 +169,9 @@ export default [
       ".husky/**",
       "taskchute-docs/**",
       "tmp/**",
+      // Plain Node scripts spawned as fake CLIs by dispatcher tests; they are
+      // not part of the typed lint project (tsconfig.test.json has allowJs: false).
+      "tests/features/ai-task/fixtures/**",
     ],
   },
   // Base JS recommended config
