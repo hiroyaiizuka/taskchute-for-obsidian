@@ -1,0 +1,110 @@
+/**
+ * AI Task - shared domain types
+ *
+ * Pure type definitions for the AI Task feature (manual-run MVP).
+ * No runtime dependencies; safe to import from tests and every layer.
+ */
+
+/** Supported headless CLI hosts */
+export type AiTaskHost = 'claude' | 'codex'
+
+/** Lifecycle status of a single AI run */
+export type AiRunStatus =
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'succeeded'
+  | 'failed'
+  | 'stopped'
+
+/** Emitted when the CLI reports its session bootstrap */
+export interface AiInitEvent {
+  kind: 'init'
+  sessionId?: string
+  model?: string
+}
+
+/** Plain assistant text output */
+export interface AiAssistantTextEvent {
+  kind: 'assistant-text'
+  text: string
+}
+
+/** The assistant invoked a tool */
+export interface AiToolUseEvent {
+  kind: 'tool-use'
+  toolName: string
+  input?: unknown
+}
+
+/** A tool finished and returned output */
+export interface AiToolResultEvent {
+  kind: 'tool-result'
+  text?: string
+  isError?: boolean
+}
+
+/** Terminal event of a run as reported by the CLI stream */
+export interface AiResultEvent {
+  kind: 'result'
+  subtype?: string
+  isError: boolean
+  totalCostUsd?: number
+  numTurns?: number
+  text?: string
+}
+
+/** A line written to the child process stderr */
+export interface AiStderrEvent {
+  kind: 'stderr'
+  text: string
+}
+
+/** Unparseable or unknown stream line, preserved verbatim */
+export interface AiRawEvent {
+  kind: 'raw'
+  text: string
+}
+
+export type AiStreamEvent =
+  | AiInitEvent
+  | AiAssistantTextEvent
+  | AiToolUseEvent
+  | AiToolResultEvent
+  | AiResultEvent
+  | AiStderrEvent
+  | AiRawEvent
+
+/** Normalized `ai_task_*` frontmatter configuration for a task note */
+export interface AiTaskConfig {
+  host: AiTaskHost
+  /** Extra CLI arguments appended to the host command */
+  args: string[]
+  /** Working directory override for the child process */
+  cwd?: string
+}
+
+/** In-memory record of one AI run (also the source for the run log note) */
+export interface AiRunRecord {
+  /** Unique run identifier */
+  id: string
+  /** Vault path of the task note that started the run */
+  taskPath: string
+  /** Display name of the task */
+  taskName: string
+  host: AiTaskHost
+  status: AiRunStatus
+  /** Epoch milliseconds */
+  startedAt: number
+  /** Epoch milliseconds; set when the run reaches a terminal status */
+  endedAt?: number
+  /** Bounded event buffer (head + tail with omission marker) */
+  events: AiStreamEvent[]
+  /** Number of events dropped from the middle of the buffer */
+  omittedEventCount?: number
+  /** Child process exit code (null when terminated by signal) */
+  exitCode?: number | null
+  pid?: number
+  /** Human-readable failure summary, if any */
+  errorMessage?: string
+}

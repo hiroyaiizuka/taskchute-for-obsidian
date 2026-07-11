@@ -60,6 +60,12 @@ export interface TaskChuteSettings {
 
   // Collapsible time slots (click header to collapse/expand)
   collapsibleTimeSlots?: boolean
+
+  // AI Task (manual headless CLI runs; desktop only)
+  aiTaskEnabled?: boolean // default false; enables the AI Task feature
+  aiTaskClaudePath?: string // optional binary path override (empty = auto detect)
+  aiTaskCodexPath?: string // optional binary path override (empty = auto detect)
+  aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
 }
 
 export interface GoogleCalendarSettings {

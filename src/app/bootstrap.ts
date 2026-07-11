@@ -44,6 +44,17 @@ export async function prepareSettings(
       Math.round(settings.defaultReminderMinutes ?? 5),
     )
   }
+  if (typeof settings.aiTaskEnabled !== "boolean") {
+    settings.aiTaskEnabled = false
+  }
+  if (!Number.isFinite(settings.aiTaskLogRetentionDays)) {
+    settings.aiTaskLogRetentionDays = 30
+  } else {
+    settings.aiTaskLogRetentionDays = Math.max(
+      1,
+      Math.round(settings.aiTaskLogRetentionDays ?? 30),
+    )
+  }
 
   // Lightweight migration from legacy individual paths -> new base model
   if (!settings.locationMode) {

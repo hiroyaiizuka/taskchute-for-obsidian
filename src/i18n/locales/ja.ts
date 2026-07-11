@@ -59,6 +59,18 @@ export const ja = {
       enableDesc:
         "タスク設定メニューと左上メニューに、レシピの設定・管理項目を表示します。",
     },
+    aiTask: {
+      heading: "AIタスク",
+      enable: "AIタスクを有効化",
+      enableDesc:
+        "ヘッドレスAI CLIでタスクを実行し、出力をAI実行ペインにストリーム表示します（デスクトップ専用）。",
+      claudePathName: "Claude Code バイナリパス",
+      claudePathDesc: "claude バイナリのフルパス。空欄で自動検出します。",
+      codexPathName: "Codex バイナリパス",
+      codexPathDesc: "codex バイナリのフルパス。空欄で自動検出します。",
+      retentionName: "実行ログの保持期間（日）",
+      retentionDesc: "この日数より古い実行ログノートは自動的に削除されます。",
+    },
     taskCreation: {
       heading: "タスク作成",
       showAdvancedName: "新規作成モーダルで詳細設定を表示",
@@ -204,6 +216,26 @@ export const ja = {
       review: "レビュー",
       log: "ログ",
       settings: "設定",
+    },
+    aiTask: {
+      paneTitle: "AI実行",
+      run: "AIタスクを実行",
+      stop: "AIタスクを停止",
+      tabUntitled: "無題の実行",
+      status: {
+        starting: "開始中",
+        running: "実行中",
+        stopping: "停止中",
+        succeeded: "成功",
+        failed: "失敗",
+        stopped: "停止",
+      },
+      notices: {
+        noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
+        binaryNotFound: "AI CLIバイナリが見つかりません: {host}。設定でパスを指定してください。",
+        alreadyRunning: "このタスクのAI実行はすでに進行中です。",
+        desktopOnly: "AIタスクの実行はデスクトップ版でのみ利用できます。",
+      },
     },
     date: {
       today: "今日",

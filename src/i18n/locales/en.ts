@@ -61,6 +61,18 @@ export const en = {
       enableDesc:
         "Show recipe setup and management entry points in the task menu and side navigation.",
     },
+    aiTask: {
+      heading: "AI task",
+      enable: "Enable AI tasks",
+      enableDesc:
+        "Run tasks with a headless AI CLI and stream the output into the AI run pane (desktop only).",
+      claudePathName: "Claude binary path",
+      claudePathDesc: "Full path to the claude binary. Leave empty to auto-detect.",
+      codexPathName: "Codex binary path",
+      codexPathDesc: "Full path to the codex binary. Leave empty to auto-detect.",
+      retentionName: "Run log retention (days)",
+      retentionDesc: "Run log notes older than this many days are deleted automatically.",
+    },
     taskCreation: {
       heading: "Task creation",
       showAdvancedName: "Show advanced settings in the task creation modal",
@@ -206,6 +218,26 @@ export const en = {
       review: "Review",
       log: "Log",
       settings: "Settings",
+    },
+    aiTask: {
+      paneTitle: "AI runs",
+      run: "Run AI task",
+      stop: "Stop AI task",
+      tabUntitled: "Untitled run",
+      status: {
+        starting: "Starting",
+        running: "Running",
+        stopping: "Stopping",
+        succeeded: "Succeeded",
+        failed: "Failed",
+        stopped: "Stopped",
+      },
+      notices: {
+        noPrompt: "No prompt section found. Add a \"## prompt\" heading to the task note.",
+        binaryNotFound: "AI CLI binary was not found: {host}. Set the path in settings.",
+        alreadyRunning: "An AI run is already in progress for this task.",
+        desktopOnly: "AI task runs are available on desktop only.",
+      },
     },
     date: {
       today: "Today",

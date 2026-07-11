@@ -145,13 +145,32 @@ export interface TaskMetadataFields {
 }
 
 // ============================================================================
+// AI Task Fields
+// ============================================================================
+
+export interface AiTaskFields {
+  /** Whether this task can be executed by a headless AI CLI */
+  ai_task?: boolean;
+
+  /** CLI host to run ('claude' | 'codex'); defaults to 'claude' */
+  ai_task_host?: string;
+
+  /** Working directory override for the AI child process */
+  ai_task_cwd?: string;
+
+  /** Extra CLI arguments (shell-like string or pre-tokenized array) */
+  ai_task_args?: string | string[];
+}
+
+// ============================================================================
 // Complete Task Frontmatter
 // ============================================================================
 
 export interface TaskFrontmatter extends
   TaskSchedulingFields,
   RoutineTaskFields,
-  TaskMetadataFields {
+  TaskMetadataFields,
+  AiTaskFields {
   // Allow additional fields for extensibility
   [key: string]: unknown;
 }
