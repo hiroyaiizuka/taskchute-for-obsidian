@@ -926,8 +926,16 @@ export class TaskChuteView
     this.aiRunPaneController.mount(this.aiPaneContainer)
 
     // Row controls reflect run status; re-render the list only when a run's
-    // status actually changes (never on stream events).
-    const unsubscribe = manager.onChange((record) => {
+    // status actually changes (never on stream events). Shell sessions render
+    // no row chip, so their transitions never trigger a re-render, and
+    // 'persisted' (the end of a run's lifecycle) prunes the bookkeeping entry
+    // so the map does not grow for the lifetime of the view.
+    const unsubscribe = manager.onChange((record, changeType) => {
+      if (record.host === 'shell') return
+      if (changeType === 'persisted') {
+        this.aiRunRowStatuses.delete(record.id)
+        return
+      }
       if (this.aiRunRowStatuses.get(record.id) === record.status) return
       this.aiRunRowStatuses.set(record.id, record.status)
       this.renderTaskList()

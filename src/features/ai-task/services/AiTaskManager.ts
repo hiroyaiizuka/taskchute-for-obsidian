@@ -754,6 +754,23 @@ export class AiTaskManager {
   }
 
   /**
+   * Drop a FINISHED run's record from the manager. The pane calls this when
+   * a run's view closes for good (× on a finished run, the stopped-run
+   * auto-close on 'persisted', a rolled-back shell spawn) so a later view
+   * remount does not resurrect the closed run and the record's buffers
+   * become collectable. Active (not yet exited) runs are never released;
+   * unknown ids are a no-op. The pending persist chain is unaffected — it
+   * captured its InternalRun reference when the exit was queued.
+   */
+  releaseRun(runId: string): void {
+    const internal = this.runs.get(runId)
+    if (!internal) return
+    if (!internal.exited || ACTIVE_STATUSES.has(internal.record.status)) return
+    internal.terminalListeners.clear()
+    this.runs.delete(runId)
+  }
+
+  /**
    * Stop whatever is (or is about to be) running for the task: stops the
    * registered active run, and when the only activity is an in-flight
    * startRun()/followUp() (the async window before the run registers), the
@@ -983,13 +1000,19 @@ export class AiTaskManager {
       // transcript temp file is consumed before the closing notification.
       internal.persistQueue = internal.persistQueue
         .then(() => this.discardTranscript(internal))
-        .then(() => this.notifyPersisted(record))
+        .then(() => {
+          this.dropStoppedReplayBuffer(internal)
+          this.notifyPersisted(record)
+        })
       return
     }
     if (record.mode === 'terminal') {
       internal.persistQueue = internal.persistQueue
         .then(() => this.persistTerminalRunLog(internal))
-        .then(() => this.notifyPersisted(record))
+        .then(() => {
+          this.dropStoppedReplayBuffer(internal)
+          this.notifyPersisted(record)
+        })
       return
     }
     // Snapshot the continuation synchronously and chain the write onto the
@@ -1010,6 +1033,20 @@ export class AiTaskManager {
   private notifyPersisted(record: AiRunRecord): void {
     if (this.disposed) return
     this.notifyChange(record, 'persisted')
+  }
+
+  /**
+   * Free a STOPPED run's terminal replay buffer at the end of its persist
+   * chain: the pane never re-shows stopped runs (their view auto-closed on
+   * 'persisted'), so the buffered output could never be replayed again and
+   * would sit as dead memory (up to TERMINAL_DATA_BUFFER_LIMIT per run).
+   * Succeeded/failed runs keep their buffer — a pane remount re-creates
+   * their views and restores the screen from it.
+   */
+  private dropStoppedReplayBuffer(internal: InternalRun): void {
+    if (internal.record.status === 'stopped') {
+      internal.terminalData = null
+    }
   }
 
   /** Best-effort removal of a terminal run's transcript temp file */

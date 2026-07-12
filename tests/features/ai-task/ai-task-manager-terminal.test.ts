@@ -809,3 +809,70 @@ describe('AiTaskManager dispose during live terminal sessions', () => {
     expect(run.forceKill).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('AiTaskManager carried fixes: stopped-run buffers + releaseRun', () => {
+  test('drops the replay buffer of a stopped run after its persist chain', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.terminal.last.emitData('screen bytes')
+
+    harness.manager.stopRun(record.id)
+    harness.terminal.last.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await flushPromises()
+
+    // Stopped runs never re-show in the pane, so their replay buffer is dead
+    // memory: a late subscriber must get NO synchronous replay.
+    const listener = jest.fn()
+    harness.manager.onTerminalData(record.id, listener)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  test('keeps the replay buffer of a succeeded run for remount replay', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.terminal.last.emitData('screen bytes')
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    const listener = jest.fn()
+    harness.manager.onTerminalData(record.id, listener)
+    expect(listener).toHaveBeenCalledWith('screen bytes')
+  })
+
+  test('releaseRun drops a finished run from getRuns', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    harness.manager.releaseRun(record.id)
+
+    expect(harness.manager.getRun(record.id)).toBeUndefined()
+    expect(harness.manager.getRuns()).toEqual([])
+  })
+
+  test('releaseRun never releases an active run', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.manager.releaseRun(record.id)
+
+    expect(harness.manager.getRun(record.id)).toBe(record)
+    // Unknown ids stay a safe no-op.
+    expect(() => harness.manager.releaseRun('missing-run')).not.toThrow()
+  })
+
+  test('a dispatch-throw failed run can be released', async () => {
+    const harness = createTerminalHarness()
+    harness.terminal.failNextStart = new Error('spawn EACCES')
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toThrow('spawn EACCES')
+    await flushPromises()
+
+    const failed = harness.manager.getRuns()[0]
+    expect(failed?.status).toBe('failed')
+    harness.manager.releaseRun(failed.id)
+    expect(harness.manager.getRuns()).toEqual([])
+  })
+})

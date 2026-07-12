@@ -69,10 +69,12 @@ function normalizeArgs(value: unknown): string[] {
     return tokenizeArgString(value)
   }
   if (Array.isArray(value)) {
-    return value.filter(
-      (entry): entry is string =>
-        typeof entry === 'string' && entry.trim().length > 0,
-    )
+    // Array entries are literal argv tokens: keep them verbatim — an empty
+    // string pairs with a preceding value flag (["--model", ""]) and dropping
+    // it would let the dangling flag consume the following token. Mirrors
+    // tokenizeArgString, which preserves quoted empty tokens. Only
+    // non-strings are dropped.
+    return value.filter((entry): entry is string => typeof entry === 'string')
   }
   return []
 }

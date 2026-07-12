@@ -100,6 +100,14 @@ export interface AiRunPaneManagerLike {
   onTerminalData(runId: string, listener: (chunk: string) => void): () => void
   sendTerminalInput(runId: string, data: string): void
   /**
+   * Drop a FINISHED run's record from the manager when its view closes for
+   * good (× on a finished run, the stopped-run auto-close, a rolled-back
+   * shell spawn), so a later pane remount does not resurrect the run.
+   * Optional so plain fakes keep working — without it closed runs simply
+   * reappear on remount.
+   */
+  releaseRun?(runId: string): void
+  /**
    * Spawn a plain login-shell terminal session (U2 split panels). Optional
    * so plain fakes keep working — without it the split and + controls
    * surface the shell-unavailable notice instead of spawning.
@@ -621,7 +629,13 @@ export class AiRunPaneController {
     this.panels = this.panels.filter((other) => other !== panel)
     panel.el.remove()
     if (this.focusedPanelId === panel.id) {
+      // The keyboard focus follows the ring (same contract as clicking a
+      // panel): without ensureTerminalView the highlight would move to the
+      // primary panel while keystrokes kept going nowhere until a click.
       this.focusPanel(primary)
+      if (!this.isCollapsed()) {
+        this.ensureTerminalView(primary)
+      }
     }
     this.refreshPanelsSplitState()
     this.syncPanelSelectionClasses()
@@ -693,6 +707,9 @@ export class AiRunPaneController {
         this.closePanel(newPanel)
       }
       this.focusPanel(sourcePanel)
+      if (!this.isCollapsed()) {
+        this.ensureTerminalView(sourcePanel)
+      }
       this.notifyShellError(error)
       return
     }
@@ -858,6 +875,11 @@ export class AiRunPaneController {
     view.body.remove()
     this.runViews.delete(runId)
     this.pendingCloseRunIds.delete(runId)
+    // The view is gone for good: drop the run's record from the manager so a
+    // later pane remount does not resurrect the closed run (the manager
+    // refuses to release still-active runs, so a rollback of a mid-dispatch
+    // failure can call this unconditionally).
+    this.host.manager.releaseRun?.(runId)
 
     const panel = this.getPanel(view.panelId)
     if (panel && panel.selectedRunId === runId) {

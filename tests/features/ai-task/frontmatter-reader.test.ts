@@ -91,12 +91,22 @@ describe('readAiTaskConfig', () => {
     expect(config?.args).toEqual(['-a', '-b'])
   })
 
-  test('keeps array args as-is, dropping non-strings and blank entries', () => {
+  test('keeps array args verbatim, dropping only non-strings', () => {
+    // Array entries are literal argv tokens: an empty string pairs with a
+    // preceding value flag (["--model", ""]) and must not be dropped, or the
+    // dangling flag would consume the following token. Mirrors
+    // tokenizeArgString, which preserves quoted empty tokens.
     const config = readAiTaskConfig({
       ai_task: true,
       ai_task_args: ['--max-turns', '1', 'two words kept together', 3, '', '  ', null],
     })
-    expect(config?.args).toEqual(['--max-turns', '1', 'two words kept together'])
+    expect(config?.args).toEqual([
+      '--max-turns',
+      '1',
+      'two words kept together',
+      '',
+      '  ',
+    ])
   })
 
   test('returns empty args for unsupported ai_task_args types', () => {

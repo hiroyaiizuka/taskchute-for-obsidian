@@ -75,6 +75,13 @@ class FakeManager {
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
+  /** Mirrors the real manager: drops a finished run's record for good */
+  readonly releaseRun = jest.fn((runId: string): void => {
+    const index = this.records.findIndex((record) => record.id === runId)
+    if (index >= 0) {
+      this.records.splice(index, 1)
+    }
+  })
   failNextShellStart: Error | null = null
   private shellSequence = 0
 
@@ -435,6 +442,76 @@ describe('AiRunPaneController split panels', () => {
       expect(
         container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
       ).toBe(false)
+    })
+  })
+
+  describe('carried fixes: unsplit keyboard focus + run release', () => {
+    test('closing a secondary panel selected run returns the keyboard focus to the primary terminal', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      splitButton()?.click()
+      const shellRecord = manager.getRun('shell-1')
+      if (!shellRecord) throw new Error('shell record missing')
+      shellRecord.status = 'succeeded'
+      manager.emit(shellRecord)
+      const focusCallsBefore = adapters[0].focus.mock.calls.length
+
+      panels()[1]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__tab-close')
+        ?.click()
+
+      // The unsplit moved the focus ring back to the primary panel; the
+      // keyboard focus must follow it, or keystrokes go nowhere until a
+      // click (same contract as clicking a panel).
+      expect(panels()).toHaveLength(1)
+      expect(panels()[0].classList.contains('is-focused')).toBe(true)
+      expect(adapters[0].focus.mock.calls.length).toBe(focusCallsBefore + 1)
+    })
+
+    test('the × on a finished run releases its record from the manager', () => {
+      controller.mount(container)
+      const run = createRun({ id: 'run-a' })
+      manager.emit(run)
+      run.status = 'succeeded'
+      manager.emit(run)
+
+      container
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
+        )
+        ?.click()
+
+      expect(manager.releaseRun).toHaveBeenCalledWith('run-a')
+      // A remount must not resurrect the x-closed run.
+      controller.unmount()
+      controller.mount(container)
+      expect(rows()).toHaveLength(0)
+    })
+
+    test('a stopped run auto-closing on persisted releases its record', () => {
+      controller.mount(container)
+      const run = createRun({ id: 'run-a' })
+      manager.emit(run)
+
+      run.status = 'stopped'
+      manager.emit(run)
+      expect(manager.releaseRun).not.toHaveBeenCalled()
+      manager.emit(run, 'persisted')
+
+      expect(manager.releaseRun).toHaveBeenCalledWith('run-a')
+    })
+
+    test('a rolled-back shell spawn releases the failed record (no remount ghost)', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      manager.failNextShellStart = new Error('spawn failed')
+
+      splitButton()?.click()
+
+      expect(manager.releaseRun).toHaveBeenCalledWith('shell-1')
+      controller.unmount()
+      controller.mount(container)
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['run-a'])
     })
   })
 
