@@ -45,6 +45,13 @@ export const TERMINAL_DATA_BUFFER_LIMIT = 200 * 1024
 /** PTY size used when the caller provides no pane-derived dimensions */
 export const DEFAULT_TERMINAL_ROWS = 24
 export const DEFAULT_TERMINAL_COLS = 80
+/**
+ * Body written to the run log note when the PTY transcript temp file could
+ * not be read at run end (deleted by the OS, permissions, disk error): the
+ * note is still created so the run leaves a traceable record.
+ */
+export const TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER =
+  '(The terminal transcript could not be read; the session output was not captured.)'
 
 const ACTIVE_STATUSES: ReadonlySet<AiRunRecord['status']> = new Set([
   'starting',
@@ -310,14 +317,17 @@ export class AiTaskManager {
 
   /**
    * Start an AI run for the given task note. Rejects with a typed error when
-   * the manager is disposed, the note is not an AI task, has no prompt, or
-   * already has an active run. The disposed flag is re-checked after every
-   * await so a dispose() during an in-flight start can never spawn a child
-   * process that dispose()'s handle sweep would miss.
+   * the manager is disposed, the note is not an AI task, has no prompt (see
+   * below), or already has an active run. The disposed flag is re-checked
+   * after every await so a dispose() during an in-flight start can never
+   * spawn a child process that dispose()'s handle sweep would miss.
    *
    * `options.mode` (or the settings accessor) picks between an interactive
    * terminal (PTY) session and the headless stream-json pipeline; terminal
    * mode silently degrades to headless where no PTY wrapper exists (win32).
+   * A missing or empty '## Prompt' section only rejects for headless runs —
+   * a terminal session simply opens the CLI as a plain REPL (the user types
+   * the prompt into the terminal).
    */
   async startRun(file: TFile, options?: AiRunStartOptions): Promise<AiRunRecord> {
     this.throwIfDisposed()
@@ -333,14 +343,21 @@ export class AiTaskManager {
 
       const content = await this.deps.app.vault.cachedRead(file)
       this.throwIfDisposed()
-      const prompt = extractPromptSection(content, cache?.headings)
-      if (prompt === null) throw new AiPromptNotFoundError(taskPath)
+      // The effective mode decides how a missing/empty '## Prompt' section is
+      // treated, so resolve it BEFORE the prompt gate: terminal sessions open
+      // a plain interactive REPL with an empty prompt (typing happens in the
+      // terminal), while headless runs have nothing to execute without one.
+      const mode = this.resolveRunMode(options?.mode)
+      const extractedPrompt = extractPromptSection(content, cache?.headings)
+      if (extractedPrompt === null && mode !== 'terminal') {
+        throw new AiPromptNotFoundError(taskPath)
+      }
+      const prompt = extractedPrompt ?? ''
 
       const cwd = this.resolveCwd(config.cwd)
       const binaryPath = await this.deps.binaryLocator.resolve(config.host)
       this.throwIfDisposed()
 
-      const mode = this.resolveRunMode(options?.mode)
       this.runSequence += 1
       const record: AiRunRecord = {
         id: `ai-run-${Date.now()}-${this.runSequence}`,
@@ -795,6 +812,7 @@ export class AiTaskManager {
           await this.deps.terminal.readAndDeleteFile(transcriptPath),
         )
       } catch (error) {
+        transcript = TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER
         this.deps.log?.(
           'warn',
           '[AiTaskManager] Failed to read the terminal transcript',

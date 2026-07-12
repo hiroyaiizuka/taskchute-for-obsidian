@@ -93,7 +93,7 @@ With default `vaultRoot` mode, TaskChute-managed folders are:
 
 ## AI tasks (experimental, desktop only)
 
-Run a task with a headless AI CLI (Claude Code or Codex) and watch the output stream into an "AI runs" pane below the task list.
+Run a task with an AI CLI (Claude Code or Codex) inside a real terminal embedded in the "AI runs" pane below the task list: the full interactive TUI renders there, the prompt from the task note is submitted automatically, and you can type into the session at any time — exactly as if you had launched the CLI in your own terminal.
 
 - Enable it in `TaskChute settings` → `AI task` → `Enable AI tasks`. The feature is off by default and never activates on mobile.
 - The plugin launches the CLIs you already have: **Claude Code (`claude`) and/or Codex (`codex`) must be installed and authenticated separately by you.** The plugin handles no API keys and makes no network calls itself.
@@ -114,7 +114,13 @@ ai_task_args: --max-turns 5 # optional: extra CLI arguments (string or list)
 Summarize the open questions in this project and propose next steps.
 ```
 
-The task row then shows a run button; while a run is active it becomes a stop control with a status chip. Each finished run is saved as a markdown log note under `TaskChute/AI/Logs/YYYY-MM/`, and log notes older than `Run log retention (days)` (default 30) are moved to the trash automatically.
+The task row then shows a run button; while a run is active it becomes a stop control with a status chip. Each finished run is saved as a markdown log note (the terminal transcript, colors stripped) under `TaskChute/AI/Logs/YYYY-MM/`, and log notes older than `Run log retention (days)` (default 30) are moved to the trash automatically.
+
+### Run modes
+
+- **Terminal (interactive)** — the default experience described above. In terminal mode the `## Prompt` section is optional: without one, the CLI simply opens as a plain interactive session.
+- **Headless (parsed events)** — the previous behavior, selectable via `TaskChute settings` → `AI task` → `Run mode`: the CLI runs non-interactively, parsed stream events render as text in the pane, and a composer bar sends resume-based follow-up prompts. Headless runs require a `## Prompt` section.
+- **Windows** currently has no terminal support and always runs headless, regardless of the setting.
 
 Task-note frontmatter is read-only for this feature: the plugin never edits your task notes.
 

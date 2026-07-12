@@ -1,12 +1,15 @@
 import { TFile } from 'obsidian'
 import {
+  AiPromptNotFoundError,
   AiTaskManager,
   AiTerminalFollowUpError,
   TERMINAL_DATA_BUFFER_LIMIT,
+  TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER,
   type AiTaskManagerDeps,
 } from '../../../src/features/ai-task/services/AiTaskManager'
 import type {
   AiDispatcher,
+  AiGraceTimer,
   AiRunCallbacks,
   AiRunExitOutcome,
   AiRunRequest,
@@ -99,6 +102,10 @@ interface HarnessOptions {
   transcriptContent?: string
   withTerminalWriter?: boolean
   frontmatter?: Record<string, unknown>
+  /** Task note content; defaults to a note WITH a '## Prompt' section */
+  content?: string
+  /** Grace-timer override injected into the manager deps */
+  timer?: AiGraceTimer
 }
 
 function createTerminalHarness(options: HarnessOptions = {}) {
@@ -122,7 +129,9 @@ function createTerminalHarness(options: HarnessOptions = {}) {
   const deps: AiTaskManagerDeps = {
     app: {
       vault: {
-        cachedRead: jest.fn(async () => '# Task\n\n## Prompt\n\nDo the thing\n'),
+        cachedRead: jest.fn(
+          async () => options.content ?? '# Task\n\n## Prompt\n\nDo the thing\n',
+        ),
         adapter: { getBasePath: () => '/vault/base' },
       },
       metadataCache: {
@@ -143,6 +152,7 @@ function createTerminalHarness(options: HarnessOptions = {}) {
       readAndDeleteFile,
     },
     getRunMode,
+    timer: options.timer,
   }
 
   return {
@@ -434,7 +444,7 @@ describe('AiTaskManager terminal exit and transcript log', () => {
     expect(harness.writeRunLog).not.toHaveBeenCalled()
   })
 
-  test('a transcript read failure still writes the note with an empty transcript', async () => {
+  test('a transcript read failure still writes the note, with a placeholder transcript', async () => {
     const harness = createTerminalHarness()
     harness.readAndDeleteFile.mockRejectedValueOnce(new Error('read failed'))
     const record = await harness.manager.startRun(makeTaskFile())
@@ -442,7 +452,11 @@ describe('AiTaskManager terminal exit and transcript log', () => {
     harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
     await flushPromises()
 
-    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, '')
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER,
+    )
+    expect(TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER.length).toBeGreaterThan(0)
     expect(record.logNotePath).toBe('terminal-log.md')
   })
 
@@ -512,5 +526,144 @@ describe('AiTaskManager followUp on terminal runs', () => {
     expect(harness.terminal.runs).toHaveLength(1)
     expect(harness.headless.runs).toHaveLength(0)
     expect(record.status).toBe('succeeded')
+  })
+})
+
+describe('AiTaskManager terminal prompt fallback', () => {
+  const NO_PROMPT_CONTENT = '# Task\n\nJust notes, no prompt heading.\n'
+  const EMPTY_PROMPT_CONTENT = '# Task\n\n## Prompt\n\n\n## Next\n\nBody\n'
+
+  test('a terminal run without a "## Prompt" section starts a plain REPL (empty prompt)', async () => {
+    const harness = createTerminalHarness({ content: NO_PROMPT_CONTENT })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.mode).toBe('terminal')
+    expect(record.status).toBe('running')
+    expect(harness.terminal.runs).toHaveLength(1)
+    expect(harness.terminal.last.request.prompt).toBe('')
+  })
+
+  test('a terminal run with an empty "## Prompt" body also starts a plain REPL', async () => {
+    const harness = createTerminalHarness({ content: EMPTY_PROMPT_CONTENT })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.status).toBe('running')
+    expect(harness.terminal.last.request.prompt).toBe('')
+  })
+
+  test('a headless run without a "## Prompt" section still rejects with the typed error', async () => {
+    const harness = createTerminalHarness({
+      runMode: 'headless',
+      content: NO_PROMPT_CONTENT,
+    })
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiPromptNotFoundError,
+    )
+    expect(harness.headless.runs).toHaveLength(0)
+    expect(harness.terminal.runs).toHaveLength(0)
+    expect(harness.manager.getRuns()).toHaveLength(0)
+  })
+
+  test('a terminal request degraded to headless (no PTY) also rejects without a prompt', async () => {
+    const harness = createTerminalHarness({
+      supported: false,
+      content: NO_PROMPT_CONTENT,
+    })
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiPromptNotFoundError,
+    )
+    expect(harness.terminal.runs).toHaveLength(0)
+    expect(harness.headless.runs).toHaveLength(0)
+  })
+})
+
+describe('AiTaskManager concurrent terminal runs', () => {
+  test('stdin routing and terminal output stay independent per run', async () => {
+    const harness = createTerminalHarness()
+    const recordA = await harness.manager.startRun(
+      makeTaskFile('TaskChute/Task/Task A.md', 'Task A'),
+    )
+    const recordB = await harness.manager.startRun(
+      makeTaskFile('TaskChute/Task/Task B.md', 'Task B'),
+    )
+    const runA = harness.terminal.runs[0]
+    const runB = harness.terminal.runs[1]
+
+    harness.manager.sendTerminalInput(recordA.id, 'input-for-a')
+    harness.manager.sendTerminalInput(recordB.id, 'input-for-b')
+
+    expect(runA.write).toHaveBeenCalledTimes(1)
+    expect(runA.write).toHaveBeenCalledWith('input-for-a')
+    expect(runB.write).toHaveBeenCalledTimes(1)
+    expect(runB.write).toHaveBeenCalledWith('input-for-b')
+
+    const seenA: string[] = []
+    const seenB: string[] = []
+    harness.manager.onTerminalData(recordA.id, (chunk) => seenA.push(chunk))
+    harness.manager.onTerminalData(recordB.id, (chunk) => seenB.push(chunk))
+    runA.emitData('from-a')
+    runB.emitData('from-b')
+
+    expect(seenA).toEqual(['from-a'])
+    expect(seenB).toEqual(['from-b'])
+
+    // Independent teardown: stopping A leaves B running and typable.
+    harness.manager.stopRun(recordA.id)
+    runA.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await flushPromises()
+    harness.manager.sendTerminalInput(recordB.id, 'still-alive')
+    expect(runB.write).toHaveBeenLastCalledWith('still-alive')
+    expect(recordA.status).toBe('stopped')
+    expect(recordB.status).toBe('running')
+  })
+
+  test('each concurrent terminal run gets its own transcript temp file', async () => {
+    const harness = createTerminalHarness()
+    const recordA = await harness.manager.startRun(
+      makeTaskFile('TaskChute/Task/Task A.md', 'Task A'),
+    )
+    const recordB = await harness.manager.startRun(
+      makeTaskFile('TaskChute/Task/Task B.md', 'Task B'),
+    )
+
+    expect(recordA.transcriptPath).toBeDefined()
+    expect(recordB.transcriptPath).toBeDefined()
+    expect(recordA.transcriptPath).not.toBe(recordB.transcriptPath)
+  })
+})
+
+describe('AiTaskManager dispose during live terminal sessions', () => {
+  test('dispose() stops the session, escalates to forceKill, and silences terminal listeners', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    const record = await harness.manager.startRun(makeTaskFile())
+    const run = harness.terminal.last
+    const seen: string[] = []
+    harness.manager.onTerminalData(record.id, (chunk) => seen.push(chunk))
+
+    harness.manager.dispose()
+
+    expect(run.stop).toHaveBeenCalledTimes(1)
+    expect(run.forceKill).not.toHaveBeenCalled()
+
+    // Listeners were cleared: output arriving mid-teardown reaches nobody.
+    run.emitData('late chunk')
+    expect(seen).toEqual([])
+
+    // The grace timer fires -> SIGKILL escalation for the still-live handle.
+    expect(timerCallbacks).toHaveLength(1)
+    timerCallbacks[0]()
+    expect(run.forceKill).toHaveBeenCalledTimes(1)
   })
 })

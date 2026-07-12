@@ -64,6 +64,11 @@ class FakeManager {
   readonly listeners = new Set<ChangeListener>()
   readonly records: AiRunRecord[] = []
   readonly terminalListeners = new Map<string, Set<TerminalDataListener>>()
+  /**
+   * Buffered output replayed synchronously on subscribe, mirroring the real
+   * manager's onTerminalData replay contract (see AiTaskManager).
+   */
+  readonly terminalBuffers = new Map<string, string>()
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
@@ -97,6 +102,10 @@ class FakeManager {
     const listeners = this.terminalListeners.get(runId) ?? new Set()
     this.terminalListeners.set(runId, listeners)
     listeners.add(listener)
+    const buffered = this.terminalBuffers.get(runId)
+    if (buffered !== undefined && buffered.length > 0) {
+      listener(buffered)
+    }
     return () => {
       listeners.delete(listener)
     }
@@ -364,5 +373,53 @@ describe('AiRunPaneController terminal mode', () => {
     expect(size.cols).toBeLessThan(120)
     expect(size.rows).toBeGreaterThan(5)
     expect(size.rows).toBeLessThan(30)
+  })
+
+  test('the terminal tab stop control drives manager.stopRun', () => {
+    controller.mount(container)
+    const run = createRun({ status: 'running' })
+    manager.emit(run)
+
+    const stopButton = container.querySelector<HTMLButtonElement>(
+      '.ai-run-pane__tab-stop',
+    )
+    expect(stopButton).not.toBeNull()
+    stopButton?.click()
+
+    expect(manager.stopRun).toHaveBeenCalledTimes(1)
+    expect(manager.stopRun).toHaveBeenCalledWith(run.id)
+  })
+
+  test('a pane rebuild (unmount + mount) replays the buffered output into a fresh adapter', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+    manager.emitTerminalData(run.id, 'live output before the reload')
+    expect(adapters[0].written).toEqual(['live output before the reload'])
+
+    // View reload: the old pane (and adapter) is torn down...
+    controller.unmount()
+    expect(adapters[0].disposed).toBe(true)
+
+    // ...and the manager still holds the run + its replay buffer.
+    manager.terminalBuffers.set(run.id, 'live output before the reload')
+    const rebuilt = new AiRunPaneController(host)
+    rebuilt.mount(container)
+
+    // The rebuilt pane recreated the view from getRuns(), auto-selected the
+    // run, opened a fresh adapter, and the subscribe-time replay restored
+    // the screen — it is NOT blank.
+    expect(adapters).toHaveLength(2)
+    expect(adapters[1].opened?.cols).toBe(100)
+    expect(adapters[1].opened?.rows).toBe(25)
+    expect(adapters[1].written).toEqual(['live output before the reload'])
+
+    // Live chunks keep flowing after the replay.
+    manager.emitTerminalData(run.id, 'post-reload chunk')
+    expect(adapters[1].written).toEqual([
+      'live output before the reload',
+      'post-reload chunk',
+    ])
+    rebuilt.unmount()
   })
 })
