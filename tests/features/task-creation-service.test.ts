@@ -216,6 +216,34 @@ describe('TaskCreationService AI task notes (U3)', () => {
     expect(readAiTaskConfig(parseEmittedFrontmatter(content))).not.toBeNull()
   })
 
+  test('round-trips a prompt containing markdown H1/H2 heading lines', async () => {
+    // Carried WARNING regression: a pasted prompt with "# Overview" used to
+    // truncate at extraction because the extractor stops at H1/H2 lines.
+    // The writer escapes hash-leading lines; the extractor unescapes them.
+    const prompt = [
+      'Fix the docs.',
+      '# Overview',
+      'It has two parts:',
+      '## Steps',
+      '1. read',
+      '### keep h3 as-is',
+      '#tag mention',
+      '\\# already escaped by the user',
+    ].join('\n')
+
+    const content = await createdContent({
+      aiTask: { host: 'claude', args: [], prompt },
+    })
+
+    expect(extractPromptSection(content)).toBe(prompt)
+    // The raw note keeps no live H1/H2 inside the section body.
+    expect(content).toContain('\\# Overview')
+    expect(content).toContain('\\## Steps')
+    const promptSectionStart = content.indexOf('## Prompt')
+    const afterSection = content.slice(promptSectionStart + '## Prompt'.length)
+    expect(afterSection).not.toMatch(/^#{1,2}[ \t]+\S/m)
+  })
+
   test('keeps the standard fields (target_date, taskId, scheduled_time, heading) intact', async () => {
     const content = await createdContent(
       { aiTask: { host: 'claude', args: ['--max-turns', '1'], prompt: 'Go' } },

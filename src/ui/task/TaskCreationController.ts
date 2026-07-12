@@ -151,6 +151,12 @@ interface AiTaskControls {
   typeGroup: HTMLElement
   section: HTMLElement
   isAiMode(): boolean
+  /**
+   * Reuse mode ignores the AI configuration entirely (the reused note keeps
+   * its own frontmatter), so — mirroring the reference QuestCreateModal —
+   * the type selector and AI section hide while it is active.
+   */
+  setReuseActive(active: boolean): void
   getScheduledTime(): string | undefined
   getAiTaskOptions(): CreateTaskFileAiTaskOptions
 }
@@ -242,8 +248,13 @@ export default class TaskCreationController {
 
     // Human/AI task-type selector + AI-mode section, near the top of the
     // modal (right below the name input). Only present while the AI Task
-    // feature is enabled on desktop.
-    const aiControls = this.createAiTaskControls(doc)
+    // feature is enabled on desktop. syncAiRelatedVisibility is assigned its
+    // real body further down (after the reuse-state helpers exist); the
+    // controls' construction-time callback runs against this no-op.
+    let syncAiRelatedVisibility: () => void = () => undefined
+    const aiControls = this.createAiTaskControls(doc, () =>
+      syncAiRelatedVisibility(),
+    )
     if (aiControls) {
       form.insertBefore(aiControls.typeGroup, nameGroup.nextSibling)
       form.insertBefore(aiControls.section, aiControls.typeGroup.nextSibling)
@@ -267,6 +278,7 @@ export default class TaskCreationController {
         modeGroup.classList.add("hidden")
         reuseOption.radio.checked = true
       }
+      syncAiRelatedVisibility()
     }
 
     const resolveCreationMode = (): CreationMode => {
@@ -274,6 +286,29 @@ export default class TaskCreationController {
         return "copy"
       }
       return reuseOption.radio.checked ? "reuse" : "copy"
+    }
+
+    if (aiControls) {
+      syncAiRelatedVisibility = () => {
+        const reuseActive = resolveCreationMode() === "reuse"
+        aiControls.setReuseActive(reuseActive)
+        // The AI section owns the start time while it is visible, so the
+        // duplicated human "Start time"/reminder advanced block hides with
+        // it (its reminder would otherwise be computed from a time input
+        // the AI section overrides — the carried reminder_time bug). Reuse
+        // mode consumes the human block's options, so it comes back there.
+        advancedControls?.root.classList.toggle(
+          "hidden",
+          aiControls.isAiMode() && !reuseActive,
+        )
+      }
+      reuseOption.radio.addEventListener("change", () =>
+        syncAiRelatedVisibility(),
+      )
+      copyOption.radio.addEventListener("change", () =>
+        syncAiRelatedVisibility(),
+      )
+      syncAiRelatedVisibility()
     }
 
     let cleanupAutocomplete: (() => void) | null = null
@@ -362,19 +397,22 @@ export default class TaskCreationController {
         }
 
         const creationMode = resolveCreationMode()
-        let advancedOptions = advancedControls?.getOptions(creationMode)
-        const aiMode = aiControls?.isAiMode() === true
-        if (aiMode && aiControls) {
-          // The AI section's own start-time input wins over the (optional)
-          // human advanced-settings one; reminder/calendar options keep
-          // flowing from the advanced block untouched.
-          const aiScheduledTime = aiControls.getScheduledTime()
-          if (aiScheduledTime) {
-            advancedOptions = {
-              ...(advancedOptions ?? {}),
-              scheduledTime: aiScheduledTime,
-            }
-          }
+        // Reuse mode ignores the (hidden) AI configuration entirely — the
+        // reused note keeps its own frontmatter — so AI mode is effective
+        // only when a new note is actually created.
+        const aiMode =
+          aiControls?.isAiMode() === true && creationMode !== "reuse"
+        let advancedOptions: TaskCreationAdvancedOptions | undefined
+        if (aiMode) {
+          // The AI section is the single schedule source in AI mode; the
+          // human advanced block is hidden and contributes nothing (its
+          // reminder would be computed from its own, overridden time).
+          const aiScheduledTime = aiControls?.getScheduledTime()
+          advancedOptions = aiScheduledTime
+            ? { scheduledTime: aiScheduledTime }
+            : undefined
+        } else {
+          advancedOptions = advancedControls?.getOptions(creationMode)
         }
 
         let created = false
@@ -566,8 +604,15 @@ export default class TaskCreationController {
    * preview (honest interactive argv: binary + args + quoted prompt head),
    * a start-time input (shown regardless of the advanced-settings flag),
    * and an advanced block (execution mode, AI model, working directory).
+   * While reuse mode is active (setReuseActive), the selector and section
+   * hide — reference parity with QuestCreateModal's reuse branch.
+   * onTaskTypeChange fires whenever the human/AI selection flips so the
+   * caller can sync visibility it owns (the human advanced block).
    */
-  private createAiTaskControls(doc: Document): AiTaskControls | null {
+  private createAiTaskControls(
+    doc: Document,
+    onTaskTypeChange: () => void,
+  ): AiTaskControls | null {
     if (
       this.host.plugin.settings.aiTaskEnabled !== true ||
       Platform?.isDesktop !== true
@@ -577,6 +622,7 @@ export default class TaskCreationController {
 
     let taskType: TaskType = "human"
     let selectedHost: AiTaskHost = "claude"
+    let reuseActive = false
 
     // --- Task-type selector -------------------------------------------------
     const typeGroup = doc.createElement("div")
@@ -787,13 +833,19 @@ export default class TaskCreationController {
       refreshPreview()
     }
 
+    const applyVisibility = () => {
+      typeGroup.classList.toggle("hidden", reuseActive)
+      section.classList.toggle("hidden", reuseActive || taskType !== "ai")
+    }
+
     const selectTaskType = (nextType: TaskType) => {
       taskType = nextType
       humanButton.classList.toggle("is-selected", nextType === "human")
       humanButton.setAttribute("aria-pressed", nextType === "human" ? "true" : "false")
       aiButton.classList.toggle("is-selected", nextType === "ai")
       aiButton.setAttribute("aria-pressed", nextType === "ai" ? "true" : "false")
-      section.classList.toggle("hidden", nextType !== "ai")
+      applyVisibility()
+      onTaskTypeChange()
     }
 
     humanButton.addEventListener("click", () => selectTaskType("human"))
@@ -812,6 +864,10 @@ export default class TaskCreationController {
       typeGroup,
       section,
       isAiMode: () => taskType === "ai",
+      setReuseActive: (active: boolean) => {
+        reuseActive = active
+        applyVisibility()
+      },
       getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
       getAiTaskOptions: () => {
         const cwd = cwdInput.value.trim()

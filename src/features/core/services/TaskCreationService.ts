@@ -18,6 +18,10 @@ interface PluginLike {
  * YAML block list of literal argv tokens, cwd only when non-empty, and the
  * prompt as the body of a "## Prompt" section after the H1 heading (an empty
  * prompt still writes the empty section — terminal runs open a plain REPL).
+ * Hash-leading prompt lines (`# Overview`, `#tag`, `\#x`, ...) are written
+ * with one extra leading backslash so they can never terminate the Prompt
+ * section (in the extractor or in Obsidian's heading cache); the extractor
+ * strips exactly one backslash from such lines, restoring the entered text.
  */
 export interface CreateTaskFileAiTaskOptions {
   host: AiTaskHost
@@ -38,6 +42,23 @@ export interface CreateTaskFileOptions {
 /** Escape a value for a YAML double-quoted scalar */
 function toYamlQuoted(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+/**
+ * Lines that PromptExtractor's read-time unescaping would touch: zero or
+ * more leading backslashes immediately followed by a hash.
+ */
+const HASH_LEADING_PROMPT_LINE = /^\\*#/
+
+/**
+ * Prefix hash-leading prompt lines with one backslash. Escaping EVERY such
+ * line (headings, `### h3`, `#tag`, already-escaped `\#x`) keeps the pair
+ * with PromptExtractor.unescapePromptLine (strip one backslash) exactly
+ * inverse, so any prompt round-trips byte-identically; renders as the
+ * literal hash text in Markdown either way.
+ */
+function escapePromptLine(line: string): string {
+  return HASH_LEADING_PROMPT_LINE.test(line) ? `\\${line}` : line
 }
 
 export class TaskCreationService {
@@ -125,7 +146,7 @@ export class TaskCreationService {
     if (aiTask) {
       bodyLines.push('## Prompt', '')
       if (aiTask.prompt.length > 0) {
-        bodyLines.push(aiTask.prompt, '')
+        bodyLines.push(...aiTask.prompt.split(/\r?\n/).map(escapePromptLine), '')
       }
     }
 

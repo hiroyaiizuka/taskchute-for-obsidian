@@ -132,6 +132,87 @@ describe('CodexDispatcher', () => {
       expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
     })
 
+    test('strips interactive-only approval flags (modal "Full auto") but keeps --sandbox', () => {
+      // The U3 modal writes the interactive full-auto pair into ai_task_args;
+      // `codex exec` (0.144.1) has no --ask-for-approval flag and exits 2 on
+      // it, so the headless pipeline must drop it while keeping --sandbox.
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'p',
+          extraArgs: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'workspace-write',
+        '--',
+        'p',
+      ])
+    })
+
+    test('strips the = and short (-a) approval flag forms from hand-authored args', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'p',
+          extraArgs: ['--ask-for-approval=never', '-a', 'on-request', '-a=never', '--model', 'gpt-5'],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--model',
+        'gpt-5',
+        '--',
+        'p',
+      ])
+    })
+
+    test('strips approval flags on the exec resume path too', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'continue',
+          extraArgs: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+          resumeSessionId: 'session-1',
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        'exec',
+        'resume',
+        'session-1',
+        '--json',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'workspace-write',
+        '--',
+        'continue',
+      ])
+    })
+
     test('drops the codex stdin notice from stderr but keeps real stderr lines', () => {
       // codex 0.144.1 prints this line for ANY non-tty stdin — even the
       // /dev/null the gateway hands it — so the dispatcher filters it.
@@ -199,6 +280,20 @@ describe('CodexDispatcher', () => {
         delete process.env.CLAUDECODE
         delete process.env.CLAUDE_CODE_ENTRYPOINT
       }
+    }, 20_000)
+
+    test('headless run created with the modal full-auto args still succeeds', async () => {
+      // End-to-end regression for the carried BLOCKING issue: a codex task
+      // note created via the U3 modal in Full auto must run headlessly.
+      const dispatcher = new CodexDispatcher(new NodeProcessGateway())
+      const { events, outcome } = await runDispatcherToCompletion(dispatcher, {
+        binaryPath: FIXTURE,
+        prompt: 'do the thing',
+        extraArgs: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+      })
+
+      expect(events.map((event) => event.kind)).toEqual(['init', 'assistant-text', 'result'])
+      expect(outcome).toMatchObject({ status: 'succeeded', exitCode: 0 })
     }, 20_000)
 
     test('maps a non-zero exit code to failed', async () => {

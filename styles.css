@@ -815,6 +815,10 @@
   margin-top: 12px;
 }
 
+.task-type-group.hidden {
+  display: none;
+}
+
 .task-type-label {
   font-size: 13px;
   font-weight: 600;

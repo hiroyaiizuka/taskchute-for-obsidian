@@ -446,6 +446,43 @@ describe('AI mode submission', () => {
     )
   })
 
+  test('reuse mode ignores the AI start time and configuration entirely', async () => {
+    // Carried WARNING regression: the AI section is hidden in reuse mode, so
+    // none of its inputs (including the start time) may leak into the reuse.
+    const { host, taskCreationService, taskReuseService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'should be ignored')
+    const scheduled = modal.querySelector('.ai-task-scheduled-time') as HTMLInputElement
+    scheduled.value = '14:00'
+    scheduled.dispatchEvent(new Event('input', { bubbles: true }))
+
+    nameInput.value = 'Existing Task'
+    nameInput.dispatchEvent(
+      new CustomEvent('autocomplete-selected', {
+        detail: {
+          value: 'Existing Task',
+          suggestion: {
+            type: 'task',
+            name: 'Existing Task',
+            path: 'TaskChute/Task/existing.md',
+          },
+        },
+      }),
+    )
+
+    await submit(modal)
+
+    expect(taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith(
+      'TaskChute/Task/existing.md',
+      '2025-10-09',
+      undefined,
+    )
+    expect(taskCreationService.createTaskFile).not.toHaveBeenCalled()
+  })
+
   test('reuse via autocomplete keeps working while AI mode is selected', async () => {
     const { host, taskCreationService, taskReuseService } = createHost()
     const modal = openModal(host)
@@ -478,5 +515,206 @@ describe('AI mode submission', () => {
       undefined,
     )
     expect(taskCreationService.createTaskFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('reuse mode hides the AI configuration (carried fix)', () => {
+  function selectReusableTask(modal: HTMLElement): void {
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Existing Task'
+    nameInput.dispatchEvent(
+      new CustomEvent('autocomplete-selected', {
+        detail: {
+          value: 'Existing Task',
+          suggestion: {
+            type: 'task',
+            name: 'Existing Task',
+            path: 'TaskChute/Task/existing.md',
+          },
+        },
+      }),
+    )
+  }
+
+  function modeRadio(modal: HTMLElement, value: 'reuse' | 'copy'): HTMLInputElement {
+    const radio = modal.querySelector<HTMLInputElement>(
+      `.task-mode-option input[value="${value}"]`,
+    )
+    if (!radio) throw new Error(`mode radio ${value} missing`)
+    return radio
+  }
+
+  test('selecting a reusable task hides the type selector and AI section (reference parity)', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    const typeGroup = modal.querySelector('.task-type-group') as HTMLElement
+    const section = modal.querySelector('.ai-task-section') as HTMLElement
+
+    typeButton(modal, 'ai').click()
+    expect(section.classList.contains('hidden')).toBe(false)
+
+    // The reuse radio is checked by default once a reusable task is chosen.
+    selectReusableTask(modal)
+    expect(typeGroup.classList.contains('hidden')).toBe(true)
+    expect(section.classList.contains('hidden')).toBe(true)
+
+    // Switching to "create new copy" restores the AI configuration.
+    modeRadio(modal, 'copy').click()
+    expect(typeGroup.classList.contains('hidden')).toBe(false)
+    expect(section.classList.contains('hidden')).toBe(false)
+
+    // And back to reuse hides it again.
+    modeRadio(modal, 'reuse').click()
+    expect(typeGroup.classList.contains('hidden')).toBe(true)
+    expect(section.classList.contains('hidden')).toBe(true)
+  })
+
+  test('clearing the reusable selection restores the selector', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    const typeGroup = modal.querySelector('.task-type-group') as HTMLElement
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+
+    selectReusableTask(modal)
+    expect(typeGroup.classList.contains('hidden')).toBe(true)
+
+    nameInput.value = 'Different name'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(typeGroup.classList.contains('hidden')).toBe(false)
+  })
+
+  test('copy mode with a reusable selection still creates an AI task', async () => {
+    const { host, taskCreationService, taskReuseService } = createHost()
+    const modal = openModal(host)
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Review this PR')
+    selectReusableTask(modal)
+    modeRadio(modal, 'copy').click()
+
+    await submit(modal)
+
+    expect(taskReuseService.reuseTaskAtDate).not.toHaveBeenCalled()
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Existing Task',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ host: 'claude', prompt: 'Review this PR' }),
+      }),
+    )
+  })
+})
+
+describe('human advanced block in AI mode (carried fix)', () => {
+  function humanAdvanced(modal: HTMLElement): HTMLElement {
+    const root = modal.querySelector<HTMLElement>('.task-creation-advanced')
+    if (!root) throw new Error('human advanced block missing')
+    return root
+  }
+
+  test('AI mode hides the human advanced block; human mode restores it', () => {
+    const { host } = createHost({ showTaskCreationAdvancedSettings: true })
+    const modal = openModal(host)
+
+    expect(humanAdvanced(modal).classList.contains('hidden')).toBe(false)
+
+    typeButton(modal, 'ai').click()
+    expect(humanAdvanced(modal).classList.contains('hidden')).toBe(true)
+
+    typeButton(modal, 'human').click()
+    expect(humanAdvanced(modal).classList.contains('hidden')).toBe(false)
+  })
+
+  test('reuse mode shows the human advanced block again even in AI mode', () => {
+    const { host } = createHost({ showTaskCreationAdvancedSettings: true })
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+
+    typeButton(modal, 'ai').click()
+    expect(humanAdvanced(modal).classList.contains('hidden')).toBe(true)
+
+    // Reuse consumes the human block's schedule/reminder, so it comes back.
+    nameInput.value = 'Existing Task'
+    nameInput.dispatchEvent(
+      new CustomEvent('autocomplete-selected', {
+        detail: {
+          value: 'Existing Task',
+          suggestion: {
+            type: 'task',
+            name: 'Existing Task',
+            path: 'TaskChute/Task/existing.md',
+          },
+        },
+      }),
+    )
+    expect(humanAdvanced(modal).classList.contains('hidden')).toBe(false)
+  })
+
+  test('AI submit ignores the human block time and reminder (carried WARNING)', async () => {
+    // Regression: human 09:00 + reminder toggle + AI 14:00 used to emit
+    // scheduled_time 14:00 with a reminder computed from 09:00.
+    const { host, taskCreationService } = createHost({
+      showTaskCreationAdvancedSettings: true,
+    })
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'AI With Reminder'
+
+    const humanTime = modal.querySelector(
+      '.task-creation-scheduled-time',
+    ) as HTMLInputElement
+    humanTime.value = '09:00'
+    humanTime.dispatchEvent(new Event('input', { bubbles: true }))
+    const reminderToggle = modal.querySelector(
+      '.task-creation-reminder-toggle',
+    ) as HTMLInputElement
+    reminderToggle.checked = true
+
+    typeButton(modal, 'ai').click()
+    const aiTime = modal.querySelector('.ai-task-scheduled-time') as HTMLInputElement
+    aiTime.value = '14:00'
+    aiTime.dispatchEvent(new Event('input', { bubbles: true }))
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'AI With Reminder',
+      '2025-10-09',
+      '14:00',
+      expect.objectContaining({
+        reminderTime: undefined,
+        aiTask: expect.objectContaining({ host: 'claude' }),
+      }),
+    )
+  })
+
+  test('AI submit without an AI time carries no schedule from the human block', async () => {
+    const { host, taskCreationService } = createHost({
+      showTaskCreationAdvancedSettings: true,
+    })
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'AI No Time'
+
+    const humanTime = modal.querySelector(
+      '.task-creation-scheduled-time',
+    ) as HTMLInputElement
+    humanTime.value = '09:00'
+    humanTime.dispatchEvent(new Event('input', { bubbles: true }))
+
+    typeButton(modal, 'ai').click()
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'AI No Time',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        reminderTime: undefined,
+        aiTask: expect.objectContaining({ host: 'claude' }),
+      }),
+    )
   })
 })

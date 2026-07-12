@@ -129,4 +129,50 @@ describe('extractPromptSection', () => {
     const content = ['## Prompt', 'found via regex'].join('\n')
     expect(extractPromptSection(content, [])).toBe('found via regex')
   })
+
+  describe('backslash-escaped hash lines (write-time escaping counterpart)', () => {
+    test('unescapes escaped H1/H2 lines back to the entered prompt text', () => {
+      // TaskCreationService escapes hash-leading prompt lines so they do not
+      // terminate the section; extraction reverses that escaping.
+      const content = [
+        '## Prompt',
+        'Intro line.',
+        '\\# Overview',
+        'Details.',
+        '\\## Steps',
+        'Done.',
+      ].join('\n')
+      expect(extractPromptSection(content)).toBe(
+        'Intro line.\n# Overview\nDetails.\n## Steps\nDone.',
+      )
+    })
+
+    test('strips exactly one backslash so pre-escaped lines survive the round trip', () => {
+      // A prompt line entered as "\# literal" is written as "\\# literal".
+      const content = ['## Prompt', '\\\\# literal'].join('\n')
+      expect(extractPromptSection(content)).toBe('\\# literal')
+    })
+
+    test('unescapes hash-leading lines that are not headings (tags)', () => {
+      const content = ['## Prompt', '\\#tag mention', 'tail'].join('\n')
+      expect(extractPromptSection(content)).toBe('#tag mention\ntail')
+    })
+
+    test('leaves backslashes elsewhere in the line untouched', () => {
+      const content = ['## Prompt', 'path C:\\temp and \\# not at line start? no: mid-line'].join(
+        '\n',
+      )
+      expect(extractPromptSection(content)).toBe(
+        'path C:\\temp and \\# not at line start? no: mid-line',
+      )
+    })
+
+    test('unescapes on the heading-metadata path too', () => {
+      const content = ['## Prompt', '\\# Overview', 'body'].join('\n')
+      const headings = [
+        { heading: 'Prompt', level: 2, position: { start: { line: 0 } } },
+      ]
+      expect(extractPromptSection(content, headings)).toBe('# Overview\nbody')
+    })
+  })
 })

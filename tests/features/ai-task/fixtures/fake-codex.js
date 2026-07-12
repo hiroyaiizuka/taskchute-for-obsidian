@@ -20,6 +20,25 @@
 
 const argv = process.argv.slice(2)
 
+// Mirror real `codex exec` (0.144.1): the non-interactive pipeline has no
+// approval-policy flag, so clap rejects it with exit code 2. This keeps the
+// dispatcher's interactive-only-flag sanitizing honest in fixture runs.
+const separatorIndex = argv.indexOf('--')
+const optionArgs = separatorIndex === -1 ? argv : argv.slice(0, separatorIndex)
+const approvalFlag = optionArgs.find(
+  (arg) =>
+    arg === '--ask-for-approval' ||
+    arg.startsWith('--ask-for-approval=') ||
+    arg === '-a' ||
+    arg.startsWith('-a='),
+)
+if (approvalFlag) {
+  process.stderr.write(
+    "error: unexpected argument '" + approvalFlag + "' found\n",
+  )
+  process.exit(2)
+}
+
 function argValue(flag) {
   const index = argv.indexOf(flag)
   if (index === -1 || index + 1 >= argv.length) return null

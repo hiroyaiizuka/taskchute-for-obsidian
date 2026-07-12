@@ -5,11 +5,25 @@
  * Accepts optional heading metadata (structurally compatible with Obsidian's
  * HeadingCache) and falls back to a line-based regex scan when the metadata
  * does not contain a Prompt heading. Pure; CRLF-safe.
+ *
+ * Body lines whose leading hash is backslash-escaped (`\#`, `\\##`, ...)
+ * have exactly ONE backslash stripped: TaskCreationService escapes
+ * hash-leading prompt lines at write time (a raw `# Overview` inside a
+ * pasted prompt would otherwise terminate the section here AND in Obsidian's
+ * heading cache), and this is the symmetric read-time inverse. The escape is
+ * also correct Markdown — `\#` renders as a literal hash — so hand-authored
+ * `\#` lines extract as the hash text their author sees rendered.
  */
 
 const PROMPT_HEADING = 'prompt'
 const PROMPT_HEADING_LINE = /^##[ \t]+prompt[ \t]*#*[ \t]*$/i
 const STOP_HEADING_LINE = /^#{1,2}[ \t]+\S/
+const ESCAPED_HASH_LINE = /^\\+#/
+
+/** Inverse of TaskCreationService's write-time hash-line escaping */
+function unescapePromptLine(line: string): string {
+  return ESCAPED_HASH_LINE.test(line) ? line.slice(1) : line
+}
 
 /** Minimal heading shape; Obsidian's HeadingCache is assignable to this */
 export interface PromptHeadingInfo {
@@ -19,7 +33,7 @@ export interface PromptHeadingInfo {
 }
 
 function toBody(lines: string[], start: number, end: number): string | null {
-  const body = lines.slice(start, end).join('\n').trim()
+  const body = lines.slice(start, end).map(unescapePromptLine).join('\n').trim()
   return body.length > 0 ? body : null
 }
 
