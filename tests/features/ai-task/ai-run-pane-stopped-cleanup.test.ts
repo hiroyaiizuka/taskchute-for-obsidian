@@ -1,15 +1,15 @@
 /**
  * AiRunPaneController tab lifecycle around run end:
- *   - a run reaching status 'stopped' keeps its tab (and live adapter) until
- *     the manager's 'persisted' notification arrives — the exit-time
- *     transcript snapshot must still find the adapter
- *   - on 'persisted' the stopped run's tab closes: adapter disposed, tab and
- *     body removed, the most recent remaining tab selected, and the pane
- *     hides again once no tabs remain (pre-first-run state)
- *   - succeeded/failed runs KEEP their tab and gain a × close control that
- *     disposes the adapter and removes the tab on click
- *   - headless stopped runs (no adapter) drop their tab just as cleanly
- *   - a mount replay never resurrects tabs for already-stopped runs
+ *   - a run reaching status 'stopped' keeps its sidebar row (and live
+ *     adapter) until the manager's 'persisted' notification arrives — the
+ *     exit-time transcript snapshot must still find the adapter
+ *   - on 'persisted' the stopped run's view closes: adapter disposed, row
+ *     and body removed, the most recent remaining run selected, and the pane
+ *     hides again once no runs remain (pre-first-run state)
+ *   - succeeded/failed runs KEEP their row and their × becomes a plain close
+ *     control that disposes the adapter and removes the row on click
+ *   - headless stopped runs (no adapter) drop their row just as cleanly
+ *   - a mount replay never resurrects rows for already-stopped runs
  * Plus one integration test with the REAL AiTaskManager proving the
  * pane-registered snapshot provider is consulted before the tab teardown.
  */
@@ -165,8 +165,8 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
   let controller: AiRunPaneController
 
   const pane = (): HTMLElement | null => container.querySelector('.ai-run-pane')
-  const tabs = (): HTMLElement[] =>
-    Array.from(container.querySelectorAll<HTMLElement>('.ai-run-pane__tab'))
+  const rows = (): HTMLElement[] =>
+    Array.from(container.querySelectorAll<HTMLElement>('.ai-run-pane__run'))
   const bodies = (): HTMLElement[] =>
     Array.from(container.querySelectorAll<HTMLElement>('.ai-run-pane__body'))
 
@@ -188,7 +188,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     controller = new AiRunPaneController(host)
   })
 
-  test('a stopped status change alone keeps the tab and the live adapter', () => {
+  test('a stopped status change alone keeps the row and the live adapter', () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
@@ -197,13 +197,13 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     run.status = 'stopped'
     manager.emit(run)
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(adapters[0].disposed).toBe(false)
     // The manager's exit-time snapshot still resolves through the provider.
     expect(manager.snapshotProvider?.(run.id)).toBe('fake terminal snapshot')
   })
 
-  test("the 'persisted' notification closes the stopped tab, disposes the adapter, and hides the pane when it was the last", () => {
+  test("the 'persisted' notification closes the stopped run, disposes the adapter, and hides the pane when it was the last", () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
@@ -213,7 +213,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(run)
     manager.emit(run, 'persisted')
 
-    expect(tabs()).toHaveLength(0)
+    expect(rows()).toHaveLength(0)
     expect(bodies()).toHaveLength(0)
     expect(adapters[0].disposed).toBe(true)
     expect(manager.terminalListenerCount(run.id)).toBe(0)
@@ -222,7 +222,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     expect(container.classList.contains('ai-pane-container--terminal')).toBe(false)
   })
 
-  test('closing the selected stopped tab selects the most recent remaining tab', () => {
+  test('closing the selected stopped run selects the most recent remaining run', () => {
     controller.mount(container)
     const runA = createRun({ id: 'run-a', taskPath: 'TASKS/a.md' })
     const runB = createRun({ id: 'run-b', taskPath: 'TASKS/b.md' })
@@ -230,10 +230,10 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(runA)
     manager.emit(runB)
     manager.emit(runC)
-    // run-a was auto-selected as the first tab.
+    // run-a was auto-selected as the first run.
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-a"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-a"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
 
@@ -241,11 +241,11 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(runA)
     manager.emit(runA, 'persisted')
 
-    expect(tabs()).toHaveLength(2)
+    expect(rows()).toHaveLength(2)
     // Most recent remaining run (run-c) takes over the selection.
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-c"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-c"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
     expect(
@@ -256,7 +256,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     expect(pane()?.classList.contains('is-hidden')).toBe(false)
   })
 
-  test('closing an unselected stopped tab leaves the current selection alone', () => {
+  test('closing an unselected stopped run leaves the current selection alone', () => {
     controller.mount(container)
     const runA = createRun({ id: 'run-a', taskPath: 'TASKS/a.md' })
     const runB = createRun({ id: 'run-b', taskPath: 'TASKS/b.md' })
@@ -267,32 +267,40 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(runB)
     manager.emit(runB, 'persisted')
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-a"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-a"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
   })
 
-  test('succeeded runs keep their tab and gain a close control; active runs have none', () => {
+  test('active runs carry a stop-and-close ×; finished runs a plain close ×', () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
 
-    expect(container.querySelector('.ai-run-pane__tab-close')).toBeNull()
+    const activeClose = container.querySelector<HTMLButtonElement>(
+      '.ai-run-pane__tab-close',
+    )
+    expect(activeClose).not.toBeNull()
+    expect(activeClose?.getAttribute('aria-label')).toBe('Stop and close run')
+    expect(container.querySelector('.ai-run-pane__tab-stop')).toBeNull()
 
     run.status = 'succeeded'
     manager.emit(run)
     manager.emit(run, 'persisted')
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(adapters[0].disposed).toBe(false)
-    expect(container.querySelector('.ai-run-pane__tab-close')).not.toBeNull()
-    expect(container.querySelector('.ai-run-pane__tab-stop')).toBeNull()
+    expect(
+      container
+        .querySelector('.ai-run-pane__tab-close')
+        ?.getAttribute('aria-label'),
+    ).toBe('Close run tab')
   })
 
-  test('failed runs keep their tab with a close control too', () => {
+  test('failed runs keep their row with a close control too', () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
@@ -301,11 +309,11 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(run)
     manager.emit(run, 'persisted')
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(container.querySelector('.ai-run-pane__tab-close')).not.toBeNull()
   })
 
-  test('the close control disposes the adapter, removes the tab, and hides the pane when last', () => {
+  test('the close control disposes the adapter, removes the row, and hides the pane when last', () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
@@ -318,13 +326,13 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     expect(closeButton).not.toBeNull()
     closeButton?.click()
 
-    expect(tabs()).toHaveLength(0)
+    expect(rows()).toHaveLength(0)
     expect(bodies()).toHaveLength(0)
     expect(adapters[0].disposed).toBe(true)
     expect(pane()?.classList.contains('is-hidden')).toBe(true)
   })
 
-  test('clicking the close control does not bubble into tab selection', () => {
+  test('clicking a sidebar row close control does not bubble into row selection', () => {
     controller.mount(container)
     const runA = createRun({ id: 'run-a', taskPath: 'TASKS/a.md' })
     const runB = createRun({ id: 'run-b', taskPath: 'TASKS/b.md' })
@@ -335,19 +343,19 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
 
     container
       .querySelector<HTMLButtonElement>(
-        '.ai-run-pane__tab[data-run-id="run-b"] .ai-run-pane__tab-close',
+        '.ai-run-pane__run[data-run-id="run-b"] .ai-run-pane__run-close',
       )
       ?.click()
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-a"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-a"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
   })
 
-  test('headless stopped runs (no adapter) drop their tab cleanly', () => {
+  test('headless stopped runs (no adapter) drop their row cleanly', () => {
     controller.mount(container)
     const run = createRun({
       mode: 'headless',
@@ -356,29 +364,29 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     })
     manager.emit(run)
     expect(adapters).toHaveLength(0)
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
 
     run.status = 'stopped'
     manager.emit(run)
     manager.emit(run, 'persisted')
 
-    expect(tabs()).toHaveLength(0)
+    expect(rows()).toHaveLength(0)
     expect(bodies()).toHaveLength(0)
     expect(pane()?.classList.contains('is-hidden')).toBe(true)
   })
 
-  test('a mount replay never resurrects tabs for already-stopped runs', () => {
+  test('a mount replay never resurrects rows for already-stopped runs', () => {
     manager.records.push(createRun({ id: 'old-stopped', status: 'stopped' }))
     manager.records.push(createRun({ id: 'kept-success', status: 'succeeded' }))
 
     controller.mount(container)
 
-    expect(tabs()).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
     expect(
-      container.querySelector('.ai-run-pane__tab[data-run-id="old-stopped"]'),
+      container.querySelector('.ai-run-pane__run[data-run-id="old-stopped"]'),
     ).toBeNull()
     expect(
-      container.querySelector('.ai-run-pane__tab[data-run-id="kept-success"]'),
+      container.querySelector('.ai-run-pane__run[data-run-id="kept-success"]'),
     ).not.toBeNull()
   })
 })
@@ -467,9 +475,9 @@ describe('AiRunPaneController + AiTaskManager stopped-run integration', () => {
     // The persist consumed the LIVE adapter snapshot...
     expect(writeTerminalRunLog).toHaveBeenCalledTimes(1)
     expect(writeTerminalRunLog.mock.calls[0][1]).toBe('live screen at exit')
-    // ...and only afterwards did the pane tear the tab down.
+    // ...and only afterwards did the pane tear the view down.
     expect(adapters[0].disposed).toBe(true)
-    expect(container.querySelectorAll('.ai-run-pane__tab')).toHaveLength(0)
+    expect(container.querySelectorAll('.ai-run-pane__run')).toHaveLength(0)
     expect(
       container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
     ).toBe(true)

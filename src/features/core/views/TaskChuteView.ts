@@ -902,11 +902,26 @@ export class TaskChuteView
     const manager = this.plugin.aiTaskManager
     if (!manager || !this.aiPaneContainer || this.aiRunPaneController) return
 
+    // Duck-typed like the board view persistence above: App#saveLocalStorage
+    // exists at runtime, but test doubles (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+      loadLocalStorage?: (key: string) => unknown
+    }
     this.aiRunPaneController = new AiRunPaneController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       manager,
       createTerminalAdapter: () => createTerminalViewAdapter(),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      saveLocalStorage: (key, value) => {
+        if (typeof app.saveLocalStorage === 'function') {
+          app.saveLocalStorage(key, value)
+        }
+      },
+      loadLocalStorage: (key) =>
+        typeof app.loadLocalStorage === 'function'
+          ? app.loadLocalStorage(key)
+          : null,
     })
     this.aiRunPaneController.mount(this.aiPaneContainer)
 

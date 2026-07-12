@@ -227,8 +227,15 @@ export const ja = {
       run: "AIタスクを実行",
       stop: "AIタスクを停止",
       closeTab: "実行タブを閉じる",
+      stopAndClose: "実行を停止して閉じる",
       togglePane: "AI実行ペインを開閉",
+      expandPane: "AI実行ペインを拡大",
+      restorePane: "AI実行ペインの高さを戻す",
       tabUntitled: "無題の実行",
+      contentTab: {
+        terminal: "ターミナル",
+        events: "イベント",
+      },
       status: {
         starting: "開始中",
         running: "実行中",

@@ -109,17 +109,17 @@ describe('AiRunPaneController', () => {
     )
   })
 
-  test('reveals the pane and adds a tab when a run starts', () => {
+  test('reveals the pane and adds a sidebar row when a run starts', () => {
     controller.mount(container)
     const run = createRun({ events: [{ kind: 'init', model: 'claude-test' }] })
     manager.emit(run)
 
     expect(pane()?.classList.contains('is-hidden')).toBe(false)
-    const tabs = container.querySelectorAll('.ai-run-pane__tab')
-    expect(tabs).toHaveLength(1)
-    expect(tabs[0].textContent).toContain('AI sample')
+    const rows = container.querySelectorAll('.ai-run-pane__run')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].textContent).toContain('AI sample')
     expect(
-      tabs[0].querySelector('.ai-run-pane__tab-dot--running'),
+      rows[0].querySelector('.ai-run-pane__run-dot--running'),
     ).not.toBeNull()
 
     const body = container.querySelector('.ai-run-pane__body.is-active')
@@ -182,15 +182,15 @@ describe('AiRunPaneController', () => {
     ).toContain('3')
   })
 
-  test('switches bodies when tabs are clicked and keeps one body per run', () => {
+  test('switches bodies when sidebar rows are clicked and keeps one body per run', () => {
     controller.mount(container)
     const first = createRun({ id: 'run-a', taskName: 'Task A' })
     const second = createRun({ id: 'run-b', taskName: 'Task B' })
     manager.emit(first)
     manager.emit(second)
 
-    const tabs = container.querySelectorAll<HTMLElement>('.ai-run-pane__tab')
-    expect(tabs).toHaveLength(2)
+    const rows = container.querySelectorAll<HTMLElement>('.ai-run-pane__run')
+    expect(rows).toHaveLength(2)
     const bodies = container.querySelectorAll('.ai-run-pane__body')
     expect(bodies).toHaveLength(2)
 
@@ -206,7 +206,7 @@ describe('AiRunPaneController', () => {
         ?.classList.contains('is-active'),
     ).toBe(false)
 
-    tabs[0].click()
+    rows[0].click()
     expect(
       container
         .querySelector('.ai-run-pane__body[data-run-id="run-a"]')
@@ -214,26 +214,33 @@ describe('AiRunPaneController', () => {
     ).toBe(true)
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-a"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-a"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
   })
 
-  test('tab stop control stops the run while active and disappears once terminal', () => {
+  test('tab × requests a stop while active and becomes a plain close once finished', () => {
     controller.mount(container)
     const run = createRun({ id: 'run-stop', status: 'running' })
     manager.emit(run)
 
-    const stopButton = container.querySelector<HTMLButtonElement>(
-      '.ai-run-pane__tab-stop',
+    const closeButton = container.querySelector<HTMLButtonElement>(
+      '.ai-run-pane__tab-close',
     )
-    expect(stopButton).not.toBeNull()
-    stopButton?.click()
+    expect(closeButton).not.toBeNull()
+    expect(closeButton?.getAttribute('aria-label')).toBe('Stop and close run')
+    closeButton?.click()
     expect(manager.stopRun).toHaveBeenCalledWith('run-stop')
+    // The view stays open until the manager's 'persisted' notification.
+    expect(container.querySelectorAll('.ai-run-pane__run')).toHaveLength(1)
 
     run.status = 'succeeded'
     manager.emit(run)
-    expect(container.querySelector('.ai-run-pane__tab-stop')).toBeNull()
+    expect(
+      container
+        .querySelector('.ai-run-pane__tab-close')
+        ?.getAttribute('aria-label'),
+    ).toBe('Close run tab')
     expect(
       container.querySelector('.ai-run-pane__tab-dot--succeeded'),
     ).not.toBeNull()
@@ -270,7 +277,7 @@ describe('AiRunPaneController', () => {
     expect(pane()?.classList.contains('is-collapsed')).toBe(false)
     expect(
       container
-        .querySelector('.ai-run-pane__tab[data-run-id="run-open"]')
+        .querySelector('.ai-run-pane__run[data-run-id="run-open"]')
         ?.classList.contains('is-active'),
     ).toBe(true)
   })
@@ -280,7 +287,7 @@ describe('AiRunPaneController', () => {
     controller.mount(container)
 
     expect(pane()?.classList.contains('is-hidden')).toBe(false)
-    expect(container.querySelectorAll('.ai-run-pane__tab')).toHaveLength(1)
+    expect(container.querySelectorAll('.ai-run-pane__run')).toHaveLength(1)
   })
 
   test('unmount removes the manager listener and the pane DOM', () => {

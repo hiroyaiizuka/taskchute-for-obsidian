@@ -1,21 +1,40 @@
 /**
- * AI Task - run pane controller
+ * AI Task - run pane controller (NOW PLAYING layout)
  *
- * Renders the collapsible "AI runs" pane below the task list: one tab per run
- * (task name + status dot + stop control while active) and one body per run.
+ * Renders the collapsible "AI runs" pane below the task list, mirroring the
+ * reference app's NOW PLAYING structure: a LEFT vertical sidebar with one
+ * row per run (status dot + truncated task name + × control) and a RIGHT
+ * content area showing the selected run. The content area carries a slim
+ * tab strip at the top — exactly one tab for the selected run (status dot +
+ * content label + × control) plus top-right corner actions (the ⤢ expand
+ * toggle now; the U2 split control mounts into the same actions element).
  * Bodies are kept in a Map and only the selected one is visible, so state
- * (scroll position, terminal screen) survives tab switches.
+ * (scroll position, terminal screen) survives selection switches.
+ *
+ * × semantics (tab and sidebar row alike): on an ACTIVE run it requests a
+ * stop AND closes the run's view in one action — the teardown waits for the
+ * manager's 'persisted' notification (the end of the log persist chain), so
+ * the exit-time terminal snapshot is always taken from a live adapter. On
+ * an already-finished run it closes immediately. Runs that reach 'stopped'
+ * keep auto-closing on 'persisted' even without a × click; stopped runs
+ * never regain a view on a mount replay.
+ *
+ * The ⤢ toggle expands the pane to near the full view height (.is-expanded
+ * on the pane, the --expanded chrome class on the host container). The PTY
+ * grid of runs already started stays fixed — only the xterm viewport grows.
+ * The expanded state persists per device through the host's
+ * App#saveLocalStorage bridge and is restored on mount.
  *
  * Headless runs render their stream events as text lines and can send
- * resume-based follow-ups through the composer bar at the bottom (enabled
- * only when the run is finished, has a session id, and its task has no other
- * active run).
+ * resume-based follow-ups through the composer bar under the content area
+ * (enabled only when the run is finished, has a session id, and its task
+ * has no other active run).
  *
  * Terminal runs host an embedded terminal instead: a TerminalViewAdapter is
- * created LAZILY the first time the run's tab is shown (pane expanded),
+ * created LAZILY the first time the run's body is shown (pane expanded),
  * opened with the record's fixed PTY grid, wired both ways
  * (manager.onTerminalData -> adapter.write, adapter.onData ->
- * manager.sendTerminalInput), and focused on tab select. The composer is
+ * manager.sendTerminalInput), and focused on selection. The composer is
  * hidden for terminal runs — input goes straight into the terminal. While a
  * terminal run is selected and the pane is expanded, the host container
  * carries the ai-pane-container--terminal chrome class so styles.css can
@@ -25,15 +44,9 @@
  * snapshot provider: at run exit the manager reads the run's live xterm
  * buffer (adapter.snapshotText()) as the log-note transcript instead of the
  * ANSI-stripped PTY transcript file. Adapters are therefore never disposed
- * on the final status update.
- *
- * Tab lifecycle at run end: a run that finishes as 'stopped' closes its tab
- * automatically — but only on the manager's 'persisted' notification (the
- * end of the log persist chain), so the exit-time snapshot above always
- * found the adapter alive. Closing a tab disposes its adapter, selects the
- * most recent remaining tab, and hides the pane again when no tabs remain.
- * Runs that finish as 'succeeded' or 'failed' keep their tab and gain a ×
- * close control instead; stopped runs never regain a tab on a mount replay.
+ * on the final status update — closing a view (auto or ×) happens on
+ * 'persisted', selects the most recent remaining run, and hides the pane
+ * again when no runs remain.
  *
  * All content is written through createEl/createDiv/createSpan with
  * textContent only (xterm renders inside its own subtree via the adapter).
@@ -82,6 +95,14 @@ export interface AiRunPaneControllerHost {
   /** Adapter factory; tests substitute a fake so jsdom never loads xterm */
   createTerminalAdapter: TerminalViewAdapterFactory
   registerManagedDisposer: (cleanup: () => void) => void
+  /**
+   * Per-device persistence bridge for the expanded state
+   * (App#saveLocalStorage / App#loadLocalStorage — device-local by design,
+   * never synced with the vault). Optional so plain fakes keep working;
+   * without it the expanded state simply resets on the next mount.
+   */
+  saveLocalStorage?: (key: string, value: unknown) => void
+  loadLocalStorage?: (key: string) => unknown
 }
 
 /** Live terminal wiring of one terminal-mode run view */
@@ -94,7 +115,8 @@ interface TerminalBinding {
 }
 
 interface RunView {
-  tab: HTMLElement
+  /** Sidebar row of the run (selection + × control) */
+  row: HTMLElement
   body: HTMLElement
   isTerminal: boolean
   terminal: TerminalBinding | null
@@ -140,6 +162,8 @@ const TERMINAL_HORIZONTAL_INSET_PX = 16
 const TERMINAL_VERTICAL_INSET_PX = 40
 /** Share of the view height the terminal pane occupies (mirrors styles.css) */
 const TERMINAL_PANE_HEIGHT_RATIO = 0.4
+/** Share of the view height while expanded (mirrors styles.css) */
+const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 0.9
 const TERMINAL_MIN_COLS = 20
 const TERMINAL_MAX_COLS = 400
 const TERMINAL_MIN_ROWS = 5
@@ -147,6 +171,14 @@ const TERMINAL_MAX_ROWS = 200
 
 /** Chrome class on the host container while a terminal run is on screen */
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
+/** Chrome class on the host container while the pane is expanded */
+const EXPANDED_CONTAINER_CLASS = 'ai-pane-container--expanded'
+
+/**
+ * Per-device persistence key of the pane's expanded state
+ * (App#saveLocalStorage / App#loadLocalStorage via the host bridge).
+ */
+export const AI_PANE_EXPANDED_STORAGE_KEY = 'taskchute-plus.ai-pane-expanded'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -154,15 +186,24 @@ function clamp(value: number, min: number, max: number): number {
 
 export class AiRunPaneController {
   private readonly runViews = new Map<string, RunView>()
+  /**
+   * Runs whose × was clicked while they were still active (or mid-persist):
+   * their view closes on the manager's 'persisted' notification no matter
+   * which terminal status the run ends with.
+   */
+  private readonly pendingCloseRunIds = new Set<string>()
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
-  private tabsEl: HTMLElement | null = null
+  private sidebarEl: HTMLElement | null = null
+  private tabEl: HTMLElement | null = null
+  private expandButton: HTMLElement | null = null
   private bodiesEl: HTMLElement | null = null
   private collapseButton: HTMLElement | null = null
   private composerEl: HTMLElement | null = null
   private composerInput: HTMLInputElement | null = null
   private composerSend: HTMLButtonElement | null = null
   private selectedRunId: string | null = null
+  private expanded = false
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
 
@@ -196,12 +237,36 @@ export class AiRunPaneController {
       cls: 'ai-run-pane__title',
       text: this.host.tv('aiTask.paneTitle', 'AI runs'),
     })
-    this.tabsEl = header.createDiv({
-      cls: 'ai-run-pane__tabs',
+
+    // NOW PLAYING layout: sidebar (run list) on the left, the selected run's
+    // content (tab strip + bodies + composer) on the right.
+    const layout = root.createDiv({ cls: 'ai-run-pane__layout' })
+    this.sidebarEl = layout.createDiv({
+      cls: 'ai-run-pane__sidebar',
       attr: { role: 'tablist' },
     })
-    this.bodiesEl = root.createDiv({ cls: 'ai-run-pane__bodies' })
-    this.mountComposer(root)
+    const content = layout.createDiv({ cls: 'ai-run-pane__content' })
+    const tabstrip = content.createDiv({ cls: 'ai-run-pane__tabstrip' })
+    this.tabEl = tabstrip.createDiv({ cls: 'ai-run-pane__tab is-hidden' })
+    // Corner actions: expand now, the U2 split control joins here later.
+    const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
+    const expandButton = actions.createEl('button', {
+      cls: 'ai-run-pane__expand',
+    })
+    expandButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.setExpanded(!this.expanded, true)
+    })
+    this.expandButton = expandButton
+    this.bodiesEl = content.createDiv({ cls: 'ai-run-pane__bodies' })
+    this.mountComposer(content)
+
+    // Restore the per-device expanded preference (not a user toggle: nothing
+    // is re-persisted).
+    this.setExpanded(
+      this.host.loadLocalStorage?.(AI_PANE_EXPANDED_STORAGE_KEY) === true,
+      false,
+    )
 
     this.unsubscribe = this.host.manager.onChange((record, changeType) => {
       this.handleChange(record, changeType)
@@ -214,7 +279,8 @@ export class AiRunPaneController {
     // The manager snapshots a terminal run's live xterm buffer at run exit
     // as the log-note transcript source (the raw PTY transcript file strips
     // to TUI redraw garbage). Adapters of finished runs are kept alive for
-    // tab viewing until unmount, so the exit-time capture always finds them.
+    // later viewing until unmount, so the exit-time capture always finds
+    // them.
     this.unregisterSnapshotProvider =
       this.host.manager.registerTerminalSnapshotProvider?.((runId) =>
         this.runViews.get(runId)?.terminal?.adapter.snapshotText(),
@@ -240,27 +306,32 @@ export class AiRunPaneController {
       this.disposeTerminalBinding(view)
     }
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
+    this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
     this.containerEl = null
     this.root?.remove()
     this.root = null
-    this.tabsEl = null
+    this.sidebarEl = null
+    this.tabEl = null
+    this.expandButton = null
     this.bodiesEl = null
     this.collapseButton = null
     this.composerEl = null
     this.composerInput = null
     this.composerSend = null
     this.selectedRunId = null
+    this.expanded = false
     this.runViews.clear()
+    this.pendingCloseRunIds.clear()
   }
 
-  /** Reveal the pane, expand it, and select the given run's tab */
+  /** Reveal the pane, expand it, and select the given run */
   openRun(runId: string): void {
     if (!this.runViews.has(runId)) {
       const record = this.host.manager.getRun(runId)
       if (!record) return
       this.handleChange(record)
       // handleChange declines some records (e.g. stopped runs never regain
-      // a tab); without a view there is nothing to reveal or select.
+      // a view); without a view there is nothing to reveal or select.
       if (!this.runViews.has(runId)) return
     }
     this.revealPane()
@@ -280,12 +351,12 @@ export class AiRunPaneController {
       // body just became visible, so create and focus it now.
       this.ensureSelectedTerminalView()
     }
-    this.updateTerminalChrome()
+    this.updateContainerChrome()
   }
 
   /**
-   * Estimate the PTY grid that fits the pane at its terminal height
-   * (TERMINAL_PANE_HEIGHT_RATIO of the view). Falls back to 120x30 when the
+   * Estimate the PTY grid that fits the pane at its terminal height (the
+   * expanded or regular share of the view). Falls back to 120x30 when the
    * pane has no measurable pixel size (hidden view, jsdom).
    */
   computeTerminalSize(): { cols: number; rows: number } {
@@ -295,8 +366,10 @@ export class AiRunPaneController {
     if (width <= 0 || parentHeight <= 0) {
       return { cols: TERMINAL_FALLBACK_COLS, rows: TERMINAL_FALLBACK_ROWS }
     }
-    const bodyHeight =
-      parentHeight * TERMINAL_PANE_HEIGHT_RATIO - TERMINAL_VERTICAL_INSET_PX
+    const heightRatio = this.expanded
+      ? TERMINAL_PANE_EXPANDED_HEIGHT_RATIO
+      : TERMINAL_PANE_HEIGHT_RATIO
+    const bodyHeight = parentHeight * heightRatio - TERMINAL_VERTICAL_INSET_PX
     const cols = clamp(
       Math.floor((width - TERMINAL_HORIZONTAL_INSET_PX) / TERMINAL_CELL_WIDTH_PX),
       TERMINAL_MIN_COLS,
@@ -320,24 +393,52 @@ export class AiRunPaneController {
 
   private revealPane(): void {
     this.root?.classList.remove('is-hidden')
+    this.updateContainerChrome()
+  }
+
+  /**
+   * Toggle the near-full-height mode. `persist` is true only for user
+   * toggles — the mount-time restore must not write the value back.
+   */
+  private setExpanded(expanded: boolean, persist: boolean): void {
+    this.expanded = expanded
+    this.root?.classList.toggle('is-expanded', expanded)
+    this.refreshExpandButton()
+    if (persist) {
+      this.host.saveLocalStorage?.(AI_PANE_EXPANDED_STORAGE_KEY, expanded)
+    }
+    this.updateContainerChrome()
+  }
+
+  private refreshExpandButton(): void {
+    const button = this.expandButton
+    if (!button) return
+    button.textContent = this.expanded ? '⤡' : '⤢'
+    const label = this.expanded
+      ? this.host.tv('aiTask.restorePane', 'Restore AI run pane size')
+      : this.host.tv('aiTask.expandPane', 'Expand AI run pane')
+    button.setAttribute('aria-label', label)
+    button.setAttribute('title', label)
+    button.setAttribute('aria-pressed', this.expanded ? 'true' : 'false')
   }
 
   private handleChange(record: AiRunRecord, changeType?: AiRunChangeType): void {
     if (!this.root) return
     if (changeType === 'persisted') {
       // The run's log persist chain completed: the exit-time terminal
-      // snapshot has been consumed, so a stopped run's tab (and adapter) is
-      // now safe to tear down. Succeeded/failed runs keep their tab.
-      if (record.status === 'stopped') {
+      // snapshot has been consumed, so the view (and adapter) is now safe
+      // to tear down. Stopped runs always close here; other terminal
+      // statuses close only when their × was clicked while still active.
+      if (record.status === 'stopped' || this.pendingCloseRunIds.has(record.id)) {
         this.closeRun(record.id)
       }
       return
     }
     const existing = this.runViews.get(record.id)
     if (!existing) {
-      // Stopped runs never (re)gain a tab: their tab auto-closed at persist
-      // time, and a mount replay of the manager's records must not resurrect
-      // it.
+      // Stopped runs never (re)gain a view: their view auto-closed at
+      // persist time, and a mount replay of the manager's records must not
+      // resurrect it.
       if (record.status === 'stopped') return
       this.createRunView(record)
       this.updateComposerState()
@@ -345,7 +446,10 @@ export class AiRunPaneController {
     }
     if (existing.lastStatus !== record.status) {
       existing.lastStatus = record.status
-      this.refreshTab(existing, record)
+      this.refreshRunRow(existing, record)
+      if (this.selectedRunId === record.id) {
+        this.refreshContentTab()
+      }
     }
     if (!existing.isTerminal) {
       this.syncEvents(existing, record)
@@ -354,18 +458,42 @@ export class AiRunPaneController {
   }
 
   /**
-   * Close one run's tab: dispose its terminal wiring, remove the tab and
-   * body, move the selection to the most recent remaining tab, and hide the
-   * pane again (the pre-first-run state) when no tabs remain. Used by the
-   * stopped-run auto-close and the × control of finished tabs.
+   * × entry point shared by the sidebar row and the content tab: an ACTIVE
+   * run is stopped first and its view closes when 'persisted' arrives (the
+   * exit-time snapshot must be read from a live adapter); a run already in
+   * the stopped mid-persist window just waits for that same notification;
+   * finished runs close immediately.
+   */
+  private requestCloseRun(runId: string): void {
+    const view = this.runViews.get(runId)
+    if (!view) return
+    const status = this.host.manager.getRun(runId)?.status ?? view.lastStatus
+    if (ACTIVE_STATUSES.has(status)) {
+      this.pendingCloseRunIds.add(runId)
+      this.host.manager.stopRun(runId)
+      return
+    }
+    if (status === 'stopped') {
+      this.pendingCloseRunIds.add(runId)
+      return
+    }
+    this.closeRun(runId)
+  }
+
+  /**
+   * Close one run's view: dispose its terminal wiring, remove the sidebar
+   * row and body, move the selection to the most recent remaining run, and
+   * hide the pane again (the pre-first-run state) when none remain. Used by
+   * the 'persisted' teardown and the × of finished runs.
    */
   private closeRun(runId: string): void {
     const view = this.runViews.get(runId)
     if (!view) return
     this.disposeTerminalBinding(view)
-    view.tab.remove()
+    view.row.remove()
     view.body.remove()
     this.runViews.delete(runId)
+    this.pendingCloseRunIds.delete(runId)
 
     if (this.selectedRunId === runId) {
       this.selectedRunId = null
@@ -379,26 +507,27 @@ export class AiRunPaneController {
     if (this.runViews.size === 0) {
       this.selectedRunId = null
       this.root?.classList.add('is-hidden')
+      this.refreshContentTab()
     }
-    this.updateTerminalChrome()
+    this.updateContainerChrome()
     this.updateComposerState()
   }
 
   private createRunView(record: AiRunRecord): void {
-    if (!this.tabsEl || !this.bodiesEl) return
+    if (!this.sidebarEl || !this.bodiesEl) return
 
-    const tab = this.tabsEl.createDiv({
-      cls: 'ai-run-pane__tab',
+    const row = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__run',
       attr: {
         role: 'tab',
         tabindex: '0',
         'data-run-id': record.id,
       },
     })
-    tab.addEventListener('click', () => {
+    row.addEventListener('click', () => {
       this.selectRun(record.id)
     })
-    tab.addEventListener('keydown', (event) => {
+    row.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return
       event.preventDefault()
       this.selectRun(record.id)
@@ -413,7 +542,7 @@ export class AiRunPaneController {
     })
 
     const view: RunView = {
-      tab,
+      row,
       body,
       isTerminal,
       terminal: null,
@@ -422,7 +551,7 @@ export class AiRunPaneController {
       lastOmittedCount: record.omittedEventCount ?? 0,
     }
     this.runViews.set(record.id, view)
-    this.refreshTab(view, record)
+    this.refreshRunRow(view, record)
     if (!isTerminal) {
       this.renderAllEvents(view, record)
     }
@@ -433,67 +562,114 @@ export class AiRunPaneController {
     }
   }
 
-  /** Rebuild the tab contents (status dot, name, stop control) */
-  private refreshTab(view: RunView, record: AiRunRecord): void {
-    view.tab.empty()
+  /** Rebuild one sidebar row (status dot, truncated name, × control) */
+  private refreshRunRow(view: RunView, record: AiRunRecord): void {
+    view.row.empty()
 
     const statusLabel = this.host.tv(
       `aiTask.status.${record.status}`,
       STATUS_FALLBACK_LABELS[record.status],
     )
-    view.tab.createSpan({
+    view.row.createSpan({
+      cls: `ai-run-pane__run-dot ai-run-pane__run-dot--${record.status}`,
+      attr: { title: statusLabel },
+    })
+    const name =
+      record.taskName.trim().length > 0
+        ? record.taskName
+        : this.host.tv('aiTask.tabUntitled', 'Untitled run')
+    view.row.createSpan({
+      cls: 'ai-run-pane__run-name',
+      text: name,
+      attr: { title: name },
+    })
+    this.appendCloseControl(view.row, record, 'ai-run-pane__run-close')
+  }
+
+  /**
+   * Rebuild the content tab strip's single tab from the SELECTED run
+   * (status dot, content-type label, × control). Hidden while nothing is
+   * selected (pre-first-run and post-last-close states).
+   */
+  private refreshContentTab(): void {
+    const tab = this.tabEl
+    if (!tab) return
+    tab.empty()
+    const record =
+      this.selectedRunId !== null
+        ? this.host.manager.getRun(this.selectedRunId)
+        : undefined
+    if (!record) {
+      tab.classList.add('is-hidden')
+      tab.classList.remove('is-active')
+      tab.removeAttribute('data-run-id')
+      return
+    }
+    tab.classList.remove('is-hidden')
+    tab.classList.add('is-active')
+    tab.setAttribute('data-run-id', record.id)
+
+    const statusLabel = this.host.tv(
+      `aiTask.status.${record.status}`,
+      STATUS_FALLBACK_LABELS[record.status],
+    )
+    tab.createSpan({
       cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
       attr: { title: statusLabel },
     })
-    view.tab.createSpan({
-      cls: 'ai-run-pane__tab-name',
+    tab.createSpan({
+      cls: 'ai-run-pane__tab-label',
       text:
-        record.taskName.trim().length > 0
-          ? record.taskName
-          : this.host.tv('aiTask.tabUntitled', 'Untitled run'),
+        record.mode === 'terminal'
+          ? this.host.tv('aiTask.contentTab.terminal', 'Terminal')
+          : this.host.tv('aiTask.contentTab.events', 'Events'),
     })
+    this.appendCloseControl(tab, record, 'ai-run-pane__tab-close')
+  }
 
-    if (ACTIVE_STATUSES.has(record.status)) {
-      const stopLabel = this.host.tv('aiTask.stop', 'Stop AI task')
-      const stopButton = view.tab.createEl('button', {
-        cls: 'ai-run-pane__tab-stop',
-        text: '⏹',
-        attr: { 'aria-label': stopLabel, title: stopLabel },
-      })
-      stopButton.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.host.manager.stopRun(record.id)
-      })
-    } else if (record.status === 'succeeded' || record.status === 'failed') {
-      // Finished tabs are kept for review and closed manually. 'stopped'
-      // deliberately gets NO control: its tab auto-closes on 'persisted',
-      // and a manual close in that window could dispose the adapter before
-      // the manager captured the transcript snapshot.
-      const closeLabel = this.host.tv('aiTask.closeTab', 'Close run tab')
-      const closeButton = view.tab.createEl('button', {
-        cls: 'ai-run-pane__tab-close',
-        text: '×',
-        attr: { 'aria-label': closeLabel, title: closeLabel },
-      })
-      closeButton.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.closeRun(record.id)
-      })
+  /**
+   * Append the × control for one run: stop-and-close while the run is
+   * active, plain close once finished. Runs in the stopped mid-persist
+   * window get NO control — their view auto-closes on 'persisted', and a
+   * manual close in that window could dispose the adapter before the
+   * manager captured the transcript snapshot.
+   */
+  private appendCloseControl(
+    parent: HTMLElement,
+    record: AiRunRecord,
+    cls: string,
+  ): void {
+    const isActive = ACTIVE_STATUSES.has(record.status)
+    if (!isActive && record.status !== 'succeeded' && record.status !== 'failed') {
+      return
     }
+    const label = isActive
+      ? this.host.tv('aiTask.stopAndClose', 'Stop and close run')
+      : this.host.tv('aiTask.closeTab', 'Close run tab')
+    const button = parent.createEl('button', {
+      cls,
+      text: '×',
+      attr: { 'aria-label': label, title: label },
+    })
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.requestCloseRun(record.id)
+    })
   }
 
   private selectRun(runId: string): void {
     this.selectedRunId = runId
     for (const [id, view] of this.runViews) {
       const isActive = id === runId
-      view.tab.classList.toggle('is-active', isActive)
-      view.tab.setAttribute('aria-selected', isActive ? 'true' : 'false')
+      view.row.classList.toggle('is-active', isActive)
+      view.row.setAttribute('aria-selected', isActive ? 'true' : 'false')
       view.body.classList.toggle('is-active', isActive)
     }
+    this.refreshContentTab()
     if (!this.isCollapsed()) {
       this.ensureSelectedTerminalView()
     }
-    this.updateTerminalChrome()
+    this.updateContainerChrome()
     this.updateComposerState()
   }
 
@@ -547,26 +723,30 @@ export class AiRunPaneController {
   }
 
   /**
-   * The host container carries the terminal chrome class (fixed pane height
-   * in styles.css) exactly while a terminal run is selected and its body is
-   * actually on screen.
+   * Sync the host container's chrome classes: the terminal class (fixed
+   * pane height in styles.css) exactly while a terminal run is selected and
+   * its body is actually on screen, the expanded class exactly while the
+   * expanded pane is on screen.
    */
-  private updateTerminalChrome(): void {
+  private updateContainerChrome(): void {
     const container = this.containerEl
     if (!container) return
+    const visible = !this.isCollapsed() && !this.isHidden()
     const selected =
       this.selectedRunId !== null ? this.runViews.get(this.selectedRunId) : undefined
-    const showTerminal =
-      selected?.isTerminal === true && !this.isCollapsed() && !this.isHidden()
-    container.classList.toggle(TERMINAL_CONTAINER_CLASS, showTerminal)
+    container.classList.toggle(
+      TERMINAL_CONTAINER_CLASS,
+      selected?.isTerminal === true && visible,
+    )
+    container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
   }
 
   // -------------------------------------------------------------------------
   // Follow-up composer
   // -------------------------------------------------------------------------
 
-  private mountComposer(root: HTMLElement): void {
-    const composer = root.createDiv({ cls: 'ai-run-pane__composer' })
+  private mountComposer(parent: HTMLElement): void {
+    const composer = parent.createDiv({ cls: 'ai-run-pane__composer' })
     this.composerEl = composer
     const inputLabel = this.host.tv('aiTask.composer.inputLabel', 'Follow-up prompt')
     this.composerInput = composer.createEl('input', {

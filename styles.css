@@ -6603,13 +6603,91 @@ textarea.form-textarea {
   flex-shrink: 0;
 }
 
-.ai-run-pane__tabs {
+/* NOW PLAYING layout: vertical run sidebar on the left, the selected run's
+   content (slim tab strip + bodies + composer) on the right. */
+.ai-run-pane__layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.ai-run-pane.is-collapsed .ai-run-pane__layout {
+  display: none;
+}
+
+.ai-run-pane__sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  flex-shrink: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.ai-run-pane__run {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-left: 2px solid transparent;
+}
+
+.ai-run-pane__run:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-run-pane__run.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border-left-color: var(--interactive-accent);
+}
+
+.ai-run-pane__run-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-run-pane__run-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ai-run-pane__run-close:hover {
+  color: var(--text-normal);
+}
+
+.ai-run-pane__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Slim tab strip above the selected run's body; the corner actions (expand
+   now, split in a later stage) sit at its right edge. */
+.ai-run-pane__tabstrip {
   display: flex;
   align-items: center;
   gap: 4px;
-  overflow-x: auto;
-  flex: 1;
-  min-width: 0;
+  padding: 0 4px;
+  min-height: 26px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
 }
 
 .ai-run-pane__tab {
@@ -6618,14 +6696,13 @@ textarea.form-textarea {
   gap: 4px;
   padding: 2px 8px;
   border-radius: 4px;
-  cursor: pointer;
   font-size: var(--font-ui-small);
   color: var(--text-muted);
   white-space: nowrap;
 }
 
-.ai-run-pane__tab:hover {
-  background: var(--background-modifier-hover);
+.ai-run-pane__tab.is-hidden {
+  display: none;
 }
 
 .ai-run-pane__tab.is-active {
@@ -6633,7 +6710,31 @@ textarea.form-textarea {
   color: var(--text-normal);
 }
 
-.ai-run-pane__tab-dot {
+.ai-run-pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.ai-run-pane__expand {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.ai-run-pane__expand:hover {
+  color: var(--text-normal);
+}
+
+/* Status dots (sidebar rows and content tab alike): amber pulse while a run
+   is active, green once it finished, red on failure. */
+.ai-run-pane__tab-dot,
+.ai-run-pane__run-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -6642,26 +6743,30 @@ textarea.form-textarea {
 }
 
 .ai-run-pane__tab-dot--starting,
-.ai-run-pane__tab-dot--running {
+.ai-run-pane__tab-dot--running,
+.ai-run-pane__tab-dot--stopping,
+.ai-run-pane__run-dot--starting,
+.ai-run-pane__run-dot--running,
+.ai-run-pane__run-dot--stopping {
+  background: var(--color-orange, var(--text-accent));
+  animation: ai-run-dot-pulse 1.6s ease-in-out infinite;
+}
+
+.ai-run-pane__tab-dot--succeeded,
+.ai-run-pane__run-dot--succeeded {
   background: var(--color-green, var(--text-accent));
 }
 
-.ai-run-pane__tab-dot--stopping {
-  background: var(--color-orange, var(--text-muted));
-}
-
-.ai-run-pane__tab-dot--failed {
+.ai-run-pane__tab-dot--failed,
+.ai-run-pane__run-dot--failed {
   background: var(--color-red, var(--text-error));
 }
 
-.ai-run-pane__tab-stop {
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: var(--color-red, var(--text-error));
-  font-size: 11px;
-  padding: 0 2px;
-  line-height: 1;
+/* Endpoints inherit the dot's base opacity (1); only the midpoint dims. */
+@keyframes ai-run-dot-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .ai-run-pane__tab-close {
@@ -6683,10 +6788,6 @@ textarea.form-textarea {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.ai-run-pane.is-collapsed .ai-run-pane__bodies {
-  display: none;
 }
 
 .ai-run-pane__body {
@@ -6758,10 +6859,6 @@ textarea.form-textarea {
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.ai-run-pane.is-collapsed .ai-run-pane__composer {
-  display: none;
-}
-
 .ai-run-pane__composer-input {
   flex: 1;
   min-width: 0;
@@ -6794,6 +6891,20 @@ textarea.form-textarea {
 }
 
 .ai-pane-container--terminal .ai-run-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Expanded (⤢): the drawer fills nearly the whole view height. Declared
+   after the terminal chrome so it wins when both classes are present. The
+   PTY grid of already-running sessions stays fixed — only the xterm
+   viewport grows. */
+.ai-pane-container--expanded {
+  height: 90%;
+  max-height: 90%;
+}
+
+.ai-pane-container--expanded .ai-run-pane {
   flex: 1;
   min-height: 0;
 }

@@ -396,19 +396,24 @@ describe('AiRunPaneController terminal mode', () => {
     expect(size.rows).toBeLessThan(30)
   })
 
-  test('the terminal tab stop control drives manager.stopRun', () => {
+  test('the terminal tab × drives manager.stopRun while the run is active', () => {
     controller.mount(container)
     const run = createRun({ status: 'running' })
     manager.emit(run)
 
-    const stopButton = container.querySelector<HTMLButtonElement>(
-      '.ai-run-pane__tab-stop',
+    const closeButton = container.querySelector<HTMLButtonElement>(
+      '.ai-run-pane__tab-close',
     )
-    expect(stopButton).not.toBeNull()
-    stopButton?.click()
+    expect(closeButton).not.toBeNull()
+    closeButton?.click()
 
     expect(manager.stopRun).toHaveBeenCalledTimes(1)
     expect(manager.stopRun).toHaveBeenCalledWith(run.id)
+    // The view (and its adapter) stays alive until 'persisted'.
+    expect(adapters[0].disposed).toBe(false)
+    expect(
+      container.querySelector('.ai-run-pane__body--terminal'),
+    ).not.toBeNull()
   })
 
   test('a pane rebuild (unmount + mount) replays the buffered output into a fresh adapter', () => {

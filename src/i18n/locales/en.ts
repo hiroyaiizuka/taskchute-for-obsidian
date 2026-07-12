@@ -229,8 +229,15 @@ export const en = {
       run: "Run AI task",
       stop: "Stop AI task",
       closeTab: "Close run tab",
+      stopAndClose: "Stop and close run",
       togglePane: "Toggle AI run pane",
+      expandPane: "Expand AI run pane",
+      restorePane: "Restore AI run pane size",
       tabUntitled: "Untitled run",
+      contentTab: {
+        terminal: "Terminal",
+        events: "Events",
+      },
       status: {
         starting: "Starting",
         running: "Running",
