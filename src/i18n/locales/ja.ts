@@ -234,12 +234,20 @@ export const ja = {
       events: {
         omitted: "{count}件のイベントを省略",
       },
+      composer: {
+        inputLabel: "フォローアッププロンプト",
+        send: "送信",
+        placeholder: "フォローアッププロンプトを送信",
+        runningPlaceholder: "実行中…",
+        unavailablePlaceholder: "この実行ではフォローアップを利用できません",
+      },
       notices: {
         noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
         binaryNotFound: "AI CLIバイナリが見つかりません: {host}。設定でパスを指定してください。",
         alreadyRunning: "このタスクのAI実行はすでに進行中です。",
         desktopOnly: "AIタスクの実行はデスクトップ版でのみ利用できます。",
         startFailed: "AI実行の開始に失敗しました: {message}",
+        followUpFailed: "フォローアップの送信に失敗しました: {message}",
       },
     },
     date: {

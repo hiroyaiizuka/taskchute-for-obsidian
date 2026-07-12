@@ -104,6 +104,50 @@ describe('ClaudeCodeDispatcher', () => {
       expect(separatorIndex).toBeGreaterThanOrEqual(0)
       expect(request.args.slice(separatorIndex)).toEqual(['--', '- first bullet of the prompt'])
     })
+
+    test('builds resume argv when resumeSessionId is set', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/claude',
+          prompt: 'continue please',
+          cwd: '/some/project',
+          extraArgs: ['--max-turns', '1'],
+          resumeSessionId: 'sess-abc',
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        '-p',
+        '--resume',
+        'sess-abc',
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        '--max-turns',
+        '1',
+        '--',
+        'continue please',
+      ])
+      expect(request.cwd).toBe('/some/project')
+    })
+
+    test('ignores an empty resumeSessionId', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/claude', prompt: 'p', resumeSessionId: '' },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual(['-p', '--output-format', 'stream-json', '--verbose', '--', 'p'])
+    })
   })
 
   describe('fixture integration (real gateway)', () => {
@@ -272,6 +316,21 @@ describe('ClaudeCodeDispatcher', () => {
       // The grandchild shares the child's process group, so the stop signal
       // must reach it too — otherwise it would survive as an orphan.
       expect(await waitForProcessExit(grandchildPid, 10_000)).toBe(true)
+    }, 20_000)
+
+    test('resume flow emits the continuation stream', async () => {
+      const dispatcher = new ClaudeCodeDispatcher(new NodeProcessGateway())
+      const { events, outcome } = await runDispatcherToCompletion(dispatcher, {
+        binaryPath: FIXTURE,
+        prompt: 'continue please',
+        resumeSessionId: 'fake-claude-session',
+      })
+
+      const init = events.find((event) => event.kind === 'init')
+      expect(init).toMatchObject({ sessionId: 'fake-claude-session-2' })
+      const assistantText = events.find((event) => event.kind === 'assistant-text')
+      expect(assistantText).toMatchObject({ text: 'Follow-up from fake claude' })
+      expect(outcome).toMatchObject({ status: 'succeeded', exitCode: 0 })
     }, 20_000)
 
     test('stop() after exit is a no-op', async () => {

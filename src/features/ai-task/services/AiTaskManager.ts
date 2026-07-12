@@ -5,6 +5,8 @@
  * frontmatter and the `## Prompt` section, resolves the CLI binary and cwd,
  * dispatches the child process, buffers stream events with a bounded
  * head + tail cap, and persists a run log note when the run ends.
+ * followUp() resumes a finished run's CLI session with a new prompt and
+ * keeps appending to the same record (and rewrites the same log note).
  *
  * Task-note frontmatter stays READ-ONLY here; the only vault write happens
  * inside AiTaskLogWriter at run end.
@@ -71,6 +73,26 @@ export class AiPromptNotFoundError extends Error {
   }
 }
 
+export class AiRunNotFoundError extends Error {
+  readonly runId: string
+
+  constructor(runId: string) {
+    super(`No AI run found for id ${runId}`)
+    this.name = 'AiRunNotFoundError'
+    this.runId = runId
+  }
+}
+
+export class AiSessionUnavailableError extends Error {
+  readonly runId: string
+
+  constructor(runId: string) {
+    super(`AI run ${runId} has no session id to resume`)
+    this.name = 'AiSessionUnavailableError'
+    this.runId = runId
+  }
+}
+
 interface AiTaskFileCacheLike {
   frontmatter?: Record<string, unknown>
   headings?: PromptHeadingInfo[]
@@ -93,6 +115,12 @@ export interface AiTaskManagerDeps {
   }
   logWriter: {
     writeRunLog(record: AiRunRecord): Promise<unknown>
+    /**
+     * Rewrite-or-create path used so follow-ups keep one note per run.
+     * Optional so plain create-only writers keep working; when absent the
+     * manager falls back to writeRunLog.
+     */
+    upsertRunLog?(record: AiRunRecord): Promise<unknown>
     pruneOldLogs(): Promise<void>
   }
   /** Timer override for tests; production uses activeWindow timers */
@@ -106,6 +134,10 @@ interface InternalRun {
   record: AiRunRecord
   handle: AiRunProcessHandle | null
   exited: boolean
+  /** Working directory captured at start, reused by follow-up dispatches */
+  cwd?: string
+  /** Extra CLI args captured at start, reused by follow-up dispatches */
+  extraArgs: string[]
 }
 
 const defaultTimer: AiGraceTimer = {
@@ -175,13 +207,99 @@ export class AiTaskManager {
         startedAt: Date.now(),
         events: [],
       }
-      const internal: InternalRun = { record, handle: null, exited: false }
+      const internal: InternalRun = {
+        record,
+        handle: null,
+        exited: false,
+        cwd,
+        extraArgs: config.args,
+      }
       this.runs.set(record.id, internal)
       this.notifyChange(record)
 
       try {
         internal.handle = this.deps.dispatchers[config.host].start(
           { binaryPath, prompt, cwd, extraArgs: config.args },
+          {
+            onEvent: (event) => this.handleEvent(internal, event),
+            onExit: (outcome) => this.handleExit(internal, outcome),
+          },
+        )
+      } catch (error) {
+        internal.exited = true
+        record.status = 'failed'
+        record.endedAt = Date.now()
+        record.errorMessage = error instanceof Error ? error.message : String(error)
+        this.notifyChange(record)
+        throw error
+      }
+
+      if (!internal.exited && record.status === 'starting') {
+        record.pid = internal.handle.pid
+        record.status = 'running'
+        this.notifyChange(record)
+      }
+      return record
+    } finally {
+      this.pendingStarts.delete(taskPath)
+    }
+  }
+
+  /**
+   * Send a follow-up prompt to a finished run by resuming its CLI session.
+   * The streamed continuation appends to the SAME record (and the same log
+   * note is rewritten at exit). Rejects when the run is unknown, still
+   * active, has no session id, or another run is active for the task.
+   */
+  async followUp(runId: string, prompt: string): Promise<AiRunRecord> {
+    this.throwIfDisposed()
+    const internal = this.runs.get(runId)
+    if (!internal) throw new AiRunNotFoundError(runId)
+
+    const record = internal.record
+    const taskPath = record.taskPath
+    if (
+      this.pendingStarts.has(taskPath) ||
+      !internal.exited ||
+      ACTIVE_STATUSES.has(record.status) ||
+      this.getActiveRunForTask(taskPath)
+    ) {
+      throw new AiRunAlreadyActiveError(taskPath)
+    }
+    const sessionId = record.sessionId
+    if (sessionId === undefined || sessionId.length === 0) {
+      throw new AiSessionUnavailableError(runId)
+    }
+    const text = prompt.trim()
+    if (text.length === 0) {
+      throw new Error('Follow-up prompt is empty')
+    }
+
+    this.pendingStarts.add(taskPath)
+    try {
+      // Resolve the binary BEFORE mutating the record so a missing binary
+      // leaves the run in its finished state and the follow-up retryable.
+      const binaryPath = await this.deps.binaryLocator.resolve(record.host)
+      this.throwIfDisposed()
+
+      this.appendEvent(record, { kind: 'user-text', text })
+      record.status = 'starting'
+      record.resumedAt = Date.now()
+      record.endedAt = undefined
+      record.exitCode = undefined
+      record.errorMessage = undefined
+      internal.exited = false
+      this.notifyChange(record)
+
+      try {
+        internal.handle = this.deps.dispatchers[record.host].start(
+          {
+            binaryPath,
+            prompt: text,
+            cwd: internal.cwd,
+            extraArgs: internal.extraArgs,
+            resumeSessionId: sessionId,
+          },
           {
             onEvent: (event) => this.handleEvent(internal, event),
             onExit: (outcome) => this.handleExit(internal, outcome),
@@ -287,6 +405,15 @@ export class AiTaskManager {
   }
 
   private handleEvent(internal: InternalRun, event: AiStreamEvent): void {
+    if (
+      event.kind === 'init' &&
+      typeof event.sessionId === 'string' &&
+      event.sessionId.length > 0
+    ) {
+      // Keep the LATEST session id: resuming a claude session mints a new
+      // one, and the next follow-up must chain from it.
+      internal.record.sessionId = event.sessionId
+    }
     this.appendEvent(internal.record, event)
     this.notifyChange(internal.record)
   }
@@ -341,7 +468,13 @@ export class AiTaskManager {
 
   private async persistRunLog(record: AiRunRecord): Promise<void> {
     try {
-      await this.deps.logWriter.writeRunLog(record)
+      const writer = this.deps.logWriter
+      const result = writer.upsertRunLog
+        ? await writer.upsertRunLog(record)
+        : await writer.writeRunLog(record)
+      if (typeof result === 'string' && result.length > 0) {
+        record.logNotePath = result
+      }
     } catch (error) {
       this.deps.log?.('warn', '[AiTaskManager] Failed to write run log', error)
     }

@@ -1,4 +1,4 @@
-import type { TFile } from 'obsidian'
+import { TFile } from 'obsidian'
 import {
   AiTaskLogWriter,
   STDERR_TAIL_LIMIT,
@@ -47,6 +47,7 @@ interface Harness {
   writer: AiTaskLogWriter
   deps: AiTaskLogWriterDeps
   created: Array<{ path: string; content: string }>
+  modified: Array<{ path: string; content: string }>
   ensured: string[]
   trashed: string[]
   /** Registers a vault entry so collision checks see it */
@@ -57,6 +58,7 @@ interface Harness {
 
 function createHarness(options: { retentionDays?: number; now?: number } = {}): Harness {
   const created: Array<{ path: string; content: string }> = []
+  const modified: Array<{ path: string; content: string }> = []
   const ensured: string[] = []
   const trashed: string[] = []
   const existingPaths = new Set<string>()
@@ -70,9 +72,15 @@ function createHarness(options: { retentionDays?: number; now?: number } = {}): 
           existingPaths.add(path)
           return {}
         }),
+        modify: jest.fn(async (file: TFile, content: string) => {
+          modified.push({ path: file.path, content })
+        }),
         getAbstractFileByPath: jest.fn((path: string) => {
           if (logsTree && path === logsTree.path) return logsTree
-          return existingPaths.has(path) ? { path } : null
+          if (!existingPaths.has(path)) return null
+          const file = new TFile()
+          file.path = path
+          return file
         }),
       },
       fileManager: {
@@ -96,6 +104,7 @@ function createHarness(options: { retentionDays?: number; now?: number } = {}): 
     writer: new AiTaskLogWriter(deps),
     deps,
     created,
+    modified,
     ensured,
     trashed,
     addExistingPath: (path) => existingPaths.add(path),
@@ -233,6 +242,73 @@ describe('AiTaskLogWriter.writeRunLog', () => {
     await harness.writer.writeRunLog(makeRecord())
 
     expect(harness.created[0].content).not.toContain('## Stderr')
+  })
+
+  test('renders user follow-up text as a quoted user line in the transcript', async () => {
+    const harness = createHarness()
+    const events: AiStreamEvent[] = [
+      { kind: 'assistant-text', text: 'first answer' },
+      { kind: 'user-text', text: 'and one more thing' },
+      { kind: 'assistant-text', text: 'second answer' },
+    ]
+
+    await harness.writer.writeRunLog(makeRecord({ events }))
+    const content = harness.created[0].content
+
+    expect(content).toContain('> user: and one more thing')
+    const userIndex = content.indexOf('> user: and one more thing')
+    expect(userIndex).toBeGreaterThan(content.indexOf('first answer'))
+    expect(userIndex).toBeLessThan(content.indexOf('second answer'))
+  })
+})
+
+describe('AiTaskLogWriter.upsertRunLog', () => {
+  test('creates a new note when the record has no log note yet', async () => {
+    const harness = createHarness()
+
+    const path = await harness.writer.upsertRunLog(makeRecord())
+
+    expect(path).toBe('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md')
+    expect(harness.created).toHaveLength(1)
+    expect(harness.modified).toHaveLength(0)
+  })
+
+  test('rewrites the existing note in place via vault.modify', async () => {
+    const harness = createHarness()
+    const existing = 'TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md'
+    harness.addExistingPath(existing)
+
+    const path = await harness.writer.upsertRunLog(
+      makeRecord({
+        logNotePath: existing,
+        events: [
+          { kind: 'assistant-text', text: 'first answer' },
+          { kind: 'user-text', text: 'follow-up prompt' },
+          { kind: 'assistant-text', text: 'second answer' },
+        ],
+      }),
+    )
+
+    expect(path).toBe(existing)
+    expect(harness.created).toHaveLength(0)
+    expect(harness.modified).toHaveLength(1)
+    expect(harness.modified[0].path).toBe(existing)
+    // The full transcript is regenerated, not appended.
+    expect(harness.modified[0].content).toContain('## Transcript')
+    expect(harness.modified[0].content).toContain('> user: follow-up prompt')
+    expect(harness.modified[0].content).toContain('second answer')
+  })
+
+  test('falls back to creating a new note when the recorded path is gone', async () => {
+    const harness = createHarness()
+
+    const path = await harness.writer.upsertRunLog(
+      makeRecord({ logNotePath: 'TaskChute/AI/Logs/2026-06/deleted-note.md' }),
+    )
+
+    expect(path).toBe('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md')
+    expect(harness.created).toHaveLength(1)
+    expect(harness.modified).toHaveLength(0)
   })
 })
 

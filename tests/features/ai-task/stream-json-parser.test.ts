@@ -328,3 +328,69 @@ describe('parseCodexLine', () => {
     })
   })
 })
+
+describe('session id extraction', () => {
+  test('claude system/init carries the session id', () => {
+    const line = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: '11111111-2222-3333-4444-555555555555',
+      model: 'claude-sonnet-4-5',
+    })
+    expect(parseClaudeLine(line)).toEqual([
+      {
+        kind: 'init',
+        sessionId: '11111111-2222-3333-4444-555555555555',
+        model: 'claude-sonnet-4-5',
+      },
+    ])
+  })
+
+  test('codex thread.started falls back to session_id when thread_id is absent', () => {
+    const line = JSON.stringify({
+      type: 'thread.started',
+      session_id: 'sess-fallback',
+      model: 'gpt-5-codex',
+    })
+    expect(parseCodexLine(line)).toEqual([
+      { kind: 'init', sessionId: 'sess-fallback', model: 'gpt-5-codex' },
+    ])
+  })
+
+  test('codex thread.started prefers thread_id over session_id', () => {
+    const line = JSON.stringify({
+      type: 'thread.started',
+      thread_id: 'th-primary',
+      session_id: 'sess-secondary',
+    })
+    expect(parseCodexLine(line)).toEqual([
+      { kind: 'init', sessionId: 'th-primary', model: undefined },
+    ])
+  })
+
+  test('codex bare session UUID line becomes an init event', () => {
+    const uuid = '019f54b3-17be-72f0-901f-a3a6c67c795b'
+    expect(parseCodexLine(uuid)).toEqual([
+      { kind: 'init', sessionId: uuid, model: undefined },
+    ])
+    // Surrounding whitespace is tolerated; the id is preserved trimmed.
+    expect(parseCodexLine(`  ${uuid}  `)).toEqual([
+      { kind: 'init', sessionId: uuid, model: undefined },
+    ])
+  })
+
+  test('codex near-UUID and unknown lines still fall back to raw', () => {
+    const notQuiteUuid = '019f54b3-17be-72f0-901f'
+    expect(parseCodexLine(notQuiteUuid)).toEqual([
+      { kind: 'raw', text: notQuiteUuid },
+    ])
+    const uuidWithSuffix = '019f54b3-17be-72f0-901f-a3a6c67c795b trailing words'
+    expect(parseCodexLine(uuidWithSuffix)).toEqual([
+      { kind: 'raw', text: uuidWithSuffix },
+    ])
+    const unknownJson = JSON.stringify({ type: 'session.snapshot', data: 1 })
+    expect(parseCodexLine(unknownJson)).toEqual([
+      { kind: 'raw', text: unknownJson },
+    ])
+  })
+})

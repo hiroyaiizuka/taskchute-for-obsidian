@@ -84,6 +84,53 @@ describe('CodexDispatcher', () => {
       expect(separatorIndex).toBeGreaterThanOrEqual(0)
       expect(request.args.slice(separatorIndex)).toEqual(['--', '--not-a-flag prompt body'])
     })
+
+    test('builds exec resume argv when resumeSessionId is set (no --cd: unsupported by resume)', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'continue please',
+          cwd: '/some/project',
+          extraArgs: ['--model', 'gpt-5'],
+          resumeSessionId: '019f54b3-17be-72f0-901f-a3a6c67c795b',
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      // `codex exec resume --help` (0.144.1): resume takes [SESSION_ID] [PROMPT]
+      // positionals plus --json/--skip-git-repo-check, but has NO --cd flag.
+      // The working directory still applies through the spawn cwd below.
+      expect(request.args).toEqual([
+        'exec',
+        'resume',
+        '019f54b3-17be-72f0-901f-a3a6c67c795b',
+        '--json',
+        '--skip-git-repo-check',
+        '--model',
+        'gpt-5',
+        '--',
+        'continue please',
+      ])
+      expect(request.args).not.toContain('--cd')
+      expect(request.cwd).toBe('/some/project')
+    })
+
+    test('ignores an empty resumeSessionId', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/codex', prompt: 'p', resumeSessionId: '' },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
+    })
   })
 
   describe('fixture integration (real gateway)', () => {
@@ -155,6 +202,21 @@ describe('CodexDispatcher', () => {
       })
       expect(outcome.status).toBe('failed')
       expect(outcome.exitCode).toBe(0)
+    }, 20_000)
+
+    test('resume flow emits the continuation stream on the same thread', async () => {
+      const dispatcher = new CodexDispatcher(new NodeProcessGateway())
+      const { events, outcome } = await runDispatcherToCompletion(dispatcher, {
+        binaryPath: FIXTURE,
+        prompt: 'continue please',
+        resumeSessionId: 'fake-codex-thread',
+      })
+
+      const init = events.find((event) => event.kind === 'init')
+      expect(init).toMatchObject({ sessionId: 'fake-codex-thread' })
+      const assistantText = events.find((event) => event.kind === 'assistant-text')
+      expect(assistantText).toMatchObject({ text: 'Follow-up from fake codex' })
+      expect(outcome).toMatchObject({ status: 'succeeded', exitCode: 0 })
     }, 20_000)
 
     test('stop() terminates a hanging child via SIGTERM and clears the grace timer', async () => {

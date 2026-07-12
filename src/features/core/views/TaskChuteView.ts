@@ -70,6 +70,7 @@ import {
   AiRunAlreadyActiveError,
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
+import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
 import type { AiRunStatus } from "../../ai-task/types"
 
 class NavigationStateManager implements NavigationState {
@@ -698,7 +699,10 @@ export class TaskChuteView
     return this.plugin.aiTaskManager !== undefined
   }
 
-  private async startAiRun(inst: TaskInstance): Promise<void> {
+  private async startAiRun(
+    inst: TaskInstance,
+    options: { suppressAlreadyActive?: boolean } = {},
+  ): Promise<void> {
     const manager = this.plugin.aiTaskManager
     if (!manager) return
     const file = inst.task.file
@@ -711,7 +715,38 @@ export class TaskChuteView
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
     } catch (error) {
+      if (options.suppressAlreadyActive && error instanceof AiRunAlreadyActiveError) {
+        return
+      }
       this.notifyAiRunError(error)
+    }
+  }
+
+  /**
+   * Play/stop coupling: a successful human start of an ai_task instance also
+   * fires the AI run (same path as the row 🤖 button, pane tab included).
+   * Guarded and additive: an already-active run is skipped silently, and AI
+   * start failures notify but never block or roll back the human start.
+   */
+  private maybeStartAiRunForInstance(inst: TaskInstance): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    if (!readAiTaskConfig(inst.task.frontmatter)) return
+    const taskPath = inst.task.path
+    if (!taskPath) return
+    if (manager.getActiveRunForTask(taskPath)) return
+    void this.startAiRun(inst, { suppressAlreadyActive: true })
+  }
+
+  /** Play/stop coupling: a human stop also stops the task's active AI run */
+  private maybeStopAiRunForInstance(inst: TaskInstance): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const taskPath = inst.task.path
+    if (!taskPath) return
+    const activeRun = manager.getActiveRunForTask(taskPath)
+    if (activeRun) {
+      manager.stopRun(activeRun.id)
     }
   }
 
@@ -1853,10 +1888,12 @@ export class TaskChuteView
 
   async startInstance(inst: TaskInstance): Promise<void> {
     await this.taskExecutionService.startInstance(inst)
+    this.maybeStartAiRunForInstance(inst)
   }
 
   async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
     await this.taskExecutionService.stopInstance(inst, stopTime)
+    this.maybeStopAiRunForInstance(inst)
     const viewDate = this.getViewDate()
     const today = new Date()
     const isTodayView =

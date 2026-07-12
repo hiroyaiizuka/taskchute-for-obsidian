@@ -20,6 +20,11 @@ export interface AiRunRequest {
   cwd?: string
   /** Extra CLI arguments appended to the host defaults */
   extraArgs?: string[]
+  /**
+   * Resume an earlier CLI session instead of starting a fresh one
+   * (claude `--resume`, codex `exec resume`). Empty strings are ignored.
+   */
+  resumeSessionId?: string
 }
 
 export type AiRunEndStatus = 'succeeded' | 'failed' | 'stopped'

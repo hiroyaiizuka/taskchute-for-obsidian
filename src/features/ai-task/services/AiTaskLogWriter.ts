@@ -9,7 +9,7 @@
  * through fileManager.trashFile (never vault.delete).
  */
 
-import type { TFile } from 'obsidian'
+import { TFile } from 'obsidian'
 import { listFilesInFolder } from '../../../utils/vaultFiles'
 import type { AiResultEvent, AiRunRecord, AiStreamEvent } from '../types'
 
@@ -23,6 +23,7 @@ export interface AiTaskLogWriterDeps {
   app: {
     vault: {
       create(path: string, content: string): Promise<unknown>
+      modify(file: TFile, content: string): Promise<unknown>
       getAbstractFileByPath(path: string): unknown
       getRoot?(): unknown
     }
@@ -135,6 +136,9 @@ function composeTranscript(events: AiStreamEvent[]): string[] {
       case 'tool-result':
         lines.push(`- [tool result]${event.isError === true ? ' (error)' : ''}`)
         break
+      case 'user-text':
+        lines.push(`> user: ${event.text}`, '')
+        break
       case 'init':
         lines.push(composeInitLine(event))
         break
@@ -190,6 +194,24 @@ function statTimeOf(file: TFile): number | null {
 
 export class AiTaskLogWriter {
   constructor(private readonly deps: AiTaskLogWriterDeps) {}
+
+  /**
+   * Rewrite the run's existing log note in place, or create it when the run
+   * has none yet (or the recorded note has been deleted). Follow-ups call
+   * this at every run end so one note carries the whole conversation.
+   * Returns the vault path of the note.
+   */
+  async upsertRunLog(record: AiRunRecord): Promise<string> {
+    const existingPath = record.logNotePath
+    if (existingPath !== undefined && existingPath.length > 0) {
+      const existing = this.deps.app.vault.getAbstractFileByPath(existingPath)
+      if (existing instanceof TFile) {
+        await this.deps.app.vault.modify(existing, composeRunLogContent(record))
+        return existingPath
+      }
+    }
+    return this.writeRunLog(record)
+  }
 
   /**
    * Compose and create the run log note. Called once per run, at run end.

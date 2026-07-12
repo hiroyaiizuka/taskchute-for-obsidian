@@ -182,21 +182,35 @@ function parseCodexCompletedItem(
 }
 
 /**
+ * A bare session/thread UUID line some codex builds print before the JSONL
+ * stream starts. Recognized so it can surface as an init event (and enable
+ * resume follow-ups) instead of degrading to raw noise.
+ */
+const BARE_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * Parse one line of Codex `exec --json` output.
  * Returns [] for blank lines and ignored lifecycle events;
  * falls back to a raw event for anything unrecognized.
  */
 export function parseCodexLine(line: string): AiStreamEvent[] {
-  if (line.trim().length === 0) return []
+  const trimmed = line.trim()
+  if (trimmed.length === 0) return []
   const payload = tryParseRecord(line)
-  if (!payload) return rawEvent(line)
+  if (!payload) {
+    if (BARE_UUID_PATTERN.test(trimmed)) {
+      return [{ kind: 'init', sessionId: trimmed, model: undefined }]
+    }
+    return rawEvent(line)
+  }
 
   const type = payload['type']
   if (type === 'thread.started') {
     return [
       {
         kind: 'init',
-        sessionId: asString(payload['thread_id']),
+        sessionId: asString(payload['thread_id']) ?? asString(payload['session_id']),
         model: asString(payload['model']),
       },
     ]

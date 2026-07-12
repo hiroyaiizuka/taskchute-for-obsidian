@@ -12,6 +12,10 @@
  *   --error-result  emit a turn.failed line instead of turn.completed
  *   --hang          emit the thread.started line, then stay alive until killed
  *   --dump-env      write JSON.stringify(process.env) to stderr first
+ *
+ * When invoked with the real resume argv shape (`exec resume <session-id>
+ * ...`), the fixture emits a canned continuation on the SAME thread id (like
+ * the real codex) with a follow-up assistant message.
  */
 
 const argv = process.argv.slice(2)
@@ -26,17 +30,21 @@ const exitCode = Number(argValue('--exit-code') || '0')
 const hang = argv.includes('--hang')
 const dumpEnv = argv.includes('--dump-env')
 const errorResult = argv.includes('--error-result')
+const resumeSessionId = argv[0] === 'exec' && argv[1] === 'resume' ? argv[2] : null
 
 if (dumpEnv) {
   process.stderr.write(JSON.stringify(process.env) + '\n')
 }
 
+const threadId = resumeSessionId || 'fake-codex-thread'
+const messageText = resumeSessionId ? 'Follow-up from fake codex' : 'Hello from fake codex'
+
 const lines = [
-  JSON.stringify({ type: 'thread.started', thread_id: 'fake-codex-thread', model: 'fake-codex-model' }),
+  JSON.stringify({ type: 'thread.started', thread_id: threadId, model: 'fake-codex-model' }),
   JSON.stringify({ type: 'turn.started' }),
   JSON.stringify({
     type: 'item.completed',
-    item: { item_type: 'agent_message', text: 'Hello from fake codex' },
+    item: { item_type: 'agent_message', text: messageText },
   }),
   errorResult
     ? JSON.stringify({ type: 'turn.failed', error: { message: 'fake codex failure' } })

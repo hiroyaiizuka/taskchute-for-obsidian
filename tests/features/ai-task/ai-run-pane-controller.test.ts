@@ -8,6 +8,7 @@ class FakeManager {
   readonly listeners = new Set<ChangeListener>()
   readonly records: AiRunRecord[] = []
   readonly stopRun = jest.fn()
+  readonly followUp = jest.fn(() => Promise.resolve())
 
   getRuns(): AiRunRecord[] {
     return [...this.records]

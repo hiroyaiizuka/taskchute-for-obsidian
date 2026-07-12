@@ -18,6 +18,11 @@
  *   --spawn-child   spawn a long-lived grandchild process (same process
  *                   group) and report `GRANDCHILD_PID:<pid>` on stderr, to
  *                   exercise process-group kill semantics in the consumer
+ *
+ * When the real dispatcher resume flag (`--resume <session-id>`) is present,
+ * the fixture emits a canned continuation instead of the initial stream: an
+ * init line with a NEW session id (like the real claude, which mints a fresh
+ * session id per resumed run) and a follow-up assistant message.
  */
 
 const argv = process.argv.slice(2)
@@ -34,6 +39,7 @@ const dumpEnv = argv.includes('--dump-env')
 const errorResult = argv.includes('--error-result')
 const multibyte = argv.includes('--multibyte')
 const spawnChild = argv.includes('--spawn-child')
+const resumeSessionId = argValue('--resume')
 
 if (dumpEnv) {
   process.stderr.write(JSON.stringify(process.env) + '\n')
@@ -52,16 +58,20 @@ if (spawnChild) {
 const initLine = JSON.stringify({
   type: 'system',
   subtype: 'init',
-  session_id: 'fake-claude-session',
+  session_id: resumeSessionId ? resumeSessionId + '-2' : 'fake-claude-session',
   model: 'fake-model',
 })
+
+const assistantText = resumeSessionId
+  ? 'Follow-up from fake claude'
+  : multibyte
+    ? 'こんにちは、日本語の応答'
+    : 'Hello from fake claude'
 
 const assistantTextLine = JSON.stringify({
   type: 'assistant',
   message: {
-    content: [
-      { type: 'text', text: multibyte ? 'こんにちは、日本語の応答' : 'Hello from fake claude' },
-    ],
+    content: [{ type: 'text', text: assistantText }],
   },
 })
 

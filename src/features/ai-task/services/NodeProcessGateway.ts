@@ -66,15 +66,10 @@ interface NodeReadableLike {
   setEncoding(encoding: string): void
 }
 
-interface NodeWritableLike {
-  end(): void
-}
-
 interface NodeChildProcessLike {
   pid?: number
   stdout: NodeReadableLike | null
   stderr: NodeReadableLike | null
-  stdin: NodeWritableLike | null
   on(event: 'close', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'error', listener: (error: unknown) => void): void
   kill(signal?: string): boolean
@@ -89,6 +84,7 @@ interface ChildProcessModuleLike {
       env?: Record<string, string | undefined>
       detached?: boolean
       windowsHide?: boolean
+      stdio?: ['ignore', 'pipe', 'pipe']
     },
   ): NodeChildProcessLike
 }
@@ -179,11 +175,15 @@ export class NodeProcessGateway implements ProcessGateway {
       // kill() below can signal the WHOLE group: if the CLI ignores SIGTERM
       // and spawned its own tool subprocesses, the SIGKILL escalation still
       // reaps the grandchildren instead of leaving orphans behind.
+      // stdio[0]='ignore' gives the child /dev/null as stdin so CLIs never
+      // wait on (or announce reading from) a parent-held stdin pipe, e.g.
+      // codex's "Reading additional input from stdin..." message.
       child = loadChildProcessModule().spawn(request.command, request.args, {
         cwd: request.cwd,
         env: request.env,
         detached: true,
         windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
       })
     } catch (error) {
       spawnErrorMessage = describeSpawnError(error)
@@ -210,11 +210,6 @@ export class NodeProcessGateway implements ProcessGateway {
         for (const callback of stderrCallbacks) callback(`${message}\n`)
         notifyExit(null, null)
       })
-      try {
-        child.stdin?.end()
-      } catch {
-        // stdin may already be closed; nothing to clean up
-      }
     }
 
     const failedChild = child === null

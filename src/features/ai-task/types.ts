@@ -54,6 +54,12 @@ export interface AiResultEvent {
   text?: string
 }
 
+/** A follow-up prompt the user sent to a finished run via the composer */
+export interface AiUserTextEvent {
+  kind: 'user-text'
+  text: string
+}
+
 /** A line written to the child process stderr */
 export interface AiStderrEvent {
   kind: 'stderr'
@@ -81,6 +87,7 @@ export type AiStreamEvent =
   | AiToolUseEvent
   | AiToolResultEvent
   | AiResultEvent
+  | AiUserTextEvent
   | AiStderrEvent
   | AiRawEvent
   | AiElisionEvent
@@ -106,8 +113,14 @@ export interface AiRunRecord {
   status: AiRunStatus
   /** Epoch milliseconds */
   startedAt: number
+  /** Epoch milliseconds of the latest follow-up dispatch (startedAt is kept) */
+  resumedAt?: number
   /** Epoch milliseconds; set when the run reaches a terminal status */
   endedAt?: number
+  /** CLI session/thread id reported by the stream; enables resume follow-ups */
+  sessionId?: string
+  /** Vault path of the persisted run log note (rewritten on follow-ups) */
+  logNotePath?: string
   /** Bounded event buffer (head + tail with omission marker) */
   events: AiStreamEvent[]
   /** Number of events dropped from the middle of the buffer */

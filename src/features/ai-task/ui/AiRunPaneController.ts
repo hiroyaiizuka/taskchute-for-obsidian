@@ -4,16 +4,20 @@
  * Renders the collapsible "AI runs" pane below the task list: one tab per run
  * (task name + status dot + stop control while active) and one event body per
  * run. Bodies are kept in a Map and only the selected one is visible, so
- * scroll position survives tab switches. All content is written through
- * createEl/createDiv/createSpan with textContent only.
+ * scroll position survives tab switches. A composer bar at the bottom sends
+ * resume-based follow-up prompts for the selected run; it is enabled only
+ * when that run is finished and has a session id. All content is written
+ * through createEl/createDiv/createSpan with textContent only.
  */
 
+import { Notice } from 'obsidian'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
   getRun(runId: string): AiRunRecord | undefined
   stopRun(runId: string): void
+  followUp(runId: string, prompt: string): Promise<unknown>
   onChange(listener: (record: AiRunRecord) => void): () => void
 }
 
@@ -57,6 +61,8 @@ export class AiRunPaneController {
   private tabsEl: HTMLElement | null = null
   private bodiesEl: HTMLElement | null = null
   private collapseButton: HTMLElement | null = null
+  private composerInput: HTMLInputElement | null = null
+  private composerSend: HTMLButtonElement | null = null
   private selectedRunId: string | null = null
   private unsubscribe: (() => void) | null = null
 
@@ -94,6 +100,7 @@ export class AiRunPaneController {
       attr: { role: 'tablist' },
     })
     this.bodiesEl = root.createDiv({ cls: 'ai-run-pane__bodies' })
+    this.mountComposer(root)
 
     this.unsubscribe = this.host.manager.onChange((record) => {
       this.handleChange(record)
@@ -116,6 +123,8 @@ export class AiRunPaneController {
     this.tabsEl = null
     this.bodiesEl = null
     this.collapseButton = null
+    this.composerInput = null
+    this.composerSend = null
     this.selectedRunId = null
     this.runViews.clear()
   }
@@ -154,6 +163,7 @@ export class AiRunPaneController {
     const existing = this.runViews.get(record.id)
     if (!existing) {
       this.createRunView(record)
+      this.updateComposerState()
       return
     }
     if (existing.lastStatus !== record.status) {
@@ -161,6 +171,7 @@ export class AiRunPaneController {
       this.refreshTab(existing, record)
     }
     this.syncEvents(existing, record)
+    this.updateComposerState()
   }
 
   private createRunView(record: AiRunRecord): void {
@@ -247,6 +258,96 @@ export class AiRunPaneController {
       view.tab.setAttribute('aria-selected', isActive ? 'true' : 'false')
       view.body.classList.toggle('is-active', isActive)
     }
+    this.updateComposerState()
+  }
+
+  // -------------------------------------------------------------------------
+  // Follow-up composer
+  // -------------------------------------------------------------------------
+
+  private mountComposer(root: HTMLElement): void {
+    const composer = root.createDiv({ cls: 'ai-run-pane__composer' })
+    const inputLabel = this.host.tv('aiTask.composer.inputLabel', 'Follow-up prompt')
+    this.composerInput = composer.createEl('input', {
+      cls: 'ai-run-pane__composer-input',
+      attr: { type: 'text', 'aria-label': inputLabel },
+    })
+    this.composerInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.isComposing) return
+      event.preventDefault()
+      this.submitComposer()
+    })
+
+    const sendLabel = this.host.tv('aiTask.composer.send', 'Send')
+    this.composerSend = composer.createEl('button', {
+      cls: 'ai-run-pane__composer-send',
+      text: sendLabel,
+      attr: { 'aria-label': sendLabel },
+    })
+    this.composerSend.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.submitComposer()
+    })
+
+    this.updateComposerState()
+  }
+
+  /**
+   * The composer is usable only when the SELECTED run is finished and has a
+   * session id to resume; otherwise it is disabled with a hint placeholder.
+   */
+  private updateComposerState(): void {
+    const input = this.composerInput
+    const send = this.composerSend
+    if (!input || !send) return
+
+    const record =
+      this.selectedRunId !== null
+        ? this.host.manager.getRun(this.selectedRunId)
+        : undefined
+    const isActive = record !== undefined && ACTIVE_STATUSES.has(record.status)
+    const hasSession =
+      typeof record?.sessionId === 'string' && record.sessionId.length > 0
+    const enabled = record !== undefined && !isActive && hasSession
+
+    input.disabled = !enabled
+    send.disabled = !enabled
+
+    let placeholder: string
+    if (enabled) {
+      placeholder = this.host.tv('aiTask.composer.placeholder', 'Send a follow-up prompt')
+    } else if (isActive) {
+      placeholder = this.host.tv('aiTask.composer.runningPlaceholder', 'Running…')
+    } else {
+      placeholder = this.host.tv(
+        'aiTask.composer.unavailablePlaceholder',
+        'Follow-up is not available for this run',
+      )
+    }
+    input.setAttribute('placeholder', placeholder)
+  }
+
+  private submitComposer(): void {
+    const input = this.composerInput
+    if (!input || input.disabled) return
+    const runId = this.selectedRunId
+    if (runId === null) return
+    const text = input.value.trim()
+    if (text.length === 0) return
+
+    input.value = ''
+    void this.host.manager.followUp(runId, text).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      new Notice(
+        this.host.tv('aiTask.notices.followUpFailed', 'Failed to send follow-up: {message}', {
+          message,
+        }),
+      )
+      // Give the text back so the user can retry, unless they typed anew.
+      if (this.composerInput && this.composerInput.value.length === 0) {
+        this.composerInput.value = text
+      }
+    })
   }
 
   /**
@@ -308,6 +409,8 @@ export class AiRunPaneController {
         return details.length > 0 ? details : 'init'
       }
       case 'assistant-text':
+        return event.text
+      case 'user-text':
         return event.text
       case 'tool-use':
         return this.formatToolUse(event.toolName, event.input)

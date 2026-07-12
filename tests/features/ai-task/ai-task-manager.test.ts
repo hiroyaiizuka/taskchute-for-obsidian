@@ -3,6 +3,8 @@ import {
   AiTaskManager,
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
+  AiRunNotFoundError,
+  AiSessionUnavailableError,
   AiTaskManagerDisposedError,
   AiTaskNotConfiguredError,
   AI_RUN_EVENT_HEAD_LIMIT,
@@ -97,6 +99,8 @@ interface HarnessOptions {
   basePath?: string | null
   resolveBinary?: (host: string) => Promise<string>
   cachedRead?: () => Promise<string>
+  /** When true, the log writer also exposes the upsert path used for rewrites */
+  withUpsert?: boolean
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -104,6 +108,7 @@ function createHarness(options: HarnessOptions = {}) {
   const codex = new FakeDispatcher()
   const timer = createFiringTimer()
   const writeRunLog = jest.fn(async () => 'log-path.md')
+  const upsertRunLog = jest.fn(async () => 'upsert-log-path.md')
   const pruneOldLogs = jest.fn(async () => undefined)
   const resolve = jest.fn(
     options.resolveBinary ?? ((host: string) => Promise.resolve(`/bin/${host}`)),
@@ -130,7 +135,9 @@ function createHarness(options: HarnessOptions = {}) {
     },
     dispatchers: { claude, codex },
     binaryLocator: { resolve },
-    logWriter: { writeRunLog, pruneOldLogs },
+    logWriter: options.withUpsert
+      ? { writeRunLog, upsertRunLog, pruneOldLogs }
+      : { writeRunLog, pruneOldLogs },
     timer,
   }
 
@@ -140,6 +147,7 @@ function createHarness(options: HarnessOptions = {}) {
     codex,
     timer,
     writeRunLog,
+    upsertRunLog,
     pruneOldLogs,
     resolve,
   }
@@ -584,5 +592,260 @@ describe('AiTaskManager.dispose', () => {
     await flushPromises()
 
     expect(harness.writeRunLog).not.toHaveBeenCalled()
+  })
+})
+
+describe('AiTaskManager session id capture', () => {
+  test('stores the session id from the init event on the record', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.sessionId).toBeUndefined()
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1', model: 'm' })
+
+    expect(record.sessionId).toBe('sess-1')
+  })
+
+  test('a later init event overwrites the stored session id', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-2' })
+
+    expect(record.sessionId).toBe('sess-2')
+  })
+
+  test('init events without a session id leave the stored one intact', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+    harness.claude.last.emit({ kind: 'init', model: 'model-only' })
+
+    expect(record.sessionId).toBe('sess-1')
+  })
+})
+
+describe('AiTaskManager.followUp', () => {
+  async function startFinishedRun(
+    harness: ReturnType<typeof createHarness>,
+    options: { sessionId?: string | null; status?: 'succeeded' | 'failed' | 'stopped' } = {},
+  ) {
+    const record = await harness.manager.startRun(makeTaskFile())
+    if (options.sessionId !== null) {
+      harness.claude.last.emit({
+        kind: 'init',
+        sessionId: options.sessionId ?? 'sess-1',
+      })
+    }
+    const status = options.status ?? 'succeeded'
+    harness.claude.last.exit({
+      status,
+      exitCode: status === 'succeeded' ? 0 : null,
+      signal: status === 'stopped' ? 'SIGTERM' : null,
+    })
+    await flushPromises()
+    return record
+  }
+
+  test('dispatches a resume run and appends the user text to the same record', async () => {
+    const harness = createHarness({
+      frontmatter: { ai_task: true, ai_task_args: '--max-turns 1' },
+    })
+    const record = await startFinishedRun(harness)
+    const statuses: string[] = []
+    harness.manager.onChange((changed) => statuses.push(changed.status))
+
+    const result = await harness.manager.followUp(record.id, 'continue please')
+
+    expect(result).toBe(record)
+    expect(harness.claude.runs).toHaveLength(2)
+    expect(harness.claude.last.request).toEqual({
+      binaryPath: '/bin/claude',
+      prompt: 'continue please',
+      cwd: '/vault/base',
+      extraArgs: ['--max-turns', '1'],
+      resumeSessionId: 'sess-1',
+    })
+    expect(record.events).toContainEqual({ kind: 'user-text', text: 'continue please' })
+    expect(statuses).toEqual(['starting', 'running'])
+    expect(record.status).toBe('running')
+    expect(record.endedAt).toBeUndefined()
+    expect(typeof record.resumedAt).toBe('number')
+    // The manager still reports one single run for the task.
+    expect(harness.manager.getRuns()).toEqual([record])
+    expect(harness.manager.getActiveRunForTask(record.taskPath)).toBe(record)
+  })
+
+  test('follow-up stream events append to the record and exit remaps the status', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'continue')
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'more output' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(record.events).toContainEqual({ kind: 'assistant-text', text: 'more output' })
+    expect(record.status).toBe('succeeded')
+    expect(record.exitCode).toBe(0)
+    expect(record.endedAt).toBeDefined()
+  })
+
+  test('rewrites the same log note via the upsert path', async () => {
+    const harness = createHarness({ withUpsert: true })
+    const record = await startFinishedRun(harness)
+
+    expect(harness.upsertRunLog).toHaveBeenCalledTimes(1)
+    expect(harness.writeRunLog).not.toHaveBeenCalled()
+    expect(record.logNotePath).toBe('upsert-log-path.md')
+
+    await harness.manager.followUp(record.id, 'continue')
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.upsertRunLog).toHaveBeenCalledTimes(2)
+    expect(harness.upsertRunLog).toHaveBeenLastCalledWith(record)
+    // The record still points at the original note before the second upsert
+    // resolves a path, so the writer can modify it in place.
+    expect(record.logNotePath).toBe('upsert-log-path.md')
+  })
+
+  test('rejects a follow-up while the run is still active', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+
+    await expect(
+      harness.manager.followUp(record.id, 'too early'),
+    ).rejects.toBeInstanceOf(AiRunAlreadyActiveError)
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.events).not.toContainEqual({ kind: 'user-text', text: 'too early' })
+  })
+
+  test('rejects a duplicate follow-up while the first one is running', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'first follow-up')
+    await expect(
+      harness.manager.followUp(record.id, 'second follow-up'),
+    ).rejects.toBeInstanceOf(AiRunAlreadyActiveError)
+    expect(harness.claude.runs).toHaveLength(2)
+  })
+
+  test('rejects concurrent duplicate follow-ups before dispatch', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    const results = await Promise.allSettled([
+      harness.manager.followUp(record.id, 'one'),
+      harness.manager.followUp(record.id, 'two'),
+    ])
+
+    const fulfilled = results.filter((entry) => entry.status === 'fulfilled')
+    const rejected = results.filter(
+      (entry): entry is PromiseRejectedResult => entry.status === 'rejected',
+    )
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0].reason).toBeInstanceOf(AiRunAlreadyActiveError)
+    expect(harness.claude.runs).toHaveLength(2)
+  })
+
+  test('rejects when the run has no session id', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness, { sessionId: null })
+
+    await expect(
+      harness.manager.followUp(record.id, 'continue'),
+    ).rejects.toBeInstanceOf(AiSessionUnavailableError)
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.status).toBe('succeeded')
+  })
+
+  test('rejects unknown run ids', async () => {
+    const harness = createHarness()
+
+    await expect(
+      harness.manager.followUp('missing-run', 'continue'),
+    ).rejects.toBeInstanceOf(AiRunNotFoundError)
+  })
+
+  test('rejects blank prompts without touching the record', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    await expect(harness.manager.followUp(record.id, '   ')).rejects.toBeInstanceOf(Error)
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.status).toBe('succeeded')
+  })
+
+  test('allows follow-ups on failed and stopped runs', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness, { status: 'failed' })
+
+    await harness.manager.followUp(record.id, 'try again')
+
+    expect(record.status).toBe('running')
+    expect(harness.claude.runs).toHaveLength(2)
+  })
+
+  test('keeps the run finished when the binary cannot be resolved', async () => {
+    let calls = 0
+    const harness = createHarness({
+      resolveBinary: () => {
+        calls += 1
+        if (calls === 1) return Promise.resolve('/bin/claude')
+        return Promise.reject(new Error('binary gone'))
+      },
+    })
+    const record = await startFinishedRun(harness)
+
+    await expect(harness.manager.followUp(record.id, 'continue')).rejects.toThrow(
+      'binary gone',
+    )
+    expect(record.status).toBe('succeeded')
+    expect(record.events).not.toContainEqual({ kind: 'user-text', text: 'continue' })
+    expect(harness.claude.runs).toHaveLength(1)
+    // A later follow-up can still proceed once the binary is back.
+    expect(harness.manager.getActiveRunForTask(record.taskPath)).toBeUndefined()
+  })
+
+  test('stopRun stops a follow-up process', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'continue')
+    harness.manager.stopRun(record.id)
+
+    expect(record.status).toBe('stopping')
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+
+    harness.claude.last.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    expect(record.status).toBe('stopped')
+  })
+
+  test('rejects follow-ups after dispose', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    harness.manager.dispose()
+
+    await expect(
+      harness.manager.followUp(record.id, 'continue'),
+    ).rejects.toBeInstanceOf(AiTaskManagerDisposedError)
+  })
+
+  test('blocks startRun for the task while a follow-up is active', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'continue')
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiRunAlreadyActiveError,
+    )
   })
 })

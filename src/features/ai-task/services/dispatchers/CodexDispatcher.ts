@@ -2,10 +2,15 @@
  * AI Task - Codex dispatcher
  *
  * Runs `codex exec --json [--cd DIR] --skip-git-repo-check [...args] -- PROMPT`
- * headlessly. The prompt is always the trailing positional argument behind a
- * `--` end-of-options separator (so a prompt body starting with `-` is never
- * parsed as a flag); unknown JSONL lines degrade to raw events inside
- * parseCodexLine.
+ * headlessly. Follow-ups run `codex exec resume SESSION_ID --json
+ * --skip-git-repo-check [...args] -- PROMPT` instead; per
+ * `codex exec resume --help` (0.144.1) the resume subcommand takes
+ * [SESSION_ID] [PROMPT] positionals and supports --json /
+ * --skip-git-repo-check but has NO --cd flag (the session's original
+ * working directory is kept; the spawn cwd still applies). The prompt is
+ * always the trailing positional argument behind a `--` end-of-options
+ * separator (so a prompt body starting with `-` is never parsed as a flag);
+ * unknown JSONL lines degrade to raw events inside parseCodexLine.
  */
 
 import type { AiStreamEvent } from '../../types'
@@ -15,8 +20,17 @@ import type { AiRunRequest } from './Dispatcher'
 
 export class CodexDispatcher extends HeadlessCliDispatcher {
   protected buildArgs(request: AiRunRequest): string[] {
-    const args = ['exec', '--json']
-    if (request.cwd !== undefined && request.cwd.length > 0) {
+    const resumeSessionId =
+      request.resumeSessionId !== undefined && request.resumeSessionId.length > 0
+        ? request.resumeSessionId
+        : undefined
+
+    const args = ['exec']
+    if (resumeSessionId !== undefined) {
+      args.push('resume', resumeSessionId)
+    }
+    args.push('--json')
+    if (resumeSessionId === undefined && request.cwd !== undefined && request.cwd.length > 0) {
       args.push('--cd', request.cwd)
     }
     args.push('--skip-git-repo-check')

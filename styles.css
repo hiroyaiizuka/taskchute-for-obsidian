@@ -6726,3 +6726,46 @@ textarea.form-textarea {
   font-style: italic;
   text-align: center;
 }
+
+.ai-run-pane__event--user-text {
+  color: var(--text-normal);
+  background-color: var(--background-secondary);
+  border-left: 2px solid var(--interactive-accent);
+  padding: 2px 6px;
+  margin: 2px 0;
+  border-radius: var(--radius-s);
+}
+
+.ai-run-pane__composer {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ai-run-pane.is-collapsed .ai-run-pane__composer {
+  display: none;
+}
+
+.ai-run-pane__composer-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-run-pane__composer-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-run-pane__composer-send {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.ai-run-pane__composer-send:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

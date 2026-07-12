@@ -159,13 +159,21 @@ describe('ai-task task-note write guardrail', () => {
 
   test('src/features/ai-task never writes task-note frontmatter or task notes', () => {
     const offenders: Array<{ file: string; line: number; text: string }> = []
-    const patterns = [/processFrontMatter\s*\(/u, /vault\.modify\s*\(/u]
+    // Task notes are strictly read-only from ai-task code. The ONE sanctioned
+    // vault.modify lives in AiTaskLogWriter.upsertRunLog, which rewrites only
+    // the run-log notes the writer itself created (never a task note).
+    const MODIFY_ALLOWLIST = new Set(['services/AiTaskLogWriter.ts'])
+    const patterns: Array<{ pattern: RegExp; allowlist?: Set<string> }> = [
+      { pattern: /processFrontMatter\s*\(/u },
+      { pattern: /vault\.modify\s*\(/u, allowlist: MODIFY_ALLOWLIST },
+    ]
 
     collectTsFiles(AI_TASK_ROOT).forEach((filePath) => {
       const relative = path.relative(AI_TASK_ROOT, filePath)
       const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/u)
       lines.forEach((line, index) => {
-        patterns.forEach((pattern) => {
+        patterns.forEach(({ pattern, allowlist }) => {
+          if (allowlist?.has(relative)) return
           if (pattern.test(line)) {
             offenders.push({ file: relative, line: index + 1, text: line.trim() })
           }
@@ -174,5 +182,15 @@ describe('ai-task task-note write guardrail', () => {
     })
 
     expect(offenders).toEqual([])
+  })
+
+  test('the log-writer vault.modify exemption stays confined to upsertRunLog', () => {
+    const writerPath = path.join(AI_TASK_ROOT, 'services/AiTaskLogWriter.ts')
+    const source = fs.readFileSync(writerPath, 'utf8')
+    const occurrences = source.match(/vault\.modify\s*\(/gu) ?? []
+    // Exactly one call site, and it must target the record's own log note.
+    expect(occurrences).toHaveLength(1)
+    expect(source).toContain('record.logNotePath')
+    expect(source).not.toContain('processFrontMatter')
   })
 })

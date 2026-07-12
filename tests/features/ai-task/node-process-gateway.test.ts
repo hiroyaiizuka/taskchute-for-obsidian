@@ -222,6 +222,35 @@ describe('NodeProcessGateway', () => {
       expect(stdout).not.toContain('�')
     }, 15_000)
 
+    test('spawns children with stdin ignored so CLIs never wait on input', async () => {
+      const gateway = new NodeProcessGateway()
+      // With stdio[0]='ignore' the child's fd 0 is /dev/null (a character
+      // device); with a parent-held pipe it would be a FIFO and CLIs like
+      // codex would print "Reading additional input from stdin..." and wait.
+      const childScript = [
+        "const fs = require('fs')",
+        'const stat = fs.fstatSync(0)',
+        'process.stdout.write(JSON.stringify({ fifo: stat.isFIFO(), chardev: stat.isCharacterDevice() }))',
+      ].join('; ')
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', childScript],
+        env: gateway.getBaseEnv(),
+      })
+
+      let stdout = ''
+      handle.onStdout((text) => {
+        stdout += text
+      })
+      await new Promise<void>((resolve) => {
+        handle.onExit(() => resolve())
+      })
+
+      const stdinInfo = JSON.parse(stdout) as { fifo: boolean; chardev: boolean }
+      expect(stdinInfo.fifo).toBe(false)
+      expect(stdinInfo.chardev).toBe(true)
+    }, 15_000)
+
     test('reassembles a multibyte character split mid-sequence across stderr writes', async () => {
       const gateway = new NodeProcessGateway()
       const childScript = [
