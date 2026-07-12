@@ -219,6 +219,53 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(record.cols).toBe(80)
   })
 
+  // Regression: the pane opens its ONE-SHOT xterm view synchronously on the
+  // first 'starting' notification, reading the grid off the record. A grid
+  // stamped only after that notification made the view open at the 80x24
+  // fallback while the PTY spawned at the pane-derived size, garbling the
+  // TUI for the run's entire lifetime.
+  test("the first 'starting' notification already carries the pane-derived PTY grid", async () => {
+    const harness = createTerminalHarness()
+    const snapshots: Array<{
+      status: string
+      rows: number | undefined
+      cols: number | undefined
+      transcriptPath: string | undefined
+    }> = []
+    harness.manager.onChange((record) => {
+      // Snapshot at notification time: the record object is mutable and
+      // would otherwise look correct by the time the assertion runs.
+      snapshots.push({
+        status: record.status,
+        rows: record.rows,
+        cols: record.cols,
+        transcriptPath: record.transcriptPath,
+      })
+    })
+
+    await harness.manager.startRun(makeTaskFile(), { rows: 40, cols: 132 })
+
+    expect(snapshots[0]).toEqual({
+      status: 'starting',
+      rows: 40,
+      cols: 132,
+      transcriptPath: expect.stringContaining('/tmp/fake-transcripts/'),
+    })
+  })
+
+  test("the first 'starting' notification carries the default grid when the caller provides none", async () => {
+    const harness = createTerminalHarness()
+    let first: { rows: number | undefined; cols: number | undefined } | null = null
+    harness.manager.onChange((record) => {
+      if (first) return
+      first = { rows: record.rows, cols: record.cols }
+    })
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(first).toEqual({ rows: 24, cols: 80 })
+  })
+
   test("options.mode 'headless' overrides the settings accessor", async () => {
     const harness = createTerminalHarness({ runMode: 'terminal' })
 

@@ -353,12 +353,27 @@ export class AiTaskManager {
         startedAt: Date.now(),
         events: [],
       }
+      // resolveRunMode only returns 'terminal' when deps.terminal exists and
+      // is supported, so `terminal` is set exactly for terminal runs.
+      const terminal = mode === 'terminal' ? this.deps.terminal : undefined
+      if (terminal) {
+        // Stamp the terminal-session fields BEFORE the first notifyChange
+        // below: the pane reacts to 'starting' synchronously and opens its
+        // ONE-SHOT xterm view with the grid read off the record, so a late
+        // stamp would open the view at the 80x24 fallback while the PTY
+        // spawns at the pane-derived size — a permanent mismatch that
+        // garbles the TUI for the run's entire lifetime. The grid is fixed
+        // for the session; recording it lets the pane open a matching view.
+        record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+        record.rows = options?.rows ?? DEFAULT_TERMINAL_ROWS
+        record.cols = options?.cols ?? DEFAULT_TERMINAL_COLS
+      }
       const internal: InternalRun = {
         record,
         handle: null,
         terminalHandle: null,
         exited: false,
-        terminalData: null,
+        terminalData: terminal ? { chunks: [], totalLength: 0 } : null,
         terminalListeners: new Set(),
         cwd,
         extraArgs: config.args,
@@ -369,24 +384,16 @@ export class AiTaskManager {
       this.notifyChange(record)
 
       try {
-        if (mode === 'terminal' && this.deps.terminal) {
-          const terminal = this.deps.terminal
-          const transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
-          record.transcriptPath = transcriptPath
-          // Fixed for the session; recorded so the pane's xterm view can open
-          // with a matching grid.
-          record.rows = options?.rows ?? DEFAULT_TERMINAL_ROWS
-          record.cols = options?.cols ?? DEFAULT_TERMINAL_COLS
-          internal.terminalData = { chunks: [], totalLength: 0 }
+        if (terminal) {
           const terminalHandle = terminal.dispatcher.start(
             {
               binaryPath,
               prompt,
               cwd,
               extraArgs: config.args,
-              rows: record.rows,
-              cols: record.cols,
-              transcriptPath,
+              rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
+              cols: record.cols ?? DEFAULT_TERMINAL_COLS,
+              transcriptPath: record.transcriptPath ?? '',
             },
             {
               onData: (chunk) => this.handleTerminalData(internal, chunk),
