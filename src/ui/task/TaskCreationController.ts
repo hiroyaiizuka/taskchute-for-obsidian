@@ -1,4 +1,4 @@
-import { App, Notice } from 'obsidian'
+import { App, Notice, Platform } from 'obsidian'
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
 import {
@@ -7,9 +7,13 @@ import {
   TaskNameSuggestion,
 } from "../components/TaskNameAutocomplete"
 import { createNameModal } from "../components/NameModal"
-import type { TaskCreationService } from "../../features/core/services/TaskCreationService"
+import type {
+  CreateTaskFileAiTaskOptions,
+  TaskCreationService,
+} from "../../features/core/services/TaskCreationService"
 import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
 import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
+import type { AiTaskHost } from "../../features/ai-task/types"
 import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
 import { addMinutesToTime } from "../../utils/date"
 
@@ -62,6 +66,94 @@ export interface TaskCreationControllerHost {
 }
 
 type CreationMode = "reuse" | "copy"
+
+/** Human vs AI task selector state of the add-task modal (U3) */
+type TaskType = "human" | "ai"
+
+/** One execution-mode variant of an AI host (ports the reference's variants) */
+interface AiExecModeVariant {
+  id: string
+  labelKey: string
+  labelFallback: string
+  /** argv tokens the variant contributes to ai_task_args */
+  tokens: readonly string[]
+}
+
+/**
+ * Execution-mode variants per host, mirroring the reference app's
+ * commandVariants. The codex "Full auto" flags were re-verified against
+ * `codex --help` (0.144.x): the legacy `--full-auto` flag no longer exists;
+ * its documented expansion is the approval-policy + sandbox pair below.
+ */
+const AI_EXEC_MODE_VARIANTS: Record<AiTaskHost, readonly AiExecModeVariant[]> = {
+  claude: [
+    {
+      id: "default",
+      labelKey: "addTask.aiExecModeDefault",
+      labelFallback: "Normal",
+      tokens: [],
+    },
+    {
+      id: "auto",
+      labelKey: "addTask.aiExecModeAuto",
+      labelFallback: "Auto mode",
+      tokens: ["--permission-mode", "auto"],
+    },
+    {
+      id: "skip-permissions",
+      labelKey: "addTask.aiExecModeSkipPermissions",
+      labelFallback: "Skip permissions",
+      tokens: ["--dangerously-skip-permissions"],
+    },
+  ],
+  codex: [
+    {
+      id: "default",
+      labelKey: "addTask.aiExecModeDefault",
+      labelFallback: "Normal",
+      tokens: [],
+    },
+    {
+      id: "full-auto",
+      labelKey: "addTask.aiExecModeFullAuto",
+      labelFallback: "Full auto",
+      tokens: ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
+    },
+  ],
+}
+
+/** Main-agent cards of the AI mode (only hosts TCO can actually run) */
+const AI_AGENT_CARDS: ReadonlyArray<{
+  host: AiTaskHost
+  icon: string
+  labelKey: string
+  labelFallback: string
+}> = [
+  {
+    host: "claude",
+    icon: "🤖",
+    labelKey: "addTask.aiAgentClaude",
+    labelFallback: "Claude Code",
+  },
+  {
+    host: "codex",
+    icon: "📜",
+    labelKey: "addTask.aiAgentCodex",
+    labelFallback: "Codex",
+  },
+]
+
+/** Longest prompt head shown inside the live command preview */
+const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
+
+/** Live view of the AI-mode controls; null when the feature is unavailable */
+interface AiTaskControls {
+  typeGroup: HTMLElement
+  section: HTMLElement
+  isAiMode(): boolean
+  getScheduledTime(): string | undefined
+  getAiTaskOptions(): CreateTaskFileAiTaskOptions
+}
 
 export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
@@ -147,6 +239,15 @@ export default class TaskCreationController {
       form.insertBefore(advancedControls.root, restoreBanner)
     }
     form.insertBefore(modeGroup, advancedControls?.root ?? restoreBanner)
+
+    // Human/AI task-type selector + AI-mode section, near the top of the
+    // modal (right below the name input). Only present while the AI Task
+    // feature is enabled on desktop.
+    const aiControls = this.createAiTaskControls(doc)
+    if (aiControls) {
+      form.insertBefore(aiControls.typeGroup, nameGroup.nextSibling)
+      form.insertBefore(aiControls.section, aiControls.typeGroup.nextSibling)
+    }
 
     let selectedSuggestion: TaskNameSuggestion | null = null
     let selectedValue = ""
@@ -261,7 +362,20 @@ export default class TaskCreationController {
         }
 
         const creationMode = resolveCreationMode()
-        const advancedOptions = advancedControls?.getOptions(creationMode)
+        let advancedOptions = advancedControls?.getOptions(creationMode)
+        const aiMode = aiControls?.isAiMode() === true
+        if (aiMode && aiControls) {
+          // The AI section's own start-time input wins over the (optional)
+          // human advanced-settings one; reminder/calendar options keep
+          // flowing from the advanced block untouched.
+          const aiScheduledTime = aiControls.getScheduledTime()
+          if (aiScheduledTime) {
+            advancedOptions = {
+              ...(advancedOptions ?? {}),
+              scheduledTime: aiScheduledTime,
+            }
+          }
+        }
 
         let created = false
         if (
@@ -275,6 +389,7 @@ export default class TaskCreationController {
             taskName,
             30,
             advancedOptions,
+            aiMode ? aiControls?.getAiTaskOptions() : undefined,
           )
         }
         if (created) {
@@ -442,6 +557,274 @@ export default class TaskCreationController {
     }
   }
 
+  /**
+   * Build the human/AI task-type selector and the AI-mode section of the
+   * add-task modal (U3, ports the reference QuestCreateModal). Returns null
+   * unless the AI Task feature is enabled on desktop — the human modal is
+   * byte-identical in that case. The section reveals, in reference order:
+   * the main-agent card grid, the prompt textarea with a live command
+   * preview (honest interactive argv: binary + args + quoted prompt head),
+   * a start-time input (shown regardless of the advanced-settings flag),
+   * and an advanced block (execution mode, AI model, working directory).
+   */
+  private createAiTaskControls(doc: Document): AiTaskControls | null {
+    if (
+      this.host.plugin.settings.aiTaskEnabled !== true ||
+      Platform?.isDesktop !== true
+    ) {
+      return null
+    }
+
+    let taskType: TaskType = "human"
+    let selectedHost: AiTaskHost = "claude"
+
+    // --- Task-type selector -------------------------------------------------
+    const typeGroup = doc.createElement("div")
+    typeGroup.className = "task-type-group"
+    const typeLabel = doc.createElement("div")
+    typeLabel.className = "task-type-label"
+    typeLabel.textContent = this.host.tv("addTask.typeLabel", "Task type")
+    typeGroup.appendChild(typeLabel)
+    const typeOptions = doc.createElement("div")
+    typeOptions.className = "task-type-options"
+    typeGroup.appendChild(typeOptions)
+
+    const buildTypeButton = (value: TaskType, labelText: string) => {
+      const button = doc.createElement("button")
+      button.type = "button"
+      button.className = "task-type-option"
+      button.dataset.taskType = value
+      button.textContent = labelText
+      typeOptions.appendChild(button)
+      return button
+    }
+    const humanButton = buildTypeButton(
+      "human",
+      this.host.tv("addTask.typeHuman", "Human task"),
+    )
+    const aiButton = buildTypeButton("ai", this.host.tv("addTask.typeAi", "AI task"))
+
+    // --- AI section ---------------------------------------------------------
+    const section = doc.createElement("div")
+    section.className = "ai-task-section hidden"
+
+    const buildField = (labelText: string): HTMLElement => {
+      const field = doc.createElement("div")
+      field.className = "ai-task-field"
+      const label = doc.createElement("div")
+      label.className = "form-label"
+      label.textContent = labelText
+      field.appendChild(label)
+      section.appendChild(field)
+      return field
+    }
+
+    // Main-agent card grid (Claude Code / Codex).
+    const agentField = buildField(
+      this.host.tv("addTask.aiAgentLabel", "Main agent"),
+    )
+    const agentGrid = doc.createElement("div")
+    agentGrid.className = "ai-task-agent-grid"
+    agentField.appendChild(agentGrid)
+    const agentCards = new Map<AiTaskHost, HTMLButtonElement>()
+    for (const cardDef of AI_AGENT_CARDS) {
+      const card = doc.createElement("button")
+      card.type = "button"
+      card.className = "ai-task-agent-card"
+      card.dataset.aiHost = cardDef.host
+      const icon = doc.createElement("span")
+      icon.className = "ai-task-agent-icon"
+      icon.textContent = cardDef.icon
+      const name = doc.createElement("span")
+      name.className = "ai-task-agent-name"
+      name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)
+      card.appendChild(icon)
+      card.appendChild(name)
+      agentGrid.appendChild(card)
+      agentCards.set(cardDef.host, card)
+    }
+
+    // Prompt textarea + live command preview.
+    const promptField = buildField(
+      this.host.tv("addTask.aiPromptLabel", "Prompt (optional)"),
+    )
+    const promptInput = doc.createElement("textarea")
+    promptInput.className = "ai-task-prompt-input"
+    promptInput.rows = 4
+    promptInput.placeholder = this.host.tv(
+      "addTask.aiPromptPlaceholder",
+      "Review this pull request and point out improvements",
+    )
+    promptField.appendChild(promptInput)
+    const preview = doc.createElement("div")
+    preview.className = "ai-task-command-preview"
+    const previewLabel = doc.createElement("span")
+    previewLabel.textContent = this.host.tv(
+      "addTask.aiCommandPreviewLabel",
+      "Command:",
+    )
+    const previewCode = doc.createElement("code")
+    preview.appendChild(previewLabel)
+    preview.appendChild(previewCode)
+    promptField.appendChild(preview)
+
+    // Start time (visible in AI mode regardless of the advanced flag).
+    const scheduledField = buildField(
+      this.withTrailingColon(this.host.tv("addTask.scheduledTimeLabel", "Start time")),
+    )
+    const scheduledInput = doc.createElement("input")
+    scheduledInput.type = "time"
+    scheduledInput.className = "form-input ai-task-scheduled-time"
+    scheduledField.appendChild(scheduledInput)
+
+    // Advanced block: execution mode / AI model / working directory.
+    const advanced = doc.createElement("details")
+    advanced.className = "ai-task-advanced"
+    const advancedSummary = doc.createElement("summary")
+    advancedSummary.textContent = this.host.tv(
+      "addTask.advancedSummary",
+      "Advanced settings",
+    )
+    advanced.appendChild(advancedSummary)
+    const advancedBody = doc.createElement("div")
+    advancedBody.className = "ai-task-advanced-body"
+    advanced.appendChild(advancedBody)
+    section.appendChild(advanced)
+
+    const buildAdvancedField = (labelText: string): HTMLElement => {
+      const field = doc.createElement("div")
+      field.className = "ai-task-field"
+      const label = doc.createElement("div")
+      label.className = "form-label"
+      label.textContent = labelText
+      field.appendChild(label)
+      advancedBody.appendChild(field)
+      return field
+    }
+
+    const execModeField = buildAdvancedField(
+      this.withTrailingColon(this.host.tv("addTask.aiExecModeLabel", "Execution mode")),
+    )
+    const execModeSelect = doc.createElement("select")
+    execModeSelect.className = "form-input ai-task-exec-mode"
+    execModeField.appendChild(execModeSelect)
+
+    const modelField = buildAdvancedField(
+      this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
+    )
+    const modelInput = doc.createElement("input")
+    modelInput.type = "text"
+    modelInput.className = "form-input ai-task-model-input"
+    modelInput.placeholder = this.host.tv("addTask.aiModelPlaceholder", "Default model")
+    modelField.appendChild(modelInput)
+
+    const cwdField = buildAdvancedField(
+      this.withTrailingColon(
+        this.host.tv("addTask.aiCwdLabel", "Working directory"),
+      ),
+    )
+    const cwdInput = doc.createElement("input")
+    cwdInput.type = "text"
+    cwdInput.className = "form-input ai-task-cwd-input"
+    cwdInput.placeholder = this.host.tv(
+      "addTask.aiCwdPlaceholder",
+      "e.g. /path/to/project",
+    )
+    cwdField.appendChild(cwdInput)
+
+    // --- Behavior -----------------------------------------------------------
+    const currentVariantTokens = (): readonly string[] => {
+      const variants = AI_EXEC_MODE_VARIANTS[selectedHost]
+      const selected = variants.find((variant) => variant.id === execModeSelect.value)
+      return selected?.tokens ?? []
+    }
+
+    const buildArgs = (): string[] => {
+      const args = [...currentVariantTokens()]
+      const model = modelInput.value.trim()
+      if (model.length > 0) {
+        args.push(`--model=${model}`)
+      }
+      return args
+    }
+
+    const refreshPreview = () => {
+      const tokens = [selectedHost as string, ...buildArgs()]
+      const sanitizedPrompt = promptInput.value.replace(/\r?\n+/g, " ").trim()
+      let text = tokens.join(" ")
+      if (sanitizedPrompt.length > 0) {
+        const head =
+          sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
+            ? `${sanitizedPrompt.slice(0, AI_PREVIEW_PROMPT_HEAD_LIMIT)}…`
+            : sanitizedPrompt
+        text = `${text} "${head}"`
+      }
+      previewCode.textContent = text
+    }
+
+    const rebuildExecModeOptions = () => {
+      while (execModeSelect.firstChild) {
+        execModeSelect.removeChild(execModeSelect.firstChild)
+      }
+      for (const variant of AI_EXEC_MODE_VARIANTS[selectedHost]) {
+        const option = doc.createElement("option")
+        option.value = variant.id
+        option.textContent = this.host.tv(variant.labelKey, variant.labelFallback)
+        execModeSelect.appendChild(option)
+      }
+      execModeSelect.value = "default"
+    }
+
+    const selectHost = (nextHost: AiTaskHost) => {
+      selectedHost = nextHost
+      for (const [cardHost, card] of agentCards) {
+        const isSelected = cardHost === nextHost
+        card.classList.toggle("is-selected", isSelected)
+        card.setAttribute("aria-pressed", isSelected ? "true" : "false")
+      }
+      // The variant set belongs to the host: reset to its default.
+      rebuildExecModeOptions()
+      refreshPreview()
+    }
+
+    const selectTaskType = (nextType: TaskType) => {
+      taskType = nextType
+      humanButton.classList.toggle("is-selected", nextType === "human")
+      humanButton.setAttribute("aria-pressed", nextType === "human" ? "true" : "false")
+      aiButton.classList.toggle("is-selected", nextType === "ai")
+      aiButton.setAttribute("aria-pressed", nextType === "ai" ? "true" : "false")
+      section.classList.toggle("hidden", nextType !== "ai")
+    }
+
+    humanButton.addEventListener("click", () => selectTaskType("human"))
+    aiButton.addEventListener("click", () => selectTaskType("ai"))
+    for (const [cardHost, card] of agentCards) {
+      card.addEventListener("click", () => selectHost(cardHost))
+    }
+    promptInput.addEventListener("input", refreshPreview)
+    modelInput.addEventListener("input", refreshPreview)
+    execModeSelect.addEventListener("change", refreshPreview)
+
+    selectTaskType("human")
+    selectHost("claude")
+
+    return {
+      typeGroup,
+      section,
+      isAiMode: () => taskType === "ai",
+      getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
+      getAiTaskOptions: () => {
+        const cwd = cwdInput.value.trim()
+        return {
+          host: selectedHost,
+          args: buildArgs(),
+          cwd: cwd.length > 0 ? cwd : undefined,
+          prompt: promptInput.value.trim(),
+        }
+      },
+    }
+  }
+
   private getDefaultReminderMinutes(): number {
     const value = this.host.plugin.settings.defaultReminderMinutes ?? 5
     return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 5
@@ -463,18 +846,23 @@ export default class TaskCreationController {
     taskName: string,
     estimatedMinutes: number,
     options?: TaskCreationAdvancedOptions,
+    aiTask?: CreateTaskFileAiTaskOptions,
   ): Promise<boolean> {
     try {
       const dateStr = this.host.getCurrentDateString()
-      const hasFrontmatterOptions = Boolean(
-        options?.scheduledTime || typeof options?.reminderTime === "string",
-      )
+      const hasFrontmatterOptions =
+        Boolean(
+          options?.scheduledTime || typeof options?.reminderTime === "string",
+        ) || aiTask !== undefined
       const file = hasFrontmatterOptions
         ? await this.host.taskCreationService.createTaskFile(
           taskName,
           dateStr,
           options?.scheduledTime,
-          { reminderTime: typeof options?.reminderTime === "string" ? options.reminderTime : undefined },
+          {
+            reminderTime: typeof options?.reminderTime === "string" ? options.reminderTime : undefined,
+            aiTask,
+          },
         )
         : await this.host.taskCreationService.createTaskFile(taskName, dateStr)
       await this.waitForFrontmatter(file)

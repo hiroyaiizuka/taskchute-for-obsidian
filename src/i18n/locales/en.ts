@@ -1,4 +1,4 @@
-import { TERMINAL_NAME, DATE_FORMAT_DISPLAY } from "../../constants"
+import { TERMINAL_NAME, DATE_FORMAT_DISPLAY, CLAUDE_CODE_NAME } from "../../constants"
 
 export const en = {
   common: {
@@ -464,6 +464,24 @@ export const en = {
       restoreBanner: 'Deleted task "{title}" is available to restore.',
       restoreButton: 'Restore',
       restoreButtonWorking: 'Restoring…',
+      typeLabel: 'Task type',
+      typeHuman: 'Human task',
+      typeAi: 'AI task',
+      aiAgentLabel: 'Main agent',
+      aiAgentClaude: CLAUDE_CODE_NAME,
+      aiAgentCodex: 'Codex',
+      aiPromptLabel: 'Prompt (optional)',
+      aiPromptPlaceholder: 'Review this pull request and point out improvements',
+      aiCommandPreviewLabel: 'Command:',
+      aiExecModeLabel: 'Execution mode:',
+      aiExecModeDefault: 'Normal',
+      aiExecModeAuto: 'Auto mode',
+      aiExecModeSkipPermissions: 'Skip permissions',
+      aiExecModeFullAuto: 'Full auto',
+      aiModelLabel: 'AI model:',
+      aiModelPlaceholder: 'Default model',
+      aiCwdLabel: 'Working directory:',
+      aiCwdPlaceholder: 'e.g. /path/to/project',
     },
     forms: {
       taskSettings: "Task settings",

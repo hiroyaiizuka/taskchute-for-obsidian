@@ -1,0 +1,482 @@
+/**
+ * TaskCreationController AI task mode (U3):
+ *   - a human/AI task-type selector appears near the top of the add-task
+ *     modal ONLY while the AI Task feature is enabled on desktop
+ *   - AI mode reveals (in reference order) the main-agent card grid
+ *     (Claude Code default / Codex), the prompt textarea with a live
+ *     command preview, a start-time input, and an advanced block
+ *     (execution mode, AI model, working directory)
+ *   - the preview mirrors the interactive terminal argv: binary + args +
+ *     quoted prompt head
+ *   - submitting in AI mode hands an aiTask payload to
+ *     TaskCreationService.createTaskFile; human mode stays byte-identical
+ *   - reuse/copy radios and autocomplete selection keep working in AI mode
+ */
+import { TFile } from 'obsidian'
+import TaskCreationController, {
+  TaskCreationControllerHost,
+} from '../../../src/ui/task/TaskCreationController'
+import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
+import type { App } from 'obsidian'
+
+jest.mock('obsidian', () => {
+  const Actual = jest.requireActual('obsidian')
+  return {
+    ...Actual,
+    Notice: jest.fn(),
+    TFile: class MockTFile {},
+    // Mutable object: single tests flip isDesktop to simulate mobile; the
+    // controller reads Platform?.isDesktop at call time.
+    Platform: { isDesktop: true, isMobile: false },
+  }
+})
+
+// The controller sees the same mocked object reference.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const mockPlatformState = (require('obsidian') as {
+  Platform: { isDesktop: boolean; isMobile: boolean }
+}).Platform
+
+jest.mock('../../../src/ui/components/TaskNameAutocomplete', () => ({
+  TaskNameAutocomplete: jest.fn().mockImplementation(() => ({
+    initialize: jest.fn().mockResolvedValue(undefined),
+    destroy: jest.fn(),
+    isSuggestionsVisible: jest.fn(() => false),
+    hasActiveSelection: jest.fn(() => false),
+  })),
+}))
+
+const validator: TaskNameValidator = {
+  INVALID_CHARS_PATTERN: /[\\/:]/g,
+  validate: (name: string) => {
+    const invalidChars = name.match(/[\\/:]/g) ?? []
+    return {
+      isValid: invalidChars.length === 0 && name.trim().length > 0,
+      invalidChars,
+    }
+  },
+  getErrorMessage: (chars: string[]) => `Invalid: ${chars.join(',')}`,
+}
+
+function createHost(settings: Partial<TaskChutePluginLike['settings']> = {}) {
+  const createdFile = new (TFile)()
+  createdFile.path = 'TASKS/New Task.md'
+
+  const taskCreationService = {
+    createTaskFile: jest.fn().mockResolvedValue(createdFile),
+  }
+  const taskReuseService = {
+    reuseTaskAtDate: jest.fn().mockResolvedValue({
+      file: new (TFile)(),
+      instanceId: 'reuse-instance-1',
+    }),
+  }
+
+  const pluginStub: TaskChutePluginLike = {
+    app: {} as App,
+    settings: {
+      useOrderBasedSort: true,
+      slotKeys: {},
+      aiTaskEnabled: true,
+      ...settings,
+    },
+    pathManager: {
+      getTaskFolderPath: () => 'TASKS',
+      getProjectFolderPath: () => 'PROJECTS',
+      getLogDataPath: () => 'LOGS',
+      getReviewDataPath: () => 'REVIEWS',
+      ensureFolderExists: jest.fn(),
+      getLogYearPath: jest.fn(),
+      ensureYearFolder: jest.fn(),
+      validatePath: jest.fn(() => ({ valid: true })),
+    },
+    routineAliasService: { loadAliases: jest.fn() },
+    dayStateService: {
+      loadDay: jest.fn(),
+      saveDay: jest.fn(),
+      mergeDayState: jest.fn(),
+      clearCache: jest.fn(),
+      getDateFromKey: jest.fn(),
+    },
+    saveSettings: jest.fn(),
+    manifest: { id: 'taskchute-plus' },
+  } as unknown as TaskChutePluginLike
+
+  const host: TaskCreationControllerHost = {
+    tv: (_key, fallback, vars) => {
+      if (!vars) return fallback
+      return Object.entries(vars).reduce(
+        (acc, [name, value]) => acc.replace(`{${name}}`, String(value)),
+        fallback,
+      )
+    },
+    getTaskNameValidator: () => validator,
+    taskCreationService:
+      taskCreationService as unknown as TaskCreationControllerHost['taskCreationService'],
+    taskReuseService:
+      taskReuseService as unknown as TaskCreationControllerHost['taskReuseService'],
+    registerAutocompleteCleanup: jest.fn(),
+    reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),
+    getCurrentDateString: () => '2025-10-09',
+    app: {
+      metadataCache: {
+        getFileCache: jest.fn(() => ({ frontmatter: {} })),
+      },
+    },
+    plugin: pluginStub,
+    hasInstanceForPathToday: jest.fn(() => false),
+    duplicateInstanceForPath: jest.fn().mockResolvedValue(null),
+    invalidateDayStateCache: jest.fn(),
+    findDeletedTaskRestoreCandidate: jest.fn(() => null),
+    restoreDeletedTaskCandidate: jest.fn().mockResolvedValue(true),
+  }
+
+  return { host, taskCreationService, taskReuseService }
+}
+
+function openModal(host: TaskCreationControllerHost): HTMLElement {
+  const controller = new TaskCreationController(host)
+  controller.showAddTaskModal()
+  const modal = document.querySelector<HTMLElement>('.task-modal-overlay')
+  if (!modal) throw new Error('modal did not open')
+  return modal
+}
+
+function typeButton(modal: HTMLElement, type: 'human' | 'ai'): HTMLButtonElement {
+  const button = modal.querySelector<HTMLButtonElement>(
+    `.task-type-option[data-task-type="${type}"]`,
+  )
+  if (!button) throw new Error(`type button ${type} missing`)
+  return button
+}
+
+function agentCard(modal: HTMLElement, hostId: 'claude' | 'codex'): HTMLButtonElement {
+  const card = modal.querySelector<HTMLButtonElement>(
+    `.ai-task-agent-card[data-ai-host="${hostId}"]`,
+  )
+  if (!card) throw new Error(`agent card ${hostId} missing`)
+  return card
+}
+
+function previewCode(modal: HTMLElement): string {
+  return (
+    modal.querySelector<HTMLElement>('.ai-task-command-preview code')?.textContent ??
+    ''
+  )
+}
+
+function setPrompt(modal: HTMLElement, value: string): void {
+  const textarea = modal.querySelector<HTMLTextAreaElement>('.ai-task-prompt-input')
+  if (!textarea) throw new Error('prompt textarea missing')
+  textarea.value = value
+  textarea.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+function selectExecMode(modal: HTMLElement, value: string): void {
+  const select = modal.querySelector<HTMLSelectElement>('.ai-task-exec-mode')
+  if (!select) throw new Error('exec mode select missing')
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+async function submit(modal: HTMLElement): Promise<void> {
+  const form = modal.querySelector('form') as HTMLFormElement
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await Promise.resolve()
+}
+
+beforeEach(() => {
+  document.body.replaceChildren()
+})
+
+describe('task-type selector gating', () => {
+  test('renders the human/AI selector when the AI feature is enabled on desktop', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+
+    const group = modal.querySelector('.task-type-group')
+    expect(group).not.toBeNull()
+    expect(typeButton(modal, 'human').classList.contains('is-selected')).toBe(true)
+    expect(typeButton(modal, 'ai').classList.contains('is-selected')).toBe(false)
+    // The AI section exists but stays hidden while human mode is selected.
+    const section = modal.querySelector('.ai-task-section')
+    expect(section).not.toBeNull()
+    expect(section?.classList.contains('hidden')).toBe(true)
+  })
+
+  test('renders no selector and no AI section when the feature is disabled', () => {
+    const { host } = createHost({ aiTaskEnabled: false })
+    const modal = openModal(host)
+
+    expect(modal.querySelector('.task-type-group')).toBeNull()
+    expect(modal.querySelector('.ai-task-section')).toBeNull()
+  })
+
+  test('renders no selector on non-desktop platforms even when enabled', () => {
+    mockPlatformState.isDesktop = false
+    mockPlatformState.isMobile = true
+    try {
+      const { host } = createHost()
+      const modal = openModal(host)
+      expect(modal.querySelector('.task-type-group')).toBeNull()
+      expect(modal.querySelector('.ai-task-section')).toBeNull()
+    } finally {
+      mockPlatformState.isDesktop = true
+      mockPlatformState.isMobile = false
+    }
+  })
+})
+
+describe('AI mode UI', () => {
+  test('switching to AI mode reveals the section; back to human hides it', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    const section = modal.querySelector('.ai-task-section') as HTMLElement
+
+    typeButton(modal, 'ai').click()
+    expect(section.classList.contains('hidden')).toBe(false)
+    expect(typeButton(modal, 'ai').classList.contains('is-selected')).toBe(true)
+    expect(typeButton(modal, 'human').classList.contains('is-selected')).toBe(false)
+
+    typeButton(modal, 'human').click()
+    expect(section.classList.contains('hidden')).toBe(true)
+  })
+
+  test('shows exactly two agent cards with Claude Code selected by default', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const cards = modal.querySelectorAll('.ai-task-agent-card')
+    expect(cards).toHaveLength(2)
+    expect(agentCard(modal, 'claude').classList.contains('is-selected')).toBe(true)
+    expect(agentCard(modal, 'codex').classList.contains('is-selected')).toBe(false)
+    expect(agentCard(modal, 'claude').textContent).toContain('Claude Code')
+    expect(agentCard(modal, 'codex').textContent).toContain('Codex')
+  })
+
+  test('clicking the Codex card selects it and deselects Claude Code', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    agentCard(modal, 'codex').click()
+
+    expect(agentCard(modal, 'codex').classList.contains('is-selected')).toBe(true)
+    expect(agentCard(modal, 'claude').classList.contains('is-selected')).toBe(false)
+  })
+
+  test('renders the prompt textarea (rows=4), start time, and advanced controls', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const textarea = modal.querySelector<HTMLTextAreaElement>('.ai-task-prompt-input')
+    expect(textarea).not.toBeNull()
+    expect(textarea?.rows).toBe(4)
+    expect(textarea?.placeholder).toContain('Review this pull request')
+
+    // Start time shows in AI mode even though the advanced-settings feature
+    // flag (showTaskCreationAdvancedSettings) is off.
+    expect(
+      modal.querySelector<HTMLInputElement>('.ai-task-scheduled-time'),
+    ).not.toBeNull()
+
+    expect(modal.querySelector('.ai-task-advanced')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-exec-mode')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-model-input')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-cwd-input')).not.toBeNull()
+  })
+})
+
+describe('command preview', () => {
+  test('defaults to the bare claude command and appends the quoted prompt', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    expect(previewCode(modal)).toBe('claude')
+
+    setPrompt(modal, 'Review this PR')
+    expect(previewCode(modal)).toBe('claude "Review this PR"')
+  })
+
+  test('reflects host switches and execution-mode variants', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+
+    selectExecMode(modal, 'auto')
+    expect(previewCode(modal)).toBe('claude --permission-mode auto "Go"')
+
+    selectExecMode(modal, 'skip-permissions')
+    expect(previewCode(modal)).toBe('claude --dangerously-skip-permissions "Go"')
+
+    // Switching the host resets the variant to its default and swaps the
+    // binary and the variant option set.
+    agentCard(modal, 'codex').click()
+    expect(previewCode(modal)).toBe('codex "Go"')
+
+    selectExecMode(modal, 'full-auto')
+    expect(previewCode(modal)).toBe(
+      'codex --ask-for-approval never --sandbox workspace-write "Go"',
+    )
+  })
+
+  test('appends a --model=<value> token when the model input is non-empty', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+
+    const model = modal.querySelector<HTMLInputElement>('.ai-task-model-input')
+    if (!model) throw new Error('model input missing')
+    model.value = 'claude-sonnet-4-5'
+    model.dispatchEvent(new Event('input', { bubbles: true }))
+
+    expect(previewCode(modal)).toBe('claude --model=claude-sonnet-4-5 "Go"')
+  })
+
+  test('flattens newlines and truncates the displayed prompt head', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    setPrompt(modal, 'line one\nline two')
+    expect(previewCode(modal)).toBe('claude "line one line two"')
+
+    const long = 'a'.repeat(60)
+    setPrompt(modal, long)
+    expect(previewCode(modal)).toBe(`claude "${'a'.repeat(40)}…"`)
+  })
+})
+
+describe('AI mode submission', () => {
+  test('hands the aiTask payload (host, args, cwd, prompt) to createTaskFile', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'AI Review'
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Review this PR')
+    selectExecMode(modal, 'auto')
+    const model = modal.querySelector('.ai-task-model-input') as HTMLInputElement
+    model.value = 'claude-sonnet-4-5'
+    model.dispatchEvent(new Event('input', { bubbles: true }))
+    const cwd = modal.querySelector('.ai-task-cwd-input') as HTMLInputElement
+    cwd.value = '/Users/me/project'
+    cwd.dispatchEvent(new Event('input', { bubbles: true }))
+    const scheduled = modal.querySelector(
+      '.ai-task-scheduled-time',
+    ) as HTMLInputElement
+    scheduled.value = '09:30'
+    scheduled.dispatchEvent(new Event('input', { bubbles: true }))
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'AI Review',
+      '2025-10-09',
+      '09:30',
+      expect.objectContaining({
+        aiTask: {
+          host: 'claude',
+          args: ['--permission-mode', 'auto', '--model=claude-sonnet-4-5'],
+          cwd: '/Users/me/project',
+          prompt: 'Review this PR',
+        },
+      }),
+    )
+    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+  })
+
+  test('submits codex with default variant, no model, no cwd, empty prompt', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Codex Task'
+
+    typeButton(modal, 'ai').click()
+    agentCard(modal, 'codex').click()
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Codex Task',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: { host: 'codex', args: [], cwd: undefined, prompt: '' },
+      }),
+    )
+  })
+
+  test('human mode with the feature enabled submits exactly as before', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Plain Task'
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Plain Task',
+      '2025-10-09',
+    )
+  })
+
+  test('switching to AI and back to human submits a plain human task', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Round Trip'
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'ignored')
+    typeButton(modal, 'human').click()
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Round Trip',
+      '2025-10-09',
+    )
+  })
+
+  test('reuse via autocomplete keeps working while AI mode is selected', async () => {
+    const { host, taskCreationService, taskReuseService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+
+    typeButton(modal, 'ai').click()
+
+    nameInput.value = 'Existing Task'
+    nameInput.dispatchEvent(
+      new CustomEvent('autocomplete-selected', {
+        detail: {
+          value: 'Existing Task',
+          suggestion: {
+            type: 'task',
+            name: 'Existing Task',
+            path: 'TaskChute/Task/existing.md',
+          },
+        },
+      }),
+    )
+
+    const modeGroup = modal.querySelector('.task-mode-group') as HTMLElement
+    expect(modeGroup.classList.contains('hidden')).toBe(false)
+
+    await submit(modal)
+
+    expect(taskReuseService.reuseTaskAtDate).toHaveBeenCalledWith(
+      'TaskChute/Task/existing.md',
+      '2025-10-09',
+      undefined,
+    )
+    expect(taskCreationService.createTaskFile).not.toHaveBeenCalled()
+  })
+})

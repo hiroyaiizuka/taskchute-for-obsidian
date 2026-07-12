@@ -810,6 +810,153 @@
   margin: 0;
 }
 
+/* Add-task modal: human/AI task-type selector (U3) */
+.task-type-group {
+  margin-top: 12px;
+}
+
+.task-type-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.task-type-options {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-secondary);
+}
+
+.task-type-option {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.task-type-option:hover {
+  color: var(--text-normal);
+}
+
+.task-type-option.is-selected {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* Add-task modal: AI-mode section (agent grid, prompt, preview, advanced) */
+.ai-task-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ai-task-section.hidden {
+  display: none;
+}
+
+.ai-task-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-task-field .form-label {
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.ai-task-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-task-agent-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.ai-task-agent-card:hover {
+  border-color: var(--background-modifier-border-hover);
+}
+
+.ai-task-agent-card.is-selected {
+  border-color: var(--interactive-accent);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-task-agent-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.ai-task-agent-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ai-task-prompt-input {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.ai-task-command-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ai-task-command-preview code {
+  font-family: var(--font-monospace);
+  color: var(--text-accent);
+}
+
+.ai-task-advanced {
+  margin-top: 0;
+}
+
+.ai-task-advanced summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ai-task-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 0 10px;
+}
+
 .task-restore-banner {
   margin-top: 12px;
   padding: 10px 12px;
