@@ -25,6 +25,9 @@
  * session in its own panel (focusing it first). Closing the selected run of
  * a secondary panel (tab ×, sidebar ×, or the stopped-run auto-close)
  * unsplits that panel; leftover hidden bodies migrate to the primary panel.
+ * When the PRIMARY panel's last run closes while split, the next panel is
+ * merged into the primary instead (the reference reducer removes any panel
+ * whose last tab closes — a dead primary never stays on screen).
  *
  * × semantics (tab and sidebar row alike): on an ACTIVE run it requests a
  * stop AND closes the run's view in one action — the teardown waits for the
@@ -193,8 +196,23 @@ const TERMINAL_CELL_WIDTH_PX = 8
 const TERMINAL_CELL_HEIGHT_PX = 17
 /** Horizontal padding/scrollbar allowance inside the terminal body */
 const TERMINAL_HORIZONTAL_INSET_PX = 16
-/** Pane header + borders allowance when deriving the body height */
-const TERMINAL_VERTICAL_INSET_PX = 40
+/**
+ * Pane chrome above one panel's terminal body when deriving its height:
+ * the pane header (~26px incl. padding and border), the per-panel tab
+ * strip (26px min-height + 1px border), the pane borders, plus slack —
+ * mirrors styles.css. The composer is hidden for terminal runs, so it is
+ * not part of this allowance.
+ */
+const TERMINAL_VERTICAL_INSET_PX = 64
+/**
+ * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
+ * sidebar lives INSIDE the measured host container but not inside the
+ * panels area, so every panel-width computation must exclude it; this
+ * constant is the fallback when the mounted sidebar cannot be measured
+ * (hidden pane, jsdom) — the sidebar is always visible once a run is on
+ * screen.
+ */
+export const RUN_SIDEBAR_WIDTH_PX = 180
 /** Share of the view height the terminal pane occupies (mirrors styles.css) */
 const TERMINAL_PANE_HEIGHT_RATIO = 0.4
 /** Share of the view height while expanded (mirrors styles.css) */
@@ -396,14 +414,15 @@ export class AiRunPaneController {
 
   /**
    * Estimate the PTY grid that fits ONE panel of the pane at its terminal
-   * height (the expanded or regular share of the view): the measured width
-   * is divided across the side-by-side panels. Falls back to 120x30 when
-   * the pane has no measurable pixel size (hidden view, jsdom).
+   * height (the expanded or regular share of the view): the measured
+   * content width — the container minus the run sidebar — is divided
+   * across the side-by-side panels. Falls back to 120x30 when the pane has
+   * no measurable pixel size (hidden view, jsdom).
    */
   computeTerminalSize(): { cols: number; rows: number } {
     const container = this.containerEl
     const panelCount = Math.max(1, this.panels.length)
-    const width = (container?.clientWidth ?? 0) / panelCount
+    const width = this.measureContentWidth() / panelCount
     const parentHeight = container?.parentElement?.clientHeight ?? 0
     if (width <= 0 || parentHeight <= 0) {
       return { cols: TERMINAL_FALLBACK_COLS, rows: TERMINAL_FALLBACK_ROWS }
@@ -423,6 +442,23 @@ export class AiRunPaneController {
       TERMINAL_MAX_ROWS,
     )
     return { cols, rows }
+  }
+
+  /**
+   * Pixel width available to the side-by-side panels (the content right of
+   * the run sidebar). Prefer the live panels element; when it is not
+   * renderable (hidden pane, jsdom) fall back to the host container width
+   * minus the sidebar — measured, or its styles.css width when the sidebar
+   * itself cannot be measured. Returns 0 when nothing is measurable.
+   */
+  private measureContentWidth(): number {
+    const panelsWidth = this.panelsEl?.clientWidth ?? 0
+    if (panelsWidth > 0) return panelsWidth
+    const totalWidth = this.containerEl?.clientWidth ?? 0
+    if (totalWidth <= 0) return 0
+    const measuredSidebar = this.sidebarEl?.clientWidth ?? 0
+    const sidebarWidth = measuredSidebar > 0 ? measuredSidebar : RUN_SIDEBAR_WIDTH_PX
+    return Math.max(0, totalWidth - sidebarWidth)
   }
 
   private isCollapsed(): boolean {
@@ -511,9 +547,15 @@ export class AiRunPaneController {
     }
 
     // Clicking anywhere in the panel focuses it (the reference's SET_FOCUS);
-    // inner controls that must not shift the focus stop propagation.
+    // inner controls that must not shift the focus stop propagation. The
+    // keyboard focus follows the ring: without the ensureTerminalView call
+    // the highlight would move while keystrokes kept flowing into the
+    // previously focused panel's terminal.
     el.addEventListener('click', () => {
       this.focusPanel(panel)
+      if (!this.isCollapsed()) {
+        this.ensureTerminalView(panel)
+      }
     })
 
     const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
@@ -600,11 +642,13 @@ export class AiRunPaneController {
 
   /**
    * The reference's canSplitPanel gate: every panel after the split must
-   * keep the minimum width. An unmeasurable container width (hidden view,
-   * jsdom) never blocks the split.
+   * keep the minimum width. Gated on the sidebar-excluded content width —
+   * the run sidebar takes its fixed share of the container without
+   * shrinking on a split. An unmeasurable width (hidden view, jsdom) never
+   * blocks the split.
    */
   private canSplit(): boolean {
-    const width = this.containerEl?.clientWidth ?? 0
+    const width = this.measureContentWidth()
     if (width <= 0) return true
     return width / (this.panels.length + 1) >= SPLIT_MIN_PANEL_WIDTH_PX
   }
@@ -630,6 +674,7 @@ export class AiRunPaneController {
       return
     }
 
+    const preexistingRunIds = new Set(this.runViews.keys())
     const newPanel = this.createPanel(sourcePanel)
     // Focus BEFORE spawning: the manager emits the new run synchronously and
     // createRunView assigns fresh runs to the focused panel.
@@ -638,7 +683,15 @@ export class AiRunPaneController {
     try {
       record = this.startShellSession()
     } catch (error) {
-      this.closePanel(newPanel)
+      // The manager registers the run and emits 'starting' BEFORE the
+      // dispatch, so a failed spawn may have already given the pane a view
+      // (sidebar row + body + adapter) — close it, then roll the split
+      // back. closeRun may itself unsplit the new panel (the failed run
+      // was its selection), hence the containment check.
+      this.closeRunViewsCreatedSince(preexistingRunIds)
+      if (this.panels.includes(newPanel)) {
+        this.closePanel(newPanel)
+      }
       this.focusPanel(sourcePanel)
       this.notifyShellError(error)
       return
@@ -653,14 +706,31 @@ export class AiRunPaneController {
       this.notifyShellError(new AiShellUnavailableError())
       return
     }
+    const preexistingRunIds = new Set(this.runViews.keys())
     let record: AiRunRecord
     try {
       record = this.startShellSession()
     } catch (error) {
+      // Same rollback as handleSplit: drop the view of the failed spawn so
+      // no dead shell row lingers in the sidebar.
+      this.closeRunViewsCreatedSince(preexistingRunIds)
       this.notifyShellError(error)
       return
     }
     this.adoptRunIntoPanel(panel, record.id)
+  }
+
+  /**
+   * Close the views of runs announced after the given snapshot was taken —
+   * the rollback path of a failed shell spawn (the manager emits 'starting'
+   * for the run before its dispatch throws).
+   */
+  private closeRunViewsCreatedSince(preexistingRunIds: ReadonlySet<string>): void {
+    for (const runId of Array.from(this.runViews.keys())) {
+      if (!preexistingRunIds.has(runId)) {
+        this.closeRun(runId)
+      }
+    }
   }
 
   /** Spawn a shell session sized like a terminal run of the current layout */
@@ -800,6 +870,18 @@ export class AiRunPaneController {
         if (mostRecent !== undefined) {
           this.selectRunInPanel(panel, mostRecent)
           return
+        }
+        // The primary emptied. While split, merge the next panel into the
+        // primary (the reference reducer removes any panel whose last tab
+        // closes) instead of keeping a dead primary panel on screen.
+        const nextPanel = this.panels[1]
+        if (nextPanel !== undefined) {
+          const nextSelected = nextPanel.selectedRunId
+          this.closePanel(nextPanel)
+          if (nextSelected !== null) {
+            this.selectRunInPanel(panel, nextSelected)
+            return
+          }
         }
         this.refreshContentTab(panel)
       } else {

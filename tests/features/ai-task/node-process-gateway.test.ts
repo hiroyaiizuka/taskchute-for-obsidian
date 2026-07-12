@@ -126,14 +126,14 @@ describe('NodeProcessGateway', () => {
       expect(new NodeProcessGateway().getShellPath()).toBe('/opt/homebrew/bin/fish')
     })
 
-    test('falls back to /bin/zsh when SHELL is missing', () => {
+    test('falls back to the POSIX-guaranteed /bin/sh when SHELL is missing', () => {
       delete process.env.SHELL
-      expect(new NodeProcessGateway().getShellPath()).toBe('/bin/zsh')
+      expect(new NodeProcessGateway().getShellPath()).toBe('/bin/sh')
     })
 
-    test('falls back to /bin/zsh when SHELL is blank', () => {
+    test('falls back to the POSIX-guaranteed /bin/sh when SHELL is blank', () => {
       process.env.SHELL = '   '
-      expect(new NodeProcessGateway().getShellPath()).toBe('/bin/zsh')
+      expect(new NodeProcessGateway().getShellPath()).toBe('/bin/sh')
     })
   })
 

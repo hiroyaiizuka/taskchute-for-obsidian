@@ -441,7 +441,10 @@ export class NodeProcessGateway implements ProcessGateway {
   getShellPath(): string {
     const shell = process.env['SHELL']
     if (typeof shell === 'string' && shell.trim().length > 0) return shell
-    return '/bin/zsh'
+    // POSIX-guaranteed fallback: /bin/zsh is not present on all Linux
+    // desktops, and a missing fallback shell would make every shell-session
+    // spawn fail when $SHELL is unset.
+    return '/bin/sh'
   }
 
   isPtySupported(): boolean {

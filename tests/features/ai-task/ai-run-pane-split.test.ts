@@ -16,6 +16,7 @@
 import { Notice } from 'obsidian'
 import {
   AiRunPaneController,
+  RUN_SIDEBAR_WIDTH_PX,
   SPLIT_MIN_PANEL_WIDTH_PX,
   TERMINAL_FALLBACK_COLS,
   TERMINAL_FALLBACK_ROWS,
@@ -79,11 +80,6 @@ class FakeManager {
 
   readonly startShellSession = jest.fn(
     (options?: { cols?: number; rows?: number; name?: string }): AiRunRecord => {
-      if (this.failNextShellStart) {
-        const error = this.failNextShellStart
-        this.failNextShellStart = null
-        throw error
-      }
       this.shellSequence += 1
       const record: AiRunRecord = {
         id: `shell-${this.shellSequence}`,
@@ -91,12 +87,26 @@ class FakeManager {
         taskName: options?.name ?? 'Terminal',
         host: 'shell',
         mode: 'terminal',
-        status: 'running',
+        status: 'starting',
         cols: options?.cols ?? 80,
         rows: options?.rows ?? 24,
         startedAt: Date.now(),
         events: [],
       }
+      // Mirror the real manager: the run is registered and 'starting' is
+      // emitted BEFORE the dispatch, so a dispatch failure leaves an
+      // already-announced run behind (status 'failed') and then throws.
+      this.emit(record)
+      if (this.failNextShellStart) {
+        const error = this.failNextShellStart
+        this.failNextShellStart = null
+        record.status = 'failed'
+        record.errorMessage = error.message
+        record.endedAt = Date.now()
+        this.emit(record)
+        throw error
+      }
+      record.status = 'running'
       this.emit(record)
       return record
     },
@@ -296,8 +306,10 @@ describe('AiRunPaneController split panels', () => {
     test('refuses the split with a Notice when the pane is too narrow', () => {
       controller.mount(container)
       manager.emit(createRun())
-      // Two panels would each fall below the minimum width.
-      setContainerWidth(SPLIT_MIN_PANEL_WIDTH_PX * 2 - 1)
+      // The 180px run sidebar is part of the measured container but not of
+      // the panels area: with it excluded, two panels would each fall 0.5px
+      // below the minimum width.
+      setContainerWidth(RUN_SIDEBAR_WIDTH_PX + SPLIT_MIN_PANEL_WIDTH_PX * 2 - 1)
 
       splitButton()?.click()
 
@@ -306,10 +318,10 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(1)
     })
 
-    test('a measured width wide enough for two panels allows the split', () => {
+    test('a content width wide enough for two panels allows the split', () => {
       controller.mount(container)
       manager.emit(createRun())
-      setContainerWidth(SPLIT_MIN_PANEL_WIDTH_PX * 2)
+      setContainerWidth(RUN_SIDEBAR_WIDTH_PX + SPLIT_MIN_PANEL_WIDTH_PX * 2)
 
       splitButton()?.click()
 
@@ -317,9 +329,9 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(2)
     })
 
-    test('a shell start failure rolls the split back with a Notice', () => {
+    test('a shell start failure rolls the split back with a Notice and a clean sidebar', () => {
       controller.mount(container)
-      manager.emit(createRun())
+      manager.emit(createRun({ id: 'run-a' }))
       manager.failNextShellStart = new Error('no shell available')
 
       splitButton()?.click()
@@ -327,6 +339,102 @@ describe('AiRunPaneController split panels', () => {
       expect(noticeMock()).toHaveBeenCalledTimes(1)
       expect(panels()).toHaveLength(1)
       expect(panels()[0].classList.contains('is-focused')).toBe(true)
+      // The manager announced the run ('starting') before the dispatch
+      // failed, so the pane briefly held a view for it — the rollback must
+      // close it: no failed row lingers in the sidebar, no body remains,
+      // and its adapter (if one was created) is disposed.
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['run-a'])
+      expect(
+        container.querySelector('.ai-run-pane__body[data-run-id="shell-1"]'),
+      ).toBeNull()
+      for (const adapter of adapters.slice(1)) {
+        expect(adapter.disposed).toBe(true)
+      }
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
+    })
+  })
+
+  describe('carried fixes: PTY sizing excludes the run sidebar', () => {
+    function setParentHeight(height: number): void {
+      Object.defineProperty(document.body, 'clientHeight', {
+        configurable: true,
+        value: height,
+      })
+    }
+
+    test('computeTerminalSize subtracts the sidebar width and the pane chrome', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      setContainerWidth(1000)
+      setParentHeight(500)
+
+      // cols: (1000 total - 180 sidebar - 16 horizontal inset) / 8 px cells
+      // rows: (500 * 0.4 pane share - 64 vertical chrome) / 17 px cells —
+      // the vertical inset must cover the pane header (~26px), the panel
+      // tab strip (27px incl. border), and the pane borders.
+      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 8 })
+    })
+
+    test('a split spawns the shell with the sidebar-excluded per-panel size', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      // Content width of exactly two minimum panels: the split is allowed
+      // and each panel measures 320px.
+      setContainerWidth(RUN_SIDEBAR_WIDTH_PX + SPLIT_MIN_PANEL_WIDTH_PX * 2)
+      setParentHeight(500)
+
+      splitButton()?.click()
+
+      expect(panels()).toHaveLength(2)
+      expect(manager.startShellSession).toHaveBeenCalledWith({
+        cols: 38, // (320 panel - 16 horizontal inset) / 8 px cells
+        rows: 8,
+        name: 'Terminal',
+      })
+    })
+  })
+
+  describe('carried fixes: panel focus and empty-primary repair', () => {
+    test('clicking a panel moves the keyboard focus to its terminal adapter', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      splitButton()?.click()
+      const allPanels = panels()
+      expect(allPanels[1].classList.contains('is-focused')).toBe(true)
+      const focusCallsBefore = adapters[0].focus.mock.calls.length
+
+      allPanels[0].click()
+
+      // The focus ring and the keyboard focus must not diverge: keystrokes
+      // now belong to panel 1's terminal, not the previously focused one.
+      expect(allPanels[0].classList.contains('is-focused')).toBe(true)
+      expect(adapters[0].focus.mock.calls.length).toBe(focusCallsBefore + 1)
+    })
+
+    test('closing the primary panel last run while split merges the next panel in', () => {
+      controller.mount(container)
+      const run = createRun({ id: 'run-a' })
+      manager.emit(run)
+      splitButton()?.click()
+      run.status = 'succeeded'
+      manager.emit(run)
+
+      container
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
+        )
+        ?.click()
+
+      // The reference reducer removes any panel whose last tab closes: the
+      // emptied primary adopts the next panel's shell instead of staying on
+      // screen as a dead panel.
+      expect(panels()).toHaveLength(1)
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['shell-1'])
+      expect(adapters[1].disposed).toBe(false)
+      expect(
+        container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
+      ).toBe(false)
     })
   })
 
@@ -453,6 +561,21 @@ describe('AiRunPaneController split panels', () => {
           ?.classList.contains('is-active'),
       ).toBe(true)
       expect(adapters).toHaveLength(2)
+    })
+
+    test('a + shell start failure leaves no lingering run row', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      manager.failNextShellStart = new Error('spawn failed')
+
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      expect(noticeMock()).toHaveBeenCalledTimes(1)
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['run-a'])
+      expect(
+        container.querySelector('.ai-run-pane__body[data-run-id="shell-1"]'),
+      ).toBeNull()
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
     })
 
     test('after a split, each panel has its own + and it targets that panel', () => {
