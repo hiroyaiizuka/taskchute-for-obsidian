@@ -3,6 +3,7 @@ import {
   AiTaskManager,
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
+  AiTaskManagerDisposedError,
   AiTaskNotConfiguredError,
   AI_RUN_EVENT_HEAD_LIMIT,
   AI_RUN_EVENT_TAIL_LIMIT,
@@ -95,6 +96,7 @@ interface HarnessOptions {
   content?: string
   basePath?: string | null
   resolveBinary?: (host: string) => Promise<string>
+  cachedRead?: () => Promise<string>
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -114,7 +116,7 @@ function createHarness(options: HarnessOptions = {}) {
   const deps: AiTaskManagerDeps = {
     app: {
       vault: {
-        cachedRead: jest.fn(async () => content),
+        cachedRead: jest.fn(options.cachedRead ?? (async () => content)),
         adapter:
           basePath === null
             ? {}
@@ -457,6 +459,59 @@ describe('AiTaskManager.dispose', () => {
     harness.manager.dispose()
 
     expect(harness.timer.scheduled).toHaveLength(0)
+  })
+
+  test('rejects startRun on an already disposed manager without touching the note', async () => {
+    const harness = createHarness()
+
+    harness.manager.dispose()
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiTaskManagerDisposedError,
+    )
+    expect(harness.resolve).not.toHaveBeenCalled()
+    expect(harness.claude.runs).toHaveLength(0)
+    expect(harness.manager.getRuns()).toEqual([])
+  })
+
+  test('aborts an in-flight start when dispose happens while reading the note', async () => {
+    let resolveRead: (content: string) => void = () => undefined
+    const harness = createHarness({
+      cachedRead: () =>
+        new Promise<string>((resolve) => {
+          resolveRead = resolve
+        }),
+    })
+
+    const startPromise = harness.manager.startRun(makeTaskFile())
+    harness.manager.dispose()
+    resolveRead('# Task\n\n## Prompt\n\nDo the thing\n')
+
+    await expect(startPromise).rejects.toBeInstanceOf(AiTaskManagerDisposedError)
+    expect(harness.resolve).not.toHaveBeenCalled()
+    expect(harness.claude.runs).toHaveLength(0)
+    expect(harness.manager.getRuns()).toEqual([])
+  })
+
+  test('does not dispatch when dispose happens during binary resolution', async () => {
+    let resolveBinary: (path: string) => void = () => undefined
+    const harness = createHarness({
+      resolveBinary: () =>
+        new Promise<string>((resolve) => {
+          resolveBinary = resolve
+        }),
+    })
+
+    const startPromise = harness.manager.startRun(makeTaskFile())
+    await flushPromises()
+    expect(harness.resolve).toHaveBeenCalledTimes(1)
+
+    harness.manager.dispose()
+    resolveBinary('/bin/claude')
+
+    await expect(startPromise).rejects.toBeInstanceOf(AiTaskManagerDisposedError)
+    expect(harness.claude.runs).toHaveLength(0)
+    expect(harness.manager.getRuns()).toEqual([])
   })
 
   test('skips log writing for exits that arrive after dispose', async () => {

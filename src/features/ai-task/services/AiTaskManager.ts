@@ -44,6 +44,13 @@ export class AiRunAlreadyActiveError extends Error {
   }
 }
 
+export class AiTaskManagerDisposedError extends Error {
+  constructor() {
+    super('AiTaskManager has been disposed')
+    this.name = 'AiTaskManagerDisposedError'
+  }
+}
+
 export class AiTaskNotConfiguredError extends Error {
   readonly taskPath: string
 
@@ -131,9 +138,13 @@ export class AiTaskManager {
 
   /**
    * Start an AI run for the given task note. Rejects with a typed error when
-   * the note is not an AI task, has no prompt, or already has an active run.
+   * the manager is disposed, the note is not an AI task, has no prompt, or
+   * already has an active run. The disposed flag is re-checked after every
+   * await so a dispose() during an in-flight start can never spawn a child
+   * process that dispose()'s handle sweep would miss.
    */
   async startRun(file: TFile): Promise<AiRunRecord> {
+    this.throwIfDisposed()
     const taskPath = file.path
     if (this.pendingStarts.has(taskPath) || this.getActiveRunForTask(taskPath)) {
       throw new AiRunAlreadyActiveError(taskPath)
@@ -145,11 +156,13 @@ export class AiTaskManager {
       if (!config) throw new AiTaskNotConfiguredError(taskPath)
 
       const content = await this.deps.app.vault.cachedRead(file)
+      this.throwIfDisposed()
       const prompt = extractPromptSection(content, cache?.headings)
       if (prompt === null) throw new AiPromptNotFoundError(taskPath)
 
       const cwd = this.resolveCwd(config.cwd)
       const binaryPath = await this.deps.binaryLocator.resolve(config.host)
+      this.throwIfDisposed()
 
       this.runSequence += 1
       const record: AiRunRecord = {
@@ -331,6 +344,10 @@ export class AiTaskManager {
     } catch (error) {
       this.deps.log?.('warn', '[AiTaskManager] Failed to prune old run logs', error)
     }
+  }
+
+  private throwIfDisposed(): void {
+    if (this.disposed) throw new AiTaskManagerDisposedError()
   }
 
   private notifyChange(record: AiRunRecord): void {
