@@ -87,6 +87,16 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
   /** Parse one stdout line into normalized stream events */
   protected abstract parseLine(line: string): AiStreamEvent[]
 
+  /**
+   * Host-specific stderr noise filter. Lines reported as noise are dropped
+   * instead of becoming stderr events (e.g. codex's stdin notice, printed
+   * for any non-tty stdin including the /dev/null the gateway provides).
+   */
+  protected isNoiseStderrLine(line: string): boolean {
+    void line
+    return false
+  }
+
   start(request: AiRunRequest, callbacks: AiRunCallbacks): AiRunProcessHandle {
     const handle = this.gateway.spawnProcess({
       command: request.binaryPath,
@@ -115,6 +125,7 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
 
     const emitStderrLine = (line: string): void => {
       if (line.trim().length === 0) return
+      if (this.isNoiseStderrLine(line)) return
       callbacks.onEvent({ kind: 'stderr', text: line })
     }
 

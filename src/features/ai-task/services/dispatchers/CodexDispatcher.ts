@@ -42,4 +42,13 @@ export class CodexDispatcher extends HeadlessCliDispatcher {
   protected parseLine(line: string): AiStreamEvent[] {
     return parseCodexLine(line)
   }
+
+  /**
+   * codex prints this notice for ANY non-tty stdin — verified on-device with
+   * codex 0.144.1 even though the gateway hands the child /dev/null — so it
+   * is pure noise in the run log's stderr tail.
+   */
+  protected isNoiseStderrLine(line: string): boolean {
+    return line.trim() === 'Reading additional input from stdin...'
+  }
 }

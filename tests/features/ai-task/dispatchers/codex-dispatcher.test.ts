@@ -131,6 +131,33 @@ describe('CodexDispatcher', () => {
       const request = gateway.spawnMock.mock.calls[0][0]
       expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
     })
+
+    test('drops the codex stdin notice from stderr but keeps real stderr lines', () => {
+      // codex 0.144.1 prints this line for ANY non-tty stdin — even the
+      // /dev/null the gateway hands it — so the dispatcher filters it.
+      const gateway = createSpyGateway()
+      let stderrListener: ((text: string) => void) | undefined
+      gateway.spawnMock.mockImplementation(() => ({
+        pid: 4242,
+        onStdout: () => undefined,
+        onStderr: (listener: (text: string) => void) => {
+          stderrListener = listener
+        },
+        onExit: () => undefined,
+        kill: () => undefined,
+      }))
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+      const events: Array<{ kind: string; text?: string }> = []
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/codex', prompt: 'p' },
+        { onEvent: (event) => events.push(event), onExit: () => undefined },
+      )
+      stderrListener?.('Reading additional input from stdin...\n')
+      stderrListener?.('real warning\n')
+
+      expect(events).toEqual([{ kind: 'stderr', text: 'real warning' }])
+    })
   })
 
   describe('fixture integration (real gateway)', () => {
