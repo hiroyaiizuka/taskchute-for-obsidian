@@ -46,8 +46,15 @@ interface FakeHeadlessRun {
 
 class FakeHeadlessDispatcher implements AiDispatcher {
   runs: FakeHeadlessRun[] = []
+  /** When set, the next start() throws this error (spawn failure) */
+  failNextStart: Error | null = null
 
   start(request: AiRunRequest, callbacks: AiRunCallbacks) {
+    if (this.failNextStart) {
+      const error = this.failNextStart
+      this.failNextStart = null
+      throw error
+    }
     const run: FakeHeadlessRun = {
       request,
       callbacks,
@@ -66,8 +73,15 @@ interface FakeTerminalRun {
 
 class FakeTerminalDispatcher implements AiTerminalDispatcher {
   runs: FakeTerminalRun[] = []
+  /** When set, the next start() throws this error (spawn failure) */
+  failNextStart: Error | null = null
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks) {
+    if (this.failNextStart) {
+      const error = this.failNextStart
+      this.failNextStart = null
+      throw error
+    }
     const run: FakeTerminalRun = {
       request,
       callbacks,
@@ -233,5 +247,75 @@ describe("AiTaskManager 'persisted' notifications", () => {
 
     expect(changeTypes.length).toBeGreaterThan(0)
     expect(new Set(changeTypes)).toEqual(new Set(['update']))
+  })
+})
+
+describe("dispatch failures also end with 'persisted'", () => {
+  test("a headless dispatcher that throws at start still fires 'persisted' once, after a minimal log note", async () => {
+    const harness = createHarness({ runMode: 'headless' })
+    harness.headless.failNextStart = new Error('spawn ENOENT')
+    const order: string[] = []
+    harness.manager.onChange((record, changeType) => {
+      order.push(`${changeType}:${record.status}`)
+    })
+    harness.writeRunLog.mockImplementation(async () => {
+      order.push('write')
+      return 'headless-log.md'
+    })
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toThrow(
+      'spawn ENOENT',
+    )
+    await flushPromises()
+
+    expect(order.filter((entry) => entry === 'persisted:failed')).toHaveLength(1)
+    expect(harness.writeRunLog).toHaveBeenCalledTimes(1)
+    expect(harness.writeRunLog.mock.calls[0][0].status).toBe('failed')
+    expect(order.indexOf('write')).toBeLessThan(order.indexOf('persisted:failed'))
+    expect(harness.pruneOldLogs).toHaveBeenCalledTimes(1)
+  })
+
+  test("a terminal dispatcher that throws at start fires 'persisted' and still consumes the transcript temp file", async () => {
+    const harness = createHarness()
+    harness.terminal.failNextStart = new Error('script missing')
+    const changeTypes: string[] = []
+    harness.manager.onChange((_record, changeType) => {
+      changeTypes.push(changeType)
+    })
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toThrow(
+      'script missing',
+    )
+    await flushPromises()
+
+    expect(changeTypes.filter((type) => type === 'persisted')).toHaveLength(1)
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledTimes(1)
+    expect(harness.writeTerminalRunLog.mock.calls[0][0].status).toBe('failed')
+  })
+
+  test("a follow-up dispatch failure ends its segment with 'persisted' too", async () => {
+    const harness = createHarness({ runMode: 'headless' })
+    const persistedStatuses: string[] = []
+    harness.manager.onChange((record, changeType) => {
+      if (changeType === 'persisted') persistedStatuses.push(record.status)
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.headless.runs[0].callbacks.onEvent({
+      kind: 'init',
+      sessionId: 'sess-1',
+    })
+    harness.headless.runs[0].exit({ status: 'succeeded', exitCode: 0 })
+    await flushPromises()
+    expect(persistedStatuses).toEqual(['succeeded'])
+
+    harness.headless.failNextStart = new Error('resume failed')
+    await expect(harness.manager.followUp(record.id, 'more')).rejects.toThrow(
+      'resume failed',
+    )
+    await flushPromises()
+
+    expect(persistedStatuses).toEqual(['succeeded', 'failed'])
+    expect(harness.writeRunLog).toHaveBeenCalledTimes(2)
   })
 })

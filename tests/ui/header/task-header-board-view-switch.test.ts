@@ -203,4 +203,39 @@ describe('TaskHeaderController board view switch', () => {
     controller.refreshAiTaskBoardSwitch()
     expect(container.querySelectorAll('.ai-board-view-switch')).toHaveLength(1)
   })
+
+  test('repeated refreshes never re-register segment click handlers', () => {
+    const { host, setAiTaskBoardView, state } = createHost()
+    const { controller, container } = renderHeader(host)
+    const managed = host.registerManagedDomEvent as jest.Mock
+    const segmentClickRegistrations = () =>
+      managed.mock.calls.filter(
+        ([target, event]) =>
+          event === 'click' &&
+          target instanceof HTMLElement &&
+          target.classList.contains('ai-board-view-switch__segment'),
+      ).length
+
+    expect(segmentClickRegistrations()).toBe(3)
+
+    // Toggle the feature off and on a few times: managed registrations for
+    // detached buttons are only released at view unload, so re-registering
+    // on every refresh would accumulate for the session.
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      state.enabled = false
+      controller.refreshAiTaskBoardSwitch()
+      state.enabled = true
+      controller.refreshAiTaskBoardSwitch()
+    }
+
+    expect(segmentClickRegistrations()).toBe(3)
+    expect(segments(container)).toHaveLength(3)
+
+    // The surviving buttons still work, and exactly once per click.
+    const [human] = segments(container)
+    human.dispatchEvent(new Event('click', { bubbles: true }))
+    expect(setAiTaskBoardView).toHaveBeenCalledTimes(1)
+    expect(setAiTaskBoardView).toHaveBeenCalledWith('human')
+    expect(human.classList.contains('is-active')).toBe(true)
+  })
 })

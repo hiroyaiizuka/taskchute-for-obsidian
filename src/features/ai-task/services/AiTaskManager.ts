@@ -195,7 +195,9 @@ export interface AiTaskManagerDeps {
 /**
  * Discriminates onChange notifications: 'update' for status/event mutations,
  * 'persisted' fired exactly once per run exit AFTER the run's log persist
- * chain (note write + retention prune) has completed. UI that tears down a
+ * chain (note write + retention prune) has completed. Every exit path ends
+ * with it — child-process exits AND dispatch failures where the child never
+ * spawned (those persist a minimal failed-run note). UI that tears down a
  * run's terminal view (whose live buffer is the log-note transcript source)
  * must wait for 'persisted', never act on the final status 'update'.
  */
@@ -458,6 +460,10 @@ export class AiTaskManager {
         record.endedAt = Date.now()
         record.errorMessage = error instanceof Error ? error.message : String(error)
         this.notifyChange(record)
+        // The dispatch failed before any child existed, but the run's
+        // lifecycle contract still holds: persist a minimal failed-run note
+        // and end with 'persisted' (see AiRunChangeType).
+        this.queueExitPersist(internal)
         throw error
       }
 
@@ -564,6 +570,10 @@ export class AiTaskManager {
         record.endedAt = Date.now()
         record.errorMessage = error instanceof Error ? error.message : String(error)
         this.notifyChange(record)
+        // This segment's exit also ends with 'persisted': the existing note
+        // gets its frontmatter refreshed (failed + error, no continuation —
+        // the rolled-back user text is never appended).
+        this.queueExitPersist(internal)
         throw error
       }
 
@@ -808,10 +818,19 @@ export class AiTaskManager {
       record.errorMessage = outcome.errorMessage
     }
     this.notifyChange(record)
+    this.queueExitPersist(internal)
+  }
 
+  /**
+   * Chain the run-exit persist onto the run's queue and end it with the
+   * 'persisted' notification. Shared by child-process exits (handleExit) and
+   * the dispatch-throw catch paths in startRun/followUp, so EVERY exit ends
+   * with 'persisted'. After dispose the note is skipped, but a terminal
+   * run's transcript temp file must still not be left in the OS tmpdir.
+   */
+  private queueExitPersist(internal: InternalRun): void {
+    const record = internal.record
     if (this.disposed) {
-      // The note is skipped after dispose, but the transcript temp file must
-      // not be left behind in the OS tmpdir.
       this.cleanUpTranscript(internal)
       return
     }

@@ -4,6 +4,7 @@ import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
 import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
 import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
+import { matchesAiTaskBoardView } from '../../features/ai-task/services/BoardViewFilter'
 import type { AiRunRecord, AiTaskBoardView } from '../../features/ai-task/types'
 
 export type TaskListRendererHost = {
@@ -219,10 +220,7 @@ export default class TaskListRenderer {
   private filterByBoardView(instances: TaskInstance[]): TaskInstance[] {
     const boardView = this.host.getAiTaskBoardView?.() ?? 'mixed'
     if (boardView === 'mixed') return instances
-    const wantAi = boardView === 'ai'
-    return instances.filter(
-      (inst) => (inst.task?.frontmatter?.['ai_task'] === true) === wantAi,
-    )
+    return instances.filter((inst) => matchesAiTaskBoardView(inst, boardView))
   }
 
   private renderNoTimeGroup(instances: TaskInstance[]): void {
@@ -352,7 +350,7 @@ export default class TaskListRenderer {
       svg.createSvg('circle', { attr: { cx, cy, r: '1.5' } })
     })
 
-    this.setupDragEvents(dragHandle, taskItem, slot, idx)
+    this.setupDragEvents(dragHandle, taskItem, inst, slot, idx)
     this.registerTapEvent(dragHandle, (e) => {
       e.stopPropagation()
       this.host.selectTaskForKeyboard(inst, taskItem)
@@ -434,10 +432,24 @@ export default class TaskListRenderer {
     })
   }
 
-  private setupDragEvents(dragHandle: HTMLElement, taskItem: HTMLElement, slot: string, idx: number): void {
+  private setupDragEvents(
+    dragHandle: HTMLElement,
+    taskItem: HTMLElement,
+    inst: TaskInstance,
+    slot: string,
+    idx: number,
+  ): void {
     this.host.registerManagedDomEvent(dragHandle, 'dragstart', (event) => {
       if (!(event instanceof DragEvent)) return
-      event.dataTransfer?.setData('text/plain', `${slot ?? 'none'}::${idx}`)
+      // The index counts rows in the RENDERED (board-view filtered) list, so
+      // the drop side resolves the source by the instanceId — a positional
+      // lookup against the unfiltered slot list would hit the wrong task
+      // under a 'human'/'ai' board view. The slot::idx prefix stays for
+      // legacy payload compatibility.
+      event.dataTransfer?.setData(
+        'text/plain',
+        `${slot ?? 'none'}::${idx}::${inst.instanceId}`,
+      )
       taskItem.classList.add('dragging')
     })
     this.host.registerManagedDomEvent(dragHandle, 'dragend', () => {

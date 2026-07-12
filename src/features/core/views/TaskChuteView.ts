@@ -72,6 +72,7 @@ import {
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
+import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
 import type { AiRunMode, AiRunStatus, AiTaskBoardView } from "../../ai-task/types"
 
 /**
@@ -735,6 +736,13 @@ export class TaskChuteView
   /** Select a board view, persist it per device, and re-render immediately */
   public setAiTaskBoardView(view: AiTaskBoardView): void {
     this.aiTaskBoardView = view
+    // A keyboard selection hidden by the new filter must not stay
+    // hotkey-actionable (duplicate/delete/reset would hit an invisible row);
+    // a selection that stays visible survives the switch.
+    const selected = this.taskSelectionController.getSelectedInstance()
+    if (selected && !matchesAiTaskBoardView(selected, this.getAiTaskBoardView())) {
+      this.taskSelectionController.clear()
+    }
     // Duck-typed: App#saveLocalStorage exists at runtime, but test doubles
     // (and older typings) may lack it.
     const app = this.app as unknown as {

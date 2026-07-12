@@ -200,6 +200,54 @@ describe('TaskChuteView board view state', () => {
     expect(view.getAiTaskBoardView()).toBe('mixed')
   })
 
+  test('switching to a view that hides the selected task clears the keyboard selection', () => {
+    const { plugin } = createPluginStub()
+    const view = createView(plugin)
+    const aiInst = makeInstance('TASKS/ai-a.md', true)
+    const humanInst = makeInstance('TASKS/human.md', false)
+    view.taskInstances = [aiInst, humanInst]
+    const selection = (
+      view as unknown as {
+        taskSelectionController: {
+          select(inst: TaskInstance, element: HTMLElement): void
+          getSelectedInstance(): TaskInstance | null
+        }
+      }
+    ).taskSelectionController
+
+    selection.select(aiInst, document.createElement('div'))
+    expect(selection.getSelectedInstance()).toBe(aiInst)
+
+    // 'human' hides the selected AI task: hotkeys (duplicate/delete/reset)
+    // must not keep acting on an invisible row.
+    view.setAiTaskBoardView('human')
+    expect(selection.getSelectedInstance()).toBeNull()
+  })
+
+  test('switching views keeps a selection that stays visible', () => {
+    const { plugin } = createPluginStub()
+    const view = createView(plugin)
+    const aiInst = makeInstance('TASKS/ai-a.md', true)
+    const humanInst = makeInstance('TASKS/human.md', false)
+    view.taskInstances = [aiInst, humanInst]
+    const selection = (
+      view as unknown as {
+        taskSelectionController: {
+          select(inst: TaskInstance, element: HTMLElement): void
+          getSelectedInstance(): TaskInstance | null
+        }
+      }
+    ).taskSelectionController
+
+    selection.select(humanInst, document.createElement('div'))
+
+    view.setAiTaskBoardView('human')
+    expect(selection.getSelectedInstance()).toBe(humanInst)
+
+    view.setAiTaskBoardView('mixed')
+    expect(selection.getSelectedInstance()).toBe(humanInst)
+  })
+
   test('regression: updateTotalTasksCount counts ALL instances regardless of the board filter', async () => {
     const { plugin } = createPluginStub('human')
     const view = createView(plugin)

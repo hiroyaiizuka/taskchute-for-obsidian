@@ -139,4 +139,62 @@ describe('TaskDragController', () => {
     expect(moveTaskToSlot).toHaveBeenCalledWith(source, '8:00-12:00', 1)
     expect(NoticeMock).toHaveBeenCalledWith('Failed to move task')
   })
+
+  test('handleDrop resolves the source by instanceId when the payload carries one', () => {
+    // The index counts rows in a FILTERED render list (board view), so it
+    // points at the WRONG task in the unfiltered slot list — identity wins.
+    const decoy = createTask({ instanceId: 'decoy', order: 0 })
+    const source = createTask({ instanceId: 'source', order: 1 })
+    const target = createTask({ instanceId: 'target', order: 2 })
+    const { controller, moveTaskToSlot } = createHost([decoy, source, target])
+
+    const element = document.createElement('div')
+    Object.defineProperty(element, 'getBoundingClientRect', {
+      value: () => ({ top: 0, height: 40 }),
+    })
+    const event = {
+      dataTransfer: { getData: () => '8:00-12:00::0::source' },
+      clientY: 5,
+    } as unknown as DragEvent
+
+    controller.handleDrop(event, element, target)
+
+    expect(moveTaskToSlot).toHaveBeenCalledTimes(1)
+    expect(moveTaskToSlot.mock.calls[0][0]).toBe(source)
+  })
+
+  test('handleSlotDrop resolves the source by instanceId when the payload carries one', () => {
+    const decoy = createTask({ instanceId: 'decoy', order: 0 })
+    const source = createTask({ instanceId: 'source', order: 1 })
+    const { controller, moveTaskToSlot } = createHost([decoy, source])
+
+    const event = {
+      dataTransfer: { getData: () => '8:00-12:00::0::source' },
+    } as unknown as DragEvent
+
+    controller.handleSlotDrop(event, '12:00-16:00')
+
+    expect(moveTaskToSlot).toHaveBeenCalledTimes(1)
+    expect(moveTaskToSlot.mock.calls[0][0]).toBe(source)
+    expect(moveTaskToSlot.mock.calls[0][1]).toBe('12:00-16:00')
+  })
+
+  test('an unknown instanceId in the payload drops nothing (stale drag)', () => {
+    const source = createTask({ instanceId: 'source', order: 0 })
+    const target = createTask({ instanceId: 'target', order: 1 })
+    const { controller, moveTaskToSlot } = createHost([source, target])
+
+    const element = document.createElement('div')
+    Object.defineProperty(element, 'getBoundingClientRect', {
+      value: () => ({ top: 0, height: 40 }),
+    })
+    const event = {
+      dataTransfer: { getData: () => '8:00-12:00::0::gone' },
+      clientY: 5,
+    } as unknown as DragEvent
+
+    controller.handleDrop(event, element, target)
+
+    expect(moveTaskToSlot).not.toHaveBeenCalled()
+  })
 })

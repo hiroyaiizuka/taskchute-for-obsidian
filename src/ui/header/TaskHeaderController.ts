@@ -243,19 +243,37 @@ export default class TaskHeaderController {
   }
 
   /**
-   * Draw (or re-draw) the 3-way board view switch at the left edge of the
+   * Attach (or detach) the 3-way board view switch at the left edge of the
    * action section. Nothing renders while the AI Task feature is disabled or
    * the host lacks the callbacks — the header then matches its pre-feature
-   * markup exactly.
+   * markup exactly. The control (and its managed click handlers) is built
+   * ONCE and cached: refreshes only reattach it, because managed
+   * registrations are released at view unload only, and re-registering fresh
+   * buttons on every feature toggle would accumulate handlers for detached
+   * nodes across the session.
    */
   private renderAiTaskBoardSwitch(actionSection: HTMLElement): void {
-    this.boardViewSwitchEl?.remove()
-    this.boardViewSwitchEl = null
-    this.boardViewButtons.clear()
-    if (this.host.isAiTaskFeatureEnabled?.() !== true) return
-    const setView = this.host.setAiTaskBoardView
-    if (!this.host.getAiTaskBoardView || !setView) return
+    if (
+      this.host.isAiTaskFeatureEnabled?.() !== true ||
+      !this.host.getAiTaskBoardView ||
+      !this.host.setAiTaskBoardView
+    ) {
+      this.boardViewSwitchEl?.remove()
+      return
+    }
 
+    const group = this.boardViewSwitchEl ?? this.createBoardViewSwitch(actionSection)
+    // A refresh appends into an already-populated section (and a re-enable
+    // reattaches the cached control); keep the switch at the front so its
+    // position never depends on WHEN it rendered.
+    if (actionSection.firstChild !== group) {
+      actionSection.insertBefore(group, actionSection.firstChild)
+    }
+    this.refreshBoardViewActiveState()
+  }
+
+  /** Build the segmented control and register its handlers exactly once */
+  private createBoardViewSwitch(actionSection: HTMLElement): HTMLElement {
     const group = actionSection.createDiv( {
       cls: 'ai-board-view-switch',
       attr: {
@@ -263,11 +281,6 @@ export default class TaskHeaderController {
         'aria-label': this.host.tv('aiTask.boardView.label', 'Board view'),
       },
     })
-    // A refresh appends into an already-populated section; move the switch
-    // back to the front so its position never depends on WHEN it rendered.
-    if (actionSection.firstChild !== group) {
-      actionSection.insertBefore(group, actionSection.firstChild)
-    }
 
     for (const segment of BOARD_VIEW_SEGMENTS) {
       const label = this.host.tv(segment.labelKey, segment.labelFallback)
@@ -284,13 +297,13 @@ export default class TaskHeaderController {
       })
       this.host.registerManagedDomEvent(button, 'click', (event) => {
         event.stopPropagation()
-        setView(segment.view)
+        this.host.setAiTaskBoardView?.(segment.view)
         this.refreshBoardViewActiveState()
       })
       this.boardViewButtons.set(segment.view, button)
     }
     this.boardViewSwitchEl = group
-    this.refreshBoardViewActiveState()
+    return group
   }
 
   /** Mirror host.getAiTaskBoardView() onto the segment active states */
