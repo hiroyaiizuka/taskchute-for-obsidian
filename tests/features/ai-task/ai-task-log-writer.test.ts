@@ -52,6 +52,8 @@ interface Harness {
   trashed: string[]
   /** Registers a vault entry so collision checks see it */
   addExistingPath(path: string): void
+  /** Registers a vault note with content readable via vault.read */
+  setFileContent(path: string, content: string): void
   /** Registers the AI/Logs folder tree used by pruneOldLogs */
   setLogsTree(node: FolderNode): void
 }
@@ -62,6 +64,7 @@ function createHarness(options: { retentionDays?: number; now?: number } = {}): 
   const ensured: string[] = []
   const trashed: string[] = []
   const existingPaths = new Set<string>()
+  const fileContents = new Map<string, string>()
   let logsTree: FolderNode | null = null
 
   const deps: AiTaskLogWriterDeps = {
@@ -70,11 +73,14 @@ function createHarness(options: { retentionDays?: number; now?: number } = {}): 
         create: jest.fn(async (path: string, content: string) => {
           created.push({ path, content })
           existingPaths.add(path)
+          fileContents.set(path, content)
           return {}
         }),
         modify: jest.fn(async (file: TFile, content: string) => {
           modified.push({ path: file.path, content })
+          fileContents.set(file.path, content)
         }),
+        read: jest.fn(async (file: TFile) => fileContents.get(file.path) ?? ''),
         getAbstractFileByPath: jest.fn((path: string) => {
           if (logsTree && path === logsTree.path) return logsTree
           if (!existingPaths.has(path)) return null
@@ -108,6 +114,10 @@ function createHarness(options: { retentionDays?: number; now?: number } = {}): 
     ensured,
     trashed,
     addExistingPath: (path) => existingPaths.add(path),
+    setFileContent: (path, content) => {
+      existingPaths.add(path)
+      fileContents.set(path, content)
+    },
     setLogsTree: (node) => {
       logsTree = node
     },
@@ -263,6 +273,20 @@ describe('AiTaskLogWriter.writeRunLog', () => {
 })
 
 describe('AiTaskLogWriter.upsertRunLog', () => {
+  const EXISTING_NOTE = [
+    '---',
+    'task_path: "TaskChute/Task/My Task.md"',
+    'task_name: "My Task"',
+    'host: claude',
+    'status: failed',
+    '---',
+    '',
+    '## Transcript',
+    '',
+    'original persisted answer',
+    '',
+  ].join('\n')
+
   test('creates a new note when the record has no log note yet', async () => {
     const harness = createHarness()
 
@@ -273,30 +297,68 @@ describe('AiTaskLogWriter.upsertRunLog', () => {
     expect(harness.modified).toHaveLength(0)
   })
 
-  test('rewrites the existing note in place via vault.modify', async () => {
+  test('appends the continuation to the existing note and refreshes the frontmatter', async () => {
     const harness = createHarness()
     const existing = 'TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md'
-    harness.addExistingPath(existing)
+    harness.setFileContent(existing, EXISTING_NOTE)
 
     const path = await harness.writer.upsertRunLog(
       makeRecord({
         logNotePath: existing,
+        // In-memory buffer where the original events were already elided —
+        // the note body must NOT be rebuilt from this.
         events: [
-          { kind: 'assistant-text', text: 'first answer' },
+          { kind: 'elision', omittedCount: 42 },
           { kind: 'user-text', text: 'follow-up prompt' },
           { kind: 'assistant-text', text: 'second answer' },
         ],
+        omittedEventCount: 42,
       }),
+      [
+        { kind: 'user-text', text: 'follow-up prompt' },
+        { kind: 'assistant-text', text: 'second answer' },
+        { kind: 'stderr', text: 'warn: something' },
+      ],
     )
 
     expect(path).toBe(existing)
     expect(harness.created).toHaveLength(0)
     expect(harness.modified).toHaveLength(1)
     expect(harness.modified[0].path).toBe(existing)
-    // The full transcript is regenerated, not appended.
-    expect(harness.modified[0].content).toContain('## Transcript')
-    expect(harness.modified[0].content).toContain('> user: follow-up prompt')
-    expect(harness.modified[0].content).toContain('second answer')
+    const content = harness.modified[0].content
+    // The already-persisted transcript survives even though it is no longer
+    // in the in-memory buffer, and no elision marker is injected.
+    expect(content).toContain('## Transcript')
+    expect(content).toContain('original persisted answer')
+    expect(content).not.toContain('events omitted')
+    // The continuation is appended after the existing body, in order.
+    const originalIndex = content.indexOf('original persisted answer')
+    const userIndex = content.indexOf('> user: follow-up prompt')
+    const answerIndex = content.indexOf('second answer')
+    expect(userIndex).toBeGreaterThan(originalIndex)
+    expect(answerIndex).toBeGreaterThan(userIndex)
+    expect(content).toContain('warn: something')
+    // The frontmatter is regenerated from the record, not duplicated.
+    expect(content.startsWith('---\n')).toBe(true)
+    expect(content).toContain('status: succeeded')
+    expect(content).not.toContain('status: failed')
+  })
+
+  test('refreshes only the frontmatter when there is no continuation', async () => {
+    const harness = createHarness()
+    const existing = 'TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md'
+    harness.setFileContent(existing, EXISTING_NOTE)
+
+    const path = await harness.writer.upsertRunLog(
+      makeRecord({ logNotePath: existing }),
+    )
+
+    expect(path).toBe(existing)
+    expect(harness.modified).toHaveLength(1)
+    const content = harness.modified[0].content
+    expect(content).toContain('status: succeeded')
+    expect(content).not.toContain('status: failed')
+    expect(content).toContain('original persisted answer')
   })
 
   test('falls back to creating a new note when the recorded path is gone', async () => {
@@ -304,11 +366,14 @@ describe('AiTaskLogWriter.upsertRunLog', () => {
 
     const path = await harness.writer.upsertRunLog(
       makeRecord({ logNotePath: 'TaskChute/AI/Logs/2026-06/deleted-note.md' }),
+      [{ kind: 'user-text', text: 'follow-up prompt' }],
     )
 
     expect(path).toBe('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md')
     expect(harness.created).toHaveLength(1)
     expect(harness.modified).toHaveLength(0)
+    // The recreated note is composed from the full in-memory record.
+    expect(harness.created[0].content).toContain('## Transcript')
   })
 })
 

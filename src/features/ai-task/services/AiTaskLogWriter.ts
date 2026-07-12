@@ -1,12 +1,16 @@
 /**
  * AI Task - run log writer
  *
- * Persists one markdown note per finished AI run under
+ * Persists one markdown note per AI run under
  * `<base>/TaskChute/AI/Logs/YYYY-MM/YYYYMMDD-HHmmss-<sanitized name>.md`,
  * and prunes notes older than the retention window. Folders are created
- * lazily on the first write (never in ensureRequiredFolders), the note is
- * written with a single vault.create at run end, and pruning always goes
- * through fileManager.trashFile (never vault.delete).
+ * lazily on the first write (never in ensureRequiredFolders). The note is
+ * created with vault.create at the first run end; follow-up run ends go
+ * through upsertRunLog, which refreshes the frontmatter and APPENDS the
+ * continuation events to the existing note (the already-persisted transcript
+ * is never rebuilt from the bounded in-memory buffer, which may have elided
+ * it). Pruning always goes through fileManager.trashFile (never
+ * vault.delete).
  */
 
 import { TFile } from 'obsidian'
@@ -24,6 +28,7 @@ export interface AiTaskLogWriterDeps {
     vault: {
       create(path: string, content: string): Promise<unknown>
       modify(file: TFile, content: string): Promise<unknown>
+      read(file: TFile): Promise<string>
       getAbstractFileByPath(path: string): unknown
       getRoot?(): unknown
     }
@@ -124,7 +129,12 @@ function composeResultLine(event: AiResultEvent): string {
 }
 
 function composeTranscript(events: AiStreamEvent[]): string[] {
-  const lines: string[] = ['## Transcript', '']
+  return ['## Transcript', '', ...composeTranscriptLines(events)]
+}
+
+/** Transcript body lines without the heading (also used for continuations) */
+function composeTranscriptLines(events: AiStreamEvent[]): string[] {
+  const lines: string[] = []
   for (const event of events) {
     switch (event.kind) {
       case 'assistant-text':
@@ -185,6 +195,41 @@ function composeRunLogContent(record: AiRunRecord): string {
   return `${lines.join('\n').replace(/\n+$/, '')}\n`
 }
 
+/**
+ * Split a persisted note into its frontmatter block and body. Returns the
+ * body only; the frontmatter is always regenerated from the record.
+ */
+function extractNoteBody(content: string): string {
+  if (content.startsWith('---\n')) {
+    const end = content.indexOf('\n---\n', 3)
+    if (end !== -1) {
+      return content.slice(end + 5)
+    }
+    if (content.endsWith('\n---')) {
+      return ''
+    }
+  }
+  return content
+}
+
+/**
+ * Refreshed frontmatter + preserved body + appended continuation transcript
+ * (and its stderr tail, if any).
+ */
+function composeAppendedContent(
+  existingContent: string,
+  record: AiRunRecord,
+  continuationEvents: AiStreamEvent[],
+): string {
+  const body = extractNoteBody(existingContent).replace(/^\n+/, '').replace(/\n+$/, '')
+  const lines = [...composeFrontmatter(record), '', body]
+  if (continuationEvents.length > 0) {
+    lines.push('', ...composeTranscriptLines(continuationEvents))
+    lines.push(...composeStderrSection(continuationEvents))
+  }
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
 function statTimeOf(file: TFile): number | null {
   const stat = (file as { stat?: { mtime?: unknown; ctime?: unknown } }).stat
   if (typeof stat?.mtime === 'number') return stat.mtime
@@ -196,17 +241,27 @@ export class AiTaskLogWriter {
   constructor(private readonly deps: AiTaskLogWriterDeps) {}
 
   /**
-   * Rewrite the run's existing log note in place, or create it when the run
-   * has none yet (or the recorded note has been deleted). Follow-ups call
-   * this at every run end so one note carries the whole conversation.
-   * Returns the vault path of the note.
+   * Append to the run's existing log note (refreshing its frontmatter from
+   * the record), or create it when the run has none yet (or the recorded
+   * note has been deleted). Follow-ups call this at every run end so one
+   * note carries the whole conversation; only `continuationEvents` (the
+   * events streamed since the last persist) are appended — the persisted
+   * transcript body is preserved verbatim, never rebuilt from the bounded
+   * in-memory buffer. Returns the vault path of the note.
    */
-  async upsertRunLog(record: AiRunRecord): Promise<string> {
+  async upsertRunLog(
+    record: AiRunRecord,
+    continuationEvents?: AiStreamEvent[],
+  ): Promise<string> {
     const existingPath = record.logNotePath
     if (existingPath !== undefined && existingPath.length > 0) {
       const existing = this.deps.app.vault.getAbstractFileByPath(existingPath)
       if (existing instanceof TFile) {
-        await this.deps.app.vault.modify(existing, composeRunLogContent(record))
+        const currentContent = await this.deps.app.vault.read(existing)
+        await this.deps.app.vault.modify(
+          existing,
+          composeAppendedContent(currentContent, record, continuationEvents ?? []),
+        )
         return existingPath
       }
     }
@@ -214,8 +269,9 @@ export class AiTaskLogWriter {
   }
 
   /**
-   * Compose and create the run log note. Called once per run, at run end.
-   * Returns the vault path of the created note.
+   * Compose and create the run log note from the full in-memory record.
+   * Called at the first run end (and as the upsert fallback when the
+   * recorded note has been deleted). Returns the vault path of the note.
    */
   async writeRunLog(record: AiRunRecord): Promise<string> {
     const monthPath = this.deps.pathManager.getAiLogsMonthPath(

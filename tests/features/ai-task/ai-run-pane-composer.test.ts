@@ -8,9 +8,20 @@
 import { Notice } from 'obsidian'
 import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
 import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+import {
+  AiRunAlreadyActiveError,
+  AiSessionUnavailableError,
+} from '../../../src/features/ai-task/services/AiTaskManager'
+import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
+import type { AiRunRecord, AiRunStatus } from '../../../src/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord) => void
+
+const ACTIVE_STATUSES: ReadonlySet<AiRunStatus> = new Set([
+  'starting',
+  'running',
+  'stopping',
+])
 
 class FakeManager {
   readonly listeners = new Set<ChangeListener>()
@@ -24,6 +35,12 @@ class FakeManager {
 
   getRun(runId: string): AiRunRecord | undefined {
     return this.records.find((record) => record.id === runId)
+  }
+
+  getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
+    return this.records.find(
+      (record) => record.taskPath === taskPath && ACTIVE_STATUSES.has(record.status),
+    )
   }
 
   onChange(listener: ChangeListener): () => void {
@@ -164,7 +181,14 @@ describe('AiRunPaneController composer', () => {
   test('tracks the selected tab, not just any run', () => {
     controller.mount(container)
     const finished = createRun({ id: 'run-done' })
-    const active = createRun({ id: 'run-live', status: 'running', endedAt: undefined })
+    // A different task: an active run of the SAME task would disable the
+    // composer for it (covered by its own test below).
+    const active = createRun({
+      id: 'run-live',
+      taskPath: 'TASKS/other-task.md',
+      status: 'running',
+      endedAt: undefined,
+    })
     manager.emit(finished)
     manager.emit(active)
 
@@ -235,6 +259,73 @@ describe('AiRunPaneController composer', () => {
     pressEnter(input())
 
     expect(manager.followUp).not.toHaveBeenCalled()
+  })
+
+  test('stays disabled while another run of the same task is active', () => {
+    controller.mount(container)
+    const finished = createRun()
+    manager.emit(finished)
+    expect(input().disabled).toBe(false)
+
+    const newer = createRun({ id: 'run-2', status: 'running', endedAt: undefined })
+    manager.emit(newer)
+
+    // run-1 stays selected, but its task already has an active run.
+    expect(input().disabled).toBe(true)
+    expect(sendButton().disabled).toBe(true)
+
+    newer.status = 'succeeded'
+    newer.endedAt = Date.now()
+    manager.emit(newer)
+
+    expect(input().disabled).toBe(false)
+  })
+
+  test('a follow-up rejected as already-active shows the localized notice, not the raw error', async () => {
+    controller.mount(container)
+    manager.emit(createRun())
+    manager.followUp.mockRejectedValueOnce(
+      new AiRunAlreadyActiveError('TASKS/ai-sample.md'),
+    )
+
+    input().value = 'continue'
+    pressEnter(input())
+    await flushPromises()
+
+    const noticeMock = Notice as unknown as jest.Mock
+    expect(noticeMock).toHaveBeenCalledTimes(1)
+    const message = String(noticeMock.mock.calls[0][0])
+    expect(message).toBe('An AI run is already in progress for this task.')
+  })
+
+  test('a follow-up rejected for a missing binary shows the localized binary notice', async () => {
+    controller.mount(container)
+    manager.emit(createRun())
+    manager.followUp.mockRejectedValueOnce(new AiBinaryNotFoundError('claude'))
+
+    input().value = 'continue'
+    pressEnter(input())
+    await flushPromises()
+
+    const noticeMock = Notice as unknown as jest.Mock
+    const message = String(noticeMock.mock.calls[0][0])
+    expect(message).toBe(
+      'AI CLI binary was not found: claude. Set the path in settings.',
+    )
+  })
+
+  test('a follow-up rejected for a missing session shows the localized session notice', async () => {
+    controller.mount(container)
+    manager.emit(createRun())
+    manager.followUp.mockRejectedValueOnce(new AiSessionUnavailableError('run-1'))
+
+    input().value = 'continue'
+    pressEnter(input())
+    await flushPromises()
+
+    const noticeMock = Notice as unknown as jest.Mock
+    const message = String(noticeMock.mock.calls[0][0])
+    expect(message).toBe('This run has no session to resume.')
   })
 
   test('a rejected follow-up shows a Notice and restores the text', async () => {

@@ -18,6 +18,16 @@ class FakeManager {
     return this.records.find((record) => record.id === runId)
   }
 
+  getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
+    return this.records.find(
+      (record) =>
+        record.taskPath === taskPath &&
+        (record.status === 'starting' ||
+          record.status === 'running' ||
+          record.status === 'stopping'),
+    )
+  }
+
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener)
     return () => {

@@ -35,6 +35,16 @@ export interface TaskTimeControllerHost {
     inst: TaskInstance,
     scheduledTime: string | undefined,
   ) => Promise<boolean>
+  /**
+   * Called after an instance has been reset to idle (any path: context menu,
+   * settings tooltip, start-time popup clear, TimeEditModal). `wasRunning`
+   * reports the state observed before the reset, so hosts can couple side
+   * effects (e.g. stopping an AI run) to resets of running instances only.
+   */
+  onInstanceResetToIdle?: (
+    inst: TaskInstance,
+    context: { wasRunning: boolean },
+  ) => void
 }
 
 export default class TaskTimeController {
@@ -263,11 +273,13 @@ export default class TaskTimeController {
   }
 
   async resetTaskToIdle(inst: TaskInstance): Promise<void> {
+    const wasRunning = inst.state === 'running'
     try {
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
       inst.state = 'idle'
       inst.startTime = undefined
       inst.stopTime = undefined
+      this.host.onInstanceResetToIdle?.(inst, { wasRunning })
 
       if (inst.instanceId) {
         await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)

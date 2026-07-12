@@ -49,7 +49,13 @@ export const calculateCrossDayDuration = (startTime?: Date, stopTime?: Date): nu
 export class TaskExecutionService {
   constructor(private readonly host: TaskExecutionHost) {}
 
-  async startInstance(inst: TaskInstance): Promise<void> {
+  /**
+   * Start the instance timer. Never rejects. Resolves true when the start
+   * flow completed; false when it was refused (future-date guard, instance
+   * left idle) or failed midway. Callers coupling side effects to a human
+   * start (e.g. AI runs) must gate on this flag.
+   */
+  async startInstance(inst: TaskInstance): Promise<boolean> {
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -63,7 +69,7 @@ export class TaskExecutionService {
           ),
           2000,
         )
-        return
+        return false
       }
 
       try {
@@ -132,18 +138,25 @@ export class TaskExecutionService {
           name: inst.task.name,
         }),
       )
+      return true
     } catch (error) {
       console.error('[TaskExecutionService] startInstance failed', error)
       new Notice(this.host.tv('notices.taskStartFailed', 'Failed to start task'))
+      return false
     }
   }
 
-  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
+  /**
+   * Stop the instance timer. Never rejects. Resolves true when the instance
+   * actually transitioned running -> done (even if a later persistence step
+   * failed); false when the call was a no-op because the instance was not
+   * running. Callers coupling side effects to a human stop must gate on this.
+   */
+  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<boolean> {
+    if (inst.state !== 'running') {
+      return false
+    }
     try {
-      if (inst.state !== 'running') {
-        return
-      }
-
       inst.state = 'done'
       inst.stopTime = stopTime ?? new Date()
 
@@ -230,9 +243,12 @@ export class TaskExecutionService {
           minutes: inst.actualMinutes ?? 0,
         }),
       )
+      return true
     } catch (error) {
       console.error('[TaskExecutionService] stopInstance failed', error)
       new Notice(this.host.tv('notices.taskStopFailed', 'Failed to stop task'))
+      // The running -> done transition happened before anything could throw.
+      return true
     }
   }
 }

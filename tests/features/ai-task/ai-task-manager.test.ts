@@ -18,7 +18,7 @@ import type {
   AiRunExitOutcome,
   AiRunRequest,
 } from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { AiStreamEvent } from '../../../src/features/ai-task/types'
+import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
@@ -43,8 +43,15 @@ interface FakeRun {
 
 class FakeDispatcher implements AiDispatcher {
   runs: FakeRun[] = []
+  /** When set, the next start() throws this error synchronously (spawn failure) */
+  failNextStart: Error | null = null
 
   start(request: AiRunRequest, callbacks: AiRunCallbacks) {
+    if (this.failNextStart) {
+      const error = this.failNextStart
+      this.failNextStart = null
+      throw error
+    }
     const run: FakeRun = {
       request,
       callbacks,
@@ -108,7 +115,9 @@ function createHarness(options: HarnessOptions = {}) {
   const codex = new FakeDispatcher()
   const timer = createFiringTimer()
   const writeRunLog = jest.fn(async () => 'log-path.md')
-  const upsertRunLog = jest.fn(async () => 'upsert-log-path.md')
+  const upsertRunLog = jest.fn<Promise<string>, [AiRunRecord, AiStreamEvent[]?]>(
+    async () => 'upsert-log-path.md',
+  )
   const pruneOldLogs = jest.fn(async () => undefined)
   const resolve = jest.fn(
     options.resolveBinary ?? ((host: string) => Promise.resolve(`/bin/${host}`)),
@@ -698,6 +707,8 @@ describe('AiTaskManager.followUp', () => {
     const record = await startFinishedRun(harness)
 
     expect(harness.upsertRunLog).toHaveBeenCalledTimes(1)
+    // The initial run end persists the full record; there is no continuation.
+    expect(harness.upsertRunLog.mock.calls[0][1]).toBeUndefined()
     expect(harness.writeRunLog).not.toHaveBeenCalled()
     expect(record.logNotePath).toBe('upsert-log-path.md')
 
@@ -706,10 +717,73 @@ describe('AiTaskManager.followUp', () => {
     await flushPromises()
 
     expect(harness.upsertRunLog).toHaveBeenCalledTimes(2)
-    expect(harness.upsertRunLog).toHaveBeenLastCalledWith(record)
+    expect(harness.upsertRunLog).toHaveBeenLastCalledWith(record, [
+      { kind: 'user-text', text: 'continue' },
+    ])
     // The record still points at the original note before the second upsert
     // resolves a path, so the writer can modify it in place.
     expect(record.logNotePath).toBe('upsert-log-path.md')
+  })
+
+  test('passes only the post-follow-up events to the upsert path (no re-elided history)', async () => {
+    const harness = createHarness({ withUpsert: true })
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'continue')
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'more output' })
+    harness.claude.last.emit({ kind: 'stderr', text: 'warn: minor' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    const [, continuation] = harness.upsertRunLog.mock.calls[1]
+    expect(continuation).toEqual([
+      { kind: 'user-text', text: 'continue' },
+      { kind: 'assistant-text', text: 'more output' },
+      { kind: 'stderr', text: 'warn: minor' },
+    ])
+  })
+
+  test('a second follow-up passes only its own continuation segment', async () => {
+    const harness = createHarness({ withUpsert: true })
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'first')
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'answer one' })
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-2' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    await harness.manager.followUp(record.id, 'second')
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'answer two' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    const [, continuation] = harness.upsertRunLog.mock.calls[2]
+    expect(continuation).toEqual([
+      { kind: 'user-text', text: 'second' },
+      { kind: 'assistant-text', text: 'answer two' },
+    ])
+  })
+
+  test('removes the user-text event when the resume dispatch fails, so a retry does not duplicate it', async () => {
+    const harness = createHarness()
+    const record = await startFinishedRun(harness)
+    harness.claude.failNextStart = new Error('spawn failed')
+
+    await expect(harness.manager.followUp(record.id, 'continue')).rejects.toThrow(
+      'spawn failed',
+    )
+
+    expect(
+      record.events.filter((event) => event.kind === 'user-text'),
+    ).toHaveLength(0)
+
+    await harness.manager.followUp(record.id, 'continue')
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'retry output' })
+
+    expect(record.events.filter((event) => event.kind === 'user-text')).toEqual([
+      { kind: 'user-text', text: 'continue' },
+    ])
   })
 
   test('rejects a follow-up while the run is still active', async () => {

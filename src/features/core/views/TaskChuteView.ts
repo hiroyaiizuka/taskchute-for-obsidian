@@ -349,6 +349,11 @@ export class TaskChuteView
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
       saveScheduledTime: (inst, scheduledTime) =>
         this.updateTaskScheduledTime(inst, scheduledTime),
+      onInstanceResetToIdle: (inst, { wasRunning }) => {
+        // Resetting a running instance bypasses stopInstance, so stop the
+        // coupled AI run here to keep play/stop coupling symmetric.
+        if (wasRunning) this.maybeStopAiRunForInstance(inst)
+      },
     })
     this.taskCreationController = new TaskCreationController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -731,6 +736,9 @@ export class TaskChuteView
   private maybeStartAiRunForInstance(inst: TaskInstance): void {
     const manager = this.plugin.aiTaskManager
     if (!manager) return
+    // Defense in depth: the caller gates on the service's success flag, and
+    // a successful start always leaves the instance running.
+    if (inst.state !== 'running') return
     if (!readAiTaskConfig(inst.task.frontmatter)) return
     const taskPath = inst.task.path
     if (!taskPath) return
@@ -1887,13 +1895,17 @@ export class TaskChuteView
   // ===========================================
 
   async startInstance(inst: TaskInstance): Promise<void> {
-    await this.taskExecutionService.startInstance(inst)
-    this.maybeStartAiRunForInstance(inst)
+    const started = await this.taskExecutionService.startInstance(inst)
+    // Fire the coupled AI run only when the human start actually happened
+    // (the service resolves false on refusals like the future-date guard).
+    if (started) this.maybeStartAiRunForInstance(inst)
   }
 
   async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
-    await this.taskExecutionService.stopInstance(inst, stopTime)
-    this.maybeStopAiRunForInstance(inst)
+    const stopped = await this.taskExecutionService.stopInstance(inst, stopTime)
+    // Kill the coupled AI run only when the instance actually transitioned
+    // running -> done (a no-op stop must not touch the AI run).
+    if (stopped) this.maybeStopAiRunForInstance(inst)
     const viewDate = this.getViewDate()
     const today = new Date()
     const isTodayView =
@@ -2706,7 +2718,11 @@ export class TaskChuteView
   // Styles are provided by styles.css; dynamic CSS injection removed
 
   private async deleteTask(inst: TaskInstance): Promise<void> {
+    const wasRunning = inst.state === 'running'
     await this.taskMutationService.deleteTask(inst)
+    // Deleting a running instance never goes through stopInstance, so stop
+    // the coupled AI run here (otherwise it would keep running orphaned).
+    if (wasRunning) this.maybeStopAiRunForInstance(inst)
   }
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
@@ -2723,11 +2739,11 @@ export class TaskChuteView
   }
 
   private async deleteNonRoutineTask(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteTask(inst)
+    await this.deleteTask(inst)
   }
 
   private async deleteRoutineTask(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteTask(inst)
+    await this.deleteTask(inst)
   }
 
   private showTaskContextMenu(event: MouseEvent, inst: TaskInstance): void {
@@ -2787,10 +2803,17 @@ export class TaskChuteView
   }
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
+    const wasRunning = inst.state === 'running'
     await this.taskMutationService.deleteInstance(inst)
+    // Same reasoning as deleteTask: a deleted running instance must not
+    // leave its coupled AI run orphaned.
+    if (wasRunning) this.maybeStopAiRunForInstance(inst)
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {
+    // AI stop coupling happens via the TaskTimeController host callback
+    // (onInstanceResetToIdle), which also covers the controller-internal
+    // reset paths (start-time popup clear, TimeEditModal).
     await this.taskTimeController.resetTaskToIdle(inst)
   }
 

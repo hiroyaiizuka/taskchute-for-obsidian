@@ -1,10 +1,18 @@
 /**
  * Play/stop coupling between the human task timer and AI runs:
  *   - a successful human start of an ai_task instance also fires the AI run
+ *   - a refused/failed human start (TaskExecutionService returns false and
+ *     leaves the instance idle — e.g. the future-date guard) fires nothing
  *   - an already-active AI run is skipped silently (no duplicate, no Notice)
  *   - AI start failures notify but never block or roll back the human start
- *   - a human stop kills the active AI run for that task path
+ *   - a human stop kills the active AI run for that task path; a no-op stop
+ *     (instance not running, service returns false) leaves the AI run alone
+ *   - reset-to-idle and deletion of a RUNNING instance also stop the AI run
  * The 🤖 row button keeps its "run AI only" semantics (not covered here).
+ *
+ * The execution stubs mirror the real TaskExecutionService contract: it never
+ * rejects; it reports refusal/failure by returning false and leaving
+ * inst.state untouched, and success by mutating inst.state and returning true.
  */
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
@@ -119,13 +127,19 @@ function createPluginStub(): TaskChutePluginLike {
 }
 
 interface ExecutionStub {
-  startInstance: jest.Mock<Promise<void>, [TaskInstance]>
-  stopInstance: jest.Mock<Promise<void>, [TaskInstance, Date?]>
+  startInstance: jest.Mock<Promise<boolean>, [TaskInstance]>
+  stopInstance: jest.Mock<Promise<boolean>, [TaskInstance, Date?]>
+}
+
+interface MutationStub {
+  deleteTask: jest.Mock<Promise<void>, [TaskInstance]>
+  deleteInstance: jest.Mock<Promise<void>, [TaskInstance]>
 }
 
 function createView(plugin: TaskChutePluginLike): {
   view: TaskChuteView
   execution: ExecutionStub
+  mutation: MutationStub
 } {
   const leaf = {
     containerEl: document.createElement('div'),
@@ -133,13 +147,39 @@ function createView(plugin: TaskChutePluginLike): {
   const view = new TaskChuteView(leaf, plugin)
   view.containerEl = document.createElement('div')
   view.renderTaskList = jest.fn()
+  // Real-contract stubs: success mutates inst.state and resolves true;
+  // refusal/failure resolves false without touching the state. Never rejects.
   const execution: ExecutionStub = {
-    startInstance: jest.fn(async () => undefined),
-    stopInstance: jest.fn(async () => undefined),
+    startInstance: jest.fn(async (inst: TaskInstance) => {
+      inst.state = 'running'
+      return true
+    }),
+    stopInstance: jest.fn(async (inst: TaskInstance) => {
+      if (inst.state !== 'running') return false
+      inst.state = 'done'
+      return true
+    }),
   }
   ;(view as unknown as { taskExecutionService: ExecutionStub }).taskExecutionService =
     execution
-  return { view, execution }
+  const mutation: MutationStub = {
+    deleteTask: jest.fn(async () => undefined),
+    deleteInstance: jest.fn(async () => undefined),
+  }
+  ;(view as unknown as { taskMutationService: MutationStub }).taskMutationService =
+    mutation
+  return { view, execution, mutation }
+}
+
+/**
+ * Stub the view internals that TaskTimeController.resetTaskToIdle reaches
+ * through its host closures, so the real controller can run in isolation.
+ */
+function stubResetInternals(view: TaskChuteView): void {
+  const internals = view as unknown as Record<string, unknown>
+  internals.saveRunningTasksState = jest.fn(async () => undefined)
+  internals.removeTaskLogForInstanceOnCurrentDate = jest.fn(async () => undefined)
+  internals.getInstanceDisplayTitle = jest.fn(() => 'ai-task')
 }
 
 function makeTaskFile(path = TASK_PATH, basename = 'ai-task'): TFile {
@@ -192,12 +232,13 @@ function setUp(): {
   manager: ManagerStub
   view: TaskChuteView
   execution: ExecutionStub
+  mutation: MutationStub
 } {
   const plugin = createPluginStub()
   const manager = createManagerStub()
   ;(plugin as { aiTaskManager?: unknown }).aiTaskManager = manager
-  const { view, execution } = createView(plugin)
-  return { manager, view, execution }
+  const { view, execution, mutation } = createView(plugin)
+  return { manager, view, execution, mutation }
 }
 
 beforeEach(() => {
@@ -276,22 +317,32 @@ describe('TaskChuteView play button coupling', () => {
     expect(noticeMessages()).toEqual([])
   })
 
-  test('does not fire the AI run when the human start itself fails', async () => {
+  test('does not fire the AI run when the human start is refused (future-date guard)', async () => {
     const { manager, view, execution } = setUp()
-    execution.startInstance.mockRejectedValueOnce(new Error('start broke'))
+    // Real contract: the service notices, returns false, and leaves the
+    // instance idle. It never rejects.
+    execution.startInstance.mockImplementationOnce(async () => false)
+    const inst = makeInstance()
 
-    await expect(view.startInstance(makeInstance())).rejects.toThrow('start broke')
+    await expect(view.startInstance(inst)).resolves.toBeUndefined()
     await flushPromises()
 
+    expect(inst.state).toBe('idle')
     expect(manager.startRun).not.toHaveBeenCalled()
   })
 })
 
 describe('TaskChuteView stop button coupling', () => {
+  function makeRunningInstance(): TaskInstance {
+    const inst = makeInstance()
+    inst.state = 'running'
+    return inst
+  }
+
   test('a human stop kills the active AI run for the task path', async () => {
     const { manager, view, execution } = setUp()
     manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-42' }))
-    const inst = makeInstance()
+    const inst = makeRunningInstance()
 
     await view.stopInstance(inst)
 
@@ -303,7 +354,7 @@ describe('TaskChuteView stop button coupling', () => {
   test('a human stop without an active AI run leaves the manager alone', async () => {
     const { manager, view } = setUp()
 
-    await view.stopInstance(makeInstance())
+    await view.stopInstance(makeRunningInstance())
 
     expect(manager.stopRun).not.toHaveBeenCalled()
   })
@@ -312,16 +363,91 @@ describe('TaskChuteView stop button coupling', () => {
     const plugin = createPluginStub()
     const { view, execution } = createView(plugin)
 
-    await expect(view.stopInstance(makeInstance())).resolves.toBeUndefined()
+    await expect(view.stopInstance(makeRunningInstance())).resolves.toBeUndefined()
     expect(execution.stopInstance).toHaveBeenCalledTimes(1)
   })
 
-  test('does not stop the AI run when the human stop itself fails', async () => {
+  test('a no-op human stop (instance not running) leaves the AI run alone', async () => {
     const { manager, view, execution } = setUp()
     manager.getActiveRunForTask.mockReturnValue(makeRecord())
-    execution.stopInstance.mockRejectedValueOnce(new Error('stop broke'))
+    // Real contract: stopping a non-running instance is a no-op that
+    // resolves false. It never rejects.
+    const inst = makeInstance()
 
-    await expect(view.stopInstance(makeInstance())).rejects.toThrow('stop broke')
+    await expect(view.stopInstance(inst)).resolves.toBeUndefined()
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(1)
+    expect(inst.state).toBe('idle')
+    expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskChuteView reset-to-idle coupling', () => {
+  const asResetCapable = (view: TaskChuteView) =>
+    view as unknown as { resetTaskToIdle(inst: TaskInstance): Promise<void> }
+
+  test('resetting a running ai_task instance to idle stops the active AI run', async () => {
+    const { manager, view } = setUp()
+    stubResetInternals(view)
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-7' }))
+    const inst = makeInstance()
+    inst.state = 'running'
+
+    await asResetCapable(view).resetTaskToIdle(inst)
+
+    expect(inst.state).toBe('idle')
+    expect(manager.stopRun).toHaveBeenCalledWith('ai-run-7')
+  })
+
+  test('resetting a done instance leaves the AI run alone', async () => {
+    const { manager, view } = setUp()
+    stubResetInternals(view)
+    manager.getActiveRunForTask.mockReturnValue(makeRecord())
+    const inst = makeInstance()
+    inst.state = 'done'
+
+    await asResetCapable(view).resetTaskToIdle(inst)
+
+    expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskChuteView delete coupling', () => {
+  const asDeleteCapable = (view: TaskChuteView) =>
+    view as unknown as {
+      deleteTask(inst: TaskInstance): Promise<void>
+      deleteInstance(inst: TaskInstance): Promise<void>
+    }
+
+  test('deleting a running ai_task instance stops the active AI run', async () => {
+    const { manager, view, mutation } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-9' }))
+    const inst = makeInstance()
+    inst.state = 'running'
+
+    await asDeleteCapable(view).deleteTask(inst)
+
+    expect(mutation.deleteTask).toHaveBeenCalledWith(inst)
+    expect(manager.stopRun).toHaveBeenCalledWith('ai-run-9')
+  })
+
+  test('deleting a running instance (single occurrence) stops the active AI run', async () => {
+    const { manager, view, mutation } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-10' }))
+    const inst = makeInstance()
+    inst.state = 'running'
+
+    await asDeleteCapable(view).deleteInstance(inst)
+
+    expect(mutation.deleteInstance).toHaveBeenCalledWith(inst)
+    expect(manager.stopRun).toHaveBeenCalledWith('ai-run-10')
+  })
+
+  test('deleting an idle instance leaves the AI run alone', async () => {
+    const { manager, view } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord())
+
+    await asDeleteCapable(view).deleteTask(makeInstance())
 
     expect(manager.stopRun).not.toHaveBeenCalled()
   })

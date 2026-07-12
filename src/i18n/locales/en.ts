@@ -250,6 +250,7 @@ export const en = {
         desktopOnly: "AI task runs are available on desktop only.",
         startFailed: "Failed to start AI run: {message}",
         followUpFailed: "Failed to send follow-up: {message}",
+        sessionUnavailable: "This run has no session to resume.",
       },
     },
     date: {

@@ -6,16 +6,23 @@
  * run. Bodies are kept in a Map and only the selected one is visible, so
  * scroll position survives tab switches. A composer bar at the bottom sends
  * resume-based follow-up prompts for the selected run; it is enabled only
- * when that run is finished and has a session id. All content is written
- * through createEl/createDiv/createSpan with textContent only.
+ * when that run is finished, has a session id, and its task has no other
+ * active run. All content is written through createEl/createDiv/createSpan
+ * with textContent only.
  */
 
 import { Notice } from 'obsidian'
+import {
+  AiRunAlreadyActiveError,
+  AiSessionUnavailableError,
+} from '../services/AiTaskManager'
+import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
   getRun(runId: string): AiRunRecord | undefined
+  getActiveRunForTask(taskPath: string): AiRunRecord | undefined
   stopRun(runId: string): void
   followUp(runId: string, prompt: string): Promise<unknown>
   onChange(listener: (record: AiRunRecord) => void): () => void
@@ -293,8 +300,10 @@ export class AiRunPaneController {
   }
 
   /**
-   * The composer is usable only when the SELECTED run is finished and has a
-   * session id to resume; otherwise it is disabled with a hint placeholder.
+   * The composer is usable only when the SELECTED run is finished, has a
+   * session id to resume, AND its task has no other active run (the manager
+   * would deterministically reject the follow-up otherwise); in every other
+   * case it is disabled with a hint placeholder.
    */
   private updateComposerState(): void {
     const input = this.composerInput
@@ -308,7 +317,11 @@ export class AiRunPaneController {
     const isActive = record !== undefined && ACTIVE_STATUSES.has(record.status)
     const hasSession =
       typeof record?.sessionId === 'string' && record.sessionId.length > 0
-    const enabled = record !== undefined && !isActive && hasSession
+    const taskHasActiveRun =
+      record !== undefined &&
+      this.host.manager.getActiveRunForTask(record.taskPath) !== undefined
+    const enabled =
+      record !== undefined && !isActive && hasSession && !taskHasActiveRun
 
     input.disabled = !enabled
     send.disabled = !enabled
@@ -337,17 +350,50 @@ export class AiRunPaneController {
 
     input.value = ''
     void this.host.manager.followUp(runId, text).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      new Notice(
-        this.host.tv('aiTask.notices.followUpFailed', 'Failed to send follow-up: {message}', {
-          message,
-        }),
-      )
+      this.notifyFollowUpError(error)
       // Give the text back so the user can retry, unless they typed anew.
       if (this.composerInput && this.composerInput.value.length === 0) {
         this.composerInput.value = text
       }
     })
+  }
+
+  /** Localize typed follow-up errors instead of interpolating raw messages */
+  private notifyFollowUpError(error: unknown): void {
+    if (error instanceof AiRunAlreadyActiveError) {
+      new Notice(
+        this.host.tv(
+          'aiTask.notices.alreadyRunning',
+          'An AI run is already in progress for this task.',
+        ),
+      )
+      return
+    }
+    if (error instanceof AiBinaryNotFoundError) {
+      new Notice(
+        this.host.tv(
+          'aiTask.notices.binaryNotFound',
+          'AI CLI binary was not found: {host}. Set the path in settings.',
+          { host: error.host },
+        ),
+      )
+      return
+    }
+    if (error instanceof AiSessionUnavailableError) {
+      new Notice(
+        this.host.tv(
+          'aiTask.notices.sessionUnavailable',
+          'This run has no session to resume.',
+        ),
+      )
+      return
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    new Notice(
+      this.host.tv('aiTask.notices.followUpFailed', 'Failed to send follow-up: {message}', {
+        message,
+      }),
+    )
   }
 
   /**

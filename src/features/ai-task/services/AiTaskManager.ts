@@ -6,7 +6,10 @@
  * dispatches the child process, buffers stream events with a bounded
  * head + tail cap, and persists a run log note when the run ends.
  * followUp() resumes a finished run's CLI session with a new prompt and
- * keeps appending to the same record (and rewrites the same log note).
+ * keeps appending to the same record; each follow-up segment is also
+ * collected separately and handed to the log writer so the existing note is
+ * appended to (already-persisted transcript is never rebuilt from the
+ * bounded in-memory buffer, which may have elided it).
  *
  * Task-note frontmatter stays READ-ONLY here; the only vault write happens
  * inside AiTaskLogWriter at run end.
@@ -116,11 +119,17 @@ export interface AiTaskManagerDeps {
   logWriter: {
     writeRunLog(record: AiRunRecord): Promise<unknown>
     /**
-     * Rewrite-or-create path used so follow-ups keep one note per run.
-     * Optional so plain create-only writers keep working; when absent the
-     * manager falls back to writeRunLog.
+     * Append-or-create path used so follow-ups keep one note per run.
+     * `continuationEvents` carries only the events streamed since the last
+     * persist (user-text included); the writer appends them to the existing
+     * note instead of rebuilding it from the bounded buffer. Optional so
+     * plain create-only writers keep working; when absent the manager falls
+     * back to writeRunLog.
      */
-    upsertRunLog?(record: AiRunRecord): Promise<unknown>
+    upsertRunLog?(
+      record: AiRunRecord,
+      continuationEvents?: AiStreamEvent[],
+    ): Promise<unknown>
     pruneOldLogs(): Promise<void>
   }
   /** Timer override for tests; production uses activeWindow timers */
@@ -138,6 +147,53 @@ interface InternalRun {
   cwd?: string
   /** Extra CLI args captured at start, reused by follow-up dispatches */
   extraArgs: string[]
+  /**
+   * Events streamed since the current follow-up started (user-text included).
+   * Null outside a follow-up. Handed to the log writer at exit so it appends
+   * only the continuation instead of rebuilding the note from the bounded
+   * buffer (which may have elided already-persisted events).
+   */
+  continuation: BoundedEventBuffer | null
+}
+
+/** Mutable event buffer bounded by the shared head + tail cap */
+interface BoundedEventBuffer {
+  events: AiStreamEvent[]
+  omittedCount: number
+}
+
+/**
+ * Bounded append shared by the record buffer and follow-up continuation
+ * segments: the first AI_RUN_EVENT_HEAD_LIMIT events and the last
+ * AI_RUN_EVENT_TAIL_LIMIT events are kept verbatim; everything in between is
+ * represented by a single elision marker event.
+ */
+function appendBoundedEvent(buffer: BoundedEventBuffer, event: AiStreamEvent): void {
+  const events = buffer.events
+  const capacity = AI_RUN_EVENT_HEAD_LIMIT + AI_RUN_EVENT_TAIL_LIMIT
+
+  if (buffer.omittedCount === 0) {
+    if (events.length < capacity) {
+      events.push(event)
+      return
+    }
+    // First overflow: replace the oldest tail event with the marker.
+    buffer.omittedCount = 1
+    events.splice(AI_RUN_EVENT_HEAD_LIMIT, 1, {
+      kind: 'elision',
+      omittedCount: 1,
+    })
+    events.push(event)
+    return
+  }
+
+  buffer.omittedCount += 1
+  events[AI_RUN_EVENT_HEAD_LIMIT] = {
+    kind: 'elision',
+    omittedCount: buffer.omittedCount,
+  }
+  events.splice(AI_RUN_EVENT_HEAD_LIMIT + 1, 1)
+  events.push(event)
 }
 
 const defaultTimer: AiGraceTimer = {
@@ -213,6 +269,7 @@ export class AiTaskManager {
         exited: false,
         cwd,
         extraArgs: config.args,
+        continuation: null,
       }
       this.runs.set(record.id, internal)
       this.notifyChange(record)
@@ -282,7 +339,10 @@ export class AiTaskManager {
       const binaryPath = await this.deps.binaryLocator.resolve(record.host)
       this.throwIfDisposed()
 
-      this.appendEvent(record, { kind: 'user-text', text })
+      const userEvent: AiStreamEvent = { kind: 'user-text', text }
+      this.appendEvent(record, userEvent)
+      internal.continuation = { events: [], omittedCount: 0 }
+      appendBoundedEvent(internal.continuation, userEvent)
       record.status = 'starting'
       record.resumedAt = Date.now()
       record.endedAt = undefined
@@ -307,6 +367,13 @@ export class AiTaskManager {
         )
       } catch (error) {
         internal.exited = true
+        internal.continuation = null
+        // Roll back the user-text event so a successful retry does not
+        // render the prompt twice in the pane and the transcript.
+        const userEventIndex = record.events.lastIndexOf(userEvent)
+        if (userEventIndex >= 0) {
+          record.events.splice(userEventIndex, 1)
+        }
         record.status = 'failed'
         record.endedAt = Date.now()
         record.errorMessage = error instanceof Error ? error.message : String(error)
@@ -415,38 +482,22 @@ export class AiTaskManager {
       internal.record.sessionId = event.sessionId
     }
     this.appendEvent(internal.record, event)
+    if (internal.continuation) {
+      appendBoundedEvent(internal.continuation, event)
+    }
     this.notifyChange(internal.record)
   }
 
-  /**
-   * Bounded append: the first AI_RUN_EVENT_HEAD_LIMIT events and the last
-   * AI_RUN_EVENT_TAIL_LIMIT events are kept verbatim; everything in between
-   * is represented by a single elision marker event.
-   */
+  /** Bounded append into the record's event buffer (see appendBoundedEvent) */
   private appendEvent(record: AiRunRecord, event: AiStreamEvent): void {
-    const events = record.events
-    const capacity = AI_RUN_EVENT_HEAD_LIMIT + AI_RUN_EVENT_TAIL_LIMIT
-    const omitted = record.omittedEventCount ?? 0
-
-    if (omitted === 0) {
-      if (events.length < capacity) {
-        events.push(event)
-        return
-      }
-      // First overflow: replace the oldest tail event with the marker.
-      record.omittedEventCount = 1
-      events.splice(AI_RUN_EVENT_HEAD_LIMIT, 1, {
-        kind: 'elision',
-        omittedCount: 1,
-      })
-      events.push(event)
-      return
+    const buffer: BoundedEventBuffer = {
+      events: record.events,
+      omittedCount: record.omittedEventCount ?? 0,
     }
-
-    record.omittedEventCount = omitted + 1
-    events[AI_RUN_EVENT_HEAD_LIMIT] = { kind: 'elision', omittedCount: omitted + 1 }
-    events.splice(AI_RUN_EVENT_HEAD_LIMIT + 1, 1)
-    events.push(event)
+    appendBoundedEvent(buffer, event)
+    if (buffer.omittedCount > 0) {
+      record.omittedEventCount = buffer.omittedCount
+    }
   }
 
   private handleExit(internal: InternalRun, outcome: AiRunExitOutcome): void {
@@ -463,14 +514,17 @@ export class AiTaskManager {
     this.notifyChange(record)
 
     if (this.disposed) return
-    void this.persistRunLog(record)
+    void this.persistRunLog(internal)
   }
 
-  private async persistRunLog(record: AiRunRecord): Promise<void> {
+  private async persistRunLog(internal: InternalRun): Promise<void> {
+    const record = internal.record
+    const continuationEvents = internal.continuation?.events
+    internal.continuation = null
     try {
       const writer = this.deps.logWriter
       const result = writer.upsertRunLog
-        ? await writer.upsertRunLog(record)
+        ? await writer.upsertRunLog(record, continuationEvents)
         : await writer.writeRunLog(record)
       if (typeof result === 'string' && result.length > 0) {
         record.logNotePath = result

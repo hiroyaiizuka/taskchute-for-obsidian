@@ -248,6 +248,7 @@ export const ja = {
         desktopOnly: "AIタスクの実行はデスクトップ版でのみ利用できます。",
         startFailed: "AI実行の開始に失敗しました: {message}",
         followUpFailed: "フォローアップの送信に失敗しました: {message}",
+        sessionUnavailable: "この実行には再開できるセッションがありません。",
       },
     },
     date: {
