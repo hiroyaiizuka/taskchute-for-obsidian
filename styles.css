@@ -6488,12 +6488,13 @@ textarea.form-textarea {
 
 /* ===== AI Task ===== */
 
-/* Row controls (run/stop button + status chip) */
+/* Row controls (run/stop button + status chip). Rendered inside
+   .task-name-container (never a direct child of the .task-item grid);
+   spacing from the task name comes from the container's gap. */
 .ai-task-controls {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 4px;
   flex-shrink: 0;
 }
 

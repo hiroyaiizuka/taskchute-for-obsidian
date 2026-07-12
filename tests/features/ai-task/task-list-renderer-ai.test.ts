@@ -89,7 +89,7 @@ describe('TaskListRenderer AI task integration', () => {
     expect(host.taskList.querySelector('.ai-task-run-button')).toBeNull()
   })
 
-  test('renders the AI run button between the task name and the project column', () => {
+  test('renders the AI controls inside the task name container, not as a task item column', () => {
     const host = createBaseHost([createAiInstance()])
     host.isAiTaskFeatureEnabled = () => true
     host.getActiveAiRun = () => undefined
@@ -102,21 +102,19 @@ describe('TaskListRenderer AI task integration', () => {
     const button = taskItem.querySelector('.ai-task-run-button')
     expect(button).not.toBeNull()
 
-    const children = Array.from(taskItem.children)
-    const nameIndex = children.findIndex((el) =>
-      el.classList.contains('task-name-container'),
-    )
-    const aiIndex = children.findIndex((el) =>
-      el.querySelector('.ai-task-run-button') !== null || el.classList.contains('ai-task-run-button'),
-    )
-    const projectIndex = children.findIndex((el) =>
-      el.classList.contains('taskchute-project-display'),
-    )
-    expect(nameIndex).toBeGreaterThanOrEqual(0)
-    expect(aiIndex).toBeGreaterThan(nameIndex)
-    if (projectIndex >= 0) {
-      expect(aiIndex).toBeLessThan(projectIndex)
-    }
+    // The .task-item grid uses a fixed column template, so the AI controls
+    // must not become a direct child (extra grid cell) of the row. They live
+    // inside .task-name-container, like the reminder and recipe icons.
+    const controls = taskItem.querySelector('.ai-task-controls')
+    expect(controls).not.toBeNull()
+    expect(
+      controls?.parentElement?.classList.contains('task-name-container'),
+    ).toBe(true)
+    expect(
+      Array.from(taskItem.children).some((el) =>
+        el.classList.contains('ai-task-controls'),
+      ),
+    ).toBe(false)
   })
 
   test('clicking the AI run button calls startAiRun without selecting the row', () => {

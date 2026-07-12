@@ -278,8 +278,8 @@ export default class TaskListRenderer {
 
     this.createDragHandle(taskItem, inst, slot, idx)
     this.rowController.renderPlayStopButton(taskItem, inst, isFutureTask)
-    this.rowController.renderTaskName(taskItem, inst)
-    this.aiTaskRowRenderer?.render(taskItem, inst)
+    const taskNameContainer = this.rowController.renderTaskName(taskItem, inst)
+    this.aiTaskRowRenderer?.render(taskNameContainer, inst)
     this.actions.renderProject(taskItem, inst)
     this.rowController.renderTimeRangeDisplay(taskItem, inst)
     this.rowController.renderDurationDisplay(taskItem, inst)

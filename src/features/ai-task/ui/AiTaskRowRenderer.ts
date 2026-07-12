@@ -2,9 +2,12 @@
  * AI Task - task row controls
  *
  * Renders the per-row AI controls (run button, or stop control + status chip
- * while a run is active) into a task list item. State is pull-based: the
- * renderer reads the active run at render time and never subscribes, because
- * task rows are rebuilt on every task list re-render.
+ * while a run is active) into the task name container of a task list item.
+ * The controls must never become a direct child of .task-item: that element
+ * is a grid with a fixed column template, so an extra direct child would
+ * shift every subsequent column. State is pull-based: the renderer reads the
+ * active run at render time and never subscribes, because task rows are
+ * rebuilt on every task list re-render.
  */
 
 import type { TaskInstance } from '../../../types'
@@ -31,12 +34,13 @@ const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
 export class AiTaskRowRenderer {
   constructor(private readonly host: AiTaskRowRendererHost) {}
 
-  render(taskItem: HTMLElement, inst: TaskInstance): void {
+  /** @param taskNameContainer the .task-name-container span of the row */
+  render(taskNameContainer: HTMLElement, inst: TaskInstance): void {
     if (!this.host.isAiTaskFeatureEnabled()) return
     const config = readAiTaskConfig(inst.task.frontmatter)
     if (!config) return
 
-    const container = taskItem.createSpan({ cls: 'ai-task-controls' })
+    const container = taskNameContainer.createSpan({ cls: 'ai-task-controls' })
     const activeRun = inst.task.path
       ? this.host.getActiveAiRun(inst.task.path)
       : undefined

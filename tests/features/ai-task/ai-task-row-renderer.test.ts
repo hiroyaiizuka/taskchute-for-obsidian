@@ -48,45 +48,64 @@ function createHost(
 
 describe('AiTaskRowRenderer', () => {
   let taskItem: HTMLElement
+  let nameContainer: HTMLElement
 
   beforeEach(() => {
     document.body.replaceChildren()
     taskItem = document.body.createDiv({ cls: 'task-item' })
+    nameContainer = taskItem.createSpan({ cls: 'task-name-container' })
   })
 
   test('renders nothing when the feature is disabled', () => {
     const host = createHost({ isAiTaskFeatureEnabled: () => false })
-    new AiTaskRowRenderer(host).render(taskItem, createInstance())
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
-    expect(taskItem.children).toHaveLength(0)
+    expect(nameContainer.children).toHaveLength(0)
     expect(taskItem.querySelector('.ai-task-run-button')).toBeNull()
   })
 
   test('renders nothing when the task has no ai_task frontmatter', () => {
     const host = createHost()
-    new AiTaskRowRenderer(host).render(taskItem, createInstance({}))
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance({}))
 
-    expect(taskItem.children).toHaveLength(0)
+    expect(nameContainer.children).toHaveLength(0)
   })
 
   test('renders nothing when ai_task is not strictly true', () => {
     const host = createHost()
     new AiTaskRowRenderer(host).render(
-      taskItem,
+      nameContainer,
       createInstance({ ai_task: 'yes' }),
     )
 
-    expect(taskItem.children).toHaveLength(0)
+    expect(nameContainer.children).toHaveLength(0)
   })
 
   test('renders a run button with aria-label for a configured idle task', () => {
     const host = createHost()
-    new AiTaskRowRenderer(host).render(taskItem, createInstance())
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
     const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-run-button')
     expect(button).not.toBeNull()
     expect(button?.getAttribute('aria-label')).toBe('Run AI task')
     expect(taskItem.querySelector('.ai-task-status-chip')).toBeNull()
+  })
+
+  test('appends the controls inside the given container, never as a direct child of the task item', () => {
+    const host = createHost()
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
+
+    const controls = taskItem.querySelector('.ai-task-controls')
+    expect(controls).not.toBeNull()
+    // The .task-item grid has a fixed column template; adding a direct child
+    // would shift every subsequent column. Controls must live inside the
+    // task name container instead.
+    expect(controls?.parentElement).toBe(nameContainer)
+    expect(
+      Array.from(taskItem.children).some((el) =>
+        el.classList.contains('ai-task-controls'),
+      ),
+    ).toBe(false)
   })
 
   test('run button click starts the run and stops propagation', () => {
@@ -95,7 +114,7 @@ describe('AiTaskRowRenderer', () => {
     const parentClick = jest.fn()
     document.body.addEventListener('click', parentClick)
 
-    new AiTaskRowRenderer(host).render(taskItem, inst)
+    new AiTaskRowRenderer(host).render(nameContainer, inst)
     const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-run-button')
     button?.click()
 
@@ -107,7 +126,7 @@ describe('AiTaskRowRenderer', () => {
   test('renders a stop control and status chip while a run is active', () => {
     const run = createRun({ status: 'running' })
     const host = createHost({ getActiveAiRun: () => run })
-    new AiTaskRowRenderer(host).render(taskItem, createInstance())
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
     const stopButton = taskItem.querySelector<HTMLButtonElement>(
       '.ai-task-run-button--stop',
@@ -127,7 +146,7 @@ describe('AiTaskRowRenderer', () => {
     const parentClick = jest.fn()
     document.body.addEventListener('click', parentClick)
 
-    new AiTaskRowRenderer(host).render(taskItem, createInstance())
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
     const stopButton = taskItem.querySelector<HTMLButtonElement>(
       '.ai-task-run-button--stop',
     )
@@ -145,7 +164,7 @@ describe('AiTaskRowRenderer', () => {
   test('uses the active run for the task path of the rendered instance', () => {
     const getActiveAiRun = jest.fn(() => undefined)
     const host = createHost({ getActiveAiRun })
-    new AiTaskRowRenderer(host).render(taskItem, createInstance())
+    new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
     expect(getActiveAiRun).toHaveBeenCalledWith('TASKS/ai-sample.md')
   })
