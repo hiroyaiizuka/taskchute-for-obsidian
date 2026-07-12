@@ -15,6 +15,9 @@
  *   --multibyte     split the assistant line MID-multibyte-character (byte
  *                   level) across two stdout writes to exercise UTF-8
  *                   reassembly in the consumer
+ *   --spawn-child   spawn a long-lived grandchild process (same process
+ *                   group) and report `GRANDCHILD_PID:<pid>` on stderr, to
+ *                   exercise process-group kill semantics in the consumer
  */
 
 const argv = process.argv.slice(2)
@@ -30,9 +33,20 @@ const hang = argv.includes('--hang')
 const dumpEnv = argv.includes('--dump-env')
 const errorResult = argv.includes('--error-result')
 const multibyte = argv.includes('--multibyte')
+const spawnChild = argv.includes('--spawn-child')
 
 if (dumpEnv) {
   process.stderr.write(JSON.stringify(process.env) + '\n')
+}
+
+if (spawnChild) {
+  // Simulate an agent tool subprocess: NOT detached, so it shares this
+  // process's group. Only a group-wide signal can take it down with us.
+  const { spawn } = require('child_process')
+  const grandchild = spawn(process.execPath, ['-e', 'setInterval(function () {}, 1000)'], {
+    stdio: 'ignore',
+  })
+  process.stderr.write('GRANDCHILD_PID:' + grandchild.pid + '\n')
 }
 
 const initLine = JSON.stringify({

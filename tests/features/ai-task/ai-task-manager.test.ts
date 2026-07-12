@@ -338,6 +338,66 @@ describe('AiTaskManager events and exit mapping', () => {
     })
   })
 
+  test('keeps every event verbatim at exactly the cap boundary', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    const capacity = AI_RUN_EVENT_HEAD_LIMIT + AI_RUN_EVENT_TAIL_LIMIT
+    for (let index = 0; index < capacity; index += 1) {
+      harness.claude.last.emit({ kind: 'raw', text: `event-${index}` })
+    }
+
+    // Exactly at capacity: nothing is elided yet.
+    expect(record.events).toHaveLength(capacity)
+    expect(record.omittedEventCount).toBeUndefined()
+    expect(record.events[AI_RUN_EVENT_HEAD_LIMIT]).toEqual({
+      kind: 'raw',
+      text: `event-${AI_RUN_EVENT_HEAD_LIMIT}`,
+    })
+
+    // First event past capacity: exactly one event is elided.
+    harness.claude.last.emit({ kind: 'raw', text: `event-${capacity}` })
+
+    expect(record.events).toHaveLength(AI_RUN_EVENT_HEAD_LIMIT + 1 + AI_RUN_EVENT_TAIL_LIMIT)
+    expect(record.omittedEventCount).toBe(1)
+    expect(record.events[AI_RUN_EVENT_HEAD_LIMIT]).toEqual({
+      kind: 'elision',
+      omittedCount: 1,
+    })
+    expect(record.events[AI_RUN_EVENT_HEAD_LIMIT + 1]).toEqual({
+      kind: 'raw',
+      text: `event-${AI_RUN_EVENT_HEAD_LIMIT + 1}`,
+    })
+    expect(record.events[record.events.length - 1]).toEqual({
+      kind: 'raw',
+      text: `event-${capacity}`,
+    })
+  })
+
+  test('writes the log with the task name captured at start even after a mid-run rename', async () => {
+    const harness = createHarness()
+    const file = makeTaskFile('TaskChute/Task/Original Name.md', 'Original Name')
+    const record = await harness.manager.startRun(file)
+
+    // Obsidian mutates the same TFile object in place on rename; a deleted
+    // note behaves the same way from the record's point of view (the record
+    // must not reach back into the file at exit time).
+    file.path = 'TaskChute/Task/Renamed Later.md'
+    file.basename = 'Renamed Later'
+
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.writeRunLog).toHaveBeenCalledTimes(1)
+    expect(harness.writeRunLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskName: 'Original Name',
+        taskPath: 'TaskChute/Task/Original Name.md',
+      }),
+    )
+    expect(record.taskName).toBe('Original Name')
+  })
+
   test('maps a clean exit to succeeded', async () => {
     const harness = createHarness()
     const record = await harness.manager.startRun(makeTaskFile())

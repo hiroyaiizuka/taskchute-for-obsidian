@@ -14,6 +14,24 @@ import {
 
 const FIXTURE = path.join(FIXTURES_DIR, 'fake-claude.js')
 
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return !isProcessAlive(pid)
+}
+
 describe('ClaudeCodeDispatcher', () => {
   let restorePath: () => void
 
@@ -229,6 +247,31 @@ describe('ClaudeCodeDispatcher', () => {
       expect(outcome.signal).toBe('SIGTERM')
       expect(graceTimer.scheduled).toEqual([{ handle: 1, timeoutMs: STOP_GRACE_MS }])
       expect(graceTimer.cleared).toEqual([1])
+    }, 20_000)
+
+    test('stop() kills grandchild tool subprocesses via the process group', async () => {
+      const dispatcher = new ClaudeCodeDispatcher(new NodeProcessGateway(), createRecordingGraceTimer())
+      const run = startDispatcherRun(dispatcher, {
+        binaryPath: FIXTURE,
+        prompt: 'say hi',
+        extraArgs: ['--hang', '--spawn-child'],
+      })
+
+      const stderrEvent = await run.waitForEvent('stderr')
+      const stderrText = stderrEvent.kind === 'stderr' ? stderrEvent.text : ''
+      const pidMatch = /GRANDCHILD_PID:(\d+)/.exec(stderrText) ?? []
+      const grandchildPid = Number(pidMatch[1])
+      expect(Number.isInteger(grandchildPid)).toBe(true)
+      expect(isProcessAlive(grandchildPid)).toBe(true)
+      await run.waitForEvent('init')
+
+      run.handle.stop()
+      const outcome = await run.waitForExit()
+
+      expect(outcome.status).toBe('stopped')
+      // The grandchild shares the child's process group, so the stop signal
+      // must reach it too — otherwise it would survive as an orphan.
+      expect(await waitForProcessExit(grandchildPid, 10_000)).toBe(true)
     }, 20_000)
 
     test('stop() after exit is a no-op', async () => {

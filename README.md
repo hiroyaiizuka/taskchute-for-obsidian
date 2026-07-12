@@ -91,6 +91,33 @@ With default `vaultRoot` mode, TaskChute-managed folders are:
 
 `projectsFolder` is intentionally unset by default and can be configured separately.
 
+## AI tasks (experimental, desktop only)
+
+Run a task with a headless AI CLI (Claude Code or Codex) and watch the output stream into an "AI runs" pane below the task list.
+
+- Enable it in `TaskChute settings` → `AI task` → `Enable AI tasks`. The feature is off by default and never activates on mobile.
+- The plugin launches the CLIs you already have: **Claude Code (`claude`) and/or Codex (`codex`) must be installed and authenticated separately by you.** The plugin handles no API keys and makes no network calls itself.
+- If auto-detection fails, set the absolute binary paths in the same settings section.
+
+Mark a task note with frontmatter and add a `## Prompt` section:
+
+```markdown
+---
+ai_task: true
+ai_task_host: claude        # optional: claude (default) or codex
+ai_task_cwd: Projects/demo  # optional: working directory (vault-relative or absolute)
+ai_task_args: --max-turns 5 # optional: extra CLI arguments (string or list)
+---
+
+## Prompt
+
+Summarize the open questions in this project and propose next steps.
+```
+
+The task row then shows a run button; while a run is active it becomes a stop control with a status chip. Each finished run is saved as a markdown log note under `TaskChute/AI/Logs/YYYY-MM/`, and log notes older than `Run log retention (days)` (default 30) are moved to the trash automatically.
+
+Task-note frontmatter is read-only for this feature: the plugin never edits your task notes.
+
 ## Development
 
 ### Requirements

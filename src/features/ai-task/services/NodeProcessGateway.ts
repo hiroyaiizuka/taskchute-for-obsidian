@@ -16,6 +16,8 @@ declare function require(moduleId: string): unknown
 declare const process: {
   env: Record<string, string | undefined>
   execPath?: string
+  platform?: string
+  kill?(pid: number, signal?: string): boolean
 }
 
 /** Signals the AI Task feature is allowed to send */
@@ -82,7 +84,12 @@ interface ChildProcessModuleLike {
   spawn(
     command: string,
     args: string[],
-    options: { cwd?: string; env?: Record<string, string | undefined> },
+    options: {
+      cwd?: string
+      env?: Record<string, string | undefined>
+      detached?: boolean
+      windowsHide?: boolean
+    },
   ): NodeChildProcessLike
 }
 
@@ -168,9 +175,15 @@ export class NodeProcessGateway implements ProcessGateway {
     let child: NodeChildProcessLike | null = null
     let spawnErrorMessage: string | null = null
     try {
+      // detached:true makes the child a process-group leader (POSIX) so
+      // kill() below can signal the WHOLE group: if the CLI ignores SIGTERM
+      // and spawned its own tool subprocesses, the SIGKILL escalation still
+      // reaps the grandchildren instead of leaving orphans behind.
       child = loadChildProcessModule().spawn(request.command, request.args, {
         cwd: request.cwd,
         env: request.env,
+        detached: true,
+        windowsHide: true,
       })
     } catch (error) {
       spawnErrorMessage = describeSpawnError(error)
@@ -228,8 +241,22 @@ export class NodeProcessGateway implements ProcessGateway {
         }
       },
       kill: (signal) => {
+        if (child === null) return
+        // Prefer signalling the process group (negative pid) so grandchild
+        // tool subprocesses die with the CLI. Fall back to a direct child
+        // kill where group signalling is unsupported (Windows) or the group
+        // is already gone.
+        const pid = child.pid
+        if (typeof pid === 'number' && pid > 0 && typeof process.kill === 'function') {
+          try {
+            process.kill(-pid, signal)
+            return
+          } catch {
+            // Fall through to the direct child kill below.
+          }
+        }
         try {
-          child?.kill(signal)
+          child.kill(signal)
         } catch {
           // The process is already gone; treat the kill as a no-op.
         }
