@@ -48,6 +48,13 @@ export interface ProcessGateway {
   execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult>
   getBaseEnv(): Record<string, string | undefined>
   getShellPath(): string
+  /**
+   * Capture the user's login-shell PATH once (cached; never rejects) so
+   * getBaseEnv can merge it in. GUI-launched Obsidian on macOS inherits a
+   * minimal PATH (/usr/bin:/bin:...), which would make `env node` shebangs
+   * and in-run agent tools (git, npm, rg) unresolvable in child processes.
+   */
+  primeLoginShellPath(): Promise<void>
 }
 
 // --- Minimal structural types for the child_process module -----------------
@@ -96,6 +103,40 @@ function decodeChunk(chunk: unknown): string {
   return String(chunk)
 }
 
+/**
+ * Sentinel prefixed to the `echo` output so the PATH line can be recovered
+ * from noisy login-shell stdout (nvm banners in .zprofile, .zlogout output).
+ */
+const LOGIN_SHELL_PATH_MARKER = '__TASKCHUTE_AI_PATH__'
+
+export const LOGIN_SHELL_PATH_TIMEOUT_MS = 10_000
+
+const PATH_DELIMITER = ':'
+
+/** Login-shell entries first, then any process entries not already present */
+function mergePathLists(loginShellPath: string, processPath: string | undefined): string {
+  const merged: string[] = []
+  const seen = new Set<string>()
+  const append = (entry: string): void => {
+    if (entry.length === 0 || seen.has(entry)) return
+    seen.add(entry)
+    merged.push(entry)
+  }
+  for (const entry of loginShellPath.split(PATH_DELIMITER)) append(entry)
+  for (const entry of (processPath ?? '').split(PATH_DELIMITER)) append(entry)
+  return merged.join(PATH_DELIMITER)
+}
+
+function extractMarkedPathLine(stdout: string): string | undefined {
+  const markedLine = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.startsWith(LOGIN_SHELL_PATH_MARKER))
+  if (markedLine === undefined) return undefined
+  const value = markedLine.slice(LOGIN_SHELL_PATH_MARKER.length).trim()
+  return value.length > 0 ? value : undefined
+}
+
 function describeSpawnError(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message
   if (
@@ -109,6 +150,9 @@ function describeSpawnError(error: unknown): string {
 }
 
 export class NodeProcessGateway implements ProcessGateway {
+  private loginShellPath: string | null = null
+  private loginShellPathPrimed: Promise<void> | null = null
+
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
     const stdoutCallbacks: Array<(text: string) => void> = []
     const stderrCallbacks: Array<(text: string) => void> = []
@@ -222,6 +266,9 @@ export class NodeProcessGateway implements ProcessGateway {
     delete env['CLAUDECODE']
     delete env['CLAUDE_CODE_ENTRYPOINT']
     env['NO_COLOR'] = '1'
+    if (this.loginShellPath !== null) {
+      env['PATH'] = mergePathLists(this.loginShellPath, env['PATH'])
+    }
     return env
   }
 
@@ -229,5 +276,30 @@ export class NodeProcessGateway implements ProcessGateway {
     const shell = process.env['SHELL']
     if (typeof shell === 'string' && shell.trim().length > 0) return shell
     return '/bin/zsh'
+  }
+
+  primeLoginShellPath(): Promise<void> {
+    // Defer the capture to a microtask so the promise field is assigned
+    // before any inner execCapture -> getBaseEnv call runs; the second call
+    // then reuses the pending promise instead of spawning another shell.
+    this.loginShellPathPrimed ??= Promise.resolve().then(() => this.captureLoginShellPath())
+    return this.loginShellPathPrimed
+  }
+
+  private async captureLoginShellPath(): Promise<void> {
+    try {
+      const result = await this.execCapture(
+        this.getShellPath(),
+        ['-lc', `echo "${LOGIN_SHELL_PATH_MARKER}$PATH"`],
+        LOGIN_SHELL_PATH_TIMEOUT_MS,
+      )
+      if (result.code !== 0 || result.timedOut) return
+      const captured = extractMarkedPathLine(result.stdout)
+      if (captured !== undefined) {
+        this.loginShellPath = captured
+      }
+    } catch {
+      // Capture failures are non-fatal: getBaseEnv keeps the process PATH.
+    }
   }
 }

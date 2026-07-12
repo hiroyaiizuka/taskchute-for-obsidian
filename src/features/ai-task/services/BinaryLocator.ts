@@ -25,7 +25,7 @@ export interface AiBinaryPathOverrides {
 
 export type BinaryLocatorGateway = Pick<
   ProcessGateway,
-  'execCapture' | 'getShellPath' | 'getBaseEnv'
+  'execCapture' | 'getShellPath' | 'getBaseEnv' | 'primeLoginShellPath'
 >
 
 export class AiBinaryNotFoundError extends Error {
@@ -47,6 +47,15 @@ export class BinaryLocator {
   ) {}
 
   async resolve(host: AiTaskHost): Promise<string> {
+    // Warm the gateway's login-shell PATH cache before anything can spawn.
+    // resolve() always precedes dispatch, so awaiting here guarantees every
+    // child process (override paths included) inherits the user's real PATH.
+    try {
+      await this.gateway.primeLoginShellPath()
+    } catch {
+      // Children fall back to the process PATH; detection can still work.
+    }
+
     const override = this.readOverride(host)
     if (override !== undefined) return override
 
@@ -80,11 +89,14 @@ export class BinaryLocator {
         WHICH_TIMEOUT_MS,
       )
       if (result.code !== 0) return undefined
-      const firstLine = result.stdout
+      // Login-shell rc files often print noise (nvm banners etc.) before the
+      // `which` output, so pick the first absolute-path line rather than the
+      // first non-empty line.
+      const pathLine = result.stdout
         .split('\n')
         .map((line) => line.trim())
-        .find((line) => line.length > 0)
-      return firstLine !== undefined && firstLine.startsWith('/') ? firstLine : undefined
+        .find((line) => line.startsWith('/'))
+      return pathLine
     } catch {
       return undefined
     }

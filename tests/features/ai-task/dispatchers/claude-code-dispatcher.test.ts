@@ -1,3 +1,4 @@
+import * as fs from 'fs'
 import * as path from 'path'
 import { ClaudeCodeDispatcher } from '../../../../src/features/ai-task/services/dispatchers/ClaudeCodeDispatcher'
 import { STOP_GRACE_MS } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
@@ -146,6 +147,41 @@ describe('ClaudeCodeDispatcher', () => {
       } finally {
         delete process.env.CLAUDECODE
         delete process.env.CLAUDE_CODE_ENTRYPOINT
+      }
+    }, 20_000)
+
+    test('spawns the child with the login-shell PATH merged in', async () => {
+      const fakeLoginShell = path.join(FIXTURES_DIR, 'fake-login-shell.sh')
+      fs.chmodSync(fakeLoginShell, 0o755)
+      const savedShell = process.env.SHELL
+      process.env.SHELL = fakeLoginShell
+      try {
+        const gateway = new NodeProcessGateway()
+        await gateway.primeLoginShellPath()
+        const dispatcher = new ClaudeCodeDispatcher(gateway)
+        const { events } = await runDispatcherToCompletion(dispatcher, {
+          binaryPath: FIXTURE,
+          prompt: 'say hi',
+          extraArgs: ['--dump-env'],
+        })
+
+        const stderrEvent = events.find((event) => event.kind === 'stderr')
+        expect(stderrEvent).toBeDefined()
+        const childEnv = JSON.parse(
+          stderrEvent && stderrEvent.kind === 'stderr' ? stderrEvent.text : '{}',
+        ) as Record<string, string>
+        const childPathEntries = (childEnv.PATH ?? '').split(':')
+        // Login-shell entries lead the child PATH...
+        expect(childPathEntries[0]).toBe('/fake-login-dir/bin')
+        expect(childPathEntries).toContain('/fake-login-dir/sbin')
+        // ...and the original process entries are still reachable.
+        expect(childPathEntries).toContain(path.dirname(process.execPath))
+      } finally {
+        if (savedShell === undefined) {
+          delete process.env.SHELL
+        } else {
+          process.env.SHELL = savedShell
+        }
       }
     }, 20_000)
 

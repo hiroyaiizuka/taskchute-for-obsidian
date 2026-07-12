@@ -1,6 +1,10 @@
+import * as fs from 'fs'
+import * as path from 'path'
 import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
 
-const ENV_KEYS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'NO_COLOR', 'SHELL'] as const
+const ENV_KEYS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'NO_COLOR', 'SHELL', 'PATH'] as const
+
+const FAKE_LOGIN_SHELL = path.join(__dirname, 'fixtures/fake-login-shell.sh')
 
 describe('NodeProcessGateway', () => {
   const savedEnv: Record<string, string | undefined> = {}
@@ -54,6 +58,66 @@ describe('NodeProcessGateway', () => {
       const gateway = new NodeProcessGateway()
       expect(gateway.getBaseEnv().SHELL).toBe('/bin/bash')
     })
+  })
+
+  describe('primeLoginShellPath', () => {
+    beforeAll(() => {
+      fs.chmodSync(FAKE_LOGIN_SHELL, 0o755)
+    })
+
+    test('merges the login-shell PATH ahead of the process PATH', async () => {
+      process.env.SHELL = FAKE_LOGIN_SHELL
+      const originalPath = process.env.PATH ?? ''
+
+      const gateway = new NodeProcessGateway()
+      await gateway.primeLoginShellPath()
+      const mergedPath = gateway.getBaseEnv().PATH ?? ''
+      const mergedEntries = mergedPath.split(':')
+
+      // Login-shell entries come first, exactly as the fake .zprofile set them.
+      expect(mergedEntries[0]).toBe('/fake-login-dir/bin')
+      expect(mergedEntries[1]).toBe('/fake-login-dir/sbin')
+      // Every original process entry is preserved.
+      for (const entry of originalPath.split(':').filter((value) => value.length > 0)) {
+        expect(mergedEntries).toContain(entry)
+      }
+      // No duplicates were introduced by the merge.
+      expect(new Set(mergedEntries).size).toBe(mergedEntries.length)
+      // Noise lines and the sentinel marker never leak into PATH.
+      expect(mergedPath).not.toContain('nvm: loading')
+      expect(mergedPath).not.toContain('zlogout:')
+      expect(mergedPath).not.toContain('TASKCHUTE')
+      // The live process environment is untouched.
+      expect(process.env.PATH).toBe(originalPath)
+    }, 15_000)
+
+    test('getBaseEnv keeps the process PATH until priming completes', () => {
+      process.env.SHELL = FAKE_LOGIN_SHELL
+
+      const gateway = new NodeProcessGateway()
+      expect(gateway.getBaseEnv().PATH).toBe(process.env.PATH)
+    })
+
+    test('falls back to the process PATH when the login shell cannot run', async () => {
+      process.env.SHELL = '/nonexistent/fake-shell-for-test'
+
+      const gateway = new NodeProcessGateway()
+      await gateway.primeLoginShellPath()
+
+      expect(gateway.getBaseEnv().PATH).toBe(process.env.PATH)
+    }, 15_000)
+
+    test('runs the login shell only once per gateway instance', async () => {
+      process.env.SHELL = FAKE_LOGIN_SHELL
+
+      const gateway = new NodeProcessGateway()
+      const first = gateway.primeLoginShellPath()
+      const second = gateway.primeLoginShellPath()
+
+      expect(second).toBe(first)
+      await first
+      expect(gateway.primeLoginShellPath()).toBe(first)
+    }, 15_000)
   })
 
   describe('getShellPath', () => {

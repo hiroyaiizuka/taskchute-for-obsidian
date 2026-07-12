@@ -58,6 +58,7 @@ export function createSpyGateway(): SpyGateway {
     execCapture: () => Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false }),
     getBaseEnv: () => baseEnv,
     getShellPath: () => '/bin/zsh',
+    primeLoginShellPath: () => Promise.resolve(),
   }
 }
 

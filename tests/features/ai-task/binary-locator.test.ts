@@ -24,11 +24,13 @@ function createLocator(options: {
   execCapture: ExecCaptureMock
   overrides?: AiBinaryPathOverrides
   home?: string | undefined
+  primeLoginShellPath?: jest.Mock<Promise<void>, []>
 }): BinaryLocator {
   const gateway: BinaryLocatorGateway = {
     execCapture: options.execCapture,
     getShellPath: () => '/bin/zsh',
     getBaseEnv: () => ({ HOME: options.home ?? '/Users/tester', NO_COLOR: '1' }),
+    primeLoginShellPath: options.primeLoginShellPath ?? jest.fn(() => Promise.resolve()),
   }
   return new BinaryLocator(gateway, () => options.overrides ?? {})
 }
@@ -142,6 +144,7 @@ describe('BinaryLocator', () => {
       execCapture,
       getShellPath: () => '/bin/zsh',
       getBaseEnv: () => ({ NO_COLOR: '1' }),
+      primeLoginShellPath: () => Promise.resolve(),
     }
     const locatorWithoutHome = new BinaryLocator(gatewayWithoutHome, () => ({}))
     void locator
@@ -179,6 +182,59 @@ describe('BinaryLocator', () => {
     const locator = createLocator({ execCapture })
 
     await expect(locator.resolve('claude')).rejects.toBeInstanceOf(AiBinaryNotFoundError)
+  })
+
+  test('skips login-shell noise lines before the which path line', async () => {
+    const execCapture: ExecCaptureMock = jest
+      .fn()
+      .mockResolvedValue(
+        success('nvm: loading environment\nUsing node v20.11.0\n/opt/homebrew/bin/claude\n'),
+      )
+    const locator = createLocator({ execCapture })
+
+    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+  })
+
+  test('primes the login-shell PATH before detection', async () => {
+    const callOrder: string[] = []
+    const primeLoginShellPath = jest.fn(() => {
+      callOrder.push('prime')
+      return Promise.resolve()
+    })
+    const execCapture: ExecCaptureMock = jest.fn(() => {
+      callOrder.push('exec')
+      return Promise.resolve(success('/opt/homebrew/bin/claude\n'))
+    })
+    const locator = createLocator({ execCapture, primeLoginShellPath })
+
+    await locator.resolve('claude')
+
+    expect(primeLoginShellPath).toHaveBeenCalledTimes(1)
+    expect(callOrder[0]).toBe('prime')
+  })
+
+  test('primes the login-shell PATH even when a settings override is set', async () => {
+    const primeLoginShellPath = jest.fn(() => Promise.resolve())
+    const execCapture: ExecCaptureMock = jest.fn()
+    const locator = createLocator({
+      execCapture,
+      overrides: { aiTaskClaudePath: '/custom/claude' },
+      primeLoginShellPath,
+    })
+
+    await expect(locator.resolve('claude')).resolves.toBe('/custom/claude')
+    expect(primeLoginShellPath).toHaveBeenCalledTimes(1)
+    expect(execCapture).not.toHaveBeenCalled()
+  })
+
+  test('a priming failure does not break resolution', async () => {
+    const primeLoginShellPath = jest.fn(() => Promise.reject(new Error('shell exploded')))
+    const execCapture: ExecCaptureMock = jest
+      .fn()
+      .mockResolvedValue(success('/opt/homebrew/bin/claude\n'))
+    const locator = createLocator({ execCapture, primeLoginShellPath })
+
+    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('ignores which output that is not an absolute path', async () => {
