@@ -228,6 +228,7 @@ export const en = {
       paneTitle: "AI runs",
       run: "Run AI task",
       stop: "Stop AI task",
+      closeTab: "Close run tab",
       togglePane: "Toggle AI run pane",
       tabUntitled: "Untitled run",
       status: {
@@ -237,6 +238,15 @@ export const en = {
         succeeded: "Succeeded",
         failed: "Failed",
         stopped: "Stopped",
+      },
+      boardView: {
+        label: "Board view",
+        human: "Human",
+        ai: "AI",
+        mixed: "Mixed",
+        humanAria: "Show human tasks only",
+        aiAria: "Show AI tasks only",
+        mixedAria: "Show all tasks",
       },
       events: {
         omitted: "{count} events omitted",

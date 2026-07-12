@@ -72,7 +72,15 @@ import {
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
-import type { AiRunMode, AiRunStatus } from "../../ai-task/types"
+import type { AiRunMode, AiRunStatus, AiTaskBoardView } from "../../ai-task/types"
+
+/**
+ * Per-device persistence key of the AI board view (App#saveLocalStorage /
+ * App#loadLocalStorage — device-local by design, never synced with the vault).
+ */
+export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view'
+
+const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
@@ -133,6 +141,8 @@ export class TaskChuteView
   private aiRunPaneController: AiRunPaneController | null = null
   private aiRunRowStatuses = new Map<string, AiRunStatus>()
   private aiRunRowUnsubscribe: (() => void) | null = null
+  /** Selected board view (render-only filter); restored in the constructor */
+  private aiTaskBoardView: AiTaskBoardView = 'mixed'
 
   // State Management
   public useOrderBasedSort: boolean
@@ -228,6 +238,9 @@ export class TaskChuteView
     super(leaf)
     this.plugin = plugin
     this.app = plugin.app
+
+    // Restore the per-device board view (invalid/missing values → 'mixed')
+    this.aiTaskBoardView = this.loadAiTaskBoardView()
 
     // Initialize current date
     const today = new Date()
@@ -458,6 +471,9 @@ export class TaskChuteView
         this.registerManagedDomEvent(target, event, handler),
       toggleNavigation: () => this.navigationController.toggleNavigation(),
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      isAiTaskFeatureEnabled: () => this.isAiTaskFeatureEnabled(),
+      getAiTaskBoardView: () => this.getAiTaskBoardView(),
+      setAiTaskBoardView: (boardView) => this.setAiTaskBoardView(boardView),
     })
     this.routineController = new RoutineController({
       app: this.app,
@@ -572,6 +588,7 @@ export class TaskChuteView
       },
       stopAiRun: (runId) => view.plugin.aiTaskManager?.stopRun(runId),
       isPrimaryAiInstance: (inst) => view.isPrimaryAiInstance(inst),
+      getAiTaskBoardView: () => view.getAiTaskBoardView(),
     }
   }
 
@@ -704,6 +721,42 @@ export class TaskChuteView
 
   private isAiTaskFeatureEnabled(): boolean {
     return this.plugin.aiTaskManager !== undefined
+  }
+
+  /**
+   * Effective board view for rendering: while the AI Task feature is
+   * disabled (toggle OFF or mobile) the board ALWAYS behaves as 'mixed',
+   * regardless of what an earlier session stored.
+   */
+  public getAiTaskBoardView(): AiTaskBoardView {
+    return this.isAiTaskFeatureEnabled() ? this.aiTaskBoardView : 'mixed'
+  }
+
+  /** Select a board view, persist it per device, and re-render immediately */
+  public setAiTaskBoardView(view: AiTaskBoardView): void {
+    this.aiTaskBoardView = view
+    // Duck-typed: App#saveLocalStorage exists at runtime, but test doubles
+    // (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+    }
+    if (typeof app.saveLocalStorage === 'function') {
+      app.saveLocalStorage(AI_TASK_BOARD_VIEW_STORAGE_KEY, view)
+    }
+    this.renderTaskList()
+  }
+
+  /** Read the stored board view; anything unexpected falls back to 'mixed' */
+  private loadAiTaskBoardView(): AiTaskBoardView {
+    const app = this.app as unknown as {
+      loadLocalStorage?: (key: string) => unknown
+    }
+    const stored: unknown =
+      typeof app.loadLocalStorage === 'function'
+        ? app.loadLocalStorage(AI_TASK_BOARD_VIEW_STORAGE_KEY)
+        : null
+    const match = AI_TASK_BOARD_VIEWS.find((view) => view === stored)
+    return match ?? 'mixed'
   }
 
   private async startAiRun(
@@ -875,6 +928,8 @@ export class TaskChuteView
     } else {
       this.unmountAiRunPane()
     }
+    // The board view switch renders only while the feature is enabled.
+    this.taskHeaderController.refreshAiTaskBoardSwitch()
     this.renderTaskList()
   }
 

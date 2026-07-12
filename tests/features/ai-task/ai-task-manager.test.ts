@@ -307,7 +307,9 @@ describe('AiTaskManager events and exit mapping', () => {
 
     expect(record.events).toEqual([{ kind: 'assistant-text', text: 'hi' }])
     expect(listener.mock.calls.length).toBe(callsBefore + 1)
-    expect(listener).toHaveBeenLastCalledWith(record)
+    // Stream-event notifications are regular updates (only the end of the
+    // persist chain fires the 'persisted' changeType).
+    expect(listener).toHaveBeenLastCalledWith(record, 'update')
   })
 
   test('onChange disposer stops notifications', async () => {

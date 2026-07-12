@@ -15,6 +15,13 @@ export type AiTaskHost = 'claude' | 'codex'
  */
 export type AiRunMode = 'terminal' | 'headless'
 
+/**
+ * Board view filter of the TaskChute task list: 'human' hides ai_task notes,
+ * 'ai' shows only them, 'mixed' (default) shows everything. Render-only —
+ * the underlying instance list, counts, and logs are never affected.
+ */
+export type AiTaskBoardView = 'human' | 'ai' | 'mixed'
+
 /** Lifecycle status of a single AI run */
 export type AiRunStatus =
   | 'starting'

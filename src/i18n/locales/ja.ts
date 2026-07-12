@@ -226,6 +226,7 @@ export const ja = {
       paneTitle: "AI実行",
       run: "AIタスクを実行",
       stop: "AIタスクを停止",
+      closeTab: "実行タブを閉じる",
       togglePane: "AI実行ペインを開閉",
       tabUntitled: "無題の実行",
       status: {
@@ -235,6 +236,15 @@ export const ja = {
         succeeded: "成功",
         failed: "失敗",
         stopped: "停止",
+      },
+      boardView: {
+        label: "ボード表示",
+        human: "人間",
+        ai: "AI",
+        mixed: "混合",
+        humanAria: "人間のタスクのみ表示",
+        aiAria: "AIタスクのみ表示",
+        mixedAria: "すべてのタスクを表示",
       },
       events: {
         omitted: "{count}件のイベントを省略",

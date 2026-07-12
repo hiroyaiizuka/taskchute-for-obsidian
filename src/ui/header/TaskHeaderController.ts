@@ -5,6 +5,7 @@ import TaskMoveCalendar, {
 } from '../components/TaskMoveCalendar'
 import { getCurrentLocale } from '../../i18n'
 import type { TaskChutePluginLike } from '../../types'
+import type { AiTaskBoardView } from '../../features/ai-task/types'
 
 export interface TaskHeaderControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -18,9 +19,56 @@ export interface TaskHeaderControllerHost {
   app: Pick<App, 'commands'>
   registerManagedDomEvent: (target: Document | HTMLElement, event: string, handler: EventListener) => void
   registerDisposer?: (cleanup: () => void) => void
+  /**
+   * AI board view switch (all three optional so hosts without the AI Task
+   * feature render the header exactly as before): the segmented control is
+   * drawn only while isAiTaskFeatureEnabled() reports true.
+   */
+  isAiTaskFeatureEnabled?: () => boolean
+  getAiTaskBoardView?: () => AiTaskBoardView
+  setAiTaskBoardView?: (view: AiTaskBoardView) => void
 }
 
 const TERMINAL_COMMAND_ID = 'terminal:open-terminal.integrated.root'
+
+/**
+ * Segment definitions of the board view switch. The emoji prefixes come from
+ * the approved mock and are composed in code so the i18n strings stay plain
+ * sentence-case labels.
+ */
+const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
+  view: AiTaskBoardView
+  emoji: string | null
+  labelKey: string
+  labelFallback: string
+  ariaKey: string
+  ariaFallback: string
+}> = [
+  {
+    view: 'human',
+    emoji: '👤',
+    labelKey: 'aiTask.boardView.human',
+    labelFallback: 'Human',
+    ariaKey: 'aiTask.boardView.humanAria',
+    ariaFallback: 'Show human tasks only',
+  },
+  {
+    view: 'ai',
+    emoji: '🤖',
+    labelKey: 'aiTask.boardView.ai',
+    labelFallback: 'AI',
+    ariaKey: 'aiTask.boardView.aiAria',
+    ariaFallback: 'Show AI tasks only',
+  },
+  {
+    view: 'mixed',
+    emoji: null,
+    labelKey: 'aiTask.boardView.mixed',
+    labelFallback: 'Mixed',
+    ariaKey: 'aiTask.boardView.mixedAria',
+    ariaFallback: 'Show all tasks',
+  },
+]
 
 export interface TaskHeaderControllerDependencies {
   createCalendar: TaskMoveCalendarFactory
@@ -34,6 +82,9 @@ export default class TaskHeaderController {
   private dateLabelEl: HTMLElement | null = null
   private navContainerEl: HTMLElement | null = null
   private activeCalendar: TaskMoveCalendarHandle | null = null
+  private actionSectionEl: HTMLElement | null = null
+  private boardViewSwitchEl: HTMLElement | null = null
+  private boardViewButtons = new Map<AiTaskBoardView, HTMLButtonElement>()
 
   constructor(
     private readonly host: TaskHeaderControllerHost,
@@ -133,6 +184,8 @@ export default class TaskHeaderController {
     const actionSection = container.createDiv( {
       cls: 'header-action-section',
     })
+    this.actionSectionEl = actionSection
+    this.renderAiTaskBoardSwitch(actionSection)
 
     const addTaskButton = actionSection.createEl('button', {
       cls: 'add-task-button repositioned',
@@ -187,6 +240,76 @@ export default class TaskHeaderController {
         })()
       })
     }
+  }
+
+  /**
+   * Draw (or re-draw) the 3-way board view switch at the left edge of the
+   * action section. Nothing renders while the AI Task feature is disabled or
+   * the host lacks the callbacks — the header then matches its pre-feature
+   * markup exactly.
+   */
+  private renderAiTaskBoardSwitch(actionSection: HTMLElement): void {
+    this.boardViewSwitchEl?.remove()
+    this.boardViewSwitchEl = null
+    this.boardViewButtons.clear()
+    if (this.host.isAiTaskFeatureEnabled?.() !== true) return
+    const setView = this.host.setAiTaskBoardView
+    if (!this.host.getAiTaskBoardView || !setView) return
+
+    const group = actionSection.createDiv( {
+      cls: 'ai-board-view-switch',
+      attr: {
+        role: 'group',
+        'aria-label': this.host.tv('aiTask.boardView.label', 'Board view'),
+      },
+    })
+    // A refresh appends into an already-populated section; move the switch
+    // back to the front so its position never depends on WHEN it rendered.
+    if (actionSection.firstChild !== group) {
+      actionSection.insertBefore(group, actionSection.firstChild)
+    }
+
+    for (const segment of BOARD_VIEW_SEGMENTS) {
+      const label = this.host.tv(segment.labelKey, segment.labelFallback)
+      const aria = this.host.tv(segment.ariaKey, segment.ariaFallback)
+      const button = group.createEl('button', {
+        cls: 'ai-board-view-switch__segment',
+        text: segment.emoji !== null ? `${segment.emoji} ${label}` : label,
+        attr: {
+          'aria-label': aria,
+          title: aria,
+          'data-view': segment.view,
+          'aria-pressed': 'false',
+        },
+      })
+      this.host.registerManagedDomEvent(button, 'click', (event) => {
+        event.stopPropagation()
+        setView(segment.view)
+        this.refreshBoardViewActiveState()
+      })
+      this.boardViewButtons.set(segment.view, button)
+    }
+    this.boardViewSwitchEl = group
+    this.refreshBoardViewActiveState()
+  }
+
+  /** Mirror host.getAiTaskBoardView() onto the segment active states */
+  private refreshBoardViewActiveState(): void {
+    const current = this.host.getAiTaskBoardView?.() ?? 'mixed'
+    for (const [view, button] of this.boardViewButtons) {
+      const isActive = view === current
+      button.classList.toggle('is-active', isActive)
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false')
+    }
+  }
+
+  /**
+   * Re-sync the switch with the feature toggle without re-rendering the
+   * whole header (called when the AI Task settings change at runtime).
+   */
+  public refreshAiTaskBoardSwitch(): void {
+    if (!this.actionSectionEl) return
+    this.renderAiTaskBoardSwitch(this.actionSectionEl)
   }
 
   private attachCalendarButton(calendarBtn: HTMLElement): void {

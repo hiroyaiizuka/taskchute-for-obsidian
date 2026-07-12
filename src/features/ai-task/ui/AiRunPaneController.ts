@@ -24,9 +24,16 @@
  * On mount the pane also registers itself as the manager's terminal
  * snapshot provider: at run exit the manager reads the run's live xterm
  * buffer (adapter.snapshotText()) as the log-note transcript instead of the
- * ANSI-stripped PTY transcript file. Adapters are therefore NEVER disposed
- * on run exit — only unmount tears them down (after unregistering the
- * provider).
+ * ANSI-stripped PTY transcript file. Adapters are therefore never disposed
+ * on the final status update.
+ *
+ * Tab lifecycle at run end: a run that finishes as 'stopped' closes its tab
+ * automatically — but only on the manager's 'persisted' notification (the
+ * end of the log persist chain), so the exit-time snapshot above always
+ * found the adapter alive. Closing a tab disposes its adapter, selects the
+ * most recent remaining tab, and hides the pane again when no tabs remain.
+ * Runs that finish as 'succeeded' or 'failed' keep their tab and gain a ×
+ * close control instead; stopped runs never regain a tab on a mount replay.
  *
  * All content is written through createEl/createDiv/createSpan with
  * textContent only (xterm renders inside its own subtree via the adapter).
@@ -38,6 +45,7 @@ import {
   AiSessionUnavailableError,
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
+  type AiRunChangeType,
 } from '../services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
@@ -52,7 +60,9 @@ export interface AiRunPaneManagerLike {
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined
   stopRun(runId: string): void
   followUp(runId: string, prompt: string): Promise<unknown>
-  onChange(listener: (record: AiRunRecord) => void): () => void
+  onChange(
+    listener: (record: AiRunRecord, changeType?: AiRunChangeType) => void,
+  ): () => void
   onTerminalData(runId: string, listener: (chunk: string) => void): () => void
   sendTerminalInput(runId: string, data: string): void
   /**
@@ -193,8 +203,8 @@ export class AiRunPaneController {
     this.bodiesEl = root.createDiv({ cls: 'ai-run-pane__bodies' })
     this.mountComposer(root)
 
-    this.unsubscribe = this.host.manager.onChange((record) => {
-      this.handleChange(record)
+    this.unsubscribe = this.host.manager.onChange((record, changeType) => {
+      this.handleChange(record, changeType)
     })
     this.host.registerManagedDisposer(() => {
       this.unsubscribe?.()
@@ -249,6 +259,9 @@ export class AiRunPaneController {
       const record = this.host.manager.getRun(runId)
       if (!record) return
       this.handleChange(record)
+      // handleChange declines some records (e.g. stopped runs never regain
+      // a tab); without a view there is nothing to reveal or select.
+      if (!this.runViews.has(runId)) return
     }
     this.revealPane()
     this.setCollapsed(false)
@@ -309,10 +322,23 @@ export class AiRunPaneController {
     this.root?.classList.remove('is-hidden')
   }
 
-  private handleChange(record: AiRunRecord): void {
+  private handleChange(record: AiRunRecord, changeType?: AiRunChangeType): void {
     if (!this.root) return
+    if (changeType === 'persisted') {
+      // The run's log persist chain completed: the exit-time terminal
+      // snapshot has been consumed, so a stopped run's tab (and adapter) is
+      // now safe to tear down. Succeeded/failed runs keep their tab.
+      if (record.status === 'stopped') {
+        this.closeRun(record.id)
+      }
+      return
+    }
     const existing = this.runViews.get(record.id)
     if (!existing) {
+      // Stopped runs never (re)gain a tab: their tab auto-closed at persist
+      // time, and a mount replay of the manager's records must not resurrect
+      // it.
+      if (record.status === 'stopped') return
       this.createRunView(record)
       this.updateComposerState()
       return
@@ -324,6 +350,37 @@ export class AiRunPaneController {
     if (!existing.isTerminal) {
       this.syncEvents(existing, record)
     }
+    this.updateComposerState()
+  }
+
+  /**
+   * Close one run's tab: dispose its terminal wiring, remove the tab and
+   * body, move the selection to the most recent remaining tab, and hide the
+   * pane again (the pre-first-run state) when no tabs remain. Used by the
+   * stopped-run auto-close and the × control of finished tabs.
+   */
+  private closeRun(runId: string): void {
+    const view = this.runViews.get(runId)
+    if (!view) return
+    this.disposeTerminalBinding(view)
+    view.tab.remove()
+    view.body.remove()
+    this.runViews.delete(runId)
+
+    if (this.selectedRunId === runId) {
+      this.selectedRunId = null
+      const remaining = Array.from(this.runViews.keys())
+      const mostRecent = remaining[remaining.length - 1]
+      if (mostRecent !== undefined) {
+        this.selectRun(mostRecent)
+        return
+      }
+    }
+    if (this.runViews.size === 0) {
+      this.selectedRunId = null
+      this.root?.classList.add('is-hidden')
+    }
+    this.updateTerminalChrome()
     this.updateComposerState()
   }
 
@@ -406,6 +463,21 @@ export class AiRunPaneController {
       stopButton.addEventListener('click', (event) => {
         event.stopPropagation()
         this.host.manager.stopRun(record.id)
+      })
+    } else if (record.status === 'succeeded' || record.status === 'failed') {
+      // Finished tabs are kept for review and closed manually. 'stopped'
+      // deliberately gets NO control: its tab auto-closes on 'persisted',
+      // and a manual close in that window could dispose the adapter before
+      // the manager captured the transcript snapshot.
+      const closeLabel = this.host.tv('aiTask.closeTab', 'Close run tab')
+      const closeButton = view.tab.createEl('button', {
+        cls: 'ai-run-pane__tab-close',
+        text: '×',
+        attr: { 'aria-label': closeLabel, title: closeLabel },
+      })
+      closeButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.closeRun(record.id)
       })
     }
   }

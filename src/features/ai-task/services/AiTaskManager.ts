@@ -192,7 +192,19 @@ export interface AiTaskManagerDeps {
   log?(level: 'warn' | 'error' | 'debug', ...args: unknown[]): void
 }
 
-export type AiRunChangeListener = (record: AiRunRecord) => void
+/**
+ * Discriminates onChange notifications: 'update' for status/event mutations,
+ * 'persisted' fired exactly once per run exit AFTER the run's log persist
+ * chain (note write + retention prune) has completed. UI that tears down a
+ * run's terminal view (whose live buffer is the log-note transcript source)
+ * must wait for 'persisted', never act on the final status 'update'.
+ */
+export type AiRunChangeType = 'update' | 'persisted'
+
+export type AiRunChangeListener = (
+  record: AiRunRecord,
+  changeType: AiRunChangeType,
+) => void
 
 /** Per-run listener for raw terminal output chunks */
 export type AiTerminalDataListener = (chunk: string) => void
@@ -804,18 +816,29 @@ export class AiTaskManager {
       return
     }
     if (record.mode === 'terminal') {
-      internal.persistQueue = internal.persistQueue.then(() =>
-        this.persistTerminalRunLog(internal),
-      )
+      internal.persistQueue = internal.persistQueue
+        .then(() => this.persistTerminalRunLog(internal))
+        .then(() => this.notifyPersisted(record))
       return
     }
     // Snapshot the continuation synchronously and chain the write onto the
     // run's persist queue (see InternalRun.persistQueue for the guarantees).
     const continuationEvents = internal.continuation?.events
     internal.continuation = null
-    internal.persistQueue = internal.persistQueue.then(() =>
-      this.persistRunLog(internal, continuationEvents),
-    )
+    internal.persistQueue = internal.persistQueue
+      .then(() => this.persistRunLog(internal, continuationEvents))
+      .then(() => this.notifyPersisted(record))
+  }
+
+  /**
+   * End-of-persist-chain notification (see AiRunChangeType). The pane closes
+   * a stopped run's tab on this event — never on the status update — so the
+   * terminal snapshot consumed by the persist above always found its adapter
+   * alive. Skipped after dispose (listeners are cleared there anyway).
+   */
+  private notifyPersisted(record: AiRunRecord): void {
+    if (this.disposed) return
+    this.notifyChange(record, 'persisted')
   }
 
   /** Best-effort removal of a terminal run's transcript temp file */
@@ -933,10 +956,13 @@ export class AiTaskManager {
     if (this.disposed) throw new AiTaskManagerDisposedError()
   }
 
-  private notifyChange(record: AiRunRecord): void {
+  private notifyChange(
+    record: AiRunRecord,
+    changeType: AiRunChangeType = 'update',
+  ): void {
     for (const listener of Array.from(this.listeners)) {
       try {
-        listener(record)
+        listener(record, changeType)
       } catch (error) {
         this.deps.log?.('warn', '[AiTaskManager] onChange listener failed', error)
       }

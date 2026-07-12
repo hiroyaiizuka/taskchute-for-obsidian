@@ -6664,6 +6664,20 @@ textarea.form-textarea {
   line-height: 1;
 }
 
+.ai-run-pane__tab-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.ai-run-pane__tab-close:hover {
+  color: var(--text-normal);
+}
+
 .ai-run-pane__bodies {
   display: flex;
   flex: 1;
@@ -6800,4 +6814,39 @@ textarea.form-textarea {
    input directly in the terminal. */
 .ai-run-pane__composer.is-hidden {
   display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   AI Task - board view switch (header segmented control)
+   --------------------------------------------------------------------------- */
+
+.ai-board-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.ai-board-view-switch__segment {
+  border: none;
+  background: transparent;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ai-board-view-switch__segment:hover {
+  color: var(--text-normal);
+}
+
+.ai-board-view-switch__segment.is-active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-s, 0 1px 2px rgb(0 0 0 / 0.15));
 }

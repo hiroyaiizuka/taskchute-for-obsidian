@@ -4,7 +4,7 @@ import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
 import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
 import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
-import type { AiRunRecord } from '../../features/ai-task/types'
+import type { AiRunRecord, AiTaskBoardView } from '../../features/ai-task/types'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -52,6 +52,13 @@ export type TaskListRendererHost = {
   stopAiRun?: (runId: string) => void
   /** Run-ownership fallback for AI runs without an instanceId */
   isPrimaryAiInstance?: (inst: TaskInstance) => boolean
+  /**
+   * Board view filter (human / ai / mixed). RENDER-ONLY: it decides which
+   * rows are drawn but never mutates taskInstances, so counts, execution
+   * logs, and reminders keep seeing the full list. Absent callback (or the
+   * AI Task feature disabled) means 'mixed' — everything renders.
+   */
+  getAiTaskBoardView?: () => AiTaskBoardView
 }
 
 export default class TaskListRenderer {
@@ -172,7 +179,7 @@ export default class TaskListRenderer {
 
     const noTimeInstances: TaskInstance[] = []
     const validSlotKeys = new Set(this.host.getTimeSlotKeys())
-    taskInstances.forEach((inst) => {
+    this.filterByBoardView(taskInstances).forEach((inst) => {
       const slot = inst.slotKey && inst.slotKey !== 'none' ? inst.slotKey : null
       if (slot && validSlotKeys.has(slot)) {
         timeSlots[slot].push(inst)
@@ -201,6 +208,21 @@ export default class TaskListRenderer {
 
   updateTimerDisplay(timerEl: HTMLElement, inst: TaskInstance): void {
     this.rowController.updateTimerDisplay(timerEl, inst)
+  }
+
+  /**
+   * Apply the board view filter to the rows about to be drawn. Returns the
+   * original array untouched for 'mixed' (and when the host has no filter);
+   * otherwise a NEW filtered array — host.taskInstances is never mutated
+   * (updateTotalTasksCount and every persistence path read the full list).
+   */
+  private filterByBoardView(instances: TaskInstance[]): TaskInstance[] {
+    const boardView = this.host.getAiTaskBoardView?.() ?? 'mixed'
+    if (boardView === 'mixed') return instances
+    const wantAi = boardView === 'ai'
+    return instances.filter(
+      (inst) => (inst.task?.frontmatter?.['ai_task'] === true) === wantAi,
+    )
   }
 
   private renderNoTimeGroup(instances: TaskInstance[]): void {
