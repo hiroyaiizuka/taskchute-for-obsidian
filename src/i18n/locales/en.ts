@@ -467,7 +467,7 @@ export const en = {
       typeLabel: 'Task type',
       typeHuman: 'Human task',
       typeAi: 'AI task',
-      aiAgentLabel: 'Main agent',
+      aiAgentLabel: '👑 main agent',
       aiAgentClaude: CLAUDE_CODE_NAME,
       aiAgentCodex: 'Codex',
       aiPromptLabel: 'Prompt (optional)',
@@ -480,7 +480,7 @@ export const en = {
       aiExecModeFullAuto: 'Full auto',
       aiModelLabel: 'AI model:',
       aiModelPlaceholder: 'Default model',
-      aiCwdLabel: 'Working directory:',
+      aiCwdLabel: '📁 working directory:',
       aiCwdPlaceholder: 'e.g. /path/to/project',
     },
     forms: {

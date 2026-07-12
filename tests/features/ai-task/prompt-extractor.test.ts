@@ -175,4 +175,44 @@ describe('extractPromptSection', () => {
       expect(extractPromptSection(content, headings)).toBe('# Overview\nbody')
     })
   })
+
+  describe('indented (1-3 space) hash lines — CommonMark heading indentation', () => {
+    // Carried WARNING regression: CommonMark (and Obsidian's heading cache)
+    // recognizes ATX headings indented by up to three spaces, so the stop
+    // condition and the escape pair must cover them too.
+    test('stops at an indented H2 heading in the regex fallback', () => {
+      const content = ['## Prompt', 'body line', '  ## Next section', 'after'].join('\n')
+      expect(extractPromptSection(content)).toBe('body line')
+    })
+
+    test('stops at an indented H1 heading in the regex fallback', () => {
+      const content = ['## Prompt', 'body line', '   # Top', 'after'].join('\n')
+      expect(extractPromptSection(content)).toBe('body line')
+    })
+
+    test('unescapes escaped hash lines behind 1-3 spaces of indentation', () => {
+      const content = [
+        '## Prompt',
+        'intro',
+        '  \\# indented item',
+        '   \\\\## keep one backslash',
+      ].join('\n')
+      expect(extractPromptSection(content)).toBe(
+        'intro\n  # indented item\n   \\## keep one backslash',
+      )
+    })
+
+    test('leaves 4-space-indented hash lines untouched (indented code, not a heading)', () => {
+      const content = [
+        '## Prompt',
+        'code:',
+        '    # code comment',
+        '    \\# escaped inside code',
+        'after',
+      ].join('\n')
+      expect(extractPromptSection(content)).toBe(
+        'code:\n    # code comment\n    \\# escaped inside code\nafter',
+      )
+    })
+  })
 })

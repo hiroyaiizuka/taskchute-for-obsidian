@@ -244,6 +244,34 @@ describe('TaskCreationService AI task notes (U3)', () => {
     expect(afterSection).not.toMatch(/^#{1,2}[ \t]+\S/m)
   })
 
+  test('round-trips indented (1-3 space) hash lines that CommonMark still parses as headings', async () => {
+    // Carried WARNING regression: Obsidian's heading cache follows CommonMark
+    // and recognizes ATX headings indented by up to three spaces, so a prompt
+    // line like '  # item' written unescaped was cached as an H1 and
+    // truncated the extraction there. Four spaces are indented code: never a
+    // heading, never escaped.
+    const prompt = [
+      'Steps:',
+      ' # one-space heading',
+      '  ## two-space heading',
+      '   ### three-space h3',
+      '    # four spaces is code, not a heading',
+      '  \\# indented pre-escaped',
+    ].join('\n')
+
+    const content = await createdContent({
+      aiTask: { host: 'claude', args: [], prompt },
+    })
+
+    expect(extractPromptSection(content)).toBe(prompt)
+    // The raw note keeps no live (cache-visible) H1/H2 inside the section.
+    const promptSectionStart = content.indexOf('## Prompt')
+    const afterSection = content.slice(promptSectionStart + '## Prompt'.length)
+    expect(afterSection).not.toMatch(/^ {0,3}#{1,2}[ \t]+\S/m)
+    // The four-space line stays byte-identical (no escape added).
+    expect(content).toContain('\n    # four spaces is code, not a heading\n')
+  })
+
   test('keeps the standard fields (target_date, taskId, scheduled_time, heading) intact', async () => {
     const content = await createdContent(
       { aiTask: { host: 'claude', args: ['--max-turns', '1'], prompt: 'Go' } },

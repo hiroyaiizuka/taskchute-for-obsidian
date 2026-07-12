@@ -914,6 +914,76 @@ describe('AiTaskManager.followUp', () => {
     ).rejects.toBeInstanceOf(AiTaskManagerDisposedError)
   })
 
+  test('rejects when the run is released while awaiting the pending persist, without dispatching', async () => {
+    // Carried BLOCKING regression: the composer enables as soon as the run
+    // finishes, but the exit persist may still be pending. Closing the run's
+    // tab in that window releases the record; a follow-up that already
+    // parked on the persist queue must then reject instead of resuming on
+    // the stale InternalRun (whose child no other code path could ever
+    // stop or kill again).
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+
+    // Hold the exit persist open so followUp awaits a pending queue.
+    let resolvePersist: (path: string) => void = () => undefined
+    harness.writeRunLog.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvePersist = resolve
+        }),
+    )
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+
+    // Mirror the pane: the finished run's view closes on 'persisted' and
+    // releases the record from the manager.
+    harness.manager.onChange((changed, changeType) => {
+      if (changeType === 'persisted') harness.manager.releaseRun(changed.id)
+    })
+
+    const followUp = harness.manager.followUp(record.id, 'continue')
+    const rejection = expect(followUp).rejects.toBeInstanceOf(AiRunNotFoundError)
+    // Let the persist chain reach the (held-open) writeRunLog call, then
+    // complete it — 'persisted' fires and the listener releases the run.
+    await flushPromises()
+    resolvePersist('log-path.md')
+    await rejection
+
+    // No resume child was dispatched on the released record...
+    expect(harness.claude.runs).toHaveLength(1)
+    // ...and the record kept its finished state (no optimistic mutation).
+    expect(record.status).toBe('succeeded')
+    expect(record.events).not.toContainEqual({ kind: 'user-text', text: 'continue' })
+    expect(harness.manager.getRun(record.id)).toBeUndefined()
+  })
+
+  test('rejects when the run is released during binary resolution, without dispatching', async () => {
+    let resolveBinary: ((path: string) => void) | null = null
+    let calls = 0
+    const harness = createHarness({
+      resolveBinary: () => {
+        calls += 1
+        if (calls === 1) return Promise.resolve('/bin/claude')
+        return new Promise<string>((resolve) => {
+          resolveBinary = resolve
+        })
+      },
+    })
+    const record = await startFinishedRun(harness)
+
+    const followUp = harness.manager.followUp(record.id, 'continue')
+    const rejection = expect(followUp).rejects.toBeInstanceOf(AiRunNotFoundError)
+    // Let followUp pass the (settled) persist queue and park on the binary.
+    await flushPromises()
+    harness.manager.releaseRun(record.id)
+    resolveBinary?.('/bin/claude')
+    await rejection
+
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.status).toBe('succeeded')
+    expect(record.events).not.toContainEqual({ kind: 'user-text', text: 'continue' })
+  })
+
   test('blocks startRun for the task while a follow-up is active', async () => {
     const harness = createHarness()
     const record = await startFinishedRun(harness)

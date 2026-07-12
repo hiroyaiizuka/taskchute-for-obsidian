@@ -18,6 +18,8 @@ import TaskCreationController, {
 } from '../../../src/ui/task/TaskCreationController'
 import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
 import type { App } from 'obsidian'
+import { en } from '../../../src/i18n/locales/en'
+import { ja } from '../../../src/i18n/locales/ja'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -172,6 +174,13 @@ function setPrompt(modal: HTMLElement, value: string): void {
   textarea.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function setModel(modal: HTMLElement, value: string): void {
+  const model = modal.querySelector<HTMLInputElement>('.ai-task-model-input')
+  if (!model) throw new Error('model input missing')
+  model.value = value
+  model.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 function selectExecMode(modal: HTMLElement, value: string): void {
   const select = modal.querySelector<HTMLSelectElement>('.ai-task-exec-mode')
   if (!select) throw new Error('exec mode select missing')
@@ -256,6 +265,20 @@ describe('AI mode UI', () => {
     expect(agentCard(modal, 'codex').textContent).toContain('Codex')
   })
 
+  test('agent cards carry the reference icons (👑 Claude Code / 📜 Codex)', () => {
+    // Carried fix: the reference main-agents.ts uses 👑 for Claude Code.
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    expect(
+      agentCard(modal, 'claude').querySelector('.ai-task-agent-icon')?.textContent,
+    ).toBe('👑')
+    expect(
+      agentCard(modal, 'codex').querySelector('.ai-task-agent-icon')?.textContent,
+    ).toBe('📜')
+  })
+
   test('clicking the Codex card selects it and deselects Claude Code', () => {
     const { host } = createHost()
     const modal = openModal(host)
@@ -331,12 +354,37 @@ describe('command preview', () => {
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
 
-    const model = modal.querySelector<HTMLInputElement>('.ai-task-model-input')
-    if (!model) throw new Error('model input missing')
-    model.value = 'claude-sonnet-4-5'
-    model.dispatchEvent(new Event('input', { bubbles: true }))
+    setModel(modal, 'claude-sonnet-4-5')
 
     expect(previewCode(modal)).toBe('claude --model=claude-sonnet-4-5 "Go"')
+  })
+
+  test('keeps model ids using the full reference-safe character set', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+
+    setModel(modal, 'groq/llama-3.3-70b:versatile_x')
+
+    expect(previewCode(modal)).toBe(
+      'claude --model=groq/llama-3.3-70b:versatile_x "Go"',
+    )
+  })
+
+  test('drops model ids outside the reference safe pattern (carried fix)', () => {
+    // Reference parity (quest-command.ts MODEL_ID_SAFE_PATTERN): invalid ids
+    // are ignored instead of producing an argv token the CLI rejects.
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+
+    setModel(modal, '-leading-hyphen')
+    expect(previewCode(modal)).toBe('claude "Go"')
+
+    setModel(modal, 'opus 4.6; rm -rf /')
+    expect(previewCode(modal)).toBe('claude "Go"')
   })
 
   test('flattens newlines and truncates the displayed prompt head', () => {
@@ -391,6 +439,28 @@ describe('AI mode submission', () => {
       }),
     )
     expect(document.querySelector('.task-modal-overlay')).toBeNull()
+  })
+
+  test('an invalid model id contributes no token to the submitted args', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'AI Bad Model'
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'not a model!!')
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'AI Bad Model',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: { host: 'claude', args: [], cwd: undefined, prompt: 'Go' },
+      }),
+    )
   })
 
   test('submits codex with default variant, no model, no cwd, empty prompt', async () => {
@@ -603,6 +673,28 @@ describe('reuse mode hides the AI configuration (carried fix)', () => {
         aiTask: expect.objectContaining({ host: 'claude', prompt: 'Review this PR' }),
       }),
     )
+  })
+})
+
+describe('label parity with the reference modal (carried fix)', () => {
+  test('the agent and cwd field label fallbacks carry the reference emojis', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const labels = Array.from(
+      modal.querySelectorAll<HTMLElement>('.ai-task-section .form-label'),
+      (label) => label.textContent ?? '',
+    )
+    expect(labels.some((text) => text.startsWith('👑 '))).toBe(true)
+    expect(labels.some((text) => text.startsWith('📁 '))).toBe(true)
+  })
+
+  test('en and ja locales share the reference emoji prefixes', () => {
+    expect(en.taskChuteView.addTask.aiAgentLabel.startsWith('👑 ')).toBe(true)
+    expect(ja.taskChuteView.addTask.aiAgentLabel.startsWith('👑 ')).toBe(true)
+    expect(en.taskChuteView.addTask.aiCwdLabel.startsWith('📁 ')).toBe(true)
+    expect(ja.taskChuteView.addTask.aiCwdLabel.startsWith('📁 ')).toBe(true)
   })
 })
 

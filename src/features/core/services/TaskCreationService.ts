@@ -18,10 +18,12 @@ interface PluginLike {
  * YAML block list of literal argv tokens, cwd only when non-empty, and the
  * prompt as the body of a "## Prompt" section after the H1 heading (an empty
  * prompt still writes the empty section — terminal runs open a plain REPL).
- * Hash-leading prompt lines (`# Overview`, `#tag`, `\#x`, ...) are written
- * with one extra leading backslash so they can never terminate the Prompt
- * section (in the extractor or in Obsidian's heading cache); the extractor
- * strips exactly one backslash from such lines, restoring the entered text.
+ * Hash-leading prompt lines (`# Overview`, `#tag`, `\#x`, and the same
+ * behind 1-3 spaces of indentation — still headings under CommonMark) are
+ * written with one extra backslash before the hash so they can never
+ * terminate the Prompt section (in the extractor or in Obsidian's heading
+ * cache); the extractor strips exactly one backslash from such lines,
+ * restoring the entered text.
  */
 export interface CreateTaskFileAiTaskOptions {
   host: AiTaskHost
@@ -45,20 +47,26 @@ function toYamlQuoted(value: string): string {
 }
 
 /**
- * Lines that PromptExtractor's read-time unescaping would touch: zero or
- * more leading backslashes immediately followed by a hash.
+ * Lines that PromptExtractor's read-time unescaping would touch: up to
+ * three leading spaces (CommonMark still parses ATX headings behind 1-3
+ * spaces of indentation; four spaces make an indented code block), then
+ * zero or more backslashes immediately followed by a hash.
  */
-const HASH_LEADING_PROMPT_LINE = /^\\*#/
+const HASH_LEADING_PROMPT_LINE = /^ {0,3}\\*#/
 
 /**
- * Prefix hash-leading prompt lines with one backslash. Escaping EVERY such
- * line (headings, `### h3`, `#tag`, already-escaped `\#x`) keeps the pair
- * with PromptExtractor.unescapePromptLine (strip one backslash) exactly
- * inverse, so any prompt round-trips byte-identically; renders as the
- * literal hash text in Markdown either way.
+ * Insert one backslash right before the first backslash-or-hash of a
+ * hash-leading prompt line, keeping any 1-3 space indentation in place.
+ * Escaping EVERY such line (headings, indented `  # h1`, `### h3`, `#tag`,
+ * already-escaped `\#x`) keeps the pair with
+ * PromptExtractor.unescapePromptLine (strip one backslash) exactly inverse,
+ * so any prompt round-trips byte-identically; renders as the literal hash
+ * text in Markdown either way.
  */
 function escapePromptLine(line: string): string {
-  return HASH_LEADING_PROMPT_LINE.test(line) ? `\\${line}` : line
+  return HASH_LEADING_PROMPT_LINE.test(line)
+    ? line.replace(/^( {0,3})/, '$1\\')
+    : line
 }
 
 export class TaskCreationService {

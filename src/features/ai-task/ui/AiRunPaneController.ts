@@ -351,6 +351,16 @@ export class AiRunPaneController {
     })
 
     for (const record of this.host.manager.getRuns()) {
+      if (record.status === 'stopped') {
+        // Stopped runs never regain a view (theirs auto-closed on
+        // 'persisted'), and that notification is also the only releaseRun
+        // trigger — when it fired with no pane mounted, the record was left
+        // behind. Sweep it here so it does not sit in the manager (with its
+        // buffers) until plugin unload. The manager refuses to release runs
+        // that have not actually exited, so this is safe mid-persist too.
+        this.host.manager.releaseRun?.(record.id)
+        continue
+      }
       this.handleChange(record)
     }
   }

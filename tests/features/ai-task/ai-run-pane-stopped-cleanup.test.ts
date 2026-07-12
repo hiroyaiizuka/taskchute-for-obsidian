@@ -80,6 +80,7 @@ class FakeManager {
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
+  readonly releaseRun = jest.fn()
   snapshotProvider: ((runId: string) => string | undefined) | null = null
 
   registerTerminalSnapshotProvider(
@@ -388,6 +389,22 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     expect(
       container.querySelector('.ai-run-pane__run[data-run-id="kept-success"]'),
     ).not.toBeNull()
+  })
+
+  test('a mount replay releases leftover stopped records instead of leaking them', () => {
+    // Carried WARNING regression: 'persisted' may fire while no pane is
+    // mounted (view closed, plugin sidebar hidden) — nothing releases the
+    // stopped record then. The mount sweep is the recovery path; without it
+    // the record (and its buffers) sit in AiTaskManager.runs until unload.
+    manager.records.push(createRun({ id: 'old-stopped', status: 'stopped' }))
+    manager.records.push(createRun({ id: 'kept-success', status: 'succeeded' }))
+    manager.records.push(createRun({ id: 'still-active', status: 'running' }))
+
+    controller.mount(container)
+
+    expect(manager.releaseRun).toHaveBeenCalledWith('old-stopped')
+    expect(manager.releaseRun).not.toHaveBeenCalledWith('kept-success')
+    expect(manager.releaseRun).not.toHaveBeenCalledWith('still-active')
   })
 })
 

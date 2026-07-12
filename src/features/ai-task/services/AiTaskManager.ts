@@ -627,7 +627,9 @@ export class AiTaskManager {
    * Send a follow-up prompt to a finished run by resuming its CLI session.
    * The streamed continuation appends to the SAME record (and the same log
    * note is rewritten at exit). Rejects when the run is unknown, still
-   * active, has no session id, or another run is active for the task.
+   * active, has no session id, another run is active for the task, or the
+   * run gets released (view closed) during one of the async windows below
+   * (see throwIfReleased).
    */
   async followUp(runId: string, prompt: string): Promise<AiRunRecord> {
     this.throwIfDisposed()
@@ -667,10 +669,12 @@ export class AiTaskManager {
       // before this follow-up mutates the record back to starting/running.
       await internal.persistQueue
       this.throwIfDisposed()
+      this.throwIfReleased(runId, internal)
       // Resolve the binary BEFORE mutating the record so a missing binary
       // leaves the run in its finished state and the follow-up retryable.
       const binaryPath = await this.deps.binaryLocator.resolve(host)
       this.throwIfDisposed()
+      this.throwIfReleased(runId, internal)
 
       const userEvent: AiStreamEvent = { kind: 'user-text', text }
       this.appendEvent(record, userEvent)
@@ -1178,6 +1182,21 @@ export class AiTaskManager {
 
   private throwIfDisposed(): void {
     if (this.disposed) throw new AiTaskManagerDisposedError()
+  }
+
+  /**
+   * Companion to the per-await throwIfDisposed pattern for followUp's async
+   * windows (pending persist, binary resolution): the composer enables as
+   * soon as a run finishes, so its record can be RELEASED (tab ×,
+   * stopped-run auto-close on 'persisted') while a follow-up is parked on an
+   * await. Resuming on that stale InternalRun would set exited=false and
+   * dispatch a child that exists only on the released record — stopRun would
+   * no-op on the unknown id and dispose()'s sweep (runs.values()) would
+   * never kill it (zombie). Identity is compared, not mere presence, so a
+   * release-then-new-run sequence cannot slip through either.
+   */
+  private throwIfReleased(runId: string, internal: InternalRun): void {
+    if (this.runs.get(runId) !== internal) throw new AiRunNotFoundError(runId)
   }
 
   private notifyChange(

@@ -185,6 +185,60 @@ describe('CodexDispatcher', () => {
       ])
     })
 
+    test("strips clap's attached short approval form (-anever) too", () => {
+      // Carried fix: clap accepts the value glued onto the short flag
+      // ('-anever' == '-a never'); hand-authored ai_task_args can carry it.
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'p',
+          extraArgs: ['-anever', '--sandbox', 'workspace-write'],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'workspace-write',
+        '--',
+        'p',
+      ])
+    })
+
+    test('a bare -a consumes only a value token, never a following flag', () => {
+      // Carried fix: '-a --sandbox ...' must not swallow --sandbox as the
+      // policy value, and a trailing bare -a has nothing to consume.
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'p',
+          extraArgs: ['-a', '--sandbox', 'workspace-write', '--ask-for-approval'],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.args).toEqual([
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'workspace-write',
+        '--',
+        'p',
+      ])
+    })
+
     test('strips approval flags on the exec resume path too', () => {
       const gateway = createSpyGateway()
       const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())

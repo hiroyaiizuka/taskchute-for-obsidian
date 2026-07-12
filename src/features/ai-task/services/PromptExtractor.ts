@@ -6,7 +6,8 @@
  * HeadingCache) and falls back to a line-based regex scan when the metadata
  * does not contain a Prompt heading. Pure; CRLF-safe.
  *
- * Body lines whose leading hash is backslash-escaped (`\#`, `\\##`, ...)
+ * Body lines whose leading hash is backslash-escaped (`\#`, `\\##`, and the
+ * same behind 1-3 spaces of indentation, per CommonMark's heading rules)
  * have exactly ONE backslash stripped: TaskCreationService escapes
  * hash-leading prompt lines at write time (a raw `# Overview` inside a
  * pasted prompt would otherwise terminate the section here AND in Obsidian's
@@ -17,12 +18,15 @@
 
 const PROMPT_HEADING = 'prompt'
 const PROMPT_HEADING_LINE = /^##[ \t]+prompt[ \t]*#*[ \t]*$/i
-const STOP_HEADING_LINE = /^#{1,2}[ \t]+\S/
-const ESCAPED_HASH_LINE = /^\\+#/
+// CommonMark (and Obsidian's heading cache) still parses an ATX heading
+// behind 1-3 leading spaces; four spaces make an indented code block. Both
+// the stop condition and the escape pair must follow that boundary.
+const STOP_HEADING_LINE = /^ {0,3}#{1,2}[ \t]+\S/
+const ESCAPED_HASH_LINE = /^ {0,3}\\+#/
 
 /** Inverse of TaskCreationService's write-time hash-line escaping */
 function unescapePromptLine(line: string): string {
-  return ESCAPED_HASH_LINE.test(line) ? line.slice(1) : line
+  return ESCAPED_HASH_LINE.test(line) ? line.replace(/^( {0,3})\\/, '$1') : line
 }
 
 /** Minimal heading shape; Obsidian's HeadingCache is assignable to this */

@@ -131,7 +131,8 @@ const AI_AGENT_CARDS: ReadonlyArray<{
 }> = [
   {
     host: "claude",
-    icon: "🤖",
+    // Reference parity: main-agents.ts gives Claude Code the 👑 icon.
+    icon: "👑",
     labelKey: "addTask.aiAgentClaude",
     labelFallback: "Claude Code",
   },
@@ -145,6 +146,15 @@ const AI_AGENT_CARDS: ReadonlyArray<{
 
 /** Longest prompt head shown inside the live command preview */
 const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
+
+/**
+ * Safe model-id shape, ported verbatim from the reference quest-command.ts:
+ * no leading hyphen (never parsed as a flag) and only characters that are
+ * inert in an argv token. Inputs outside this pattern contribute NO --model
+ * token — the reference degrades gracefully to the default model instead of
+ * emitting an id the CLI deterministically rejects.
+ */
+const MODEL_ID_SAFE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/
 
 /** Live view of the AI-mode controls; null when the feature is unavailable */
 interface AiTaskControls {
@@ -665,9 +675,11 @@ export default class TaskCreationController {
       return field
     }
 
-    // Main-agent card grid (Claude Code / Codex).
+    // Main-agent card grid (Claude Code / Codex). The label leads with the
+    // reference's 👑 emoji; the text after an emoji stays lowercase per the
+    // obsidianmd sentence-case rule (the emoji counts as the sentence start).
     const agentField = buildField(
-      this.host.tv("addTask.aiAgentLabel", "Main agent"),
+      this.host.tv("addTask.aiAgentLabel", "👑 main agent"),
     )
     const agentGrid = doc.createElement("div")
     agentGrid.className = "ai-task-agent-grid"
@@ -766,7 +778,7 @@ export default class TaskCreationController {
 
     const cwdField = buildAdvancedField(
       this.withTrailingColon(
-        this.host.tv("addTask.aiCwdLabel", "Working directory"),
+        this.host.tv("addTask.aiCwdLabel", "📁 working directory"),
       ),
     )
     const cwdInput = doc.createElement("input")
@@ -788,7 +800,7 @@ export default class TaskCreationController {
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
       const model = modelInput.value.trim()
-      if (model.length > 0) {
+      if (model.length > 0 && MODEL_ID_SAFE_PATTERN.test(model)) {
         args.push(`--model=${model}`)
       }
       return args

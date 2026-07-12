@@ -34,16 +34,31 @@ const APPROVAL_FLAG_SHORT = '-a'
  * headless run. Dropping the flag is a faithful translation (exec never
  * asks); sandboxing flags such as `--sandbox` exist in both pipelines and
  * pass through untouched.
+ *
+ * All clap spellings are covered: separated (`-a never`,
+ * `--ask-for-approval never`), `=`-joined (`-a=never`,
+ * `--ask-for-approval=never`), and the short attached form (`-anever`). A
+ * bare flag consumes the following token only when it exists and is not
+ * another `-`-leading flag (clap would not accept a hyphen-leading value
+ * either), so a trailing or misplaced bare `-a` never swallows a real flag.
  */
 function sanitizeExecExtraArgs(args: readonly string[]): string[] {
   const result: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === APPROVAL_FLAG || arg === APPROVAL_FLAG_SHORT) {
-      index += 1 // also skip the policy value token
+      const next = args[index + 1]
+      if (next !== undefined && !next.startsWith('-')) {
+        index += 1 // also skip the separated policy value token
+      }
       continue
     }
-    if (arg.startsWith(`${APPROVAL_FLAG}=`) || arg.startsWith(`${APPROVAL_FLAG_SHORT}=`)) {
+    if (arg.startsWith(`${APPROVAL_FLAG}=`)) continue
+    // '-a=never' and clap's attached '-anever' both start with '-a'.
+    if (
+      arg.startsWith(APPROVAL_FLAG_SHORT) &&
+      arg.length > APPROVAL_FLAG_SHORT.length
+    ) {
       continue
     }
     result.push(arg)
