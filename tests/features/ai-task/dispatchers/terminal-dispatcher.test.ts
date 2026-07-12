@@ -37,7 +37,7 @@ function noopCallbacks() {
 }
 
 describe('TerminalDispatcher argv and spawn shape', () => {
-  test('builds the PTY command from [...extraArgs, prompt] and spawns it with a piped stdin', () => {
+  test("builds the PTY command from [...extraArgs, '--', prompt] and spawns it with a piped stdin", () => {
     const gateway = createSpyGateway()
     const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
 
@@ -46,7 +46,7 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     expect(gateway.ptyMock).toHaveBeenCalledTimes(1)
     expect(gateway.ptyMock).toHaveBeenCalledWith({
       binaryPath: '/bin/claude',
-      args: ['--dangerously-skip-permissions', 'do the thing'],
+      args: ['--dangerously-skip-permissions', '--', 'do the thing'],
       rows: 30,
       cols: 100,
       transcriptPath: '/tmp/transcript.txt',
@@ -61,7 +61,7 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     expect(spawnRequest.stdinMode).toBe('pipe')
   })
 
-  test('an empty prompt starts a plain REPL (extraArgs only)', () => {
+  test('an empty prompt starts a plain REPL (extraArgs only, no separator)', () => {
     const gateway = createSpyGateway()
     const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
 
@@ -69,6 +69,24 @@ describe('TerminalDispatcher argv and spawn shape', () => {
 
     const ptyRequest: PtyCommandRequest = gateway.ptyMock.mock.calls[0][0]
     expect(ptyRequest.args).toEqual(['--dangerously-skip-permissions'])
+    expect(ptyRequest.args).not.toContain('--')
+  })
+
+  test('keeps a prompt starting with a dash behind the end-of-options separator', () => {
+    // Mirrors the headless dispatchers' regression (commit a6e3ca5): a
+    // bulleted `## Prompt` body must never be parsed as a CLI flag.
+    const gateway = createSpyGateway()
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+
+    dispatcher.start(
+      { ...BASE_REQUEST, prompt: '- first bullet of the prompt' },
+      noopCallbacks(),
+    )
+
+    const ptyRequest: PtyCommandRequest = gateway.ptyMock.mock.calls[0][0]
+    const separatorIndex = ptyRequest.args.indexOf('--')
+    expect(separatorIndex).toBeGreaterThanOrEqual(0)
+    expect(ptyRequest.args.slice(separatorIndex)).toEqual(['--', '- first bullet of the prompt'])
   })
 
   test('spawns with the terminal env (color-enabled, xterm TERM)', () => {

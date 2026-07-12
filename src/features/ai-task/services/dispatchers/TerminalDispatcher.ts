@@ -3,13 +3,20 @@
  *
  * Runs a host CLI interactively inside an OS PTY wrapper (the gateway's
  * buildPtyCommand) so the full TUI renders and the user can type into it.
- * The argv is `[...extraArgs, prompt]` for every host — no `-p`, no
+ * The argv is `[...extraArgs, '--', prompt]` for every host — no `-p`, no
  * `--output-format`: the positional prompt drops the CLI into its REPL with
- * the prompt pre-submitted, and an empty prompt opens a plain REPL.
+ * the prompt pre-submitted, and an empty prompt opens a plain REPL (no `--`
+ * emitted). The `--` end-of-options separator mirrors the headless
+ * dispatchers' fix (commit a6e3ca5): a dash-leading prompt body (e.g. a
+ * bulleted `## Prompt` section) must never be parsed as a CLI flag.
+ * Verified interactively on-device: `claude -- <prompt>` (2.1.205) and
+ * `codex -- <prompt>` (0.144.1) both accept the separator.
  *
  * Output is relayed as RAW utf8 chunks (no line splitting, no JSON parsing);
  * keystrokes go back through write() -> child stdin. stop() keeps the
- * headless SIGTERM -> SIGKILL group-kill semantics.
+ * headless SIGTERM -> SIGKILL group-kill semantics for the wrapper pipeline;
+ * the CLI itself sits in `script`'s own session and dies via the PTY SIGHUP
+ * raised when the wrapper exits (see the gateway's spawn comment).
  */
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
@@ -88,7 +95,7 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle {
     const args = [...(request.extraArgs ?? [])]
     if (request.prompt.length > 0) {
-      args.push(request.prompt)
+      args.push('--', request.prompt)
     }
 
     const ptyCommand = this.gateway.buildPtyCommand({

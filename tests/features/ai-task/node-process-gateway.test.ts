@@ -251,6 +251,47 @@ describe('NodeProcessGateway', () => {
       expect(stdinInfo.chardev).toBe(true)
     }, 15_000)
 
+    test('swallows the asynchronous pipe error when stdin writes race pipeline teardown', async () => {
+      const gateway = new NodeProcessGateway()
+      // The child never reads stdin, so large writes stay pending inside
+      // libuv; SIGKILL then tears the pipeline down mid-flight and each
+      // pending write completes with EPIPE — surfaced as an ASYNC 'error'
+      // event on the stdin stream, NOT via the try/catch around write().
+      // Without an 'error' listener that event escalates to an uncaught
+      // exception ("write EPIPE") and fails this test file.
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('READY'); setTimeout(() => {}, 100000)"],
+        env: gateway.getBaseEnv(),
+        stdinMode: 'pipe',
+      })
+
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('child never became ready')), 10_000)
+        handle.onStdout((text) => {
+          if (text.includes('READY')) {
+            clearTimeout(timer)
+            resolve()
+          }
+        })
+      })
+
+      const bigChunk = 'x'.repeat(1024 * 1024)
+      handle.writeStdin?.(bigChunk)
+      handle.writeStdin?.(bigChunk)
+      handle.kill('SIGKILL')
+      // A late keystroke lands after death but before the 'close' event
+      // flips the handle's exit guard.
+      handle.writeStdin?.('late-keystroke')
+
+      await new Promise<void>((resolve) => {
+        handle.onExit(() => resolve())
+      })
+      // Give still-pending async pipe errors time to surface before the
+      // test ends; swallowed errors keep this wait silent.
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }, 15_000)
+
     test('reassembles a multibyte character split mid-sequence across stderr writes', async () => {
       const gateway = new NodeProcessGateway()
       const childScript = [

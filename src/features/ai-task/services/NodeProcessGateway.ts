@@ -134,6 +134,7 @@ interface NodeReadableLike {
 
 interface NodeWritableLike {
   write(data: string): boolean
+  on(event: 'error', listener: (error: unknown) => void): void
 }
 
 interface NodeChildProcessLike {
@@ -285,9 +286,15 @@ export class NodeProcessGateway implements ProcessGateway {
     const stdinMode: StdinMode = request.stdinMode ?? 'ignore'
     try {
       // detached:true makes the child a process-group leader (POSIX) so
-      // kill() below can signal the WHOLE group: if the CLI ignores SIGTERM
-      // and spawned its own tool subprocesses, the SIGKILL escalation still
-      // reaps the grandchildren instead of leaving orphans behind.
+      // kill() below can signal the WHOLE group: if a headless CLI ignores
+      // SIGTERM and spawned its own tool subprocesses, the SIGKILL
+      // escalation still reaps the grandchildren instead of leaving orphans.
+      // PTY (terminal) runs differ: /usr/bin/script gives the CLI its OWN
+      // session on the pty, so group signals reach only the wrapper pipeline
+      // (cat | sh | script) and the CLI itself dies via the PTY SIGHUP
+      // raised when script exits and the master side closes. A CLI that
+      // ignores SIGHUP would therefore outlive stop()/dispose() — a known
+      // terminal-mode caveat to the G8 no-zombie guarantee.
       // The default stdio[0]='ignore' gives the child /dev/null as stdin so
       // headless CLIs never wait on (or announce reading from) a parent-held
       // stdin pipe, e.g. codex's "Reading additional input from stdin..."
@@ -325,6 +332,15 @@ export class NodeProcessGateway implements ProcessGateway {
         for (const callback of stderrCallbacks) callback(`${message}\n`)
         notifyExit(null, null)
       })
+      if (stdinMode === 'pipe') {
+        // Keystrokes can race pipeline teardown: a write still pending in
+        // libuv when the child dies (e.g. the PTY wrapper's `kill -9 0`)
+        // completes with EPIPE as an ASYNC 'error' event on the stdin
+        // stream — the try/catch in writeStdin only covers the synchronous
+        // call. Without a listener the event escalates to an unhandled
+        // "write EPIPE" exception in the renderer, so swallow it here.
+        child.stdin?.on('error', () => undefined)
+      }
     }
 
     const failedChild = child === null
