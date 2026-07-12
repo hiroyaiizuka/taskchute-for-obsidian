@@ -18,6 +18,14 @@
  *
  * Task-note frontmatter stays READ-ONLY here; the only vault write happens
  * inside AiTaskLogWriter at run end.
+ *
+ * startShellSession() additionally hosts plain login-shell terminal sessions
+ * (host 'shell') through the same terminal infrastructure: they share the
+ * run map, stop/dispose semantics (zombie guard included), and the terminal
+ * data fan-out, but they belong to NO task note, are excluded from
+ * getActiveRunForTask (no play/stop coupling, no row chip), and their exit
+ * skips the log note AND the retention prune — only the PTY transcript temp
+ * file is consumed before the closing 'persisted' notification.
  */
 
 import type { TFile } from 'obsidian'
@@ -55,6 +63,19 @@ export const DEFAULT_TERMINAL_COLS = 80
  */
 export const TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER =
   '(The terminal transcript could not be read; the session output was not captured.)'
+
+/**
+ * Arguments a plain shell session passes to the user's login shell
+ * ($SHELL): an interactive login shell. Verified on-device: `$SHELL -i -l`
+ * stays interactive under the script(1) PTY wrapper (prompt renders, typed
+ * commands echo, transcript records) and dies cleanly on a process-group
+ * SIGTERM. Mirrors the reference app's interactive spawn, minus its
+ * zsh-only `-o NO_PROMPT_CR` option ($SHELL may be bash).
+ */
+export const SHELL_SESSION_ARGS: readonly string[] = ['-i', '-l']
+
+/** Fallback display name when the caller provides no localized label */
+const DEFAULT_SHELL_SESSION_NAME = 'Terminal'
 
 const ACTIVE_STATUSES: ReadonlySet<AiRunRecord['status']> = new Set([
   'starting',
@@ -131,6 +152,18 @@ export class AiTerminalFollowUpError extends Error {
   }
 }
 
+/**
+ * Thrown by startShellSession when plain shell sessions cannot run here:
+ * terminal capabilities are absent, the platform has no PTY wrapper
+ * (win32), or the deps expose no shell path.
+ */
+export class AiShellUnavailableError extends Error {
+  constructor() {
+    super('Shell terminal sessions are not available on this platform')
+    this.name = 'AiShellUnavailableError'
+  }
+}
+
 interface AiTaskFileCacheLike {
   frontmatter?: Record<string, unknown>
   headings?: PromptHeadingInfo[]
@@ -184,6 +217,12 @@ export interface AiTaskManagerDeps {
     makeTempFilePath(prefix: string): string
     /** Gateway helper: consume the transcript file at run end */
     readAndDeleteFile(path: string): Promise<string>
+    /**
+     * The user's login shell ($SHELL with a platform fallback). Required
+     * only by startShellSession — optional so existing terminal-capability
+     * fakes keep working; without it shell sessions are unavailable.
+     */
+    getShellPath?(): string
   }
   /** Effective run mode from settings; consulted when startRun gets none */
   getRunMode?(): AiRunMode
@@ -227,6 +266,14 @@ export interface AiRunStartOptions {
   /** PTY size derived from the pane; defaults apply when omitted */
   rows?: number
   cols?: number
+}
+
+export interface AiShellSessionOptions {
+  /** PTY size derived from the pane panel; defaults apply when omitted */
+  cols?: number
+  rows?: number
+  /** Localized display name (e.g. "ターミナル"); defaults to 'Terminal' */
+  name?: string
 }
 
 interface InternalRun {
@@ -485,6 +532,98 @@ export class AiTaskManager {
   }
 
   /**
+   * Start a plain login-shell terminal session (host 'shell'). Synchronous
+   * by design — no note read and no binary resolution happen — so the split
+   * UI can show the session the moment the split lands. The record shares
+   * the regular run lifecycle (status transitions, stop, dispose zombie
+   * guard, terminal data fan-out) but is never a task run: see the class
+   * doc. Throws AiShellUnavailableError where shell sessions cannot run.
+   */
+  startShellSession(options: AiShellSessionOptions = {}): AiRunRecord {
+    this.throwIfDisposed()
+    const terminal = this.deps.terminal
+    if (
+      !terminal ||
+      !terminal.isSupported() ||
+      typeof terminal.getShellPath !== 'function'
+    ) {
+      throw new AiShellUnavailableError()
+    }
+    const shellPath = terminal.getShellPath()
+    const name = options.name?.trim()
+
+    this.runSequence += 1
+    const record: AiRunRecord = {
+      id: `ai-run-${Date.now()}-${this.runSequence}`,
+      taskPath: '',
+      taskName: name !== undefined && name.length > 0 ? name : DEFAULT_SHELL_SESSION_NAME,
+      host: 'shell',
+      status: 'starting',
+      mode: 'terminal',
+      startedAt: Date.now(),
+      events: [],
+    }
+    // Same contract as startRun: the grid and transcript path are stamped
+    // BEFORE the first notifyChange so the pane opens its ONE-SHOT xterm
+    // view with the exact PTY grid the session spawns at.
+    record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+    record.rows = options.rows ?? DEFAULT_TERMINAL_ROWS
+    record.cols = options.cols ?? DEFAULT_TERMINAL_COLS
+
+    const internal: InternalRun = {
+      record,
+      handle: null,
+      terminalHandle: null,
+      exited: false,
+      terminalData: { chunks: [], totalLength: 0 },
+      terminalListeners: new Set(),
+      cwd: this.getVaultBasePath(),
+      extraArgs: [],
+      continuation: null,
+      persistQueue: Promise.resolve(),
+    }
+    this.runs.set(record.id, internal)
+    this.notifyChange(record)
+
+    try {
+      const terminalHandle = terminal.dispatcher.start(
+        {
+          binaryPath: shellPath,
+          prompt: '',
+          cwd: internal.cwd,
+          extraArgs: [...SHELL_SESSION_ARGS],
+          rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
+          cols: record.cols ?? DEFAULT_TERMINAL_COLS,
+          transcriptPath: record.transcriptPath ?? '',
+        },
+        {
+          onData: (chunk) => this.handleTerminalData(internal, chunk),
+          onExit: (outcome) => this.handleExit(internal, outcome),
+        },
+      )
+      internal.terminalHandle = terminalHandle
+      internal.handle = terminalHandle
+    } catch (error) {
+      internal.exited = true
+      record.status = 'failed'
+      record.endedAt = Date.now()
+      record.errorMessage = error instanceof Error ? error.message : String(error)
+      this.notifyChange(record)
+      // The lifecycle contract still ends with 'persisted' (transcript
+      // cleanup only — shell sessions never write a note).
+      this.queueExitPersist(internal)
+      throw error
+    }
+
+    if (!internal.exited && record.status === 'starting') {
+      record.pid = internal.handle.pid
+      record.status = 'running'
+      this.notifyChange(record)
+    }
+    return record
+  }
+
+  /**
    * Send a follow-up prompt to a finished run by resuming its CLI session.
    * The streamed continuation appends to the SAME record (and the same log
    * note is rewritten at exit). Rejects when the run is unknown, still
@@ -494,13 +633,15 @@ export class AiTaskManager {
     this.throwIfDisposed()
     const internal = this.runs.get(runId)
     if (!internal) throw new AiRunNotFoundError(runId)
-    if (internal.record.mode === 'terminal') {
-      // Terminal sessions take input directly (sendTerminalInput); there is
-      // no headless resume path for them.
+    const record = internal.record
+    const host = record.host
+    if (record.mode === 'terminal' || host === 'shell') {
+      // Terminal sessions (shell sessions are always terminal-mode) take
+      // input directly (sendTerminalInput); there is no headless resume
+      // path for them. The host check also narrows `host` to the CLI hosts
+      // for the dispatcher lookup below.
       throw new AiTerminalFollowUpError(runId)
     }
-
-    const record = internal.record
     const taskPath = record.taskPath
     if (
       this.pendingStarts.has(taskPath) ||
@@ -528,7 +669,7 @@ export class AiTaskManager {
       this.throwIfDisposed()
       // Resolve the binary BEFORE mutating the record so a missing binary
       // leaves the run in its finished state and the follow-up retryable.
-      const binaryPath = await this.deps.binaryLocator.resolve(record.host)
+      const binaryPath = await this.deps.binaryLocator.resolve(host)
       this.throwIfDisposed()
 
       const userEvent: AiStreamEvent = { kind: 'user-text', text }
@@ -544,7 +685,7 @@ export class AiTaskManager {
       this.notifyChange(record)
 
       try {
-        internal.handle = this.deps.dispatchers[record.host].start(
+        internal.handle = this.deps.dispatchers[host].start(
           {
             binaryPath,
             prompt: text,
@@ -668,6 +809,9 @@ export class AiTaskManager {
 
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
     for (const internal of this.runs.values()) {
+      // Shell sessions belong to no task note: they must never surface as a
+      // task's active run (row chip, play/stop coupling, composer gating).
+      if (internal.record.host === 'shell') continue
       if (
         internal.record.taskPath === taskPath &&
         ACTIVE_STATUSES.has(internal.record.status)
@@ -834,6 +978,14 @@ export class AiTaskManager {
       this.cleanUpTranscript(internal)
       return
     }
+    if (record.host === 'shell') {
+      // Shell sessions leave NO note and never prune; only the PTY
+      // transcript temp file is consumed before the closing notification.
+      internal.persistQueue = internal.persistQueue
+        .then(() => this.discardTranscript(internal))
+        .then(() => this.notifyPersisted(record))
+      return
+    }
     if (record.mode === 'terminal') {
       internal.persistQueue = internal.persistQueue
         .then(() => this.persistTerminalRunLog(internal))
@@ -866,6 +1018,22 @@ export class AiTaskManager {
     if (transcriptPath === undefined || !this.deps.terminal) return
     internal.record.transcriptPath = undefined
     void this.deps.terminal.readAndDeleteFile(transcriptPath).catch(() => undefined)
+  }
+
+  /**
+   * Awaitable transcript consumption used by the shell-session persist
+   * chain (ordering matters there: cleanup completes before 'persisted').
+   * Never rejects.
+   */
+  private async discardTranscript(internal: InternalRun): Promise<void> {
+    const transcriptPath = internal.record.transcriptPath
+    if (transcriptPath === undefined || !this.deps.terminal) return
+    internal.record.transcriptPath = undefined
+    try {
+      await this.deps.terminal.readAndDeleteFile(transcriptPath)
+    } catch {
+      // Best-effort cleanup: a missing/locked temp file is not fatal.
+    }
   }
 
   /**

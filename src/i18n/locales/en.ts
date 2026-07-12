@@ -233,6 +233,9 @@ export const en = {
       togglePane: "Toggle AI run pane",
       expandPane: "Expand AI run pane",
       restorePane: "Restore AI run pane size",
+      splitPane: "Split the run pane",
+      newShell: "New terminal session",
+      shellSessionName: "Terminal",
       tabUntitled: "Untitled run",
       contentTab: {
         terminal: "Terminal",
@@ -273,6 +276,9 @@ export const en = {
         startFailed: "Failed to start AI run: {message}",
         followUpFailed: "Failed to send follow-up: {message}",
         sessionUnavailable: "This run has no session to resume.",
+        splitTooNarrow: "The pane is too narrow to split.",
+        shellUnavailable: "Terminal sessions are not available on this platform.",
+        shellStartFailed: "Failed to start terminal session: {message}",
       },
     },
     date: {

@@ -231,6 +231,9 @@ export const ja = {
       togglePane: "AI実行ペインを開閉",
       expandPane: "AI実行ペインを拡大",
       restorePane: "AI実行ペインの高さを戻す",
+      splitPane: "実行ペインを分割",
+      newShell: "新しいターミナルセッション",
+      shellSessionName: "ターミナル",
       tabUntitled: "無題の実行",
       contentTab: {
         terminal: "ターミナル",
@@ -271,6 +274,9 @@ export const ja = {
         startFailed: "AI実行の開始に失敗しました: {message}",
         followUpFailed: "フォローアップの送信に失敗しました: {message}",
         sessionUnavailable: "この実行には再開できるセッションがありません。",
+        splitTooNarrow: "ペインの幅が狭すぎるため分割できません。",
+        shellUnavailable: "このプラットフォームではターミナルセッションを利用できません。",
+        shellStartFailed: "ターミナルセッションの起動に失敗しました: {message}",
       },
     },
     date: {

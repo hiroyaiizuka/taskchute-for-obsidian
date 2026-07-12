@@ -1,15 +1,30 @@
 /**
- * AI Task - run pane controller (NOW PLAYING layout)
+ * AI Task - run pane controller (NOW PLAYING layout + split panels)
  *
  * Renders the collapsible "AI runs" pane below the task list, mirroring the
  * reference app's NOW PLAYING structure: a LEFT vertical sidebar with one
  * row per run (status dot + truncated task name + × control) and a RIGHT
- * content area showing the selected run. The content area carries a slim
- * tab strip at the top — exactly one tab for the selected run (status dot +
- * content label + × control) plus top-right corner actions (the ⤢ expand
- * toggle now; the U2 split control mounts into the same actions element).
- * Bodies are kept in a Map and only the selected one is visible, so state
- * (scroll position, terminal screen) survives selection switches.
+ * content area made of one or more side-by-side PANELS. Each panel carries a
+ * slim tab strip (one tab for the panel's selected run: status dot + content
+ * label + × control, plus a + new-shell button) and its own bodies element;
+ * the primary panel's corner actions additionally hold the ◫ split control
+ * and the ⤢ expand toggle. Bodies are kept per run in a Map and only each
+ * panel's selected body is visible, so state (scroll position, terminal
+ * screen) survives selection switches.
+ *
+ * SPLIT (U2, mirrors the reference panel-reducer): the ◫ control splits the
+ * content area by inserting a new panel after its own. The split is refused
+ * with a Notice when the resulting panels would fall below
+ * SPLIT_MIN_PANEL_WIDTH_PX (the reference's canSplitPanel), and the new
+ * panel IMMEDIATELY spawns a NEW plain shell terminal session
+ * (manager.startShellSession) which it displays and focuses. Exactly one
+ * panel is FOCUSED at any time (subtle highlight; clicking a panel focuses
+ * it): sidebar clicks show the clicked run in the FOCUSED panel — unless the
+ * run is already on screen in another panel, in which case that panel is
+ * focused instead of duplicating the view. The + button spawns a new shell
+ * session in its own panel (focusing it first). Closing the selected run of
+ * a secondary panel (tab ×, sidebar ×, or the stopped-run auto-close)
+ * unsplits that panel; leftover hidden bodies migrate to the primary panel.
  *
  * × semantics (tab and sidebar row alike): on an ACTIVE run it requests a
  * stop AND closes the run's view in one action — the teardown waits for the
@@ -26,27 +41,28 @@
  * App#saveLocalStorage bridge and is restored on mount.
  *
  * Headless runs render their stream events as text lines and can send
- * resume-based follow-ups through the composer bar under the content area
- * (enabled only when the run is finished, has a session id, and its task
- * has no other active run).
+ * resume-based follow-ups through the composer bar under the panels
+ * (bound to the FOCUSED panel's selected run; enabled only when that run is
+ * finished, has a session id, and its task has no other active run).
  *
  * Terminal runs host an embedded terminal instead: a TerminalViewAdapter is
  * created LAZILY the first time the run's body is shown (pane expanded),
  * opened with the record's fixed PTY grid, wired both ways
  * (manager.onTerminalData -> adapter.write, adapter.onData ->
- * manager.sendTerminalInput), and focused on selection. The composer is
- * hidden for terminal runs — input goes straight into the terminal. While a
- * terminal run is selected and the pane is expanded, the host container
- * carries the ai-pane-container--terminal chrome class so styles.css can
- * give the pane a real height.
+ * manager.sendTerminalInput), and focused when its panel holds the focus.
+ * Every panel keeps its own wiring, so keystrokes never cross sessions. The
+ * composer is hidden for terminal runs — input goes straight into the
+ * terminal. While any panel shows a terminal run and the pane is expanded,
+ * the host container carries the ai-pane-container--terminal chrome class
+ * so styles.css can give the pane a real height.
  *
  * On mount the pane also registers itself as the manager's terminal
  * snapshot provider: at run exit the manager reads the run's live xterm
  * buffer (adapter.snapshotText()) as the log-note transcript instead of the
  * ANSI-stripped PTY transcript file. Adapters are therefore never disposed
  * on the final status update — closing a view (auto or ×) happens on
- * 'persisted', selects the most recent remaining run, and hides the pane
- * again when no runs remain.
+ * 'persisted', selects the most recent remaining run of the panel, and
+ * hides the pane again when no runs remain.
  *
  * All content is written through createEl/createDiv/createSpan with
  * textContent only (xterm renders inside its own subtree via the adapter).
@@ -56,9 +72,11 @@ import { Notice } from 'obsidian'
 import {
   AiRunAlreadyActiveError,
   AiSessionUnavailableError,
+  AiShellUnavailableError,
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
   type AiRunChangeType,
+  type AiShellSessionOptions,
 } from '../services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
@@ -78,6 +96,12 @@ export interface AiRunPaneManagerLike {
   ): () => void
   onTerminalData(runId: string, listener: (chunk: string) => void): () => void
   sendTerminalInput(runId: string, data: string): void
+  /**
+   * Spawn a plain login-shell terminal session (U2 split panels). Optional
+   * so plain fakes keep working — without it the split and + controls
+   * surface the shell-unavailable notice instead of spawning.
+   */
+  startShellSession?(options?: AiShellSessionOptions): AiRunRecord
   /**
    * Single-provider registration used by the manager to read a terminal
    * run's live xterm buffer when its log note is composed at run exit; the
@@ -118,11 +142,22 @@ interface RunView {
   /** Sidebar row of the run (selection + × control) */
   row: HTMLElement
   body: HTMLElement
+  /** Panel whose bodies element currently hosts the run's body */
+  panelId: string
   isTerminal: boolean
   terminal: TerminalBinding | null
   renderedEventCount: number
   lastStatus: AiRunStatus
   lastOmittedCount: number
+}
+
+/** One side-by-side content panel (tab strip + bodies + selection) */
+interface PanelView {
+  id: string
+  el: HTMLElement
+  tabEl: HTMLElement
+  bodiesEl: HTMLElement
+  selectedRunId: string | null
 }
 
 const ACTIVE_STATUSES: ReadonlySet<AiRunStatus> = new Set([
@@ -169,6 +204,14 @@ const TERMINAL_MAX_COLS = 400
 const TERMINAL_MIN_ROWS = 5
 const TERMINAL_MAX_ROWS = 200
 
+/**
+ * Minimum measured width each side-by-side panel must keep for a split to
+ * be allowed (the reference app's canSplitPanel gate, in pixels instead of
+ * its 10%-of-total). An unmeasurable width (hidden view, jsdom) does not
+ * block the split — the fallback PTY size applies there anyway.
+ */
+export const SPLIT_MIN_PANEL_WIDTH_PX = 320
+
 /** Chrome class on the host container while a terminal run is on screen */
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 /** Chrome class on the host container while the pane is expanded */
@@ -195,14 +238,15 @@ export class AiRunPaneController {
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
   private sidebarEl: HTMLElement | null = null
-  private tabEl: HTMLElement | null = null
+  private panelsEl: HTMLElement | null = null
+  private panels: PanelView[] = []
+  private focusedPanelId: string | null = null
+  private panelSequence = 0
   private expandButton: HTMLElement | null = null
-  private bodiesEl: HTMLElement | null = null
   private collapseButton: HTMLElement | null = null
   private composerEl: HTMLElement | null = null
   private composerInput: HTMLInputElement | null = null
   private composerSend: HTMLButtonElement | null = null
-  private selectedRunId: string | null = null
   private expanded = false
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
@@ -238,27 +282,17 @@ export class AiRunPaneController {
       text: this.host.tv('aiTask.paneTitle', 'AI runs'),
     })
 
-    // NOW PLAYING layout: sidebar (run list) on the left, the selected run's
-    // content (tab strip + bodies + composer) on the right.
+    // NOW PLAYING layout: sidebar (run list) on the left, the panels area
+    // (each panel: tab strip + bodies) plus the composer on the right.
     const layout = root.createDiv({ cls: 'ai-run-pane__layout' })
     this.sidebarEl = layout.createDiv({
       cls: 'ai-run-pane__sidebar',
       attr: { role: 'tablist' },
     })
     const content = layout.createDiv({ cls: 'ai-run-pane__content' })
-    const tabstrip = content.createDiv({ cls: 'ai-run-pane__tabstrip' })
-    this.tabEl = tabstrip.createDiv({ cls: 'ai-run-pane__tab is-hidden' })
-    // Corner actions: expand now, the U2 split control joins here later.
-    const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
-    const expandButton = actions.createEl('button', {
-      cls: 'ai-run-pane__expand',
-    })
-    expandButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.setExpanded(!this.expanded, true)
-    })
-    this.expandButton = expandButton
-    this.bodiesEl = content.createDiv({ cls: 'ai-run-pane__bodies' })
+    this.panelsEl = content.createDiv({ cls: 'ai-run-pane__panels' })
+    const primary = this.createPanel(null)
+    this.focusPanel(primary)
     this.mountComposer(content)
 
     // Restore the per-device expanded preference (not a user toggle: nothing
@@ -311,20 +345,21 @@ export class AiRunPaneController {
     this.root?.remove()
     this.root = null
     this.sidebarEl = null
-    this.tabEl = null
+    this.panelsEl = null
+    this.panels = []
+    this.focusedPanelId = null
+    this.panelSequence = 0
     this.expandButton = null
-    this.bodiesEl = null
     this.collapseButton = null
     this.composerEl = null
     this.composerInput = null
     this.composerSend = null
-    this.selectedRunId = null
     this.expanded = false
     this.runViews.clear()
     this.pendingCloseRunIds.clear()
   }
 
-  /** Reveal the pane, expand it, and select the given run */
+  /** Reveal the pane, expand it, focus the run's panel, and select the run */
   openRun(runId: string): void {
     if (!this.runViews.has(runId)) {
       const record = this.host.manager.getRun(runId)
@@ -336,7 +371,12 @@ export class AiRunPaneController {
     }
     this.revealPane()
     this.setCollapsed(false)
-    this.selectRun(runId)
+    const view = this.runViews.get(runId)
+    if (!view) return
+    const panel = this.getPanel(view.panelId) ?? this.getPrimaryPanel()
+    if (!panel) return
+    this.focusPanel(panel)
+    this.selectRunInPanel(panel, runId)
   }
 
   setCollapsed(collapsed: boolean): void {
@@ -347,21 +387,23 @@ export class AiRunPaneController {
       this.collapseButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
     }
     if (!collapsed) {
-      // A terminal run selected while collapsed deferred its adapter; the
-      // body just became visible, so create and focus it now.
-      this.ensureSelectedTerminalView()
+      // Terminal runs selected while collapsed deferred their adapters; the
+      // bodies just became visible, so create (and focus) them now.
+      this.ensureVisibleTerminalViews()
     }
     this.updateContainerChrome()
   }
 
   /**
-   * Estimate the PTY grid that fits the pane at its terminal height (the
-   * expanded or regular share of the view). Falls back to 120x30 when the
-   * pane has no measurable pixel size (hidden view, jsdom).
+   * Estimate the PTY grid that fits ONE panel of the pane at its terminal
+   * height (the expanded or regular share of the view): the measured width
+   * is divided across the side-by-side panels. Falls back to 120x30 when
+   * the pane has no measurable pixel size (hidden view, jsdom).
    */
   computeTerminalSize(): { cols: number; rows: number } {
     const container = this.containerEl
-    const width = container?.clientWidth ?? 0
+    const panelCount = Math.max(1, this.panels.length)
+    const width = (container?.clientWidth ?? 0) / panelCount
     const parentHeight = container?.parentElement?.clientHeight ?? 0
     if (width <= 0 || parentHeight <= 0) {
       return { cols: TERMINAL_FALLBACK_COLS, rows: TERMINAL_FALLBACK_ROWS }
@@ -422,6 +464,258 @@ export class AiRunPaneController {
     button.setAttribute('aria-pressed', this.expanded ? 'true' : 'false')
   }
 
+  // -------------------------------------------------------------------------
+  // Panels
+  // -------------------------------------------------------------------------
+
+  private getPrimaryPanel(): PanelView | undefined {
+    return this.panels[0]
+  }
+
+  private getPanel(panelId: string): PanelView | undefined {
+    return this.panels.find((panel) => panel.id === panelId)
+  }
+
+  private getFocusedPanel(): PanelView | undefined {
+    if (this.focusedPanelId !== null) {
+      const focused = this.getPanel(this.focusedPanelId)
+      if (focused) return focused
+    }
+    return this.getPrimaryPanel()
+  }
+
+  /**
+   * Build one content panel (tab strip with the +/◫ controls and a bodies
+   * element) and insert it after `afterPanel` (or append it). The primary
+   * panel — the first one created — additionally owns the ⤢ expand toggle.
+   */
+  private createPanel(afterPanel: PanelView | null): PanelView {
+    const panelsEl = this.panelsEl
+    if (!panelsEl) throw new Error('AiRunPaneController is not mounted')
+    const isPrimary = this.panels.length === 0
+
+    const el = panelsEl.createDiv({ cls: 'ai-run-pane__panel' })
+    if (afterPanel) {
+      afterPanel.el.after(el)
+    }
+
+    const tabstrip = el.createDiv({ cls: 'ai-run-pane__tabstrip' })
+    const tabEl = tabstrip.createDiv({ cls: 'ai-run-pane__tab is-hidden' })
+
+    const panel: PanelView = {
+      id: `panel-${(this.panelSequence += 1)}`,
+      el,
+      tabEl,
+      bodiesEl: null as unknown as HTMLElement,
+      selectedRunId: null,
+    }
+
+    // Clicking anywhere in the panel focuses it (the reference's SET_FOCUS);
+    // inner controls that must not shift the focus stop propagation.
+    el.addEventListener('click', () => {
+      this.focusPanel(panel)
+    })
+
+    const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
+    const addButton = tabstrip.createEl('button', {
+      cls: 'ai-run-pane__add',
+      text: '+',
+      attr: { 'aria-label': addLabel, title: addLabel },
+    })
+    addButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.handleNewShell(panel)
+    })
+
+    const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
+    const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
+    const splitButton = actions.createEl('button', {
+      cls: 'ai-run-pane__split',
+      text: '◫',
+      attr: { 'aria-label': splitLabel, title: splitLabel },
+    })
+    splitButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.handleSplit(panel)
+    })
+    if (isPrimary) {
+      const expandButton = actions.createEl('button', {
+        cls: 'ai-run-pane__expand',
+      })
+      expandButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.setExpanded(!this.expanded, true)
+      })
+      this.expandButton = expandButton
+      this.refreshExpandButton()
+    }
+
+    panel.bodiesEl = el.createDiv({ cls: 'ai-run-pane__bodies' })
+
+    const afterIndex = afterPanel ? this.panels.indexOf(afterPanel) : -1
+    if (afterIndex >= 0) {
+      this.panels.splice(afterIndex + 1, 0, panel)
+    } else {
+      this.panels.push(panel)
+    }
+    this.refreshPanelsSplitState()
+    return panel
+  }
+
+  /**
+   * Remove a SECONDARY panel (unsplit). Hidden bodies still hosted by the
+   * panel migrate to the primary panel so their runs stay reachable from
+   * the sidebar; the focus falls back to the primary panel.
+   */
+  private closePanel(panel: PanelView): void {
+    const primary = this.getPrimaryPanel()
+    if (!primary || panel === primary) return
+    for (const view of this.runViews.values()) {
+      if (view.panelId !== panel.id) continue
+      view.panelId = primary.id
+      view.body.classList.remove('is-active')
+      primary.bodiesEl.appendChild(view.body)
+    }
+    this.panels = this.panels.filter((other) => other !== panel)
+    panel.el.remove()
+    if (this.focusedPanelId === panel.id) {
+      this.focusPanel(primary)
+    }
+    this.refreshPanelsSplitState()
+    this.syncPanelSelectionClasses()
+  }
+
+  private focusPanel(panel: PanelView): void {
+    this.focusedPanelId = panel.id
+    for (const other of this.panels) {
+      other.el.classList.toggle('is-focused', other === panel)
+    }
+    this.updateComposerState()
+  }
+
+  /** Marker class for styles.css: highlight the focus only while split */
+  private refreshPanelsSplitState(): void {
+    this.panelsEl?.classList.toggle('is-split', this.panels.length > 1)
+  }
+
+  /**
+   * The reference's canSplitPanel gate: every panel after the split must
+   * keep the minimum width. An unmeasurable container width (hidden view,
+   * jsdom) never blocks the split.
+   */
+  private canSplit(): boolean {
+    const width = this.containerEl?.clientWidth ?? 0
+    if (width <= 0) return true
+    return width / (this.panels.length + 1) >= SPLIT_MIN_PANEL_WIDTH_PX
+  }
+
+  /**
+   * ◫: split the content area after `sourcePanel` and IMMEDIATELY spawn a
+   * new plain shell session into the new panel (user-confirmed reference
+   * behavior: the split lands with a live terminal on screen). A failed
+   * spawn rolls the split back.
+   */
+  private handleSplit(sourcePanel: PanelView): void {
+    if (!this.canSplit()) {
+      new Notice(
+        this.host.tv(
+          'aiTask.notices.splitTooNarrow',
+          'The pane is too narrow to split.',
+        ),
+      )
+      return
+    }
+    if (typeof this.host.manager.startShellSession !== 'function') {
+      this.notifyShellError(new AiShellUnavailableError())
+      return
+    }
+
+    const newPanel = this.createPanel(sourcePanel)
+    // Focus BEFORE spawning: the manager emits the new run synchronously and
+    // createRunView assigns fresh runs to the focused panel.
+    this.focusPanel(newPanel)
+    let record: AiRunRecord
+    try {
+      record = this.startShellSession()
+    } catch (error) {
+      this.closePanel(newPanel)
+      this.focusPanel(sourcePanel)
+      this.notifyShellError(error)
+      return
+    }
+    this.adoptRunIntoPanel(newPanel, record.id)
+  }
+
+  /** +: spawn a new shell session and show it in the button's own panel */
+  private handleNewShell(panel: PanelView): void {
+    this.focusPanel(panel)
+    if (typeof this.host.manager.startShellSession !== 'function') {
+      this.notifyShellError(new AiShellUnavailableError())
+      return
+    }
+    let record: AiRunRecord
+    try {
+      record = this.startShellSession()
+    } catch (error) {
+      this.notifyShellError(error)
+      return
+    }
+    this.adoptRunIntoPanel(panel, record.id)
+  }
+
+  /** Spawn a shell session sized like a terminal run of the current layout */
+  private startShellSession(): AiRunRecord {
+    const manager = this.host.manager
+    if (typeof manager.startShellSession !== 'function') {
+      throw new AiShellUnavailableError()
+    }
+    const size = this.computeTerminalSize()
+    return manager.startShellSession({
+      cols: size.cols,
+      rows: size.rows,
+      name: this.host.tv('aiTask.shellSessionName', 'Terminal'),
+    })
+  }
+
+  /**
+   * Make sure the (just spawned) run is displayed in the given panel. The
+   * manager emits synchronously, so the view normally already sits in the
+   * focused panel — this guards against managers that defer the emission.
+   */
+  private adoptRunIntoPanel(panel: PanelView, runId: string): void {
+    const view = this.runViews.get(runId)
+    if (!view) return
+    if (view.panelId !== panel.id) {
+      view.panelId = panel.id
+      panel.bodiesEl.appendChild(view.body)
+    }
+    this.selectRunInPanel(panel, runId)
+  }
+
+  private notifyShellError(error: unknown): void {
+    if (error instanceof AiShellUnavailableError) {
+      new Notice(
+        this.host.tv(
+          'aiTask.notices.shellUnavailable',
+          'Terminal sessions are not available on this platform.',
+        ),
+      )
+      return
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    new Notice(
+      this.host.tv(
+        'aiTask.notices.shellStartFailed',
+        'Failed to start terminal session: {message}',
+        { message },
+      ),
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // Run views
+  // -------------------------------------------------------------------------
+
   private handleChange(record: AiRunRecord, changeType?: AiRunChangeType): void {
     if (!this.root) return
     if (changeType === 'persisted') {
@@ -447,9 +741,7 @@ export class AiRunPaneController {
     if (existing.lastStatus !== record.status) {
       existing.lastStatus = record.status
       this.refreshRunRow(existing, record)
-      if (this.selectedRunId === record.id) {
-        this.refreshContentTab()
-      }
+      this.refreshTabsShowingRun(record.id)
     }
     if (!existing.isTerminal) {
       this.syncEvents(existing, record)
@@ -482,9 +774,11 @@ export class AiRunPaneController {
 
   /**
    * Close one run's view: dispose its terminal wiring, remove the sidebar
-   * row and body, move the selection to the most recent remaining run, and
-   * hide the pane again (the pre-first-run state) when none remain. Used by
-   * the 'persisted' teardown and the × of finished runs.
+   * row and body, and repair the panel that displayed it — the primary
+   * panel moves its selection to the most recent remaining run it hosts,
+   * while a secondary panel unsplits. The pane hides again (the
+   * pre-first-run state) when no runs remain. Used by the 'persisted'
+   * teardown and the × of finished runs.
    */
   private closeRun(runId: string): void {
     const view = this.runViews.get(runId)
@@ -495,29 +789,44 @@ export class AiRunPaneController {
     this.runViews.delete(runId)
     this.pendingCloseRunIds.delete(runId)
 
-    if (this.selectedRunId === runId) {
-      this.selectedRunId = null
-      const remaining = Array.from(this.runViews.keys())
-      const mostRecent = remaining[remaining.length - 1]
-      if (mostRecent !== undefined) {
-        this.selectRun(mostRecent)
-        return
+    const panel = this.getPanel(view.panelId)
+    if (panel && panel.selectedRunId === runId) {
+      panel.selectedRunId = null
+      if (panel === this.getPrimaryPanel()) {
+        let mostRecent: string | undefined
+        for (const [id, other] of this.runViews) {
+          if (other.panelId === panel.id) mostRecent = id
+        }
+        if (mostRecent !== undefined) {
+          this.selectRunInPanel(panel, mostRecent)
+          return
+        }
+        this.refreshContentTab(panel)
+      } else {
+        this.closePanel(panel)
       }
     }
     if (this.runViews.size === 0) {
-      this.selectedRunId = null
+      while (this.panels.length > 1) {
+        this.closePanel(this.panels[this.panels.length - 1])
+      }
       this.root?.classList.add('is-hidden')
-      this.refreshContentTab()
+      const primary = this.getPrimaryPanel()
+      if (primary) this.refreshContentTab(primary)
     }
+    this.syncPanelSelectionClasses()
     this.updateContainerChrome()
     this.updateComposerState()
   }
 
   private createRunView(record: AiRunRecord): void {
-    if (!this.sidebarEl || !this.bodiesEl) return
+    const sidebarEl = this.sidebarEl
+    const target = this.getFocusedPanel()
+    if (!sidebarEl || !target) return
 
-    const row = this.sidebarEl.createDiv({
-      cls: 'ai-run-pane__run',
+    const isShell = record.host === 'shell'
+    const row = sidebarEl.createDiv({
+      cls: isShell ? 'ai-run-pane__run ai-run-pane__run--shell' : 'ai-run-pane__run',
       attr: {
         role: 'tab',
         tabindex: '0',
@@ -525,16 +834,16 @@ export class AiRunPaneController {
       },
     })
     row.addEventListener('click', () => {
-      this.selectRun(record.id)
+      this.showRunInFocusedPanel(record.id)
     })
     row.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return
       event.preventDefault()
-      this.selectRun(record.id)
+      this.showRunInFocusedPanel(record.id)
     })
 
     const isTerminal = record.mode === 'terminal'
-    const body = this.bodiesEl.createDiv({
+    const body = target.bodiesEl.createDiv({
       cls: isTerminal
         ? 'ai-run-pane__body ai-run-pane__body--terminal'
         : 'ai-run-pane__body',
@@ -544,6 +853,7 @@ export class AiRunPaneController {
     const view: RunView = {
       row,
       body,
+      panelId: target.id,
       isTerminal,
       terminal: null,
       renderedEventCount: 0,
@@ -557,8 +867,8 @@ export class AiRunPaneController {
     }
 
     this.revealPane()
-    if (this.selectedRunId === null) {
-      this.selectRun(record.id)
+    if (target.selectedRunId === null) {
+      this.selectRunInPanel(target, record.id)
     }
   }
 
@@ -587,17 +897,16 @@ export class AiRunPaneController {
   }
 
   /**
-   * Rebuild the content tab strip's single tab from the SELECTED run
-   * (status dot, content-type label, × control). Hidden while nothing is
-   * selected (pre-first-run and post-last-close states).
+   * Rebuild one panel's tab strip tab from the panel's SELECTED run (status
+   * dot, content-type label, × control). Hidden while the panel shows
+   * nothing (pre-first-run and post-last-close states).
    */
-  private refreshContentTab(): void {
-    const tab = this.tabEl
-    if (!tab) return
+  private refreshContentTab(panel: PanelView): void {
+    const tab = panel.tabEl
     tab.empty()
     const record =
-      this.selectedRunId !== null
-        ? this.host.manager.getRun(this.selectedRunId)
+      panel.selectedRunId !== null
+        ? this.host.manager.getRun(panel.selectedRunId)
         : undefined
     if (!record) {
       tab.classList.add('is-hidden')
@@ -625,6 +934,15 @@ export class AiRunPaneController {
           : this.host.tv('aiTask.contentTab.events', 'Events'),
     })
     this.appendCloseControl(tab, record, 'ai-run-pane__tab-close')
+  }
+
+  /** Refresh the tab of every panel currently displaying the run */
+  private refreshTabsShowingRun(runId: string): void {
+    for (const panel of this.panels) {
+      if (panel.selectedRunId === runId) {
+        this.refreshContentTab(panel)
+      }
+    }
   }
 
   /**
@@ -657,20 +975,50 @@ export class AiRunPaneController {
     })
   }
 
-  private selectRun(runId: string): void {
-    this.selectedRunId = runId
-    for (const [id, view] of this.runViews) {
-      const isActive = id === runId
-      view.row.classList.toggle('is-active', isActive)
-      view.row.setAttribute('aria-selected', isActive ? 'true' : 'false')
-      view.body.classList.toggle('is-active', isActive)
+  /**
+   * Sidebar entry point: show the run in the FOCUSED panel. When the run is
+   * already on screen in another panel, that panel is focused instead — a
+   * run's body (and its one-shot xterm view) exists exactly once.
+   */
+  private showRunInFocusedPanel(runId: string): void {
+    const view = this.runViews.get(runId)
+    const focused = this.getFocusedPanel()
+    if (!view || !focused) return
+    if (view.panelId !== focused.id) {
+      const hostPanel = this.getPanel(view.panelId)
+      if (hostPanel && hostPanel.selectedRunId === runId) {
+        this.focusPanel(hostPanel)
+        if (!this.isCollapsed()) {
+          this.ensureTerminalView(hostPanel)
+        }
+        return
+      }
+      // Adopt the hidden body into the focused panel.
+      view.panelId = focused.id
+      focused.bodiesEl.appendChild(view.body)
     }
-    this.refreshContentTab()
+    this.selectRunInPanel(focused, runId)
+  }
+
+  private selectRunInPanel(panel: PanelView, runId: string): void {
+    panel.selectedRunId = runId
+    this.syncPanelSelectionClasses()
+    this.refreshContentTab(panel)
     if (!this.isCollapsed()) {
-      this.ensureSelectedTerminalView()
+      this.ensureTerminalView(panel)
     }
     this.updateContainerChrome()
     this.updateComposerState()
+  }
+
+  /** Row/body active classes follow each panel's selected run */
+  private syncPanelSelectionClasses(): void {
+    for (const [id, view] of this.runViews) {
+      const isSelected = this.getPanel(view.panelId)?.selectedRunId === id
+      view.row.classList.toggle('is-active', isSelected)
+      view.row.setAttribute('aria-selected', isSelected ? 'true' : 'false')
+      view.body.classList.toggle('is-active', isSelected)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -678,14 +1026,14 @@ export class AiRunPaneController {
   // -------------------------------------------------------------------------
 
   /**
-   * Lazily create (or just re-focus) the embedded terminal of the SELECTED
-   * run. The adapter is opened with the record's fixed PTY grid so the xterm
-   * view matches the child process exactly, wired both ways, and focused so
-   * the user can type immediately. No-op for headless runs and while the
-   * body is not visible (collapsed pane).
+   * Lazily create (or just re-focus) the embedded terminal of one panel's
+   * SELECTED run. The adapter is opened with the record's fixed PTY grid so
+   * the xterm view matches the child process exactly, wired both ways, and
+   * focused (focused panel only) so the user can type immediately. No-op
+   * for headless runs and while the body is not visible (collapsed pane).
    */
-  private ensureSelectedTerminalView(): void {
-    const runId = this.selectedRunId
+  private ensureTerminalView(panel: PanelView): void {
+    const runId = panel.selectedRunId
     if (runId === null || this.isHidden()) return
     const view = this.runViews.get(runId)
     if (!view || !view.isTerminal) return
@@ -709,7 +1057,16 @@ export class AiRunPaneController {
       })
       view.terminal = { adapter, disposeData, disposeInput }
     }
-    view.terminal.adapter.focus()
+    if (this.focusedPanelId === panel.id) {
+      view.terminal.adapter.focus()
+    }
+  }
+
+  /** Create/focus the selected terminal view of every panel (uncollapse) */
+  private ensureVisibleTerminalViews(): void {
+    for (const panel of this.panels) {
+      this.ensureTerminalView(panel)
+    }
   }
 
   /** Tear down one run view's terminal wiring (idempotent) */
@@ -724,19 +1081,22 @@ export class AiRunPaneController {
 
   /**
    * Sync the host container's chrome classes: the terminal class (fixed
-   * pane height in styles.css) exactly while a terminal run is selected and
-   * its body is actually on screen, the expanded class exactly while the
-   * expanded pane is on screen.
+   * pane height in styles.css) exactly while some panel displays a terminal
+   * run on screen, the expanded class exactly while the expanded pane is on
+   * screen.
    */
   private updateContainerChrome(): void {
     const container = this.containerEl
     if (!container) return
     const visible = !this.isCollapsed() && !this.isHidden()
-    const selected =
-      this.selectedRunId !== null ? this.runViews.get(this.selectedRunId) : undefined
+    const anyTerminalOnScreen = this.panels.some(
+      (panel) =>
+        panel.selectedRunId !== null &&
+        this.runViews.get(panel.selectedRunId)?.isTerminal === true,
+    )
     container.classList.toggle(
       TERMINAL_CONTAINER_CLASS,
-      selected?.isTerminal === true && visible,
+      anyTerminalOnScreen && visible,
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
   }
@@ -773,11 +1133,18 @@ export class AiRunPaneController {
     this.updateComposerState()
   }
 
+  /** The run the composer is bound to: the FOCUSED panel's selected run */
+  private getComposerRun(): AiRunRecord | undefined {
+    const focused = this.getFocusedPanel()
+    if (!focused || focused.selectedRunId === null) return undefined
+    return this.host.manager.getRun(focused.selectedRunId)
+  }
+
   /**
    * The composer only applies to headless runs (terminal runs take input in
    * the terminal itself, so the bar is hidden outright for them). It is
-   * usable only when the SELECTED run is finished, has a session id to
-   * resume, AND its task has no other active run (the manager would
+   * usable only when the FOCUSED panel's run is finished, has a session id
+   * to resume, AND its task has no other active run (the manager would
    * deterministically reject the follow-up otherwise); in every other case
    * it is disabled with a hint placeholder.
    */
@@ -786,10 +1153,7 @@ export class AiRunPaneController {
     const send = this.composerSend
     if (!input || !send) return
 
-    const record =
-      this.selectedRunId !== null
-        ? this.host.manager.getRun(this.selectedRunId)
-        : undefined
+    const record = this.getComposerRun()
 
     const isTerminal = record?.mode === 'terminal'
     this.composerEl?.classList.toggle('is-hidden', isTerminal)
@@ -828,7 +1192,7 @@ export class AiRunPaneController {
   private submitComposer(): void {
     const input = this.composerInput
     if (!input || input.disabled) return
-    const runId = this.selectedRunId
+    const runId = this.getFocusedPanel()?.selectedRunId ?? null
     if (runId === null) return
     const text = input.value.trim()
     if (text.length === 0) return

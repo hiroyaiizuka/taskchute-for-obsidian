@@ -6678,8 +6678,36 @@ textarea.form-textarea {
   min-height: 0;
 }
 
-/* Slim tab strip above the selected run's body; the corner actions (expand
-   now, split in a later stage) sit at its right edge. */
+/* Side-by-side panels area (U2 split): each panel is a column of its own
+   tab strip + bodies; the composer sits below the whole area. */
+.ai-run-pane__panels {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-run-pane__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-run-pane__panel + .ai-run-pane__panel {
+  border-left: 1px solid var(--background-modifier-border);
+}
+
+/* Subtle focus ring, shown only while the area is actually split (mirrors
+   the reference app's focused-panel highlight). */
+.ai-run-pane__panels.is-split .ai-run-pane__panel.is-focused {
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+/* Slim tab strip above each panel's selected body; the + new-shell button
+   follows the tab, the corner actions (split, expand) sit at its right
+   edge. */
 .ai-run-pane__tabstrip {
   display: flex;
   align-items: center;
@@ -6717,7 +6745,9 @@ textarea.form-textarea {
   margin-left: auto;
 }
 
-.ai-run-pane__expand {
+.ai-run-pane__expand,
+.ai-run-pane__split,
+.ai-run-pane__add {
   border: none;
   background: none;
   cursor: pointer;
@@ -6725,9 +6755,12 @@ textarea.form-textarea {
   font-size: 13px;
   padding: 2px 4px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
-.ai-run-pane__expand:hover {
+.ai-run-pane__expand:hover,
+.ai-run-pane__split:hover,
+.ai-run-pane__add:hover {
   color: var(--text-normal);
 }
 
@@ -6760,6 +6793,15 @@ textarea.form-textarea {
 .ai-run-pane__tab-dot--failed,
 .ai-run-pane__run-dot--failed {
   background: var(--color-red, var(--text-error));
+}
+
+/* Plain shell sessions pulse blue instead of amber while alive, so they
+   read apart from AI task runs in the sidebar; finished/failed colors are
+   shared. */
+.ai-run-pane__run--shell .ai-run-pane__run-dot--starting,
+.ai-run-pane__run--shell .ai-run-pane__run-dot--running,
+.ai-run-pane__run--shell .ai-run-pane__run-dot--stopping {
+  background: var(--color-blue, var(--interactive-accent));
 }
 
 /* Endpoints inherit the dot's base opacity (1); only the midpoint dims. */

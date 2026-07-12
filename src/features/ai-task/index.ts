@@ -91,6 +91,8 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       isSupported: () => gateway.isPtySupported(),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
+      // Plain shell sessions (U2 split panels) spawn the user's login shell.
+      getShellPath: () => gateway.getShellPath(),
     },
     // Terminal is the default experience; win32 is force-degraded to
     // headless inside the manager via isSupported().

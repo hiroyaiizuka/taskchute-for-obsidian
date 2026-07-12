@@ -9,6 +9,15 @@
 export type AiTaskHost = 'claude' | 'codex'
 
 /**
+ * What a run record executes: one of the AI CLI hosts, or 'shell' for a
+ * plain login-shell terminal session (U2 split panels). Shell sessions are
+ * always terminal-mode, belong to NO task note (taskPath ''), and must never
+ * be treated as task runs: no log note, no retention prune, no play/stop
+ * coupling, no row chip.
+ */
+export type AiRunHost = AiTaskHost | 'shell'
+
+/**
  * How a run's child process executes: 'terminal' embeds an interactive PTY
  * session (the full CLI TUI, typed into directly), 'headless' runs the
  * legacy stream-json pipeline.
@@ -119,11 +128,11 @@ export interface AiTaskConfig {
 export interface AiRunRecord {
   /** Unique run identifier */
   id: string
-  /** Vault path of the task note that started the run */
+  /** Vault path of the task note that started the run ('' for shell sessions) */
   taskPath: string
-  /** Display name of the task */
+  /** Display name of the task (or the localized shell-session label) */
   taskName: string
-  host: AiTaskHost
+  host: AiRunHost
   status: AiRunStatus
   /** Execution mode of the child process (see AiRunMode) */
   mode: AiRunMode
