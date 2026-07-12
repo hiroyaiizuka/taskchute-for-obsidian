@@ -19,7 +19,13 @@ export class PathService {
   };
 
   static GROUP = 'TaskChute' as const;
-  static SUBDIR = { task: 'Task', log: 'Log', review: 'Review', recipe: 'Recipes' } as const;
+  static SUBDIR = {
+    task: 'Task',
+    log: 'Log',
+    review: 'Review',
+    recipe: 'Recipes',
+    aiLogs: 'AI/Logs',
+  } as const;
 
   private resolveBase(): string {
     const mode = this.plugin.settings.locationMode ?? 'vaultRoot';
@@ -61,6 +67,17 @@ export class PathService {
   getRecipeFolderPath(): string {
     const base = this.resolveBase();
     return this.join(base, PathService.GROUP, PathService.SUBDIR.recipe);
+  }
+
+  // AI run log notes live under <base>/TaskChute/AI/Logs/YYYY-MM.
+  // Folders are created lazily by AiTaskLogWriter (not in ensureRequiredFolders).
+  getAiLogsPath(): string {
+    const base = this.resolveBase();
+    return this.join(base, PathService.GROUP, PathService.SUBDIR.aiLogs);
+  }
+
+  getAiLogsMonthPath(yearMonth: string): string {
+    return normalizePath(`${this.getAiLogsPath()}/${yearMonth}`);
   }
 
   getLogYearPath(year: number | string): string {

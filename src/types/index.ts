@@ -1,6 +1,7 @@
 import type { Command, Plugin } from "obsidian"
 import { TFile } from "obsidian"
 import type { PathService } from "../services/PathService"
+import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 
 // Re-export new typed fields
 export * from "./TaskFields"
@@ -84,6 +85,8 @@ type TaskChutePluginAugment = {
   pathManager: PathManagerLike
   routineAliasService: RoutineAliasServiceLike
   dayStateService: DayStateServiceAPI
+  /** Present only when the AI task feature is enabled on desktop */
+  aiTaskManager?: AiTaskManager
   saveSettings(): Promise<void>
   showSettingsModal(): void
   addRibbonIcon(
@@ -270,6 +273,10 @@ export type PathManagerLike = Pick<
   | "validatePath"
 > & {
   getRecipeFolderPath?: () => string
+  // Optional so lightweight test stubs keep compiling; the real PathService
+  // implements both and createAiTaskManager checks for them at runtime.
+  getAiLogsPath?: () => string
+  getAiLogsMonthPath?: (yearMonth: string) => string
 }
 
 export interface DayStateServiceAPI {

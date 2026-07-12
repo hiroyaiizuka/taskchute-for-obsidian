@@ -18,6 +18,8 @@ import {
 } from "./context/PluginContext"
 import { TaskIdManager } from "../services/TaskIdManager"
 import { ReminderSystemManager } from "../features/reminder/services/ReminderSystemManager"
+import { createAiTaskManager } from "../features/ai-task"
+import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 
 export async function prepareSettings(
   plugin: TaskChutePlugin,
@@ -190,6 +192,17 @@ export async function bootstrapPlugin(
     plugin._log?.("warn", "[TaskChute] Failed to initialize reminder system:", error)
   }
 
+  // Initialize the AI task manager (inert unless enabled AND on desktop)
+  let aiTaskManager: AiTaskManager | undefined
+  try {
+    aiTaskManager = createAiTaskManager(plugin)
+    if (aiTaskManager) {
+      plugin._log?.("debug", "[TaskChute] AI task manager initialized")
+    }
+  } catch (error) {
+    plugin._log?.("warn", "[TaskChute] Failed to initialize AI task manager:", error)
+  }
+
   const context = createPluginContext({
     pathManager,
     dayStateService,
@@ -199,6 +212,7 @@ export async function bootstrapPlugin(
     ribbonManager,
     localeCoordinator,
     reminderManager,
+    aiTaskManager,
   })
 
   attachPluginContext(plugin, context)

@@ -7,6 +7,7 @@ import type DayStatePersistenceService from "./services/DayStatePersistenceServi
 import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
+import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -22,6 +23,8 @@ export default class TaskChutePlusPlugin extends Plugin {
   private localeCoordinator?: LocaleCoordinatorHandle
   /** Reminder manager for notification scheduling (exposed for TaskChuteView) */
   reminderManager?: ReminderSystemManager
+  /** AI task run manager (present only when enabled on desktop) */
+  aiTaskManager?: AiTaskManager
 
   // Simple logger/notification wrapper
   _log(level: keyof Console | undefined, ...args: unknown[]): void {
@@ -66,6 +69,9 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Dispose reminder system
     this.reminderManager?.dispose()
+
+    // Stop all AI runs (SIGTERM now, SIGKILL escalation on a window timer)
+    this.aiTaskManager?.dispose()
 
     // Clear boundary check timeout
     const view = this.viewController?.getView?.()

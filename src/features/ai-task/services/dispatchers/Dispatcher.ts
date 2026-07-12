@@ -39,6 +39,11 @@ export interface AiRunCallbacks {
 export interface AiRunProcessHandle {
   pid?: number
   stop(): void
+  /**
+   * Immediately SIGKILL the child, bypassing the SIGTERM grace period.
+   * Used by AiTaskManager.dispose() so plugin unload cannot leave zombies.
+   */
+  forceKill?(): void
 }
 
 export interface AiDispatcher {
@@ -137,6 +142,11 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
           killTimerHandle = null
           handle.kill('SIGKILL')
         }, STOP_GRACE_MS)
+      },
+      forceKill: () => {
+        if (exited) return
+        stopRequested = true
+        handle.kill('SIGKILL')
       },
     }
   }

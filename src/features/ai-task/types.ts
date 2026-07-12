@@ -66,6 +66,15 @@ export interface AiRawEvent {
   text: string
 }
 
+/**
+ * Synthetic marker inserted by the run manager when the middle of the event
+ * buffer is dropped (head + tail cap). Never produced by the CLI parsers.
+ */
+export interface AiElisionEvent {
+  kind: 'elision'
+  omittedCount: number
+}
+
 export type AiStreamEvent =
   | AiInitEvent
   | AiAssistantTextEvent
@@ -74,6 +83,7 @@ export type AiStreamEvent =
   | AiResultEvent
   | AiStderrEvent
   | AiRawEvent
+  | AiElisionEvent
 
 /** Normalized `ai_task_*` frontmatter configuration for a task note */
 export interface AiTaskConfig {
