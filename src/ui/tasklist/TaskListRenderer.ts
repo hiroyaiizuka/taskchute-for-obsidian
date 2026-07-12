@@ -120,6 +120,13 @@ export default class TaskListRenderer {
         isPrimaryInstance: this.host.isPrimaryAiInstance
           ? (inst) => this.host.isPrimaryAiInstance!(inst)
           : undefined,
+        // Stale-id detection: host.taskInstances is a live getter, so this
+        // always reflects the instances of the current render pass.
+        hasInstanceId: (taskPath, instanceId) =>
+          this.host.taskInstances.some(
+            (inst) =>
+              inst.task?.path === taskPath && inst.instanceId === instanceId,
+          ),
       })
     }
   }

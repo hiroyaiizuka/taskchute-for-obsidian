@@ -167,6 +167,85 @@ describe('TaskListRenderer AI task integration', () => {
     expect(host.stopAiRun).toHaveBeenCalledWith('run-9')
   })
 
+  test('run whose instanceId survived no reload: chip falls back to the primary row', () => {
+    // Regression: startAiRun records the originating instanceId, but idle
+    // instances receive fresh random ids on every reloadTasksAndRestore. After
+    // a mid-run reload the stored id matches no rendered instance; the chip
+    // and stop control must reappear on the first (primary) row instead of
+    // every row degrading to a run button that only raises
+    // AiRunAlreadyActiveError.
+    const first = createAiInstance()
+    const second = { ...createAiInstance(), instanceId: 'ai-instance-2' } as TaskInstance
+    const activeRun: AiRunRecord = {
+      id: 'run-11',
+      taskPath: 'TASKS/ai-sample.md',
+      taskName: 'AI sample',
+      host: 'claude',
+      mode: 'terminal',
+      status: 'running',
+      startedAt: Date.now(),
+      events: [],
+      instanceId: 'id-minted-before-reload',
+    }
+    const host = createBaseHost([first, second])
+    host.isAiTaskFeatureEnabled = () => true
+    host.getActiveAiRun = () => activeRun
+    host.startAiRun = jest.fn()
+    host.stopAiRun = jest.fn()
+    host.isPrimaryAiInstance = (inst) =>
+      host.taskInstances.find((other) => other.task?.path === inst.task?.path)
+        ?.instanceId === inst.instanceId
+
+    new TaskListRenderer(host).render()
+
+    const items = Array.from(
+      host.taskList.querySelectorAll<HTMLElement>('.task-item'),
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0].querySelector('.ai-task-status-chip')).not.toBeNull()
+    expect(items[0].querySelector('.ai-task-run-button--stop')).not.toBeNull()
+    expect(items[1].querySelector('.ai-task-status-chip')).toBeNull()
+    expect(
+      items[1].querySelector(
+        '.ai-task-run-button:not(.ai-task-run-button--stop)',
+      ),
+    ).not.toBeNull()
+  })
+
+  test('run whose instanceId is still rendered keeps the chip only on that row', () => {
+    const first = createAiInstance()
+    const second = { ...createAiInstance(), instanceId: 'ai-instance-2' } as TaskInstance
+    const activeRun: AiRunRecord = {
+      id: 'run-12',
+      taskPath: 'TASKS/ai-sample.md',
+      taskName: 'AI sample',
+      host: 'claude',
+      mode: 'terminal',
+      status: 'running',
+      startedAt: Date.now(),
+      events: [],
+      instanceId: 'ai-instance-2',
+    }
+    const host = createBaseHost([first, second])
+    host.isAiTaskFeatureEnabled = () => true
+    host.getActiveAiRun = () => activeRun
+    host.startAiRun = jest.fn()
+    host.stopAiRun = jest.fn()
+    host.isPrimaryAiInstance = (inst) =>
+      host.taskInstances.find((other) => other.task?.path === inst.task?.path)
+        ?.instanceId === inst.instanceId
+
+    new TaskListRenderer(host).render()
+
+    const items = Array.from(
+      host.taskList.querySelectorAll<HTMLElement>('.task-item'),
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0].querySelector('.ai-task-status-chip')).toBeNull()
+    expect(items[1].querySelector('.ai-task-status-chip')).not.toBeNull()
+    expect(items[1].querySelector('.ai-task-run-button--stop')).not.toBeNull()
+  })
+
   test('does not render AI controls when the feature toggle reports disabled', () => {
     const host = createBaseHost([createAiInstance()])
     host.isAiTaskFeatureEnabled = () => false
