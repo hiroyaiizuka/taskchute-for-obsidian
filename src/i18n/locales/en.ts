@@ -65,7 +65,12 @@ export const en = {
       heading: "AI task",
       enable: "Enable AI tasks",
       enableDesc:
-        "Run tasks with a headless AI CLI and stream the output into the AI run pane (desktop only).",
+        "Run tasks with the claude or codex CLI inside the AI run pane (desktop only).",
+      runModeName: "Run mode",
+      runModeDesc:
+        "Terminal embeds the interactive CLI session (type into it at any time); headless streams parsed events and offers a follow-up composer. Windows always runs headless.",
+      runModeTerminal: "Terminal (interactive)",
+      runModeHeadless: "Headless (parsed events)",
       claudePathName: "Claude binary path",
       claudePathDesc: "Full path to the claude binary. Leave empty to auto-detect.",
       codexPathName: "Codex binary path",

@@ -27,7 +27,12 @@ class FakeManager {
   readonly listeners = new Set<ChangeListener>()
   readonly records: AiRunRecord[] = []
   readonly stopRun = jest.fn()
+  readonly sendTerminalInput = jest.fn()
   followUp: jest.Mock<Promise<AiRunRecord>, [string, string]> = jest.fn()
+
+  onTerminalData(): () => void {
+    return () => undefined
+  }
 
   getRuns(): AiRunRecord[] {
     return [...this.records]
@@ -111,6 +116,9 @@ describe('AiRunPaneController composer', () => {
         )
       },
       manager,
+      createTerminalAdapter: () => {
+        throw new Error('composer tests never open a terminal adapter')
+      },
       registerManagedDisposer: () => undefined,
     }
     controller = new AiRunPaneController(host)

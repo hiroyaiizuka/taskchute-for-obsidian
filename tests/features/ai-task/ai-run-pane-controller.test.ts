@@ -9,6 +9,11 @@ class FakeManager {
   readonly records: AiRunRecord[] = []
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
+  readonly sendTerminalInput = jest.fn()
+
+  onTerminalData(): () => void {
+    return () => undefined
+  }
 
   getRuns(): AiRunRecord[] {
     return [...this.records]
@@ -80,6 +85,9 @@ describe('AiRunPaneController', () => {
         )
       },
       manager,
+      createTerminalAdapter: () => {
+        throw new Error('headless pane tests never open a terminal adapter')
+      },
       registerManagedDisposer: (cleanup) => {
         disposers.push(cleanup)
       },

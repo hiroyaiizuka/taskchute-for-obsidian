@@ -63,7 +63,12 @@ export const ja = {
       heading: "AIタスク",
       enable: "AIタスクを有効化",
       enableDesc:
-        "ヘッドレスAI CLIでタスクを実行し、出力をAI実行ペインにストリーム表示します（デスクトップ専用）。",
+        "AI CLI（Claude Code / Codex）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。",
+      runModeName: "実行モード",
+      runModeDesc:
+        "Terminal は対話型CLIセッションをそのまま埋め込みます（いつでも入力可能）。Headless は解析済みイベントを表示し、フォローアップ入力欄を使えます。Windows では常に headless になります。",
+      runModeTerminal: "ターミナル（対話型）",
+      runModeHeadless: "ヘッドレス（イベント表示）",
       claudePathName: "Claude Code バイナリパス",
       claudePathDesc: "claude バイナリのフルパス。空欄で自動検出します。",
       codexPathName: "Codex バイナリパス",

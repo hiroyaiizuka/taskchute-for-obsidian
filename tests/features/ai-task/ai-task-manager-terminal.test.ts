@@ -198,6 +198,27 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(harness.terminal.last.request.cols).toBe(132)
   })
 
+  test('records the PTY size on the record so the pane can open a matching terminal', async () => {
+    const harness = createTerminalHarness()
+
+    const record = await harness.manager.startRun(makeTaskFile(), {
+      rows: 40,
+      cols: 132,
+    })
+
+    expect(record.rows).toBe(40)
+    expect(record.cols).toBe(132)
+  })
+
+  test('records the default PTY size when the caller provides none', async () => {
+    const harness = createTerminalHarness()
+
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.rows).toBe(24)
+    expect(record.cols).toBe(80)
+  })
+
   test("options.mode 'headless' overrides the settings accessor", async () => {
     const harness = createTerminalHarness({ runMode: 'terminal' })
 

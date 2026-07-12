@@ -373,6 +373,10 @@ export class AiTaskManager {
           const terminal = this.deps.terminal
           const transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
           record.transcriptPath = transcriptPath
+          // Fixed for the session; recorded so the pane's xterm view can open
+          // with a matching grid.
+          record.rows = options?.rows ?? DEFAULT_TERMINAL_ROWS
+          record.cols = options?.cols ?? DEFAULT_TERMINAL_COLS
           internal.terminalData = { chunks: [], totalLength: 0 }
           const terminalHandle = terminal.dispatcher.start(
             {
@@ -380,8 +384,8 @@ export class AiTaskManager {
               prompt,
               cwd,
               extraArgs: config.args,
-              rows: options?.rows ?? DEFAULT_TERMINAL_ROWS,
-              cols: options?.cols ?? DEFAULT_TERMINAL_COLS,
+              rows: record.rows,
+              cols: record.cols,
               transcriptPath,
             },
             {

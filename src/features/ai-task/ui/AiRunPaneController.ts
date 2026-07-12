@@ -2,22 +2,42 @@
  * AI Task - run pane controller
  *
  * Renders the collapsible "AI runs" pane below the task list: one tab per run
- * (task name + status dot + stop control while active) and one event body per
- * run. Bodies are kept in a Map and only the selected one is visible, so
- * scroll position survives tab switches. A composer bar at the bottom sends
- * resume-based follow-up prompts for the selected run; it is enabled only
- * when that run is finished, has a session id, and its task has no other
- * active run. All content is written through createEl/createDiv/createSpan
- * with textContent only.
+ * (task name + status dot + stop control while active) and one body per run.
+ * Bodies are kept in a Map and only the selected one is visible, so state
+ * (scroll position, terminal screen) survives tab switches.
+ *
+ * Headless runs render their stream events as text lines and can send
+ * resume-based follow-ups through the composer bar at the bottom (enabled
+ * only when the run is finished, has a session id, and its task has no other
+ * active run).
+ *
+ * Terminal runs host an embedded terminal instead: a TerminalViewAdapter is
+ * created LAZILY the first time the run's tab is shown (pane expanded),
+ * opened with the record's fixed PTY grid, wired both ways
+ * (manager.onTerminalData -> adapter.write, adapter.onData ->
+ * manager.sendTerminalInput), and focused on tab select. The composer is
+ * hidden for terminal runs — input goes straight into the terminal. While a
+ * terminal run is selected and the pane is expanded, the host container
+ * carries the ai-pane-container--terminal chrome class so styles.css can
+ * give the pane a real height.
+ *
+ * All content is written through createEl/createDiv/createSpan with
+ * textContent only (xterm renders inside its own subtree via the adapter).
  */
 
 import { Notice } from 'obsidian'
 import {
   AiRunAlreadyActiveError,
   AiSessionUnavailableError,
+  DEFAULT_TERMINAL_COLS,
+  DEFAULT_TERMINAL_ROWS,
 } from '../services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
+import type {
+  TerminalViewAdapterFactory,
+  TerminalViewAdapterLike,
+} from './TerminalViewAdapter'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -26,17 +46,32 @@ export interface AiRunPaneManagerLike {
   stopRun(runId: string): void
   followUp(runId: string, prompt: string): Promise<unknown>
   onChange(listener: (record: AiRunRecord) => void): () => void
+  onTerminalData(runId: string, listener: (chunk: string) => void): () => void
+  sendTerminalInput(runId: string, data: string): void
 }
 
 export interface AiRunPaneControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
   manager: AiRunPaneManagerLike
+  /** Adapter factory; tests substitute a fake so jsdom never loads xterm */
+  createTerminalAdapter: TerminalViewAdapterFactory
   registerManagedDisposer: (cleanup: () => void) => void
+}
+
+/** Live terminal wiring of one terminal-mode run view */
+interface TerminalBinding {
+  adapter: TerminalViewAdapterLike
+  /** Unsubscribes the manager.onTerminalData relay */
+  disposeData: () => void
+  /** Unsubscribes the adapter.onData keystroke relay */
+  disposeInput: () => void
 }
 
 interface RunView {
   tab: HTMLElement
   body: HTMLElement
+  isTerminal: boolean
+  terminal: TerminalBinding | null
   renderedEventCount: number
   lastStatus: AiRunStatus
   lastOmittedCount: number
@@ -62,12 +97,43 @@ const SCROLL_PIN_THRESHOLD_PX = 8
 /** Longest serialized tool input rendered inline before truncation */
 const TOOL_INPUT_PREVIEW_LIMIT = 200
 
+/** PTY size handed to startRun when the pane has no measurable pixel size */
+export const TERMINAL_FALLBACK_COLS = 120
+export const TERMINAL_FALLBACK_ROWS = 30
+/**
+ * Approximate xterm cell metrics for the pre-spawn size estimate (the exact
+ * glyph metrics are only known once xterm has opened, which happens after
+ * the PTY was already spawned — a conservative estimate merely leaves some
+ * unused margin in the pane).
+ */
+const TERMINAL_CELL_WIDTH_PX = 8
+const TERMINAL_CELL_HEIGHT_PX = 17
+/** Horizontal padding/scrollbar allowance inside the terminal body */
+const TERMINAL_HORIZONTAL_INSET_PX = 16
+/** Pane header + borders allowance when deriving the body height */
+const TERMINAL_VERTICAL_INSET_PX = 40
+/** Share of the view height the terminal pane occupies (mirrors styles.css) */
+const TERMINAL_PANE_HEIGHT_RATIO = 0.4
+const TERMINAL_MIN_COLS = 20
+const TERMINAL_MAX_COLS = 400
+const TERMINAL_MIN_ROWS = 5
+const TERMINAL_MAX_ROWS = 200
+
+/** Chrome class on the host container while a terminal run is on screen */
+const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
 export class AiRunPaneController {
   private readonly runViews = new Map<string, RunView>()
+  private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
   private tabsEl: HTMLElement | null = null
   private bodiesEl: HTMLElement | null = null
   private collapseButton: HTMLElement | null = null
+  private composerEl: HTMLElement | null = null
   private composerInput: HTMLInputElement | null = null
   private composerSend: HTMLButtonElement | null = null
   private selectedRunId: string | null = null
@@ -77,6 +143,7 @@ export class AiRunPaneController {
 
   mount(container: HTMLElement): void {
     if (this.root) return
+    this.containerEl = container
 
     const root = container.createDiv({ cls: 'ai-run-pane is-hidden' })
     this.root = root
@@ -125,11 +192,17 @@ export class AiRunPaneController {
   unmount(): void {
     this.unsubscribe?.()
     this.unsubscribe = null
+    for (const view of this.runViews.values()) {
+      this.disposeTerminalBinding(view)
+    }
+    this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
+    this.containerEl = null
     this.root?.remove()
     this.root = null
     this.tabsEl = null
     this.bodiesEl = null
     this.collapseButton = null
+    this.composerEl = null
     this.composerInput = null
     this.composerSend = null
     this.selectedRunId = null
@@ -155,10 +228,47 @@ export class AiRunPaneController {
       this.collapseButton.textContent = collapsed ? '▸' : '▾'
       this.collapseButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
     }
+    if (!collapsed) {
+      // A terminal run selected while collapsed deferred its adapter; the
+      // body just became visible, so create and focus it now.
+      this.ensureSelectedTerminalView()
+    }
+    this.updateTerminalChrome()
+  }
+
+  /**
+   * Estimate the PTY grid that fits the pane at its terminal height
+   * (TERMINAL_PANE_HEIGHT_RATIO of the view). Falls back to 120x30 when the
+   * pane has no measurable pixel size (hidden view, jsdom).
+   */
+  computeTerminalSize(): { cols: number; rows: number } {
+    const container = this.containerEl
+    const width = container?.clientWidth ?? 0
+    const parentHeight = container?.parentElement?.clientHeight ?? 0
+    if (width <= 0 || parentHeight <= 0) {
+      return { cols: TERMINAL_FALLBACK_COLS, rows: TERMINAL_FALLBACK_ROWS }
+    }
+    const bodyHeight =
+      parentHeight * TERMINAL_PANE_HEIGHT_RATIO - TERMINAL_VERTICAL_INSET_PX
+    const cols = clamp(
+      Math.floor((width - TERMINAL_HORIZONTAL_INSET_PX) / TERMINAL_CELL_WIDTH_PX),
+      TERMINAL_MIN_COLS,
+      TERMINAL_MAX_COLS,
+    )
+    const rows = clamp(
+      Math.floor(bodyHeight / TERMINAL_CELL_HEIGHT_PX),
+      TERMINAL_MIN_ROWS,
+      TERMINAL_MAX_ROWS,
+    )
+    return { cols, rows }
   }
 
   private isCollapsed(): boolean {
     return this.root?.classList.contains('is-collapsed') ?? false
+  }
+
+  private isHidden(): boolean {
+    return this.root?.classList.contains('is-hidden') ?? true
   }
 
   private revealPane(): void {
@@ -177,7 +287,9 @@ export class AiRunPaneController {
       existing.lastStatus = record.status
       this.refreshTab(existing, record)
     }
-    this.syncEvents(existing, record)
+    if (!existing.isTerminal) {
+      this.syncEvents(existing, record)
+    }
     this.updateComposerState()
   }
 
@@ -201,21 +313,28 @@ export class AiRunPaneController {
       this.selectRun(record.id)
     })
 
+    const isTerminal = record.mode === 'terminal'
     const body = this.bodiesEl.createDiv({
-      cls: 'ai-run-pane__body',
+      cls: isTerminal
+        ? 'ai-run-pane__body ai-run-pane__body--terminal'
+        : 'ai-run-pane__body',
       attr: { 'data-run-id': record.id },
     })
 
     const view: RunView = {
       tab,
       body,
+      isTerminal,
+      terminal: null,
       renderedEventCount: 0,
       lastStatus: record.status,
       lastOmittedCount: record.omittedEventCount ?? 0,
     }
     this.runViews.set(record.id, view)
     this.refreshTab(view, record)
-    this.renderAllEvents(view, record)
+    if (!isTerminal) {
+      this.renderAllEvents(view, record)
+    }
 
     this.revealPane()
     if (this.selectedRunId === null) {
@@ -265,7 +384,75 @@ export class AiRunPaneController {
       view.tab.setAttribute('aria-selected', isActive ? 'true' : 'false')
       view.body.classList.toggle('is-active', isActive)
     }
+    if (!this.isCollapsed()) {
+      this.ensureSelectedTerminalView()
+    }
+    this.updateTerminalChrome()
     this.updateComposerState()
+  }
+
+  // -------------------------------------------------------------------------
+  // Terminal bodies
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lazily create (or just re-focus) the embedded terminal of the SELECTED
+   * run. The adapter is opened with the record's fixed PTY grid so the xterm
+   * view matches the child process exactly, wired both ways, and focused so
+   * the user can type immediately. No-op for headless runs and while the
+   * body is not visible (collapsed pane).
+   */
+  private ensureSelectedTerminalView(): void {
+    const runId = this.selectedRunId
+    if (runId === null || this.isHidden()) return
+    const view = this.runViews.get(runId)
+    if (!view || !view.isTerminal) return
+
+    if (!view.terminal) {
+      const record = this.host.manager.getRun(runId)
+      const adapter = this.host.createTerminalAdapter()
+      adapter.open(
+        view.body,
+        record?.cols ?? DEFAULT_TERMINAL_COLS,
+        record?.rows ?? DEFAULT_TERMINAL_ROWS,
+      )
+      // Subscribe AFTER open: the manager replays its buffered output
+      // synchronously on subscribe, restoring the screen of a run that
+      // started before the pane showed it.
+      const disposeData = this.host.manager.onTerminalData(runId, (chunk) => {
+        adapter.write(chunk)
+      })
+      const disposeInput = adapter.onData((data) => {
+        this.host.manager.sendTerminalInput(runId, data)
+      })
+      view.terminal = { adapter, disposeData, disposeInput }
+    }
+    view.terminal.adapter.focus()
+  }
+
+  /** Tear down one run view's terminal wiring (idempotent) */
+  private disposeTerminalBinding(view: RunView): void {
+    const binding = view.terminal
+    if (!binding) return
+    view.terminal = null
+    binding.disposeData()
+    binding.disposeInput()
+    binding.adapter.dispose()
+  }
+
+  /**
+   * The host container carries the terminal chrome class (fixed pane height
+   * in styles.css) exactly while a terminal run is selected and its body is
+   * actually on screen.
+   */
+  private updateTerminalChrome(): void {
+    const container = this.containerEl
+    if (!container) return
+    const selected =
+      this.selectedRunId !== null ? this.runViews.get(this.selectedRunId) : undefined
+    const showTerminal =
+      selected?.isTerminal === true && !this.isCollapsed() && !this.isHidden()
+    container.classList.toggle(TERMINAL_CONTAINER_CLASS, showTerminal)
   }
 
   // -------------------------------------------------------------------------
@@ -274,6 +461,7 @@ export class AiRunPaneController {
 
   private mountComposer(root: HTMLElement): void {
     const composer = root.createDiv({ cls: 'ai-run-pane__composer' })
+    this.composerEl = composer
     const inputLabel = this.host.tv('aiTask.composer.inputLabel', 'Follow-up prompt')
     this.composerInput = composer.createEl('input', {
       cls: 'ai-run-pane__composer-input',
@@ -300,10 +488,12 @@ export class AiRunPaneController {
   }
 
   /**
-   * The composer is usable only when the SELECTED run is finished, has a
-   * session id to resume, AND its task has no other active run (the manager
-   * would deterministically reject the follow-up otherwise); in every other
-   * case it is disabled with a hint placeholder.
+   * The composer only applies to headless runs (terminal runs take input in
+   * the terminal itself, so the bar is hidden outright for them). It is
+   * usable only when the SELECTED run is finished, has a session id to
+   * resume, AND its task has no other active run (the manager would
+   * deterministically reject the follow-up otherwise); in every other case
+   * it is disabled with a hint placeholder.
    */
   private updateComposerState(): void {
     const input = this.composerInput
@@ -314,6 +504,15 @@ export class AiRunPaneController {
       this.selectedRunId !== null
         ? this.host.manager.getRun(this.selectedRunId)
         : undefined
+
+    const isTerminal = record?.mode === 'terminal'
+    this.composerEl?.classList.toggle('is-hidden', isTerminal)
+    if (isTerminal) {
+      input.disabled = true
+      send.disabled = true
+      return
+    }
+
     const isActive = record !== undefined && ACTIVE_STATUSES.has(record.status)
     const hasSession =
       typeof record?.sessionId === 'string' && record.sessionId.length > 0

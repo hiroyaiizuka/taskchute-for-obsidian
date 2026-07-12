@@ -131,6 +131,13 @@ export interface AiRunRecord {
    * run is active; the file is consumed (read + deleted) at run end.
    */
   transcriptPath?: string
+  /**
+   * PTY dimensions the terminal run was spawned with (fixed for the session).
+   * The pane opens its xterm view with the same size so the grids match.
+   * Unset for headless runs.
+   */
+  cols?: number
+  rows?: number
   /** Epoch milliseconds */
   startedAt: number
   /** Epoch milliseconds of the latest follow-up dispatch (startedAt is kept) */

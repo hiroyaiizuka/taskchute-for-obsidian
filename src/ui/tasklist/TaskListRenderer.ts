@@ -50,6 +50,8 @@ export type TaskListRendererHost = {
   getActiveAiRun?: (taskPath: string) => AiRunRecord | undefined
   startAiRun?: (inst: TaskInstance) => void
   stopAiRun?: (runId: string) => void
+  /** Run-ownership fallback for AI runs without an instanceId */
+  isPrimaryAiInstance?: (inst: TaskInstance) => boolean
 }
 
 export default class TaskListRenderer {
@@ -115,6 +117,9 @@ export default class TaskListRenderer {
         getActiveAiRun: (taskPath) => this.host.getActiveAiRun!(taskPath),
         startAiRun: (inst) => this.host.startAiRun!(inst),
         stopAiRun: (runId) => this.host.stopAiRun!(runId),
+        isPrimaryInstance: this.host.isPrimaryAiInstance
+          ? (inst) => this.host.isPrimaryAiInstance!(inst)
+          : undefined,
       })
     }
   }

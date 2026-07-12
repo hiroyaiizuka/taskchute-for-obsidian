@@ -65,13 +65,14 @@ import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
 import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
 import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
 import { AiRunPaneController } from "../../ai-task/ui/AiRunPaneController"
+import { createTerminalViewAdapter } from "../../ai-task/ui/TerminalViewAdapter"
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
-import type { AiRunStatus } from "../../ai-task/types"
+import type { AiRunMode, AiRunStatus } from "../../ai-task/types"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
@@ -570,6 +571,7 @@ export class TaskChuteView
         void view.startAiRun(inst)
       },
       stopAiRun: (runId) => view.plugin.aiTaskManager?.stopRun(runId),
+      isPrimaryAiInstance: (inst) => view.isPrimaryAiInstance(inst),
     }
   }
 
@@ -716,7 +718,23 @@ export class TaskChuteView
       return
     }
     try {
-      const record = await manager.startRun(file)
+      // The PTY grid is fixed at spawn time, so it must be derived from the
+      // pane BEFORE the run starts (120x30 fallback when no pane is mounted
+      // or it has no measurable size). The originating instanceId scopes the
+      // row status chip to this row; the mode follows the settings dropdown
+      // (the manager still degrades terminal to headless off-PTY platforms).
+      const size = this.aiRunPaneController?.computeTerminalSize() ?? {
+        cols: 120,
+        rows: 30,
+      }
+      const mode: AiRunMode =
+        this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
+      const record = await manager.startRun(file, {
+        mode,
+        instanceId: inst.instanceId,
+        cols: size.cols,
+        rows: size.rows,
+      })
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
     } catch (error) {
@@ -725,6 +743,20 @@ export class TaskChuteView
       }
       this.notifyAiRunError(error)
     }
+  }
+
+  /**
+   * Run-ownership fallback for AI runs without an instanceId: true when the
+   * instance is the first (primary) instance of its task path in the current
+   * task list.
+   */
+  private isPrimaryAiInstance(inst: TaskInstance): boolean {
+    const taskPath = inst.task.path
+    if (!taskPath) return true
+    const first = this.taskInstances.find(
+      (other) => other.task?.path === taskPath,
+    )
+    return !first || first.instanceId === inst.instanceId
   }
 
   /**
@@ -812,6 +844,7 @@ export class TaskChuteView
     this.aiRunPaneController = new AiRunPaneController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       manager,
+      createTerminalAdapter: () => createTerminalViewAdapter(),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
     })
     this.aiRunPaneController.mount(this.aiPaneContainer)

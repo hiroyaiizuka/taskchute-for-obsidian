@@ -21,12 +21,21 @@ type TextStub = {
   trigger: (value: string) => Promise<void>
 }
 
+type DropdownStub = {
+  options: Array<{ value: string; label: string }>
+  addOption: jest.Mock
+  setValue: jest.Mock
+  onChange: jest.Mock
+  trigger: (value: string) => Promise<void>
+}
+
 type SettingStub = {
   setName: jest.Mock
   setDesc: jest.Mock
   setHeading: jest.Mock
   addToggle: jest.Mock
   addText: jest.Mock
+  addDropdown: jest.Mock
   controlEl: HTMLElement
 }
 
@@ -77,6 +86,26 @@ function createTextStub(): TextStub {
   return text
 }
 
+function createDropdownStub(): DropdownStub {
+  let handler: ((value: string) => Promise<void> | void) | null = null
+  const dropdown: DropdownStub = {
+    options: [],
+    addOption: jest.fn((value: string, label: string) => {
+      dropdown.options.push({ value, label })
+      return dropdown
+    }),
+    setValue: jest.fn(() => dropdown),
+    onChange: jest.fn((cb: (value: string) => Promise<void> | void) => {
+      handler = cb
+      return dropdown
+    }),
+    trigger: async (value: string) => {
+      await handler?.(value)
+    },
+  }
+  return dropdown
+}
+
 function createFakeManager(): FakeManager {
   return {
     dispose: jest.fn(),
@@ -102,11 +131,13 @@ describe('TaskChute AI task settings section', () => {
   let settings: SettingStub[]
   let toggles: ToggleStub[]
   let texts: TextStub[]
+  let dropdowns: DropdownStub[]
 
   beforeEach(() => {
     settings = []
     toggles = []
     texts = []
+    dropdowns = []
     SettingMock.mockImplementation(() => {
       const instance: SettingStub = {
         setName: jest.fn().mockReturnThis(),
@@ -122,6 +153,12 @@ describe('TaskChute AI task settings section', () => {
           const text = createTextStub()
           texts.push(text)
           cb(text)
+          return instance
+        }),
+        addDropdown: jest.fn((cb: (dropdown: DropdownStub) => void) => {
+          const dropdown = createDropdownStub()
+          dropdowns.push(dropdown)
+          cb(dropdown)
           return instance
         }),
         controlEl: document.createElement('div'),
@@ -176,6 +213,52 @@ describe('TaskChute AI task settings section', () => {
     expect(manager.dispose).toHaveBeenCalledTimes(1)
     expect(tab.plugin.aiTaskManager).toBeUndefined()
     expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
+  })
+
+  test('run mode dropdown lists terminal and headless and reflects the saved setting', () => {
+    const tab = createTab()
+
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    expect(dropdowns).toHaveLength(1)
+    const dropdown = dropdowns[0]
+    expect(dropdown.options.map((option) => option.value)).toEqual([
+      'terminal',
+      'headless',
+    ])
+    // No stored preference -> terminal default
+    expect(dropdown.setValue).toHaveBeenCalledWith('terminal')
+  })
+
+  test('run mode dropdown reflects a stored headless preference', () => {
+    const tab = createTab()
+    tab.plugin.settings.aiTaskRunMode = 'headless'
+
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    expect(dropdowns[0]?.setValue).toHaveBeenCalledWith('headless')
+  })
+
+  test('run mode changes persist through saveSettings', async () => {
+    const tab = createTab()
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await dropdowns[0]?.trigger('headless')
+
+    expect(tab.plugin.settings.aiTaskRunMode).toBe('headless')
+    expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(1)
+
+    await dropdowns[0]?.trigger('terminal')
+    expect(tab.plugin.settings.aiTaskRunMode).toBe('terminal')
+  })
+
+  test('run mode dropdown normalizes unknown values back to terminal', async () => {
+    const tab = createTab()
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await dropdowns[0]?.trigger('bogus')
+
+    expect(tab.plugin.settings.aiTaskRunMode).toBe('terminal')
   })
 
   test('binary path changes save trimmed values and invalidate the locator cache', async () => {

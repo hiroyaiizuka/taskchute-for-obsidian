@@ -601,7 +601,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setDesc(
         t(
           "settings.aiTask.enableDesc",
-          "Run tasks with a headless AI CLI and stream the output into the AI run pane (desktop only).",
+          "Run tasks with the claude or codex CLI inside the AI run pane (desktop only).",
         ),
       )
       .addToggle((toggle) => {
@@ -612,6 +612,36 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings()
             this.applyAiTaskEnabledChange(value)
             this.notifyAiTaskSettingsChanged()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.runModeName", "Run mode"))
+      .setDesc(
+        t(
+          "settings.aiTask.runModeDesc",
+          "Terminal embeds the interactive CLI session (type into it at any time); headless streams parsed events and offers a follow-up composer. Windows always runs headless.",
+        ),
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption(
+            "terminal",
+            t("settings.aiTask.runModeTerminal", "Terminal (interactive)"),
+          )
+          .addOption(
+            "headless",
+            t("settings.aiTask.runModeHeadless", "Headless (parsed events)"),
+          )
+          .setValue(
+            this.plugin.settings.aiTaskRunMode === "headless"
+              ? "headless"
+              : "terminal",
+          )
+          .onChange(async (value) => {
+            this.plugin.settings.aiTaskRunMode =
+              value === "headless" ? "headless" : "terminal"
+            await this.plugin.saveSettings()
           })
       })
 

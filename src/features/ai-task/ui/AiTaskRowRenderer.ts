@@ -8,6 +8,12 @@
  * shift every subsequent column. State is pull-based: the renderer reads the
  * active run at render time and never subscribes, because task rows are
  * rebuilt on every task list re-render.
+ *
+ * When a task note has duplicated rows, the status chip + stop control
+ * render ONLY on the row that owns the run: the row whose inst.instanceId
+ * matches record.instanceId, or — for legacy runs without an instanceId —
+ * the host-resolved primary (first) instance of the task path. Every other
+ * row keeps the plain run button.
  */
 
 import type { TaskInstance } from '../../../types'
@@ -20,6 +26,13 @@ export interface AiTaskRowRendererHost {
   getActiveAiRun: (taskPath: string) => AiRunRecord | undefined
   startAiRun: (inst: TaskInstance) => void
   stopAiRun: (runId: string) => void
+  /**
+   * Fallback run-ownership resolution for runs without an instanceId: true
+   * when inst is the first rendered instance of its task path. Optional for
+   * backward compatibility; when absent every row of the path shows the
+   * chip (legacy behavior).
+   */
+  isPrimaryInstance?: (inst: TaskInstance) => boolean
 }
 
 const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
@@ -45,12 +58,20 @@ export class AiTaskRowRenderer {
       ? this.host.getActiveAiRun(inst.task.path)
       : undefined
 
-    if (activeRun) {
+    if (activeRun && this.ownsRun(activeRun, inst)) {
       this.renderStopControl(container, activeRun)
       this.renderStatusChip(container, activeRun.status)
     } else {
       this.renderRunButton(container, inst)
     }
+  }
+
+  /** Whether this row's instance is the one the active run belongs to */
+  private ownsRun(run: AiRunRecord, inst: TaskInstance): boolean {
+    if (typeof run.instanceId === 'string' && run.instanceId.length > 0) {
+      return run.instanceId === inst.instanceId
+    }
+    return this.host.isPrimaryInstance?.(inst) ?? true
   }
 
   private renderRunButton(container: HTMLElement, inst: TaskInstance): void {

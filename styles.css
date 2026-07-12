@@ -6769,3 +6769,35 @@ textarea.form-textarea {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ===== AI Task terminal mode ===== */
+
+/* While a terminal run is selected and expanded, the drawer takes a fixed
+   share of the view so the embedded terminal has a real, usable height
+   (must stay in sync with the pane controller's height ratio). */
+.ai-pane-container--terminal {
+  height: 40%;
+}
+
+.ai-pane-container--terminal .ai-run-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Terminal body: xterm renders its own scrollback and padding, so the body
+   itself must not scroll or pad. */
+.ai-run-pane__body--terminal {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ai-run-pane__body--terminal .xterm {
+  height: 100%;
+  padding: 4px 6px;
+}
+
+/* The follow-up composer only applies to headless runs; terminal runs take
+   input directly in the terminal. */
+.ai-run-pane__composer.is-hidden {
+  display: none;
+}
