@@ -752,10 +752,20 @@ export class TaskChuteView
     if (!manager) return
     const taskPath = inst.task.path
     if (!taskPath) return
-    const activeRun = manager.getActiveRunForTask(taskPath)
-    if (activeRun) {
-      manager.stopRun(activeRun.id)
-    }
+    // Duplicated instances share one task note and therefore one AI run.
+    // Keep the run alive while any sibling instance is still running.
+    const siblingStillRunning = this.taskInstances.some(
+      (other) =>
+        other !== inst &&
+        other.instanceId !== inst.instanceId &&
+        other.task?.path === taskPath &&
+        other.state === 'running',
+    )
+    if (siblingStillRunning) return
+    // requestStopForTask also queues the stop when the coupled AI start is
+    // still in its async window (before the run record registers), so a
+    // stop/reset/delete during that window is never silently lost.
+    manager.requestStopForTask(taskPath)
   }
 
   private notifyAiRunError(error: unknown): void {

@@ -511,6 +511,31 @@ describe('TaskExecutionService', () => {
       expect(started).toBe(false)
     })
 
+    it('startInstance rolls the optimistic mutations back when the flow throws midway', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-01-02T09:00:00.000Z'))
+      const host = createHost({
+        saveRunningTasksState: jest.fn().mockRejectedValue(new Error('disk full')),
+        getSectionConfig: () =>
+          ({ getCurrentTimeSlot: () => '8:00-12:00' }) as unknown as ReturnType<
+            TaskExecutionHost['getSectionConfig']
+          >,
+      })
+      const service = new TaskExecutionService(host)
+      const instance = makeIdleInstance()
+      instance.slotKey = '12:00-16:00'
+
+      const started = await service.startInstance(instance)
+
+      expect(started).toBe(false)
+      // The instance must not be left visibly running with a ticking timer.
+      expect(instance.state).toBe('idle')
+      expect(instance.startTime).toBeUndefined()
+      expect(instance.slotKey).toBe('12:00-16:00')
+      expect(instance.originalSlotKey).toBeUndefined()
+      // The rollback re-renders so the row reflects the restored state.
+      expect(host.renderTaskList).toHaveBeenCalled()
+    })
+
     it('stopInstance no-ops on a non-running instance and returns false', async () => {
       const host = createHost()
       const service = new TaskExecutionService(host)

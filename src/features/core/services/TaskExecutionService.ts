@@ -51,11 +51,17 @@ export class TaskExecutionService {
 
   /**
    * Start the instance timer. Never rejects. Resolves true when the start
-   * flow completed; false when it was refused (future-date guard, instance
-   * left idle) or failed midway. Callers coupling side effects to a human
-   * start (e.g. AI runs) must gate on this flag.
+   * flow completed; false when it was refused (future-date guard) or failed
+   * midway — in the failure case the optimistic mutations (state, startTime,
+   * slot) are rolled back so the instance is not left visibly running with a
+   * ticking timer. Callers coupling side effects to a human start (e.g. AI
+   * runs) must gate on this flag.
    */
   async startInstance(inst: TaskInstance): Promise<boolean> {
+    const previousState = inst.state
+    const previousStartTime = inst.startTime
+    const previousSlotKey = inst.slotKey
+    const previousOriginalSlotKey = inst.originalSlotKey
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -141,6 +147,19 @@ export class TaskExecutionService {
       return true
     } catch (error) {
       console.error('[TaskExecutionService] startInstance failed', error)
+      // Roll the optimistic mutations back so the instance does not stay
+      // visibly running with a ticking timer after a failed start. inst.date
+      // is intentionally kept: the cross-day frontmatter update may already
+      // have been persisted, and the in-memory date must match it.
+      inst.state = previousState
+      inst.startTime = previousStartTime
+      inst.slotKey = previousSlotKey
+      inst.originalSlotKey = previousOriginalSlotKey
+      try {
+        this.host.renderTaskList()
+      } catch {
+        /* rollback re-render is best effort */
+      }
       new Notice(this.host.tv('notices.taskStartFailed', 'Failed to start task'))
       return false
     }

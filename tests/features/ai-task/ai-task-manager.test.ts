@@ -923,3 +923,157 @@ describe('AiTaskManager.followUp', () => {
     )
   })
 })
+
+describe('AiTaskManager.requestStopForTask', () => {
+  const TASK_PATH = 'TaskChute/Task/My Task.md'
+
+  test('stops the active run for the task', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.manager.requestStopForTask(TASK_PATH)
+
+    expect(record.status).toBe('stopping')
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+  })
+
+  test('queues the stop while a start is in flight and terminates the run right after dispatch', async () => {
+    let releaseBinary!: () => void
+    const harness = createHarness({
+      resolveBinary: () =>
+        new Promise<string>((resolve) => {
+          releaseBinary = () => resolve('/bin/claude')
+        }),
+    })
+
+    const startPromise = harness.manager.startRun(makeTaskFile())
+    await flushPromises()
+    // The run is not registered yet: this is the async window where a plain
+    // stopRun/getActiveRunForTask coupling would silently lose the stop.
+    expect(harness.manager.getActiveRunForTask(TASK_PATH)).toBeUndefined()
+
+    harness.manager.requestStopForTask(TASK_PATH)
+    releaseBinary()
+    const record = await startPromise
+
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+    expect(record.status).toBe('stopping')
+
+    harness.claude.last.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    expect(record.status).toBe('stopped')
+  })
+
+  test('is a no-op without an active run or pending start and does not poison later runs', async () => {
+    const harness = createHarness()
+
+    harness.manager.requestStopForTask(TASK_PATH)
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.status).toBe('running')
+    expect(harness.claude.last.stop).not.toHaveBeenCalled()
+  })
+
+  test('clears a queued stop when the in-flight start fails, leaving the next run untouched', async () => {
+    let failNext = true
+    let releaseBinary!: () => void
+    const harness = createHarness({
+      resolveBinary: () => {
+        if (failNext) {
+          return new Promise<string>((_, reject) => {
+            releaseBinary = () => reject(new Error('binary missing'))
+          })
+        }
+        return Promise.resolve('/bin/claude')
+      },
+    })
+
+    const failing = harness.manager.startRun(makeTaskFile())
+    await flushPromises()
+    harness.manager.requestStopForTask(TASK_PATH)
+    releaseBinary()
+    await expect(failing).rejects.toThrow('binary missing')
+
+    failNext = false
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.status).toBe('running')
+    expect(harness.claude.last.stop).not.toHaveBeenCalled()
+  })
+
+  test('a queued stop during an in-flight follow-up terminates the resumed run', async () => {
+    let deferBinary = false
+    let releaseBinary!: () => void
+    const harness = createHarness({
+      resolveBinary: () => {
+        if (deferBinary) {
+          return new Promise<string>((resolve) => {
+            releaseBinary = () => resolve('/bin/claude')
+          })
+        }
+        return Promise.resolve('/bin/claude')
+      },
+    })
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    deferBinary = true
+    const followUpPromise = harness.manager.followUp(record.id, 'continue')
+    await flushPromises()
+    harness.manager.requestStopForTask(TASK_PATH)
+    releaseBinary()
+    await followUpPromise
+
+    expect(harness.claude.runs).toHaveLength(2)
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+    expect(record.status).toBe('stopping')
+  })
+})
+
+describe('AiTaskManager log persistence serialization', () => {
+  test('followUp waits for the pending persist, so the note gets the finished status and no duplicate is created', async () => {
+    const harness = createHarness({ withUpsert: true })
+    const statusesAtWrite: string[] = []
+    let releaseUpsert!: () => void
+    harness.upsertRunLog.mockImplementationOnce(async (rec) => {
+      await new Promise<void>((resolve) => {
+        releaseUpsert = resolve
+      })
+      // Sampled after the async gap, like composeFrontmatter inside the real
+      // writer: a follow-up dispatched meanwhile would leak transient
+      // starting/running frontmatter into the persisted note.
+      statusesAtWrite.push(rec.status)
+      return 'first-note.md'
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.emit({ kind: 'init', sessionId: 'sess-1' })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+    // First persist still pending.
+    expect(record.logNotePath).toBeUndefined()
+
+    const followUpPromise = harness.manager.followUp(record.id, 'continue')
+    await flushPromises()
+    // The resume must not dispatch while the persist is in flight.
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.status).toBe('succeeded')
+
+    releaseUpsert()
+    await followUpPromise
+
+    expect(statusesAtWrite).toEqual(['succeeded'])
+    expect(record.logNotePath).toBe('first-note.md')
+    expect(harness.claude.runs).toHaveLength(2)
+    expect(harness.claude.last.request).toMatchObject({ resumeSessionId: 'sess-1' })
+
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    // Both persists went through the upsert path against the same record;
+    // the fallback create path was never used, so no duplicate note.
+    expect(harness.upsertRunLog).toHaveBeenCalledTimes(2)
+    expect(harness.writeRunLog).not.toHaveBeenCalled()
+  })
+})

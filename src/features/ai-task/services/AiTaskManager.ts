@@ -9,7 +9,9 @@
  * keeps appending to the same record; each follow-up segment is also
  * collected separately and handed to the log writer so the existing note is
  * appended to (already-persisted transcript is never rebuilt from the
- * bounded in-memory buffer, which may have elided it).
+ * bounded in-memory buffer, which may have elided it). Log writes are
+ * serialized per run (InternalRun.persistQueue) and followUp() waits for the
+ * pending persist before mutating the record.
  *
  * Task-note frontmatter stays READ-ONLY here; the only vault write happens
  * inside AiTaskLogWriter at run end.
@@ -154,6 +156,14 @@ interface InternalRun {
    * buffer (which may have elided already-persisted events).
    */
   continuation: BoundedEventBuffer | null
+  /**
+   * Per-run persistence chain. Every exit appends its log write here, and
+   * followUp() awaits it before mutating the record, so the note is never
+   * composed from transient starting/running state, logNotePath is set
+   * before the next segment persists (no duplicate note), and two upserts
+   * never interleave on the same file.
+   */
+  persistQueue: Promise<void>
 }
 
 /** Mutable event buffer bounded by the shared head + tail cap */
@@ -216,6 +226,13 @@ function joinCwd(basePath: string, relative: string): string {
 export class AiTaskManager {
   private readonly runs = new Map<string, InternalRun>()
   private readonly pendingStarts = new Set<string>()
+  /**
+   * Task paths whose stop request arrived while startRun()/followUp() was
+   * still in its async window (before the run registered or dispatched).
+   * The dispatching call honours and clears the flag right after the child
+   * spawns, so the stop is never silently lost.
+   */
+  private readonly stopRequestedDuringStart = new Set<string>()
   private readonly listeners = new Set<AiRunChangeListener>()
   private readonly timer: AiGraceTimer
   private disposed = false
@@ -270,6 +287,7 @@ export class AiTaskManager {
         cwd,
         extraArgs: config.args,
         continuation: null,
+        persistQueue: Promise.resolve(),
       }
       this.runs.set(record.id, internal)
       this.notifyChange(record)
@@ -296,9 +314,15 @@ export class AiTaskManager {
         record.status = 'running'
         this.notifyChange(record)
       }
+      // A human stop that arrived during the async start window above was
+      // queued by requestStopForTask; honour it now that the child exists.
+      if (this.stopRequestedDuringStart.has(taskPath)) {
+        this.stopRun(record.id)
+      }
       return record
     } finally {
       this.pendingStarts.delete(taskPath)
+      this.stopRequestedDuringStart.delete(taskPath)
     }
   }
 
@@ -334,6 +358,11 @@ export class AiTaskManager {
 
     this.pendingStarts.add(taskPath)
     try {
+      // Wait for the previous segment's log persist: the note must be
+      // written with its finished frontmatter (and logNotePath recorded)
+      // before this follow-up mutates the record back to starting/running.
+      await internal.persistQueue
+      this.throwIfDisposed()
       // Resolve the binary BEFORE mutating the record so a missing binary
       // leaves the run in its finished state and the follow-up retryable.
       const binaryPath = await this.deps.binaryLocator.resolve(record.host)
@@ -386,9 +415,15 @@ export class AiTaskManager {
         record.status = 'running'
         this.notifyChange(record)
       }
+      // Honour a stop that was requested while this follow-up was still in
+      // its async window (persist + binary resolution above).
+      if (this.stopRequestedDuringStart.has(taskPath)) {
+        this.stopRun(record.id)
+      }
       return record
     } finally {
       this.pendingStarts.delete(taskPath)
+      this.stopRequestedDuringStart.delete(taskPath)
     }
   }
 
@@ -408,6 +443,24 @@ export class AiTaskManager {
 
   getRun(runId: string): AiRunRecord | undefined {
     return this.runs.get(runId)?.record
+  }
+
+  /**
+   * Stop whatever is (or is about to be) running for the task: stops the
+   * registered active run, and when the only activity is an in-flight
+   * startRun()/followUp() (the async window before the run registers), the
+   * stop is queued and executed right after the dispatch lands. No-op when
+   * the task has neither. Preferred entry point for play/stop coupling.
+   */
+  requestStopForTask(taskPath: string): void {
+    const activeRun = this.getActiveRunForTask(taskPath)
+    if (activeRun) {
+      this.stopRun(activeRun.id)
+      return
+    }
+    if (this.pendingStarts.has(taskPath)) {
+      this.stopRequestedDuringStart.add(taskPath)
+    }
   }
 
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
@@ -514,13 +567,21 @@ export class AiTaskManager {
     this.notifyChange(record)
 
     if (this.disposed) return
-    void this.persistRunLog(internal)
-  }
-
-  private async persistRunLog(internal: InternalRun): Promise<void> {
-    const record = internal.record
+    // Snapshot the continuation synchronously and chain the write onto the
+    // run's persist queue (see InternalRun.persistQueue for the guarantees).
     const continuationEvents = internal.continuation?.events
     internal.continuation = null
+    internal.persistQueue = internal.persistQueue.then(() =>
+      this.persistRunLog(internal, continuationEvents),
+    )
+  }
+
+  /** Never rejects: both the write and the prune failures are logged. */
+  private async persistRunLog(
+    internal: InternalRun,
+    continuationEvents?: AiStreamEvent[],
+  ): Promise<void> {
+    const record = internal.record
     try {
       const writer = this.deps.logWriter
       const result = writer.upsertRunLog

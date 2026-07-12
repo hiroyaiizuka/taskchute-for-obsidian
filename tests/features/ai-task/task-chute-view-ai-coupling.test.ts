@@ -30,23 +30,33 @@ interface ManagerStub {
   getRuns: jest.Mock
   getRun: jest.Mock
   getActiveRunForTask: jest.Mock
+  requestStopForTask: jest.Mock<void, [string]>
   onChange: jest.Mock<() => void, [(record: AiRunRecord) => void]>
   invalidateBinaryCache: jest.Mock
   dispose: jest.Mock
 }
 
 function createManagerStub(): ManagerStub {
-  return {
+  const stub: ManagerStub = {
     startRun: jest.fn(),
     stopRun: jest.fn(),
     followUp: jest.fn(),
     getRuns: jest.fn(() => []),
     getRun: jest.fn(() => undefined),
     getActiveRunForTask: jest.fn(() => undefined),
+    requestStopForTask: jest.fn(),
     onChange: jest.fn(() => jest.fn()),
     invalidateBinaryCache: jest.fn(),
     dispose: jest.fn(),
   }
+  // Real-contract mirror: stop the task's active run when one is registered.
+  // (Queueing the stop during a pending start is AiTaskManager behavior,
+  // covered by its own unit tests.)
+  stub.requestStopForTask.mockImplementation((taskPath: string) => {
+    const active = stub.getActiveRunForTask(taskPath) as AiRunRecord | undefined
+    if (active) stub.stopRun(active.id)
+  })
+  return stub
 }
 
 function createPluginStub(): TaskChutePluginLike {
@@ -449,6 +459,88 @@ describe('TaskChuteView delete coupling', () => {
 
     await asDeleteCapable(view).deleteTask(makeInstance())
 
+    expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskChuteView stop coupling during the AI start window', () => {
+  test('a human stop routes through requestStopForTask even before the run registers', async () => {
+    const { manager, view } = setUp()
+    // Simulate the async AI-start window: startRun is still in flight, so no
+    // active run is registered yet. The stop must reach the manager anyway
+    // (it queues the stop for the moment the dispatch lands).
+    manager.getActiveRunForTask.mockReturnValue(undefined)
+    const inst = makeInstance()
+    inst.state = 'running'
+
+    await view.stopInstance(inst)
+
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(TASK_PATH)
+  })
+
+  test('resetting a running instance also routes through requestStopForTask', async () => {
+    const { manager, view } = setUp()
+    stubResetInternals(view)
+    manager.getActiveRunForTask.mockReturnValue(undefined)
+    const inst = makeInstance()
+    inst.state = 'running'
+
+    await (
+      view as unknown as { resetTaskToIdle(inst: TaskInstance): Promise<void> }
+    ).resetTaskToIdle(inst)
+
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(TASK_PATH)
+  })
+})
+
+describe('TaskChuteView duplicated-instance stop coupling', () => {
+  function makeRunningDuplicate(instanceId: string): TaskInstance {
+    const inst = makeInstance()
+    inst.instanceId = instanceId
+    inst.state = 'running'
+    return inst
+  }
+
+  test('stopping one of two running duplicates keeps the shared AI run alive', async () => {
+    const { manager, view } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-dup' }))
+    const instA = makeRunningDuplicate('inst-a')
+    const instB = makeRunningDuplicate('inst-b')
+    view.taskInstances = [instA, instB]
+
+    await view.stopInstance(instB)
+
+    expect(manager.requestStopForTask).not.toHaveBeenCalled()
+    expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+
+  test('stopping the last running duplicate stops the AI run', async () => {
+    const { manager, view } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-dup' }))
+    const instA = makeRunningDuplicate('inst-a')
+    const instB = makeRunningDuplicate('inst-b')
+    view.taskInstances = [instA, instB]
+
+    await view.stopInstance(instB)
+    expect(manager.stopRun).not.toHaveBeenCalled()
+
+    await view.stopInstance(instA)
+
+    expect(manager.stopRun).toHaveBeenCalledWith('ai-run-dup')
+  })
+
+  test('deleting a running duplicate while its sibling still runs keeps the AI run alive', async () => {
+    const { manager, view } = setUp()
+    manager.getActiveRunForTask.mockReturnValue(makeRecord({ id: 'ai-run-dup' }))
+    const instA = makeRunningDuplicate('inst-a')
+    const instB = makeRunningDuplicate('inst-b')
+    view.taskInstances = [instA, instB]
+
+    await (
+      view as unknown as { deleteInstance(inst: TaskInstance): Promise<void> }
+    ).deleteInstance(instB)
+
+    expect(manager.requestStopForTask).not.toHaveBeenCalled()
     expect(manager.stopRun).not.toHaveBeenCalled()
   })
 })
