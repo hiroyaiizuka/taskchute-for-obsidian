@@ -21,6 +21,13 @@
  * carries the ai-pane-container--terminal chrome class so styles.css can
  * give the pane a real height.
  *
+ * On mount the pane also registers itself as the manager's terminal
+ * snapshot provider: at run exit the manager reads the run's live xterm
+ * buffer (adapter.snapshotText()) as the log-note transcript instead of the
+ * ANSI-stripped PTY transcript file. Adapters are therefore NEVER disposed
+ * on run exit — only unmount tears them down (after unregistering the
+ * provider).
+ *
  * All content is written through createEl/createDiv/createSpan with
  * textContent only (xterm renders inside its own subtree via the adapter).
  */
@@ -48,6 +55,15 @@ export interface AiRunPaneManagerLike {
   onChange(listener: (record: AiRunRecord) => void): () => void
   onTerminalData(runId: string, listener: (chunk: string) => void): () => void
   sendTerminalInput(runId: string, data: string): void
+  /**
+   * Single-provider registration used by the manager to read a terminal
+   * run's live xterm buffer when its log note is composed at run exit; the
+   * returned disposer unregisters. Optional so plain fakes keep working —
+   * without it the manager falls back to the ANSI-stripped transcript file.
+   */
+  registerTerminalSnapshotProvider?(
+    provider: (runId: string) => string | undefined,
+  ): () => void
 }
 
 export interface AiRunPaneControllerHost {
@@ -138,6 +154,7 @@ export class AiRunPaneController {
   private composerSend: HTMLButtonElement | null = null
   private selectedRunId: string | null = null
   private unsubscribe: (() => void) | null = null
+  private unregisterSnapshotProvider: (() => void) | null = null
 
   constructor(private readonly host: AiRunPaneControllerHost) {}
 
@@ -184,6 +201,19 @@ export class AiRunPaneController {
       this.unsubscribe = null
     })
 
+    // The manager snapshots a terminal run's live xterm buffer at run exit
+    // as the log-note transcript source (the raw PTY transcript file strips
+    // to TUI redraw garbage). Adapters of finished runs are kept alive for
+    // tab viewing until unmount, so the exit-time capture always finds them.
+    this.unregisterSnapshotProvider =
+      this.host.manager.registerTerminalSnapshotProvider?.((runId) =>
+        this.runViews.get(runId)?.terminal?.adapter.snapshotText(),
+      ) ?? null
+    this.host.registerManagedDisposer(() => {
+      this.unregisterSnapshotProvider?.()
+      this.unregisterSnapshotProvider = null
+    })
+
     for (const record of this.host.manager.getRuns()) {
       this.handleChange(record)
     }
@@ -192,6 +222,10 @@ export class AiRunPaneController {
   unmount(): void {
     this.unsubscribe?.()
     this.unsubscribe = null
+    // Unregister BEFORE disposing adapters: a snapshot must never be taken
+    // from a disposed terminal mid-teardown.
+    this.unregisterSnapshotProvider?.()
+    this.unregisterSnapshotProvider = null
     for (const view of this.runViews.values()) {
       this.disposeTerminalBinding(view)
     }

@@ -513,6 +513,148 @@ describe('AiTaskManager terminal exit and transcript log', () => {
   })
 })
 
+describe('AiTaskManager terminal snapshot provider', () => {
+  const RAW_TRANSCRIPT = '\u001b[31mgarbled spinner frame\u001b[0m'
+
+  test('prefers the provider snapshot over the stripped transcript file and still deletes the temp file', async () => {
+    const harness = createTerminalHarness({ transcriptContent: RAW_TRANSCRIPT })
+    const provider = jest.fn(() => 'clean xterm buffer text')
+    harness.manager.registerTerminalSnapshotProvider(provider)
+    const record = await harness.manager.startRun(makeTaskFile())
+    const transcriptPath = record.transcriptPath
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(provider).toHaveBeenCalledTimes(1)
+    expect(provider).toHaveBeenCalledWith(record.id)
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      'clean xterm buffer text',
+    )
+    // Temp-file deletion behavior is kept even when the snapshot wins.
+    expect(harness.readAndDeleteFile).toHaveBeenCalledWith(transcriptPath)
+  })
+
+  test('the snapshot is consumed AFTER the final status notification', async () => {
+    const harness = createTerminalHarness()
+    const statusesAtCapture: string[] = []
+    harness.manager.registerTerminalSnapshotProvider((runId) => {
+      statusesAtCapture.push(harness.manager.getRun(runId)?.status ?? 'missing')
+      return 'buffer'
+    })
+    await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(statusesAtCapture).toEqual(['succeeded'])
+  })
+
+  test('falls back to the stripped transcript file when the provider returns undefined', async () => {
+    const harness = createTerminalHarness({
+      transcriptContent: '\u001b[31mhello\u001b[0m\r\nworld',
+    })
+    harness.manager.registerTerminalSnapshotProvider(() => undefined)
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'hello\nworld')
+  })
+
+  test('falls back to the stripped transcript file when the provider returns blank text', async () => {
+    const harness = createTerminalHarness({
+      transcriptContent: '\u001b[31mhello\u001b[0m\r\nworld',
+    })
+    harness.manager.registerTerminalSnapshotProvider(() => '   \n \n')
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'hello\nworld')
+  })
+
+  test('a throwing provider falls back to the stripped transcript file', async () => {
+    const harness = createTerminalHarness({
+      transcriptContent: '\u001b[31mhello\u001b[0m\r\nworld',
+    })
+    harness.manager.registerTerminalSnapshotProvider(() => {
+      throw new Error('adapter gone')
+    })
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'hello\nworld')
+    expect(record.logNotePath).toBe('terminal-log.md')
+  })
+
+  test('the snapshot still wins when the transcript file read fails (no placeholder)', async () => {
+    const harness = createTerminalHarness()
+    harness.readAndDeleteFile.mockRejectedValueOnce(new Error('read failed'))
+    harness.manager.registerTerminalSnapshotProvider(() => 'buffer text survives')
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      'buffer text survives',
+    )
+  })
+
+  test('the disposer unregisters the provider so the file fallback applies again', async () => {
+    const harness = createTerminalHarness({
+      transcriptContent: '\u001b[31mhello\u001b[0m\r\nworld',
+    })
+    const provider = jest.fn(() => 'should not be used')
+    const dispose = harness.manager.registerTerminalSnapshotProvider(provider)
+    dispose()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(provider).not.toHaveBeenCalled()
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'hello\nworld')
+  })
+
+  test('a later registration replaces the provider and a stale disposer never clobbers it', async () => {
+    const harness = createTerminalHarness()
+    const first = jest.fn(() => 'first provider')
+    const second = jest.fn(() => 'second provider')
+    const disposeFirst = harness.manager.registerTerminalSnapshotProvider(first)
+    harness.manager.registerTerminalSnapshotProvider(second)
+    // Stale disposer from the replaced provider must not remove the new one.
+    disposeFirst()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(first).not.toHaveBeenCalled()
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'second provider')
+  })
+
+  test('headless runs never consult the snapshot provider', async () => {
+    const harness = createTerminalHarness({ runMode: 'headless' })
+    const provider = jest.fn(() => 'terminal-only')
+    harness.manager.registerTerminalSnapshotProvider(provider)
+    await harness.manager.startRun(makeTaskFile())
+
+    harness.headless.runs[0].exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(provider).not.toHaveBeenCalled()
+    expect(harness.writeRunLog).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('AiTaskManager followUp on terminal runs', () => {
   test('rejects with a typed error because input goes through the terminal', async () => {
     const harness = createTerminalHarness()

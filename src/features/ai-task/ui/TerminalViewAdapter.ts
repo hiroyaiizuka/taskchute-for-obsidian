@@ -53,6 +53,14 @@ export interface TerminalViewAdapterLike {
   write(data: string): void
   /** Subscribe to keystrokes; returns a disposer */
   onData(callback: (data: string) => void): () => void
+  /**
+   * Plain-text snapshot of the terminal buffer (scrollback + screen): each
+   * line right-trimmed, runs of 3+ blank lines collapsed to a single blank
+   * line, trailing blank lines removed. Returns '' before open() and after
+   * dispose(). Used as the run-log transcript source for terminal runs (the
+   * raw PTY transcript file is a TUI redraw stream that strips to garbage).
+   */
+  snapshotText(): string
   focus(): void
   dispose(): void
 }
@@ -121,6 +129,25 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     return () => {
       this.dataListeners.delete(callback)
     }
+  }
+
+  snapshotText(): string {
+    const terminal = this.terminal
+    if (!terminal) return ''
+    const buffer = terminal.buffer.active
+    const lines: string[] = []
+    for (let i = 0; i < buffer.length; i += 1) {
+      // translateToString(true) right-trims the padded cells of each row.
+      lines.push(buffer.getLine(i)?.translateToString(true) ?? '')
+    }
+    return (
+      lines
+        .join('\n')
+        // 3+ consecutive blank lines (4+ newlines) collapse to ONE blank line.
+        .replace(/\n{4,}/g, '\n\n')
+        // Drop trailing blank lines (the unused rest of the screen).
+        .replace(/\n+$/, '')
+    )
   }
 
   focus(): void {

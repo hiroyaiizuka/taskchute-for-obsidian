@@ -27,6 +27,8 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
   written: string[] = []
   focus = jest.fn()
   disposed = false
+  /** Text returned by snapshotText(); settable per test */
+  snapshot = 'fake terminal snapshot'
   private readonly dataListeners = new Set<(data: string) => void>()
 
   open(container: HTMLElement, cols: number, rows: number): void {
@@ -35,6 +37,10 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
 
   write(data: string): void {
     this.written.push(data)
+  }
+
+  snapshotText(): string {
+    return this.snapshot
   }
 
   onData(callback: (data: string) => void): () => void {
@@ -72,6 +78,21 @@ class FakeManager {
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
+  /** Mirrors the real manager's single-provider snapshot registration */
+  snapshotProvider: ((runId: string) => string | undefined) | null = null
+  snapshotProviderUnregisterCount = 0
+
+  registerTerminalSnapshotProvider(
+    provider: (runId: string) => string | undefined,
+  ): () => void {
+    this.snapshotProvider = provider
+    return () => {
+      this.snapshotProviderUnregisterCount += 1
+      if (this.snapshotProvider === provider) {
+        this.snapshotProvider = null
+      }
+    }
+  }
 
   getRuns(): AiRunRecord[] {
     return [...this.records]
@@ -421,5 +442,52 @@ describe('AiRunPaneController terminal mode', () => {
       'post-reload chunk',
     ])
     rebuilt.unmount()
+  })
+
+  test('mount registers a snapshot provider that reads the run adapter buffer', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+    adapters[0].snapshot = 'final screen text'
+
+    expect(manager.snapshotProvider).not.toBeNull()
+    expect(manager.snapshotProvider?.(run.id)).toBe('final screen text')
+  })
+
+  test('the snapshot provider returns undefined for runs without a live adapter', () => {
+    controller.mount(container)
+    // Collapsed pane: the terminal run gets NO adapter (lazy creation).
+    controller.setCollapsed(true)
+    const run = createRun()
+    manager.emit(run)
+
+    expect(manager.snapshotProvider?.(run.id)).toBeUndefined()
+    expect(manager.snapshotProvider?.('unknown-run')).toBeUndefined()
+  })
+
+  test('a finished run keeps its adapter alive so the exit-time snapshot still resolves', () => {
+    controller.mount(container)
+    const run = createRun({ status: 'running' })
+    manager.emit(run)
+    adapters[0].snapshot = 'screen at exit'
+
+    // The manager notifies the final status BEFORE it consumes the snapshot
+    // in its persist step; the pane must not tear the adapter down on that
+    // status change.
+    run.status = 'succeeded'
+    manager.emit(run)
+
+    expect(adapters[0].disposed).toBe(false)
+    expect(manager.snapshotProvider?.(run.id)).toBe('screen at exit')
+  })
+
+  test('unmount unregisters the snapshot provider', () => {
+    controller.mount(container)
+    manager.emit(createRun())
+
+    controller.unmount()
+
+    expect(manager.snapshotProviderUnregisterCount).toBe(1)
+    expect(manager.snapshotProvider).toBeNull()
   })
 })

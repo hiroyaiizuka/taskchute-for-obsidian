@@ -15,6 +15,25 @@ class Terminal {
     this.openedContainer = null
     this.focusCount = 0
     this.disposed = false
+    /** Test helper: raw buffer lines returned through buffer.active */
+    this.bufferLines = []
+    const self = this
+    this.buffer = {
+      active: {
+        get length() {
+          return self.bufferLines.length
+        },
+        getLine(index) {
+          const line = self.bufferLines[index]
+          if (line === undefined) return undefined
+          return {
+            translateToString(trimRight) {
+              return trimRight ? line.replace(/[ \t]+$/, '') : line
+            },
+          }
+        },
+      },
+    }
     Terminal.instances.push(this)
   }
 

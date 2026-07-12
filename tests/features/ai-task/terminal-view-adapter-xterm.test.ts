@@ -7,6 +7,9 @@
  *     BOUNDED scrollback (very long sessions must not grow memory unbounded)
  *   - writes buffered before open() flush into the terminal in order
  *   - keystrokes relay through adapter.onData; disposers detach them
+ *   - snapshotText() renders buffer.active as plain text (lines right-trimmed
+ *     via translateToString(true), 3+ blank-line runs collapsed to one,
+ *     trailing blanks removed; '' before open and after dispose)
  *   - dispose() disposes the Terminal; write/open afterwards are no-ops
  */
 import { Terminal } from '@xterm/xterm'
@@ -18,6 +21,7 @@ interface RecordingTerminal {
   openedContainer: HTMLElement | null
   focusCount: number
   disposed: boolean
+  bufferLines: string[]
   emitData(data: string): void
 }
 
@@ -91,6 +95,59 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     adapter.focus()
 
     expect(lastTerminal().focusCount).toBe(1)
+  })
+
+  test('snapshotText() returns the empty string before open()', () => {
+    const adapter = createTerminalViewAdapter()
+
+    expect(adapter.snapshotText()).toBe('')
+  })
+
+  test('snapshotText() joins the buffer lines with newlines, right-trimming each line', () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    lastTerminal().bufferLines = ['$ claude   ', '  answer text', 'done']
+
+    expect(adapter.snapshotText()).toBe('$ claude\n  answer text\ndone')
+  })
+
+  test('snapshotText() collapses runs of 3+ blank lines to one and trims trailing blanks', () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    lastTerminal().bufferLines = [
+      'top',
+      '',
+      '',
+      '',
+      '',
+      'bottom',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]
+
+    expect(adapter.snapshotText()).toBe('top\n\nbottom')
+  })
+
+  test('snapshotText() keeps short blank runs (1-2 blank lines) verbatim', () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    lastTerminal().bufferLines = ['a', '', 'b', '', '', 'c']
+
+    expect(adapter.snapshotText()).toBe('a\n\nb\n\n\nc')
+  })
+
+  test('snapshotText() returns the empty string for an all-blank buffer and after dispose()', () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    lastTerminal().bufferLines = ['', '', '', '']
+    expect(adapter.snapshotText()).toBe('')
+
+    lastTerminal().bufferLines = ['content']
+    adapter.dispose()
+    expect(adapter.snapshotText()).toBe('')
   })
 
   test('dispose() disposes the terminal; write and open afterwards are no-ops', () => {

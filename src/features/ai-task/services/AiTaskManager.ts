@@ -4,7 +4,10 @@
  * Coordinates one AI run per task note: reads the read-only `ai_task_*`
  * frontmatter and the `## Prompt` section, resolves the CLI binary and cwd,
  * dispatches the child process, buffers stream events with a bounded
- * head + tail cap, and persists a run log note when the run ends.
+ * head + tail cap, and persists a run log note when the run ends. Terminal
+ * runs prefer the pane-registered snapshot provider (live xterm buffer) as
+ * the transcript source and fall back to the ANSI-stripped PTY transcript
+ * file; the temp file is consumed (deleted) either way.
  * followUp() resumes a finished run's CLI session with a new prompt and
  * keeps appending to the same record; each follow-up segment is also
  * collected separately and handed to the log writer so the existing note is
@@ -194,6 +197,14 @@ export type AiRunChangeListener = (record: AiRunRecord) => void
 /** Per-run listener for raw terminal output chunks */
 export type AiTerminalDataListener = (chunk: string) => void
 
+/**
+ * Returns the live xterm buffer of a terminal run as plain text, or
+ * undefined when the pane holds no adapter for that run (pane unmounted,
+ * tab never shown). Registered by the run pane; consumed once per terminal
+ * run at exit as the preferred transcript source.
+ */
+export type AiTerminalSnapshotProvider = (runId: string) => string | undefined
+
 export interface AiRunStartOptions {
   /** Overrides the settings-provided run mode for this run */
   mode?: AiRunMode
@@ -308,6 +319,7 @@ export class AiTaskManager {
   private readonly stopRequestedDuringStart = new Set<string>()
   private readonly listeners = new Set<AiRunChangeListener>()
   private readonly timer: AiGraceTimer
+  private terminalSnapshotProvider: AiTerminalSnapshotProvider | null = null
   private disposed = false
   private runSequence = 0
 
@@ -644,6 +656,23 @@ export class AiTaskManager {
     return undefined
   }
 
+  /**
+   * Register the SINGLE snapshot provider used to read a terminal run's live
+   * xterm buffer when its log note is composed at exit (preferred over the
+   * ANSI-stripped PTY transcript file, which is TUI redraw garbage). A later
+   * registration replaces the current one; the returned disposer only
+   * unregisters its own provider, so a stale disposer never clobbers a newer
+   * registration.
+   */
+  registerTerminalSnapshotProvider(provider: AiTerminalSnapshotProvider): () => void {
+    this.terminalSnapshotProvider = provider
+    return () => {
+      if (this.terminalSnapshotProvider === provider) {
+        this.terminalSnapshotProvider = null
+      }
+    }
+  }
+
   /** Drop cached binary locations (call when the path overrides change) */
   invalidateBinaryCache(): void {
     this.deps.binaryLocator.invalidateCache?.()
@@ -692,6 +721,7 @@ export class AiTaskManager {
     }
 
     this.listeners.clear()
+    this.terminalSnapshotProvider = null
   }
 
   /**
@@ -797,22 +827,57 @@ export class AiTaskManager {
   }
 
   /**
-   * Terminal-run persistence: consume the PTY transcript file, strip ANSI
-   * sequences, and write ONE log note through the shared writer paths (with
-   * retention pruning). Never rejects.
+   * Best-effort snapshot of the run's live xterm buffer through the
+   * registered provider. Returns undefined when no provider is registered,
+   * the provider has no adapter for the run, the text is blank, or the
+   * provider throws — every one of those falls back to the transcript file.
+   */
+  private captureTerminalSnapshot(runId: string): string | undefined {
+    const provider = this.terminalSnapshotProvider
+    if (!provider) return undefined
+    try {
+      const text = provider(runId)
+      if (typeof text === 'string' && text.trim().length > 0) return text
+    } catch (error) {
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Terminal snapshot provider failed',
+        error,
+      )
+    }
+    return undefined
+  }
+
+  /**
+   * Terminal-run persistence: write ONE log note through the shared writer
+   * paths (with retention pruning). The transcript body prefers the live
+   * xterm buffer snapshot — the raw `script` transcript is a TUI
+   * screen-drawing byte stream (alternate screen, cursor moves) whose
+   * ANSI-stripped remains are mostly spinner fragments, while the xterm
+   * buffer holds the readable final screen. The snapshot is captured
+   * synchronously BEFORE the first await so the pane's adapter (kept alive
+   * for finished runs until unmount) is still there. The PTY transcript temp
+   * file is always consumed (deleted) either way; its stripped content is
+   * only used when no snapshot was available. Never rejects.
    */
   private async persistTerminalRunLog(internal: InternalRun): Promise<void> {
     const record = internal.record
-    let transcript = ''
+    const snapshot = this.captureTerminalSnapshot(record.id)
+    let transcript = snapshot ?? ''
     const transcriptPath = record.transcriptPath
     if (transcriptPath !== undefined && this.deps.terminal) {
       record.transcriptPath = undefined
       try {
-        transcript = stripAnsiSequences(
+        const fileTranscript = stripAnsiSequences(
           await this.deps.terminal.readAndDeleteFile(transcriptPath),
         )
+        if (snapshot === undefined) {
+          transcript = fileTranscript
+        }
       } catch (error) {
-        transcript = TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER
+        if (snapshot === undefined) {
+          transcript = TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER
+        }
         this.deps.log?.(
           'warn',
           '[AiTaskManager] Failed to read the terminal transcript',
