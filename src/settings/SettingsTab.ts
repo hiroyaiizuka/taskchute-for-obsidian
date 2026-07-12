@@ -2,6 +2,8 @@ import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, Abstrac
 import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
 import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
+import { createAiTaskManager } from "../features/ai-task"
+import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
@@ -14,6 +16,7 @@ interface PluginWithSettings extends Plugin {
   app: App
   settings: TaskChuteSettings
   pathManager: PathManagerLike
+  aiTaskManager?: AiTaskManager
   saveSettings(): Promise<void>
 }
 
@@ -538,6 +541,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     const content = details.createDiv( { cls: 'taskchute-advanced-content' })
     this.renderTaskCreationSection(content)
     this.renderRecipeFeatureSection(content)
+    this.renderAiTaskSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
@@ -581,6 +585,130 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       } | undefined
       if (typeof view?.onRecipeFeatureSettingsChanged === "function") {
         view.onRecipeFeatureSettingsChanged()
+        return
+      }
+      view?.renderTaskList?.()
+    })
+  }
+
+  private renderAiTaskSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.aiTask.heading", "AI task"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(t("settings.aiTask.enable", "Enable AI tasks"))
+      .setDesc(
+        t(
+          "settings.aiTask.enableDesc",
+          "Run tasks with a headless AI CLI and stream the output into the AI run pane (desktop only).",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.aiTaskEnabled ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.aiTaskEnabled = value
+            await this.plugin.saveSettings()
+            this.applyAiTaskEnabledChange(value)
+            this.notifyAiTaskSettingsChanged()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.claudePathName", "Claude binary path"))
+      .setDesc(
+        t(
+          "settings.aiTask.claudePathDesc",
+          "Full path to the claude binary. Leave empty to auto-detect.",
+        ),
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder("/usr/local/bin/claude")
+          .setValue(this.plugin.settings.aiTaskClaudePath ?? "")
+          .onChange(async (value) => {
+            this.plugin.settings.aiTaskClaudePath = value.trim()
+            await this.plugin.saveSettings()
+            this.plugin.aiTaskManager?.invalidateBinaryCache()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.codexPathName", "Codex binary path"))
+      .setDesc(
+        t(
+          "settings.aiTask.codexPathDesc",
+          "Full path to the codex binary. Leave empty to auto-detect.",
+        ),
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder("/usr/local/bin/codex")
+          .setValue(this.plugin.settings.aiTaskCodexPath ?? "")
+          .onChange(async (value) => {
+            this.plugin.settings.aiTaskCodexPath = value.trim()
+            await this.plugin.saveSettings()
+            this.plugin.aiTaskManager?.invalidateBinaryCache()
+          })
+      })
+
+    const retentionSetting = new Setting(container)
+      .setName(t("settings.aiTask.retentionName", "Run log retention (days)"))
+      .setDesc(
+        t(
+          "settings.aiTask.retentionDesc",
+          "Run log notes older than this many days are deleted automatically.",
+        ),
+      )
+      .addText((text) => {
+        text.inputEl.type = "number"
+        text.inputEl.min = "1"
+        text.inputEl.step = "1"
+        const current = this.plugin.settings.aiTaskLogRetentionDays ?? 30
+        text
+          .setPlaceholder("30")
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw)
+            const normalized = Number.isFinite(parsed)
+              ? Math.max(1, Math.round(parsed))
+              : 30
+            this.plugin.settings.aiTaskLogRetentionDays = normalized
+            await this.plugin.saveSettings()
+          })
+      })
+
+    retentionSetting.controlEl?.addClass("taskchute-number-input")
+  }
+
+  /** Create or dispose the AiTaskManager to match the toggle state */
+  private applyAiTaskEnabledChange(enabled: boolean): void {
+    if (enabled) {
+      if (!this.plugin.aiTaskManager) {
+        // Returns undefined off-desktop; the factory owns the platform gate.
+        this.plugin.aiTaskManager = createAiTaskManager(this.plugin)
+      }
+      return
+    }
+    this.plugin.aiTaskManager?.dispose()
+    this.plugin.aiTaskManager = undefined
+  }
+
+  private notifyAiTaskSettingsChanged(): void {
+    const workspace = this.app.workspace as {
+      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
+    }
+    const leaves = typeof workspace.getLeavesOfType === "function"
+      ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+      : []
+    leaves.forEach((leaf) => {
+      const view = leaf.view as {
+        onAiTaskSettingsChanged?: () => void
+        renderTaskList?: () => void
+      } | undefined
+      if (typeof view?.onAiTaskSettingsChanged === "function") {
+        view.onAiTaskSettingsChanged()
         return
       }
       view?.renderTaskList?.()

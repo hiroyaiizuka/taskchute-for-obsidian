@@ -6485,3 +6485,243 @@ textarea.form-textarea {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
+
+/* ===== AI Task ===== */
+
+/* Row controls (run/stop button + status chip) */
+.ai-task-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.ai-task-run-button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.ai-task-run-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-task-run-button--stop {
+  color: var(--color-red, var(--text-error));
+}
+
+.ai-task-status-chip {
+  font-size: var(--font-ui-smaller);
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ai-task-status-chip--starting,
+.ai-task-status-chip--running {
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+}
+
+.ai-task-status-chip--stopping {
+  color: var(--color-orange, var(--text-muted));
+}
+
+.ai-task-status-chip--succeeded {
+  color: var(--color-green, var(--text-muted));
+}
+
+.ai-task-status-chip--failed {
+  color: var(--color-red, var(--text-error));
+}
+
+/* Bottom drawer container: overlays the lower part of the task list without
+   affecting the existing layout while the pane is hidden. */
+.ai-pane-container {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-run-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.ai-run-pane.is-hidden {
+  display: none;
+}
+
+.ai-run-pane__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.ai-run-pane__collapse {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ai-run-pane__collapse:hover {
+  color: var(--text-normal);
+}
+
+.ai-run-pane__title {
+  font-weight: 600;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  flex-shrink: 0;
+}
+
+.ai-run-pane__tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-run-pane__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ai-run-pane__tab:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-run-pane__tab.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-run-pane__tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.ai-run-pane__tab-dot--starting,
+.ai-run-pane__tab-dot--running {
+  background: var(--color-green, var(--text-accent));
+}
+
+.ai-run-pane__tab-dot--stopping {
+  background: var(--color-orange, var(--text-muted));
+}
+
+.ai-run-pane__tab-dot--failed {
+  background: var(--color-red, var(--text-error));
+}
+
+.ai-run-pane__tab-stop {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-red, var(--text-error));
+  font-size: 11px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.ai-run-pane__bodies {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ai-run-pane.is-collapsed .ai-run-pane__bodies {
+  display: none;
+}
+
+.ai-run-pane__body {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-run-pane__body.is-active {
+  display: block;
+}
+
+.ai-run-pane__event {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+  color: var(--text-normal);
+}
+
+.ai-run-pane__event--init {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ai-run-pane__event--tool-use {
+  color: var(--text-accent);
+}
+
+.ai-run-pane__event--tool-result {
+  color: var(--text-muted);
+}
+
+.ai-run-pane__event--result {
+  font-weight: 600;
+}
+
+.ai-run-pane__event--stderr {
+  color: var(--color-orange, var(--text-muted));
+}
+
+.ai-run-pane__event--raw {
+  color: var(--text-faint);
+}
+
+.ai-run-pane__event--elision {
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+}

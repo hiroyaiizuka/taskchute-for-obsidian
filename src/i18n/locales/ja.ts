@@ -221,6 +221,7 @@ export const ja = {
       paneTitle: "AI実行",
       run: "AIタスクを実行",
       stop: "AIタスクを停止",
+      togglePane: "AI実行ペインを開閉",
       tabUntitled: "無題の実行",
       status: {
         starting: "開始中",
@@ -230,11 +231,15 @@ export const ja = {
         failed: "失敗",
         stopped: "停止",
       },
+      events: {
+        omitted: "{count}件のイベントを省略",
+      },
       notices: {
         noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
         binaryNotFound: "AI CLIバイナリが見つかりません: {host}。設定でパスを指定してください。",
         alreadyRunning: "このタスクのAI実行はすでに進行中です。",
         desktopOnly: "AIタスクの実行はデスクトップ版でのみ利用できます。",
+        startFailed: "AI実行の開始に失敗しました: {message}",
       },
     },
     date: {

@@ -106,6 +106,7 @@ export type TaskChutePluginLike = Pick<
   | "pathManager"
   | "routineAliasService"
   | "dayStateService"
+  | "aiTaskManager"
   | "saveSettings"
   | "_log"
   | "_notify"

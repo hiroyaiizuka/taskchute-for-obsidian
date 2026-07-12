@@ -64,6 +64,13 @@ import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/
 import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
 import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
 import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
+import { AiRunPaneController } from "../../ai-task/ui/AiRunPaneController"
+import {
+  AiPromptNotFoundError,
+  AiRunAlreadyActiveError,
+} from "../../ai-task/services/AiTaskManager"
+import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
+import type { AiRunStatus } from "../../ai-task/types"
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
@@ -118,6 +125,12 @@ export class TaskChuteView
   public navigationPanel?: HTMLElement
   public navigationOverlay?: HTMLElement
   public navigationContent?: HTMLElement
+
+  // AI Task pane (mounted only while plugin.aiTaskManager exists)
+  private aiPaneContainer: HTMLElement | null = null
+  private aiRunPaneController: AiRunPaneController | null = null
+  private aiRunRowStatuses = new Map<string, AiRunStatus>()
+  private aiRunRowUnsubscribe: (() => void) | null = null
 
   // State Management
   public useOrderBasedSort: boolean
@@ -544,6 +557,13 @@ export class TaskChuteView
         view.projectController.showUnifiedProjectModal(inst),
       openProjectInSplit: (projectPath) =>
         view.projectController.openProjectInSplit(projectPath),
+      isAiTaskFeatureEnabled: () => view.isAiTaskFeatureEnabled(),
+      getActiveAiRun: (taskPath) =>
+        view.plugin.aiTaskManager?.getActiveRunForTask(taskPath),
+      startAiRun: (inst) => {
+        void view.startAiRun(inst)
+      },
+      stopAiRun: (runId) => view.plugin.aiTaskManager?.stopRun(runId),
     }
   }
 
@@ -649,6 +669,7 @@ export class TaskChuteView
   async onClose(): Promise<void> {
     this.isClosingOrClosed = true
     this.recipeRunPopover.close()
+    this.unmountAiRunPane()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -663,8 +684,112 @@ export class TaskChuteView
   // ===========================================
 
   private setupUI(container: HTMLElement): void {
-    const { taskListElement } = this.taskViewLayout.render(container)
+    const { taskListElement, aiPaneContainer } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
+    this.aiPaneContainer = aiPaneContainer
+    this.mountAiRunPane()
+  }
+
+  // ===========================================
+  // AI Task Integration
+  // ===========================================
+
+  private isAiTaskFeatureEnabled(): boolean {
+    return this.plugin.aiTaskManager !== undefined
+  }
+
+  private async startAiRun(inst: TaskInstance): Promise<void> {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const file = inst.task.file
+    if (!file) {
+      this.notifyAiRunError(new Error(inst.task.path))
+      return
+    }
+    try {
+      const record = await manager.startRun(file)
+      this.aiRunPaneController?.openRun(record.id)
+      this.renderTaskList()
+    } catch (error) {
+      this.notifyAiRunError(error)
+    }
+  }
+
+  private notifyAiRunError(error: unknown): void {
+    if (error instanceof AiBinaryNotFoundError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.binaryNotFound",
+          "AI CLI binary was not found: {host}. Set the path in settings.",
+          { host: error.host },
+        ),
+      )
+      return
+    }
+    if (error instanceof AiPromptNotFoundError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.noPrompt",
+          'No prompt section found. Add a "## prompt" heading to the task note.',
+        ),
+      )
+      return
+    }
+    if (error instanceof AiRunAlreadyActiveError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.alreadyRunning",
+          "An AI run is already in progress for this task.",
+        ),
+      )
+      return
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    new Notice(
+      this.tv("aiTask.notices.startFailed", "Failed to start AI run: {message}", {
+        message,
+      }),
+    )
+  }
+
+  private mountAiRunPane(): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager || !this.aiPaneContainer || this.aiRunPaneController) return
+
+    this.aiRunPaneController = new AiRunPaneController({
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+      manager,
+      registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+    })
+    this.aiRunPaneController.mount(this.aiPaneContainer)
+
+    // Row controls reflect run status; re-render the list only when a run's
+    // status actually changes (never on stream events).
+    const unsubscribe = manager.onChange((record) => {
+      if (this.aiRunRowStatuses.get(record.id) === record.status) return
+      this.aiRunRowStatuses.set(record.id, record.status)
+      this.renderTaskList()
+    })
+    this.aiRunRowUnsubscribe = unsubscribe
+    this.registerManagedDisposer(unsubscribe)
+  }
+
+  private unmountAiRunPane(): void {
+    this.aiRunPaneController?.unmount()
+    this.aiRunPaneController = null
+    this.aiRunRowUnsubscribe?.()
+    this.aiRunRowUnsubscribe = null
+    this.aiRunRowStatuses.clear()
+  }
+
+  /** Mirror of onRecipeFeatureSettingsChanged for the AI Task feature toggle */
+  public onAiTaskSettingsChanged(): void {
+    if (this.plugin.aiTaskManager) {
+      this.mountAiRunPane()
+    } else {
+      this.unmountAiRunPane()
+    }
+    this.renderTaskList()
   }
 
   // Utility: reload tasks and immediately restore running-state from persistence

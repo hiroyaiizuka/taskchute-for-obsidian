@@ -223,6 +223,7 @@ export const en = {
       paneTitle: "AI runs",
       run: "Run AI task",
       stop: "Stop AI task",
+      togglePane: "Toggle AI run pane",
       tabUntitled: "Untitled run",
       status: {
         starting: "Starting",
@@ -232,11 +233,15 @@ export const en = {
         failed: "Failed",
         stopped: "Stopped",
       },
+      events: {
+        omitted: "{count} events omitted",
+      },
       notices: {
         noPrompt: "No prompt section found. Add a \"## prompt\" heading to the task note.",
         binaryNotFound: "AI CLI binary was not found: {host}. Set the path in settings.",
         alreadyRunning: "An AI run is already in progress for this task.",
         desktopOnly: "AI task runs are available on desktop only.",
+        startFailed: "Failed to start AI run: {message}",
       },
     },
     date: {

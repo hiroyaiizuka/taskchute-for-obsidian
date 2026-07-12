@@ -3,6 +3,8 @@ import { TaskInstance } from '../../types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
 import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
+import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
+import type { AiRunRecord } from '../../features/ai-task/types'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -44,11 +46,16 @@ export type TaskListRendererHost = {
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
   openProjectInSplit?: (projectPath: string) => Promise<void> | void
+  isAiTaskFeatureEnabled?: () => boolean
+  getActiveAiRun?: (taskPath: string) => AiRunRecord | undefined
+  startAiRun?: (inst: TaskInstance) => void
+  stopAiRun?: (runId: string) => void
 }
 
 export default class TaskListRenderer {
   private readonly actions: TaskItemActionController
   private readonly rowController: TaskRowController
+  private readonly aiTaskRowRenderer?: AiTaskRowRenderer
   private collapsedByDate = new Map<string, Set<string>>()
   private isDragging = false
 
@@ -96,6 +103,20 @@ export default class TaskListRenderer {
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })
+    if (
+      this.host.isAiTaskFeatureEnabled &&
+      this.host.getActiveAiRun &&
+      this.host.startAiRun &&
+      this.host.stopAiRun
+    ) {
+      this.aiTaskRowRenderer = new AiTaskRowRenderer({
+        tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+        isAiTaskFeatureEnabled: () => this.host.isAiTaskFeatureEnabled!(),
+        getActiveAiRun: (taskPath) => this.host.getActiveAiRun!(taskPath),
+        startAiRun: (inst) => this.host.startAiRun!(inst),
+        stopAiRun: (runId) => this.host.stopAiRun!(runId),
+      })
+    }
   }
 
   private get collapsedSlots(): Set<string> {
@@ -258,6 +279,7 @@ export default class TaskListRenderer {
     this.createDragHandle(taskItem, inst, slot, idx)
     this.rowController.renderPlayStopButton(taskItem, inst, isFutureTask)
     this.rowController.renderTaskName(taskItem, inst)
+    this.aiTaskRowRenderer?.render(taskItem, inst)
     this.actions.renderProject(taskItem, inst)
     this.rowController.renderTimeRangeDisplay(taskItem, inst)
     this.rowController.renderDurationDisplay(taskItem, inst)

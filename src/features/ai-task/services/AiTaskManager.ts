@@ -89,6 +89,7 @@ export interface AiTaskManagerDeps {
   dispatchers: Record<AiTaskHost, AiDispatcher>
   binaryLocator: {
     resolve(host: AiTaskHost): Promise<string>
+    invalidateCache?(): void
   }
   logWriter: {
     writeRunLog(record: AiRunRecord): Promise<unknown>
@@ -234,6 +235,11 @@ export class AiTaskManager {
       }
     }
     return undefined
+  }
+
+  /** Drop cached binary locations (call when the path overrides change) */
+  invalidateBinaryCache(): void {
+    this.deps.binaryLocator.invalidateCache?.()
   }
 
   /** Subscribe to run changes. Returns a disposer that removes the listener. */

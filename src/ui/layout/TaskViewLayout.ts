@@ -10,6 +10,7 @@ export interface TaskViewLayoutRenderResult {
   contentContainer: HTMLElement
   taskListContainer: HTMLElement
   taskListElement: HTMLElement
+  aiPaneContainer: HTMLElement
 }
 
 export default class TaskViewLayout {
@@ -39,12 +40,19 @@ export default class TaskViewLayout {
 
     this.host.registerTaskListElement(taskListElement)
 
+    // Always present; stays empty (and invisible) while the AI Task feature
+    // is disabled. AiRunPaneController mounts into it when enabled.
+    const aiPaneContainer = contentContainer.createDiv( {
+      cls: 'ai-pane-container',
+    })
+
     return {
       topBarContainer,
       mainContainer,
       contentContainer,
       taskListContainer,
       taskListElement,
+      aiPaneContainer,
     }
   }
 }
