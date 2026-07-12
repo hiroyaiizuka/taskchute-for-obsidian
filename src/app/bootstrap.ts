@@ -49,6 +49,9 @@ export async function prepareSettings(
   if (typeof settings.aiTaskEnabled !== "boolean") {
     settings.aiTaskEnabled = false
   }
+  if (settings.aiTaskRunMode !== "terminal" && settings.aiTaskRunMode !== "headless") {
+    settings.aiTaskRunMode = "terminal"
+  }
   if (!Number.isFinite(settings.aiTaskLogRetentionDays)) {
     settings.aiTaskLogRetentionDays = 30
   } else {

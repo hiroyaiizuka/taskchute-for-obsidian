@@ -91,6 +91,11 @@ function composeFrontmatter(record: AiRunRecord): string[] {
   lines.push(`task_name: ${JSON.stringify(record.taskName)}`)
   lines.push(`host: ${record.host}`)
   lines.push(`status: ${record.status}`)
+  if (record.mode === 'terminal') {
+    // Only stamped for terminal sessions so pre-existing headless notes keep
+    // their exact shape.
+    lines.push('mode: terminal')
+  }
   lines.push(`started_at: ${JSON.stringify(new Date(record.startedAt).toISOString())}`)
   if (record.endedAt !== undefined) {
     lines.push(`ended_at: ${JSON.stringify(new Date(record.endedAt).toISOString())}`)
@@ -195,6 +200,32 @@ function composeRunLogContent(record: AiRunRecord): string {
   return `${lines.join('\n').replace(/\n+$/, '')}\n`
 }
 
+/** A backtick fence longer than any backtick run inside the content */
+function pickFence(content: string): string {
+  let longestRun = 0
+  for (const match of content.matchAll(/`+/g)) {
+    if (match[0].length > longestRun) longestRun = match[0].length
+  }
+  return '`'.repeat(Math.max(3, longestRun + 1))
+}
+
+function composeTerminalRunLogContent(record: AiRunRecord, transcript: string): string {
+  const fence = pickFence(transcript)
+  const body = transcript.replace(/\n+$/, '')
+  const lines = [
+    ...composeFrontmatter(record),
+    '',
+    '## Transcript',
+    '',
+    `${fence}text`,
+  ]
+  if (body.length > 0) {
+    lines.push(body)
+  }
+  lines.push(fence)
+  return `${lines.join('\n')}\n`
+}
+
 /**
  * Split a persisted note into its frontmatter block and body. Returns the
  * body only; the frontmatter is always regenerated from the record.
@@ -282,6 +313,25 @@ export class AiTaskLogWriter {
     const baseName = `${formatFileTimestamp(record.startedAt)}-${sanitizeTaskName(record.taskName)}`
     const path = this.resolveCollisionFreePath(monthPath, baseName)
     await this.deps.app.vault.create(path, composeRunLogContent(record))
+    return path
+  }
+
+  /**
+   * Compose and create the run log note for a terminal (PTY) session. The
+   * transcript is expected to be ANSI-stripped already and is embedded in a
+   * fenced block; paths, lazy folder creation, collision handling, and
+   * retention pruning are shared with the headless notes. Returns the vault
+   * path of the note.
+   */
+  async writeTerminalRunLog(record: AiRunRecord, transcript: string): Promise<string> {
+    const monthPath = this.deps.pathManager.getAiLogsMonthPath(
+      formatYearMonth(record.startedAt),
+    )
+    await this.ensureLogFolders(monthPath)
+
+    const baseName = `${formatFileTimestamp(record.startedAt)}-${sanitizeTaskName(record.taskName)}`
+    const path = this.resolveCollisionFreePath(monthPath, baseName)
+    await this.deps.app.vault.create(path, composeTerminalRunLogContent(record, transcript))
     return path
   }
 

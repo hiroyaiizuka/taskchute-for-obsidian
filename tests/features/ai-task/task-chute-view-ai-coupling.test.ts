@@ -223,6 +223,7 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
     taskPath: TASK_PATH,
     taskName: 'ai-task',
     host: 'claude',
+    mode: 'headless',
     status: 'running',
     startedAt: Date.now(),
     events: [],

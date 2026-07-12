@@ -17,6 +17,7 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
     taskPath: 'TaskChute/Task/My Task.md',
     taskName: 'My Task',
     host: 'claude',
+    mode: 'headless',
     status: 'succeeded',
     startedAt: START_AT,
     endedAt: END_AT,
@@ -461,5 +462,87 @@ describe('AiTaskLogWriter.pruneOldLogs', () => {
     await harness.writer.pruneOldLogs()
 
     expect(harness.trashed).toEqual([second])
+  })
+})
+
+describe('AiTaskLogWriter.writeTerminalRunLog', () => {
+  function makeTerminalRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
+    return makeRecord({ mode: 'terminal', events: [], ...overrides })
+  }
+
+  test('uses the same AI/Logs/YYYY-MM path shape and lazy folder creation as headless notes', async () => {
+    const harness = createHarness()
+
+    const path = await harness.writer.writeTerminalRunLog(
+      makeTerminalRecord(),
+      'session output',
+    )
+
+    expect(path).toBe('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md')
+    expect(harness.ensured).toEqual([
+      'TaskChute/AI',
+      'TaskChute/AI/Logs',
+      'TaskChute/AI/Logs/2026-07',
+    ])
+    expect(harness.created).toHaveLength(1)
+  })
+
+  test('composes frontmatter with mode terminal and a fenced transcript block', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeTerminalRunLog(
+      makeTerminalRecord(),
+      'first line\nsecond line',
+    )
+
+    const content = harness.created[0].content
+    expect(content).toContain('task_path: "TaskChute/Task/My Task.md"')
+    expect(content).toContain('task_name: "My Task"')
+    expect(content).toContain('host: claude')
+    expect(content).toContain('status: succeeded')
+    expect(content).toContain('mode: terminal')
+    expect(content).toContain('exit_code: 0')
+    expect(content).toContain('## Transcript')
+    expect(content).toContain('```text\nfirst line\nsecond line\n```')
+    expect(content.endsWith('\n')).toBe(true)
+  })
+
+  test('does not stamp mode into headless note frontmatter', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeRunLog(makeRecord())
+
+    expect(harness.created[0].content).not.toContain('mode:')
+  })
+
+  test('extends the fence when the transcript itself contains backtick fences', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeTerminalRunLog(
+      makeTerminalRecord(),
+      'before\n```js\ncode\n```\nafter',
+    )
+
+    const content = harness.created[0].content
+    expect(content).toContain('````text\nbefore\n```js\ncode\n```\nafter\n````')
+  })
+
+  test('resolves file name collisions with the shared suffix scheme', async () => {
+    const harness = createHarness()
+    harness.addExistingPath('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task.md')
+
+    const path = await harness.writer.writeTerminalRunLog(makeTerminalRecord(), 'x')
+
+    expect(path).toBe('TaskChute/AI/Logs/2026-07/20260712-090507-My-Task-2.md')
+  })
+
+  test('writes an empty fenced block for an empty transcript', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeTerminalRunLog(makeTerminalRecord(), '')
+
+    const content = harness.created[0].content
+    expect(content).toContain('## Transcript')
+    expect(content).toContain('```text\n```')
   })
 })

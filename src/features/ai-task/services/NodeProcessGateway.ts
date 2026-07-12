@@ -23,11 +23,19 @@ declare const process: {
 /** Signals the AI Task feature is allowed to send */
 export type NodeKillSignal = 'SIGTERM' | 'SIGKILL' | 'SIGINT'
 
+/**
+ * stdin wiring for a spawned child: 'ignore' (default) hands it /dev/null so
+ * headless CLIs never wait on input; 'pipe' keeps a parent-held pipe open and
+ * exposes writeStdin on the handle (terminal sessions).
+ */
+export type StdinMode = 'pipe' | 'ignore'
+
 export interface SpawnProcessRequest {
   command: string
   args: string[]
   cwd?: string
   env?: Record<string, string | undefined>
+  stdinMode?: StdinMode
 }
 
 export interface SpawnedProcessHandle {
@@ -36,6 +44,11 @@ export interface SpawnedProcessHandle {
   onStderr(callback: (text: string) => void): void
   onExit(callback: (code: number | null, signal: string | null) => void): void
   kill(signal: NodeKillSignal): void
+  /**
+   * Write utf8 data to the child's stdin. Present ONLY when the process was
+   * spawned with stdinMode 'pipe'; a safe no-op once the child has exited.
+   */
+  writeStdin?(data: string): void
 }
 
 export interface ExecCaptureResult {
@@ -44,6 +57,47 @@ export interface ExecCaptureResult {
   stderr: string
   timedOut: boolean
 }
+
+/** Inputs for wrapping a binary in a platform PTY (`script`) invocation */
+export interface PtyCommandRequest {
+  binaryPath: string
+  args: string[]
+  rows: number
+  cols: number
+  /** File the PTY session transcript is recorded to */
+  transcriptPath: string
+}
+
+/** A spawnable command + argv produced by buildPtyCommand */
+export interface PtyCommand {
+  command: string
+  args: string[]
+}
+
+/** Thrown by buildPtyCommand on platforms without a `script` PTY wrapper */
+export class TerminalUnsupportedError extends Error {
+  readonly platform: string
+
+  constructor(platform: string) {
+    super(`Terminal mode is not supported on ${platform}`)
+    this.name = 'TerminalUnsupportedError'
+    this.platform = platform
+  }
+}
+
+/**
+ * Marker the PTY wrapper prints to STDERR (followed by the child's exit
+ * code) just before it force-kills its own process group. Needed because:
+ * (1) `script` refuses a socketpair stdin (Node's 'pipe' stdio) with
+ * "tcgetattr: Operation not supported on socket", so a `cat |` stage
+ * interposes a REAL pipe; (2) `cat` never sees EOF while the plugin holds
+ * stdin open, so after `script` exits the wrapper must `kill -9 0` to reap
+ * the pipeline - which destroys the shell's exit status; the sentinel
+ * carries the child's real code out on the (wrapper-only) stderr channel.
+ * Verified on-device: macOS `script -q -F` + this wrapper propagates exit
+ * codes, records the transcript, and survives SIGTERM group stops.
+ */
+export const TERMINAL_EXIT_SENTINEL = '__TASKCHUTE_AI_EXIT__'
 
 export interface ProcessGateway {
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle
@@ -57,17 +111,34 @@ export interface ProcessGateway {
    * and in-run agent tools (git, npm, rg) unresolvable in child processes.
    */
   primeLoginShellPath(): Promise<void>
+  /** Whether buildPtyCommand can produce a PTY wrapper on this platform */
+  isPtySupported(): boolean
+  /**
+   * Wrap a binary invocation in the OS `script` utility so the child gets a
+   * real TTY (interactive TUIs render and accept input). Throws a typed
+   * TerminalUnsupportedError where no wrapper exists (win32).
+   */
+  buildPtyCommand(request: PtyCommandRequest): PtyCommand
+  /** Unique writable path in the OS temp directory (Node boundary helper) */
+  makeTempFilePath(prefix: string): string
+  /** Read a temp file as utf8 and delete it (best-effort delete) */
+  readAndDeleteFile(path: string): Promise<string>
 }
 
-// --- Minimal structural types for the child_process module -----------------
+// --- Minimal structural types for the Node modules this file touches -------
 
 interface NodeReadableLike {
   on(event: 'data', listener: (chunk: unknown) => void): void
   setEncoding(encoding: string): void
 }
 
+interface NodeWritableLike {
+  write(data: string): boolean
+}
+
 interface NodeChildProcessLike {
   pid?: number
+  stdin: NodeWritableLike | null
   stdout: NodeReadableLike | null
   stderr: NodeReadableLike | null
   on(event: 'close', listener: (code: number | null, signal: string | null) => void): void
@@ -84,14 +155,35 @@ interface ChildProcessModuleLike {
       env?: Record<string, string | undefined>
       detached?: boolean
       windowsHide?: boolean
-      stdio?: ['ignore', 'pipe', 'pipe']
+      stdio?: ['ignore' | 'pipe', 'pipe', 'pipe']
     },
   ): NodeChildProcessLike
+}
+
+interface OsModuleLike {
+  tmpdir(): string
+}
+
+interface FsModuleLike {
+  promises: {
+    readFile(path: string, encoding: string): Promise<string>
+    unlink(path: string): Promise<void>
+  }
 }
 
 function loadChildProcessModule(): ChildProcessModuleLike {
   // eslint-disable-next-line import/no-nodejs-modules
   return require('child_process') as ChildProcessModuleLike
+}
+
+function loadOsModule(): OsModuleLike {
+  // eslint-disable-next-line import/no-nodejs-modules
+  return require('os') as OsModuleLike
+}
+
+function loadFsModule(): FsModuleLike {
+  // eslint-disable-next-line import/no-nodejs-modules
+  return require('fs') as FsModuleLike
 }
 
 function decodeChunk(chunk: unknown): string {
@@ -140,6 +232,25 @@ function extractMarkedPathLine(stdout: string): string | undefined {
   return value.length > 0 ? value : undefined
 }
 
+/** POSIX single-quote escaping: ' becomes '\'' inside a quoted region */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** Positive integer terminal dimension, or the fallback when invalid */
+function sanitizeDimension(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  const floored = Math.floor(value)
+  if (floored < 1) return fallback
+  return Math.min(floored, 999)
+}
+
+/** Temp-file-name-safe prefix (path separators and shell metachars removed) */
+function sanitizeTempPrefix(prefix: string): string {
+  const cleaned = prefix.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
+  return cleaned.length > 0 ? cleaned : 'taskchute-ai'
+}
+
 function describeSpawnError(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message
   if (
@@ -155,6 +266,7 @@ function describeSpawnError(error: unknown): string {
 export class NodeProcessGateway implements ProcessGateway {
   private loginShellPath: string | null = null
   private loginShellPathPrimed: Promise<void> | null = null
+  private tempFileSequence = 0
 
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
     const stdoutCallbacks: Array<(text: string) => void> = []
@@ -170,20 +282,23 @@ export class NodeProcessGateway implements ProcessGateway {
 
     let child: NodeChildProcessLike | null = null
     let spawnErrorMessage: string | null = null
+    const stdinMode: StdinMode = request.stdinMode ?? 'ignore'
     try {
       // detached:true makes the child a process-group leader (POSIX) so
       // kill() below can signal the WHOLE group: if the CLI ignores SIGTERM
       // and spawned its own tool subprocesses, the SIGKILL escalation still
       // reaps the grandchildren instead of leaving orphans behind.
-      // stdio[0]='ignore' gives the child /dev/null as stdin so CLIs never
-      // wait on (or announce reading from) a parent-held stdin pipe, e.g.
-      // codex's "Reading additional input from stdin..." message.
+      // The default stdio[0]='ignore' gives the child /dev/null as stdin so
+      // headless CLIs never wait on (or announce reading from) a parent-held
+      // stdin pipe, e.g. codex's "Reading additional input from stdin..."
+      // message. Terminal sessions opt into stdinMode 'pipe' so keystrokes
+      // can be relayed via writeStdin.
       child = loadChildProcessModule().spawn(request.command, request.args, {
         cwd: request.cwd,
         env: request.env,
         detached: true,
         windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [stdinMode, 'pipe', 'pipe'],
       })
     } catch (error) {
       spawnErrorMessage = describeSpawnError(error)
@@ -214,8 +329,21 @@ export class NodeProcessGateway implements ProcessGateway {
 
     const failedChild = child === null
 
+    const writeStdin =
+      stdinMode === 'pipe'
+        ? (data: string): void => {
+            if (child === null || exited) return
+            try {
+              child.stdin?.write(data)
+            } catch {
+              // The pipe already closed (child exiting); drop the write.
+            }
+          }
+        : undefined
+
     return {
       pid: child?.pid,
+      writeStdin,
       onStdout: (callback) => {
         stdoutCallbacks.push(callback)
       },
@@ -298,6 +426,86 @@ export class NodeProcessGateway implements ProcessGateway {
     const shell = process.env['SHELL']
     if (typeof shell === 'string' && shell.trim().length > 0) return shell
     return '/bin/zsh'
+  }
+
+  isPtySupported(): boolean {
+    const platform = process.platform
+    return platform === 'darwin' || platform === 'linux'
+  }
+
+  buildPtyCommand(request: PtyCommandRequest): PtyCommand {
+    const rows = sanitizeDimension(request.rows, 24)
+    const cols = sanitizeDimension(request.cols, 80)
+    const platform = process.platform ?? 'unknown'
+    const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
+    // See TERMINAL_EXIT_SENTINEL for why the wrapper looks like this.
+    const wrap = (scriptInvocation: string): string =>
+      `cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
+      `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
+
+    if (platform === 'darwin') {
+      // BSD script(1): `script -q -F <file> <command> [args...]` (-F flushes
+      // the transcript per write, so a SIGTERM stop cannot truncate it).
+      // The /bin/sh trampoline sets the PTY size with stty, then execs the
+      // real binary. Every user-influenced value stays OUT of the shell
+      // text: the transcript is "$0" and binary+args travel as "$@"
+      // positionals, so no quoting or injection concerns arise.
+      return {
+        command: '/bin/sh',
+        args: [
+          '-c',
+          wrap(
+            `/usr/bin/script -q -F "$0" /bin/sh -c '${sttyPreamble}; exec "$0" "$@"' "$@"`,
+          ),
+          request.transcriptPath,
+          request.binaryPath,
+          ...request.args,
+        ],
+      }
+    }
+
+    if (platform === 'linux') {
+      // util-linux script(1): `script -qefc <command> <file>` (-e propagates
+      // the child's exit code, -f flushes per write). -c takes one shell
+      // string, so the binary and every argument are single-quote escaped.
+      const execCommand = [request.binaryPath, ...request.args]
+        .map(shellQuote)
+        .join(' ')
+      return {
+        command: '/bin/sh',
+        args: [
+          '-c',
+          wrap(
+            `/usr/bin/script -qefc ${shellQuote(`${sttyPreamble}; exec ${execCommand}`)} "$0"`,
+          ),
+          request.transcriptPath,
+        ],
+      }
+    }
+
+    throw new TerminalUnsupportedError(platform)
+  }
+
+  makeTempFilePath(prefix: string): string {
+    const tempDir = loadOsModule().tmpdir().replace(/[\\/]+$/, '')
+    this.tempFileSequence += 1
+    const unique = `${Date.now().toString(36)}-${this.tempFileSequence}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`
+    return `${tempDir}/${sanitizeTempPrefix(prefix)}-${unique}.log`
+  }
+
+  async readAndDeleteFile(path: string): Promise<string> {
+    const fs = loadFsModule().promises
+    try {
+      return await fs.readFile(path, 'utf8')
+    } finally {
+      try {
+        await fs.unlink(path)
+      } catch {
+        // Best-effort cleanup: a missing/locked temp file is not fatal.
+      }
+    }
   }
 
   primeLoginShellPath(): Promise<void> {

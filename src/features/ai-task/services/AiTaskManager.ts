@@ -18,15 +18,17 @@
  */
 
 import type { TFile } from 'obsidian'
-import type { AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
+import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
+import { stripAnsiSequences } from './streams/AnsiStripper'
 import type {
   AiDispatcher,
   AiGraceTimer,
   AiRunExitOutcome,
   AiRunProcessHandle,
 } from './dispatchers/Dispatcher'
+import type { AiTerminalDispatcher, TerminalRunHandle } from './dispatchers/TerminalDispatcher'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -34,6 +36,15 @@ export const AI_RUN_EVENT_HEAD_LIMIT = 200
 export const AI_RUN_EVENT_TAIL_LIMIT = 2000
 /** Delay between dispose()'s SIGTERM sweep and the SIGKILL escalation */
 export const DISPOSE_FORCE_KILL_MS = 1500
+/**
+ * Ring-buffer cap (utf16 code units) for a terminal run's replay buffer.
+ * Late subscribers (a re-rendered pane) get this much recent output replayed
+ * so the screen can be restored.
+ */
+export const TERMINAL_DATA_BUFFER_LIMIT = 200 * 1024
+/** PTY size used when the caller provides no pane-derived dimensions */
+export const DEFAULT_TERMINAL_ROWS = 24
+export const DEFAULT_TERMINAL_COLS = 80
 
 const ACTIVE_STATUSES: ReadonlySet<AiRunRecord['status']> = new Set([
   'starting',
@@ -98,6 +109,18 @@ export class AiSessionUnavailableError extends Error {
   }
 }
 
+export class AiTerminalFollowUpError extends Error {
+  readonly runId: string
+
+  constructor(runId: string) {
+    super(
+      `AI run ${runId} is a terminal session; follow-ups go through the terminal input`,
+    )
+    this.name = 'AiTerminalFollowUpError'
+    this.runId = runId
+  }
+}
+
 interface AiTaskFileCacheLike {
   frontmatter?: Record<string, unknown>
   headings?: PromptHeadingInfo[]
@@ -132,8 +155,28 @@ export interface AiTaskManagerDeps {
       record: AiRunRecord,
       continuationEvents?: AiStreamEvent[],
     ): Promise<unknown>
+    /**
+     * Terminal-session note path: creates one note from the ANSI-stripped
+     * PTY transcript. Optional; when absent the manager falls back to
+     * writeRunLog (metadata-only note, since terminal runs buffer no events).
+     */
+    writeTerminalRunLog?(record: AiRunRecord, transcript: string): Promise<unknown>
     pruneOldLogs(): Promise<void>
   }
+  /**
+   * Terminal-mode capabilities. When absent (or isSupported() is false,
+   * e.g. win32) every run is forced to headless mode.
+   */
+  terminal?: {
+    dispatcher: AiTerminalDispatcher
+    isSupported(): boolean
+    /** Gateway helper: unique transcript path in the OS temp directory */
+    makeTempFilePath(prefix: string): string
+    /** Gateway helper: consume the transcript file at run end */
+    readAndDeleteFile(path: string): Promise<string>
+  }
+  /** Effective run mode from settings; consulted when startRun gets none */
+  getRunMode?(): AiRunMode
   /** Timer override for tests; production uses activeWindow timers */
   timer?: AiGraceTimer
   log?(level: 'warn' | 'error' | 'debug', ...args: unknown[]): void
@@ -141,10 +184,33 @@ export interface AiTaskManagerDeps {
 
 export type AiRunChangeListener = (record: AiRunRecord) => void
 
+/** Per-run listener for raw terminal output chunks */
+export type AiTerminalDataListener = (chunk: string) => void
+
+export interface AiRunStartOptions {
+  /** Overrides the settings-provided run mode for this run */
+  mode?: AiRunMode
+  /** Task instance the run was started from (row chip scoping) */
+  instanceId?: string
+  /** PTY size derived from the pane; defaults apply when omitted */
+  rows?: number
+  cols?: number
+}
+
 interface InternalRun {
   record: AiRunRecord
   handle: AiRunProcessHandle | null
+  /** Set alongside handle for terminal runs; carries the write() capability */
+  terminalHandle: TerminalRunHandle | null
   exited: boolean
+  /**
+   * Bounded ring buffer of raw terminal output (terminal runs only): whole
+   * chunks are evicted from the front once the total exceeds
+   * TERMINAL_DATA_BUFFER_LIMIT, and the buffer is replayed to late
+   * subscribers so a re-rendered pane can restore the screen.
+   */
+  terminalData: { chunks: string[]; totalLength: number } | null
+  terminalListeners: Set<AiTerminalDataListener>
   /** Working directory captured at start, reused by follow-up dispatches */
   cwd?: string
   /** Extra CLI args captured at start, reused by follow-up dispatches */
@@ -248,8 +314,12 @@ export class AiTaskManager {
    * already has an active run. The disposed flag is re-checked after every
    * await so a dispose() during an in-flight start can never spawn a child
    * process that dispose()'s handle sweep would miss.
+   *
+   * `options.mode` (or the settings accessor) picks between an interactive
+   * terminal (PTY) session and the headless stream-json pipeline; terminal
+   * mode silently degrades to headless where no PTY wrapper exists (win32).
    */
-  async startRun(file: TFile): Promise<AiRunRecord> {
+  async startRun(file: TFile, options?: AiRunStartOptions): Promise<AiRunRecord> {
     this.throwIfDisposed()
     const taskPath = file.path
     if (this.pendingStarts.has(taskPath) || this.getActiveRunForTask(taskPath)) {
@@ -270,6 +340,7 @@ export class AiTaskManager {
       const binaryPath = await this.deps.binaryLocator.resolve(config.host)
       this.throwIfDisposed()
 
+      const mode = this.resolveRunMode(options?.mode)
       this.runSequence += 1
       const record: AiRunRecord = {
         id: `ai-run-${Date.now()}-${this.runSequence}`,
@@ -277,13 +348,18 @@ export class AiTaskManager {
         taskName: file.basename,
         host: config.host,
         status: 'starting',
+        mode,
+        instanceId: options?.instanceId,
         startedAt: Date.now(),
         events: [],
       }
       const internal: InternalRun = {
         record,
         handle: null,
+        terminalHandle: null,
         exited: false,
+        terminalData: null,
+        terminalListeners: new Set(),
         cwd,
         extraArgs: config.args,
         continuation: null,
@@ -293,13 +369,37 @@ export class AiTaskManager {
       this.notifyChange(record)
 
       try {
-        internal.handle = this.deps.dispatchers[config.host].start(
-          { binaryPath, prompt, cwd, extraArgs: config.args },
-          {
-            onEvent: (event) => this.handleEvent(internal, event),
-            onExit: (outcome) => this.handleExit(internal, outcome),
-          },
-        )
+        if (mode === 'terminal' && this.deps.terminal) {
+          const terminal = this.deps.terminal
+          const transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+          record.transcriptPath = transcriptPath
+          internal.terminalData = { chunks: [], totalLength: 0 }
+          const terminalHandle = terminal.dispatcher.start(
+            {
+              binaryPath,
+              prompt,
+              cwd,
+              extraArgs: config.args,
+              rows: options?.rows ?? DEFAULT_TERMINAL_ROWS,
+              cols: options?.cols ?? DEFAULT_TERMINAL_COLS,
+              transcriptPath,
+            },
+            {
+              onData: (chunk) => this.handleTerminalData(internal, chunk),
+              onExit: (outcome) => this.handleExit(internal, outcome),
+            },
+          )
+          internal.terminalHandle = terminalHandle
+          internal.handle = terminalHandle
+        } else {
+          internal.handle = this.deps.dispatchers[config.host].start(
+            { binaryPath, prompt, cwd, extraArgs: config.args },
+            {
+              onEvent: (event) => this.handleEvent(internal, event),
+              onExit: (outcome) => this.handleExit(internal, outcome),
+            },
+          )
+        }
       } catch (error) {
         internal.exited = true
         record.status = 'failed'
@@ -336,6 +436,11 @@ export class AiTaskManager {
     this.throwIfDisposed()
     const internal = this.runs.get(runId)
     if (!internal) throw new AiRunNotFoundError(runId)
+    if (internal.record.mode === 'terminal') {
+      // Terminal sessions take input directly (sendTerminalInput); there is
+      // no headless resume path for them.
+      throw new AiTerminalFollowUpError(runId)
+    }
 
     const record = internal.record
     const taskPath = record.taskPath
@@ -463,6 +568,42 @@ export class AiTaskManager {
     }
   }
 
+  /**
+   * Subscribe to a terminal run's raw output. The bounded replay buffer is
+   * delivered synchronously on subscribe (one concatenated chunk) so a
+   * re-rendered pane can restore the screen; live chunks follow. Unknown run
+   * ids get a no-op disposer.
+   */
+  onTerminalData(runId: string, listener: AiTerminalDataListener): () => void {
+    const internal = this.runs.get(runId)
+    if (!internal || this.disposed) return () => undefined
+
+    internal.terminalListeners.add(listener)
+    const buffered = internal.terminalData
+    if (buffered && buffered.totalLength > 0) {
+      try {
+        listener(buffered.chunks.join(''))
+      } catch (error) {
+        this.deps.log?.('warn', '[AiTaskManager] Terminal replay listener failed', error)
+      }
+    }
+    return () => {
+      internal.terminalListeners.delete(listener)
+    }
+  }
+
+  /**
+   * Relay keyboard input to an active terminal run. Silent no-op for
+   * unknown, finished, or headless runs (the pane simply has nowhere to
+   * type into).
+   */
+  sendTerminalInput(runId: string, data: string): void {
+    const internal = this.runs.get(runId)
+    if (!internal || internal.exited || !internal.terminalHandle) return
+    if (!ACTIVE_STATUSES.has(internal.record.status)) return
+    internal.terminalHandle.write(data)
+  }
+
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
     for (const internal of this.runs.values()) {
       if (
@@ -500,6 +641,7 @@ export class AiTaskManager {
 
     const activeHandles: AiRunProcessHandle[] = []
     for (const internal of this.runs.values()) {
+      internal.terminalListeners.clear()
       if (internal.exited || !internal.handle) continue
       activeHandles.push(internal.handle)
       try {
@@ -522,6 +664,37 @@ export class AiTaskManager {
     }
 
     this.listeners.clear()
+  }
+
+  /**
+   * Buffer a raw terminal chunk (bounded ring, whole-chunk eviction) and fan
+   * it out to subscribers. Terminal output deliberately bypasses
+   * record.events and onChange: the pane consumes it via onTerminalData.
+   */
+  private handleTerminalData(internal: InternalRun, chunk: string): void {
+    if (chunk.length === 0) return
+    const buffer = internal.terminalData ?? { chunks: [], totalLength: 0 }
+    internal.terminalData = buffer
+
+    // Oversized single chunk: keep only its tail.
+    const trimmed =
+      chunk.length > TERMINAL_DATA_BUFFER_LIMIT
+        ? chunk.slice(chunk.length - TERMINAL_DATA_BUFFER_LIMIT)
+        : chunk
+    buffer.chunks.push(trimmed)
+    buffer.totalLength += trimmed.length
+    while (buffer.totalLength > TERMINAL_DATA_BUFFER_LIMIT && buffer.chunks.length > 1) {
+      const evicted = buffer.chunks.shift()
+      buffer.totalLength -= evicted?.length ?? 0
+    }
+
+    for (const listener of Array.from(internal.terminalListeners)) {
+      try {
+        listener(chunk)
+      } catch (error) {
+        this.deps.log?.('warn', '[AiTaskManager] Terminal data listener failed', error)
+      }
+    }
   }
 
   private handleEvent(internal: InternalRun, event: AiStreamEvent): void {
@@ -566,7 +739,18 @@ export class AiTaskManager {
     }
     this.notifyChange(record)
 
-    if (this.disposed) return
+    if (this.disposed) {
+      // The note is skipped after dispose, but the transcript temp file must
+      // not be left behind in the OS tmpdir.
+      this.cleanUpTranscript(internal)
+      return
+    }
+    if (record.mode === 'terminal') {
+      internal.persistQueue = internal.persistQueue.then(() =>
+        this.persistTerminalRunLog(internal),
+      )
+      return
+    }
     // Snapshot the continuation synchronously and chain the write onto the
     // run's persist queue (see InternalRun.persistQueue for the guarantees).
     const continuationEvents = internal.continuation?.events
@@ -574,6 +758,57 @@ export class AiTaskManager {
     internal.persistQueue = internal.persistQueue.then(() =>
       this.persistRunLog(internal, continuationEvents),
     )
+  }
+
+  /** Best-effort removal of a terminal run's transcript temp file */
+  private cleanUpTranscript(internal: InternalRun): void {
+    const transcriptPath = internal.record.transcriptPath
+    if (transcriptPath === undefined || !this.deps.terminal) return
+    internal.record.transcriptPath = undefined
+    void this.deps.terminal.readAndDeleteFile(transcriptPath).catch(() => undefined)
+  }
+
+  /**
+   * Terminal-run persistence: consume the PTY transcript file, strip ANSI
+   * sequences, and write ONE log note through the shared writer paths (with
+   * retention pruning). Never rejects.
+   */
+  private async persistTerminalRunLog(internal: InternalRun): Promise<void> {
+    const record = internal.record
+    let transcript = ''
+    const transcriptPath = record.transcriptPath
+    if (transcriptPath !== undefined && this.deps.terminal) {
+      record.transcriptPath = undefined
+      try {
+        transcript = stripAnsiSequences(
+          await this.deps.terminal.readAndDeleteFile(transcriptPath),
+        )
+      } catch (error) {
+        this.deps.log?.(
+          'warn',
+          '[AiTaskManager] Failed to read the terminal transcript',
+          transcriptPath,
+          error,
+        )
+      }
+    }
+
+    try {
+      const writer = this.deps.logWriter
+      const result = writer.writeTerminalRunLog
+        ? await writer.writeTerminalRunLog(record, transcript)
+        : await writer.writeRunLog(record)
+      if (typeof result === 'string' && result.length > 0) {
+        record.logNotePath = result
+      }
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Failed to write run log', error)
+    }
+    try {
+      await this.deps.logWriter.pruneOldLogs()
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Failed to prune old run logs', error)
+    }
   }
 
   /** Never rejects: both the write and the prune failures are logged. */
@@ -612,6 +847,18 @@ export class AiTaskManager {
         this.deps.log?.('warn', '[AiTaskManager] onChange listener failed', error)
       }
     }
+  }
+
+  /**
+   * Effective run mode: an explicit request wins over the settings accessor;
+   * terminal degrades to headless when the capability is missing or the
+   * platform lacks a PTY wrapper (win32).
+   */
+  private resolveRunMode(requested?: AiRunMode): AiRunMode {
+    const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'
+    if (mode !== 'terminal') return 'headless'
+    if (!this.deps.terminal || !this.deps.terminal.isSupported()) return 'headless'
+    return 'terminal'
   }
 
   private resolveCwd(configCwd: string | undefined): string | undefined {

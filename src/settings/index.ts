@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
 
   // AI Task defaults
   aiTaskEnabled: false,
+  aiTaskRunMode: 'terminal',
   aiTaskLogRetentionDays: 30,
 
   // Google Calendar export (URL scheme push-only)

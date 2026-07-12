@@ -8,6 +8,13 @@
 /** Supported headless CLI hosts */
 export type AiTaskHost = 'claude' | 'codex'
 
+/**
+ * How a run's child process executes: 'terminal' embeds an interactive PTY
+ * session (the full CLI TUI, typed into directly), 'headless' runs the
+ * legacy stream-json pipeline.
+ */
+export type AiRunMode = 'terminal' | 'headless'
+
 /** Lifecycle status of a single AI run */
 export type AiRunStatus =
   | 'starting'
@@ -111,6 +118,19 @@ export interface AiRunRecord {
   taskName: string
   host: AiTaskHost
   status: AiRunStatus
+  /** Execution mode of the child process (see AiRunMode) */
+  mode: AiRunMode
+  /**
+   * Task instance that started the run. Lets the row renderer scope the
+   * status chip/stop control to the originating instance when a task note
+   * has duplicated rows.
+   */
+  instanceId?: string
+  /**
+   * Absolute temp-file path of the PTY session transcript while a terminal
+   * run is active; the file is consumed (read + deleted) at run end.
+   */
+  transcriptPath?: string
   /** Epoch milliseconds */
   startedAt: number
   /** Epoch milliseconds of the latest follow-up dispatch (startedAt is kept) */

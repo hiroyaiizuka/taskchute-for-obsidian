@@ -2,6 +2,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type {
   ProcessGateway,
+  PtyCommand,
+  PtyCommandRequest,
   SpawnProcessRequest,
   SpawnedProcessHandle,
 } from '../../../../src/features/ai-task/services/NodeProcessGateway'
@@ -38,6 +40,7 @@ export function prepareFixture(fixturePath: string): () => void {
 
 export interface SpyGateway extends ProcessGateway {
   spawnMock: jest.Mock<SpawnedProcessHandle, [SpawnProcessRequest]>
+  ptyMock: jest.Mock<PtyCommand, [PtyCommandRequest]>
   baseEnv: Record<string, string | undefined>
 }
 
@@ -50,15 +53,25 @@ export function createSpyGateway(): SpyGateway {
     onStderr: () => undefined,
     onExit: () => undefined,
     kill: () => undefined,
+    writeStdin: () => undefined,
+  }))
+  const ptyMock = jest.fn<PtyCommand, [PtyCommandRequest]>((request) => ({
+    command: '/usr/bin/script',
+    args: ['-q', request.transcriptPath, request.binaryPath, ...request.args],
   }))
   return {
     spawnMock,
+    ptyMock,
     baseEnv,
     spawnProcess: (request: SpawnProcessRequest) => spawnMock(request),
     execCapture: () => Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false }),
     getBaseEnv: () => baseEnv,
     getShellPath: () => '/bin/zsh',
     primeLoginShellPath: () => Promise.resolve(),
+    isPtySupported: () => true,
+    buildPtyCommand: (request: PtyCommandRequest) => ptyMock(request),
+    makeTempFilePath: (prefix: string) => `/tmp/spy-gateway/${prefix}.log`,
+    readAndDeleteFile: () => Promise.resolve(''),
   }
 }
 

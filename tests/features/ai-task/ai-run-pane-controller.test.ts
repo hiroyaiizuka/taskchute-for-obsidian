@@ -51,6 +51,7 @@ function createRun(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
     taskPath: 'TASKS/ai-sample.md',
     taskName: 'AI sample',
     host: 'claude',
+    mode: 'headless',
     status: 'running',
     startedAt: Date.now(),
     events: [],

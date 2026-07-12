@@ -11,7 +11,7 @@
 import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
 import type { PathManagerLike, TaskChuteSettings } from '../../types'
-import type { AiTaskHost } from './types'
+import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
 import { AiTaskManager } from './services/AiTaskManager'
 import { BinaryLocator } from './services/BinaryLocator'
@@ -19,6 +19,7 @@ import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
 import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
+import { TerminalDispatcher } from './services/dispatchers/TerminalDispatcher'
 
 export interface AiTaskPluginLike {
   app: App
@@ -85,6 +86,16 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     dispatchers,
     binaryLocator,
     logWriter,
+    terminal: {
+      dispatcher: new TerminalDispatcher(gateway),
+      isSupported: () => gateway.isPtySupported(),
+      makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
+      readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
+    },
+    // Terminal is the default experience; win32 is force-degraded to
+    // headless inside the manager via isSupported().
+    getRunMode: (): AiRunMode =>
+      plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
     log,
   })
 }
