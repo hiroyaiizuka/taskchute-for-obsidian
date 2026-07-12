@@ -1,9 +1,11 @@
 /**
  * AI Task - Codex dispatcher
  *
- * Runs `codex exec --json [--cd DIR] --skip-git-repo-check PROMPT` headlessly.
- * The prompt is always the trailing positional argument; unknown JSONL lines
- * degrade to raw events inside parseCodexLine.
+ * Runs `codex exec --json [--cd DIR] --skip-git-repo-check [...args] -- PROMPT`
+ * headlessly. The prompt is always the trailing positional argument behind a
+ * `--` end-of-options separator (so a prompt body starting with `-` is never
+ * parsed as a flag); unknown JSONL lines degrade to raw events inside
+ * parseCodexLine.
  */
 
 import type { AiStreamEvent } from '../../types'
@@ -19,7 +21,7 @@ export class CodexDispatcher extends HeadlessCliDispatcher {
     }
     args.push('--skip-git-repo-check')
     args.push(...(request.extraArgs ?? []))
-    args.push(request.prompt)
+    args.push('--', request.prompt)
     return args
   }
 

@@ -44,12 +44,13 @@ describe('ClaudeCodeDispatcher', () => {
       expect(request.command).toBe('/fake/bin/claude')
       expect(request.args).toEqual([
         '-p',
-        'say hi',
         '--output-format',
         'stream-json',
         '--verbose',
         '--max-turns',
         '1',
+        '--',
+        'say hi',
       ])
       expect(request.cwd).toBe('/some/project')
       expect(request.env).toBe(gateway.baseEnv)
@@ -65,9 +66,24 @@ describe('ClaudeCodeDispatcher', () => {
       )
 
       const request = gateway.spawnMock.mock.calls[0][0]
-      expect(request.args).toEqual(['-p', 'p', '--output-format', 'stream-json', '--verbose'])
+      expect(request.args).toEqual(['-p', '--output-format', 'stream-json', '--verbose', '--', 'p'])
       expect(request.cwd).toBeUndefined()
       expect(handle.pid).toBe(4242)
+    })
+
+    test('keeps a prompt starting with a dash behind the end-of-options separator', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/claude', prompt: '- first bullet of the prompt' },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      const separatorIndex = request.args.indexOf('--')
+      expect(separatorIndex).toBeGreaterThanOrEqual(0)
+      expect(request.args.slice(separatorIndex)).toEqual(['--', '- first bullet of the prompt'])
     })
   })
 
@@ -93,6 +109,19 @@ describe('ClaudeCodeDispatcher', () => {
       expect(toolResult).toMatchObject({ text: 'hi', isError: false })
       expect(result).toMatchObject({ subtype: 'success', isError: false })
       expect(outcome).toMatchObject({ status: 'succeeded', exitCode: 0 })
+    }, 20_000)
+
+    test('reassembles a multibyte character split mid-sequence across stdout chunks', async () => {
+      const dispatcher = new ClaudeCodeDispatcher(new NodeProcessGateway())
+      const { events } = await runDispatcherToCompletion(dispatcher, {
+        binaryPath: FIXTURE,
+        prompt: 'say hi',
+        extraArgs: ['--multibyte'],
+      })
+
+      const assistantText = events.find((event) => event.kind === 'assistant-text')
+      expect(assistantText).toMatchObject({ text: 'こんにちは、日本語の応答' })
+      expect(JSON.stringify(events)).not.toContain('�')
     }, 20_000)
 
     test('spawns the child without CLAUDECODE markers and with NO_COLOR=1', async () => {

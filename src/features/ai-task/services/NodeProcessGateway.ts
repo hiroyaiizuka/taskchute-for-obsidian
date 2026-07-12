@@ -54,6 +54,7 @@ export interface ProcessGateway {
 
 interface NodeReadableLike {
   on(event: 'data', listener: (chunk: unknown) => void): void
+  setEncoding(encoding: string): void
 }
 
 interface NodeWritableLike {
@@ -132,6 +133,10 @@ export class NodeProcessGateway implements ProcessGateway {
     }
 
     if (child) {
+      // Decode via Node's StringDecoder so a multibyte UTF-8 character split
+      // across pipe chunks is buffered instead of degrading to U+FFFD.
+      child.stdout?.setEncoding('utf8')
+      child.stderr?.setEncoding('utf8')
       child.stdout?.on('data', (chunk) => {
         const text = decodeChunk(chunk)
         for (const callback of stdoutCallbacks) callback(text)

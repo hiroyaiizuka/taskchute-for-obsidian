@@ -12,6 +12,9 @@
  *   --error-result  emit a result line with is_error=true (still exits 0)
  *   --hang          emit the init line, then stay alive until killed
  *   --dump-env      write JSON.stringify(process.env) to stderr first
+ *   --multibyte     split the assistant line MID-multibyte-character (byte
+ *                   level) across two stdout writes to exercise UTF-8
+ *                   reassembly in the consumer
  */
 
 const argv = process.argv.slice(2)
@@ -26,6 +29,7 @@ const exitCode = Number(argValue('--exit-code') || '0')
 const hang = argv.includes('--hang')
 const dumpEnv = argv.includes('--dump-env')
 const errorResult = argv.includes('--error-result')
+const multibyte = argv.includes('--multibyte')
 
 if (dumpEnv) {
   process.stderr.write(JSON.stringify(process.env) + '\n')
@@ -41,7 +45,9 @@ const initLine = JSON.stringify({
 const assistantTextLine = JSON.stringify({
   type: 'assistant',
   message: {
-    content: [{ type: 'text', text: 'Hello from fake claude' }],
+    content: [
+      { type: 'text', text: multibyte ? 'こんにちは、日本語の応答' : 'Hello from fake claude' },
+    ],
   },
 })
 
@@ -93,12 +99,21 @@ setTimeout(() => {
   }
 
   // Write the assistant line in two chunks to exercise chunk-boundary
-  // buffering in the consumer.
-  const splitAt = Math.floor(assistantTextLine.length / 2)
+  // buffering in the consumer. In --multibyte mode, split at the BYTE level,
+  // one byte into a 3-byte UTF-8 character, so naive per-chunk decoding
+  // would produce U+FFFD on both halves.
+  const lineBuffer = Buffer.from(assistantTextLine + '\n', 'utf8')
+  let splitAt
+  if (multibyte) {
+    const multibyteCharOffset = lineBuffer.indexOf(Buffer.from('こ', 'utf8'))
+    splitAt = multibyteCharOffset + 1
+  } else {
+    splitAt = Math.floor(lineBuffer.length / 2)
+  }
   setTimeout(() => {
-    process.stdout.write(assistantTextLine.slice(0, splitAt))
+    process.stdout.write(lineBuffer.slice(0, splitAt))
     setTimeout(() => {
-      process.stdout.write(assistantTextLine.slice(splitAt) + '\n')
+      process.stdout.write(lineBuffer.slice(splitAt))
       setTimeout(emitTail, 5)
     }, 5)
   }, 5)

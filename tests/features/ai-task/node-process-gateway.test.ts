@@ -132,5 +132,55 @@ describe('NodeProcessGateway', () => {
       expect(exit.signal).toBeNull()
       expect(stdout).toBe('chunk-あ')
     }, 15_000)
+
+    test('reassembles a multibyte character split mid-sequence across stdout writes', async () => {
+      const gateway = new NodeProcessGateway()
+      const childScript = [
+        "const buf = Buffer.from('あ', 'utf8')",
+        'process.stdout.write(buf.slice(0, 1))',
+        'setTimeout(() => { process.stdout.write(buf.slice(1)) }, 50)',
+      ].join('; ')
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', childScript],
+        env: gateway.getBaseEnv(),
+      })
+
+      let stdout = ''
+      handle.onStdout((text) => {
+        stdout += text
+      })
+      await new Promise<void>((resolve) => {
+        handle.onExit(() => resolve())
+      })
+
+      expect(stdout).toBe('あ')
+      expect(stdout).not.toContain('�')
+    }, 15_000)
+
+    test('reassembles a multibyte character split mid-sequence across stderr writes', async () => {
+      const gateway = new NodeProcessGateway()
+      const childScript = [
+        "const buf = Buffer.from('日本語', 'utf8')",
+        'process.stderr.write(buf.slice(0, 4))',
+        'setTimeout(() => { process.stderr.write(buf.slice(4)) }, 50)',
+      ].join('; ')
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', childScript],
+        env: gateway.getBaseEnv(),
+      })
+
+      let stderr = ''
+      handle.onStderr((text) => {
+        stderr += text
+      })
+      await new Promise<void>((resolve) => {
+        handle.onExit(() => resolve())
+      })
+
+      expect(stderr).toBe('日本語')
+      expect(stderr).not.toContain('�')
+    }, 15_000)
   })
 })

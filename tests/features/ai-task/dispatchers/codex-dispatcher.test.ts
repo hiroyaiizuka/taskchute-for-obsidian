@@ -50,6 +50,7 @@ describe('CodexDispatcher', () => {
         '--skip-git-repo-check',
         '--model',
         'gpt-5',
+        '--',
         'do the thing',
       ])
       expect(request.cwd).toBe('/some/project')
@@ -66,7 +67,22 @@ describe('CodexDispatcher', () => {
       )
 
       const request = gateway.spawnMock.mock.calls[0][0]
-      expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', 'p'])
+      expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
+    })
+
+    test('keeps a prompt starting with a dash behind the end-of-options separator', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/codex', prompt: '--not-a-flag prompt body' },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      const separatorIndex = request.args.indexOf('--')
+      expect(separatorIndex).toBeGreaterThanOrEqual(0)
+      expect(request.args.slice(separatorIndex)).toEqual(['--', '--not-a-flag prompt body'])
     })
   })
 
