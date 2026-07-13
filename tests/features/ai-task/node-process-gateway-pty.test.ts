@@ -40,9 +40,14 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
   //  - the sentinel + `kill -9 0` reap the pipeline on natural exit (cat never
   //    sees EOF) while carrying the child's real exit code out over stderr
   //  - -F / -f flush the transcript so SIGTERM stops cannot truncate it
+  //  - the CLI is a supervised background child so a HUP trap is not deferred
+  //    behind a hostile foreground process that ignores HUP/TERM
   const DARWIN_WRAPPER =
-    'cat 2>/dev/null | { /usr/bin/script -q -F "$0" /bin/sh -c ' +
-    `'stty rows 24 cols 80 2>/dev/null; exec "$0" "$@"' "$@"; st=$?; ` +
+    'cat 2>/dev/null | { TASKCHUTE_AI_TTY_PATH="$0.tty" ' +
+    '/usr/bin/script -q -F "$0" /bin/sh -c ' +
+    `'tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; ` +
+    `trap "trap - HUP TERM; kill -9 0" HUP TERM; ` +
+    `"$0" "$@" <&0 & child=$!; wait "$child"' "$@"; st=$?; ` +
     `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
   test('darwin: wraps the binary in the cat | script -q -F pipeline with an stty preamble', () => {
@@ -95,11 +100,12 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(command.args[2]).toBe('/tmp/transcript.txt')
     const wrapper = command.args[1]
     expect(wrapper).toContain('cat 2>/dev/null | {')
+    expect(wrapper).toContain('TASKCHUTE_AI_TTY_PATH="$0.tty"')
     expect(wrapper).toContain(`printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2`)
     expect(wrapper).toContain('kill -9 0 2>/dev/null')
     expect(wrapper).toContain(
       `/usr/bin/script -qefc ${posixQuote(
-        "stty rows 24 cols 80 2>/dev/null; exec '/bin/claude' '--dangerously-skip-permissions' 'do it'",
+        "tty > \"$TASKCHUTE_AI_TTY_PATH\" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap \"trap - HUP TERM; kill -9 0\" HUP TERM; '/bin/claude' '--dangerously-skip-permissions' 'do it' <&0 & child=$!; wait \"$child\"",
       )} "$0"`,
     )
   })
@@ -114,7 +120,9 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     })
 
     expect(command.args[1]).toContain(
-      posixQuote("stty rows 24 cols 80 2>/dev/null; exec '/bin/claude' 'it'\\''s; rm -rf /'"),
+      posixQuote(
+        "tty > \"$TASKCHUTE_AI_TTY_PATH\" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap \"trap - HUP TERM; kill -9 0\" HUP TERM; '/bin/claude' 'it'\\''s; rm -rf /' <&0 & child=$!; wait \"$child\"",
+      ),
     )
   })
 
@@ -172,11 +180,13 @@ describe('NodeProcessGateway temp file helpers', () => {
     const gateway = new NodeProcessGateway()
     const target = gateway.makeTempFilePath('gateway-read-delete-test')
     fs.writeFileSync(target, 'transcript body 日本語', 'utf8')
+    fs.writeFileSync(`${target}.tty`, '/dev/ttys001\n', 'utf8')
 
     const content = await gateway.readAndDeleteFile(target)
 
     expect(content).toBe('transcript body 日本語')
     expect(fs.existsSync(target)).toBe(false)
+    expect(fs.existsSync(`${target}.tty`)).toBe(false)
   })
 
   test('readAndDeleteFile rejects for a missing file', async () => {
@@ -184,6 +194,16 @@ describe('NodeProcessGateway temp file helpers', () => {
     const missing = path.join(os.tmpdir(), 'taskchute-missing-transcript-for-test.txt')
 
     await expect(gateway.readAndDeleteFile(missing)).rejects.toBeDefined()
+  })
+
+  test('readAndDeleteFile removes the tty sidecar even when the transcript is missing', async () => {
+    const gateway = new NodeProcessGateway()
+    const missing = gateway.makeTempFilePath('gateway-missing-with-sidecar')
+    fs.writeFileSync(`${missing}.tty`, '/dev/ttys001\n', 'utf8')
+
+    await expect(gateway.readAndDeleteFile(missing)).rejects.toBeDefined()
+
+    expect(fs.existsSync(`${missing}.tty`)).toBe(false)
   })
 })
 

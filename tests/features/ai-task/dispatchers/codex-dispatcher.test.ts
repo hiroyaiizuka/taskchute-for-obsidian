@@ -70,6 +70,35 @@ describe('CodexDispatcher', () => {
       expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
     })
 
+    test('passes model and reasoning config through as literal argv tokens', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/codex',
+          prompt: 'deep task',
+          extraArgs: [
+            '--model=gpt-5.6-terra',
+            '--config',
+            'model_reasoning_effort="xhigh"',
+          ],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      expect(gateway.spawnMock.mock.calls[0][0].args).toEqual([
+        'exec',
+        '--json',
+        '--skip-git-repo-check',
+        '--model=gpt-5.6-terra',
+        '--config',
+        'model_reasoning_effort="xhigh"',
+        '--',
+        'deep task',
+      ])
+    })
+
     test('keeps a prompt starting with a dash behind the end-of-options separator', () => {
       const gateway = createSpyGateway()
       const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())

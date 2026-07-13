@@ -181,6 +181,19 @@ describe('AiTaskManager.startShellSession spawn shape', () => {
     expect(SHELL_SESSION_ARGS).toEqual(['-i', '-l'])
   })
 
+  test('inherits an owning AI run workspace and records the owner id', () => {
+    const harness = createShellHarness()
+
+    const record = harness.manager.startShellSession({
+      cwd: '/workspace/project',
+      parentRunId: 'ai-run-parent',
+    })
+
+    expect(record.cwd).toBe('/workspace/project')
+    expect(record.parentRunId).toBe('ai-run-parent')
+    expect(harness.terminal.last.request.cwd).toBe('/workspace/project')
+  })
+
   test('applies the default grid and display name when options are omitted', () => {
     const harness = createShellHarness()
 

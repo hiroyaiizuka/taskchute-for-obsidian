@@ -292,6 +292,54 @@ describe('NodeProcessGateway', () => {
       await new Promise((resolve) => setTimeout(resolve, 500))
     }, 15_000)
 
+    test('sweeps snapshotted detached descendants after the wrapper exits', async () => {
+      const detachedPid = 987_654
+      const snapshotDescendantPids = jest.fn(() => [detachedPid])
+      const gateway = new NodeProcessGateway(snapshotDescendantPids)
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('READY'); setInterval(() => {}, 1000)"],
+        env: gateway.getBaseEnv(),
+      })
+      const wrapperPid = handle.pid
+      expect(wrapperPid).toBeGreaterThan(0)
+
+      await new Promise<void>((resolve) => {
+        handle.onStdout((text) => {
+          if (text.includes('READY')) resolve()
+        })
+      })
+
+      const originalKill = process.kill.bind(process)
+      const killSpy = jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        if (pid === detachedPid) return true
+        return originalKill(pid, signal)
+      })
+      try {
+        handle.kill('SIGTERM')
+        await new Promise<void>((resolve) => {
+          handle.onExit(() => resolve())
+        })
+
+        // TerminalDispatcher invokes this second sweep from wrapper onExit.
+        handle.kill('SIGKILL')
+
+        expect(snapshotDescendantPids).toHaveBeenCalledWith(wrapperPid)
+        expect(killSpy).toHaveBeenCalledWith(detachedPid, 'SIGTERM')
+        expect(killSpy).toHaveBeenCalledWith(detachedPid, 'SIGKILL')
+        expect(killSpy).not.toHaveBeenCalledWith(-(wrapperPid ?? 0), 'SIGKILL')
+      } finally {
+        killSpy.mockRestore()
+        if (typeof wrapperPid === 'number') {
+          try {
+            originalKill(-wrapperPid, 'SIGKILL')
+          } catch {
+            // The wrapper was already reaped by the test.
+          }
+        }
+      }
+    }, 15_000)
+
     test('reassembles a multibyte character split mid-sequence across stderr writes', async () => {
       const gateway = new NodeProcessGateway()
       const childScript = [

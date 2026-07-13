@@ -33,6 +33,7 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
   opened: { container: HTMLElement; cols: number; rows: number } | null = null
   written: string[] = []
   focus = jest.fn()
+  fit = jest.fn()
   disposed = false
   private readonly dataListeners = new Set<(data: string) => void>()
 
@@ -86,12 +87,20 @@ class FakeManager {
   private shellSequence = 0
 
   readonly startShellSession = jest.fn(
-    (options?: { cols?: number; rows?: number; name?: string }): AiRunRecord => {
+    (options?: {
+      cols?: number
+      rows?: number
+      name?: string
+      cwd?: string
+      parentRunId?: string
+    }): AiRunRecord => {
       this.shellSequence += 1
       const record: AiRunRecord = {
         id: `shell-${this.shellSequence}`,
         taskPath: '',
         taskName: options?.name ?? 'Terminal',
+        cwd: options?.cwd,
+        parentRunId: options?.parentRunId,
         host: 'shell',
         mode: 'terminal',
         status: 'starting',
@@ -195,9 +204,9 @@ describe('AiRunPaneController split panels', () => {
     container.querySelector<HTMLButtonElement>('.ai-run-pane__split')
   const noticeMock = (): jest.Mock => Notice as unknown as jest.Mock
 
-  /** The tab element of one panel (each panel owns exactly one) */
+  /** The selected internal tab of one panel */
   function panelTab(panel: HTMLElement): HTMLElement | null {
-    return panel.querySelector<HTMLElement>('.ai-run-pane__tab')
+    return panel.querySelector<HTMLElement>('.ai-run-pane__tab.is-active')
   }
 
   function setContainerWidth(width: number): void {
@@ -250,7 +259,7 @@ describe('AiRunPaneController split panels', () => {
 
     test('splitting creates a second panel, spawns a shell session, and focuses it', () => {
       controller.mount(container)
-      manager.emit(createRun({ id: 'run-a' }))
+      manager.emit(createRun({ id: 'run-a', cwd: '/workspace/project' }))
       expect(panels()).toHaveLength(1)
       expect(adapters).toHaveLength(1)
 
@@ -268,6 +277,8 @@ describe('AiRunPaneController split panels', () => {
         cols: TERMINAL_FALLBACK_COLS,
         rows: TERMINAL_FALLBACK_ROWS,
         name: 'Terminal',
+        cwd: '/workspace/project',
+        parentRunId: 'run-a',
       })
 
       // ...and is displayed in the new panel: tab + body + live adapter.
@@ -289,7 +300,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panelTab(allPanels[0])?.getAttribute('data-run-id')).toBe('run-a')
     })
 
-    test('shell sessions appear in the sidebar with a shell modifier', () => {
+    test('split shell stays in the panel tabs and does not add a vertical tab', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
 
@@ -298,11 +309,15 @@ describe('AiRunPaneController split panels', () => {
       const shellRow = container.querySelector<HTMLElement>(
         '.ai-run-pane__run[data-run-id="shell-1"]',
       )
-      expect(shellRow).not.toBeNull()
-      expect(shellRow?.classList.contains('ai-run-pane__run--shell')).toBe(true)
-      expect(shellRow?.querySelector('.ai-run-pane__run-name')?.textContent).toBe(
-        'Terminal',
-      )
+      expect(shellRow).toBeNull()
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual([
+        'run-a',
+      ])
+      expect(
+        panels()[1].querySelector(
+          '.ai-run-pane__tab[data-run-id="shell-1"]',
+        ),
+      ).not.toBeNull()
       // Task runs keep the plain row class.
       const taskRow = container.querySelector<HTMLElement>(
         '.ai-run-pane__run[data-run-id="run-a"]',
@@ -397,6 +412,7 @@ describe('AiRunPaneController split panels', () => {
         cols: 38, // (320 panel - 16 horizontal inset) / 8 px cells
         rows: 8,
         name: 'Terminal',
+        parentRunId: 'run-a',
       })
     })
   })
@@ -437,7 +453,7 @@ describe('AiRunPaneController split panels', () => {
       // screen as a dead panel.
       expect(panels()).toHaveLength(1)
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
-      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['shell-1'])
+      expect(rows()).toHaveLength(0)
       expect(adapters[1].disposed).toBe(false)
       expect(
         container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
@@ -559,6 +575,33 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('unsplit via the panel tab ×', () => {
+    test('closing one of multiple internal tabs keeps the split and selects its sibling', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      splitButton()?.click()
+      const secondPanel = panels()[1]
+      secondPanel.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      const newest = manager.getRun('shell-2')
+      if (!newest) throw new Error('second shell record missing')
+      newest.status = 'succeeded'
+      manager.emit(newest)
+
+      secondPanel
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__tab.is-active .ai-run-pane__tab-close',
+        )
+        ?.click()
+
+      expect(panels()).toHaveLength(2)
+      expect(panelTab(panels()[1])?.getAttribute('data-run-id')).toBe('shell-1')
+      expect(
+        panels()[1].querySelector('.ai-run-pane__tab[data-run-id="shell-2"]'),
+      ).toBeNull()
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual([
+        'run-a',
+      ])
+    })
+
     test('the × on an active shell stops it and unsplits once persisted', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
@@ -613,6 +656,82 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('+ button (new shell in the focused panel)', () => {
+    test('closing a non-selected internal tab removes its stale tab DOM', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      const shell = manager.getRun('shell-1')
+      if (!shell) throw new Error('shell record missing')
+      panels()[0]
+        .querySelector<HTMLElement>('.ai-run-pane__tab[data-run-id="run-a"]')
+        ?.click()
+      shell.status = 'succeeded'
+      manager.emit(shell)
+
+      panels()[0]
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__tab[data-run-id="shell-1"] .ai-run-pane__tab-close',
+        )
+        ?.click()
+
+      expect(
+        panels()[0].querySelector('.ai-run-pane__tab[data-run-id="shell-1"]'),
+      ).toBeNull()
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
+    })
+
+    test('a stopped shell removes its tab after the user switched to its sibling', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      const shell = manager.getRun('shell-1')
+      if (!shell) throw new Error('shell record missing')
+      panels()[0]
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__tab[data-run-id="shell-1"] .ai-run-pane__tab-close',
+        )
+        ?.click()
+      panels()[0]
+        .querySelector<HTMLElement>('.ai-run-pane__tab[data-run-id="run-a"]')
+        ?.click()
+
+      shell.status = 'stopped'
+      manager.emit(shell)
+      manager.emit(shell, 'persisted')
+
+      expect(
+        panels()[0].querySelector('.ai-run-pane__tab[data-run-id="shell-1"]'),
+      ).toBeNull()
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
+    })
+
+    test('closing a parent AI run also stops and removes its owned shell tabs', () => {
+      controller.mount(container)
+      const parent = createRun({ id: 'run-a', cwd: '/workspace/project' })
+      manager.emit(parent)
+      splitButton()?.click()
+      const shell = manager.getRun('shell-1')
+      if (!shell) throw new Error('shell record missing')
+      parent.status = 'succeeded'
+      manager.emit(parent)
+
+      container
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
+        )
+        ?.click()
+
+      expect(manager.stopRun).toHaveBeenCalledWith('shell-1')
+      expect(rows()).toHaveLength(0)
+      shell.status = 'stopped'
+      manager.emit(shell)
+      manager.emit(shell, 'persisted')
+      expect(container.querySelectorAll('.ai-run-pane__tab')).toHaveLength(0)
+      expect(
+        container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
+      ).toBe(true)
+    })
+
     test('spawns a shell session and selects it in the single panel', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
@@ -625,6 +744,12 @@ describe('AiRunPaneController split panels', () => {
       expect(manager.startShellSession).toHaveBeenCalledTimes(1)
       expect(panels()).toHaveLength(1)
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+      expect(
+        panels()[0].querySelectorAll('.ai-run-pane__tab'),
+      ).toHaveLength(2)
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual([
+        'run-a',
+      ])
       // The previous run keeps its body (hidden), the shell body is active.
       const panel = panels()[0]
       expect(

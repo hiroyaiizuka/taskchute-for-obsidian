@@ -52,14 +52,19 @@ describe('TerminalViewAdapter module', () => {
     expect(typeof adapter.open).toBe('function')
     expect(typeof adapter.write).toBe('function')
     expect(typeof adapter.onData).toBe('function')
+    expect(typeof adapter.onFilePathActivate).toBe('function')
+    expect(typeof adapter.fit).toBe('function')
     expect(typeof adapter.focus).toBe('function')
     expect(typeof adapter.dispose).toBe('function')
 
     // None of these may throw (or touch xterm) before open() is called.
     const dispose = adapter.onData(() => undefined)
+    const disposeFilePath = adapter.onFilePathActivate?.(() => undefined)
     adapter.write('buffered before open')
+    adapter.fit?.()
     adapter.focus()
     dispose()
+    disposeFilePath?.()
     adapter.dispose()
     // dispose is idempotent
     adapter.dispose()

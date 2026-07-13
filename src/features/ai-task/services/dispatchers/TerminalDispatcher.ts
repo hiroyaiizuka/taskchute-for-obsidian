@@ -3,6 +3,11 @@
  *
  * Runs a host CLI interactively inside an OS PTY wrapper (the gateway's
  * buildPtyCommand) so the full TUI renders and the user can type into it.
+ * AI-task runs are shell-backed: the PTY owns the user's login shell and the
+ * safely quoted AI command is submitted as its foreground job. Ctrl+C can
+ * therefore end Claude/Codex and return to a usable shell prompt without
+ * ending the terminal session. Plain shell sessions use direct mode and are
+ * not wrapped in a second shell.
  * The argv is `[...extraArgs, '--', prompt]` for every host — no `-p`, no
  * `--output-format`: the positional prompt drops the CLI into its REPL with
  * the prompt pre-submitted, and an empty prompt opens a plain REPL (no `--`
@@ -21,6 +26,7 @@
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
 import type { ProcessGateway } from '../NodeProcessGateway'
+import { buildTerminalArgs } from '../TerminalArguments'
 import { STOP_GRACE_MS } from './Dispatcher'
 import type { AiGraceTimer, AiRunExitOutcome } from './Dispatcher'
 
@@ -38,6 +44,8 @@ export interface TerminalRunRequest {
   cols: number
   /** Temp file the PTY session transcript is recorded to */
   transcriptPath: string
+  /** Run binaryPath + argv as a foreground job of a persistent login shell */
+  launchInShell?: boolean
 }
 
 export interface TerminalRunCallbacks {
@@ -50,6 +58,8 @@ export interface TerminalRunHandle {
   pid?: number
   /** Relay keyboard input to the session's stdin */
   write(data: string): void
+  /** Resize both xterm's backing PTY dimensions (cols first, then rows) */
+  resize?(cols: number, rows: number): void
   /** Graceful stop: SIGTERM, then SIGKILL after the grace period */
   stop(): void
   /** Immediate SIGKILL (plugin unload path) */
@@ -86,6 +96,28 @@ const defaultGraceTimer: AiGraceTimer = {
   },
 }
 
+const LOGIN_SHELL_ARGS: readonly string[] = ['-i', '-l']
+
+function normalizeResizeDimension(value: number): number | null {
+  if (!Number.isFinite(value)) return null
+  const floored = Math.floor(value)
+  if (floored < 1) return null
+  return Math.min(floored, 999)
+}
+
+/** POSIX token quoting; reject NUL because neither argv nor shell input can preserve it. */
+function quoteShellToken(token: string): string {
+  if (token.includes('\0')) {
+    throw new Error('Terminal launch tokens must not contain NUL bytes')
+  }
+  return `'${token.replace(/'/g, `'\\''`)}'`
+}
+
+/** Build one injection-safe command line from an executable and its argv. */
+export function buildShellLaunchCommand(binaryPath: string, args: readonly string[]): string {
+  return [binaryPath, ...args].map(quoteShellToken).join(' ')
+}
+
 export class TerminalDispatcher implements AiTerminalDispatcher {
   constructor(
     private readonly gateway: ProcessGateway,
@@ -93,14 +125,17 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
   ) {}
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle {
-    const args = [...(request.extraArgs ?? [])]
-    if (request.prompt.length > 0) {
-      args.push('--', request.prompt)
-    }
+    const args = buildTerminalArgs(request.extraArgs, request.prompt)
+    const shellLaunchCommand = request.launchInShell
+      ? buildShellLaunchCommand(request.binaryPath, args)
+      : null
+    const ptyBinaryPath = request.launchInShell
+      ? quoteCheckedShellPath(this.gateway.getShellPath())
+      : request.binaryPath
 
     const ptyCommand = this.gateway.buildPtyCommand({
-      binaryPath: request.binaryPath,
-      args,
+      binaryPath: ptyBinaryPath,
+      args: request.launchInShell ? [...LOGIN_SHELL_ARGS] : args,
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,
@@ -118,11 +153,27 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
     let exited = false
     let killTimerHandle: number | null = null
     let sentinelCode: number | null = null
+    let pendingResize: { cols: number; rows: number } | null = null
+
+    const applyPendingResize = (): void => {
+      if (pendingResize === null || exited) return
+      if (
+        this.gateway.resizePty(
+          request.transcriptPath,
+          pendingResize.cols,
+          pendingResize.rows,
+        )
+      ) {
+        pendingResize = null
+      }
+    }
 
     handle.onStdout((text) => {
+      applyPendingResize()
       callbacks.onData(text)
     })
     handle.onStderr((text) => {
+      applyPendingResize()
       // The PTY merges the session's stderr into the terminal stream, so
       // the raw stderr channel carries only wrapper output: the exit-code
       // sentinel (see TERMINAL_EXIT_SENTINEL) and rare spawn errors. Parse
@@ -138,21 +189,42 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
     })
     handle.onExit((code, signal) => {
       exited = true
+      pendingResize = null
       if (killTimerHandle !== null) {
         this.graceTimer.clearTimeout(killTimerHandle)
         killTimerHandle = null
+      }
+      // The gateway snapshots the wrapper's descendants before stop(). Once
+      // the wrapper closes, sweep that snapshot with SIGKILL as well. This
+      // catches tools that detached into another process group/session while
+      // avoiding a late signal to the already-exited wrapper PID.
+      if (stopRequested) {
+        handle.kill('SIGKILL')
       }
       // The wrapper reaps its own process group with SIGKILL, so the raw
       // exit is (null, SIGKILL) even for clean sessions; the sentinel
       // carries the child's real exit code.
       callbacks.onExit(resolveTerminalExitOutcome(sentinelCode ?? code, signal, stopRequested))
     })
+    // Register every output/exit callback before submitting the startup
+    // command: a fast CLI must not emit output or exit into an unwired run.
+    if (shellLaunchCommand !== null) {
+      handle.writeStdin?.(`${shellLaunchCommand}\r`)
+    }
 
     return {
       pid: handle.pid,
       write: (data) => {
         if (exited) return
         handle.writeStdin?.(data)
+      },
+      resize: (cols, rows) => {
+        if (exited) return
+        const normalizedCols = normalizeResizeDimension(cols)
+        const normalizedRows = normalizeResizeDimension(rows)
+        if (normalizedCols === null || normalizedRows === null) return
+        pendingResize = { cols: normalizedCols, rows: normalizedRows }
+        applyPendingResize()
       },
       stop: () => {
         if (stopRequested || exited) return
@@ -170,6 +242,13 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       },
     }
   }
+}
+
+function quoteCheckedShellPath(shellPath: string): string {
+  if (shellPath.includes('\0')) {
+    throw new Error('Terminal shell path must not contain NUL bytes')
+  }
+  return shellPath
 }
 
 function resolveTerminalExitOutcome(

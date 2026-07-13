@@ -8,6 +8,7 @@ import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
+import { registerAiTaskAppShutdownCleanup } from "./features/ai-task/registerProcessCleanup"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -25,6 +26,8 @@ export default class TaskChutePlusPlugin extends Plugin {
   reminderManager?: ReminderSystemManager
   /** AI task run manager (present only when enabled on desktop) */
   aiTaskManager?: AiTaskManager
+  /** Disabled managers whose SIGTERM -> SIGKILL disposal is still pending */
+  readonly aiTaskManagersPendingDisposal = new Set<AiTaskManager>()
 
   // Simple logger/notification wrapper
   _log(level: keyof Console | undefined, ...args: unknown[]): void {
@@ -56,6 +59,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.viewController = context.viewController
     this.localeCoordinator = context.localeCoordinator
     this.reminderManager = context.reminderManager
+    registerAiTaskAppShutdownCleanup(this)
   }
 
   onunload(): void {

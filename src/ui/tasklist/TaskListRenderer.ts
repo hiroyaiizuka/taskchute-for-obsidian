@@ -5,7 +5,7 @@ import TaskRowController from './TaskRowController'
 import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
 import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
 import { matchesAiTaskBoardView } from '../../features/ai-task/services/BoardViewFilter'
-import type { AiRunRecord, AiTaskBoardView } from '../../features/ai-task/types'
+import type { AiTaskBoardView } from '../../features/ai-task/types'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -48,11 +48,7 @@ export type TaskListRendererHost = {
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
   openProjectInSplit?: (projectPath: string) => Promise<void> | void
   isAiTaskFeatureEnabled?: () => boolean
-  getActiveAiRun?: (taskPath: string) => AiRunRecord | undefined
   startAiRun?: (inst: TaskInstance) => void
-  stopAiRun?: (runId: string) => void
-  /** Run-ownership fallback for AI runs without an instanceId */
-  isPrimaryAiInstance?: (inst: TaskInstance) => boolean
   /**
    * Board view filter (human / ai / mixed). RENDER-ONLY: it decides which
    * rows are drawn but never mutates taskInstances, so counts, execution
@@ -113,28 +109,11 @@ export default class TaskListRenderer {
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })
-    if (
-      this.host.isAiTaskFeatureEnabled &&
-      this.host.getActiveAiRun &&
-      this.host.startAiRun &&
-      this.host.stopAiRun
-    ) {
+    if (this.host.isAiTaskFeatureEnabled && this.host.startAiRun) {
       this.aiTaskRowRenderer = new AiTaskRowRenderer({
         tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
         isAiTaskFeatureEnabled: () => this.host.isAiTaskFeatureEnabled!(),
-        getActiveAiRun: (taskPath) => this.host.getActiveAiRun!(taskPath),
         startAiRun: (inst) => this.host.startAiRun!(inst),
-        stopAiRun: (runId) => this.host.stopAiRun!(runId),
-        isPrimaryInstance: this.host.isPrimaryAiInstance
-          ? (inst) => this.host.isPrimaryAiInstance!(inst)
-          : undefined,
-        // Stale-id detection: host.taskInstances is a live getter, so this
-        // always reflects the instances of the current render pass.
-        hasInstanceId: (taskPath, instanceId) =>
-          this.host.taskInstances.some(
-            (inst) =>
-              inst.task?.path === taskPath && inst.instanceId === instanceId,
-          ),
       })
     }
   }

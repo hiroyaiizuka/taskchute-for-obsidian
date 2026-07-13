@@ -1,10 +1,7 @@
 /**
- * TaskChuteView row-status listener (mountAiRunPane) carried fixes:
- *   - shell-session status changes never trigger task-list re-renders (shell
- *     sessions render no row chip)
- *   - duplicate status notifications stay deduped per run
- *   - 'persisted' prunes the run's bookkeeping entry so aiRunRowStatuses does
- *     not grow for the lifetime of the view
+ * TaskChuteView intentionally has no row-status listener: task rows keep the
+ * same robot control while running, so only AiRunPaneController subscribes to
+ * manager changes and task-list rendering is decoupled from run status.
  */
 import { WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
@@ -126,8 +123,7 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
 }
 
 function setUp(): {
-  view: TaskChuteView
-  rowListener: ChangeListener
+  paneListener: ChangeListener
   renderTaskList: jest.Mock
 } {
   const plugin = createPluginStub()
@@ -143,54 +139,21 @@ function setUp(): {
   internals.aiPaneContainer = document.body.createDiv()
   internals.mountAiRunPane()
 
-  // Subscription order: the pane controller first, the row-status refresher
-  // second.
-  expect(listeners).toHaveLength(2)
-  return { view, rowListener: listeners[1], renderTaskList }
+  expect(listeners).toHaveLength(1)
+  return { paneListener: listeners[0], renderTaskList }
 }
 
 afterEach(() => {
   document.body.replaceChildren()
 })
 
-describe('TaskChuteView AI row-status listener', () => {
-  test('shell-session status changes never re-render the task list', () => {
-    const { rowListener, renderTaskList } = setUp()
-    const shell = makeRecord({ id: 'shell-1', host: 'shell', taskPath: '' })
+describe('TaskChuteView AI pane status subscription', () => {
+  test('run-status changes are handled by the pane without re-rendering task rows', () => {
+    const { paneListener, renderTaskList } = setUp()
+    const record = makeRecord()
 
-    rowListener({ ...shell, status: 'starting' }, 'update')
-    rowListener({ ...shell, status: 'running' }, 'update')
-    rowListener({ ...shell, status: 'stopped' }, 'update')
-    rowListener({ ...shell, status: 'stopped' }, 'persisted')
-
+    paneListener({ ...record, status: 'running' }, 'update')
+    paneListener({ ...record, status: 'stopped' }, 'update')
     expect(renderTaskList).not.toHaveBeenCalled()
-  })
-
-  test('task-run status changes re-render once per distinct status', () => {
-    const { rowListener, renderTaskList } = setUp()
-    const record = makeRecord()
-
-    rowListener({ ...record, status: 'running' }, 'update')
-    rowListener({ ...record, status: 'running' }, 'update')
-    expect(renderTaskList).toHaveBeenCalledTimes(1)
-
-    rowListener({ ...record, status: 'stopped' }, 'update')
-    expect(renderTaskList).toHaveBeenCalledTimes(2)
-  })
-
-  test("'persisted' prunes the run's status entry", () => {
-    const { rowListener, renderTaskList } = setUp()
-    const record = makeRecord()
-
-    rowListener({ ...record, status: 'stopped' }, 'update')
-    expect(renderTaskList).toHaveBeenCalledTimes(1)
-
-    // 'persisted' itself never re-renders, but it must evict the entry:
-    // the SAME status arriving afterwards dedupes against nothing.
-    rowListener({ ...record, status: 'stopped' }, 'persisted')
-    expect(renderTaskList).toHaveBeenCalledTimes(1)
-
-    rowListener({ ...record, status: 'stopped' }, 'update')
-    expect(renderTaskList).toHaveBeenCalledTimes(2)
   })
 })

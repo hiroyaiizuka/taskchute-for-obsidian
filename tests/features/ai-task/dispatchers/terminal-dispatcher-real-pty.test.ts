@@ -24,18 +24,25 @@ import { FIXTURES_DIR, prepareFixture } from './dispatcherTestUtils'
 const FAKE_INTERACTIVE = path.join(FIXTURES_DIR, 'fake-interactive.js')
 
 const describeDarwin = process.platform === 'darwin' ? describe : describe.skip
+const activePtyRuns = new Set<TerminalRunHandle>()
+const observedFixturePids = new Set<number>()
 
 interface PtyRun {
   handle: TerminalRunHandle
   transcriptPath: string
   gateway: NodeProcessGateway
   data: () => string
+  hasExited: () => boolean
   waitForData(needle: string, timeoutMs?: number): Promise<void>
-  waitForExit(): Promise<AiRunExitOutcome>
+  waitForExit(timeoutMs?: number): Promise<AiRunExitOutcome>
 }
 
-function startRealPtyRun(): PtyRun {
-  const gateway = new NodeProcessGateway()
+function startRealPtyRun(options?: {
+  extraArgs?: string[]
+  launchInShell?: boolean
+  snapshotDescendantPids?: (rootPid: number) => number[]
+}): PtyRun {
+  const gateway = new NodeProcessGateway(options?.snapshotDescendantPids)
   const dispatcher = new TerminalDispatcher(gateway)
   const transcriptPath = gateway.makeTempFilePath('real-pty-test')
   let data = ''
@@ -46,6 +53,8 @@ function startRealPtyRun(): PtyRun {
     {
       binaryPath: FAKE_INTERACTIVE,
       prompt: '',
+      extraArgs: options?.extraArgs,
+      launchInShell: options?.launchInShell,
       rows: 24,
       cols: 80,
       transcriptPath,
@@ -53,19 +62,25 @@ function startRealPtyRun(): PtyRun {
     {
       onData: (bytes) => {
         data += bytes
+        for (const match of data.matchAll(/(?:INTERACTIVE|DETACHED)_PID:(\d+)/gu)) {
+          observedFixturePids.add(Number(match[1]))
+        }
       },
       onExit: (outcome) => {
         exitOutcome = outcome
+        activePtyRuns.delete(handle)
         for (const waiter of exitWaiters.splice(0)) waiter(outcome)
       },
     },
   )
+  activePtyRuns.add(handle)
 
   return {
     handle,
     transcriptPath,
     gateway,
     data: () => data,
+    hasExited: () => exitOutcome !== null,
     waitForData: (needle, timeoutMs = 15_000) =>
       new Promise<void>((resolve, reject) => {
         const startedAt = Date.now()
@@ -81,13 +96,48 @@ function startRealPtyRun(): PtyRun {
           }
         }, 25)
       }),
-    waitForExit: () => {
+    waitForExit: (timeoutMs = 15_000) => {
       if (exitOutcome) return Promise.resolve(exitOutcome)
-      return new Promise<AiRunExitOutcome>((resolve) => {
-        exitWaiters.push(resolve)
+      return new Promise<AiRunExitOutcome>((resolve, reject) => {
+        const waiter = (outcome: AiRunExitOutcome): void => {
+          window.clearTimeout(timeout)
+          resolve(outcome)
+        }
+        const timeout = window.setTimeout(() => {
+          const index = exitWaiters.indexOf(waiter)
+          if (index >= 0) exitWaiters.splice(index, 1)
+          reject(new Error('Timed out waiting for PTY wrapper exit'))
+        }, timeoutMs)
+        exitWaiters.push(waiter)
       })
     },
   }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function waitForProcessExit(pid: number, timeoutMs = 2_000): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const startedAt = Date.now()
+    const poll = setInterval(() => {
+      if (!isProcessAlive(pid)) {
+        clearInterval(poll)
+        resolve()
+        return
+      }
+      if (Date.now() - startedAt > timeoutMs) {
+        clearInterval(poll)
+        reject(new Error(`PTY child ${pid} survived wrapper shutdown`))
+      }
+    }, 25)
+  })
 }
 
 describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () => {
@@ -99,6 +149,31 @@ describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () =>
 
   afterAll(() => {
     restorePath()
+  })
+
+  afterEach(async () => {
+    const activeHandles = [...activePtyRuns]
+    for (const handle of activeHandles) {
+      handle.forceKill?.()
+      if (typeof handle.pid !== 'number') continue
+      try {
+        process.kill(-handle.pid, 'SIGKILL')
+      } catch {
+        // The wrapper group already exited.
+      }
+    }
+    for (const pid of observedFixturePids) {
+      if (!isProcessAlive(pid)) continue
+      process.kill(pid, 'SIGKILL')
+    }
+    for (const pid of observedFixturePids) {
+      await waitForProcessExit(pid)
+    }
+    for (const handle of activeHandles) {
+      if (typeof handle.pid === 'number') await waitForProcessExit(handle.pid)
+    }
+    activePtyRuns.clear()
+    observedFixturePids.clear()
   })
 
   test('relays a full roundtrip, propagates exit 0, and records the transcript', async () => {
@@ -117,6 +192,38 @@ describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () =>
     expect(transcript).toContain('INTERACTIVE_READY')
     expect(transcript).toContain('echo:ping')
     expect(fs.existsSync(run.transcriptPath)).toBe(false)
+  }, 30_000)
+
+  test('a shell-backed AI CLI returns to the login shell after Ctrl+C', async () => {
+    const run = startRealPtyRun({ launchInShell: true })
+
+    await run.waitForData('INTERACTIVE_READY')
+    run.handle.write('\x03')
+    run.handle.write("printf '__SHELL_%s__\\n' 'RETURNED'\r")
+    await run.waitForData('__SHELL_RETURNED__')
+
+    expect(run.hasExited()).toBe(false)
+    run.handle.write('exit\r')
+    const outcome = await run.waitForExit()
+    expect(outcome.status).toBe('succeeded')
+
+    const transcript = await run.gateway.readAndDeleteFile(run.transcriptPath)
+    expect(transcript).toContain('INTERACTIVE_READY')
+    expect(transcript).toContain('__SHELL_RETURNED__')
+  }, 30_000)
+
+  test('resize updates the real script PTY dimensions', async () => {
+    const run = startRealPtyRun()
+
+    await run.waitForData('INTERACTIVE_READY')
+    run.handle.resize(132, 41)
+    run.handle.write('size\r')
+    await run.waitForData('SIZE:41x132')
+
+    run.handle.write('exit\r')
+    await run.waitForExit()
+    await run.gateway.readAndDeleteFile(run.transcriptPath)
+    expect(fs.existsSync(`${run.transcriptPath}.tty`)).toBe(false)
   }, 30_000)
 
   test('propagates a non-zero child exit code through the sentinel', async () => {
@@ -142,5 +249,44 @@ describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () =>
     expect(outcome.status).toBe('stopped')
 
     await run.gateway.readAndDeleteFile(run.transcriptPath).catch(() => '')
+  }, 30_000)
+
+  test('stop() reaps signal-ignoring PTY and detached-session children', async () => {
+    let detachedPid = 0
+    const run = startRealPtyRun({
+      extraArgs: ['--ignore-signals', '--spawn-detached-child'],
+      // Process-tree discovery itself is covered by NodeProcessGateway's
+      // injected-seam test. Inject the observed detached PID here because
+      // Codex's test sandbox denies /bin/ps, then exercise the REAL wrapper,
+      // dispatcher onExit sweep, and OS signals end-to-end.
+      snapshotDescendantPids: () => (detachedPid > 0 ? [detachedPid] : []),
+    })
+    let interactivePid = 0
+    try {
+      await run.waitForData('DETACHED_PID:')
+      interactivePid = Number(run.data().match(/INTERACTIVE_PID:(\d+)/u)?.[1] ?? 0)
+      detachedPid = Number(run.data().match(/DETACHED_PID:(\d+)/u)?.[1] ?? 0)
+      expect(interactivePid).toBeGreaterThan(0)
+      expect(detachedPid).toBeGreaterThan(0)
+      expect(isProcessAlive(interactivePid)).toBe(true)
+      expect(isProcessAlive(detachedPid)).toBe(true)
+
+      run.handle.stop()
+      const outcome = await run.waitForExit()
+      expect(outcome.status).toBe('stopped')
+      await Promise.all([
+        waitForProcessExit(interactivePid),
+        waitForProcessExit(detachedPid),
+      ])
+    } finally {
+      run.handle.forceKill?.()
+      for (const pid of [interactivePid, detachedPid]) {
+        if (pid > 0 && isProcessAlive(pid)) process.kill(pid, 'SIGKILL')
+      }
+      for (const pid of [interactivePid, detachedPid]) {
+        if (pid > 0) await waitForProcessExit(pid)
+      }
+      await run.gateway.readAndDeleteFile(run.transcriptPath).catch(() => '')
+    }
   }, 30_000)
 })

@@ -17,6 +17,7 @@ import { TFile } from 'obsidian'
 import {
   AiRunPaneController,
   AI_PANE_EXPANDED_STORAGE_KEY,
+  AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
 } from '../../../src/features/ai-task/ui/AiRunPaneController'
 import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
 import {
@@ -34,6 +35,10 @@ import type {
   AiRunExitOutcome,
 } from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
 import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+import type {
+  FileEditorAdapterLike,
+  FileEditorOpenOptions,
+} from '../../../src/features/ai-task/ui/FileEditorAdapter'
 import type { AiRunRecord } from '../../../src/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
@@ -47,9 +52,16 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
   opened: { container: HTMLElement; cols: number; rows: number } | null = null
   written: string[] = []
   focus = jest.fn()
+  fit = jest.fn()
   disposed = false
   snapshot = 'fake terminal snapshot'
   private readonly dataListeners = new Set<(data: string) => void>()
+  private readonly resizeListeners = new Set<
+    (size: { cols: number; rows: number }) => void
+  >()
+  private readonly filePathListeners = new Set<
+    (target: { path: string; line?: number; column?: number }) => void
+  >()
 
   open(container: HTMLElement, cols: number, rows: number): void {
     this.opened = { container, cols, rows }
@@ -70,9 +82,79 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
     }
   }
 
+  onResize(callback: (size: { cols: number; rows: number }) => void): () => void {
+    this.resizeListeners.add(callback)
+    return () => {
+      this.resizeListeners.delete(callback)
+    }
+  }
+
+  emitResize(cols: number, rows: number): void {
+    for (const listener of Array.from(this.resizeListeners)) {
+      listener({ cols, rows })
+    }
+  }
+
+  onFilePathActivate(
+    callback: (target: { path: string; line?: number; column?: number }) => void,
+  ): () => void {
+    this.filePathListeners.add(callback)
+    return () => this.filePathListeners.delete(callback)
+  }
+
+  emitFilePath(path: string, line?: number, column?: number): void {
+    for (const listener of Array.from(this.filePathListeners)) {
+      listener({ path, line, column })
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     this.dataListeners.clear()
+    this.resizeListeners.clear()
+    this.filePathListeners.clear()
+  }
+}
+
+class FakeFileEditorAdapter implements FileEditorAdapterLike {
+  document = ''
+  editable = false
+  disposed = false
+  private onChange: ((document: string) => void) | null = null
+  private onSave: (() => void) | null = null
+
+  open(_container: HTMLElement, options: FileEditorOpenOptions): void {
+    this.document = options.document
+    this.editable = options.editable
+    this.onChange = options.onChange
+    this.onSave = options.onSave
+  }
+
+  setDocument(document: string): void {
+    this.document = document
+  }
+
+  setEditable(editable: boolean): void {
+    this.editable = editable
+  }
+
+  getDocument(): string {
+    return this.document
+  }
+
+  focus(): void {}
+
+  dispose(): void {
+    this.disposed = true
+  }
+
+  type(document: string): void {
+    this.document = document
+    this.onChange?.(document)
+  }
+
+  saveShortcut(): void {
+    this.onSave?.()
   }
 }
 
@@ -83,6 +165,68 @@ class FakeManager {
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
+  readonly resizeTerminal = jest.fn()
+  readonly readWorkspaceFile = jest.fn(async (rootPath: string, filePath: string) => ({
+    rootPath,
+    relativePath: filePath.replace(`${rootPath}/`, ''),
+    absolutePath: filePath.startsWith('/') ? filePath : `${rootPath}/${filePath}`,
+    content: '---\ntitle: Hidden\n---\nOriginal body\n',
+    version: { mtimeMs: 10, size: 43 },
+  }))
+  readonly writeWorkspaceFile = jest.fn(
+    async (rootPath: string, filePath: string, content: string) => ({
+      rootPath,
+      relativePath: filePath.replace(`${rootPath}/`, ''),
+      absolutePath: filePath,
+      content,
+      version: { mtimeMs: 20, size: content.length },
+    }),
+  )
+  failNextWorkspaceDirectory = false
+  failNextWorkspaceRoot = false
+  readonly listWorkspaceDirectory = jest.fn(
+    async (_rootPath: string, directoryPath = '/workspace/project') => {
+      if (
+        this.failNextWorkspaceRoot &&
+        directoryPath === '/workspace/project'
+      ) {
+        this.failNextWorkspaceRoot = false
+        throw new Error('temporary root read failure')
+      }
+      if (this.failNextWorkspaceDirectory && directoryPath.endsWith('src')) {
+        this.failNextWorkspaceDirectory = false
+        throw new Error('temporary read failure')
+      }
+      return {
+        rootPath: '/workspace/project',
+        directoryPath:
+          directoryPath === '/workspace/project' ? '' : 'src',
+        entries: directoryPath.endsWith('src')
+          ? [
+            {
+              name: 'main.ts',
+              absolutePath: '/workspace/project/src/main.ts',
+              relativePath: 'src/main.ts',
+              type: 'file' as const,
+            },
+          ]
+        : [
+            {
+              name: 'src',
+              absolutePath: '/workspace/project/src',
+              relativePath: 'src',
+              type: 'folder' as const,
+            },
+            {
+              name: "read'me.md",
+              absolutePath: "/workspace/project/read'me.md",
+              relativePath: "read'me.md",
+              type: 'file' as const,
+            },
+            ],
+      }
+    },
+  )
   snapshotProvider: ((runId: string) => string | undefined) | null = null
 
   registerTerminalSnapshotProvider(
@@ -160,8 +304,10 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
   let container: HTMLElement
   let manager: FakeManager
   let adapters: FakeTerminalAdapter[]
+  let fileEditors: FakeFileEditorAdapter[]
   let saveLocalStorage: jest.Mock
   let loadLocalStorage: jest.Mock
+  let onStopAndCloseTaskRun: jest.Mock
   let host: AiRunPaneControllerHost
   let controller: AiRunPaneController
 
@@ -176,8 +322,10 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
     container = document.body.createDiv({ cls: 'ai-pane-container' })
     manager = new FakeManager()
     adapters = []
+    fileEditors = []
     saveLocalStorage = jest.fn()
     loadLocalStorage = jest.fn(() => null)
+    onStopAndCloseTaskRun = jest.fn()
     host = {
       tv: (_key, fallback, vars) => {
         if (!vars) return fallback
@@ -192,7 +340,13 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         adapters.push(adapter)
         return adapter
       },
+      createFileEditorAdapter: () => {
+        const editor = new FakeFileEditorAdapter()
+        fileEditors.push(editor)
+        return editor
+      },
       registerManagedDisposer: () => undefined,
+      onStopAndCloseTaskRun,
       saveLocalStorage,
       loadLocalStorage,
     }
@@ -258,7 +412,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       ).toBe(false)
     })
 
-    test('the content area shows exactly one slim tab for the selected run', () => {
+    test('the content area keeps one internal tab per run in the panel', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
       manager.emit(createRun({ id: 'run-b', mode: 'headless' }))
@@ -266,7 +420,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       const strip = container.querySelector('.ai-run-pane__tabstrip')
       expect(strip).not.toBeNull()
       let tabs = container.querySelectorAll('.ai-run-pane__tab')
-      expect(tabs).toHaveLength(1)
+      expect(tabs).toHaveLength(2)
       expect(tabs[0].getAttribute('data-run-id')).toBe('run-a')
       expect(tabs[0].querySelector('.ai-run-pane__tab-dot--running')).not.toBeNull()
       // Terminal runs read "Terminal"; the label is the content type, not
@@ -277,11 +431,13 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
 
       controller.openRun('run-b')
       tabs = container.querySelectorAll('.ai-run-pane__tab')
-      expect(tabs).toHaveLength(1)
-      expect(tabs[0].getAttribute('data-run-id')).toBe('run-b')
+      expect(tabs).toHaveLength(2)
+      expect(tabs[1].getAttribute('data-run-id')).toBe('run-b')
       expect(
-        tabs[0].querySelector('.ai-run-pane__tab-label')?.textContent,
+        tabs[1].querySelector('.ai-run-pane__tab-label')?.textContent,
       ).toBe('Events')
+      expect(tabs[1].classList.contains('is-active')).toBe(true)
+      expect(tabs[0].classList.contains('is-active')).toBe(false)
     })
 
     test('sidebar and content live inside a layout row that collapse hides', () => {
@@ -311,6 +467,389 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(composer).not.toBeNull()
       expect(content?.contains(composer)).toBe(true)
     })
+
+    test('relays fitted xterm grid changes to the matching run and disposes the relay', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-resize' }))
+
+      adapters[0].emitResize(132, 41)
+      expect(manager.resizeTerminal).toHaveBeenCalledWith('run-resize', 132, 41)
+
+      controller.unmount()
+      manager.resizeTerminal.mockClear()
+      adapters[0].emitResize(90, 20)
+      expect(manager.resizeTerminal).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('independent sidebar collapse', () => {
+    test('collapses to an icon rail without collapsing the run content and persists it', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+
+      const toggle = container.querySelector<HTMLButtonElement>(
+        '.ai-run-pane__sidebar-toggle',
+      )
+      expect(toggle).not.toBeNull()
+      adapters[0].fit.mockClear()
+      toggle?.click()
+
+      expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(true)
+      expect(pane()?.classList.contains('is-collapsed')).toBe(false)
+      expect(
+        container
+          .querySelector('.ai-run-pane__body[data-run-id="run-1"]')
+          ?.classList.contains('is-active'),
+      ).toBe(true)
+      expect(saveLocalStorage).toHaveBeenCalledWith(
+        AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
+        true,
+      )
+      expect(adapters[0].fit).toHaveBeenCalled()
+
+      toggle?.click()
+      expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(false)
+      expect(saveLocalStorage).toHaveBeenLastCalledWith(
+        AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
+        false,
+      )
+    })
+
+    test('restores the collapsed sidebar without re-persisting mount state', () => {
+      loadLocalStorage.mockImplementation((key: string) =>
+        key === AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY ? true : null,
+      )
+
+      controller.mount(container)
+      manager.emit(createRun())
+
+      expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(true)
+      expect(saveLocalStorage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('workspace Files and terminal drop', () => {
+    test('file click opens a 50/50 right editor and can edit, save, and close it', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ cwd: '/workspace/project' }))
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+
+      container
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__file[data-path="/workspace/project/read\'me.md"]',
+        )
+        ?.click()
+      await flushPromises()
+
+      expect(manager.readWorkspaceFile).toHaveBeenCalledWith(
+        '/workspace/project',
+        "/workspace/project/read'me.md",
+      )
+      expect(pane()?.classList).toContain('has-file-panel')
+      expect(pane()?.classList).toContain('is-expanded')
+      expect(container.classList).toContain('ai-pane-container--expanded')
+      expect(container.querySelectorAll('.ai-run-pane__file-tab')).toHaveLength(1)
+      expect(fileEditors[0].document).toBe('Original body\n')
+      expect(fileEditors[0].editable).toBe(false)
+
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__file-edit')
+        ?.click()
+      fileEditors[0].type('Updated body\n')
+      fileEditors[0].saveShortcut()
+      await flushPromises()
+
+      expect(manager.writeWorkspaceFile).toHaveBeenCalledWith(
+        '/workspace/project',
+        "/workspace/project/read'me.md",
+        '---\ntitle: Hidden\n---\nUpdated body\n',
+        { mtimeMs: 10, size: 43 },
+      )
+      expect(container.querySelector('.ai-run-pane__file-saved')?.textContent).toBe(
+        'Saved',
+      )
+
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__file-tab-close')
+        ?.click()
+      await flushPromises()
+      expect(pane()?.classList).not.toContain('has-file-panel')
+      expect(pane()?.classList).not.toContain('is-expanded')
+    })
+
+    test('terminal file-path activation opens the same right editor against that run cwd', async () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({ id: 'run-link', cwd: '/workspace/project', cols: 90, rows: 20 }),
+      )
+
+      adapters[0].emitFilePath('src/main.ts', 12, 3)
+      await flushPromises()
+
+      expect(manager.readWorkspaceFile).toHaveBeenCalledWith(
+        '/workspace/project',
+        'src/main.ts',
+      )
+      expect(pane()?.classList).toContain('has-file-panel')
+      expect(container.querySelector('.ai-run-pane__file-tab')?.textContent).toContain(
+        'main.ts',
+      )
+    })
+
+    test('folder button opens a lazy file tree and folders can expand', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ cwd: '/workspace/project' }))
+
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+
+      expect(manager.listWorkspaceDirectory).toHaveBeenCalledWith(
+        '/workspace/project',
+        '/workspace/project',
+      )
+      const src = container.querySelector<HTMLElement>(
+        '.ai-run-pane__file[data-path="/workspace/project/src"]',
+      )
+      expect(src?.getAttribute('aria-expanded')).toBe('false')
+
+      src?.click()
+      await flushPromises()
+      expect(manager.listWorkspaceDirectory).toHaveBeenLastCalledWith(
+        '/workspace/project',
+        'src',
+      )
+      expect(
+        container.querySelector(
+          '.ai-run-pane__file[data-path="/workspace/project/src/main.ts"]',
+        ),
+      ).not.toBeNull()
+
+      container
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__body[data-run-id="run-1"]',
+        )
+        ?.click()
+      await flushPromises()
+      expect(manager.listWorkspaceDirectory).toHaveBeenCalledTimes(2)
+      expect(src?.getAttribute('aria-expanded')).toBe('true')
+      expect(
+        container.querySelector(
+          '.ai-run-pane__file[data-path="/workspace/project/src/main.ts"]',
+        ),
+      ).not.toBeNull()
+    })
+
+    test('dropping a file writes one shell-safe path plus a space to that terminal', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-drop', cwd: '/workspace/project' }))
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+
+      const file = container.querySelector<HTMLElement>(
+        '.ai-run-pane__file[data-path="/workspace/project/read\'me.md"]',
+      )
+      const payload = new Map<string, string>()
+      const dataTransfer = {
+        types: ['application/x-taskchute-workspace-path'],
+        setData: (type: string, value: string) => payload.set(type, value),
+        getData: (type: string) => payload.get(type) ?? '',
+      }
+      const dragStart = new Event('dragstart', { bubbles: true })
+      Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer })
+      file?.dispatchEvent(dragStart)
+
+      const drop = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
+      container
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__body[data-run-id="run-drop"]',
+        )
+        ?.dispatchEvent(drop)
+
+      expect(manager.sendTerminalInput).toHaveBeenCalledWith(
+        'run-drop',
+        "'/workspace/project/read'\"'\"'me.md' ",
+      )
+
+      manager.sendTerminalInput.mockClear()
+      payload.set(
+        'application/x-taskchute-workspace-path',
+        '/workspace/project/evil\u0003echo pwned',
+      )
+      const unsafeDrop = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(unsafeDrop, 'dataTransfer', { value: dataTransfer })
+      container
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__body[data-run-id="run-drop"]',
+        )
+        ?.dispatchEvent(unsafeDrop)
+      expect(manager.sendTerminalInput).not.toHaveBeenCalled()
+    })
+
+    test('dropping a folder writes its shell-safe path without expanding or pressing Enter', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-folder-drop', cwd: '/workspace/project' }))
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+
+      const folder = container.querySelector<HTMLElement>(
+        '.ai-run-pane__file[data-path="/workspace/project/src"]',
+      )
+      const payload = new Map<string, string>()
+      const dataTransfer = {
+        types: ['application/x-taskchute-workspace-path'],
+        setData: (type: string, value: string) => payload.set(type, value),
+        getData: (type: string) => payload.get(type) ?? '',
+      }
+      const dragStart = new Event('dragstart', { bubbles: true })
+      Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer })
+      folder?.dispatchEvent(dragStart)
+
+      const drop = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer })
+      container
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__body[data-run-id="run-folder-drop"]',
+        )
+        ?.dispatchEvent(drop)
+
+      expect(folder?.getAttribute('draggable')).toBe('true')
+      expect(folder?.getAttribute('aria-expanded')).toBe('false')
+      expect(manager.listWorkspaceDirectory).toHaveBeenCalledTimes(1)
+      expect(manager.sendTerminalInput).toHaveBeenCalledWith(
+        'run-folder-drop',
+        "'/workspace/project/src' ",
+      )
+    })
+
+    test('rejects forged and drag-time-substituted workspace path payloads', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-forged-drop', cwd: '/workspace/project' }))
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+
+      const payload = new Map<string, string>([
+        ['application/x-taskchute-workspace-path', '/etc/passwd'],
+      ])
+      const dataTransfer = {
+        types: ['application/x-taskchute-workspace-path'],
+        setData: (type: string, value: string) => payload.set(type, value),
+        getData: (type: string) => payload.get(type) ?? '',
+      }
+      const body = container.querySelector<HTMLElement>(
+        '.ai-run-pane__body[data-run-id="run-forged-drop"]',
+      )
+
+      // A custom MIME type by itself is not provenance: only a drag started
+      // by this pane's validated Files tree may insert terminal input.
+      const forgedDrop = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(forgedDrop, 'dataTransfer', { value: dataTransfer })
+      body?.dispatchEvent(forgedDrop)
+      expect(manager.sendTerminalInput).not.toHaveBeenCalled()
+
+      const folder = container.querySelector<HTMLElement>(
+        '.ai-run-pane__file[data-path="/workspace/project/src"]',
+      )
+      const dragStart = new Event('dragstart', { bubbles: true })
+      Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer })
+      folder?.dispatchEvent(dragStart)
+
+      const dragEnd = new Event('dragend', { bubbles: true })
+      folder?.dispatchEvent(dragEnd)
+      const afterDragEndDrop = new Event('drop', {
+        bubbles: true,
+        cancelable: true,
+      })
+      Object.defineProperty(afterDragEndDrop, 'dataTransfer', {
+        value: dataTransfer,
+      })
+      body?.dispatchEvent(afterDragEndDrop)
+      expect(manager.sendTerminalInput).not.toHaveBeenCalled()
+
+      // A fresh internal drag authorizes only its exact validated path.
+      folder?.dispatchEvent(dragStart)
+      payload.set('application/x-taskchute-workspace-path', '/etc/passwd')
+
+      const substitutedDrop = new Event('drop', {
+        bubbles: true,
+        cancelable: true,
+      })
+      Object.defineProperty(substitutedDrop, 'dataTransfer', {
+        value: dataTransfer,
+      })
+      body?.dispatchEvent(substitutedDrop)
+      expect(manager.sendTerminalInput).not.toHaveBeenCalled()
+
+      // The rejected drop clears provenance; replaying the original path
+      // without a fresh internal dragstart is rejected as well.
+      payload.set(
+        'application/x-taskchute-workspace-path',
+        '/workspace/project/src',
+      )
+      const replayDrop = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(replayDrop, 'dataTransfer', { value: dataTransfer })
+      body?.dispatchEvent(replayDrop)
+      expect(manager.sendTerminalInput).not.toHaveBeenCalled()
+    })
+
+    test('a failed folder expansion can be collapsed and retried', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ cwd: '/workspace/project' }))
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-files')
+        ?.click()
+      await flushPromises()
+      const src = container.querySelector<HTMLElement>(
+        '.ai-run-pane__file[data-path="/workspace/project/src"]',
+      )
+      manager.failNextWorkspaceDirectory = true
+
+      src?.click()
+      await flushPromises()
+      expect(container.querySelector('.ai-run-pane__files-message')).not.toBeNull()
+
+      src?.click()
+      src?.click()
+      await flushPromises()
+      expect(
+        container.querySelector(
+          '.ai-run-pane__file[data-path="/workspace/project/src/main.ts"]',
+        ),
+      ).not.toBeNull()
+    })
+
+    test('a failed root load retries when Files is opened again', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ cwd: '/workspace/project' }))
+      manager.failNextWorkspaceRoot = true
+      const filesButton = container.querySelector<HTMLButtonElement>(
+        '.ai-run-pane__sidebar-files',
+      )
+
+      filesButton?.click()
+      await flushPromises()
+      expect(container.querySelector('.ai-run-pane__files-message')).not.toBeNull()
+
+      filesButton?.click()
+      filesButton?.click()
+      await flushPromises()
+      expect(
+        container.querySelector(
+          '.ai-run-pane__file[data-path="/workspace/project/src"]',
+        ),
+      ).not.toBeNull()
+    })
   })
 
   describe('× stop-and-close semantics', () => {
@@ -327,6 +866,8 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       close?.click()
 
       expect(manager.stopRun).toHaveBeenCalledWith('run-active')
+      expect(onStopAndCloseTaskRun).toHaveBeenCalledTimes(1)
+      expect(onStopAndCloseTaskRun).toHaveBeenCalledWith(run)
       // Nothing closes on the click itself...
       expect(rows()).toHaveLength(1)
       expect(adapters[0].disposed).toBe(false)
@@ -344,6 +885,39 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(bodies()).toHaveLength(0)
       expect(adapters[0].disposed).toBe(true)
       expect(pane()?.classList.contains('is-hidden')).toBe(true)
+    })
+
+    test('repeated × requests synchronize the task only once', () => {
+      controller.mount(container)
+      const run = createRun({ id: 'run-repeat' })
+      manager.emit(run)
+
+      const close = container.querySelector<HTMLButtonElement>(
+        '.ai-run-pane__tab-close',
+      )
+      close?.click()
+      close?.click()
+
+      expect(onStopAndCloseTaskRun).toHaveBeenCalledTimes(1)
+      expect(manager.stopRun).toHaveBeenCalledTimes(1)
+    })
+
+    test('× on an active shell run does not change a TaskChute task', () => {
+      controller.mount(container)
+      const run = createRun({
+        id: 'shell-run',
+        host: 'shell',
+        taskPath: '',
+        taskName: 'Terminal',
+      })
+      manager.emit(run)
+
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__tab-close')
+        ?.click()
+
+      expect(manager.stopRun).toHaveBeenCalledWith('shell-run')
+      expect(onStopAndCloseTaskRun).not.toHaveBeenCalled()
     })
 
     test('× requested on an active run closes on persisted even when it finishes as succeeded', () => {
@@ -380,6 +954,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       close?.click()
 
       expect(manager.stopRun).not.toHaveBeenCalled()
+      expect(onStopAndCloseTaskRun).not.toHaveBeenCalled()
       expect(rows()).toHaveLength(0)
       expect(adapters[0].disposed).toBe(true)
       expect(pane()?.classList.contains('is-hidden')).toBe(true)
@@ -441,6 +1016,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(expand).not.toBeNull()
       expect(expand?.getAttribute('aria-label')).toBeTruthy()
 
+      adapters[0].fit.mockClear()
       expand?.click()
       expect(pane()?.classList.contains('is-expanded')).toBe(true)
       expect(container.classList.contains('ai-pane-container--expanded')).toBe(true)
@@ -448,6 +1024,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         AI_PANE_EXPANDED_STORAGE_KEY,
         true,
       )
+      expect(adapters[0].fit).toHaveBeenCalled()
 
       expand?.click()
       expect(pane()?.classList.contains('is-expanded')).toBe(false)

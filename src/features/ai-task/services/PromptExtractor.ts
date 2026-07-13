@@ -17,6 +17,8 @@
  */
 
 const PROMPT_HEADING = 'prompt'
+export const EXACT_PROMPT_START_MARKER = '<!-- taskchute-ai-prompt:start -->'
+export const EXACT_PROMPT_END_MARKER = '<!-- taskchute-ai-prompt:end -->'
 const PROMPT_HEADING_LINE = /^##[ \t]+prompt[ \t]*#*[ \t]*$/i
 // CommonMark (and Obsidian's heading cache) still parses an ATX heading
 // behind 1-3 leading spaces; four spaces make an indented code block. Both
@@ -37,7 +39,18 @@ export interface PromptHeadingInfo {
 }
 
 function toBody(lines: string[], start: number, end: number): string | null {
-  const body = lines.slice(start, end).map(unescapePromptLine).join('\n').trim()
+  const bodyLines = lines.slice(start, end)
+  const exactStart = bodyLines.indexOf(EXACT_PROMPT_START_MARKER)
+  const exactEnd = bodyLines.lastIndexOf(EXACT_PROMPT_END_MARKER)
+  if (exactStart >= 0 && exactEnd > exactStart) {
+    const exactBody = bodyLines
+      .slice(exactStart + 1, exactEnd)
+      .map(unescapePromptLine)
+      .join('\n')
+    return exactBody.trim().length > 0 ? exactBody : null
+  }
+
+  const body = bodyLines.map(unescapePromptLine).join('\n').trim()
   return body.length > 0 ? body : null
 }
 

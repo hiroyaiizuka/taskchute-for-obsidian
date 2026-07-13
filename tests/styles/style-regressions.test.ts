@@ -38,6 +38,81 @@ const readRuleAtOrAfter = (css: string, selectorStart: string, afterIndex: numbe
 }
 
 describe('style regressions', () => {
+  test('AI runs participates in vertical layout so the task list remains scrollable', () => {
+    const css = styles()
+    const main = readRule(css, '.main-container {')
+    expect(main).toMatch(/flex-direction:\s*column;/)
+    expect(main).toMatch(/min-height:\s*0;/)
+
+    const taskList = readRule(css, '.task-list-container {')
+    expect(taskList).toMatch(/min-height:\s*0;/)
+    expect(taskList).toMatch(/overflow-y:\s*auto;/)
+
+    const pane = readRule(css, '.ai-pane-container {')
+    expect(pane).not.toMatch(/position:\s*absolute;/)
+    expect(pane).toMatch(/flex-shrink:\s*0;/)
+    expect(pane).toMatch(/display:\s*none;/)
+
+    const visiblePane = readRule(css, '.ai-pane-container--visible {')
+    expect(visiblePane).toMatch(/display:\s*flex;/)
+  })
+
+  test('AI terminal close controls reveal on hover/focus and remain usable on touch', () => {
+    const css = styles()
+    const runClose = readRule(css, '.ai-run-pane__run-close {')
+    const tabClose = readRule(css, '.ai-run-pane__tab-close {')
+    expect(runClose).toMatch(/opacity:\s*0;/)
+    expect(runClose).toMatch(/pointer-events:\s*none;/)
+    expect(tabClose).toMatch(/opacity:\s*0;/)
+    expect(tabClose).toMatch(/pointer-events:\s*none;/)
+    expect(css).toContain('.ai-run-pane__run:hover .ai-run-pane__run-close,')
+    expect(css).toContain('.ai-run-pane__tab:focus-within .ai-run-pane__tab-close')
+    expect(css).toContain('@media (hover: none)')
+  })
+
+  test('AI terminal add button is a plain icon without chrome', () => {
+    const css = styles()
+    const rule = readRule(css, '.ai-run-pane__expand,')
+    expect(rule).toContain('.ai-run-pane__add')
+    expect(rule).toMatch(/border:\s*none;/)
+    expect(rule).toMatch(/background:\s*none;/)
+    expect(rule).toMatch(/box-shadow:\s*none;/)
+    const override = readRule(
+      css,
+      '.ai-run-pane__tabstrip > .ai-run-pane__add,',
+    )
+    expect(override).toMatch(/background-color:\s*transparent;/)
+  })
+
+  test('AI terminal expanded and xterm surfaces fill the available area', () => {
+    const css = styles()
+    const expanded = readRule(css, '.ai-pane-container--expanded {')
+    expect(expanded).toMatch(/height:\s*100%;/)
+    expect(expanded).toMatch(/max-height:\s*100%;/)
+    const terminalBody = readRule(css, '.ai-run-pane__body--terminal {')
+    expect(terminalBody).toMatch(/background:\s*#1e1e1e;/)
+    const xterm = readRule(css, '.ai-run-pane__body--terminal .xterm {')
+    expect(xterm).toMatch(/box-sizing:\s*border-box;/)
+  })
+
+  test('AI workspace editor divides the work area evenly and fills its CM6 surface', () => {
+    const css = styles()
+    const workarea = readRule(css, '.ai-run-pane__workarea {')
+    expect(workarea).toMatch(/display:\s*flex;/)
+    expect(workarea).toMatch(/min-height:\s*0;/)
+
+    const split = readRule(css, '.ai-run-pane.has-file-panel .ai-run-pane__panels {')
+    expect(split).toMatch(/flex:\s*1 1 50%;/)
+    expect(split).toMatch(/width:\s*50%;/)
+    const filePanel = readRule(css, '.ai-run-pane__file-panel-container {')
+    expect(filePanel).toMatch(/flex:\s*1 1 50%;/)
+    expect(filePanel).toMatch(/width:\s*50%;/)
+
+    const editor = readRule(css, '.ai-run-pane__file-editor {')
+    expect(editor).toMatch(/flex:\s*1;/)
+    expect(editor).toMatch(/min-height:\s*0;/)
+  })
+
   test('routine edit frequency sections stay hidden when is-hidden is applied', () => {
     const css = styles()
     const routineDisplayRuleIndex = css.indexOf('.routine-form__weekly,\n.routine-form__monthly')

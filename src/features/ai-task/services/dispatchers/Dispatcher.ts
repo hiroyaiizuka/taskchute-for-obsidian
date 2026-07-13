@@ -141,6 +141,11 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
         this.graceTimer.clearTimeout(killTimerHandle)
         killTimerHandle = null
       }
+      // Reap any descendants snapshotted before SIGTERM, including tools
+      // that detached into another process group before the CLI exited.
+      if (stopRequested) {
+        handle.kill('SIGKILL')
+      }
       for (const line of stdoutSplitter.flush()) emitStdoutLine(line)
       for (const line of stderrSplitter.flush()) emitStderrLine(line)
       callbacks.onExit(

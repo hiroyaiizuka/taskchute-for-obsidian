@@ -20,6 +20,7 @@ import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
 import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
 import { TerminalDispatcher } from './services/dispatchers/TerminalDispatcher'
+import { WorkspaceFileService } from './services/WorkspaceFileService'
 
 export interface AiTaskPluginLike {
   app: App
@@ -94,6 +95,7 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       // Plain shell sessions (U2 split panels) spawn the user's login shell.
       getShellPath: () => gateway.getShellPath(),
     },
+    workspaceFiles: new WorkspaceFileService(gateway),
     // Terminal is the default experience; win32 is force-degraded to
     // headless inside the manager via isSupported().
     getRunMode: (): AiRunMode =>

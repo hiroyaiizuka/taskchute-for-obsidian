@@ -9,6 +9,16 @@
  * describe just the surface this file touches.
  */
 
+import {
+  MAX_WORKSPACE_FILE_BYTES,
+  WorkspaceFileVersionConflictError,
+  type WorkspaceFileDocument,
+  type WorkspaceFileVersion,
+  WorkspaceDirectoryListing,
+  WorkspaceEntry,
+  WorkspaceFileGateway,
+} from './WorkspaceFileService'
+
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
 declare function require(moduleId: string): unknown
@@ -119,6 +129,8 @@ export interface ProcessGateway {
    * TerminalUnsupportedError where no wrapper exists (win32).
    */
   buildPtyCommand(request: PtyCommandRequest): PtyCommand
+  /** Best-effort resize of a live `script` PTY; false while its tty is unavailable */
+  resizePty(transcriptPath: string, cols: number, rows: number): boolean
   /** Unique writable path in the OS temp directory (Node boundary helper) */
   makeTempFilePath(prefix: string): string
   /** Read a temp file as utf8 and delete it (best-effort delete) */
@@ -159,6 +171,11 @@ interface ChildProcessModuleLike {
       stdio?: ['ignore' | 'pipe', 'pipe', 'pipe']
     },
   ): NodeChildProcessLike
+  execFileSync?(
+    command: string,
+    args: string[],
+    options: { encoding: 'utf8' },
+  ): string
 }
 
 interface OsModuleLike {
@@ -166,10 +183,50 @@ interface OsModuleLike {
 }
 
 interface FsModuleLike {
+  readFileSync(path: string, encoding: 'utf8'): string
   promises: {
+    readFile(path: string): Promise<Uint8Array>
     readFile(path: string, encoding: string): Promise<string>
+    readdir(
+      path: string,
+      options: { withFileTypes: true },
+    ): Promise<NodeDirectoryEntryLike[]>
+    realpath(path: string): Promise<string>
+    stat(path: string): Promise<NodeStatsLike>
+    open(path: string, flags: 'r+'): Promise<NodeFileHandleLike>
     unlink(path: string): Promise<void>
   }
+}
+
+interface NodeFileHandleLike {
+  stat(): Promise<NodeStatsLike>
+  writeFile(data: Uint8Array): Promise<void>
+  truncate(length: number): Promise<void>
+  close(): Promise<void>
+}
+
+interface NodeDirectoryEntryLike {
+  name: string
+}
+
+interface NodeStatsLike {
+  mtimeMs: number
+  size: number
+  isDirectory(): boolean
+  isFile(): boolean
+}
+
+interface PathModuleLike {
+  sep: string
+  isAbsolute(path: string): boolean
+  join(...paths: string[]): string
+  relative(from: string, to: string): string
+  resolve(...paths: string[]): string
+}
+
+interface TextCodecModuleLike {
+  TextDecoder: typeof TextDecoder
+  TextEncoder: typeof TextEncoder
 }
 
 function loadChildProcessModule(): ChildProcessModuleLike {
@@ -187,6 +244,19 @@ function loadFsModule(): FsModuleLike {
   return require('fs') as FsModuleLike
 }
 
+function loadPathModule(): PathModuleLike {
+  // eslint-disable-next-line import/no-nodejs-modules
+  return require('path') as PathModuleLike
+}
+
+function loadTextCodecModule(): TextCodecModuleLike {
+  // Jest's jsdom runtime lacks the browser globals. Electron supplies them,
+  // while Node's equivalent strict codecs keep the gateway deterministic in
+  // tests and any older renderer runtime.
+  // eslint-disable-next-line import/no-nodejs-modules
+  return require('util') as TextCodecModuleLike
+}
+
 function decodeChunk(chunk: unknown): string {
   if (typeof chunk === 'string') return chunk
   if (
@@ -197,6 +267,45 @@ function decodeChunk(chunk: unknown): string {
     return (chunk as { toString(encoding: string): string }).toString('utf8')
   }
   return String(chunk)
+}
+
+/** Snapshot descendants before stopping the wrapper can reparent them. */
+function collectDescendantPids(rootPid: number): number[] {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return []
+  try {
+    const childProcess = loadChildProcessModule()
+    if (childProcess.execFileSync === undefined) return []
+    const output = childProcess.execFileSync(
+      '/bin/ps',
+      ['-axo', 'pid=,ppid='],
+      { encoding: 'utf8' },
+    )
+    const childrenByParent = new Map<number, number[]>()
+    for (const line of output.split('\n')) {
+      const match = line.trim().match(/^(\d+)\s+(\d+)$/u)
+      if (!match) continue
+      const pid = Number(match[1])
+      const parentPid = Number(match[2])
+      const children = childrenByParent.get(parentPid) ?? []
+      children.push(pid)
+      childrenByParent.set(parentPid, children)
+    }
+
+    const descendants: number[] = []
+    const pending = [...(childrenByParent.get(rootPid) ?? [])]
+    const seen = new Set<number>()
+    while (pending.length > 0) {
+      const pid = pending.pop()
+      if (pid === undefined || pid < 1 || seen.has(pid)) continue
+      seen.add(pid)
+      descendants.push(pid)
+      pending.push(...(childrenByParent.get(pid) ?? []))
+    }
+    return descendants
+  } catch {
+    // Best effort: the inner PTY supervisor still covers the normal group.
+    return []
+  }
 }
 
 /**
@@ -246,6 +355,22 @@ function sanitizeDimension(value: number, fallback: number): number {
   return Math.min(floored, 999)
 }
 
+/** Valid live resize dimension, kept within the same limit as initial stty. */
+function normalizeResizeDimension(value: number): number | null {
+  if (!Number.isFinite(value)) return null
+  const floored = Math.floor(value)
+  if (floored < 1) return null
+  return Math.min(floored, 999)
+}
+
+function getTtySidecarPath(transcriptPath: string): string {
+  return `${transcriptPath}.tty`
+}
+
+function isTtyDevicePath(path: string): boolean {
+  return path.startsWith('/dev/') && !path.includes('\0') && !/[\r\n]/.test(path)
+}
+
 /** Temp-file-name-safe prefix (path separators and shell metachars removed) */
 function sanitizeTempPrefix(prefix: string): string {
   const cleaned = prefix.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
@@ -264,10 +389,151 @@ function describeSpawnError(error: unknown): string {
   return 'Process error'
 }
 
-export class NodeProcessGateway implements ProcessGateway {
+const WORKSPACE_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
+  '.git',
+  'node_modules',
+])
+
+function isPathInside(
+  pathModule: PathModuleLike,
+  rootPath: string,
+  targetPath: string,
+): boolean {
+  const relative = pathModule.relative(rootPath, targetPath)
+  return (
+    relative === '' ||
+    (relative !== '..' &&
+      !relative.startsWith(`..${pathModule.sep}`) &&
+      !pathModule.isAbsolute(relative))
+  )
+}
+
+function assertWorkspacePath(path: string, label: string): void {
+  if (path.includes('\0')) throw new Error(`${label} must not contain NUL`)
+  if (path.trim().length === 0) throw new Error(`${label} must not be empty`)
+}
+
+function workspaceBoundaryError(path: string): Error {
+  return new Error(`Path is outside the workspace root: ${path}`)
+}
+
+interface ValidatedWorkspaceFile {
+  realRoot: string
+  realTarget: string
+  stats: NodeStatsLike
+}
+
+async function validateWorkspaceFile(
+  rootPath: string,
+  filePath: string,
+): Promise<ValidatedWorkspaceFile> {
+  assertWorkspacePath(rootPath, 'Workspace root')
+  assertWorkspacePath(filePath, 'Workspace file')
+
+  const fs = loadFsModule().promises
+  const path = loadPathModule()
+  const resolvedRoot = path.resolve(rootPath)
+  const realRoot = await fs.realpath(resolvedRoot)
+  const rootStats = await fs.stat(realRoot)
+  if (!rootStats.isDirectory()) {
+    throw new Error(`Workspace root is not a directory: ${rootPath}`)
+  }
+
+  const resolvedTarget = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(resolvedRoot, filePath)
+  // An absolute path may use either the lexical root passed by the caller
+  // (including a symlink alias) or the canonical root returned by realpath.
+  if (
+    !isPathInside(path, resolvedRoot, resolvedTarget) &&
+    !isPathInside(path, realRoot, resolvedTarget)
+  ) {
+    throw workspaceBoundaryError(filePath)
+  }
+
+  const realTarget = await fs.realpath(resolvedTarget)
+  if (!isPathInside(path, realRoot, realTarget)) {
+    throw workspaceBoundaryError(filePath)
+  }
+  const stats = await fs.stat(realTarget)
+  if (!stats.isFile()) {
+    throw new Error(`Workspace path is not a file: ${filePath}`)
+  }
+  return { realRoot, realTarget, stats }
+}
+
+function toWorkspaceFileVersion(stats: NodeStatsLike): WorkspaceFileVersion {
+  return { mtimeMs: stats.mtimeMs, size: stats.size }
+}
+
+function versionsMatch(
+  left: WorkspaceFileVersion,
+  right: WorkspaceFileVersion,
+): boolean {
+  return left.mtimeMs === right.mtimeMs && left.size === right.size
+}
+
+function assertWorkspaceFileSize(size: number): void {
+  if (size > MAX_WORKSPACE_FILE_BYTES) {
+    throw new Error('Workspace file exceeds the 2 MiB editor limit')
+  }
+}
+
+const UNPAIRED_UTF16_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/u
+
+function hasBinaryControlCharacter(content: string): boolean {
+  for (let index = 0; index < content.length; index += 1) {
+    const code = content.charCodeAt(index)
+    if (code <= 8 || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
+      return true
+    }
+  }
+  return false
+}
+
+function decodeWorkspaceText(bytes: Uint8Array): string {
+  let content: string
+  try {
+    const Decoder =
+      typeof TextDecoder === 'function'
+        ? TextDecoder
+        : loadTextCodecModule().TextDecoder
+    content = new Decoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error('Workspace file is not valid UTF-8 text')
+  }
+  if (hasBinaryControlCharacter(content)) {
+    throw new Error('Workspace file is binary, not editable text')
+  }
+  return content
+}
+
+function encodeWorkspaceText(content: string): Uint8Array {
+  if (hasBinaryControlCharacter(content)) {
+    throw new Error('Workspace file content must be editable text without control bytes')
+  }
+  if (UNPAIRED_UTF16_SURROGATE.test(content)) {
+    throw new Error('Workspace file content is not valid Unicode text')
+  }
+  const Encoder =
+    typeof TextEncoder === 'function'
+      ? TextEncoder
+      : loadTextCodecModule().TextEncoder
+  const bytes = new Encoder().encode(content)
+  assertWorkspaceFileSize(bytes.byteLength)
+  return bytes
+}
+
+export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway {
   private loginShellPath: string | null = null
   private loginShellPathPrimed: Promise<void> | null = null
   private tempFileSequence = 0
+
+  constructor(
+    private readonly snapshotDescendantPids: (rootPid: number) => number[] =
+      collectDescendantPids,
+  ) {}
 
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
     const stdoutCallbacks: Array<(text: string) => void> = []
@@ -291,10 +557,11 @@ export class NodeProcessGateway implements ProcessGateway {
       // escalation still reaps the grandchildren instead of leaving orphans.
       // PTY (terminal) runs differ: /usr/bin/script gives the CLI its OWN
       // session on the pty, so group signals reach only the wrapper pipeline
-      // (cat | sh | script) and the CLI itself dies via the PTY SIGHUP
-      // raised when script exits and the master side closes. A CLI that
-      // ignores SIGHUP would therefore outlive stop()/dispose() — a known
-      // terminal-mode caveat to the G8 no-zombie guarantee.
+      // (cat | sh | script). buildPtyCommand therefore runs the CLI under an
+      // inner shell supervisor. The real CLI runs as its background child so
+      // the shell is not stuck deferring its HUP/TERM trap while waiting on a
+      // hostile foreground CLI; the trap can immediately SIGKILL the PTY
+      // group when script closes the master side.
       // The default stdio[0]='ignore' gives the child /dev/null as stdin so
       // headless CLIs never wait on (or announce reading from) a parent-held
       // stdin pipe, e.g. codex's "Reading additional input from stdin..."
@@ -344,7 +611,7 @@ export class NodeProcessGateway implements ProcessGateway {
     }
 
     const failedChild = child === null
-
+    const knownDescendantPids = new Set<number>()
     const writeStdin =
       stdinMode === 'pipe'
         ? (data: string): void => {
@@ -387,13 +654,30 @@ export class NodeProcessGateway implements ProcessGateway {
         // is already gone.
         const pid = child.pid
         if (typeof pid === 'number' && pid > 0 && typeof process.kill === 'function') {
-          try {
-            process.kill(-pid, signal)
-            return
-          } catch {
-            // Fall through to the direct child kill below.
+          if (!exited) {
+            for (const descendantPid of this.snapshotDescendantPids(pid)) {
+              if (descendantPid !== pid) knownDescendantPids.add(descendantPid)
+            }
           }
+          let groupSignalled = false
+          if (!exited) {
+            try {
+              process.kill(-pid, signal)
+              groupSignalled = true
+            } catch {
+              // Fall through to the direct child kill below.
+            }
+          }
+          for (const descendantPid of knownDescendantPids) {
+            try {
+              process.kill(descendantPid, signal)
+            } catch {
+              // The snapshotted descendant has already exited.
+            }
+          }
+          if (groupSignalled) return
         }
+        if (exited) return
         try {
           child.kill(signal)
         } catch {
@@ -447,6 +731,168 @@ export class NodeProcessGateway implements ProcessGateway {
     return '/bin/sh'
   }
 
+  /**
+   * List one directory below a workspace root for lazy Files-tree expansion.
+   *
+   * The root, requested directory, and every returned child are checked by
+   * realpath. A symlink may remain visible when it resolves inside the root;
+   * escape links are rejected as a target or omitted as children. Per-entry
+   * failures are isolated so one broken/inaccessible link does not blank the
+   * whole folder.
+   */
+  async listWorkspaceDirectory(
+    rootPath: string,
+    directoryPath = '',
+  ): Promise<WorkspaceDirectoryListing> {
+    assertWorkspacePath(rootPath, 'Workspace root')
+    if (directoryPath.includes('\0')) {
+      throw new Error('Workspace directory must not contain NUL')
+    }
+
+    const fs = loadFsModule().promises
+    const path = loadPathModule()
+    const resolvedRoot = path.resolve(rootPath)
+    const realRoot = await fs.realpath(resolvedRoot)
+    const rootStats = await fs.stat(realRoot)
+    if (!rootStats.isDirectory()) {
+      throw new Error(`Workspace root is not a directory: ${rootPath}`)
+    }
+
+    const resolvedTarget = directoryPath
+      ? path.isAbsolute(directoryPath)
+        ? path.resolve(directoryPath)
+        : path.resolve(realRoot, directoryPath)
+      : realRoot
+    if (!isPathInside(path, realRoot, resolvedTarget)) {
+      throw workspaceBoundaryError(directoryPath)
+    }
+
+    const realTarget = await fs.realpath(resolvedTarget)
+    if (!isPathInside(path, realRoot, realTarget)) {
+      throw workspaceBoundaryError(directoryPath)
+    }
+    const targetStats = await fs.stat(realTarget)
+    if (!targetStats.isDirectory()) {
+      throw new Error(`Workspace path is not a directory: ${directoryPath}`)
+    }
+
+    const directoryEntries = await fs.readdir(realTarget, {
+      withFileTypes: true,
+    })
+    const entries: WorkspaceEntry[] = []
+    for (const directoryEntry of directoryEntries) {
+      if (WORKSPACE_EXCLUDED_NAMES.has(directoryEntry.name)) continue
+      const absolutePath = path.join(realTarget, directoryEntry.name)
+      try {
+        const realChild = await fs.realpath(absolutePath)
+        if (!isPathInside(path, realRoot, realChild)) continue
+        const childStats = await fs.stat(realChild)
+        const type = childStats.isDirectory()
+          ? 'folder'
+          : childStats.isFile()
+            ? 'file'
+            : null
+        if (type === null) continue
+        entries.push({
+          name: directoryEntry.name,
+          type,
+          relativePath: path.relative(realRoot, absolutePath),
+          absolutePath,
+        })
+      } catch {
+        // Broken/inaccessible children do not make the whole tree unusable.
+      }
+    }
+
+    entries.sort((left, right) => {
+      if (left.type !== right.type) return left.type === 'folder' ? -1 : 1
+      return left.name.localeCompare(right.name)
+    })
+
+    return {
+      rootPath: realRoot,
+      directoryPath: path.relative(realRoot, realTarget),
+      entries,
+    }
+  }
+
+  /** Read one existing, canonical UTF-8 text file within a workspace. */
+  async readWorkspaceFile(
+    rootPath: string,
+    filePath: string,
+  ): Promise<WorkspaceFileDocument> {
+    const fs = loadFsModule().promises
+    const path = loadPathModule()
+    const validated = await validateWorkspaceFile(rootPath, filePath)
+    assertWorkspaceFileSize(validated.stats.size)
+
+    const bytes = await fs.readFile(validated.realTarget)
+    assertWorkspaceFileSize(bytes.byteLength)
+    const content = decodeWorkspaceText(bytes)
+
+    // Bind the returned token to the bytes just read. If another process
+    // changed the file during the read, the caller must retry instead of
+    // editing content under a version that describes different bytes.
+    const finalStats = await fs.stat(validated.realTarget)
+    if (!finalStats.isFile()) {
+      throw new Error(`Workspace path is not a file: ${filePath}`)
+    }
+    if (!versionsMatch(toWorkspaceFileVersion(validated.stats), toWorkspaceFileVersion(finalStats))) {
+      throw new WorkspaceFileVersionConflictError()
+    }
+
+    return {
+      rootPath: validated.realRoot,
+      relativePath: path.relative(validated.realRoot, validated.realTarget),
+      absolutePath: validated.realTarget,
+      content,
+      version: toWorkspaceFileVersion(finalStats),
+    }
+  }
+
+  /**
+   * Save one existing workspace text file under an optimistic version lock.
+   * The opened handle is checked again before its first write; creation is
+   * impossible because `r+` requires the target to already exist.
+   */
+  async writeWorkspaceFile(
+    rootPath: string,
+    filePath: string,
+    content: string,
+    expectedVersion: WorkspaceFileVersion,
+  ): Promise<WorkspaceFileDocument> {
+    if (
+      !Number.isFinite(expectedVersion.mtimeMs) ||
+      !Number.isFinite(expectedVersion.size) ||
+      expectedVersion.mtimeMs < 0 ||
+      expectedVersion.size < 0
+    ) {
+      throw new Error('Workspace file version is invalid')
+    }
+    const bytes = encodeWorkspaceText(content)
+    const validated = await validateWorkspaceFile(rootPath, filePath)
+    const fs = loadFsModule().promises
+    const handle = await fs.open(validated.realTarget, 'r+')
+    try {
+      const openedStats = await handle.stat()
+      if (!openedStats.isFile()) {
+        throw new Error(`Workspace path is not a file: ${filePath}`)
+      }
+      if (!versionsMatch(expectedVersion, toWorkspaceFileVersion(openedStats))) {
+        throw new WorkspaceFileVersionConflictError()
+      }
+      await handle.writeFile(bytes)
+      await handle.truncate(bytes.byteLength)
+    } finally {
+      await handle.close()
+    }
+
+    // Revalidate root, lexical path, real target, type, size and UTF-8 after
+    // the write. The returned content/version therefore becomes the editor's
+    // next authoritative original snapshot.
+    return await this.readWorkspaceFile(rootPath, filePath)
+  }
+
   isPtySupported(): boolean {
     const platform = process.platform
     return platform === 'darwin' || platform === 'linux'
@@ -457,6 +903,11 @@ export class NodeProcessGateway implements ProcessGateway {
     const cols = sanitizeDimension(request.cols, 80)
     const platform = process.platform ?? 'unknown'
     const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
+    const ptyPreamble =
+      `tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; ${sttyPreamble}`
+    const ptySupervisor =
+      'trap "trap - HUP TERM; kill -9 0" HUP TERM; ' +
+      '"$0" "$@" <&0 & child=$!; wait "$child"'
     // See TERMINAL_EXIT_SENTINEL for why the wrapper looks like this.
     const wrap = (scriptInvocation: string): string =>
       `cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
@@ -465,8 +916,9 @@ export class NodeProcessGateway implements ProcessGateway {
     if (platform === 'darwin') {
       // BSD script(1): `script -q -F <file> <command> [args...]` (-F flushes
       // the transcript per write, so a SIGTERM stop cannot truncate it).
-      // The /bin/sh trampoline sets the PTY size with stty, then execs the
-      // real binary. Every user-influenced value stays OUT of the shell
+      // The /bin/sh trampoline sets the PTY size, supervises the real binary,
+      // and kills the whole PTY group if script closes the master side. Every
+      // user-influenced value stays OUT of the shell
       // text: the transcript is "$0" and binary+args travel as "$@"
       // positionals, so no quoting or injection concerns arise.
       return {
@@ -474,7 +926,8 @@ export class NodeProcessGateway implements ProcessGateway {
         args: [
           '-c',
           wrap(
-            `/usr/bin/script -q -F "$0" /bin/sh -c '${sttyPreamble}; exec "$0" "$@"' "$@"`,
+            `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -q -F "$0" ` +
+              `/bin/sh -c '${ptyPreamble}; ${ptySupervisor}' "$@"`,
           ),
           request.transcriptPath,
           request.binaryPath,
@@ -495,7 +948,8 @@ export class NodeProcessGateway implements ProcessGateway {
         args: [
           '-c',
           wrap(
-            `/usr/bin/script -qefc ${shellQuote(`${sttyPreamble}; exec ${execCommand}`)} "$0"`,
+            `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -qefc ` +
+              `${shellQuote(`${ptyPreamble}; ${ptySupervisor.replace('"$0" "$@"', execCommand)}`)} "$0"`,
           ),
           request.transcriptPath,
         ],
@@ -503,6 +957,42 @@ export class NodeProcessGateway implements ProcessGateway {
     }
 
     throw new TerminalUnsupportedError(platform)
+  }
+
+  resizePty(transcriptPath: string, cols: number, rows: number): boolean {
+    const normalizedCols = normalizeResizeDimension(cols)
+    const normalizedRows = normalizeResizeDimension(rows)
+    if (normalizedCols === null || normalizedRows === null) return false
+
+    const platform = process.platform
+    const ttyFlag = platform === 'darwin' ? '-f' : platform === 'linux' ? '-F' : null
+    if (ttyFlag === null) return false
+
+    try {
+      const ttyPath = loadFsModule()
+        .readFileSync(getTtySidecarPath(transcriptPath), 'utf8')
+        .trim()
+      if (!isTtyDevicePath(ttyPath)) return false
+      const childProcess = loadChildProcessModule()
+      if (childProcess.execFileSync === undefined) return false
+      childProcess.execFileSync(
+        '/bin/stty',
+        [
+          ttyFlag,
+          ttyPath,
+          'rows',
+          String(normalizedRows),
+          'cols',
+          String(normalizedCols),
+        ],
+        { encoding: 'utf8' },
+      )
+      return true
+    } catch {
+      // The sidecar is created from inside `script`, so an early resize is
+      // expected to miss it. TerminalDispatcher retries the latest request.
+      return false
+    }
   }
 
   makeTempFilePath(prefix: string): string {
@@ -519,10 +1009,12 @@ export class NodeProcessGateway implements ProcessGateway {
     try {
       return await fs.readFile(path, 'utf8')
     } finally {
-      try {
-        await fs.unlink(path)
-      } catch {
-        // Best-effort cleanup: a missing/locked temp file is not fatal.
+      for (const cleanupPath of [path, getTtySidecarPath(path)]) {
+        try {
+          await fs.unlink(cleanupPath)
+        } catch {
+          // Best-effort cleanup: a missing/locked temp file is not fatal.
+        }
       }
     }
   }

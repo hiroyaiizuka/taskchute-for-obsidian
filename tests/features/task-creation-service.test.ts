@@ -3,6 +3,7 @@ import { TaskCreationService } from '../../src/features/core/services/TaskCreati
 import { readAiTaskConfig } from '../../src/features/ai-task/services/AiTaskFrontmatterReader'
 import { extractPromptSection } from '../../src/features/ai-task/services/PromptExtractor'
 import type { TaskChutePluginLike } from '../../src/types'
+import { parse as parseYaml } from 'yaml'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -133,6 +134,16 @@ function parseEmittedScalar(raw: string): unknown {
   return raw
 }
 
+function parseRealFrontmatter(content: string): Record<string, unknown> {
+  const match = content.match(/^---\n([\s\S]*?)\n---/)
+  if (!match) throw new Error('content has no frontmatter block')
+  const parsed = parseYaml(match[1])
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('frontmatter is not a YAML mapping')
+  }
+  return parsed as Record<string, unknown>
+}
+
 describe('TaskCreationService AI task notes (U3)', () => {
   const createPlugin = () => {
     const file = new TFile()
@@ -176,7 +187,7 @@ describe('TaskCreationService AI task notes (U3)', () => {
       },
     })
 
-    const frontmatter = parseEmittedFrontmatter(content)
+    const frontmatter = parseRealFrontmatter(content)
     expect(frontmatter['ai_task']).toBe(true)
 
     const config = readAiTaskConfig(frontmatter)
@@ -202,6 +213,23 @@ describe('TaskCreationService AI task notes (U3)', () => {
     const config = readAiTaskConfig(parseEmittedFrontmatter(content))
     expect(config).toEqual({ host: 'claude', args: [], cwd: undefined })
     expect(extractPromptSection(content)).toBe('Say hello')
+  })
+
+  test('round-trips model and reasoning argv tokens without shell parsing', async () => {
+    const args = [
+      '--model=gpt-5.6-sol',
+      '--config',
+      'model_reasoning_effort="high"',
+    ]
+    const content = await createdContent({
+      aiTask: { host: 'codex', args, prompt: 'Investigate deeply' },
+    })
+
+    expect(readAiTaskConfig(parseRealFrontmatter(content))).toEqual({
+      host: 'codex',
+      args,
+      cwd: undefined,
+    })
   })
 
   test('writes an empty "## Prompt" section for an empty prompt', async () => {
@@ -270,6 +298,59 @@ describe('TaskCreationService AI task notes (U3)', () => {
     expect(afterSection).not.toMatch(/^ {0,3}#{1,2}[ \t]+\S/m)
     // The four-space line stays byte-identical (no escape added).
     expect(content).toContain('\n    # four spaces is code, not a heading\n')
+  })
+
+  test('round-trips prompt outer whitespace exactly', async () => {
+    const prompt = '\n    indented first line  \nlast line  \n'
+    const content = await createdContent({
+      aiTask: { host: 'claude', args: [], prompt },
+    })
+
+    expect(extractPromptSection(content)).toBe(prompt)
+  })
+
+  test('emits YAML-safe argv and cwd scalars that round-trip through a real parser', async () => {
+    const args = [
+      'line\nbreak',
+      'crlf\r\nbreak',
+      'tab\tvalue',
+      'nul\u0000value',
+      'bell\u0007value',
+      'escape\u001Bvalue',
+      'del\u007Fvalue',
+      'c1\u0085value',
+      'line-separator\u2028value',
+      'paragraph-separator\u2029value',
+      'quote" and slash\\',
+    ]
+    const cwd = '/tmp/line\nbreak\t\u0000"\\'
+    const content = await createdContent({
+      aiTask: { host: 'codex', args, cwd, prompt: 'Go' },
+    })
+
+    const frontmatter = parseRealFrontmatter(content)
+    expect(readAiTaskConfig(frontmatter)).toEqual({
+      host: 'codex',
+      args,
+      cwd,
+    })
+
+    const rawFrontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
+    expect(rawFrontmatter).toContain('"line\\nbreak"')
+    expect(rawFrontmatter).toContain('"nul\\u0000value"')
+    expect(rawFrontmatter).toContain('"c1\\u0085value"')
+    expect(rawFrontmatter).toContain('"line-separator\\u2028value"')
+    const rawControlCharacters = Array.from(rawFrontmatter).filter((character) => {
+      const codePoint = character.codePointAt(0) ?? -1
+      return (
+        (codePoint >= 0 && codePoint <= 9) ||
+        (codePoint >= 11 && codePoint <= 31) ||
+        (codePoint >= 127 && codePoint <= 159) ||
+        codePoint === 0x2028 ||
+        codePoint === 0x2029
+      )
+    })
+    expect(rawControlCharacters).toEqual([])
   })
 
   test('keeps the standard fields (target_date, taskId, scheduled_time, heading) intact', async () => {

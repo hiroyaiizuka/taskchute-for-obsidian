@@ -14,6 +14,16 @@ import type {
 import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
 import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
 import type { AiTaskHost } from "../../features/ai-task/types"
+import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
+import {
+  AI_MODEL_PRESETS,
+  AI_REASONING_BUDGETS,
+  buildReasoningArgs,
+  CUSTOM_AI_MODEL_VALUE,
+  getAvailableReasoningModes,
+  type AiReasoningBudget,
+  type AiReasoningMode,
+} from "../../features/ai-task/config/AiTaskAdvancedOptions"
 import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
 import { addMinutesToTime } from "../../utils/date"
 
@@ -155,6 +165,12 @@ const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
  * emitting an id the CLI deterministically rejects.
  */
 const MODEL_ID_SAFE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/
+
+/** Quote a preview token for a POSIX shell's double-quoted context. */
+function quotePreviewPrompt(value: string): string {
+  const escaped = value.replace(/[\\"$`]/g, '\\$&')
+  return `"${escaped}"`
+}
 
 /** Live view of the AI-mode controls; null when the feature is unavailable */
 interface AiTaskControls {
@@ -613,7 +629,7 @@ export default class TaskCreationController {
    * the main-agent card grid, the prompt textarea with a live command
    * preview (honest interactive argv: binary + args + quoted prompt head),
    * a start-time input (shown regardless of the advanced-settings flag),
-   * and an advanced block (execution mode, AI model, working directory).
+   * and an advanced block (execution mode, AI model, reasoning, working directory).
    * While reuse mode is active (setReuseActive), the selector and section
    * hide — reference parity with QuestCreateModal's reuse branch.
    * onTaskTypeChange fires whenever the human/AI selection flips so the
@@ -735,7 +751,7 @@ export default class TaskCreationController {
     scheduledInput.className = "form-input ai-task-scheduled-time"
     scheduledField.appendChild(scheduledInput)
 
-    // Advanced block: execution mode / AI model / working directory.
+    // Advanced block: execution mode / model / reasoning / working directory.
     const advanced = doc.createElement("details")
     advanced.className = "ai-task-advanced"
     const advancedSummary = doc.createElement("summary")
@@ -770,11 +786,46 @@ export default class TaskCreationController {
     const modelField = buildAdvancedField(
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
     )
+    const modelSelect = doc.createElement("select")
+    modelSelect.className = "form-input ai-task-model-select"
+    modelField.appendChild(modelSelect)
     const modelInput = doc.createElement("input")
     modelInput.type = "text"
-    modelInput.className = "form-input ai-task-model-input"
-    modelInput.placeholder = this.host.tv("addTask.aiModelPlaceholder", "Default model")
+    modelInput.className = "form-input ai-task-model-input hidden"
+    modelInput.placeholder = this.host.tv(
+      "addTask.aiCustomModelPlaceholder",
+      "Enter a model ID",
+    )
     modelField.appendChild(modelInput)
+
+    const reasoningModeField = buildAdvancedField(
+      this.withTrailingColon(
+        this.host.tv("addTask.aiReasoningModeLabel", "Reasoning mode"),
+      ),
+    )
+    const reasoningModeSelect = doc.createElement("select")
+    reasoningModeSelect.className = "form-input ai-task-reasoning-mode"
+    reasoningModeField.appendChild(reasoningModeSelect)
+
+    const reasoningBudgetField = buildAdvancedField(
+      this.withTrailingColon(
+        this.host.tv(
+          "addTask.aiReasoningBudgetLabel",
+          "Reasoning budget (effort)",
+        ),
+      ),
+    )
+    reasoningBudgetField.classList.add("ai-task-reasoning-budget-field", "hidden")
+    const reasoningBudgetSelect = doc.createElement("select")
+    reasoningBudgetSelect.className = "form-input ai-task-reasoning-budget"
+    reasoningBudgetField.appendChild(reasoningBudgetSelect)
+    const reasoningHint = doc.createElement("div")
+    reasoningHint.className = "ai-task-field-description"
+    reasoningHint.textContent = this.host.tv(
+      "addTask.aiReasoningBudgetHint",
+      "Controls adaptive reasoning effort, not a fixed token limit.",
+    )
+    reasoningBudgetField.appendChild(reasoningHint)
 
     const cwdField = buildAdvancedField(
       this.withTrailingColon(
@@ -799,23 +850,38 @@ export default class TaskCreationController {
 
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
-      const model = modelInput.value.trim()
+      const model =
+        modelSelect.value === CUSTOM_AI_MODEL_VALUE
+          ? modelInput.value.trim()
+          : modelSelect.value
       if (model.length > 0 && MODEL_ID_SAFE_PATTERN.test(model)) {
         args.push(`--model=${model}`)
       }
+      args.push(
+        ...buildReasoningArgs(
+          selectedHost,
+          reasoningModeSelect.value as AiReasoningMode,
+          reasoningBudgetSelect.value,
+        ),
+      )
       return args
     }
 
     const refreshPreview = () => {
-      const tokens = [selectedHost as string, ...buildArgs()]
+      const baseArgs = buildArgs()
       const sanitizedPrompt = promptInput.value.replace(/\r?\n+/g, " ").trim()
-      let text = tokens.join(" ")
+      let text = [selectedHost as string, ...baseArgs].join(" ")
       if (sanitizedPrompt.length > 0) {
         const head =
           sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
             ? `${sanitizedPrompt.slice(0, AI_PREVIEW_PROMPT_HEAD_LIMIT)}…`
             : sanitizedPrompt
-        text = `${text} "${head}"`
+        const previewArgs = buildTerminalArgs(baseArgs, head)
+        text = [
+          selectedHost as string,
+          ...previewArgs.slice(0, -1),
+          quotePreviewPrompt(previewArgs[previewArgs.length - 1]),
+        ].join(" ")
       }
       previewCode.textContent = text
     }
@@ -833,7 +899,111 @@ export default class TaskCreationController {
       execModeSelect.value = "default"
     }
 
+    const rebuildModelOptions = () => {
+      modelSelect.replaceChildren()
+      const defaultOption = doc.createElement("option")
+      defaultOption.value = ""
+      defaultOption.textContent = this.host.tv(
+        "addTask.aiModelPlaceholder",
+        "Default model",
+      )
+      modelSelect.appendChild(defaultOption)
+      for (const preset of AI_MODEL_PRESETS[selectedHost]) {
+        const option = doc.createElement("option")
+        option.value = preset.id
+        option.textContent = preset.label
+        modelSelect.appendChild(option)
+      }
+      const customOption = doc.createElement("option")
+      customOption.value = CUSTOM_AI_MODEL_VALUE
+      customOption.textContent = this.host.tv(
+        "addTask.aiModelCustom",
+        "Custom…",
+      )
+      modelSelect.appendChild(customOption)
+      modelSelect.value = ""
+      modelInput.value = ""
+      modelInput.classList.add("hidden")
+    }
+
+    const reasoningBudgetLabel = (budget: AiReasoningBudget): string => {
+      const definitions: Record<
+        AiReasoningBudget,
+        { key: string; fallback: string }
+      > = {
+        low: { key: "addTask.aiReasoningLow", fallback: "Low" },
+        medium: { key: "addTask.aiReasoningMedium", fallback: "Medium" },
+        high: { key: "addTask.aiReasoningHigh", fallback: "High" },
+        xhigh: { key: "addTask.aiReasoningXHigh", fallback: "Extra high" },
+        max: { key: "addTask.aiReasoningMax", fallback: "Maximum" },
+      }
+      const definition = definitions[budget]
+      return this.host.tv(definition.key, definition.fallback)
+    }
+
+    const rebuildReasoningModeOptions = (preserveSelection = true) => {
+      const previousMode = reasoningModeSelect.value as AiReasoningMode
+      reasoningModeSelect.replaceChildren()
+      const labels: Record<AiReasoningMode, string> = {
+        automatic: this.host.tv(
+          "addTask.aiReasoningModeAutomatic",
+          "Automatic (model default)",
+        ),
+        specified: this.host.tv(
+          "addTask.aiReasoningModeSpecified",
+          "Specify budget",
+        ),
+        ultra: this.host.tv(
+          selectedHost === "claude"
+            ? "addTask.aiReasoningModeClaudeUltra"
+            : "addTask.aiReasoningModeCodexUltra",
+          selectedHost === "claude"
+            ? "Ultracode (parallel workflow)"
+            : "Ultra (parallel delegation)",
+        ),
+      }
+      const modes = getAvailableReasoningModes(selectedHost, modelSelect.value)
+      for (const mode of modes) {
+        const option = doc.createElement("option")
+        option.value = mode
+        option.textContent = labels[mode]
+        reasoningModeSelect.appendChild(option)
+      }
+      reasoningModeSelect.value =
+        preserveSelection && modes.some((mode) => mode === previousMode)
+          ? previousMode
+          : "automatic"
+    }
+
+    const rebuildReasoningBudgetOptions = () => {
+      reasoningBudgetSelect.replaceChildren()
+      for (const budget of AI_REASONING_BUDGETS[selectedHost]) {
+        const option = doc.createElement("option")
+        option.value = budget
+        option.textContent = reasoningBudgetLabel(budget)
+        reasoningBudgetSelect.appendChild(option)
+      }
+      reasoningBudgetSelect.value = "medium"
+      reasoningModeSelect.value = "automatic"
+      reasoningBudgetField.classList.add("hidden")
+    }
+
+    const updateModelInputVisibility = () => {
+      modelInput.classList.toggle(
+        "hidden",
+        modelSelect.value !== CUSTOM_AI_MODEL_VALUE,
+      )
+    }
+
+    const updateReasoningBudgetVisibility = () => {
+      reasoningBudgetField.classList.toggle(
+        "hidden",
+        reasoningModeSelect.value !== "specified",
+      )
+    }
+
     const selectHost = (nextHost: AiTaskHost) => {
+      const hostChanged = nextHost !== selectedHost
       selectedHost = nextHost
       for (const [cardHost, card] of agentCards) {
         const isSelected = cardHost === nextHost
@@ -842,6 +1012,10 @@ export default class TaskCreationController {
       }
       // The variant set belongs to the host: reset to its default.
       rebuildExecModeOptions()
+      if (hostChanged) modelInput.value = ""
+      rebuildModelOptions()
+      rebuildReasoningModeOptions(false)
+      rebuildReasoningBudgetOptions()
       refreshPreview()
     }
 
@@ -867,6 +1041,17 @@ export default class TaskCreationController {
     }
     promptInput.addEventListener("input", refreshPreview)
     modelInput.addEventListener("input", refreshPreview)
+    modelSelect.addEventListener("change", () => {
+      updateModelInputVisibility()
+      rebuildReasoningModeOptions()
+      updateReasoningBudgetVisibility()
+      refreshPreview()
+    })
+    reasoningModeSelect.addEventListener("change", () => {
+      updateReasoningBudgetVisibility()
+      refreshPreview()
+    })
+    reasoningBudgetSelect.addEventListener("change", refreshPreview)
     execModeSelect.addEventListener("change", refreshPreview)
 
     selectTaskType("human")
@@ -883,11 +1068,12 @@ export default class TaskCreationController {
       getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
       getAiTaskOptions: () => {
         const cwd = cwdInput.value.trim()
+        const prompt = promptInput.value
         return {
           host: selectedHost,
           args: buildArgs(),
           cwd: cwd.length > 0 ? cwd : undefined,
-          prompt: promptInput.value.trim(),
+          prompt: prompt.trim().length > 0 ? prompt : "",
         }
       },
     }

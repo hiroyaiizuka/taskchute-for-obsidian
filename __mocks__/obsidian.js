@@ -396,6 +396,9 @@ const createSvg = (tag, options = {}) => {
 const activeDocument = document
 const activeWindow = window
 const getLanguage = jest.fn(() => 'en')
+const setIcon = jest.fn((element, iconId) => {
+  element?.setAttribute?.('data-icon', iconId)
+})
 
 if (typeof globalThis.createDiv === 'undefined') {
   Object.assign(globalThis, {
@@ -435,6 +438,7 @@ module.exports = {
   createSpan,
   createSvg,
   getLanguage,
+  setIcon,
   normalizePath,
   mockApp,
   mockLeaf,

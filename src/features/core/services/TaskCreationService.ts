@@ -2,6 +2,10 @@ import { App, Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
 import { generateTaskId } from '../../../services/TaskIdManager'
 import type { AiTaskHost } from '../../ai-task/types'
+import {
+  EXACT_PROMPT_END_MARKER,
+  EXACT_PROMPT_START_MARKER,
+} from '../../ai-task/services/PromptExtractor'
 
 interface PluginLike {
   app: App
@@ -27,7 +31,7 @@ interface PluginLike {
  */
 export interface CreateTaskFileAiTaskOptions {
   host: AiTaskHost
-  /** Flattened argv tokens (execution-mode flags + optional --model=<value>) */
+  /** Flattened argv tokens (execution mode, model, and reasoning controls) */
   args?: string[]
   cwd?: string
   prompt: string
@@ -43,7 +47,11 @@ export interface CreateTaskFileOptions {
 
 /** Escape a value for a YAML double-quoted scalar */
 function toYamlQuoted(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  return JSON.stringify(value).replace(
+    /[\u007F-\u009F\u2028\u2029]/gu,
+    (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  )
 }
 
 /**
@@ -152,10 +160,12 @@ export class TaskCreationService {
 
     const bodyLines = ['', `# ${taskName}`, '']
     if (aiTask) {
-      bodyLines.push('## Prompt', '')
-      if (aiTask.prompt.length > 0) {
-        bodyLines.push(...aiTask.prompt.split(/\r?\n/).map(escapePromptLine), '')
+      const prompt = aiTask.prompt.trim().length > 0 ? aiTask.prompt : ''
+      bodyLines.push('## Prompt', '', EXACT_PROMPT_START_MARKER)
+      if (prompt.length > 0) {
+        bodyLines.push(...prompt.split(/\r?\n/).map(escapePromptLine))
       }
+      bodyLines.push(EXACT_PROMPT_END_MARKER, '')
     }
 
     const content = [...frontmatterLines, ...bodyLines].join('\n')

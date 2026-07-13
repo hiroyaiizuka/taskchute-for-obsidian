@@ -40,6 +40,12 @@ import type {
   AiRunProcessHandle,
 } from './dispatchers/Dispatcher'
 import type { AiTerminalDispatcher, TerminalRunHandle } from './dispatchers/TerminalDispatcher'
+import type {
+  WorkspaceDirectoryListing,
+  WorkspaceFileDocument,
+  WorkspaceFileService,
+  WorkspaceFileVersion,
+} from './WorkspaceFileService'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -224,6 +230,8 @@ export interface AiTaskManagerDeps {
      */
     getShellPath?(): string
   }
+  /** Desktop-only cwd browser used by the pane's lazy Files tree. */
+  workspaceFiles?: Pick<WorkspaceFileService, 'listDirectory' | 'readFile' | 'writeFile'>
   /** Effective run mode from settings; consulted when startRun gets none */
   getRunMode?(): AiRunMode
   /** Timer override for tests; production uses activeWindow timers */
@@ -274,6 +282,10 @@ export interface AiShellSessionOptions {
   rows?: number
   /** Localized display name (e.g. "ターミナル"); defaults to 'Terminal' */
   name?: string
+  /** Inherit the owning AI task's resolved workspace instead of Vault root. */
+  cwd?: string
+  /** Owning top-level AI run; its closure also closes this internal shell. */
+  parentRunId?: string
 }
 
 interface InternalRun {
@@ -382,6 +394,7 @@ export class AiTaskManager {
   private readonly timer: AiGraceTimer
   private terminalSnapshotProvider: AiTerminalSnapshotProvider | null = null
   private disposed = false
+  private disposeCompletion: Promise<void> | null = null
   private runSequence = 0
 
   constructor(private readonly deps: AiTaskManagerDeps) {
@@ -436,6 +449,7 @@ export class AiTaskManager {
         id: `ai-run-${Date.now()}-${this.runSequence}`,
         taskPath,
         taskName: file.basename,
+        cwd,
         host: config.host,
         status: 'starting',
         mode,
@@ -481,6 +495,7 @@ export class AiTaskManager {
               prompt,
               cwd,
               extraArgs: config.args,
+              launchInShell: true,
               rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
               cols: record.cols ?? DEFAULT_TERMINAL_COLS,
               transcriptPath: record.transcriptPath ?? '',
@@ -557,6 +572,8 @@ export class AiTaskManager {
       id: `ai-run-${Date.now()}-${this.runSequence}`,
       taskPath: '',
       taskName: name !== undefined && name.length > 0 ? name : DEFAULT_SHELL_SESSION_NAME,
+      cwd: options.cwd ?? this.getVaultBasePath(),
+      parentRunId: options.parentRunId,
       host: 'shell',
       status: 'starting',
       mode: 'terminal',
@@ -577,7 +594,7 @@ export class AiTaskManager {
       exited: false,
       terminalData: { chunks: [], totalLength: 0 },
       terminalListeners: new Set(),
-      cwd: this.getVaultBasePath(),
+      cwd: record.cwd,
       extraArgs: [],
       continuation: null,
       persistQueue: Promise.resolve(),
@@ -757,6 +774,37 @@ export class AiTaskManager {
     return this.runs.get(runId)?.record
   }
 
+  async listWorkspaceDirectory(
+    rootPath: string,
+    directoryPath?: string,
+  ): Promise<WorkspaceDirectoryListing> {
+    const workspaceFiles = this.requireWorkspaceFiles()
+    return await workspaceFiles.listDirectory(rootPath, directoryPath)
+  }
+
+  async readWorkspaceFile(
+    rootPath: string,
+    filePath: string,
+  ): Promise<WorkspaceFileDocument> {
+    const workspaceFiles = this.requireWorkspaceFiles()
+    return await workspaceFiles.readFile(rootPath, filePath)
+  }
+
+  async writeWorkspaceFile(
+    rootPath: string,
+    filePath: string,
+    content: string,
+    expectedVersion: WorkspaceFileVersion,
+  ): Promise<WorkspaceFileDocument> {
+    const workspaceFiles = this.requireWorkspaceFiles()
+    return await workspaceFiles.writeFile(
+      rootPath,
+      filePath,
+      content,
+      expectedVersion,
+    )
+  }
+
   /**
    * Drop a FINISHED run's record from the manager. The pane calls this when
    * a run's view closes for good (× on a finished run, the stopped-run
@@ -828,6 +876,16 @@ export class AiTaskManager {
     internal.terminalHandle.write(data)
   }
 
+  /** Keep the live OS PTY grid synchronized with xterm's fitted dimensions. */
+  resizeTerminal(runId: string, cols: number, rows: number): void {
+    const internal = this.runs.get(runId)
+    if (!internal || internal.exited || !internal.terminalHandle) return
+    if (!ACTIVE_STATUSES.has(internal.record.status)) return
+    internal.terminalHandle.resize?.(cols, rows)
+    internal.record.cols = cols
+    internal.record.rows = rows
+  }
+
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
     for (const internal of this.runs.values()) {
       // Shell sessions belong to no task note: they must never surface as a
@@ -874,11 +932,7 @@ export class AiTaskManager {
     }
   }
 
-  /**
-   * Stop every active run: SIGTERM immediately, SIGKILL via an activeWindow
-   * timer (the window outlives the plugin, so no zombie children survive a
-   * plugin reload). Idempotent.
-   */
+  /** Stop every active run. Idempotent; see disposeAndWait for app quit. */
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
@@ -896,7 +950,7 @@ export class AiTaskManager {
     }
 
     if (activeHandles.length > 0) {
-      this.timer.setTimeout(() => {
+      const forceKillHandles = () => {
         for (const handle of activeHandles) {
           try {
             handle.forceKill?.()
@@ -904,11 +958,35 @@ export class AiTaskManager {
             this.deps.log?.('warn', '[AiTaskManager] Force kill failed', error)
           }
         }
-      }, DISPOSE_FORCE_KILL_MS)
+      }
+      this.disposeCompletion = new Promise<void>((resolve) => {
+        try {
+          this.timer.setTimeout(() => {
+            forceKillHandles()
+            resolve()
+          }, DISPOSE_FORCE_KILL_MS)
+        } catch (error) {
+          this.deps.log?.('warn', '[AiTaskManager] Dispose timer failed', error)
+          forceKillHandles()
+          resolve()
+        }
+      })
+    } else {
+      this.disposeCompletion = Promise.resolve()
     }
 
     this.listeners.clear()
     this.terminalSnapshotProvider = null
+  }
+
+  /**
+   * Dispose and resolve only after the SIGKILL escalation has run. Obsidian's
+   * workspace quit event can register this Promise in its Tasks collection,
+   * keeping the renderer alive long enough for the grace timer to fire.
+   */
+  async disposeAndWait(): Promise<void> {
+    this.dispose()
+    await (this.disposeCompletion ?? Promise.resolve())
   }
 
   /**
@@ -1182,6 +1260,15 @@ export class AiTaskManager {
 
   private throwIfDisposed(): void {
     if (this.disposed) throw new AiTaskManagerDisposedError()
+  }
+
+  private requireWorkspaceFiles(): Pick<
+    WorkspaceFileService,
+    'listDirectory' | 'readFile' | 'writeFile'
+  > {
+    const workspaceFiles = this.deps.workspaceFiles
+    if (!workspaceFiles) throw new Error('Workspace files are not available')
+    return workspaceFiles
   }
 
   /**

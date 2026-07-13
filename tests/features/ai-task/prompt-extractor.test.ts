@@ -1,4 +1,8 @@
-import { extractPromptSection } from '../../../src/features/ai-task/services/PromptExtractor'
+import {
+  EXACT_PROMPT_END_MARKER,
+  EXACT_PROMPT_START_MARKER,
+  extractPromptSection,
+} from '../../../src/features/ai-task/services/PromptExtractor'
 
 describe('extractPromptSection', () => {
   test('extracts the body under "## Prompt" until end of file', () => {
@@ -68,6 +72,56 @@ describe('extractPromptSection', () => {
   test('returns null when the Prompt section body is empty', () => {
     const content = ['## Prompt', '', '   ', '## Next'].join('\n')
     expect(extractPromptSection(content)).toBeNull()
+  })
+
+  test('keeps the legacy trim behavior when exact markers are absent', () => {
+    const content = ['## Prompt', '', '  legacy body  ', ''].join('\n')
+    expect(extractPromptSection(content)).toBe('legacy body')
+  })
+
+  test('preserves outer whitespace exactly between generated markers', () => {
+    const prompt = '\n    indented first line  \nlast line  \n'
+    const content = [
+      '## Prompt',
+      '',
+      EXACT_PROMPT_START_MARKER,
+      ...prompt.split('\n'),
+      EXACT_PROMPT_END_MARKER,
+      '## Next',
+    ].join('\n')
+
+    expect(extractPromptSection(content)).toBe(prompt)
+  })
+
+  test('treats marked whitespace-only content as an empty prompt', () => {
+    const content = [
+      '## Prompt',
+      EXACT_PROMPT_START_MARKER,
+      '  ',
+      '\t',
+      EXACT_PROMPT_END_MARKER,
+    ].join('\n')
+
+    expect(extractPromptSection(content)).toBeNull()
+  })
+
+  test('preserves exact marked whitespace on the heading-metadata path', () => {
+    const prompt = '\tfirst\nlast  '
+    const content = [
+      '# Task',
+      '## Prompt',
+      EXACT_PROMPT_START_MARKER,
+      ...prompt.split('\n'),
+      EXACT_PROMPT_END_MARKER,
+      '## Next',
+    ].join('\n')
+    const headings = [
+      { heading: 'Task', level: 1, position: { start: { line: 0 } } },
+      { heading: 'Prompt', level: 2, position: { start: { line: 1 } } },
+      { heading: 'Next', level: 2, position: { start: { line: 6 } } },
+    ]
+
+    expect(extractPromptSection(content, headings)).toBe(prompt)
   })
 
   test('handles CRLF line endings', () => {

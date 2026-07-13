@@ -278,8 +278,9 @@ describe('TaskChuteView AI pane lifecycle on settings changes', () => {
     internals.mountAiRunPane()
 
     expect(paneContainer.querySelector('.ai-run-pane')).not.toBeNull()
-    // One subscription for the pane, one for the row status refresher.
-    expect(manager.onChange).toHaveBeenCalledTimes(2)
+    // The pane owns the only run-status subscription. Task rows keep the
+    // same robot control while running and need no status refresher.
+    expect(manager.onChange).toHaveBeenCalledTimes(1)
 
     // Settings toggle OFF: the SettingsTab disposes the manager and clears
     // plugin.aiTaskManager before notifying open views.
@@ -287,7 +288,7 @@ describe('TaskChuteView AI pane lifecycle on settings changes', () => {
     view.onAiTaskSettingsChanged()
 
     expect(paneContainer.querySelector('.ai-run-pane')).toBeNull()
-    expect(unsubscribe).toHaveBeenCalledTimes(2)
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(view.renderTaskList).toHaveBeenCalled()
     paneContainer.remove()
   })

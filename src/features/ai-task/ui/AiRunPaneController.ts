@@ -5,8 +5,8 @@
  * reference app's NOW PLAYING structure: a LEFT vertical sidebar with one
  * row per run (status dot + truncated task name + × control) and a RIGHT
  * content area made of one or more side-by-side PANELS. Each panel carries a
- * slim tab strip (one tab for the panel's selected run: status dot + content
- * label + × control, plus a + new-shell button) and its own bodies element;
+ * slim internal tab strip (one tab per run assigned to the panel, plus a +
+ * new-shell button) and its own bodies element;
  * the primary panel's corner actions additionally hold the ◫ split control
  * and the ⤢ expand toggle. Bodies are kept per run in a Map and only each
  * panel's selected body is visible, so state (scroll position, terminal
@@ -37,9 +37,10 @@
  * keep auto-closing on 'persisted' even without a × click; stopped runs
  * never regain a view on a mount replay.
  *
- * The ⤢ toggle expands the pane to near the full view height (.is-expanded
- * on the pane, the --expanded chrome class on the host container). The PTY
- * grid of runs already started stays fixed — only the xterm viewport grows.
+ * The expand toggle fills the available view height (.is-expanded on the
+ * pane, the --expanded chrome class on the host container). xterm follows
+ * body resize events, while the dispatcher can synchronize the real PTY on
+ * gateways that expose resizing.
  * The expanded state persists per device through the host's
  * App#saveLocalStorage bridge and is restored on mount.
  *
@@ -50,7 +51,7 @@
  *
  * Terminal runs host an embedded terminal instead: a TerminalViewAdapter is
  * created LAZILY the first time the run's body is shown (pane expanded),
- * opened with the record's fixed PTY grid, wired both ways
+ * opened with the record's initial PTY grid, fitted to its body, wired both ways
  * (manager.onTerminalData -> adapter.write, adapter.onData ->
  * manager.sendTerminalInput), and focused when its panel holds the focus.
  * Every panel keeps its own wiring, so keystrokes never cross sessions. The
@@ -71,7 +72,7 @@
  * textContent only (xterm renders inside its own subtree via the adapter).
  */
 
-import { Notice } from 'obsidian'
+import { Notice, setIcon } from 'obsidian'
 import {
   AiRunAlreadyActiveError,
   AiSessionUnavailableError,
@@ -82,11 +83,23 @@ import {
   type AiShellSessionOptions,
 } from '../services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
+import {
+  formatWorkspacePathForTerminal,
+  WORKSPACE_PATH_DRAG_MIME,
+} from '../services/TerminalPathFormatter'
+import type {
+  WorkspaceDirectoryListing,
+  WorkspaceFileDocument,
+  WorkspaceFileVersion,
+} from '../services/WorkspaceFileService'
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
 import type {
   TerminalViewAdapterFactory,
   TerminalViewAdapterLike,
 } from './TerminalViewAdapter'
+import type { FileEditorAdapterFactory } from './FileEditorAdapter'
+import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
+import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -99,6 +112,21 @@ export interface AiRunPaneManagerLike {
   ): () => void
   onTerminalData(runId: string, listener: (chunk: string) => void): () => void
   sendTerminalInput(runId: string, data: string): void
+  resizeTerminal?(runId: string, cols: number, rows: number): void
+  listWorkspaceDirectory?(
+    rootPath: string,
+    directoryPath?: string,
+  ): Promise<WorkspaceDirectoryListing>
+  readWorkspaceFile?(
+    rootPath: string,
+    filePath: string,
+  ): Promise<WorkspaceFileDocument>
+  writeWorkspaceFile?(
+    rootPath: string,
+    filePath: string,
+    content: string,
+    expectedVersion: WorkspaceFileVersion,
+  ): Promise<WorkspaceFileDocument>
   /**
    * Drop a FINISHED run's record from the manager when its view closes for
    * good (× on a finished run, the stopped-run auto-close, a rolled-back
@@ -129,7 +157,16 @@ export interface AiRunPaneControllerHost {
   manager: AiRunPaneManagerLike
   /** Adapter factory; tests substitute a fake so jsdom never loads xterm */
   createTerminalAdapter: TerminalViewAdapterFactory
+  /** Optional editor factory for focused pane tests; production uses CM6. */
+  createFileEditorAdapter?: FileEditorAdapterFactory
   registerManagedDisposer: (cleanup: () => void) => void
+  /**
+   * Keep TaskChute's timer state in sync when the user stops a top-level AI
+   * run through this pane's × control. Shell tabs and finished-run closes do
+   * not call this hook. The manager stop still runs independently so a task
+   * persistence failure can never leave the PTY alive.
+   */
+  onStopAndCloseTaskRun?: (record: AiRunRecord) => void
   /**
    * Per-device persistence bridge for the expanded state
    * (App#saveLocalStorage / App#loadLocalStorage — device-local by design,
@@ -147,11 +184,15 @@ interface TerminalBinding {
   disposeData: () => void
   /** Unsubscribes the adapter.onData keystroke relay */
   disposeInput: () => void
+  /** Unsubscribes fitted xterm grid -> real PTY resizing. */
+  disposeResize: () => void
+  /** Unsubscribes Cmd/Ctrl-clicked file paths from this run's cwd. */
+  disposeFilePath: () => void
 }
 
 interface RunView {
-  /** Sidebar row of the run (selection + × control) */
-  row: HTMLElement
+  /** Top-level AI runs have a Vertical Tab; panel-local shell runs do not. */
+  row: HTMLElement | null
   body: HTMLElement
   /** Panel whose bodies element currently hosts the run's body */
   panelId: string
@@ -166,7 +207,7 @@ interface RunView {
 interface PanelView {
   id: string
   el: HTMLElement
-  tabEl: HTMLElement
+  tabsEl: HTMLElement
   bodiesEl: HTMLElement
   selectedRunId: string | null
 }
@@ -224,7 +265,7 @@ export const RUN_SIDEBAR_WIDTH_PX = 180
 /** Share of the view height the terminal pane occupies (mirrors styles.css) */
 const TERMINAL_PANE_HEIGHT_RATIO = 0.4
 /** Share of the view height while expanded (mirrors styles.css) */
-const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 0.9
+const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 1
 const TERMINAL_MIN_COLS = 20
 const TERMINAL_MAX_COLS = 400
 const TERMINAL_MIN_ROWS = 5
@@ -242,12 +283,17 @@ export const SPLIT_MIN_PANEL_WIDTH_PX = 320
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 /** Chrome class on the host container while the pane is expanded */
 const EXPANDED_CONTAINER_CLASS = 'ai-pane-container--expanded'
+/** Layout participation class while the pane (or a future artifact) is visible. */
+const VISIBLE_CONTAINER_CLASS = 'ai-pane-container--visible'
 
 /**
  * Per-device persistence key of the pane's expanded state
  * (App#saveLocalStorage / App#loadLocalStorage via the host bridge).
  */
 export const AI_PANE_EXPANDED_STORAGE_KEY = 'taskchute-plus.ai-pane-expanded'
+/** Device-local preference for the independent left sidebar rail. */
+export const AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY =
+  'taskchute-plus.ai-pane-sidebar-collapsed'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -264,6 +310,17 @@ export class AiRunPaneController {
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
   private sidebarEl: HTMLElement | null = null
+  private sidebarRunsEl: HTMLElement | null = null
+  private sidebarFilesEl: HTMLElement | null = null
+  private sidebarToggleButton: HTMLButtonElement | null = null
+  private sidebarFilesButton: HTMLButtonElement | null = null
+  private workspaceFileTree: WorkspaceFileTreeController | null = null
+  private workspaceFileEditor: WorkspaceFileEditorController | null = null
+  private fileEditorContainer: HTMLElement | null = null
+  /** Expanded state to restore after the last file tab closes. */
+  private expandedBeforeFilePanel: boolean | null = null
+  /** Exact validated Files-tree path authorized for the current drag only. */
+  private activeWorkspaceDragPath: string | null = null
   private panelsEl: HTMLElement | null = null
   private panels: PanelView[] = []
   private focusedPanelId: string | null = null
@@ -274,6 +331,8 @@ export class AiRunPaneController {
   private composerInput: HTMLInputElement | null = null
   private composerSend: HTMLButtonElement | null = null
   private expanded = false
+  private sidebarCollapsed = false
+  private sidebarMode: 'runs' | 'files' = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
 
@@ -290,13 +349,13 @@ export class AiRunPaneController {
     const toggleLabel = this.host.tv('aiTask.togglePane', 'Toggle AI run pane')
     const collapseButton = header.createEl('button', {
       cls: 'ai-run-pane__collapse',
-      text: '▾',
       attr: {
         'aria-label': toggleLabel,
         title: toggleLabel,
         'aria-expanded': 'true',
       },
     })
+    setIcon(collapseButton, 'chevron-down')
     collapseButton.addEventListener('click', (event) => {
       event.stopPropagation()
       this.setCollapsed(!this.isCollapsed())
@@ -311,12 +370,83 @@ export class AiRunPaneController {
     // NOW PLAYING layout: sidebar (run list) on the left, the panels area
     // (each panel: tab strip + bodies) plus the composer on the right.
     const layout = root.createDiv({ cls: 'ai-run-pane__layout' })
-    this.sidebarEl = layout.createDiv({
-      cls: 'ai-run-pane__sidebar',
+    this.sidebarEl = layout.createDiv({ cls: 'ai-run-pane__sidebar' })
+    const sidebarToolbar = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__sidebar-toolbar',
+    })
+    const sidebarToggleLabel = this.host.tv(
+      'aiTask.toggleSidebar',
+      'Toggle terminal sidebar',
+    )
+    this.sidebarToggleButton = sidebarToolbar.createEl('button', {
+      cls: 'ai-run-pane__sidebar-toggle',
+      attr: {
+        'aria-label': sidebarToggleLabel,
+        title: sidebarToggleLabel,
+        'aria-expanded': 'true',
+      },
+    })
+    setIcon(this.sidebarToggleButton, 'panel-left')
+    this.sidebarToggleButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.setSidebarCollapsed(!this.sidebarCollapsed, true)
+    })
+    const filesLabel = this.host.tv('aiTask.files.label', 'Files')
+    this.sidebarFilesButton = sidebarToolbar.createEl('button', {
+      cls: 'ai-run-pane__sidebar-files',
+      attr: {
+        'aria-label': filesLabel,
+        title: filesLabel,
+        'aria-pressed': 'false',
+      },
+    })
+    setIcon(this.sidebarFilesButton, 'folder-closed')
+    this.sidebarFilesButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.setSidebarMode(this.sidebarMode === 'runs' ? 'files' : 'runs')
+    })
+    this.sidebarRunsEl = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__sidebar-runs',
       attr: { role: 'tablist' },
     })
+    this.sidebarFilesEl = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__sidebar-files-view is-hidden',
+    })
+    this.workspaceFileTree = new WorkspaceFileTreeController(
+      this.sidebarFilesEl,
+      {
+        listDirectory: async (rootPath, directoryPath) => {
+          if (typeof this.host.manager.listWorkspaceDirectory !== 'function') {
+            throw new Error('Workspace files are not available')
+          }
+          return await this.host.manager.listWorkspaceDirectory(
+            rootPath,
+            directoryPath,
+          )
+        },
+        loadingLabel: this.host.tv('aiTask.files.loading', 'Loading files…'),
+        emptyLabel: this.host.tv('aiTask.files.empty', 'This folder is empty.'),
+        unavailableLabel: this.host.tv(
+          'aiTask.files.unavailable',
+          'Files are unavailable.',
+        ),
+        onPathDragStart: (path) => {
+          this.activeWorkspaceDragPath = path
+        },
+        onPathDragEnd: () => {
+          this.activeWorkspaceDragPath = null
+        },
+        onFileActivate: (rootPath, entry) => {
+          void this.openWorkspaceFile(rootPath, entry.absolutePath, entry.name)
+        },
+      },
+    )
     const content = layout.createDiv({ cls: 'ai-run-pane__content' })
-    this.panelsEl = content.createDiv({ cls: 'ai-run-pane__panels' })
+    const workarea = content.createDiv({ cls: 'ai-run-pane__workarea' })
+    this.panelsEl = workarea.createDiv({ cls: 'ai-run-pane__panels' })
+    this.fileEditorContainer = workarea.createDiv({
+      cls: 'ai-run-pane__file-panel-container is-hidden',
+    })
     const primary = this.createPanel(null)
     this.focusPanel(primary)
     this.mountComposer(content)
@@ -325,6 +455,10 @@ export class AiRunPaneController {
     // is re-persisted).
     this.setExpanded(
       this.host.loadLocalStorage?.(AI_PANE_EXPANDED_STORAGE_KEY) === true,
+      false,
+    )
+    this.setSidebarCollapsed(
+      this.host.loadLocalStorage?.(AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY) === true,
       false,
     )
 
@@ -377,10 +511,22 @@ export class AiRunPaneController {
     }
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
     this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
+    this.containerEl?.classList.remove(VISIBLE_CONTAINER_CLASS)
     this.containerEl = null
     this.root?.remove()
     this.root = null
     this.sidebarEl = null
+    this.sidebarRunsEl = null
+    this.sidebarFilesEl = null
+    this.sidebarToggleButton = null
+    this.sidebarFilesButton = null
+    this.workspaceFileTree?.dispose()
+    this.workspaceFileTree = null
+    this.workspaceFileEditor?.dispose()
+    this.workspaceFileEditor = null
+    this.fileEditorContainer = null
+    this.expandedBeforeFilePanel = null
+    this.activeWorkspaceDragPath = null
     this.panelsEl = null
     this.panels = []
     this.focusedPanelId = null
@@ -391,6 +537,8 @@ export class AiRunPaneController {
     this.composerInput = null
     this.composerSend = null
     this.expanded = false
+    this.sidebarCollapsed = false
+    this.sidebarMode = 'runs'
     this.runViews.clear()
     this.pendingCloseRunIds.clear()
   }
@@ -419,7 +567,7 @@ export class AiRunPaneController {
     if (!this.root) return
     this.root.classList.toggle('is-collapsed', collapsed)
     if (this.collapseButton) {
-      this.collapseButton.textContent = collapsed ? '▸' : '▾'
+      setIcon(this.collapseButton, collapsed ? 'chevron-right' : 'chevron-down')
       this.collapseButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
     }
     if (!collapsed) {
@@ -428,6 +576,129 @@ export class AiRunPaneController {
       this.ensureVisibleTerminalViews()
     }
     this.updateContainerChrome()
+    this.fitVisibleTerminalViews()
+  }
+
+  /** Collapse only the left Vertical Tabs/Files sidebar to a 24px icon rail. */
+  private setSidebarCollapsed(collapsed: boolean, persist: boolean): void {
+    this.sidebarCollapsed = collapsed
+    this.root?.classList.toggle('is-sidebar-collapsed', collapsed)
+    this.sidebarToggleButton?.setAttribute(
+      'aria-expanded',
+      collapsed ? 'false' : 'true',
+    )
+    if (persist) {
+      this.host.saveLocalStorage?.(
+        AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
+        collapsed,
+      )
+    }
+    this.ensureVisibleTerminalViews()
+    this.fitVisibleTerminalViews()
+  }
+
+  private setSidebarMode(mode: 'runs' | 'files'): void {
+    this.sidebarMode = mode
+    const files = mode === 'files'
+    this.root?.classList.toggle('is-files-mode', files)
+    this.sidebarFilesButton?.setAttribute('aria-pressed', files ? 'true' : 'false')
+    this.sidebarRunsEl?.classList.toggle('is-hidden', files)
+    this.sidebarFilesEl?.classList.toggle('is-hidden', !files)
+    if (files) this.refreshWorkspaceFiles()
+  }
+
+  private refreshWorkspaceFiles(): void {
+    if (this.sidebarMode !== 'files') return
+    const selectedRunId = this.getFocusedPanel()?.selectedRunId
+    const cwd = selectedRunId
+      ? this.host.manager.getRun(selectedRunId)?.cwd
+      : undefined
+    this.workspaceFileTree?.showRoot(cwd)
+  }
+
+  /** Common file-opening route for Files clicks and terminal path links. */
+  private async openWorkspaceFile(
+    rootPath: string,
+    filePath: string,
+    title?: string,
+  ): Promise<void> {
+    if (
+      typeof this.host.manager.readWorkspaceFile !== 'function' ||
+      typeof this.host.manager.writeWorkspaceFile !== 'function'
+    ) {
+      this.notifyWorkspaceFileError(new Error('Workspace files are not available'))
+      return
+    }
+    const container = this.fileEditorContainer
+    if (!container) return
+    if (!this.workspaceFileEditor) {
+      this.workspaceFileEditor = new WorkspaceFileEditorController(
+        container,
+        {
+          readWorkspaceFile: (root, path) =>
+            this.host.manager.readWorkspaceFile!(root, path),
+          writeWorkspaceFile: (root, path, content, expectedVersion) =>
+            this.host.manager.writeWorkspaceFile!(
+              root,
+              path,
+              content,
+              expectedVersion,
+            ),
+          onVisibilityChange: (visible) => this.setFilePanelVisible(visible),
+          onError: (error) => this.notifyWorkspaceFileError(error),
+          labels: {
+            edit: this.host.tv('aiTask.fileEditor.edit', 'Edit'),
+            save: this.host.tv('aiTask.fileEditor.save', 'Save (Cmd/Ctrl+S)'),
+            cancel: this.host.tv('aiTask.fileEditor.cancel', 'Cancel'),
+            saved: this.host.tv('aiTask.fileEditor.saved', 'Saved'),
+            saving: this.host.tv('aiTask.fileEditor.saving', 'Saving…'),
+            loading: this.host.tv('aiTask.fileEditor.loading', 'Loading…'),
+            saveFailed: this.host.tv('aiTask.fileEditor.saveFailed', 'Save failed'),
+            close: this.host.tv('aiTask.fileEditor.close', 'Close file'),
+            discardConfirmation: this.host.tv(
+              'aiTask.fileEditor.discardConfirmation',
+              'You have unsaved changes. Discard them?',
+            ),
+          },
+        },
+        this.host.createFileEditorAdapter,
+      )
+    }
+    await this.workspaceFileEditor.openFile(rootPath, filePath, title)
+  }
+
+  /** Enter/leave the reference-style terminal + file 50/50 work area. */
+  private setFilePanelVisible(visible: boolean): void {
+    this.fileEditorContainer?.classList.toggle('is-hidden', !visible)
+    this.root?.classList.toggle('has-file-panel', visible)
+    if (visible) {
+      if (this.expandedBeforeFilePanel === null) {
+        this.expandedBeforeFilePanel = this.expanded
+      }
+      this.revealPane()
+      this.setCollapsed(false)
+      if (!this.expanded) this.setExpanded(true, false)
+    } else if (this.expandedBeforeFilePanel !== null) {
+      const restoreExpanded = this.expandedBeforeFilePanel
+      this.expandedBeforeFilePanel = null
+      if (this.expanded !== restoreExpanded) {
+        this.setExpanded(restoreExpanded, false)
+      }
+      if (this.runViews.size === 0) this.root?.classList.add('is-hidden')
+    }
+    this.updateContainerChrome()
+    this.fitVisibleTerminalViews()
+  }
+
+  private notifyWorkspaceFileError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    new Notice(
+      this.host.tv(
+        'aiTask.notices.fileOpenFailed',
+        'Could not open or save the file: {message}',
+        { message },
+      ),
+    )
   }
 
   /**
@@ -475,7 +746,12 @@ export class AiRunPaneController {
     const totalWidth = this.containerEl?.clientWidth ?? 0
     if (totalWidth <= 0) return 0
     const measuredSidebar = this.sidebarEl?.clientWidth ?? 0
-    const sidebarWidth = measuredSidebar > 0 ? measuredSidebar : RUN_SIDEBAR_WIDTH_PX
+    const sidebarWidth =
+      measuredSidebar > 0
+        ? measuredSidebar
+        : this.sidebarCollapsed
+          ? 24
+          : RUN_SIDEBAR_WIDTH_PX
     return Math.max(0, totalWidth - sidebarWidth)
   }
 
@@ -490,6 +766,7 @@ export class AiRunPaneController {
   private revealPane(): void {
     this.root?.classList.remove('is-hidden')
     this.updateContainerChrome()
+    this.fitVisibleTerminalViews()
   }
 
   /**
@@ -504,12 +781,13 @@ export class AiRunPaneController {
       this.host.saveLocalStorage?.(AI_PANE_EXPANDED_STORAGE_KEY, expanded)
     }
     this.updateContainerChrome()
+    this.fitVisibleTerminalViews()
   }
 
   private refreshExpandButton(): void {
     const button = this.expandButton
     if (!button) return
-    button.textContent = this.expanded ? '⤡' : '⤢'
+    setIcon(button, this.expanded ? 'minimize-2' : 'maximize-2')
     const label = this.expanded
       ? this.host.tv('aiTask.restorePane', 'Restore AI run pane size')
       : this.host.tv('aiTask.expandPane', 'Expand AI run pane')
@@ -554,12 +832,12 @@ export class AiRunPaneController {
     }
 
     const tabstrip = el.createDiv({ cls: 'ai-run-pane__tabstrip' })
-    const tabEl = tabstrip.createDiv({ cls: 'ai-run-pane__tab is-hidden' })
+    const tabsEl = tabstrip.createDiv({ cls: 'ai-run-pane__tabs' })
 
     const panel: PanelView = {
       id: `panel-${(this.panelSequence += 1)}`,
       el,
-      tabEl,
+      tabsEl,
       bodiesEl: null as unknown as HTMLElement,
       selectedRunId: null,
     }
@@ -591,9 +869,9 @@ export class AiRunPaneController {
     const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
     const splitButton = actions.createEl('button', {
       cls: 'ai-run-pane__split',
-      text: '◫',
       attr: { 'aria-label': splitLabel, title: splitLabel },
     })
+    setIcon(splitButton, 'columns-2')
     splitButton.addEventListener('click', (event) => {
       event.stopPropagation()
       this.handleSplit(panel)
@@ -648,6 +926,7 @@ export class AiRunPaneController {
       }
     }
     this.refreshPanelsSplitState()
+    this.refreshContentTab(primary)
     this.syncPanelSelectionClasses()
   }
 
@@ -657,11 +936,13 @@ export class AiRunPaneController {
       other.el.classList.toggle('is-focused', other === panel)
     }
     this.updateComposerState()
+    this.refreshWorkspaceFiles()
   }
 
   /** Marker class for styles.css: highlight the focus only while split */
   private refreshPanelsSplitState(): void {
     this.panelsEl?.classList.toggle('is-split', this.panels.length > 1)
+    this.fitVisibleTerminalViews()
   }
 
   /**
@@ -705,7 +986,7 @@ export class AiRunPaneController {
     this.focusPanel(newPanel)
     let record: AiRunRecord
     try {
-      record = this.startShellSession()
+      record = this.startShellSession(sourcePanel)
     } catch (error) {
       // The manager registers the run and emits 'starting' BEFORE the
       // dispatch, so a failed spawn may have already given the pane a view
@@ -736,7 +1017,7 @@ export class AiRunPaneController {
     const preexistingRunIds = new Set(this.runViews.keys())
     let record: AiRunRecord
     try {
-      record = this.startShellSession()
+      record = this.startShellSession(panel)
     } catch (error) {
       // Same rollback as handleSplit: drop the view of the failed spawn so
       // no dead shell row lingers in the sidebar.
@@ -761,16 +1042,26 @@ export class AiRunPaneController {
   }
 
   /** Spawn a shell session sized like a terminal run of the current layout */
-  private startShellSession(): AiRunRecord {
+  private startShellSession(contextPanel: PanelView): AiRunRecord {
     const manager = this.host.manager
     if (typeof manager.startShellSession !== 'function') {
       throw new AiShellUnavailableError()
     }
     const size = this.computeTerminalSize()
+    const contextRecord =
+      contextPanel.selectedRunId !== null
+        ? manager.getRun(contextPanel.selectedRunId)
+        : undefined
+    const parentRunId =
+      contextRecord?.host === 'shell'
+        ? contextRecord.parentRunId
+        : contextRecord?.id
     return manager.startShellSession({
       cols: size.cols,
       rows: size.rows,
       name: this.host.tv('aiTask.shellSessionName', 'Terminal'),
+      ...(contextRecord?.cwd ? { cwd: contextRecord.cwd } : {}),
+      ...(parentRunId ? { parentRunId } : {}),
     })
   }
 
@@ -856,9 +1147,17 @@ export class AiRunPaneController {
   private requestCloseRun(runId: string): void {
     const view = this.runViews.get(runId)
     if (!view) return
-    const status = this.host.manager.getRun(runId)?.status ?? view.lastStatus
+    const record = this.host.manager.getRun(runId)
+    const status = record?.status ?? view.lastStatus
     if (ACTIVE_STATUSES.has(status)) {
+      // Treat repeated clicks as one close request. This also prevents the
+      // TaskChute instance from being stopped/logged more than once while
+      // the manager is still persisting the run transcript.
+      if (this.pendingCloseRunIds.has(runId)) return
       this.pendingCloseRunIds.add(runId)
+      if (record && record.host !== 'shell') {
+        this.host.onStopAndCloseTaskRun?.(record)
+      }
       this.host.manager.stopRun(runId)
       return
     }
@@ -880,8 +1179,15 @@ export class AiRunPaneController {
   private closeRun(runId: string): void {
     const view = this.runViews.get(runId)
     if (!view) return
+    const ownedShellRunIds = this.host.manager
+      .getRuns()
+      .filter((record) => record.parentRunId === runId)
+      .map((record) => record.id)
+    for (const ownedRunId of ownedShellRunIds) {
+      this.requestCloseRun(ownedRunId)
+    }
     this.disposeTerminalBinding(view)
-    view.row.remove()
+    view.row?.remove()
     view.body.remove()
     this.runViews.delete(runId)
     this.pendingCloseRunIds.delete(runId)
@@ -892,17 +1198,18 @@ export class AiRunPaneController {
     this.host.manager.releaseRun?.(runId)
 
     const panel = this.getPanel(view.panelId)
+    if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
+      let mostRecent: string | undefined
+      for (const [id, other] of this.runViews) {
+        if (other.panelId === panel.id) mostRecent = id
+      }
+      if (mostRecent !== undefined) {
+        this.selectRunInPanel(panel, mostRecent)
+        return
+      }
       if (panel === this.getPrimaryPanel()) {
-        let mostRecent: string | undefined
-        for (const [id, other] of this.runViews) {
-          if (other.panelId === panel.id) mostRecent = id
-        }
-        if (mostRecent !== undefined) {
-          this.selectRunInPanel(panel, mostRecent)
-          return
-        }
         // The primary emptied. While split, merge the next panel into the
         // primary (the reference reducer removes any panel whose last tab
         // closes) instead of keeping a dead primary panel on screen.
@@ -924,7 +1231,9 @@ export class AiRunPaneController {
       while (this.panels.length > 1) {
         this.closePanel(this.panels[this.panels.length - 1])
       }
-      this.root?.classList.add('is-hidden')
+      if (!this.workspaceFileEditor?.hasOpenFiles()) {
+        this.root?.classList.add('is-hidden')
+      }
       const primary = this.getPrimaryPanel()
       if (primary) this.refreshContentTab(primary)
     }
@@ -934,23 +1243,25 @@ export class AiRunPaneController {
   }
 
   private createRunView(record: AiRunRecord): void {
-    const sidebarEl = this.sidebarEl
+    const sidebarEl = this.sidebarRunsEl
     const target = this.getFocusedPanel()
     if (!sidebarEl || !target) return
 
     const isShell = record.host === 'shell'
-    const row = sidebarEl.createDiv({
-      cls: isShell ? 'ai-run-pane__run ai-run-pane__run--shell' : 'ai-run-pane__run',
-      attr: {
-        role: 'tab',
-        tabindex: '0',
-        'data-run-id': record.id,
-      },
-    })
-    row.addEventListener('click', () => {
+    const row = isShell
+      ? null
+      : sidebarEl.createDiv({
+          cls: 'ai-run-pane__run',
+          attr: {
+            role: 'tab',
+            tabindex: '0',
+            'data-run-id': record.id,
+          },
+        })
+    row?.addEventListener('click', () => {
       this.showRunInFocusedPanel(record.id)
     })
-    row.addEventListener('keydown', (event) => {
+    row?.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return
       event.preventDefault()
       this.showRunInFocusedPanel(record.id)
@@ -963,6 +1274,37 @@ export class AiRunPaneController {
         : 'ai-run-pane__body',
       attr: { 'data-run-id': record.id },
     })
+    if (isTerminal) {
+      body.addEventListener('dragover', (event) => {
+        if (!event.dataTransfer) return
+        if (this.activeWorkspaceDragPath === null) return
+        if (!Array.from(event.dataTransfer.types).includes(WORKSPACE_PATH_DRAG_MIME)) {
+          return
+        }
+        event.preventDefault()
+      })
+      body.addEventListener('drop', (event) => {
+        const path = event.dataTransfer?.getData(WORKSPACE_PATH_DRAG_MIME) ?? ''
+        const expectedPath = this.activeWorkspaceDragPath
+        // DataTransfer is an untrusted boundary. A feature-specific MIME type
+        // alone is forgeable, so require the exact path recorded by this
+        // pane's validated Files tree for this one drag operation.
+        this.activeWorkspaceDragPath = null
+        if (path.length === 0 || expectedPath === null || path !== expectedPath) {
+          return
+        }
+        event.preventDefault()
+        try {
+          this.host.manager.sendTerminalInput(
+            record.id,
+            formatWorkspacePathForTerminal(path),
+          )
+          this.runViews.get(record.id)?.terminal?.adapter.focus()
+        } catch {
+          // Invalid drag payloads (notably NUL) are ignored, never executed.
+        }
+      })
+    }
 
     const view: RunView = {
       row,
@@ -983,18 +1325,22 @@ export class AiRunPaneController {
     this.revealPane()
     if (target.selectedRunId === null) {
       this.selectRunInPanel(target, record.id)
+    } else {
+      this.refreshContentTab(target)
     }
   }
 
   /** Rebuild one sidebar row (status dot, truncated name, × control) */
   private refreshRunRow(view: RunView, record: AiRunRecord): void {
-    view.row.empty()
+    const row = view.row
+    if (!row) return
+    row.empty()
 
     const statusLabel = this.host.tv(
       `aiTask.status.${record.status}`,
       STATUS_FALLBACK_LABELS[record.status],
     )
-    view.row.createSpan({
+    row.createSpan({
       cls: `ai-run-pane__run-dot ai-run-pane__run-dot--${record.status}`,
       attr: { title: statusLabel },
     })
@@ -1002,12 +1348,12 @@ export class AiRunPaneController {
       record.taskName.trim().length > 0
         ? record.taskName
         : this.host.tv('aiTask.tabUntitled', 'Untitled run')
-    view.row.createSpan({
+    row.createSpan({
       cls: 'ai-run-pane__run-name',
       text: name,
       attr: { title: name },
     })
-    this.appendCloseControl(view.row, record, 'ai-run-pane__run-close')
+    this.appendCloseControl(row, record, 'ai-run-pane__run-close')
   }
 
   /**
@@ -1016,47 +1362,55 @@ export class AiRunPaneController {
    * nothing (pre-first-run and post-last-close states).
    */
   private refreshContentTab(panel: PanelView): void {
-    const tab = panel.tabEl
-    tab.empty()
-    const record =
-      panel.selectedRunId !== null
-        ? this.host.manager.getRun(panel.selectedRunId)
-        : undefined
-    if (!record) {
-      tab.classList.add('is-hidden')
-      tab.classList.remove('is-active')
-      tab.removeAttribute('data-run-id')
-      return
+    panel.tabsEl.empty()
+    for (const [runId, view] of this.runViews) {
+      if (view.panelId !== panel.id) continue
+      const record = this.host.manager.getRun(runId)
+      if (!record) continue
+      const selected = panel.selectedRunId === runId
+      const tab = panel.tabsEl.createDiv({
+        cls: selected ? 'ai-run-pane__tab is-active' : 'ai-run-pane__tab',
+        attr: {
+          role: 'tab',
+          tabindex: selected ? '0' : '-1',
+          'aria-selected': selected ? 'true' : 'false',
+          'data-run-id': record.id,
+        },
+      })
+      tab.addEventListener('click', () => {
+        this.focusPanel(panel)
+        this.selectRunInPanel(panel, record.id)
+      })
+      tab.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        this.focusPanel(panel)
+        this.selectRunInPanel(panel, record.id)
+      })
+      const statusLabel = this.host.tv(
+        `aiTask.status.${record.status}`,
+        STATUS_FALLBACK_LABELS[record.status],
+      )
+      tab.createSpan({
+        cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
+        attr: { title: statusLabel },
+      })
+      tab.createSpan({
+        cls: 'ai-run-pane__tab-label',
+        text:
+          record.mode === 'terminal'
+            ? this.host.tv('aiTask.contentTab.terminal', 'Terminal')
+            : this.host.tv('aiTask.contentTab.events', 'Events'),
+      })
+      this.appendCloseControl(tab, record, 'ai-run-pane__tab-close')
     }
-    tab.classList.remove('is-hidden')
-    tab.classList.add('is-active')
-    tab.setAttribute('data-run-id', record.id)
-
-    const statusLabel = this.host.tv(
-      `aiTask.status.${record.status}`,
-      STATUS_FALLBACK_LABELS[record.status],
-    )
-    tab.createSpan({
-      cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
-      attr: { title: statusLabel },
-    })
-    tab.createSpan({
-      cls: 'ai-run-pane__tab-label',
-      text:
-        record.mode === 'terminal'
-          ? this.host.tv('aiTask.contentTab.terminal', 'Terminal')
-          : this.host.tv('aiTask.contentTab.events', 'Events'),
-    })
-    this.appendCloseControl(tab, record, 'ai-run-pane__tab-close')
   }
 
   /** Refresh the tab of every panel currently displaying the run */
   private refreshTabsShowingRun(runId: string): void {
-    for (const panel of this.panels) {
-      if (panel.selectedRunId === runId) {
-        this.refreshContentTab(panel)
-      }
-    }
+    const view = this.runViews.get(runId)
+    const panel = view ? this.getPanel(view.panelId) : undefined
+    if (panel) this.refreshContentTab(panel)
   }
 
   /**
@@ -1110,6 +1464,7 @@ export class AiRunPaneController {
       // Adopt the hidden body into the focused panel.
       view.panelId = focused.id
       focused.bodiesEl.appendChild(view.body)
+      if (hostPanel) this.refreshContentTab(hostPanel)
     }
     this.selectRunInPanel(focused, runId)
   }
@@ -1123,14 +1478,15 @@ export class AiRunPaneController {
     }
     this.updateContainerChrome()
     this.updateComposerState()
+    this.refreshWorkspaceFiles()
   }
 
   /** Row/body active classes follow each panel's selected run */
   private syncPanelSelectionClasses(): void {
     for (const [id, view] of this.runViews) {
       const isSelected = this.getPanel(view.panelId)?.selectedRunId === id
-      view.row.classList.toggle('is-active', isSelected)
-      view.row.setAttribute('aria-selected', isSelected ? 'true' : 'false')
+      view.row?.classList.toggle('is-active', isSelected)
+      view.row?.setAttribute('aria-selected', isSelected ? 'true' : 'false')
       view.body.classList.toggle('is-active', isSelected)
     }
   }
@@ -1155,6 +1511,10 @@ export class AiRunPaneController {
     if (!view.terminal) {
       const record = this.host.manager.getRun(runId)
       const adapter = this.host.createTerminalAdapter()
+      const disposeResize =
+        adapter.onResize?.(({ cols, rows }) => {
+          this.host.manager.resizeTerminal?.(runId, cols, rows)
+        }) ?? (() => undefined)
       adapter.open(
         view.body,
         record?.cols ?? DEFAULT_TERMINAL_COLS,
@@ -1169,17 +1529,38 @@ export class AiRunPaneController {
       const disposeInput = adapter.onData((data) => {
         this.host.manager.sendTerminalInput(runId, data)
       })
-      view.terminal = { adapter, disposeData, disposeInput }
+      const disposeFilePath =
+        adapter.onFilePathActivate?.((target) => {
+          const cwd = this.host.manager.getRun(runId)?.cwd
+          if (!cwd) return
+          void this.openWorkspaceFile(cwd, target.path)
+        }) ?? (() => undefined)
+      view.terminal = {
+        adapter,
+        disposeData,
+        disposeInput,
+        disposeResize,
+        disposeFilePath,
+      }
     }
     if (this.focusedPanelId === panel.id) {
       view.terminal.adapter.focus()
     }
+    view.terminal.adapter.fit?.()
   }
 
   /** Create/focus the selected terminal view of every panel (uncollapse) */
   private ensureVisibleTerminalViews(): void {
     for (const panel of this.panels) {
       this.ensureTerminalView(panel)
+    }
+  }
+
+  private fitVisibleTerminalViews(): void {
+    for (const panel of this.panels) {
+      const runId = panel.selectedRunId
+      if (runId === null) continue
+      this.runViews.get(runId)?.terminal?.adapter.fit?.()
     }
   }
 
@@ -1190,6 +1571,8 @@ export class AiRunPaneController {
     view.terminal = null
     binding.disposeData()
     binding.disposeInput()
+    binding.disposeResize()
+    binding.disposeFilePath()
     binding.adapter.dispose()
   }
 
@@ -1202,7 +1585,8 @@ export class AiRunPaneController {
   private updateContainerChrome(): void {
     const container = this.containerEl
     if (!container) return
-    const visible = !this.isCollapsed() && !this.isHidden()
+    const paneVisible = !this.isHidden()
+    const visible = !this.isCollapsed() && paneVisible
     const anyTerminalOnScreen = this.panels.some(
       (panel) =>
         panel.selectedRunId !== null &&
@@ -1213,6 +1597,7 @@ export class AiRunPaneController {
       anyTerminalOnScreen && visible,
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
+    container.classList.toggle(VISIBLE_CONTAINER_CLASS, paneVisible)
   }
 
   // -------------------------------------------------------------------------

@@ -90,6 +90,31 @@ describe('ClaudeCodeDispatcher', () => {
       expect(handle.pid).toBe(4242)
     })
 
+    test('passes model and reasoning effort through as literal argv tokens', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())
+
+      dispatcher.start(
+        {
+          binaryPath: '/fake/bin/claude',
+          prompt: 'deep task',
+          extraArgs: ['--model=claude-fable-5', '--effort=max'],
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      expect(gateway.spawnMock.mock.calls[0][0].args).toEqual([
+        '-p',
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        '--model=claude-fable-5',
+        '--effort=max',
+        '--',
+        'deep task',
+      ])
+    })
+
     test('keeps a prompt starting with a dash behind the end-of-options separator', () => {
       const gateway = createSpyGateway()
       const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())

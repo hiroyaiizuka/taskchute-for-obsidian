@@ -41,6 +41,7 @@ export function prepareFixture(fixturePath: string): () => void {
 export interface SpyGateway extends ProcessGateway {
   spawnMock: jest.Mock<SpawnedProcessHandle, [SpawnProcessRequest]>
   ptyMock: jest.Mock<PtyCommand, [PtyCommandRequest]>
+  resizePtyMock: jest.Mock<boolean, [string, number, number]>
   baseEnv: Record<string, string | undefined>
 }
 
@@ -59,9 +60,11 @@ export function createSpyGateway(): SpyGateway {
     command: '/usr/bin/script',
     args: ['-q', request.transcriptPath, request.binaryPath, ...request.args],
   }))
+  const resizePtyMock = jest.fn<boolean, [string, number, number]>(() => true)
   return {
     spawnMock,
     ptyMock,
+    resizePtyMock,
     baseEnv,
     spawnProcess: (request: SpawnProcessRequest) => spawnMock(request),
     execCapture: () => Promise.resolve({ code: 0, stdout: '', stderr: '', timedOut: false }),
@@ -70,6 +73,8 @@ export function createSpyGateway(): SpyGateway {
     primeLoginShellPath: () => Promise.resolve(),
     isPtySupported: () => true,
     buildPtyCommand: (request: PtyCommandRequest) => ptyMock(request),
+    resizePty: (transcriptPath: string, cols: number, rows: number) =>
+      resizePtyMock(transcriptPath, cols, rows),
     makeTempFilePath: (prefix: string) => `/tmp/spy-gateway/${prefix}.log`,
     readAndDeleteFile: () => Promise.resolve(''),
   }

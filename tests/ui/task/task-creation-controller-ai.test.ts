@@ -5,7 +5,7 @@
  *   - AI mode reveals (in reference order) the main-agent card grid
  *     (Claude Code default / Codex), the prompt textarea with a live
  *     command preview, a start-time input, and an advanced block
- *     (execution mode, AI model, working directory)
+ *     (execution mode, AI model, reasoning mode/budget, working directory)
  *   - the preview mirrors the interactive terminal argv: binary + args +
  *     quoted prompt head
  *   - submitting in AI mode hands an aiTask payload to
@@ -175,10 +175,31 @@ function setPrompt(modal: HTMLElement, value: string): void {
 }
 
 function setModel(modal: HTMLElement, value: string): void {
+  const select = modal.querySelector<HTMLSelectElement>('.ai-task-model-select')
   const model = modal.querySelector<HTMLInputElement>('.ai-task-model-input')
-  if (!model) throw new Error('model input missing')
+  if (!select || !model) throw new Error('model controls missing')
+  const isPreset = Array.from(select.options).some((option) => option.value === value)
+  select.value = isPreset ? value : '__custom__'
+  select.dispatchEvent(new Event('change', { bubbles: true }))
   model.value = value
   model.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+function selectReasoningMode(
+  modal: HTMLElement,
+  value: 'automatic' | 'specified' | 'ultra',
+): void {
+  const select = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')
+  if (!select) throw new Error('reasoning mode select missing')
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function selectReasoningBudget(modal: HTMLElement, value: string): void {
+  const select = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-budget')
+  if (!select) throw new Error('reasoning budget select missing')
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 function selectExecMode(modal: HTMLElement, value: string): void {
@@ -308,8 +329,39 @@ describe('AI mode UI', () => {
 
     expect(modal.querySelector('.ai-task-advanced')).not.toBeNull()
     expect(modal.querySelector('.ai-task-exec-mode')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-model-select')).not.toBeNull()
     expect(modal.querySelector('.ai-task-model-input')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-reasoning-mode')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-reasoning-budget')).not.toBeNull()
     expect(modal.querySelector('.ai-task-cwd-input')).not.toBeNull()
+  })
+
+  test('offers verified host-specific model presets plus a custom option', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const modelSelect = modal.querySelector<HTMLSelectElement>('.ai-task-model-select')
+    const optionValues = () =>
+      Array.from(modelSelect?.options ?? []).map((option) => option.value)
+
+    expect(optionValues()).toEqual([
+      '',
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
+      '__custom__',
+    ])
+
+    agentCard(modal, 'codex').click()
+    expect(optionValues()).toEqual([
+      '',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      '__custom__',
+    ])
   })
 })
 
@@ -322,7 +374,7 @@ describe('command preview', () => {
     expect(previewCode(modal)).toBe('claude')
 
     setPrompt(modal, 'Review this PR')
-    expect(previewCode(modal)).toBe('claude "Review this PR"')
+    expect(previewCode(modal)).toBe('claude -- "Review this PR"')
   })
 
   test('reflects host switches and execution-mode variants', () => {
@@ -332,19 +384,19 @@ describe('command preview', () => {
     setPrompt(modal, 'Go')
 
     selectExecMode(modal, 'auto')
-    expect(previewCode(modal)).toBe('claude --permission-mode auto "Go"')
+    expect(previewCode(modal)).toBe('claude --permission-mode auto -- "Go"')
 
     selectExecMode(modal, 'skip-permissions')
-    expect(previewCode(modal)).toBe('claude --dangerously-skip-permissions "Go"')
+    expect(previewCode(modal)).toBe('claude --dangerously-skip-permissions -- "Go"')
 
     // Switching the host resets the variant to its default and swaps the
     // binary and the variant option set.
     agentCard(modal, 'codex').click()
-    expect(previewCode(modal)).toBe('codex "Go"')
+    expect(previewCode(modal)).toBe('codex -- "Go"')
 
     selectExecMode(modal, 'full-auto')
     expect(previewCode(modal)).toBe(
-      'codex --ask-for-approval never --sandbox workspace-write "Go"',
+      'codex --ask-for-approval never --sandbox workspace-write -- "Go"',
     )
   })
 
@@ -356,7 +408,21 @@ describe('command preview', () => {
 
     setModel(modal, 'claude-sonnet-4-5')
 
-    expect(previewCode(modal)).toBe('claude --model=claude-sonnet-4-5 "Go"')
+    expect(previewCode(modal)).toBe('claude --model=claude-sonnet-4-5 -- "Go"')
+  })
+
+  test('uses a verified model preset without revealing the custom input', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+
+    setModel(modal, 'claude-fable-5')
+
+    expect(previewCode(modal)).toBe('claude --model=claude-fable-5 -- "Go"')
+    expect(
+      modal.querySelector('.ai-task-model-input')?.classList.contains('hidden'),
+    ).toBe(true)
   })
 
   test('keeps model ids using the full reference-safe character set', () => {
@@ -368,7 +434,7 @@ describe('command preview', () => {
     setModel(modal, 'groq/llama-3.3-70b:versatile_x')
 
     expect(previewCode(modal)).toBe(
-      'claude --model=groq/llama-3.3-70b:versatile_x "Go"',
+      'claude --model=groq/llama-3.3-70b:versatile_x -- "Go"',
     )
   })
 
@@ -381,10 +447,10 @@ describe('command preview', () => {
     setPrompt(modal, 'Go')
 
     setModel(modal, '-leading-hyphen')
-    expect(previewCode(modal)).toBe('claude "Go"')
+    expect(previewCode(modal)).toBe('claude -- "Go"')
 
     setModel(modal, 'opus 4.6; rm -rf /')
-    expect(previewCode(modal)).toBe('claude "Go"')
+    expect(previewCode(modal)).toBe('claude -- "Go"')
   })
 
   test('flattens newlines and truncates the displayed prompt head', () => {
@@ -393,11 +459,136 @@ describe('command preview', () => {
     typeButton(modal, 'ai').click()
 
     setPrompt(modal, 'line one\nline two')
-    expect(previewCode(modal)).toBe('claude "line one line two"')
+    expect(previewCode(modal)).toBe('claude -- "line one line two"')
 
     const long = 'a'.repeat(60)
     setPrompt(modal, long)
-    expect(previewCode(modal)).toBe(`claude "${'a'.repeat(40)}…"`)
+    expect(previewCode(modal)).toBe(`claude -- "${'a'.repeat(40)}…"`)
+  })
+
+  test('shows the real argv separator and shell-escapes the displayed prompt', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    setPrompt(modal, '--help "quoted" \\path $HOME `pwd`')
+
+    expect(previewCode(modal)).toBe(
+      'claude -- "--help \\"quoted\\" \\\\path \\$HOME \\`pwd\\`"',
+    )
+  })
+
+  test('clears a host-specific model when switching agents', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'claude-sonnet-4-5')
+
+    agentCard(modal, 'codex').click()
+
+    expect(modal.querySelector<HTMLSelectElement>('.ai-task-model-select')?.value).toBe('')
+    expect(modal.querySelector<HTMLInputElement>('.ai-task-model-input')?.value).toBe('')
+    expect(previewCode(modal)).toBe('codex -- "Go"')
+  })
+
+  test('maps Claude and Codex reasoning budgets to their documented CLI args', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'claude-fable-5')
+
+    const budgetField = modal.querySelector('.ai-task-reasoning-budget-field')
+    expect(budgetField?.classList.contains('hidden')).toBe(true)
+
+    selectReasoningMode(modal, 'specified')
+    selectReasoningBudget(modal, 'high')
+    expect(budgetField?.classList.contains('hidden')).toBe(false)
+    expect(previewCode(modal)).toBe(
+      'claude --model=claude-fable-5 --effort=high -- "Go"',
+    )
+
+    selectReasoningMode(modal, 'ultra')
+    expect(previewCode(modal)).toBe(
+      'claude --model=claude-fable-5 --effort=ultracode -- "Go"',
+    )
+
+    agentCard(modal, 'codex').click()
+    setModel(modal, 'gpt-5.6-terra')
+    selectReasoningMode(modal, 'ultra')
+    expect(previewCode(modal)).toBe(
+      'codex --model=gpt-5.6-terra --config model_reasoning_effort="ultra" -- "Go"',
+    )
+  })
+
+  test('offers host-specific parallel modes separately from effort budgets', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const budget = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-budget')
+    const values = () => Array.from(budget?.options ?? []).map((option) => option.value)
+    expect(values()).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    const modes = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')
+    const modeValues = () => Array.from(modes?.options ?? []).map((option) => option.value)
+    // Default resolves through the user's CLI configuration, so its model
+    // capability is unknown until a concrete preset is selected.
+    expect(modeValues()).toEqual(['automatic'])
+
+    agentCard(modal, 'codex').click()
+    expect(values()).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(modeValues()).toEqual(['automatic'])
+
+    setModel(modal, 'gpt-5.6-sol')
+    expect(modeValues()).toEqual(['automatic', 'specified', 'ultra'])
+  })
+
+  test('resets specified reasoning when switching to effort-incompatible Haiku', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'claude-fable-5')
+    selectReasoningMode(modal, 'specified')
+    selectReasoningBudget(modal, 'high')
+    expect(previewCode(modal)).toBe(
+      'claude --model=claude-fable-5 --effort=high -- "Go"',
+    )
+
+    setModel(modal, 'claude-haiku-4-5')
+
+    const mode = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')
+    expect(Array.from(mode?.options ?? []).map((option) => option.value)).toEqual([
+      'automatic',
+    ])
+    expect(mode?.value).toBe('automatic')
+    expect(previewCode(modal)).toBe(
+      'claude --model=claude-haiku-4-5 -- "Go"',
+    )
+  })
+
+  test('resets Ultra when switching from Codex Terra to Luna', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    agentCard(modal, 'codex').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'gpt-5.6-terra')
+    selectReasoningMode(modal, 'ultra')
+    expect(previewCode(modal)).toContain('model_reasoning_effort="ultra"')
+
+    setModel(modal, 'gpt-5.6-luna')
+
+    const mode = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')
+    expect(Array.from(mode?.options ?? []).map((option) => option.value)).toEqual([
+      'automatic',
+      'specified',
+    ])
+    expect(mode?.value).toBe('automatic')
+    expect(previewCode(modal)).toBe(
+      'codex --model=gpt-5.6-luna -- "Go"',
+    )
   })
 })
 
@@ -411,9 +602,7 @@ describe('AI mode submission', () => {
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Review this PR')
     selectExecMode(modal, 'auto')
-    const model = modal.querySelector('.ai-task-model-input') as HTMLInputElement
-    model.value = 'claude-sonnet-4-5'
-    model.dispatchEvent(new Event('input', { bubbles: true }))
+    setModel(modal, 'claude-sonnet-4-5')
     const cwd = modal.querySelector('.ai-task-cwd-input') as HTMLInputElement
     cwd.value = '/Users/me/project'
     cwd.dispatchEvent(new Event('input', { bubbles: true }))
@@ -463,6 +652,48 @@ describe('AI mode submission', () => {
     )
   })
 
+  test('submits the prompt with its outer whitespace unchanged', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Whitespace Prompt'
+    const prompt = '\n    indented first line  \nlast line\n'
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, prompt)
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Whitespace Prompt',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ prompt }),
+      }),
+    )
+  })
+
+  test('normalizes a whitespace-only prompt to an empty REPL prompt', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Blank Prompt'
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, '  \n\t  ')
+    expect(previewCode(modal)).toBe('claude')
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Blank Prompt',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ prompt: '' }),
+      }),
+    )
+  })
+
   test('submits codex with default variant, no model, no cwd, empty prompt', async () => {
     const { host, taskCreationService } = createHost()
     const modal = openModal(host)
@@ -480,6 +711,64 @@ describe('AI mode submission', () => {
       undefined,
       expect.objectContaining({
         aiTask: { host: 'codex', args: [], cwd: undefined, prompt: '' },
+      }),
+    )
+  })
+
+  test('submits a Codex preset and Ultra reasoning as literal argv tokens', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Codex Ultra Task'
+
+    typeButton(modal, 'ai').click()
+    agentCard(modal, 'codex').click()
+    setModel(modal, 'gpt-5.6-sol')
+    selectReasoningMode(modal, 'ultra')
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Codex Ultra Task',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: {
+          host: 'codex',
+          args: [
+            '--model=gpt-5.6-sol',
+            '--config',
+            'model_reasoning_effort="ultra"',
+          ],
+          cwd: undefined,
+          prompt: '',
+        },
+      }),
+    )
+  })
+
+  test('submits Claude Ultracode using its host-specific effort value', async () => {
+    const { host, taskCreationService } = createHost()
+    const modal = openModal(host)
+    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+    nameInput.value = 'Claude Ultracode Task'
+
+    typeButton(modal, 'ai').click()
+    setModel(modal, 'claude-fable-5')
+    selectReasoningMode(modal, 'ultra')
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Claude Ultracode Task',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: {
+          host: 'claude',
+          args: ['--model=claude-fable-5', '--effort=ultracode'],
+          cwd: undefined,
+          prompt: '',
+        },
       }),
     )
   })

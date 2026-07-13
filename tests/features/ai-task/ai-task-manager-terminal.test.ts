@@ -61,6 +61,7 @@ interface FakeTerminalRun {
   request: TerminalRunRequest
   callbacks: TerminalRunCallbacks
   write: jest.Mock
+  resize: jest.Mock
   stop: jest.Mock
   forceKill: jest.Mock
   emitData(chunk: string): void
@@ -81,13 +82,20 @@ class FakeTerminalDispatcher implements AiTerminalDispatcher {
       request,
       callbacks,
       write: jest.fn(),
+      resize: jest.fn(),
       stop: jest.fn(),
       forceKill: jest.fn(),
       emitData: (chunk) => callbacks.onData(chunk),
       exit: (outcome) => callbacks.onExit(outcome),
     }
     this.runs.push(run)
-    return { pid: 2222, write: run.write, stop: run.stop, forceKill: run.forceKill }
+    return {
+      pid: 2222,
+      write: run.write,
+      resize: run.resize,
+      stop: run.stop,
+      forceKill: run.forceKill,
+    }
   }
 
   get last(): FakeTerminalRun {
@@ -125,6 +133,24 @@ function createTerminalHarness(options: HarnessOptions = {}) {
   const isSupported = jest.fn(() => options.supported ?? true)
   const getRunMode = jest.fn(() => options.runMode ?? 'terminal')
   const withTerminalWriter = options.withTerminalWriter ?? true
+  const listWorkspaceDirectory = jest.fn(async (rootPath: string) => ({
+    rootPath,
+    directoryPath: '',
+    entries: [],
+  }))
+  const workspaceDocument = {
+    rootPath: '/vault/base',
+    relativePath: 'src/index.ts',
+    absolutePath: '/vault/base/src/index.ts',
+    content: 'const value = 1\n',
+    version: { mtimeMs: 123, size: 16 },
+  }
+  const readWorkspaceFile = jest.fn(async () => workspaceDocument)
+  const writeWorkspaceFile = jest.fn(async () => ({
+    ...workspaceDocument,
+    content: 'const value = 2\n',
+    version: { mtimeMs: 456, size: 16 },
+  }))
 
   const deps: AiTaskManagerDeps = {
     app: {
@@ -151,6 +177,11 @@ function createTerminalHarness(options: HarnessOptions = {}) {
       makeTempFilePath,
       readAndDeleteFile,
     },
+    workspaceFiles: {
+      listDirectory: listWorkspaceDirectory,
+      readFile: readWorkspaceFile,
+      writeFile: writeWorkspaceFile,
+    },
     getRunMode,
     timer: options.timer,
   }
@@ -166,6 +197,9 @@ function createTerminalHarness(options: HarnessOptions = {}) {
     readAndDeleteFile,
     isSupported,
     getRunMode,
+    listWorkspaceDirectory,
+    readWorkspaceFile,
+    writeWorkspaceFile,
   }
 }
 
@@ -185,6 +219,7 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(record.instanceId).toBe('inst-42')
     expect(record.status).toBe('running')
     expect(record.pid).toBe(2222)
+    expect(record.cwd).toBe('/vault/base')
     expect(typeof record.transcriptPath).toBe('string')
     expect(record.transcriptPath).toContain('/tmp/fake-transcripts/')
 
@@ -193,10 +228,62 @@ describe('AiTaskManager terminal mode routing', () => {
       prompt: 'Do the thing',
       cwd: '/vault/base',
       extraArgs: ['--dangerously-skip-permissions'],
+      launchInShell: true,
       rows: 24,
       cols: 80,
       transcriptPath: record.transcriptPath,
     })
+  })
+
+  test('delegates lazy workspace listing through the desktop file service', async () => {
+    const harness = createTerminalHarness()
+
+    await expect(
+      harness.manager.listWorkspaceDirectory('/vault/base', 'src'),
+    ).resolves.toMatchObject({ rootPath: '/vault/base', entries: [] })
+    expect(harness.listWorkspaceDirectory).toHaveBeenCalledWith(
+      '/vault/base',
+      'src',
+    )
+  })
+
+  test('delegates workspace reads and version-checked writes through the file service', async () => {
+    const harness = createTerminalHarness()
+
+    const opened = await harness.manager.readWorkspaceFile(
+      '/vault/base',
+      'src/index.ts',
+    )
+    const saved = await harness.manager.writeWorkspaceFile(
+      '/vault/base',
+      'src/index.ts',
+      'const value = 2\n',
+      opened.version,
+    )
+
+    expect(opened.content).toBe('const value = 1\n')
+    expect(saved.content).toBe('const value = 2\n')
+    expect(harness.readWorkspaceFile).toHaveBeenCalledWith(
+      '/vault/base',
+      'src/index.ts',
+    )
+    expect(harness.writeWorkspaceFile).toHaveBeenCalledWith(
+      '/vault/base',
+      'src/index.ts',
+      'const value = 2\n',
+      { mtimeMs: 123, size: 16 },
+    )
+  })
+
+  test('relays fitted xterm dimensions to the active PTY handle', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.manager.resizeTerminal(record.id, 132, 41)
+
+    expect(harness.terminal.last.resize).toHaveBeenCalledWith(132, 41)
+    expect(record.cols).toBe(132)
+    expect(record.rows).toBe(41)
   })
 
   test('passes explicit terminal dimensions through to the dispatcher', async () => {
@@ -807,6 +894,35 @@ describe('AiTaskManager dispose during live terminal sessions', () => {
     expect(timerCallbacks).toHaveLength(1)
     timerCallbacks[0]()
     expect(run.forceKill).toHaveBeenCalledTimes(1)
+  })
+
+  test('disposeAndWait keeps app quit pending through the force-kill escalation', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    await harness.manager.startRun(makeTaskFile())
+    const run = harness.terminal.last
+    let completed = false
+
+    const completion = harness.manager.disposeAndWait().then(() => {
+      completed = true
+    })
+    await Promise.resolve()
+
+    expect(run.stop).toHaveBeenCalledTimes(1)
+    expect(completed).toBe(false)
+    expect(timerCallbacks).toHaveLength(1)
+
+    timerCallbacks[0]()
+    await completion
+    expect(run.forceKill).toHaveBeenCalledTimes(1)
+    expect(completed).toBe(true)
   })
 })
 

@@ -1,17 +1,17 @@
 /**
- * AiTaskRowRenderer instance association: when a task note has duplicated
- * rows, the status chip + stop control render ONLY on the row whose
- * inst.instanceId matches the active run's record.instanceId. Rows that do
- * not own the run show just the 🤖 run button. Legacy runs without an
- * instanceId fall back to the host's primary-instance resolution (the first
- * instance of the task path).
+ * AiTaskRowRenderer duplicated-instance behavior: every AI task row keeps
+ * the same 🤖 control, including while an AI run is active. Run ownership is
+ * no longer represented in this secondary control; the row's primary
+ * play/stop button is the single execution-state indicator and stop action.
  */
 import { AiTaskRowRenderer } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
 import type { AiTaskRowRendererHost } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
 import type { TaskInstance } from '../../../src/types'
 
-function createInstance(instanceId: string): TaskInstance {
+function createInstance(
+  instanceId: string,
+  state: TaskInstance['state'] = 'idle',
+): TaskInstance {
   return {
     task: {
       file: null,
@@ -21,23 +21,9 @@ function createInstance(instanceId: string): TaskInstance {
       isRoutine: false,
     },
     instanceId,
-    state: 'idle',
+    state,
     slotKey: 'none',
   } as TaskInstance
-}
-
-function createRun(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
-  return {
-    id: 'run-1',
-    taskPath: 'TASKS/ai-sample.md',
-    taskName: 'AI sample',
-    host: 'claude',
-    mode: 'terminal',
-    status: 'running',
-    startedAt: Date.now(),
-    events: [],
-    ...overrides,
-  }
 }
 
 function createHost(
@@ -46,9 +32,7 @@ function createHost(
   return {
     tv: (_key, fallback) => fallback,
     isAiTaskFeatureEnabled: () => true,
-    getActiveAiRun: () => undefined,
     startAiRun: jest.fn(),
-    stopAiRun: jest.fn(),
     ...overrides,
   }
 }
@@ -68,120 +52,27 @@ describe('AiTaskRowRenderer instance association', () => {
     document.body.replaceChildren()
   })
 
-  test('run with instanceId: only the matching row gets the chip and stop control', () => {
-    const run = createRun({ instanceId: 'instance-2' })
-    const host = createHost({ getActiveAiRun: () => run })
+  test('running state does not replace the robot on either duplicate row', () => {
+    const host = createHost()
 
-    const owner = renderRow(host, createInstance('instance-2'))
+    const owner = renderRow(host, createInstance('instance-2', 'running'))
     const other = renderRow(host, createInstance('instance-1'))
 
-    expect(owner.querySelector('.ai-task-status-chip')).not.toBeNull()
-    expect(owner.querySelector('.ai-task-run-button--stop')).not.toBeNull()
-    expect(owner.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)')).toBeNull()
-
-    expect(other.querySelector('.ai-task-status-chip')).toBeNull()
-    expect(other.querySelector('.ai-task-run-button--stop')).toBeNull()
-    expect(
-      other.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).not.toBeNull()
+    for (const row of [owner, other]) {
+      expect(row.querySelector('.ai-task-status-chip')).toBeNull()
+      expect(row.querySelector('.ai-task-run-button--stop')).toBeNull()
+      const button = row.querySelector(
+        '.ai-task-run-button:not(.ai-task-run-button--stop)',
+      )
+      expect(button).not.toBeNull()
+      expect(button?.textContent).toBe('🤖')
+    }
   })
 
-  test('run without instanceId: falls back to the host primary-instance resolution', () => {
-    const run = createRun({ instanceId: undefined })
-    const host = createHost({
-      getActiveAiRun: () => run,
-      isPrimaryInstance: (inst) => inst.instanceId === 'instance-1',
-    })
-
-    const primary = renderRow(host, createInstance('instance-1'))
-    const duplicate = renderRow(host, createInstance('instance-3'))
-
-    expect(primary.querySelector('.ai-task-status-chip')).not.toBeNull()
-    expect(primary.querySelector('.ai-task-run-button--stop')).not.toBeNull()
-
-    expect(duplicate.querySelector('.ai-task-status-chip')).toBeNull()
-    expect(duplicate.querySelector('.ai-task-run-button--stop')).toBeNull()
-    expect(
-      duplicate.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).not.toBeNull()
-  })
-
-  test('run without instanceId and no host resolver: every row keeps the chip (legacy behavior)', () => {
-    const run = createRun({ instanceId: undefined })
-    const host = createHost({ getActiveAiRun: () => run })
-
-    const first = renderRow(host, createInstance('instance-1'))
-    const second = renderRow(host, createInstance('instance-2'))
-
-    expect(first.querySelector('.ai-task-status-chip')).not.toBeNull()
-    expect(second.querySelector('.ai-task-status-chip')).not.toBeNull()
-  })
-
-  test('stale run instanceId (no rendered instance carries it): primary row regains the chip and stop control', () => {
-    // Idle instances are re-minted with fresh random ids on every task list
-    // reload, so a mid-run reload leaves record.instanceId matching no row.
-    // The chip must fall back to the primary instance instead of vanishing.
-    const run = createRun({ instanceId: 'stale-id-from-before-reload' })
-    const host = createHost({
-      getActiveAiRun: () => run,
-      hasInstanceId: () => false,
-      isPrimaryInstance: (inst) => inst.instanceId === 'instance-1',
-    })
-
-    const primary = renderRow(host, createInstance('instance-1'))
-    const duplicate = renderRow(host, createInstance('instance-2'))
-
-    expect(primary.querySelector('.ai-task-status-chip')).not.toBeNull()
-    expect(primary.querySelector('.ai-task-run-button--stop')).not.toBeNull()
-    expect(
-      primary.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).toBeNull()
-
-    expect(duplicate.querySelector('.ai-task-status-chip')).toBeNull()
-    expect(duplicate.querySelector('.ai-task-run-button--stop')).toBeNull()
-    expect(
-      duplicate.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).not.toBeNull()
-  })
-
-  test('live run instanceId owned by another rendered row: no primary fallback', () => {
-    const run = createRun({ instanceId: 'instance-2' })
-    const host = createHost({
-      getActiveAiRun: () => run,
-      hasInstanceId: (taskPath, instanceId) =>
-        taskPath === 'TASKS/ai-sample.md' && instanceId === 'instance-2',
-      isPrimaryInstance: (inst) => inst.instanceId === 'instance-1',
-    })
-
-    const primary = renderRow(host, createInstance('instance-1'))
-
-    expect(primary.querySelector('.ai-task-status-chip')).toBeNull()
-    expect(primary.querySelector('.ai-task-run-button--stop')).toBeNull()
-    expect(
-      primary.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).not.toBeNull()
-  })
-
-  test('stale run instanceId without a hasInstanceId resolver keeps the hard match (legacy hosts)', () => {
-    const run = createRun({ instanceId: 'stale-id-from-before-reload' })
-    const host = createHost({
-      getActiveAiRun: () => run,
-      isPrimaryInstance: (inst) => inst.instanceId === 'instance-1',
-    })
-
-    const primary = renderRow(host, createInstance('instance-1'))
-
-    expect(primary.querySelector('.ai-task-status-chip')).toBeNull()
-    expect(
-      primary.querySelector('.ai-task-run-button:not(.ai-task-run-button--stop)'),
-    ).not.toBeNull()
-  })
-
-  test('non-owning row run button still starts a run attempt for its own instance', () => {
-    const run = createRun({ instanceId: 'instance-2' })
+  test('running-task robot still starts a run attempt for its own instance', () => {
     const startAiRun = jest.fn()
-    const host = createHost({ getActiveAiRun: () => run, startAiRun })
-    const inst = createInstance('instance-1')
+    const host = createHost({ startAiRun })
+    const inst = createInstance('instance-1', 'running')
 
     const taskItem = renderRow(host, inst)
     taskItem

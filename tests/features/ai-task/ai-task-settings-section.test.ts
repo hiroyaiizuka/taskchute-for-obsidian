@@ -41,6 +41,7 @@ type SettingStub = {
 
 type FakeManager = {
   dispose: jest.Mock
+  disposeAndWait: jest.Mock<Promise<void>, []>
   invalidateBinaryCache: jest.Mock
 }
 
@@ -50,6 +51,7 @@ type MutableSettingTab = TaskChuteSettingTab & {
     settings: Record<string, unknown>
     saveSettings: jest.Mock<Promise<void>, []>
     aiTaskManager?: FakeManager
+    aiTaskManagersPendingDisposal?: Set<FakeManager>
   }
   renderAiTaskSection: (container: HTMLElement) => void
 }
@@ -107,8 +109,12 @@ function createDropdownStub(): DropdownStub {
 }
 
 function createFakeManager(): FakeManager {
+  const dispose = jest.fn()
   return {
-    dispose: jest.fn(),
+    dispose,
+    disposeAndWait: jest.fn(async () => {
+      dispose()
+    }),
     invalidateBinaryCache: jest.fn(),
   }
 }
@@ -119,6 +125,7 @@ function createTab(): MutableSettingTab {
   tab.plugin = {
     settings: {},
     saveSettings: jest.fn().mockResolvedValue(undefined),
+    aiTaskManagersPendingDisposal: new Set(),
   }
   return tab
 }
@@ -211,6 +218,7 @@ describe('TaskChute AI task settings section', () => {
 
     expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
     expect(manager.dispose).toHaveBeenCalledTimes(1)
+    expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tab.plugin.aiTaskManager).toBeUndefined()
     expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
   })

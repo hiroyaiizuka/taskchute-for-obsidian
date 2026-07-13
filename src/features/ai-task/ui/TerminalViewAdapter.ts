@@ -15,8 +15,21 @@
  * open() are buffered and flushed when the terminal exists.
  */
 
-import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import {
+  Terminal,
+  type IBufferLine,
+  type IDisposable,
+  type ILink,
+  type ILinkProvider,
+} from '@xterm/xterm'
 import xtermCssText from '@xterm/xterm/css/xterm.css'
+import { Platform } from 'obsidian'
+
+import {
+  findTerminalFileLinks,
+  type TerminalFileLinkMatch,
+} from './TerminalLinkMatcher'
 
 /** Marker class of the injected <style> element carrying the xterm css */
 export const XTERM_CSS_STYLE_CLASS = 'taskchute-xterm-css'
@@ -45,14 +58,40 @@ const TERMINAL_DARK_THEME = {
   selectionBackground: '#264f78',
 }
 
+const MAX_WRAPPED_SCAN_LINES = 40
+const MAX_WRAPPED_SCAN_CHARS = 4096
+const HTTP_URL_REGEX = /https?:\/\/[^\s<>"'`]+/gi
+const TRAILING_URL_PUNCTUATION_REGEX = /[.,;:'"]+$/
+
+export interface TerminalFilePathActivation {
+  path: string
+  line?: number
+  column?: number
+}
+
+export interface TerminalViewAdapterOptions {
+  /** Preferred Electron/Obsidian bridge for opening HTTP(S) URLs externally. */
+  openExternalUrl?: (url: string) => void
+  /** Test/embedding override; production defaults to Obsidian Platform. */
+  isMacOS?: boolean
+}
+
 /** Thin view-layer contract implemented by the xterm adapter (mocked in tests) */
 export interface TerminalViewAdapterLike {
-  /** Create and attach the terminal with a fixed cols x rows grid */
+  /** Create and attach the terminal with an initial cols x rows grid */
   open(container: HTMLElement, cols: number, rows: number): void
+  /** Fit the xterm viewport to its current container when supported */
+  fit?(): void
   /** Write raw PTY output (ANSI included) into the terminal */
   write(data: string): void
   /** Subscribe to keystrokes; returns a disposer */
   onData(callback: (data: string) => void): () => void
+  /** Subscribe to fitted xterm grid changes (cols first, rows second). */
+  onResize?(callback: (size: { cols: number; rows: number }) => void): () => void
+  /** Subscribe to Cmd/Ctrl-clicked local-file references. */
+  onFilePathActivate?(
+    callback: (target: TerminalFilePathActivation) => void,
+  ): () => void
   /**
    * Plain-text snapshot of the terminal buffer (scrollback + screen): each
    * line right-trimmed, runs of 3+ blank lines collapsed to a single blank
@@ -83,11 +122,371 @@ export function ensureXtermCssInjected(container: HTMLElement): void {
   target.createEl('style', { cls: XTERM_CSS_STYLE_CLASS, text: xtermCssText })
 }
 
+interface WrappedBufferLine {
+  line: IBufferLine
+  text: string
+  y: number
+}
+
+interface CellSegment {
+  startOffset: number
+  endOffset: number
+  startX: number
+  endXExclusive: number
+  y: number
+}
+
+interface BufferPosition {
+  x: number
+  y: number
+}
+
+interface HttpUrlMatch {
+  url: string
+  startIndex: number
+  endIndex: number
+}
+
+function collectWrappedLineBlock(
+  terminal: Terminal,
+  bufferLineNumber: number,
+): WrappedBufferLine[] {
+  const active = terminal.buffer.active
+  const lineIndex = bufferLineNumber - 1
+  const current = active.getLine(lineIndex)
+  if (!current) return []
+
+  const lines = new Map<number, WrappedBufferLine>([
+    [
+      lineIndex,
+      {
+        line: current,
+        text: current.translateToString(),
+        y: bufferLineNumber,
+      },
+    ],
+  ])
+  let startIndex = lineIndex
+  let endIndex = lineIndex
+  let totalLines = 1
+  let totalChars = lines.get(lineIndex)?.text.length ?? 0
+
+  while (
+    totalLines < MAX_WRAPPED_SCAN_LINES &&
+    totalChars < MAX_WRAPPED_SCAN_CHARS
+  ) {
+    let expanded = false
+    if (startIndex > 0 && active.getLine(startIndex)?.isWrapped) {
+      const previousIndex = startIndex - 1
+      const previous = active.getLine(previousIndex)
+      if (previous) {
+        const text = previous.translateToString()
+        if (totalChars + text.length <= MAX_WRAPPED_SCAN_CHARS) {
+          lines.set(previousIndex, {
+            line: previous,
+            text,
+            y: previousIndex + 1,
+          })
+          startIndex = previousIndex
+          totalLines += 1
+          totalChars += text.length
+          expanded = true
+        }
+      }
+    }
+
+    if (
+      totalLines >= MAX_WRAPPED_SCAN_LINES ||
+      totalChars >= MAX_WRAPPED_SCAN_CHARS
+    ) {
+      break
+    }
+    const nextIndex = endIndex + 1
+    const next = active.getLine(nextIndex)
+    if (next?.isWrapped) {
+      const text = next.translateToString()
+      if (totalChars + text.length <= MAX_WRAPPED_SCAN_CHARS) {
+        lines.set(nextIndex, { line: next, text, y: nextIndex + 1 })
+        endIndex = nextIndex
+        totalLines += 1
+        totalChars += text.length
+        expanded = true
+      }
+    }
+    if (!expanded) break
+  }
+
+  const result: WrappedBufferLine[] = []
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const line = lines.get(index)
+    if (line) result.push(line)
+  }
+  return result
+}
+
+function buildCellSegments(lines: WrappedBufferLine[]): CellSegment[] {
+  const segments: CellSegment[] = []
+  let totalOffset = 0
+  for (const wrappedLine of lines) {
+    let lineOffset = 0
+    for (
+      let x = 0;
+      x < wrappedLine.line.length && lineOffset < wrappedLine.text.length;
+      x += 1
+    ) {
+      const cell = wrappedLine.line.getCell(x)
+      if (!cell) break
+      const width = cell.getWidth()
+      if (width <= 0) continue
+      const chars = cell.getChars()
+      const characterLength = chars.length > 0 ? chars.length : 1
+      const nextLineOffset = Math.min(
+        lineOffset + characterLength,
+        wrappedLine.text.length,
+      )
+      if (nextLineOffset <= lineOffset) continue
+      segments.push({
+        startOffset: totalOffset + lineOffset,
+        endOffset: totalOffset + nextLineOffset,
+        startX: x + 1,
+        endXExclusive: x + 1 + width,
+        y: wrappedLine.y,
+      })
+      lineOffset = nextLineOffset
+    }
+    totalOffset += wrappedLine.text.length
+  }
+  return segments
+}
+
+function isBefore(left: BufferPosition, right: BufferPosition): boolean {
+  return left.y < right.y || (left.y === right.y && left.x < right.x)
+}
+
+function laterPosition(
+  left: BufferPosition,
+  right: BufferPosition,
+): BufferPosition {
+  return isBefore(left, right) ? right : left
+}
+
+function startOffsetToBufferPosition(
+  segments: CellSegment[],
+  startOffset: number,
+  fallbackY: number,
+): BufferPosition {
+  if (segments.length === 0) return { x: startOffset + 1, y: fallbackY }
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]
+    if (startOffset < segment.endOffset) {
+      return { x: segment.startX, y: segment.y }
+    }
+    if (startOffset === segment.endOffset) {
+      const next = segments[index + 1]
+      if (next?.startOffset === startOffset) {
+        return { x: next.startX, y: next.y }
+      }
+      return { x: segment.endXExclusive, y: segment.y }
+    }
+  }
+  const last = segments[segments.length - 1]
+  return { x: last.endXExclusive, y: last.y }
+}
+
+function endOffsetToBufferPosition(
+  segments: CellSegment[],
+  endOffset: number,
+  fallbackStart: BufferPosition,
+): BufferPosition {
+  if (segments.length === 0) {
+    return laterPosition(
+      { x: Math.max(fallbackStart.x, endOffset), y: fallbackStart.y },
+      fallbackStart,
+    )
+  }
+  for (const segment of segments) {
+    if (endOffset <= segment.endOffset) {
+      return laterPosition(
+        { x: segment.endXExclusive - 1, y: segment.y },
+        fallbackStart,
+      )
+    }
+  }
+  const last = segments[segments.length - 1]
+  return laterPosition(
+    { x: last.endXExclusive - 1, y: last.y },
+    fallbackStart,
+  )
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function countCharacter(value: string, expected: string): number {
+  let count = 0
+  for (const character of value) {
+    if (character === expected) count += 1
+  }
+  return count
+}
+
+function trimHttpUrlCandidate(candidate: string): string {
+  let url = candidate.replace(TRAILING_URL_PUNCTUATION_REGEX, '')
+  const pairs: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
+  while (url.length > 0) {
+    const closing = url[url.length - 1]
+    const opening = pairs[closing]
+    if (!opening) break
+    if (countCharacter(url, closing) <= countCharacter(url, opening)) break
+    url = url.slice(0, -1).replace(TRAILING_URL_PUNCTUATION_REGEX, '')
+  }
+  return url
+}
+
+function findHttpUrls(text: string): HttpUrlMatch[] {
+  const matches: HttpUrlMatch[] = []
+  HTTP_URL_REGEX.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = HTTP_URL_REGEX.exec(text)) !== null) {
+    const url = trimHttpUrlCandidate(match[0])
+    if (!isHttpUrl(url)) continue
+    matches.push({
+      url,
+      startIndex: match.index,
+      endIndex: match.index + url.length,
+    })
+  }
+  return matches
+}
+
+function isFileLinkActivation(event: MouseEvent, isMac: boolean): boolean {
+  return isMac ? event.metaKey : event.ctrlKey
+}
+
+function openInOwnerWindow(doc: Document, url: string): void {
+  if (!isHttpUrl(url)) return
+  const opened = doc.defaultView?.open(
+    url,
+    '_blank',
+    'noopener,noreferrer',
+  )
+  if (opened) opened.opener = null
+}
+
+function makeLink(
+  match: Pick<TerminalFileLinkMatch, 'startIndex' | 'endIndex' | 'fullMatch'>,
+  segments: CellSegment[],
+  bufferLineNumber: number,
+  activate: (event: MouseEvent) => void,
+): ILink | null {
+  const start = startOffsetToBufferPosition(
+    segments,
+    match.startIndex,
+    bufferLineNumber,
+  )
+  const end = endOffsetToBufferPosition(segments, match.endIndex, start)
+  if (start.y > bufferLineNumber || end.y < bufferLineNumber) return null
+  return {
+    range: { start, end },
+    text: match.fullMatch,
+    decorations: { pointerCursor: true, underline: true },
+    activate,
+  }
+}
+
+class FilePathLinkProvider implements ILinkProvider {
+  constructor(
+    private readonly terminal: Terminal,
+    private readonly isMac: boolean,
+    private readonly activatePath: (target: TerminalFilePathActivation) => void,
+  ) {}
+
+  provideLinks(
+    bufferLineNumber: number,
+    callback: (links: ILink[] | undefined) => void,
+  ): void {
+    const wrappedLines = collectWrappedLineBlock(this.terminal, bufferLineNumber)
+    if (wrappedLines.length === 0) {
+      callback(undefined)
+      return
+    }
+    const matches = findTerminalFileLinks(
+      wrappedLines.map((line) => line.text).join(''),
+    )
+    const segments = buildCellSegments(wrappedLines)
+    const links = matches
+      .map((match) =>
+        makeLink(match, segments, bufferLineNumber, (event) => {
+          if (!isFileLinkActivation(event, this.isMac)) return
+          this.activatePath({
+            path: match.path,
+            line: match.line,
+            column: match.column,
+          })
+        }),
+      )
+      .filter((link): link is ILink => link !== null)
+    callback(links.length > 0 ? links : undefined)
+  }
+}
+
+class HttpUrlLinkProvider implements ILinkProvider {
+  constructor(
+    private readonly terminal: Terminal,
+    private readonly activateUrl: (url: string) => void,
+  ) {}
+
+  provideLinks(
+    bufferLineNumber: number,
+    callback: (links: ILink[] | undefined) => void,
+  ): void {
+    const wrappedLines = collectWrappedLineBlock(this.terminal, bufferLineNumber)
+    if (wrappedLines.length === 0) {
+      callback(undefined)
+      return
+    }
+    const matches = findHttpUrls(wrappedLines.map((line) => line.text).join(''))
+    const segments = buildCellSegments(wrappedLines)
+    const links = matches
+      .map((match) =>
+        makeLink(
+          {
+            startIndex: match.startIndex,
+            endIndex: match.endIndex,
+            fullMatch: match.url,
+          },
+          segments,
+          bufferLineNumber,
+          () => this.activateUrl(match.url),
+        ),
+      )
+      .filter((link): link is ILink => link !== null)
+    callback(links.length > 0 ? links : undefined)
+  }
+}
+
 class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
   private terminal: Terminal | null = null
+  private fitAddon: FitAddon | null = null
+  private resizeObserver: ResizeObserver | null = null
   private pendingWrites: string[] = []
   private readonly dataListeners = new Set<(data: string) => void>()
+  private readonly resizeListeners = new Set<
+    (size: { cols: number; rows: number }) => void
+  >()
+  private readonly filePathListeners = new Set<
+    (target: TerminalFilePathActivation) => void
+  >()
+  private linkProviderDisposables: IDisposable[] = []
   private disposed = false
+
+  constructor(private readonly options: TerminalViewAdapterOptions) {}
 
   open(container: HTMLElement, cols: number, rows: number): void {
     if (this.terminal || this.disposed) return
@@ -101,18 +500,57 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
       cursorBlink: true,
       theme: TERMINAL_DARK_THEME,
     })
+    const fitAddon = new FitAddon()
+    terminal.loadAddon(fitAddon)
     terminal.onData((data) => {
       for (const listener of Array.from(this.dataListeners)) {
         listener(data)
       }
     })
+    terminal.onResize((size) => {
+      for (const listener of Array.from(this.resizeListeners)) {
+        listener(size)
+      }
+    })
     terminal.open(container)
+    const activatePath = (target: TerminalFilePathActivation): void => {
+      for (const listener of Array.from(this.filePathListeners)) listener(target)
+    }
+    const activateUrl =
+      this.options.openExternalUrl ??
+      ((url: string) => openInOwnerWindow(container.ownerDocument, url))
+    this.linkProviderDisposables = [
+      terminal.registerLinkProvider(
+        new FilePathLinkProvider(
+          terminal,
+          this.options.isMacOS ?? Platform?.isMacOS ?? false,
+          activatePath,
+        ),
+      ),
+      terminal.registerLinkProvider(new HttpUrlLinkProvider(terminal, activateUrl)),
+    ]
     this.terminal = terminal
+    this.fitAddon = fitAddon
+    this.fit()
+
+    const ResizeObserverCtor = container.ownerDocument.defaultView?.ResizeObserver
+    if (ResizeObserverCtor) {
+      this.resizeObserver = new ResizeObserverCtor(() => {
+        this.fit()
+      })
+      this.resizeObserver.observe(container)
+    }
+
     const buffered = this.pendingWrites
     this.pendingWrites = []
     for (const chunk of buffered) {
       terminal.write(chunk)
     }
+  }
+
+  fit(): void {
+    if (this.disposed || !this.terminal || !this.fitAddon) return
+    this.fitAddon.fit()
   }
 
   write(data: string): void {
@@ -128,6 +566,23 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     this.dataListeners.add(callback)
     return () => {
       this.dataListeners.delete(callback)
+    }
+  }
+
+  onResize(callback: (size: { cols: number; rows: number }) => void): () => void {
+    this.resizeListeners.add(callback)
+    return () => {
+      this.resizeListeners.delete(callback)
+    }
+  }
+
+  onFilePathActivate(
+    callback: (target: TerminalFilePathActivation) => void,
+  ): () => void {
+    if (this.disposed) return () => undefined
+    this.filePathListeners.add(callback)
+    return () => {
+      this.filePathListeners.delete(callback)
     }
   }
 
@@ -157,14 +612,24 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.resizeObserver?.disconnect()
+    this.resizeObserver = null
     this.dataListeners.clear()
+    this.resizeListeners.clear()
+    this.filePathListeners.clear()
     this.pendingWrites = []
+    for (const disposable of this.linkProviderDisposables.splice(0)) {
+      disposable.dispose()
+    }
     this.terminal?.dispose()
     this.terminal = null
+    this.fitAddon = null
   }
 }
 
 /** Production factory handed to the run pane controller by the view */
-export function createTerminalViewAdapter(): TerminalViewAdapterLike {
-  return new XtermTerminalViewAdapter()
+export function createTerminalViewAdapter(
+  options: TerminalViewAdapterOptions = {},
+): TerminalViewAdapterLike {
+  return new XtermTerminalViewAdapter(options)
 }

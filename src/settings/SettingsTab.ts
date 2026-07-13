@@ -4,6 +4,7 @@ import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
 import { createAiTaskManager } from "../features/ai-task"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
+import { disposeAiTaskManagerTracked } from "../features/ai-task/registerProcessCleanup"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
@@ -17,6 +18,7 @@ interface PluginWithSettings extends Plugin {
   settings: TaskChuteSettings
   pathManager: PathManagerLike
   aiTaskManager?: AiTaskManager
+  aiTaskManagersPendingDisposal?: Set<AiTaskManager>
   saveSettings(): Promise<void>
 }
 
@@ -721,7 +723,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       }
       return
     }
-    this.plugin.aiTaskManager?.dispose()
+    const manager = this.plugin.aiTaskManager
+    if (manager) disposeAiTaskManagerTracked(this.plugin, manager)
     this.plugin.aiTaskManager = undefined
   }
 

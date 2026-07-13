@@ -877,6 +877,12 @@
   color: var(--text-normal);
 }
 
+.ai-task-field-description {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .ai-task-agent-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2445,8 +2451,8 @@
 /* Main Container Layout */
 .main-container {
   display: flex;
-  flex-direction: row;
-  gap: 10px;
+  flex-direction: column;
+  gap: 0;
   position: relative;
   flex: 1;
   height: 100%;
@@ -6639,7 +6645,7 @@ textarea.form-textarea {
 
 /* ===== AI Task ===== */
 
-/* Row controls (run/stop button + status chip). Rendered inside
+/* Row controls. Rendered inside
    .task-name-container (never a direct child of the .task-item grid);
    spacing from the task name comes from the container's gap. */
 .ai-task-controls {
@@ -6665,48 +6671,19 @@ textarea.form-textarea {
   color: var(--text-normal);
 }
 
-.ai-task-run-button--stop {
-  color: var(--color-red, var(--text-error));
-}
-
-.ai-task-status-chip {
-  font-size: var(--font-ui-smaller);
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.ai-task-status-chip--starting,
-.ai-task-status-chip--running {
-  color: var(--text-accent);
-  background: var(--background-modifier-hover);
-}
-
-.ai-task-status-chip--stopping {
-  color: var(--color-orange, var(--text-muted));
-}
-
-.ai-task-status-chip--succeeded {
-  color: var(--color-green, var(--text-muted));
-}
-
-.ai-task-status-chip--failed {
-  color: var(--color-red, var(--text-error));
-}
-
-/* Bottom drawer container: overlays the lower part of the task list without
-   affecting the existing layout while the pane is hidden. */
+/* Bottom pane participates in the column layout while visible, shrinking the
+   scrollable task-list sibling instead of covering its final rows. */
 .ai-pane-container {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 50;
+  display: none;
+  width: 100%;
   max-height: 40%;
-  display: flex;
+  min-height: 0;
+  flex-shrink: 0;
   flex-direction: column;
+}
+
+.ai-pane-container--visible {
+  display: flex;
 }
 
 .ai-run-pane {
@@ -6772,8 +6749,117 @@ textarea.form-textarea {
   width: 180px;
   flex-shrink: 0;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   border-right: 1px solid var(--background-modifier-border);
+}
+
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar {
+  width: 24px;
+}
+
+.ai-run-pane__sidebar-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 26px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ai-run-pane__sidebar-toggle,
+.ai-run-pane__sidebar-files {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.ai-run-pane__sidebar-toggle:hover,
+.ai-run-pane__sidebar-files:hover,
+.ai-run-pane__sidebar-files[aria-pressed='true'] {
+  color: var(--text-normal);
+}
+
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files,
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-runs,
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files-view {
+  display: none;
+}
+
+.ai-run-pane__sidebar-runs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ai-run-pane__sidebar-files-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 0;
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-run-pane__file-node {
+  min-width: 0;
+}
+
+.ai-run-pane__file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 6px;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.ai-run-pane__file:hover,
+.ai-run-pane__file:focus-visible {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.ai-run-pane__file--folder {
+  cursor: pointer;
+}
+
+.ai-run-pane__file-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.ai-run-pane__file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-run-pane__file-children {
+  padding-left: 12px;
+}
+
+.ai-run-pane__file-children.is-hidden {
+  display: none;
+}
+
+.ai-run-pane__files-message {
+  padding: 6px 8px;
+  color: var(--text-faint);
+}
+
+.ai-run-pane__sidebar-runs.is-hidden,
+.ai-run-pane__sidebar-files-view.is-hidden {
+  display: none;
 }
 
 .ai-run-pane__run {
@@ -6815,10 +6901,21 @@ textarea.form-textarea {
   padding: 0 2px;
   line-height: 1;
   flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
-.ai-run-pane__run-close:hover {
+.ai-run-pane__run:hover .ai-run-pane__run-close,
+.ai-run-pane__run:focus-within .ai-run-pane__run-close {
+  opacity: 0.65;
+  pointer-events: auto;
+}
+
+.ai-run-pane__run-close:hover,
+.ai-run-pane__run-close:focus-visible {
   color: var(--text-normal);
+  opacity: 1;
 }
 
 .ai-run-pane__content {
@@ -6829,6 +6926,16 @@ textarea.form-textarea {
   min-height: 0;
 }
 
+/* Shared work area: opening a workspace file adds a right-hand editor and
+   divides the available content evenly, matching Now Playing. */
+.ai-run-pane__workarea {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Side-by-side panels area (U2 split): each panel is a column of its own
    tab strip + bodies; the composer sits below the whole area. */
 .ai-run-pane__panels {
@@ -6836,6 +6943,197 @@ textarea.form-textarea {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.ai-run-pane.has-file-panel .ai-run-pane__panels {
+  flex: 1 1 50%;
+  width: 50%;
+}
+
+.ai-run-pane__file-panel-container {
+  display: flex;
+  flex: 1 1 50%;
+  width: 50%;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--background-modifier-border);
+  background: #1e1e1e;
+}
+
+.ai-run-pane__file-panel-container.is-hidden {
+  display: none;
+}
+
+.ai-run-pane__file-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-run-pane__file-panel-header {
+  display: flex;
+  align-items: stretch;
+  min-height: 26px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ai-run-pane__file-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.ai-run-pane__file-tab {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 220px;
+  color: var(--text-muted);
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.ai-run-pane__file-tab.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+.ai-run-pane__file-tab-select {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+.ai-run-pane__file-tab-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.ai-run-pane__file-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+}
+
+.ai-run-pane__file-tab-dirty {
+  color: var(--interactive-accent);
+}
+
+.ai-run-pane__file-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  padding: 3px;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+.ai-run-pane__file-tab:hover .ai-run-pane__file-tab-close,
+.ai-run-pane__file-tab:focus-within .ai-run-pane__file-tab-close {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+
+.ai-run-pane__file-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--text-muted);
+}
+
+.ai-run-pane__file-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+.ai-run-pane__file-actions button:hover {
+  color: var(--text-normal);
+}
+
+.ai-run-pane__file-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ai-run-pane__file-saved {
+  padding: 0 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--color-green, var(--text-success));
+}
+
+.ai-run-pane__file-save-error {
+  padding: 0 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-error);
+}
+
+.ai-run-pane__file-editor-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.ai-run-pane__file-editor {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ai-run-pane__file-editor > .cm-editor {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.ai-run-pane__file-editor-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: #1e1e1e;
+}
+
+.ai-run-pane__file-editor-status.is-hidden {
+  display: none;
 }
 
 .ai-run-pane__panel {
@@ -6867,6 +7165,14 @@ textarea.form-textarea {
   min-height: 26px;
   border-bottom: 1px solid var(--background-modifier-border);
   flex-shrink: 0;
+}
+
+.ai-run-pane__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .ai-run-pane__tab {
@@ -6901,6 +7207,7 @@ textarea.form-textarea {
 .ai-run-pane__add {
   border: none;
   background: none;
+  box-shadow: none;
   cursor: pointer;
   color: var(--text-muted);
   font-size: 13px;
@@ -6913,6 +7220,18 @@ textarea.form-textarea {
 .ai-run-pane__split:hover,
 .ai-run-pane__add:hover {
   color: var(--text-normal);
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* Obsidian styles `button:not(.clickable-icon)` with a stronger selector. */
+.ai-run-pane__tabstrip > .ai-run-pane__add,
+.ai-run-pane__tabstrip > .ai-run-pane__add:hover,
+.ai-run-pane__tabstrip > .ai-run-pane__add:focus-visible {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 /* Status dots (sidebar rows and content tab alike): amber pulse while a run
@@ -6970,10 +7289,29 @@ textarea.form-textarea {
   font-size: 13px;
   padding: 0 2px;
   line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
-.ai-run-pane__tab-close:hover {
+.ai-run-pane__tab:hover .ai-run-pane__tab-close,
+.ai-run-pane__tab:focus-within .ai-run-pane__tab-close {
+  opacity: 0.65;
+  pointer-events: auto;
+}
+
+.ai-run-pane__tab-close:hover,
+.ai-run-pane__tab-close:focus-visible {
   color: var(--text-normal);
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ai-run-pane__run-close,
+  .ai-run-pane__tab-close {
+    opacity: 0.65;
+    pointer-events: auto;
+  }
 }
 
 .ai-run-pane__bodies {
@@ -7081,6 +7419,7 @@ textarea.form-textarea {
    (must stay in sync with the pane controller's height ratio). */
 .ai-pane-container--terminal {
   height: 40%;
+  flex-basis: 40%;
 }
 
 .ai-pane-container--terminal .ai-run-pane {
@@ -7093,8 +7432,9 @@ textarea.form-textarea {
    PTY grid of already-running sessions stays fixed — only the xterm
    viewport grows. */
 .ai-pane-container--expanded {
-  height: 90%;
-  max-height: 90%;
+  height: 100%;
+  max-height: 100%;
+  flex-basis: 100%;
 }
 
 .ai-pane-container--expanded .ai-run-pane {
@@ -7105,13 +7445,28 @@ textarea.form-textarea {
 /* Terminal body: xterm renders its own scrollback and padding, so the body
    itself must not scroll or pad. */
 .ai-run-pane__body--terminal {
+  background: #1e1e1e;
   padding: 0;
   overflow: hidden;
 }
 
+.ai-run-pane__body--terminal.is-active {
+  display: flex;
+}
+
 .ai-run-pane__body--terminal .xterm {
-  height: 100%;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
   padding: 4px 6px;
+  box-sizing: border-box;
+  background: #1e1e1e;
+}
+
+.ai-run-pane__body--terminal .xterm .xterm-viewport,
+.ai-run-pane__body--terminal .xterm .xterm-screen {
+  background: #1e1e1e;
 }
 
 /* The follow-up composer only applies to headless runs; terminal runs take

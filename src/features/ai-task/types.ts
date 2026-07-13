@@ -132,14 +132,17 @@ export interface AiRunRecord {
   taskPath: string
   /** Display name of the task (or the localized shell-session label) */
   taskName: string
+  /** Resolved absolute workspace root used by the process and Files view. */
+  cwd?: string
+  /** Top-level AI run that owns this panel-local shell session. */
+  parentRunId?: string
   host: AiRunHost
   status: AiRunStatus
   /** Execution mode of the child process (see AiRunMode) */
   mode: AiRunMode
   /**
-   * Task instance that started the run. Lets the row renderer scope the
-   * status chip/stop control to the originating instance when a task note
-   * has duplicated rows.
+   * Task instance that started the run. Retained for timer/run ownership when
+   * the same task note is represented by duplicated rows.
    */
   instanceId?: string
   /**
@@ -148,8 +151,8 @@ export interface AiRunRecord {
    */
   transcriptPath?: string
   /**
-   * PTY dimensions the terminal run was spawned with (fixed for the session).
-   * The pane opens its xterm view with the same size so the grids match.
+   * Latest known PTY dimensions. Initialized from the pane before spawn and
+   * updated when the mounted terminal is resized.
    * Unset for headless runs.
    */
   cols?: number

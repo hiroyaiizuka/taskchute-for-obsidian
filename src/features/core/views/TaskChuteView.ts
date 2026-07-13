@@ -73,7 +73,11 @@ import {
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
 import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
-import type { AiRunMode, AiRunStatus, AiTaskBoardView } from "../../ai-task/types"
+import type {
+  AiRunMode,
+  AiRunRecord,
+  AiTaskBoardView,
+} from "../../ai-task/types"
 
 /**
  * Per-device persistence key of the AI board view (App#saveLocalStorage /
@@ -140,8 +144,6 @@ export class TaskChuteView
   // AI Task pane (mounted only while plugin.aiTaskManager exists)
   private aiPaneContainer: HTMLElement | null = null
   private aiRunPaneController: AiRunPaneController | null = null
-  private aiRunRowStatuses = new Map<string, AiRunStatus>()
-  private aiRunRowUnsubscribe: (() => void) | null = null
   /** Selected board view (render-only filter); restored in the constructor */
   private aiTaskBoardView: AiTaskBoardView = 'mixed'
 
@@ -582,13 +584,9 @@ export class TaskChuteView
       openProjectInSplit: (projectPath) =>
         view.projectController.openProjectInSplit(projectPath),
       isAiTaskFeatureEnabled: () => view.isAiTaskFeatureEnabled(),
-      getActiveAiRun: (taskPath) =>
-        view.plugin.aiTaskManager?.getActiveRunForTask(taskPath),
       startAiRun: (inst) => {
         void view.startAiRun(inst)
       },
-      stopAiRun: (runId) => view.plugin.aiTaskManager?.stopRun(runId),
-      isPrimaryAiInstance: (inst) => view.isPrimaryAiInstance(inst),
       getAiTaskBoardView: () => view.getAiTaskBoardView(),
     }
   }
@@ -779,11 +777,10 @@ export class TaskChuteView
       return
     }
     try {
-      // The PTY grid is fixed at spawn time, so it must be derived from the
-      // pane BEFORE the run starts (120x30 fallback when no pane is mounted
-      // or it has no measurable size). The originating instanceId scopes the
-      // row status chip to this row; the mode follows the settings dropdown
-      // (the manager still degrades terminal to headless off-PTY platforms).
+      // Derive the initial PTY grid from the pane before the run starts
+      // (120x30 fallback when no pane is mounted or measurable). Subsequent
+      // pane resizes update the PTY. instanceId retains the originating task
+      // instance for timer/run ownership; mode follows the settings dropdown.
       const size = this.aiRunPaneController?.computeTerminalSize() ?? {
         cols: 120,
         rows: 30,
@@ -804,20 +801,6 @@ export class TaskChuteView
       }
       this.notifyAiRunError(error)
     }
-  }
-
-  /**
-   * Run-ownership fallback for AI runs without an instanceId: true when the
-   * instance is the first (primary) instance of its task path in the current
-   * task list.
-   */
-  private isPrimaryAiInstance(inst: TaskInstance): boolean {
-    const taskPath = inst.task.path
-    if (!taskPath) return true
-    const first = this.taskInstances.find(
-      (other) => other.task?.path === taskPath,
-    )
-    return !first || first.instanceId === inst.instanceId
   }
 
   /**
@@ -859,6 +842,35 @@ export class TaskChuteView
     // still in its async window (before the run record registers), so a
     // stop/reset/delete during that window is never silently lost.
     manager.requestStopForTask(taskPath)
+  }
+
+  /**
+   * Reverse coupling for the AI Runs × control. Prefer the originating
+   * instance id (duplicate-safe), then fall back to the task path for runs
+   * restored with a stale/missing id. The pane stops the process itself;
+   * this method owns only the normal TaskChute running -> done transition.
+   */
+  private handleAiRunStopAndClose(record: AiRunRecord): void {
+    if (record.host === 'shell') return
+    const byInstanceId = record.instanceId
+      ? this.taskInstances.find(
+          (instance) =>
+            instance.instanceId === record.instanceId &&
+            instance.state === 'running',
+        )
+      : undefined
+    const target =
+      byInstanceId ??
+      this.taskInstances.find(
+        (instance) =>
+          instance.state === 'running' &&
+          record.taskPath.length > 0 &&
+          instance.task?.path === record.taskPath,
+      )
+    if (!target) return
+    void this.stopInstance(target).catch((error: unknown) => {
+      console.error('[TaskChuteView] Failed to stop task from AI run close', error)
+    })
   }
 
   private notifyAiRunError(error: unknown): void {
@@ -913,6 +925,7 @@ export class TaskChuteView
       manager,
       createTerminalAdapter: () => createTerminalViewAdapter(),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
       saveLocalStorage: (key, value) => {
         if (typeof app.saveLocalStorage === 'function') {
           app.saveLocalStorage(key, value)
@@ -924,32 +937,11 @@ export class TaskChuteView
           : null,
     })
     this.aiRunPaneController.mount(this.aiPaneContainer)
-
-    // Row controls reflect run status; re-render the list only when a run's
-    // status actually changes (never on stream events). Shell sessions render
-    // no row chip, so their transitions never trigger a re-render, and
-    // 'persisted' (the end of a run's lifecycle) prunes the bookkeeping entry
-    // so the map does not grow for the lifetime of the view.
-    const unsubscribe = manager.onChange((record, changeType) => {
-      if (record.host === 'shell') return
-      if (changeType === 'persisted') {
-        this.aiRunRowStatuses.delete(record.id)
-        return
-      }
-      if (this.aiRunRowStatuses.get(record.id) === record.status) return
-      this.aiRunRowStatuses.set(record.id, record.status)
-      this.renderTaskList()
-    })
-    this.aiRunRowUnsubscribe = unsubscribe
-    this.registerManagedDisposer(unsubscribe)
   }
 
   private unmountAiRunPane(): void {
     this.aiRunPaneController?.unmount()
     this.aiRunPaneController = null
-    this.aiRunRowUnsubscribe?.()
-    this.aiRunRowUnsubscribe = null
-    this.aiRunRowStatuses.clear()
   }
 
   /** Mirror of onRecipeFeatureSettingsChanged for the AI Task feature toggle */

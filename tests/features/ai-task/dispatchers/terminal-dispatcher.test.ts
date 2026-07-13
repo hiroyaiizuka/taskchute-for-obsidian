@@ -6,6 +6,7 @@ import type {
 } from '../../../../src/features/ai-task/services/NodeProcessGateway'
 import {
   TerminalDispatcher,
+  buildShellLaunchCommand,
   buildTerminalEnv,
 } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type {
@@ -61,6 +62,75 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     expect(spawnRequest.stdinMode).toBe('pipe')
   })
 
+  test('shell-backed runs start the login shell and inject the AI command after callback wiring', () => {
+    const gateway = createSpyGateway()
+    const callOrder: string[] = []
+    const writeStdin = jest.fn(() => {
+      callOrder.push('write')
+    })
+    gateway.spawnMock.mockReturnValue({
+      pid: 4242,
+      onStdout: () => {
+        callOrder.push('stdout')
+      },
+      onStderr: () => {
+        callOrder.push('stderr')
+      },
+      onExit: () => {
+        callOrder.push('exit')
+      },
+      kill: jest.fn(),
+      writeStdin,
+    })
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+
+    dispatcher.start({ ...BASE_REQUEST, launchInShell: true }, noopCallbacks())
+
+    expect(gateway.ptyMock).toHaveBeenCalledWith({
+      binaryPath: '/bin/zsh',
+      args: ['-i', '-l'],
+      rows: 30,
+      cols: 100,
+      transcriptPath: '/tmp/transcript.txt',
+    })
+    expect(callOrder).toEqual(['stdout', 'stderr', 'exit', 'write'])
+    expect(writeStdin).toHaveBeenCalledWith(
+      "'/bin/claude' '--dangerously-skip-permissions' '--' 'do the thing'\r",
+    )
+  })
+
+  test('direct runs never inject a startup command into stdin', () => {
+    const gateway = createSpyGateway()
+    const writeStdin = jest.fn()
+    gateway.spawnMock.mockReturnValue({
+      pid: 4242,
+      onStdout: () => undefined,
+      onStderr: () => undefined,
+      onExit: () => undefined,
+      kill: jest.fn(),
+      writeStdin,
+    })
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+
+    dispatcher.start(BASE_REQUEST, noopCallbacks())
+
+    expect(writeStdin).not.toHaveBeenCalled()
+  })
+
+  test('rejects a NUL in a shell-backed launch token before spawning anything', () => {
+    const gateway = createSpyGateway()
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+
+    expect(() =>
+      dispatcher.start(
+        { ...BASE_REQUEST, prompt: 'unsafe\0prompt', launchInShell: true },
+        noopCallbacks(),
+      ),
+    ).toThrow('NUL')
+    expect(gateway.ptyMock).not.toHaveBeenCalled()
+    expect(gateway.spawnMock).not.toHaveBeenCalled()
+  })
+
   test('an empty prompt starts a plain REPL (extraArgs only, no separator)', () => {
     const gateway = createSpyGateway()
     const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
@@ -102,6 +172,23 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     expect(env.COLORTERM).toBe('truecolor')
     // Everything else from the base env is preserved.
     expect(env.BASE_ENV_MARKER).toBe('yes')
+  })
+})
+
+describe('buildShellLaunchCommand', () => {
+  test('quotes every token as POSIX data, including apostrophes and shell metacharacters', () => {
+    expect(
+      buildShellLaunchCommand('/bin/my cli', [
+        "it's",
+        '$HOME',
+        '`pwd`',
+        'line one\nline two',
+      ]),
+    ).toBe("'/bin/my cli' 'it'\\''s' '$HOME' '`pwd`' 'line one\nline two'")
+  })
+
+  test('rejects NUL instead of silently changing an argv token', () => {
+    expect(() => buildShellLaunchCommand('/bin/claude', ['bad\0arg'])).toThrow('NUL')
   })
 })
 
@@ -248,6 +335,63 @@ describe('TerminalDispatcher exit-code sentinel', () => {
     run.exit(null, 'SIGTERM')
 
     expect(run.outcomes[0].status).toBe('stopped')
+  })
+})
+
+describe('TerminalDispatcher live PTY resize', () => {
+  test('keeps the latest early resize and retries it when PTY output proves the sidecar exists', () => {
+    const gateway = createSpyGateway()
+    gateway.resizePtyMock
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    let stdoutCb: (text: string) => void = () => undefined
+    gateway.spawnMock.mockReturnValue({
+      pid: 4242,
+      onStdout: (callback) => {
+        stdoutCb = callback
+      },
+      onStderr: () => undefined,
+      onExit: () => undefined,
+      kill: jest.fn(),
+      writeStdin: jest.fn(),
+    })
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+    const run = dispatcher.start(BASE_REQUEST, noopCallbacks())
+
+    run.resize(120, 36)
+    run.resize(132, 41)
+    stdoutCb('shell ready')
+
+    expect(gateway.resizePtyMock.mock.calls).toEqual([
+      ['/tmp/transcript.txt', 120, 36],
+      ['/tmp/transcript.txt', 132, 41],
+      ['/tmp/transcript.txt', 132, 41],
+    ])
+  })
+
+  test('ignores invalid or post-exit dimensions', () => {
+    const gateway = createSpyGateway()
+    let exitCb: (code: number | null, signal: string | null) => void = () => undefined
+    gateway.spawnMock.mockReturnValue({
+      pid: 4242,
+      onStdout: () => undefined,
+      onStderr: () => undefined,
+      onExit: (callback) => {
+        exitCb = callback
+      },
+      kill: jest.fn(),
+      writeStdin: jest.fn(),
+    })
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+    const run = dispatcher.start(BASE_REQUEST, noopCallbacks())
+
+    run.resize(0, 24)
+    run.resize(80, Number.NaN)
+    exitCb(0, null)
+    run.resize(100, 30)
+
+    expect(gateway.resizePtyMock).not.toHaveBeenCalled()
   })
 })
 

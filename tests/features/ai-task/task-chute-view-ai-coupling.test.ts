@@ -393,6 +393,63 @@ describe('TaskChuteView stop button coupling', () => {
   })
 })
 
+describe('AI run tab close coupling back to TaskChute', () => {
+  const requestTaskStop = (view: TaskChuteView, record: AiRunRecord): void => {
+    ;(view as unknown as {
+      handleAiRunStopAndClose(record: AiRunRecord): void
+    }).handleAiRunStopAndClose(record)
+  }
+
+  test('stops the originating running instance by instanceId', async () => {
+    const { view, execution } = setUp()
+    const origin = makeInstance()
+    origin.instanceId = 'origin-instance'
+    origin.state = 'running'
+    const sibling = makeInstance()
+    sibling.instanceId = 'sibling-instance'
+    sibling.state = 'running'
+    view.taskInstances = [sibling, origin]
+
+    requestTaskStop(
+      view,
+      makeRecord({ instanceId: 'origin-instance', taskPath: TASK_PATH }),
+    )
+    await flushPromises()
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(origin, undefined)
+    expect(origin.state).toBe('done')
+    expect(sibling.state).toBe('running')
+  })
+
+  test('falls back to the running task path when instanceId is stale', async () => {
+    const { view, execution } = setUp()
+    const inst = makeInstance()
+    inst.instanceId = 'current-instance'
+    inst.state = 'running'
+    view.taskInstances = [inst]
+
+    requestTaskStop(
+      view,
+      makeRecord({ instanceId: 'stale-instance', taskPath: TASK_PATH }),
+    )
+    await flushPromises()
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(inst, undefined)
+  })
+
+  test('does not stop an idle or unrelated task', async () => {
+    const { view, execution } = setUp()
+    const idle = makeInstance()
+    idle.state = 'idle'
+    view.taskInstances = [idle]
+
+    requestTaskStop(view, makeRecord({ instanceId: idle.instanceId }))
+    await flushPromises()
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+  })
+})
+
 describe('TaskChuteView reset-to-idle coupling', () => {
   const asResetCapable = (view: TaskChuteView) =>
     view as unknown as { resetTaskToIdle(inst: TaskInstance): Promise<void> }
