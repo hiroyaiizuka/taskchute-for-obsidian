@@ -1,3 +1,4 @@
+import { setIcon } from 'obsidian'
 import { AiTaskRowRenderer } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
 import type { AiTaskRowRendererHost } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
 import type { TaskInstance } from '../../../src/types'
@@ -36,6 +37,7 @@ describe('AiTaskRowRenderer', () => {
 
   beforeEach(() => {
     document.body.replaceChildren()
+    ;(setIcon as jest.MockedFunction<typeof setIcon>).mockClear()
     taskItem = document.body.createDiv({ cls: 'task-item' })
     nameContainer = taskItem.createSpan({ cls: 'task-name-container' })
   })
@@ -73,6 +75,44 @@ describe('AiTaskRowRenderer', () => {
     expect(button).not.toBeNull()
     expect(button?.getAttribute('aria-label')).toBe('Run AI task')
     expect(taskItem.querySelector('.ai-task-status-chip')).toBeNull()
+  })
+
+  test('renders a link-2 status icon for an enabled valid Obsidian-linked AI task', () => {
+    const host = createHost()
+    new AiTaskRowRenderer(host).render(
+      nameContainer,
+      createInstance({
+        ai_task: true,
+        obsidian_sync: {
+          enabled: true,
+          taskTitle: 'CEO review',
+          matchType: 'exact',
+        },
+      }),
+    )
+
+    const icon = taskItem.querySelector<HTMLElement>(
+      '.ai-task-obsidian-link-icon',
+    )
+    expect(icon).not.toBeNull()
+    expect(icon?.getAttribute('data-icon')).toBe('link-2')
+    expect(icon?.getAttribute('aria-label')).toBe('Linked with Obsidian')
+    expect(setIcon).toHaveBeenCalledWith(icon, 'link-2')
+  })
+
+  test.each([
+    { enabled: false, taskTitle: 'CEO review', matchType: 'exact' },
+    { enabled: true, taskTitle: '', matchType: 'exact' },
+    { enabled: true, taskTitle: 'CEO review', matchType: 'invalid' },
+  ])('omits the link status icon for an inactive config: %#', (obsidianSync) => {
+    const host = createHost()
+    new AiTaskRowRenderer(host).render(
+      nameContainer,
+      createInstance({ ai_task: true, obsidian_sync: obsidianSync }),
+    )
+
+    expect(taskItem.querySelector('.ai-task-obsidian-link-icon')).toBeNull()
+    expect(setIcon).not.toHaveBeenCalled()
   })
 
   test('appends the controls inside the given container, never as a direct child of the task item', () => {

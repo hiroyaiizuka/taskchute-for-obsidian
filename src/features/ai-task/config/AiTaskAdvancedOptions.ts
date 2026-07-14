@@ -15,6 +15,15 @@ export type AiReasoningBudget =
   | 'xhigh'
   | 'max'
 
+export interface AiReasoningModelOptions {
+  /**
+   * Persistent custom models carry their real ID instead of the legacy
+   * `__custom__` sentinel, so callers must be able to identify them without
+   * inferring capabilities from an unknown ID.
+   */
+  isCustomModel?: boolean
+}
+
 /**
  * Built-in model choices verified against the local CLIs and their official
  * model documentation on 2026-07-13. Custom remains available because model
@@ -45,6 +54,7 @@ export const AI_REASONING_BUDGETS: Record<
 export function getAvailableReasoningModes(
   host: AiTaskHost,
   selectedModel: string,
+  options: AiReasoningModelOptions = {},
 ): readonly AiReasoningMode[] {
   // "Default" resolves through the user's CLI configuration. It may point to
   // a model outside our preset capability table (for example Haiku or Luna),
@@ -52,12 +62,15 @@ export function getAvailableReasoningModes(
   // selected. Custom remains separately conservative below.
   if (selectedModel === '') return ['automatic']
 
+  const isCustomModel =
+    options.isCustomModel === true || selectedModel === CUSTOM_AI_MODEL_VALUE
+
   if (host === 'claude') {
     // The current Claude Code docs do not list Haiku 4.5 as supporting
     // effort. Custom remains permissive for ordinary effort because a private
     // provider/model may support it, but does not advertise Ultracode.
     if (selectedModel === 'claude-haiku-4-5') return ['automatic']
-    if (selectedModel === CUSTOM_AI_MODEL_VALUE) {
+    if (isCustomModel) {
       return ['automatic', 'specified']
     }
     return ['automatic', 'specified', 'ultra']
@@ -65,7 +78,7 @@ export function getAvailableReasoningModes(
 
   // Codex 0.144.1's bundled catalog advertises Ultra for Sol and Terra, but
   // not Luna. A custom provider/model is unknown, so do not promise Ultra.
-  return selectedModel === 'gpt-5.6-luna' || selectedModel === CUSTOM_AI_MODEL_VALUE
+  return selectedModel === 'gpt-5.6-luna' || isCustomModel
     ? ['automatic', 'specified']
     : ['automatic', 'specified', 'ultra']
 }

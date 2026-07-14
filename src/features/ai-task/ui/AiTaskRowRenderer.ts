@@ -11,8 +11,10 @@
  * render, so this renderer owns no subscription or persistent DOM state.
  */
 
+import { setIcon } from 'obsidian'
 import type { TaskInstance } from '../../../types'
 import { readAiTaskConfig } from '../services/AiTaskFrontmatterReader'
+import { readObsidianTaskLinkConfig } from '../services/ObsidianTaskLinkConfig'
 
 export interface AiTaskRowRendererHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -30,7 +32,22 @@ export class AiTaskRowRenderer {
     if (!config) return
 
     const container = taskNameContainer.createSpan({ cls: 'ai-task-controls' })
+    if (readObsidianTaskLinkConfig(inst.task.frontmatter)) {
+      this.renderObsidianLinkStatus(container)
+    }
     this.renderRunButton(container, inst)
+  }
+
+  private renderObsidianLinkStatus(container: HTMLElement): void {
+    const label = this.host.tv(
+      'aiTask.obsidianLink.status',
+      'Linked with Obsidian',
+    )
+    const icon = container.createSpan({
+      cls: 'ai-task-obsidian-link-icon',
+      attr: { 'aria-label': label, title: label },
+    })
+    setIcon(icon, 'link-2')
   }
 
   private renderRunButton(container: HTMLElement, inst: TaskInstance): void {

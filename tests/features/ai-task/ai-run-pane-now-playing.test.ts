@@ -118,6 +118,7 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
 
 class FakeFileEditorAdapter implements FileEditorAdapterLike {
   document = ''
+  languagePath: string | null = null
   editable = false
   disposed = false
   private onChange: ((document: string) => void) | null = null
@@ -132,6 +133,10 @@ class FakeFileEditorAdapter implements FileEditorAdapterLike {
 
   setDocument(document: string): void {
     this.document = document
+  }
+
+  setLanguagePath(path: string | null): void {
+    this.languagePath = path
   }
 
   setEditable(editable: boolean): void {
@@ -419,10 +424,15 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
 
       const strip = container.querySelector('.ai-run-pane__tabstrip')
       expect(strip).not.toBeNull()
+      expect(strip?.classList).toContain('ai-run-pane__work-tabbar')
       let tabs = container.querySelectorAll('.ai-run-pane__tab')
       expect(tabs).toHaveLength(2)
+      expect(tabs[0].classList).toContain('ai-run-pane__work-tab')
+      expect(tabs[0].querySelector('.ai-run-pane__work-tab-close')).not.toBeNull()
       expect(tabs[0].getAttribute('data-run-id')).toBe('run-a')
-      expect(tabs[0].querySelector('.ai-run-pane__tab-dot--running')).not.toBeNull()
+      expect(
+        tabs[0].querySelector('.ai-run-pane__tab-dot--running')?.textContent,
+      ).toBe('●')
       // Terminal runs read "Terminal"; the label is the content type, not
       // the task name (that lives in the sidebar).
       expect(
@@ -1006,6 +1016,20 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
   })
 
   describe('expand toggle', () => {
+    test('lives once in the global AI Runs header instead of a panel tab strip', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+
+      const expand = container.querySelector('.ai-run-pane__expand')
+      expect(expand).not.toBeNull()
+      expect(expand?.parentElement?.classList).toContain(
+        'ai-run-pane__header-actions',
+      )
+      expect(expand?.closest('.ai-run-pane__header')).not.toBeNull()
+      expect(expand?.closest('.ai-run-pane__tabstrip')).toBeNull()
+      expect(container.querySelectorAll('.ai-run-pane__expand')).toHaveLength(1)
+    })
+
     test('toggles the expanded classes and persists the state per device', () => {
       controller.mount(container)
       manager.emit(createRun())
@@ -1062,6 +1086,27 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
 
       controller.setCollapsed(false)
       expect(container.classList.contains('ai-pane-container--expanded')).toBe(true)
+    })
+
+    test('header expand reveals a collapsed pane instead of toggling hidden state only', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+      const expand = container.querySelector<HTMLButtonElement>(
+        '.ai-run-pane__expand',
+      )
+
+      controller.setCollapsed(true)
+      expect(expand?.getAttribute('aria-pressed')).toBe('false')
+      expand?.click()
+
+      expect(pane()?.classList.contains('is-collapsed')).toBe(false)
+      expect(pane()?.classList.contains('is-expanded')).toBe(true)
+      expect(container.classList.contains('ai-pane-container--expanded')).toBe(true)
+      expect(expand?.getAttribute('aria-pressed')).toBe('true')
+      expect(saveLocalStorage).toHaveBeenLastCalledWith(
+        AI_PANE_EXPANDED_STORAGE_KEY,
+        true,
+      )
     })
 
     test('closing the last run removes the expanded container chrome with the pane', () => {

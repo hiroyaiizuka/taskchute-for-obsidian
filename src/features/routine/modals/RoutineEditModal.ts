@@ -17,6 +17,10 @@ import {
 import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
 import { attachCloseButtonIcon, attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
+import {
+  createObsidianTaskLinkFields,
+  type ObsidianTaskLinkFieldsController,
+} from "../../ai-task/ui/ObsidianTaskLinkFields"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
@@ -55,6 +59,7 @@ export default class RoutineEditModal {
   private monthdayOutsideClickDocument: Document | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
   private escapeKeyDocument: Document | null = null
+  private obsidianTaskLinkFields: ObsidianTaskLinkFieldsController | null = null
 
   private modalEl: HTMLDivElement | null = null
   private contentEl: HTMLDivElement | null = null
@@ -170,6 +175,8 @@ export default class RoutineEditModal {
   }
 
   close(): void {
+    this.obsidianTaskLinkFields?.destroy()
+    this.obsidianTaskLinkFields = null
     // Cleanup event listeners
     if (this.monthdayOutsideClickHandler) {
       const listenerDocument = this.monthdayOutsideClickDocument ?? activeDocument
@@ -446,6 +453,19 @@ export default class RoutineEditModal {
     updateVisibility()
     typeSelect.addEventListener("change", updateVisibility)
 
+    if (frontmatter.ai_task === true) {
+      this.obsidianTaskLinkFields = createObsidianTaskLinkFields({
+        parent: form,
+        doc: modalDocument,
+        app: this.app,
+        initialValue: frontmatter.obsidian_sync,
+        excludePath: this.file.path,
+        taskFolderPath: this.plugin.pathManager?.getTaskFolderPath?.(),
+        translate: (key, fallback) =>
+          this.tv(`obsidianLink.${key}`, fallback),
+      })
+    }
+
     // Buttons
     const buttonRow = this.contentEl.createDiv( {
       cls: "routine-editor__buttons",
@@ -465,6 +485,8 @@ export default class RoutineEditModal {
     saveButton.addEventListener("click", () => {
       void (async () => {
         const errors: string[] = []
+        const obsidianTaskLinkError = this.obsidianTaskLinkFields?.validate()
+        if (obsidianTaskLinkError) errors.push(obsidianTaskLinkError)
         const routineType = this.normalizeRoutineType(typeSelect.value)
         const interval = Math.max(1, Number(intervalInput.value || 1))
         if (!Number.isFinite(interval) || interval < 1) {
@@ -662,6 +684,13 @@ export default class RoutineEditModal {
               }
             } else {
               delete fmRecord.routine_disabled_without_target_date
+            }
+
+            const obsidianTaskLink = this.obsidianTaskLinkFields?.getValue()
+            if (obsidianTaskLink) {
+              fm.obsidian_sync = obsidianTaskLink
+            } else {
+              delete fm.obsidian_sync
             }
 
             // Notify only when target_date is truly removed from final frontmatter

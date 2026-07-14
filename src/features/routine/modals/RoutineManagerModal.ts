@@ -580,6 +580,7 @@ export class RoutineManagerModal extends Modal {
     let success = false;
     await this.app.fileManager.processFrontMatter(file, (frontmatter: RoutineFrontmatter) => {
       frontmatter.isRoutine = false;
+      delete frontmatter.obsidian_sync;
       frontmatter.routine_end = `${yyyy}-${mm}-${dd}`;
       // Clean up legacy Japanese field name using record access
       const fmRecord = frontmatter as Record<string, unknown>;

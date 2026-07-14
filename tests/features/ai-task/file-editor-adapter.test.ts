@@ -83,4 +83,36 @@ describe('FileEditorAdapter CodeMirror boundary', () => {
     })
     expect(second.querySelector('.cm-editor')).toBeNull()
   })
+
+  test('highlights Markdown in read-only mode and clears Markdown tokens for plain text', () => {
+    const container = document.body.createDiv()
+    const adapter = createFileEditorAdapter()
+
+    adapter.open(container, {
+      document: '',
+      editable: false,
+      onChange: jest.fn(),
+      onSave: jest.fn(),
+    })
+    adapter.setLanguagePath('/workspace/notes/example.md')
+    adapter.setDocument('# Heading\n\n- [Link](https://example.com) and `code`')
+
+    expect(container.querySelector('.cm-content')?.getAttribute('contenteditable')).toBe(
+      'false',
+    )
+    expect(container.querySelector('.tok-heading')).not.toBeNull()
+    expect(container.querySelector('.tok-link')).not.toBeNull()
+    expect(container.querySelector('.tok-monospace')).not.toBeNull()
+    expect(container.querySelector('.cm-editor')?.getAttribute('data-language')).toBe(
+      'markdown',
+    )
+
+    adapter.setLanguagePath('/workspace/notes/example.txt')
+
+    expect(container.querySelector('.tok-heading')).toBeNull()
+    expect(container.querySelector('.tok-link')).toBeNull()
+    expect(container.querySelector('.cm-editor')?.getAttribute('data-language')).toBe(
+      'plain-text',
+    )
+  })
 })

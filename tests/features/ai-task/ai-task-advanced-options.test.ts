@@ -82,4 +82,29 @@ describe('AI task advanced options', () => {
       'specified',
     ])
   })
+
+  test('treats a persisted custom model ID conservatively when explicitly marked custom', () => {
+    expect(
+      getAvailableReasoningModes('claude', 'private/claude-model', {
+        isCustomModel: true,
+      }),
+    ).toEqual(['automatic', 'specified'])
+    expect(
+      getAvailableReasoningModes('codex', 'private-codex-model', {
+        isCustomModel: true,
+      }),
+    ).toEqual(['automatic', 'specified'])
+
+    // Existing two-argument callers retain the preset/unknown-model behavior.
+    expect(getAvailableReasoningModes('claude', 'private/claude-model')).toEqual([
+      'automatic',
+      'specified',
+      'ultra',
+    ])
+    expect(getAvailableReasoningModes('codex', 'private-codex-model')).toEqual([
+      'automatic',
+      'specified',
+      'ultra',
+    ])
+  })
 })

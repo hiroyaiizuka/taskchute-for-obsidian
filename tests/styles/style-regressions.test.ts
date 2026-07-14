@@ -60,28 +60,92 @@ describe('style regressions', () => {
   test('AI terminal close controls reveal on hover/focus and remain usable on touch', () => {
     const css = styles()
     const runClose = readRule(css, '.ai-run-pane__run-close {')
-    const tabClose = readRule(css, '.ai-run-pane__tab-close {')
+    const tabClose = readRule(css, '.ai-run-pane__work-tab-close {')
     expect(runClose).toMatch(/opacity:\s*0;/)
     expect(runClose).toMatch(/pointer-events:\s*none;/)
     expect(tabClose).toMatch(/opacity:\s*0;/)
     expect(tabClose).toMatch(/pointer-events:\s*none;/)
     expect(css).toContain('.ai-run-pane__run:hover .ai-run-pane__run-close,')
-    expect(css).toContain('.ai-run-pane__tab:focus-within .ai-run-pane__tab-close')
+    expect(css).toContain(
+      '.ai-run-pane__work-tab:hover .ai-run-pane__work-tab-close',
+    )
+    expect(css).toContain(
+      '.ai-run-pane__work-tab-close:is(:hover, :focus-visible)',
+    )
     expect(css).toContain('@media (hover: none)')
   })
 
   test('AI terminal add button is a plain icon without chrome', () => {
     const css = styles()
     const rule = readRule(css, '.ai-run-pane__expand,')
-    expect(rule).toContain('.ai-run-pane__add')
     expect(rule).toMatch(/border:\s*none;/)
     expect(rule).toMatch(/background:\s*none;/)
     expect(rule).toMatch(/box-shadow:\s*none;/)
-    const override = readRule(
-      css,
-      '.ai-run-pane__tabstrip > .ai-run-pane__add,',
-    )
+    const add = readRule(css, '.ai-run-pane__add {')
+    expect(add).toMatch(/border:\s*none;/)
+    expect(add).toMatch(/background:\s*none;/)
+    expect(add).toMatch(/box-shadow:\s*none;/)
+    expect(add).toMatch(/font-size:\s*14px;/)
+    expect(add).toMatch(/line-height:\s*20px;/)
+    const override = readRule(css, '.ai-run-pane button.ai-run-pane__split,')
+    expect(override).toContain('.ai-run-pane button.ai-run-pane__add')
     expect(override).toMatch(/background-color:\s*transparent;/)
+    expect(override).toMatch(/border-radius:\s*0;/)
+    expect(override).toMatch(/min-height:\s*0;/)
+    expect(override).toMatch(
+      /line-height:\s*var\(--ai-run-control-line-height, 16px\);/,
+    )
+    const splitIcon = readRule(
+      css,
+      '.ai-run-pane button.ai-run-pane__split svg {',
+    )
+    expect(splitIcon).toMatch(/width:\s*14px;/)
+    expect(splitIcon).toMatch(/height:\s*14px;/)
+    const expand = readRule(css, '.ai-run-pane button.ai-run-pane__expand {')
+    expect(expand).toMatch(/min-height:\s*0;/)
+    expect(expand).toMatch(/background-color:\s*transparent;/)
+  })
+
+  test('AI task dropdowns stay scrollable and directory rows keep compact two-line spacing', () => {
+    const css = styles()
+    const directoryMenu = readRule(css, '.ai-working-directory-select__menu {')
+    const directoryUpward = readRule(
+      css,
+      '.ai-working-directory-select__menu.is-open-upward {',
+    )
+    const directoryOption = readRule(
+      css,
+      '.ai-working-directory-select__option {',
+    )
+    const separator = readRule(css, '.ai-working-directory-select__separator {')
+    const recentHeader = readRule(
+      css,
+      '.ai-working-directory-select__recent-header {',
+    )
+    const hiddenReset = readRule(
+      css,
+      '.ai-working-directory-select__reset.is-hidden {',
+    )
+    const modelMenu = readRule(css, '.ai-model-select__menu {')
+    const modelUpward = readRule(css, '.ai-model-select__menu.is-open-upward {')
+
+    expect(directoryMenu).toMatch(/top:\s*calc\(100% \+ 4px\);/)
+    expect(directoryMenu).toMatch(/overflow-y:\s*auto;/)
+    expect(directoryMenu).toMatch(/overscroll-behavior:\s*contain;/)
+    expect(directoryUpward).toMatch(/top:\s*auto;/)
+    expect(directoryUpward).toMatch(/bottom:\s*calc\(100% \+ 4px\);/)
+    expect(directoryOption).toMatch(/height:\s*auto;/)
+    expect(directoryOption).toMatch(/min-height:\s*48px;/)
+    expect(directoryOption).toMatch(/line-height:\s*1\.25;/)
+    expect(separator).toMatch(/margin:\s*0 3px;/)
+    expect(recentHeader).toMatch(/padding:\s*6px 8px;/)
+    expect(recentHeader).toMatch(/line-height:\s*1\.2;/)
+    expect(hiddenReset).toMatch(/display:\s*none;/)
+
+    expect(modelMenu).toMatch(/overflow-y:\s*auto;/)
+    expect(modelMenu).toMatch(/overscroll-behavior:\s*contain;/)
+    expect(modelUpward).toMatch(/top:\s*auto;/)
+    expect(modelUpward).toMatch(/bottom:\s*calc\(100% \+ 4px\);/)
   })
 
   test('AI terminal expanded and xterm surfaces fill the available area', () => {
@@ -111,6 +175,55 @@ describe('style regressions', () => {
     const editor = readRule(css, '.ai-run-pane__file-editor {')
     expect(editor).toMatch(/flex:\s*1;/)
     expect(editor).toMatch(/min-height:\s*0;/)
+  })
+
+  test('AI terminal and workspace file tabs share the compact reference chrome', () => {
+    const css = styles()
+    const bar = readRule(css, '.ai-run-pane__work-tabbar {')
+    const tab = readRule(css, '.ai-run-pane__work-tab {')
+    const active = readRule(css, '.ai-run-pane__work-tab.is-active {')
+    const close = readRule(css, '.ai-run-pane__work-tab-close {')
+
+    expect(bar).toMatch(/min-height:\s*25px;/)
+    expect(bar).not.toMatch(/(?:^|\n)\s*height:\s*25px;/)
+    expect(bar).toMatch(/padding:\s*0;/)
+    expect(bar).toMatch(/background:\s*#1a2332;/)
+    expect(bar).toMatch(/border-bottom:\s*1px solid #374151;/)
+    expect(tab).toMatch(/gap:\s*4px;/)
+    expect(tab).toMatch(/padding:\s*2px 8px;/)
+    expect(tab).toMatch(/border-radius:\s*0;/)
+    expect(tab).toMatch(/font-family:\s*var\(--font-monospace\);/)
+    expect(tab).toMatch(/font-size:\s*12px;/)
+    expect(tab).toMatch(/line-height:\s*16px;/)
+    expect(active).toMatch(/background:\s*#111827;/)
+    expect(active).toMatch(/color:\s*#e5e7eb;/)
+    const separator = readRule(css, '.ai-run-pane__work-tab::after {')
+    expect(separator).toMatch(/width:\s*1px;/)
+    expect(separator).toMatch(/background:\s*#374151;/)
+    const terminalDot = readRule(
+      css,
+      '.ai-run-pane__work-tab .ai-run-pane__tab-dot {',
+    )
+    expect(terminalDot).toMatch(/font-size:\s*12px;/)
+    expect(terminalDot).toMatch(/background:\s*transparent;/)
+    expect(close).toMatch(/opacity:\s*0;/)
+    expect(close).toMatch(/pointer-events:\s*none;/)
+    expect(close).toMatch(/cursor:\s*pointer;/)
+    expect(close).toMatch(
+      /transition:\s*opacity 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\);/,
+    )
+    expect(css).toContain(
+      '.ai-run-pane__work-tab:hover .ai-run-pane__work-tab-close {',
+    )
+    expect(css).toContain(
+      '.ai-run-pane__work-tab-close:is(:hover, :focus-visible)',
+    )
+    expect(css).not.toContain('.ai-run-pane__work-tab:focus-within')
+  })
+
+  test('AI file tabs have no nested native selection button chrome', () => {
+    const css = styles()
+    expect(css).not.toContain('.ai-run-pane__file-tab-select')
   })
 
   test('routine edit frequency sections stay hidden when is-hidden is applied', () => {

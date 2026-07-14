@@ -76,6 +76,18 @@ const DEFAULT_LABELS: WorkspaceFileEditorLabels = {
   discardConfirmation: 'You have unsaved changes. Discard them?',
 }
 
+/** Match the extension-specific tab icons used by TaskChute for Agents. */
+export function getWorkspaceFileTabIcon(title: string): string {
+  const normalized = title.toLowerCase()
+  if (normalized.endsWith('.tsx') || normalized.endsWith('.ts')) return '📘'
+  if (normalized.endsWith('.md')) return '📝'
+  if (normalized.endsWith('.json')) return '📋'
+  if (normalized.endsWith('.css')) return '🎨'
+  if (normalized.endsWith('.html')) return '🌐'
+  if (normalized.endsWith('.js')) return '📙'
+  return '📄'
+}
+
 /**
  * Multiple-tab file panel controller shared by Files clicks and terminal path
  * links. Filesystem access is injected through the host; this class only owns
@@ -104,7 +116,9 @@ export class WorkspaceFileEditorController {
     this.labels = { ...DEFAULT_LABELS, ...host.labels }
     this.container.empty()
     this.panel = this.container.createDiv({ cls: 'ai-run-pane__file-panel' })
-    const header = this.panel.createDiv({ cls: 'ai-run-pane__file-panel-header' })
+    const header = this.panel.createDiv({
+      cls: 'ai-run-pane__file-panel-header ai-run-pane__work-tabbar',
+    })
     this.tabsContainer = header.createDiv({
       cls: 'ai-run-pane__file-tabs',
       attr: { role: 'tablist' },
@@ -360,6 +374,9 @@ export class WorkspaceFileEditorController {
 
   private syncEditorToActiveTab(): void {
     const tab = this.getActiveTab()
+    this.editor.setLanguagePath(
+      tab ? (tab.absolutePath ?? tab.requestedPath) : null,
+    )
     if (!tab || tab.loadState === 'loading') {
       this.editor.setEditable(false)
       this.editor.setDocument('')
@@ -382,25 +399,59 @@ export class WorkspaceFileEditorController {
 
   private renderTab(tab: FileTabState): void {
     const tabElement = this.tabsContainer.createDiv({
-      cls: `ai-run-pane__file-tab${this.activeTabId === tab.id ? ' is-active' : ''}${isDirty(tab) ? ' is-dirty' : ''}`,
-      attr: { role: 'tab', 'aria-selected': String(this.activeTabId === tab.id) },
+      cls: `ai-run-pane__file-tab ai-run-pane__work-tab${this.activeTabId === tab.id ? ' is-active' : ''}${isDirty(tab) ? ' is-dirty' : ''}`,
+      attr: {
+        role: 'tab',
+        tabindex: this.activeTabId === tab.id ? '0' : '-1',
+        'aria-selected': String(this.activeTabId === tab.id),
+        'data-file-tab-id': String(tab.id),
+        title: tab.absolutePath ?? tab.requestedPath,
+      },
     })
-    const select = tabElement.createEl('button', {
-      cls: 'ai-run-pane__file-tab-select',
-      attr: { type: 'button', title: tab.absolutePath ?? tab.requestedPath },
+    tabElement.addEventListener('click', () => this.activateTab(tab.id))
+    tabElement.addEventListener('keydown', (event) => {
+      if (event.target !== tabElement) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        this.activateTab(tab.id)
+        return
+      }
+      const currentIndex = this.tabs.findIndex((candidate) => candidate.id === tab.id)
+      if (currentIndex < 0) return
+      let nextIndex: number | null = null
+      if (event.key === 'ArrowLeft') {
+        nextIndex = (currentIndex - 1 + this.tabs.length) % this.tabs.length
+      } else if (event.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % this.tabs.length
+      } else if (event.key === 'Home') {
+        nextIndex = 0
+      } else if (event.key === 'End') {
+        nextIndex = this.tabs.length - 1
+      }
+      if (nextIndex === null) return
+      event.preventDefault()
+      const nextTab = this.tabs[nextIndex]
+      this.activateTab(nextTab.id)
+      this.tabsContainer
+        .querySelector<HTMLElement>(`[data-file-tab-id="${nextTab.id}"]`)
+        ?.focus()
     })
-    const icon = select.createSpan({ cls: 'ai-run-pane__file-tab-icon' })
-    setIcon(icon, 'file')
-    select.createSpan({ cls: 'ai-run-pane__file-tab-title', text: tab.title })
-    if (isDirty(tab)) select.createSpan({ cls: 'ai-run-pane__file-tab-dirty', text: '•' })
-    select.addEventListener('click', () => this.activateTab(tab.id))
+    tabElement.createSpan({
+      cls: 'ai-run-pane__file-tab-icon',
+      text: getWorkspaceFileTabIcon(tab.title),
+    })
+    tabElement.createSpan({ cls: 'ai-run-pane__file-tab-title', text: tab.title })
+    if (isDirty(tab)) {
+      tabElement.createSpan({ cls: 'ai-run-pane__file-tab-dirty', text: '•' })
+    }
     const close = tabElement.createEl('button', {
-      cls: 'ai-run-pane__file-tab-close',
+      cls: 'ai-run-pane__file-tab-close ai-run-pane__work-tab-close',
       attr: { type: 'button', title: this.labels.close, 'aria-label': this.labels.close },
     })
-    close.disabled = tab.saveState === 'saving'
     setIcon(close, 'x')
-    close.addEventListener('click', () => {
+    close.disabled = tab.saveState === 'saving'
+    close.addEventListener('click', (event) => {
+      event.stopPropagation()
       void this.closeTab(tab.id)
     })
   }

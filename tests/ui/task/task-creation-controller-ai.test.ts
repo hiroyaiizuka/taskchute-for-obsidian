@@ -60,7 +60,17 @@ const validator: TaskNameValidator = {
   getErrorMessage: (chars: string[]) => `Invalid: ${chars.join(',')}`,
 }
 
-function createHost(settings: Partial<TaskChutePluginLike['settings']> = {}) {
+interface CreateHostOptions {
+  defaultWorkingDirectory?: string
+  workingDirectoryCandidates?: string[]
+  storedWorkingDirectories?: string[]
+  selectDirectory?: (defaultPath?: string) => Promise<string | null>
+}
+
+function createHost(
+  settings: Partial<TaskChutePluginLike['settings']> = {},
+  options: CreateHostOptions = {},
+) {
   const createdFile = new (TFile)()
   createdFile.path = 'TASKS/New Task.md'
 
@@ -74,8 +84,22 @@ function createHost(settings: Partial<TaskChutePluginLike['settings']> = {}) {
     }),
   }
 
+  const saveLocalStorage = jest.fn()
+  const loadLocalStorage = jest.fn((key: string) =>
+    key === 'taskchute-plus.ai-task-working-directory-history'
+      ? options.storedWorkingDirectories ?? []
+      : null,
+  )
   const pluginStub: TaskChutePluginLike = {
-    app: {} as App,
+    app: {
+      loadLocalStorage,
+      saveLocalStorage,
+      vault: {
+        adapter: {
+          getBasePath: () => options.defaultWorkingDirectory ?? '',
+        },
+      },
+    } as unknown as App,
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},
@@ -126,6 +150,11 @@ function createHost(settings: Partial<TaskChutePluginLike['settings']> = {}) {
       },
     },
     plugin: pluginStub,
+    getAiTaskDefaultWorkingDirectory: () =>
+      options.defaultWorkingDirectory ?? '',
+    getAiTaskWorkingDirectoryCandidates: () =>
+      options.workingDirectoryCandidates ?? [],
+    selectAiTaskDirectory: options.selectDirectory,
     hasInstanceForPathToday: jest.fn(() => false),
     duplicateInstanceForPath: jest.fn().mockResolvedValue(null),
     invalidateDayStateCache: jest.fn(),
@@ -133,7 +162,13 @@ function createHost(settings: Partial<TaskChutePluginLike['settings']> = {}) {
     restoreDeletedTaskCandidate: jest.fn().mockResolvedValue(true),
   }
 
-  return { host, taskCreationService, taskReuseService }
+  return {
+    host,
+    taskCreationService,
+    taskReuseService,
+    loadLocalStorage,
+    saveLocalStorage,
+  }
 }
 
 function openModal(host: TaskCreationControllerHost): HTMLElement {
@@ -174,15 +209,50 @@ function setPrompt(modal: HTMLElement, value: string): void {
   textarea.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-function setModel(modal: HTMLElement, value: string): void {
-  const select = modal.querySelector<HTMLSelectElement>('.ai-task-model-select')
-  const model = modal.querySelector<HTMLInputElement>('.ai-task-model-input')
-  if (!select || !model) throw new Error('model controls missing')
-  const isPreset = Array.from(select.options).some((option) => option.value === value)
-  select.value = isPreset ? value : '__custom__'
-  select.dispatchEvent(new Event('change', { bubbles: true }))
-  model.value = value
-  model.dispatchEvent(new Event('input', { bubbles: true }))
+function modelOptionValues(modal: HTMLElement): string[] {
+  return Array.from(
+    modal.querySelectorAll<HTMLElement>('.ai-model-select__option'),
+  ).map((option) => option.dataset.modelId ?? '')
+}
+
+function setModel(modal: HTMLElement, value: string): boolean {
+  const trigger = modal.querySelector<HTMLButtonElement>('.ai-task-model-select')
+  if (!trigger) throw new Error('model picker missing')
+  trigger.click()
+  const option = Array.from(
+    modal.querySelectorAll<HTMLButtonElement>('.ai-model-select__option'),
+  ).find((candidate) => candidate.dataset.modelId === value)
+  if (option) {
+    option.click()
+    return true
+  }
+
+  modal.querySelector<HTMLButtonElement>('.ai-model-select__add')?.click()
+  const customModal = document.querySelector<HTMLElement>('.ai-custom-model-modal')
+  const id = customModal?.querySelector<HTMLInputElement>(
+    '.ai-custom-model-modal__model-id',
+  )
+  const label = customModal?.querySelector<HTMLInputElement>(
+    '.ai-custom-model-modal__display-name',
+  )
+  const form = customModal?.querySelector<HTMLFormElement>(
+    '.ai-custom-model-modal__form',
+  )
+  if (!customModal || !id || !label || !form) {
+    throw new Error('custom model modal missing')
+  }
+  id.value = value
+  id.dispatchEvent(new Event('input', { bubbles: true }))
+  label.value = `Custom ${value}`
+  label.dispatchEvent(new Event('input', { bubbles: true }))
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  const saved = document.querySelector('.ai-custom-model-modal') === null
+  if (!saved) {
+    customModal
+      .querySelector<HTMLButtonElement>('.ai-custom-model-modal__cancel')
+      ?.click()
+  }
+  return saved
 }
 
 function selectReasoningMode(
@@ -330,7 +400,7 @@ describe('AI mode UI', () => {
     expect(modal.querySelector('.ai-task-advanced')).not.toBeNull()
     expect(modal.querySelector('.ai-task-exec-mode')).not.toBeNull()
     expect(modal.querySelector('.ai-task-model-select')).not.toBeNull()
-    expect(modal.querySelector('.ai-task-model-input')).not.toBeNull()
+    expect(modal.querySelector('.ai-task-model-input')).toBeNull()
     expect(modal.querySelector('.ai-task-reasoning-mode')).not.toBeNull()
     expect(modal.querySelector('.ai-task-reasoning-budget')).not.toBeNull()
     expect(modal.querySelector('.ai-task-cwd-input')).not.toBeNull()
@@ -341,27 +411,65 @@ describe('AI mode UI', () => {
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
 
-    const modelSelect = modal.querySelector<HTMLSelectElement>('.ai-task-model-select')
-    const optionValues = () =>
-      Array.from(modelSelect?.options ?? []).map((option) => option.value)
-
-    expect(optionValues()).toEqual([
+    modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.click()
+    expect(modelOptionValues(modal)).toEqual([
       '',
       'claude-fable-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
       'claude-haiku-4-5',
-      '__custom__',
     ])
+    expect(modal.querySelector('.ai-model-select__add')).not.toBeNull()
 
     agentCard(modal, 'codex').click()
-    expect(optionValues()).toEqual([
+    modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.click()
+    expect(modelOptionValues(modal)).toEqual([
       '',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
-      '__custom__',
     ])
+  })
+
+  test('shows the vault workspace, recent directories, and native Browse control', async () => {
+    const selectDirectory = jest.fn(async () => '/Users/me/Projects/alpha')
+    const { host } = createHost(
+      {},
+      {
+        defaultWorkingDirectory: '/Users/me/Evergreens',
+        storedWorkingDirectories: ['/Users/me/Recent'],
+        workingDirectoryCandidates: ['/Users/me/Candidate'],
+        selectDirectory,
+      },
+    )
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+
+    const input = modal.querySelector<HTMLInputElement>('.ai-task-cwd-input')
+    expect(input?.value).toBe('/Users/me/Evergreens')
+
+    const toggle = modal.querySelector<HTMLButtonElement>(
+      '.ai-working-directory-select__toggle',
+    )
+    toggle?.click()
+    expect(
+      modal.querySelector(
+        '.ai-working-directory-select__option[data-path="/Users/me/Recent"]',
+      ),
+    ).not.toBeNull()
+    expect(
+      modal.querySelector(
+        '.ai-working-directory-select__option[data-path="/Users/me/Candidate"]',
+      ),
+    ).not.toBeNull()
+
+    modal
+      .querySelector<HTMLButtonElement>('.ai-working-directory-select__browse')
+      ?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(selectDirectory).toHaveBeenCalledWith('/Users/me/Evergreens')
+    expect(input?.value).toBe('/Users/me/Projects/alpha')
   })
 })
 
@@ -420,9 +528,7 @@ describe('command preview', () => {
     setModel(modal, 'claude-fable-5')
 
     expect(previewCode(modal)).toBe('claude --model=claude-fable-5 -- "Go"')
-    expect(
-      modal.querySelector('.ai-task-model-input')?.classList.contains('hidden'),
-    ).toBe(true)
+    expect(modal.querySelector('.ai-task-model-input')).toBeNull()
   })
 
   test('keeps model ids using the full reference-safe character set', () => {
@@ -487,8 +593,9 @@ describe('command preview', () => {
 
     agentCard(modal, 'codex').click()
 
-    expect(modal.querySelector<HTMLSelectElement>('.ai-task-model-select')?.value).toBe('')
-    expect(modal.querySelector<HTMLInputElement>('.ai-task-model-input')?.value).toBe('')
+    expect(
+      modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.textContent,
+    ).toContain('Default model')
     expect(previewCode(modal)).toBe('codex -- "Go"')
   })
 
@@ -593,6 +700,56 @@ describe('command preview', () => {
 })
 
 describe('AI mode submission', () => {
+  test('omits the vault default cwd and records only a successfully saved custom cwd', async () => {
+    const first = createHost(
+      {},
+      { defaultWorkingDirectory: '/Users/me/Evergreens' },
+    )
+    const defaultModal = openModal(first.host)
+    ;(defaultModal.querySelector('input.form-input') as HTMLInputElement).value =
+      'Default Workspace'
+    typeButton(defaultModal, 'ai').click()
+
+    await submit(defaultModal)
+
+    expect(first.taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Default Workspace',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ cwd: undefined }),
+      }),
+    )
+    expect(first.saveLocalStorage).not.toHaveBeenCalled()
+
+    const second = createHost(
+      {},
+      { defaultWorkingDirectory: '/Users/me/Evergreens' },
+    )
+    const customModal = openModal(second.host)
+    ;(customModal.querySelector('input.form-input') as HTMLInputElement).value =
+      'Custom Workspace'
+    typeButton(customModal, 'ai').click()
+    const cwd = customModal.querySelector<HTMLInputElement>('.ai-task-cwd-input')!
+    cwd.value = '/Users/me/Projects/custom'
+    cwd.dispatchEvent(new Event('input', { bubbles: true }))
+
+    await submit(customModal)
+
+    expect(second.taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'Custom Workspace',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ cwd: '/Users/me/Projects/custom' }),
+      }),
+    )
+    expect(second.saveLocalStorage).toHaveBeenCalledWith(
+      'taskchute-plus.ai-task-working-directory-history',
+      ['/Users/me/Projects/custom'],
+    )
+  })
+
   test('hands the aiTask payload (host, args, cwd, prompt) to createTaskFile', async () => {
     const { host, taskCreationService } = createHost()
     const modal = openModal(host)

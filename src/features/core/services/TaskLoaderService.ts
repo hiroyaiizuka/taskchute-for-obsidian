@@ -19,6 +19,9 @@ import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletio
 import type { SectionConfigService } from '../../../services/SectionConfigService'
 import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
 import { listFilesInFolder } from '../../../utils/vaultFiles'
+import { resolveTaskDisplayTitle } from '../../../utils/taskDisplayTitle'
+import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
+import { readObsidianTaskLinkConfig } from '../../ai-task/services/ObsidianTaskLinkConfig'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number
@@ -82,6 +85,8 @@ export interface TaskLoaderHost {
   dayStateManager: DayStateStoreService
   tasks: TaskData[]
   taskInstances: TaskInstance[]
+  /** Non-due linked AI routines kept out of the visible daily list. */
+  linkedAiTaskCandidates?: TaskInstance[]
   renderTaskList: () => void
   getCurrentDateString: () => string
   generateInstanceId: (task: TaskData, dateKey: string) => string
@@ -247,6 +252,7 @@ export class TaskLoaderService {
 export async function loadTasksForContext(context: TaskLoaderHost): Promise<void> {
   context.tasks = []
   context.taskInstances = []
+  context.linkedAiTaskCandidates = []
 
   const dateKey = context.getCurrentDateString()
 
@@ -285,6 +291,10 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
       if (isActiveRoutine) {
         if (shouldShowRoutineTask(frontmatter, dateKey)) {
           await createRoutineTask(context, file, frontmatter, dateKey)
+        } else if (isObsidianLinkedAiRoutine(frontmatter)) {
+          await createRoutineTask(context, file, frontmatter, dateKey, {
+            candidateOnly: true,
+          })
         }
       } else {
         let shouldShow: boolean
@@ -629,6 +639,7 @@ async function createRoutineTask(
   file: TFile,
   metadata: TaskFrontmatterWithLegacy,
   dateKey: string,
+  options: { candidateOnly?: boolean } = {},
 ): Promise<void> {
   const rule = RoutineService.parseFrontmatter(metadata)
   if (!rule || rule.enabled === false) return
@@ -669,8 +680,6 @@ async function createRoutineTask(
     taskId,
   }
 
-  context.tasks.push(taskData)
-
   const { value: rawStoredSlot } = getSlotOverrideValue(dayState.slotOverrides, taskId, file.path)
   const storedSlot = rawStoredSlot && context.getSectionConfig().isValidSlotKey(rawStoredSlot) ? rawStoredSlot : undefined
   const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
@@ -682,6 +691,15 @@ async function createRoutineTask(
     date: dateKey,
     createdMillis,
   }
+
+  if (options.candidateOnly) {
+    if (isVisibleInstance(context, instance.instanceId, file.path, dateKey, taskData.taskId)) {
+      context.linkedAiTaskCandidates?.push(instance)
+    }
+    return
+  }
+
+  context.tasks.push(taskData)
 
   if (isVisibleInstance(context, instance.instanceId, file.path, dateKey, taskData.taskId)) {
     context.taskInstances.push(instance)
@@ -701,6 +719,18 @@ function shouldShowRoutineTask(
     : undefined
   const rule = RoutineService.parseFrontmatter(metadata)
   return RoutineService.isDue(dateKey, rule, movedTargetDate)
+}
+
+/**
+ * A linked AI routine is an event hook as well as a scheduled task. Keep a
+ * non-visible candidate addressable on non-due days so a matching human-task
+ * click can materialize it without affecting daily totals or reminders.
+ */
+function isObsidianLinkedAiRoutine(
+  metadata: TaskFrontmatterWithLegacy,
+): boolean {
+  const record = metadata as Record<string, unknown>
+  return readAiTaskConfig(record) !== null && readObsidianTaskLinkConfig(record) !== null
 }
 
 async function shouldShowDisabledRoutineTask(
@@ -1323,12 +1353,8 @@ function deriveDisplayTitle(
   metadata: TaskFrontmatterWithLegacy | undefined,
   fallbackTitle: string | undefined,
 ): string {
-  const frontmatterTitle = toStringField((metadata as Record<string, unknown> | undefined)?.title)
-  if (frontmatterTitle) return frontmatterTitle
-  if (file) return file.basename
-  const executionTitle = toStringField(fallbackTitle)
-  if (executionTitle) return executionTitle
-  return 'Untitled task'
+  return resolveTaskDisplayTitle(metadata, file?.basename, fallbackTitle)
+    ?? 'Untitled task'
 }
 
 function getTaskFiles(context: TaskLoaderHost): TFile[] {

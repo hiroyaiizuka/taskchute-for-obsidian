@@ -72,6 +72,8 @@ import {
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
+import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsidianLinkCoordinator"
+import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
 import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
 import type {
   AiRunMode,
@@ -100,6 +102,8 @@ export class TaskChuteView
   public readonly plugin: TaskChutePluginLike
   public tasks: TaskData[] = []
   public taskInstances: TaskInstance[] = []
+  /** Non-due linked AI routines available only for event materialization. */
+  public linkedAiTaskCandidates: TaskInstance[] = []
   public currentInstance: TaskInstance | null = null
   public globalTimerInterval: ReturnType<typeof setInterval> | null = null
   public timerService: TimerService | null = null
@@ -128,6 +132,7 @@ export class TaskChuteView
   public readonly routineController: RoutineController
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
+  private readonly aiTaskObsidianLinkCoordinator: AiTaskObsidianLinkCoordinator
   public readonly recipeService: RecipeService
   private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
@@ -366,10 +371,21 @@ export class TaskChuteView
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
       saveScheduledTime: (inst, scheduledTime) =>
         this.updateTaskScheduledTime(inst, scheduledTime),
-      onInstanceResetToIdle: (inst, { wasRunning }) => {
+      onInstanceResetToIdle: async (inst, { wasRunning }) => {
         // Resetting a running instance bypasses stopInstance, so stop the
         // coupled AI run here to keep play/stop coupling symmetric.
-        if (wasRunning) this.maybeStopAiRunForInstance(inst)
+        if (wasRunning) {
+          this.maybeStopAiRunForInstance(inst)
+          await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+        }
+      },
+      onInstanceStopped: async (inst) => {
+        this.maybeStopAiRunForInstance(inst)
+        await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+      },
+      onInstanceStarted: async (inst) => {
+        this.maybeStartAiRunForInstance(inst)
+        await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
       },
     })
     this.taskCreationController = new TaskCreationController({
@@ -387,6 +403,22 @@ export class TaskChuteView
       getCurrentDateString: () => this.getCurrentDateString(),
       app: this.app,
       plugin: this.plugin,
+      getAiTaskDefaultWorkingDirectory: () => {
+        const adapter = this.app.vault.adapter as unknown as {
+          getBasePath?: () => unknown
+        }
+        try {
+          const basePath = adapter.getBasePath?.()
+          return typeof basePath === 'string' ? basePath : ''
+        } catch {
+          return ''
+        }
+      },
+      getAiTaskWorkingDirectoryCandidates: () =>
+        collectAiTaskWorkingDirectoryCandidates(
+          this.app,
+          this.plugin.pathManager.getTaskFolderPath(),
+        ),
       getDocumentContext: () => {
         const doc = this.containerEl?.ownerDocument ?? document
         const defaultView = (doc.defaultView) ?? null
@@ -487,6 +519,98 @@ export class TaskChuteView
       getCurrentDate: () => new Date(this.currentDate),
     })
     this.taskExecutionService = new TaskExecutionService(this)
+    this.aiTaskObsidianLinkCoordinator = new AiTaskObsidianLinkCoordinator({
+      getTaskInstances: () => [
+        ...this.taskInstances,
+        ...this.linkedAiTaskCandidates,
+      ],
+      startLinkedAiTask: async (target) => {
+        // The link must never mutate timer state when the AI subsystem is not
+        // available. maybeStartAiRunForInstance is intentionally a no-op in
+        // that case, so gate before TaskExecutionService changes the target.
+        const managerAtDispatch = this.plugin.aiTaskManager
+        if (!managerAtDispatch) return null
+
+        let startedTarget = target
+        let materializedTarget: TaskInstance | null = null
+        const mustMaterialize =
+          target.state === 'done' ||
+          this.linkedAiTaskCandidates.includes(target)
+        if (mustMaterialize) {
+          const duplicate = await this.duplicateInstance(
+            target,
+            true,
+            undefined,
+            { suppressNotice: true },
+          )
+          if (!duplicate) return null
+          startedTarget = duplicate
+          materializedTarget = duplicate
+        }
+
+        if (this.plugin.aiTaskManager !== managerAtDispatch) {
+          if (materializedTarget) {
+            await this.taskMutationService.rollbackDuplicateInstance(
+              materializedTarget,
+            )
+          }
+          return null
+        }
+
+        const preStartSnapshot = {
+          state: startedTarget.state,
+          startTime: startedTarget.startTime,
+          stopTime: startedTarget.stopTime,
+          slotKey: startedTarget.slotKey,
+          originalSlotKey: startedTarget.originalSlotKey,
+          currentInstance: this.currentInstance,
+        }
+
+        let started = false
+        try {
+          started = await this.taskExecutionService.startInstance(
+            startedTarget,
+          )
+        } catch (error) {
+          // TaskExecutionService normally reports failure with false, but an
+          // injected/alternate implementation must not leave a materialized
+          // linked routine behind either.
+          console.error('[TaskChuteView] linked AI task start failed', error)
+        }
+        if (!started) {
+          if (materializedTarget) {
+            await this.taskMutationService.rollbackDuplicateInstance(
+              materializedTarget,
+            )
+          }
+          return null
+        }
+
+        if (this.plugin.aiTaskManager !== managerAtDispatch) {
+          await this.rollbackLinkedAiTimerStart(
+            startedTarget,
+            preStartSnapshot,
+          )
+          if (materializedTarget) {
+            await this.taskMutationService.rollbackDuplicateInstance(
+              materializedTarget,
+            )
+          }
+          return null
+        }
+
+        this.maybeStartAiRunForInstance(startedTarget)
+        return startedTarget
+      },
+      stopLinkedAiTask: async (target) => {
+        const stopped = await this.taskExecutionService.stopInstance(
+          target,
+          undefined,
+        )
+        if (stopped) this.maybeStopAiRunForInstance(target)
+        return stopped
+      },
+    })
     this.taskViewLayout = new TaskViewLayout({
       renderHeader: (container) => this.taskHeaderController.render(container),
       createNavigation: (contentContainer) =>
@@ -820,6 +944,53 @@ export class TaskChuteView
     if (!taskPath) return
     if (manager.getActiveRunForTask(taskPath)) return
     void this.startAiRun(inst, { suppressAlreadyActive: true })
+  }
+
+  private async rollbackLinkedAiTimerStart(
+    inst: TaskInstance,
+    snapshot: {
+      state: TaskInstance['state']
+      startTime?: Date
+      stopTime?: Date
+      slotKey?: string
+      originalSlotKey?: string
+      currentInstance: TaskInstance | null
+    },
+  ): Promise<void> {
+    inst.state = snapshot.state
+    inst.startTime = snapshot.startTime
+    inst.stopTime = snapshot.stopTime
+    inst.slotKey = snapshot.slotKey ?? 'none'
+    inst.originalSlotKey = snapshot.originalSlotKey
+
+    if (this.currentInstance === inst) {
+      this.currentInstance =
+        snapshot.currentInstance?.state === 'running'
+          ? snapshot.currentInstance
+          : null
+    }
+
+    try {
+      await this.removeRunningTaskRecord({
+        instanceId: inst.instanceId,
+        taskPath: inst.task?.path,
+        taskId: inst.task?.taskId,
+      })
+    } catch (error) {
+      console.warn(
+        '[TaskChuteView] linked AI timer rollback running-state cleanup failed',
+        error,
+      )
+    }
+    try {
+      await this.saveRunningTasksState()
+    } catch (error) {
+      console.warn(
+        '[TaskChuteView] linked AI timer rollback persist failed',
+        error,
+      )
+    }
+    this.renderTaskList()
   }
 
   /** Play/stop coupling: a human stop also stops the task's active AI run */
@@ -2019,14 +2190,20 @@ export class TaskChuteView
     const started = await this.taskExecutionService.startInstance(inst)
     // Fire the coupled AI run only when the human start actually happened
     // (the service resolves false on refusals like the future-date guard).
-    if (started) this.maybeStartAiRunForInstance(inst)
+    if (started) {
+      this.maybeStartAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
+    }
   }
 
   async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
     const stopped = await this.taskExecutionService.stopInstance(inst, stopTime)
     // Kill the coupled AI run only when the instance actually transitioned
     // running -> done (a no-op stop must not touch the AI run).
-    if (stopped) this.maybeStopAiRunForInstance(inst)
+    if (stopped) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
     const viewDate = this.getViewDate()
     const today = new Date()
     const isTodayView =
@@ -2840,10 +3017,13 @@ export class TaskChuteView
 
   private async deleteTask(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
-    await this.taskMutationService.deleteTask(inst)
+    const deleted = await this.taskMutationService.deleteTask(inst)
     // Deleting a running instance never goes through stopInstance, so stop
     // the coupled AI run here (otherwise it would keep running orphaned).
-    if (wasRunning) this.maybeStopAiRunForInstance(inst)
+    if (wasRunning && deleted) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
   }
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
@@ -2925,10 +3105,13 @@ export class TaskChuteView
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
-    await this.taskMutationService.deleteInstance(inst)
+    const deleted = await this.taskMutationService.deleteInstance(inst)
     // Same reasoning as deleteTask: a deleted running instance must not
     // leave its coupled AI run orphaned.
-    if (wasRunning) this.maybeStopAiRunForInstance(inst)
+    if (wasRunning && deleted) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {

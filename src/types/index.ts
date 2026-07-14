@@ -284,6 +284,10 @@ export type PathManagerLike = Pick<
 export interface DayStateServiceAPI {
   loadDay(date: Date): Promise<DayState>
   saveDay(date: Date, state: DayState): Promise<void>
+  updateDay?(
+    date: Date,
+    mutator: (state: DayState) => DayState | void,
+  ): Promise<DayState>
   mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>
   clearCache(): Promise<void>
   clearCacheForDate?(dateKey: string): void | Promise<void>

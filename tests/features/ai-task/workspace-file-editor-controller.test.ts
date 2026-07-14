@@ -3,6 +3,7 @@ import type {
   FileEditorOpenOptions,
 } from '../../../src/features/ai-task/ui/FileEditorAdapter'
 import {
+  getWorkspaceFileTabIcon,
   WorkspaceFileEditorController,
   type WorkspaceFileDocument,
   type WorkspaceFileEditorHost,
@@ -10,6 +11,7 @@ import {
 
 class FakeFileEditorAdapter implements FileEditorAdapterLike {
   document = ''
+  languagePath: string | null = null
   editable = false
   disposed = false
   focused = false
@@ -26,6 +28,10 @@ class FakeFileEditorAdapter implements FileEditorAdapterLike {
 
   setDocument(document: string): void {
     this.document = document
+  }
+
+  setLanguagePath(path: string | null): void {
+    this.languagePath = path
   }
 
   setEditable(editable: boolean): void {
@@ -115,6 +121,19 @@ describe('WorkspaceFileEditorController', () => {
 
   afterEach(() => controller.dispose())
 
+  test.each([
+    ['component.tsx', '📘'],
+    ['component.ts', '📘'],
+    ['README.md', '📝'],
+    ['package.json', '📋'],
+    ['theme.css', '🎨'],
+    ['index.html', '🌐'],
+    ['publish.js', '📙'],
+    ['notes.txt', '📄'],
+  ])('uses the reference file icon for %s', (title, expected) => {
+    expect(getWorkspaceFileTabIcon(title)).toBe(expected)
+  })
+
   test('opens a file read-only, hides Markdown frontmatter, and deduplicates its canonical path', async () => {
     ;(host.readWorkspaceFile as jest.Mock).mockResolvedValue(
       documentResult(
@@ -127,10 +146,18 @@ describe('WorkspaceFileEditorController', () => {
 
     expect(host.onVisibilityChange).toHaveBeenCalledWith(true)
     expect(container.querySelectorAll('.ai-run-pane__file-tab')).toHaveLength(1)
-    expect(container.querySelector('.ai-run-pane__file-tab')?.textContent).toContain(
-      'example.md',
-    )
+    const header = container.querySelector('.ai-run-pane__file-panel-header')
+    const tab = container.querySelector('.ai-run-pane__file-tab')
+    expect(header?.classList).toContain('ai-run-pane__work-tabbar')
+    expect(tab?.classList).toContain('ai-run-pane__work-tab')
+    expect(tab?.getAttribute('role')).toBe('tab')
+    expect(tab?.getAttribute('aria-selected')).toBe('true')
+    expect(tab?.getAttribute('tabindex')).toBe('0')
+    expect(tab?.querySelector('.ai-run-pane__file-tab-select')).toBeNull()
+    expect(tab?.querySelector('.ai-run-pane__file-tab-icon')?.textContent).toBe('📝')
+    expect(tab?.textContent).toContain('example.md')
     expect(editor.document).toBe('# Visible\n\nBody\n')
+    expect(editor.languagePath).toBe('/workspace/notes/example.md')
     expect(editor.document).not.toContain('title: Hidden')
     expect(editor.editable).toBe(false)
     expect(container.querySelector('.ai-run-pane__file-edit')).not.toBeNull()
@@ -267,21 +294,39 @@ describe('WorkspaceFileEditorController', () => {
 
     expect(container.querySelectorAll('.ai-run-pane__file-tab')).toHaveLength(2)
     expect(editor.document).toBe('plain text')
+    expect(editor.languagePath).toBe('/workspace/two.txt')
     expect(editor.editable).toBe(false)
 
     const tabs = Array.from(
-      container.querySelectorAll<HTMLButtonElement>('.ai-run-pane__file-tab-select'),
+      container.querySelectorAll<HTMLElement>('.ai-run-pane__file-tab'),
     )
     tabs[0].click()
     expect(editor.document).toBe('draft one')
     expect(editor.editable).toBe(true)
+    expect(editor.languagePath).toBe('/workspace/one.txt')
+
+    const activeKeyboardTab = container.querySelector<HTMLElement>(
+      '.ai-run-pane__file-tab.is-active',
+    )
+    activeKeyboardTab?.focus()
+    activeKeyboardTab?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    )
+    expect(editor.languagePath).toBe('/workspace/two.txt')
+    expect(document.activeElement?.getAttribute('data-file-tab-id')).toBe('2')
 
     confirmDiscard.mockReturnValue(true)
+    const tabClick = jest.fn()
+    const tabToClose = container.querySelector<HTMLElement>(
+      '.ai-run-pane__file-tab',
+    )
+    tabToClose?.addEventListener('click', tabClick)
     const closeButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>('.ai-run-pane__file-tab-close'),
     )
     closeButtons[0].click()
     await flushAsyncEvents()
+    expect(tabClick).not.toHaveBeenCalled()
     expect(container.querySelectorAll('.ai-run-pane__file-tab')).toHaveLength(1)
     expect(host.onVisibilityChange).not.toHaveBeenCalledWith(false)
 
@@ -289,6 +334,7 @@ describe('WorkspaceFileEditorController', () => {
     await flushAsyncEvents()
     expect(host.onVisibilityChange).toHaveBeenLastCalledWith(false)
     expect(controller.hasOpenFiles()).toBe(false)
+    expect(editor.languagePath).toBeNull()
   })
 
   test('ignores a late read after its tab closes and never replaces the active file', async () => {

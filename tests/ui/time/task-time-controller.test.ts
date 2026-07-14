@@ -126,6 +126,24 @@ describe('TaskTimeController', () => {
     expect(Notice).toHaveBeenCalled()
   })
 
+  test('resetTaskToIdle awaits the running-instance stop lifecycle hook', async () => {
+    const onInstanceResetToIdle = jest.fn(async () => Promise.resolve())
+    const host = { ...createHost(), onInstanceResetToIdle }
+    const controller = new TaskTimeController(host)
+    const instance = {
+      task: { path: 'TASKS/source.md', frontmatter: {}, name: 'source' },
+      instanceId: 'source-1',
+      state: 'running',
+      slotKey: 'none',
+    } as TaskInstance
+
+    await controller.resetTaskToIdle(instance)
+
+    expect(onInstanceResetToIdle).toHaveBeenCalledWith(instance, {
+      wasRunning: true,
+    })
+  })
+
   test('showStartTimePopup creates TimeEditPopup and calls show', () => {
     const host = createHost()
     const controller = new TaskTimeController(host)
@@ -183,6 +201,42 @@ describe('TaskTimeController', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+
+  test('transitionToRunningWithStart still runs the start hook when running-state persistence rejects', async () => {
+    const persistenceError = new Error('running state failed')
+    const onInstanceStarted = jest.fn(async () => Promise.resolve())
+    const host = {
+      ...createHost(new Date('2025-10-09T00:00:00Z')),
+      onInstanceStarted,
+    }
+    ;(host.saveRunningTasksState as jest.Mock).mockRejectedValueOnce(
+      persistenceError,
+    )
+    const controller = new TaskTimeController(host)
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        taskId: 'tc-task-sample',
+      },
+      instanceId: 'inst-start-persistence-failure',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const transition = (controller as unknown as {
+      transitionToRunningWithStart: (
+        inst: TaskInstance,
+        startStr: string,
+      ) => Promise<void>
+    }).transitionToRunningWithStart.bind(controller)
+
+    await expect(transition(instance, '10:00')).rejects.toBe(persistenceError)
+
+    expect(instance.state).toBe('running')
+    expect(onInstanceStarted).toHaveBeenCalledWith(instance)
+    expect(host.renderTaskList).not.toHaveBeenCalled()
   })
 
   test('showStartTimePopup blocks future view date', () => {
@@ -340,7 +394,8 @@ describe('TaskTimeController', () => {
   })
 
   test('updateInstanceTimes transitions running task to done when stop time is provided', async () => {
-    const host = createHost()
+    const onInstanceStopped = jest.fn(async () => Promise.resolve())
+    const host = { ...createHost(), onInstanceStopped }
     const controller = new TaskTimeController(host)
     const instance: TaskInstance = {
       task: {
@@ -368,6 +423,48 @@ describe('TaskTimeController', () => {
     expect(instance.stopTime?.getMinutes()).toBe(59)
     expect(host.executionLogService.saveTaskLog).toHaveBeenCalled()
     expect(host.saveRunningTasksState).toHaveBeenCalled()
+    expect(onInstanceStopped).toHaveBeenCalledWith(instance)
+  })
+
+  test('updateInstanceTimes still runs the stop hook when execution log persistence rejects', async () => {
+    const onInstanceStopped = jest.fn(async () => Promise.resolve())
+    const host = { ...createHost(), onInstanceStopped }
+    const logError = new Error('execution log failed')
+    ;(host.executionLogService.saveTaskLog as jest.Mock).mockRejectedValueOnce(
+      logError,
+    )
+    const controller = new TaskTimeController(host)
+    const instance: TaskInstance = {
+      task: {
+        path: 'TASKS/sample.md',
+        frontmatter: {},
+        name: 'sample',
+        taskId: 'tc-task-sample',
+      },
+      instanceId: 'inst-log-failure',
+      state: 'running',
+      slotKey: '8:00-12:00',
+      startTime: new Date(2025, 9, 10, 10, 0, 0, 0),
+    } as TaskInstance
+
+    jest
+      .spyOn(host, 'calculateCrossDayDuration')
+      .mockImplementation((start, stop) => (stop!.getTime() - start!.getTime()))
+
+    const update = (controller as unknown as {
+      updateInstanceTimes: (
+        inst: TaskInstance,
+        startStr: string,
+        stopStr: string,
+      ) => Promise<void>
+    }).updateInstanceTimes.bind(controller)
+
+    await expect(update(instance, '10:00', '11:00')).rejects.toBe(logError)
+
+    expect(instance.state).toBe('done')
+    expect(host.saveRunningTasksState).toHaveBeenCalled()
+    expect(onInstanceStopped).toHaveBeenCalledWith(instance)
+    expect(host.renderTaskList).not.toHaveBeenCalled()
   })
 
   test('showStopTimePopup rejects stop time equal to start time', async () => {

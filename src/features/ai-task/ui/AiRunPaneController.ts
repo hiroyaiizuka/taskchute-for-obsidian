@@ -7,8 +7,9 @@
  * content area made of one or more side-by-side PANELS. Each panel carries a
  * slim internal tab strip (one tab per run assigned to the panel, plus a +
  * new-shell button) and its own bodies element;
- * the primary panel's corner actions additionally hold the ◫ split control
- * and the ⤢ expand toggle. Bodies are kept per run in a Map and only each
+ * each panel's corner actions hold its local ◫ split control, while the
+ * global ⤢ expand toggle lives in the AI Runs header. Bodies are kept per run
+ * in a Map and only each
  * panel's selected body is visible, so state (scroll position, terminal
  * screen) survives selection switches.
  *
@@ -366,6 +367,24 @@ export class AiRunPaneController {
       cls: 'ai-run-pane__title',
       text: this.host.tv('aiTask.paneTitle', 'AI runs'),
     })
+    const headerActions = header.createDiv({
+      cls: 'ai-run-pane__header-actions',
+    })
+    const expandButton = headerActions.createEl('button', {
+      cls: 'ai-run-pane__expand',
+      attr: { type: 'button' },
+    })
+    expandButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      if (this.isCollapsed()) {
+        const wasExpanded = this.expanded
+        this.setCollapsed(false)
+        if (wasExpanded) return
+      }
+      this.setExpanded(!this.expanded, true)
+    })
+    this.expandButton = expandButton
+    this.refreshExpandButton()
 
     // NOW PLAYING layout: sidebar (run list) on the left, the panels area
     // (each panel: tab strip + bodies) plus the composer on the right.
@@ -575,6 +594,7 @@ export class AiRunPaneController {
       // bodies just became visible, so create (and focus) them now.
       this.ensureVisibleTerminalViews()
     }
+    this.refreshExpandButton()
     this.updateContainerChrome()
     this.fitVisibleTerminalViews()
   }
@@ -787,13 +807,14 @@ export class AiRunPaneController {
   private refreshExpandButton(): void {
     const button = this.expandButton
     if (!button) return
-    setIcon(button, this.expanded ? 'minimize-2' : 'maximize-2')
-    const label = this.expanded
+    const visiblyExpanded = this.expanded && !this.isCollapsed()
+    setIcon(button, visiblyExpanded ? 'minimize-2' : 'maximize-2')
+    const label = visiblyExpanded
       ? this.host.tv('aiTask.restorePane', 'Restore AI run pane size')
       : this.host.tv('aiTask.expandPane', 'Expand AI run pane')
     button.setAttribute('aria-label', label)
     button.setAttribute('title', label)
-    button.setAttribute('aria-pressed', this.expanded ? 'true' : 'false')
+    button.setAttribute('aria-pressed', visiblyExpanded ? 'true' : 'false')
   }
 
   // -------------------------------------------------------------------------
@@ -818,20 +839,20 @@ export class AiRunPaneController {
 
   /**
    * Build one content panel (tab strip with the +/◫ controls and a bodies
-   * element) and insert it after `afterPanel` (or append it). The primary
-   * panel — the first one created — additionally owns the ⤢ expand toggle.
+   * element) and insert it after `afterPanel` (or append it). Global pane
+   * actions stay in the AI Runs header rather than belonging to a panel.
    */
   private createPanel(afterPanel: PanelView | null): PanelView {
     const panelsEl = this.panelsEl
     if (!panelsEl) throw new Error('AiRunPaneController is not mounted')
-    const isPrimary = this.panels.length === 0
-
     const el = panelsEl.createDiv({ cls: 'ai-run-pane__panel' })
     if (afterPanel) {
       afterPanel.el.after(el)
     }
 
-    const tabstrip = el.createDiv({ cls: 'ai-run-pane__tabstrip' })
+    const tabstrip = el.createDiv({
+      cls: 'ai-run-pane__tabstrip ai-run-pane__work-tabbar',
+    })
     const tabsEl = tabstrip.createDiv({ cls: 'ai-run-pane__tabs' })
 
     const panel: PanelView = {
@@ -876,18 +897,6 @@ export class AiRunPaneController {
       event.stopPropagation()
       this.handleSplit(panel)
     })
-    if (isPrimary) {
-      const expandButton = actions.createEl('button', {
-        cls: 'ai-run-pane__expand',
-      })
-      expandButton.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.setExpanded(!this.expanded, true)
-      })
-      this.expandButton = expandButton
-      this.refreshExpandButton()
-    }
-
     panel.bodiesEl = el.createDiv({ cls: 'ai-run-pane__bodies' })
 
     const afterIndex = afterPanel ? this.panels.indexOf(afterPanel) : -1
@@ -1369,7 +1378,9 @@ export class AiRunPaneController {
       if (!record) continue
       const selected = panel.selectedRunId === runId
       const tab = panel.tabsEl.createDiv({
-        cls: selected ? 'ai-run-pane__tab is-active' : 'ai-run-pane__tab',
+        cls: selected
+          ? 'ai-run-pane__tab ai-run-pane__work-tab is-active'
+          : 'ai-run-pane__tab ai-run-pane__work-tab',
         attr: {
           role: 'tab',
           tabindex: selected ? '0' : '-1',
@@ -1382,6 +1393,7 @@ export class AiRunPaneController {
         this.selectRunInPanel(panel, record.id)
       })
       tab.addEventListener('keydown', (event) => {
+        if (event.target !== tab) return
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
         this.focusPanel(panel)
@@ -1393,6 +1405,7 @@ export class AiRunPaneController {
       )
       tab.createSpan({
         cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
+        text: '●',
         attr: { title: statusLabel },
       })
       tab.createSpan({
@@ -1402,7 +1415,11 @@ export class AiRunPaneController {
             ? this.host.tv('aiTask.contentTab.terminal', 'Terminal')
             : this.host.tv('aiTask.contentTab.events', 'Events'),
       })
-      this.appendCloseControl(tab, record, 'ai-run-pane__tab-close')
+      this.appendCloseControl(
+        tab,
+        record,
+        'ai-run-pane__tab-close ai-run-pane__work-tab-close',
+      )
     }
   }
 
@@ -1434,9 +1451,9 @@ export class AiRunPaneController {
       : this.host.tv('aiTask.closeTab', 'Close run tab')
     const button = parent.createEl('button', {
       cls,
-      text: '×',
       attr: { 'aria-label': label, title: label },
     })
+    setIcon(button, 'x')
     button.addEventListener('click', (event) => {
       event.stopPropagation()
       this.requestCloseRun(record.id)

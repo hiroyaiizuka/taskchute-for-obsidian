@@ -1450,7 +1450,7 @@ describe('TaskChuteView duplication and deletion', () => {
       .mockResolvedValue(undefined);
     const deleteInstanceSpy = jest
       .spyOn(view.taskMutationService, 'deleteInstance')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue(true);
     const deleteLogsSpy = jest
       .spyOn(view.taskMutationService, 'deleteTaskLogsByInstanceId')
       .mockResolvedValue(1);
@@ -1485,7 +1485,7 @@ describe('TaskChuteView duplication and deletion', () => {
       .mockResolvedValue(undefined);
     const deleteInstanceSpy = jest
       .spyOn(view.taskMutationService, 'deleteInstance')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue(true);
 
     const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md' });
     const duplicate = createTaskInstance(task, { instanceId: 'dup-1' });

@@ -62,6 +62,7 @@ export class TaskExecutionService {
     const previousStartTime = inst.startTime
     const previousSlotKey = inst.slotKey
     const previousOriginalSlotKey = inst.originalSlotKey
+    const previousCurrentInstance = this.host.getCurrentInstance()
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -155,6 +156,9 @@ export class TaskExecutionService {
       inst.startTime = previousStartTime
       inst.slotKey = previousSlotKey
       inst.originalSlotKey = previousOriginalSlotKey
+      if (this.host.getCurrentInstance() === inst) {
+        this.host.setCurrentInstance(previousCurrentInstance)
+      }
       try {
         this.host.renderTaskList()
       } catch {

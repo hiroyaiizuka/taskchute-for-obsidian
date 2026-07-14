@@ -16,16 +16,26 @@ import { normalizeReminderTime } from "../../features/reminder/services/Reminder
 import type { AiTaskHost } from "../../features/ai-task/types"
 import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
 import {
-  AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
   buildReasoningArgs,
-  CUSTOM_AI_MODEL_VALUE,
   getAvailableReasoningModes,
   type AiReasoningBudget,
   type AiReasoningMode,
 } from "../../features/ai-task/config/AiTaskAdvancedOptions"
 import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
 import { addMinutesToTime } from "../../utils/date"
+import {
+  WorkingDirectoryHistory,
+  normalizeDirectoryPath,
+  normalizeDirectoryPathForComparison,
+} from "../../features/ai-task/services/WorkingDirectoryHistory"
+import { ElectronDirectoryPicker } from "../../features/ai-task/services/ElectronDirectoryPicker"
+import { WorkingDirectorySelectController } from "../../features/ai-task/ui/WorkingDirectorySelectController"
+import {
+  AI_MODEL_ID_SAFE_PATTERN,
+  AiCustomModelStore,
+} from "../../features/ai-task/models/AiCustomModelStore"
+import { AiModelSelectController } from "../../features/ai-task/ui/AiModelSelectController"
 
 export interface DeletedTaskRestoreCandidate {
   entry: DeletedInstance
@@ -73,6 +83,9 @@ export interface TaskCreationControllerHost {
   findDeletedTaskRestoreCandidate?: (taskName: string) => DeletedTaskRestoreCandidate | null
   restoreDeletedTaskCandidate?: (candidate: DeletedTaskRestoreCandidate) => Promise<boolean>
   openGoogleCalendarExportForCreatedTask?: (target: CreatedTaskTarget) => Promise<void> | void
+  getAiTaskDefaultWorkingDirectory?: () => string
+  getAiTaskWorkingDirectoryCandidates?: () => string[]
+  selectAiTaskDirectory?: (defaultPath?: string) => Promise<string | null>
 }
 
 type CreationMode = "reuse" | "copy"
@@ -157,15 +170,6 @@ const AI_AGENT_CARDS: ReadonlyArray<{
 /** Longest prompt head shown inside the live command preview */
 const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
 
-/**
- * Safe model-id shape, ported verbatim from the reference quest-command.ts:
- * no leading hyphen (never parsed as a flag) and only characters that are
- * inert in an argv token. Inputs outside this pattern contribute NO --model
- * token — the reference degrades gracefully to the default model instead of
- * emitting an id the CLI deterministically rejects.
- */
-const MODEL_ID_SAFE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/
-
 /** Quote a preview token for a POSIX shell's double-quoted context. */
 function quotePreviewPrompt(value: string): string {
   const escaped = value.replace(/[\\"$`]/g, '\\$&')
@@ -185,6 +189,8 @@ interface AiTaskControls {
   setReuseActive(active: boolean): void
   getScheduledTime(): string | undefined
   getAiTaskOptions(): CreateTaskFileAiTaskOptions
+  commit(): void
+  destroy(): void
 }
 
 export default class TaskCreationController {
@@ -368,6 +374,7 @@ export default class TaskCreationController {
     onClose(() => {
       cleanupAutocomplete?.()
       validationControls.dispose()
+      aiControls?.destroy()
     })
 
     nameInput.addEventListener("input", () => {
@@ -457,6 +464,7 @@ export default class TaskCreationController {
           )
         }
         if (created) {
+          if (aiMode) aiControls?.commit()
           close()
         } else {
           this.highlightWarning(warningMessage)
@@ -649,6 +657,15 @@ export default class TaskCreationController {
     let taskType: TaskType = "human"
     let selectedHost: AiTaskHost = "claude"
     let reuseActive = false
+    const storageApp = this.host.plugin.app as unknown as {
+      loadLocalStorage?: (key: string) => unknown
+      saveLocalStorage?: (key: string, value: unknown) => void
+    }
+    const customModelStore = new AiCustomModelStore({
+      loadLocalStorage: (key) => storageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) =>
+        storageApp.saveLocalStorage?.(key, value),
+    })
 
     // --- Task-type selector -------------------------------------------------
     const typeGroup = doc.createElement("div")
@@ -786,17 +803,48 @@ export default class TaskCreationController {
     const modelField = buildAdvancedField(
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
     )
-    const modelSelect = doc.createElement("select")
-    modelSelect.className = "form-input ai-task-model-select"
-    modelField.appendChild(modelSelect)
-    const modelInput = doc.createElement("input")
-    modelInput.type = "text"
-    modelInput.className = "form-input ai-task-model-input hidden"
-    modelInput.placeholder = this.host.tv(
-      "addTask.aiCustomModelPlaceholder",
-      "Enter a model ID",
-    )
-    modelField.appendChild(modelInput)
+    const modelSelect = new AiModelSelectController(modelField, {
+      doc,
+      host: selectedHost,
+      store: customModelStore,
+      labels: {
+        openMenu: this.host.tv("addTask.aiModelOpen", "Choose AI model"),
+        defaultModel: this.host.tv(
+          "addTask.aiModelPlaceholder",
+          "Default model",
+        ),
+        defaultDescription: this.host.tv(
+          "addTask.aiModelDefaultDescription",
+          "Use the model configured by the CLI",
+        ),
+        builtInModels: this.host.tv(
+          "addTask.aiModelBuiltIn",
+          "Available models",
+        ),
+        customModels: this.host.tv(
+          "addTask.aiModelCustomModels",
+          "Custom models",
+        ),
+        addCustomModel: this.host.tv(
+          "addTask.aiModelAddCustom",
+          "Add custom model",
+        ),
+        editCustomModel: this.host.tv(
+          "addTask.aiModelEditCustom",
+          "Edit custom model",
+        ),
+        deleteCustomModel: this.host.tv(
+          "addTask.aiModelDeleteCustom",
+          "Delete custom model",
+        ),
+      },
+      customModelModalLabels: this.buildCustomModelModalLabels(),
+      onChange: () => {
+        rebuildReasoningModeOptions()
+        updateReasoningBudgetVisibility()
+        refreshPreview()
+      },
+    })
 
     const reasoningModeField = buildAdvancedField(
       this.withTrailingColon(
@@ -832,14 +880,50 @@ export default class TaskCreationController {
         this.host.tv("addTask.aiCwdLabel", "📁 working directory"),
       ),
     )
-    const cwdInput = doc.createElement("input")
-    cwdInput.type = "text"
-    cwdInput.className = "form-input ai-task-cwd-input"
-    cwdInput.placeholder = this.host.tv(
-      "addTask.aiCwdPlaceholder",
-      "e.g. /path/to/project",
+    const workingDirectoryHistory = new WorkingDirectoryHistory({
+      loadLocalStorage: (key) => storageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) =>
+        storageApp.saveLocalStorage?.(key, value),
+    })
+    const defaultWorkingDirectory = normalizeDirectoryPath(
+      this.host.getAiTaskDefaultWorkingDirectory?.() ??
+        this.resolveVaultWorkingDirectory(),
     )
-    cwdField.appendChild(cwdInput)
+    const electronDirectoryPicker = new ElectronDirectoryPicker()
+    const workingDirectorySelect = new WorkingDirectorySelectController(
+      cwdField,
+      {
+        defaultDirectory: defaultWorkingDirectory,
+        candidateDirectories:
+          this.host.getAiTaskWorkingDirectoryCandidates?.() ?? [],
+        history: workingDirectoryHistory,
+        picker: {
+          selectDirectory: (defaultPath) =>
+            this.host.selectAiTaskDirectory
+              ? this.host.selectAiTaskDirectory(defaultPath)
+              : electronDirectoryPicker.selectDirectory(defaultPath),
+        },
+        labels: {
+          browse: this.host.tv(
+            "addTask.aiCwdBrowse",
+            "Choose working directory",
+          ),
+          defaultBadge: this.host.tv("addTask.aiCwdDefault", "Default"),
+          recentHeader: this.host.tv(
+            "addTask.aiCwdRecent",
+            "Recently used directories",
+          ),
+          resetDefault: this.host.tv(
+            "addTask.aiCwdReset",
+            "Reset to default",
+          ),
+          placeholder: this.host.tv(
+            "addTask.aiCwdPlaceholder",
+            "e.g. /path/to/project",
+          ),
+        },
+      },
+    )
 
     // --- Behavior -----------------------------------------------------------
     const currentVariantTokens = (): readonly string[] => {
@@ -850,11 +934,8 @@ export default class TaskCreationController {
 
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
-      const model =
-        modelSelect.value === CUSTOM_AI_MODEL_VALUE
-          ? modelInput.value.trim()
-          : modelSelect.value
-      if (model.length > 0 && MODEL_ID_SAFE_PATTERN.test(model)) {
+      const model = modelSelect.getValue().modelId ?? ""
+      if (model.length > 0 && AI_MODEL_ID_SAFE_PATTERN.test(model)) {
         args.push(`--model=${model}`)
       }
       args.push(
@@ -899,33 +980,6 @@ export default class TaskCreationController {
       execModeSelect.value = "default"
     }
 
-    const rebuildModelOptions = () => {
-      modelSelect.replaceChildren()
-      const defaultOption = doc.createElement("option")
-      defaultOption.value = ""
-      defaultOption.textContent = this.host.tv(
-        "addTask.aiModelPlaceholder",
-        "Default model",
-      )
-      modelSelect.appendChild(defaultOption)
-      for (const preset of AI_MODEL_PRESETS[selectedHost]) {
-        const option = doc.createElement("option")
-        option.value = preset.id
-        option.textContent = preset.label
-        modelSelect.appendChild(option)
-      }
-      const customOption = doc.createElement("option")
-      customOption.value = CUSTOM_AI_MODEL_VALUE
-      customOption.textContent = this.host.tv(
-        "addTask.aiModelCustom",
-        "Custom…",
-      )
-      modelSelect.appendChild(customOption)
-      modelSelect.value = ""
-      modelInput.value = ""
-      modelInput.classList.add("hidden")
-    }
-
     const reasoningBudgetLabel = (budget: AiReasoningBudget): string => {
       const definitions: Record<
         AiReasoningBudget,
@@ -962,7 +1016,12 @@ export default class TaskCreationController {
             : "Ultra (parallel delegation)",
         ),
       }
-      const modes = getAvailableReasoningModes(selectedHost, modelSelect.value)
+      const selectedModel = modelSelect.getValue()
+      const modes = getAvailableReasoningModes(
+        selectedHost,
+        selectedModel.modelId ?? "",
+        { isCustomModel: selectedModel.isCustom },
+      )
       for (const mode of modes) {
         const option = doc.createElement("option")
         option.value = mode
@@ -988,13 +1047,6 @@ export default class TaskCreationController {
       reasoningBudgetField.classList.add("hidden")
     }
 
-    const updateModelInputVisibility = () => {
-      modelInput.classList.toggle(
-        "hidden",
-        modelSelect.value !== CUSTOM_AI_MODEL_VALUE,
-      )
-    }
-
     const updateReasoningBudgetVisibility = () => {
       reasoningBudgetField.classList.toggle(
         "hidden",
@@ -1012,8 +1064,7 @@ export default class TaskCreationController {
       }
       // The variant set belongs to the host: reset to its default.
       rebuildExecModeOptions()
-      if (hostChanged) modelInput.value = ""
-      rebuildModelOptions()
+      if (hostChanged) modelSelect.setHost(nextHost)
       rebuildReasoningModeOptions(false)
       rebuildReasoningBudgetOptions()
       refreshPreview()
@@ -1040,13 +1091,6 @@ export default class TaskCreationController {
       card.addEventListener("click", () => selectHost(cardHost))
     }
     promptInput.addEventListener("input", refreshPreview)
-    modelInput.addEventListener("input", refreshPreview)
-    modelSelect.addEventListener("change", () => {
-      updateModelInputVisibility()
-      rebuildReasoningModeOptions()
-      updateReasoningBudgetVisibility()
-      refreshPreview()
-    })
     reasoningModeSelect.addEventListener("change", () => {
       updateReasoningBudgetVisibility()
       refreshPreview()
@@ -1067,15 +1111,106 @@ export default class TaskCreationController {
       },
       getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
       getAiTaskOptions: () => {
-        const cwd = cwdInput.value.trim()
+        const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
+        const usesDefault =
+          cwd.length > 0 &&
+          normalizeDirectoryPathForComparison(cwd) ===
+            normalizeDirectoryPathForComparison(defaultWorkingDirectory)
         const prompt = promptInput.value
         return {
           host: selectedHost,
           args: buildArgs(),
-          cwd: cwd.length > 0 ? cwd : undefined,
+          cwd: cwd.length > 0 && !usesDefault ? cwd : undefined,
           prompt: prompt.trim().length > 0 ? prompt : "",
         }
       },
+      commit: () => {
+        workingDirectorySelect.commitHistory()
+      },
+      destroy: () => {
+        modelSelect.destroy()
+        workingDirectorySelect.destroy()
+      },
+    }
+  }
+
+  private resolveVaultWorkingDirectory(): string {
+    const adapter = this.host.plugin.app.vault?.adapter as unknown as {
+      getBasePath?: () => unknown
+    }
+    try {
+      const value = adapter?.getBasePath?.()
+      return typeof value === "string" ? value : ""
+    } catch {
+      return ""
+    }
+  }
+
+  private buildCustomModelModalLabels() {
+    return {
+      addTitle: this.host.tv(
+        "addTask.aiCustomModelAddTitle",
+        "Add custom model",
+      ),
+      editTitle: this.host.tv(
+        "addTask.aiCustomModelEditTitle",
+        "Edit custom model",
+      ),
+      claudeAgent: "Claude Code",
+      codexAgent: "Codex",
+      modelId: this.host.tv("addTask.aiCustomModelId", "Model ID"),
+      modelIdPlaceholder: this.host.tv(
+        "addTask.aiCustomModelIdPlaceholder",
+        "provider/model-name",
+      ),
+      modelIdHelp: this.host.tv(
+        "addTask.aiCustomModelIdHelp",
+        "Passed to the CLI as --model=<id>",
+      ),
+      displayName: this.host.tv(
+        "addTask.aiCustomModelDisplayName",
+        "Display name",
+      ),
+      displayNamePlaceholder: this.host.tv(
+        "addTask.aiCustomModelDisplayNamePlaceholder",
+        "My custom model",
+      ),
+      description: this.host.tv(
+        "addTask.aiCustomModelDescription",
+        "Description",
+      ),
+      descriptionPlaceholder: this.host.tv(
+        "addTask.aiCustomModelDescriptionPlaceholder",
+        "Optional description",
+      ),
+      commandPreview: this.host.tv(
+        "addTask.aiCustomModelCommandPreview",
+        "Command preview",
+      ),
+      cancel: t("common.cancel", "Cancel"),
+      add: this.host.tv("addTask.aiCustomModelAdd", "Add"),
+      save: this.host.tv("buttons.save", "Save"),
+      close: this.host.tv("common.close", "Close"),
+      invalidId: this.host.tv(
+        "addTask.aiCustomModelInvalidId",
+        "Use 1-100 characters: letters, numbers, dot, underscore, colon, slash, or hyphen; start with a letter or number.",
+      ),
+      duplicateId: this.host.tv(
+        "addTask.aiCustomModelDuplicateId",
+        "This model ID already exists.",
+      ),
+      invalidLabel: this.host.tv(
+        "addTask.aiCustomModelInvalidLabel",
+        "Enter a display name.",
+      ),
+      invalidDescription: this.host.tv(
+        "addTask.aiCustomModelInvalidDescription",
+        "The description is invalid.",
+      ),
+      modelNotFound: this.host.tv(
+        "addTask.aiCustomModelNotFound",
+        "The custom model no longer exists.",
+      ),
     }
   }
 

@@ -142,8 +142,13 @@ interface ExecutionStub {
 }
 
 interface MutationStub {
-  deleteTask: jest.Mock<Promise<void>, [TaskInstance]>
-  deleteInstance: jest.Mock<Promise<void>, [TaskInstance]>
+  deleteTask: jest.Mock<Promise<boolean>, [TaskInstance]>
+  deleteInstance: jest.Mock<Promise<boolean>, [TaskInstance]>
+  rollbackDuplicateInstance: jest.Mock<Promise<void>, [TaskInstance]>
+  duplicateInstance: jest.Mock<
+    Promise<TaskInstance | void>,
+    [TaskInstance, { returnInstance?: boolean; slotKey?: string }?]
+  >
 }
 
 function createView(plugin: TaskChutePluginLike): {
@@ -173,8 +178,10 @@ function createView(plugin: TaskChutePluginLike): {
   ;(view as unknown as { taskExecutionService: ExecutionStub }).taskExecutionService =
     execution
   const mutation: MutationStub = {
-    deleteTask: jest.fn(async () => undefined),
-    deleteInstance: jest.fn(async () => undefined),
+    deleteTask: jest.fn(async () => true),
+    deleteInstance: jest.fn(async () => true),
+    rollbackDuplicateInstance: jest.fn(async () => undefined),
+    duplicateInstance: jest.fn(async () => undefined),
   }
   ;(view as unknown as { taskMutationService: MutationStub }).taskMutationService =
     mutation
@@ -215,6 +222,41 @@ function makeInstance(
     state: 'idle',
     slotKey: 'none',
   } as TaskInstance
+}
+
+function makeHumanInstance(title: string, instanceId = 'human-1'): TaskInstance {
+  const file = makeTaskFile(`TASKS/${title}.md`, title)
+  return {
+    task: {
+      file,
+      frontmatter: {},
+      path: file.path,
+      name: title,
+      displayTitle: title,
+    },
+    instanceId,
+    state: 'idle',
+    slotKey: 'none',
+  } as TaskInstance
+}
+
+function makeLinkedAiInstance(
+  taskTitle: string,
+  matchType: 'exact' | 'contains' = 'exact',
+): TaskInstance {
+  const inst = makeInstance(
+    {
+      ai_task: true,
+      isRoutine: true,
+      routine_enabled: true,
+      obsidian_sync: { enabled: true, taskTitle, matchType },
+    },
+    makeTaskFile('TASKS/linked-ai.md', 'linked-ai'),
+  )
+  inst.instanceId = 'linked-ai-1'
+  inst.task.isRoutine = true
+  inst.task.displayTitle = 'Linked AI'
+  return inst
 }
 
 function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
@@ -340,6 +382,242 @@ describe('TaskChuteView play button coupling', () => {
 
     expect(inst.state).toBe('idle')
     expect(manager.startRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
+  test('does not change the linked target when the AI manager is unavailable', async () => {
+    const plugin = createPluginStub()
+    const { view, execution, mutation } = createView(plugin)
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(execution.startInstance).toHaveBeenCalledTimes(1)
+    expect(execution.startInstance).toHaveBeenCalledWith(source)
+    expect(source.state).toBe('running')
+    expect(target.state).toBe('idle')
+    expect(mutation.duplicateInstance).not.toHaveBeenCalled()
+  })
+
+  test('starting a matching human task starts the first linked AI routine and its run', async () => {
+    const { manager, view, execution } = setUp()
+    manager.startRun.mockResolvedValueOnce(
+      makeRecord({ taskPath: 'TASKS/linked-ai.md', instanceId: 'linked-ai-1' }),
+    )
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(execution.startInstance.mock.calls.map(([inst]) => inst)).toEqual([
+      source,
+      target,
+    ])
+    expect(source.state).toBe('running')
+    expect(target.state).toBe('running')
+    expect(manager.startRun).toHaveBeenCalledTimes(1)
+    expect(manager.startRun.mock.calls[0][0].path).toBe('TASKS/linked-ai.md')
+  })
+
+  test('duplicates a completed linked target and owns the new running instance', async () => {
+    const { manager, view, execution, mutation } = setUp()
+    manager.startRun.mockResolvedValueOnce(
+      makeRecord({ taskPath: 'TASKS/linked-ai.md', instanceId: 'linked-ai-2' }),
+    )
+    const source = makeHumanInstance('CEO review')
+    const completed = makeLinkedAiInstance('CEO review')
+    completed.state = 'done'
+    const duplicate = {
+      ...completed,
+      instanceId: 'linked-ai-2',
+      state: 'idle',
+      isDuplicate: true,
+    } as TaskInstance
+    mutation.duplicateInstance.mockImplementationOnce(async () => {
+      view.taskInstances.push(duplicate)
+      return duplicate
+    })
+    view.taskInstances = [source, completed]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(mutation.duplicateInstance).toHaveBeenCalledWith(
+      completed,
+      expect.objectContaining({ returnInstance: true }),
+    )
+    expect(execution.startInstance.mock.calls.map(([inst]) => inst)).toEqual([
+      source,
+      duplicate,
+    ])
+    expect(completed.state).toBe('done')
+    expect(duplicate.state).toBe('running')
+
+    manager.getActiveRunForTask.mockReturnValue(
+      makeRecord({ id: 'linked-run', taskPath: 'TASKS/linked-ai.md' }),
+    )
+    await view.stopInstance(source)
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(duplicate, undefined)
+    expect(execution.stopInstance).not.toHaveBeenCalledWith(completed, undefined)
+  })
+
+  test('materializes a non-due linked candidate without exposing the template instance', async () => {
+    const { manager, view, execution, mutation } = setUp()
+    manager.startRun.mockResolvedValueOnce(
+      makeRecord({ taskPath: 'TASKS/linked-ai.md', instanceId: 'linked-ai-2' }),
+    )
+    const source = makeHumanInstance('CEO review')
+    const candidate = makeLinkedAiInstance('CEO review')
+    const duplicate = {
+      ...candidate,
+      instanceId: 'linked-ai-2',
+      state: 'idle',
+      isDuplicate: true,
+    } as TaskInstance
+    mutation.duplicateInstance.mockImplementationOnce(async () => {
+      view.taskInstances.push(duplicate)
+      return duplicate
+    })
+    view.taskInstances = [source]
+    view.linkedAiTaskCandidates = [candidate]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(mutation.duplicateInstance).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({
+        returnInstance: true,
+        suppressNotice: true,
+      }),
+    )
+    expect(execution.startInstance.mock.calls.map(([inst]) => inst)).toEqual([
+      source,
+      duplicate,
+    ])
+    expect(candidate.state).toBe('idle')
+    expect(view.taskInstances).toEqual([source, duplicate])
+  })
+
+  test('rolls back a materialized non-due candidate when its timer start fails', async () => {
+    const { manager, view, execution, mutation } = setUp()
+    const source = makeHumanInstance('CEO review')
+    const candidate = makeLinkedAiInstance('CEO review')
+    const duplicate = {
+      ...candidate,
+      instanceId: 'linked-ai-failed-start',
+      state: 'idle',
+      isDuplicate: true,
+    } as TaskInstance
+    mutation.duplicateInstance.mockImplementationOnce(async () => {
+      view.taskInstances.push(duplicate)
+      view.tasks.push(duplicate.task)
+      return duplicate
+    })
+    mutation.rollbackDuplicateInstance.mockImplementationOnce(async (inst) => {
+      view.taskInstances = view.taskInstances.filter((item) => item !== inst)
+      view.tasks = view.tasks.filter((task) => task !== inst.task)
+    })
+    execution.startInstance
+      .mockImplementationOnce(async (inst) => {
+        inst.state = 'running'
+        return true
+      })
+      .mockImplementationOnce(async () => false)
+    view.taskInstances = [source]
+    view.linkedAiTaskCandidates = [candidate]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(mutation.rollbackDuplicateInstance).toHaveBeenCalledWith(duplicate)
+    expect(view.taskInstances).toEqual([source])
+    expect(view.tasks).toEqual([])
+    expect(candidate.state).toBe('idle')
+    expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test('rolls back the linked timer when the AI manager is disabled during dispatch', async () => {
+    const { manager, view, execution } = setUp()
+    const plugin = (
+      view as unknown as { plugin: TaskChutePluginLike }
+    ).plugin
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    view.taskInstances = [source, target]
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: () => Promise<void>
+        saveRunningTasksState: () => Promise<void>
+      }
+    ).removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as {
+        saveRunningTasksState: () => Promise<void>
+      }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+    execution.startInstance.mockImplementation(async (inst) => {
+      inst.state = 'running'
+      if (inst === target) {
+        plugin.aiTaskManager = undefined
+      }
+      return true
+    })
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(target.state).toBe('idle')
+    expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test('stopping the source task stops the AI instance and its terminal run', async () => {
+    const { manager, view, execution } = setUp()
+    manager.startRun.mockResolvedValueOnce(
+      makeRecord({ taskPath: 'TASKS/linked-ai.md', instanceId: 'linked-ai-1' }),
+    )
+    const source = makeHumanInstance('Daily CEO review')
+    const target = makeLinkedAiInstance('CEO review', 'contains')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+    await flushPromises()
+    manager.getActiveRunForTask.mockReturnValue(
+      makeRecord({ id: 'linked-run', taskPath: 'TASKS/linked-ai.md' }),
+    )
+
+    await view.stopInstance(source)
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(source, undefined)
+    expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
+    expect(target.state).toBe('done')
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(
+      'TASKS/linked-ai.md',
+    )
+    expect(manager.stopRun).toHaveBeenCalledWith('linked-run')
+  })
+
+  test('does not recursively launch a linked routine when an AI task starts', async () => {
+    const { manager, view, execution } = setUp()
+    manager.startRun.mockResolvedValue(makeRecord())
+    const source = makeLinkedAiInstance('CEO review')
+    const otherTarget = makeLinkedAiInstance('Linked AI')
+    otherTarget.instanceId = 'linked-ai-2'
+    otherTarget.task.path = 'TASKS/linked-ai-2.md'
+    view.taskInstances = [source, otherTarget]
+
+    await view.startInstance(source)
+    await flushPromises()
+
+    expect(execution.startInstance).toHaveBeenCalledTimes(1)
+    expect(otherTarget.state).toBe('idle')
   })
 })
 
@@ -478,6 +756,27 @@ describe('TaskChuteView reset-to-idle coupling', () => {
 
     expect(manager.stopRun).not.toHaveBeenCalled()
   })
+
+  test('resetting a running human source stops its linked AI and allows a later retrigger', async () => {
+    const { manager, view, execution } = setUp()
+    stubResetInternals(view)
+    manager.startRun.mockResolvedValue(makeRecord({ taskPath: 'TASKS/linked-ai.md' }))
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+    await asResetCapable(view).resetTaskToIdle(source)
+
+    expect(target.state).toBe('done')
+    expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
+
+    // Resetting clears coordinator ownership, so the same source can trigger
+    // the link again when an idle target is available.
+    target.state = 'idle'
+    await view.startInstance(source)
+    expect(execution.startInstance.mock.calls.filter(([inst]) => inst === target)).toHaveLength(2)
+  })
 })
 
 describe('TaskChuteView delete coupling', () => {
@@ -518,6 +817,35 @@ describe('TaskChuteView delete coupling', () => {
     await asDeleteCapable(view).deleteTask(makeInstance())
 
     expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+
+  test('a failed running-source deletion leaves its linked AI run alone', async () => {
+    const { manager, view, mutation, execution } = setUp()
+    const source = makeHumanInstance('CEO review')
+    source.state = 'running'
+    const target = makeLinkedAiInstance('CEO review')
+    target.state = 'running'
+    view.taskInstances = [source, target]
+    mutation.deleteTask.mockResolvedValueOnce(false)
+
+    await asDeleteCapable(view).deleteTask(source)
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+
+  test('deleting a running human source stops its owned linked AI instance', async () => {
+    const { manager, view, execution } = setUp()
+    manager.startRun.mockResolvedValue(makeRecord({ taskPath: 'TASKS/linked-ai.md' }))
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+    await asDeleteCapable(view).deleteTask(source)
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
+    expect(target.state).toBe('done')
   })
 })
 

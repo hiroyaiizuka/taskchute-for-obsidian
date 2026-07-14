@@ -44,7 +44,11 @@ export interface TaskTimeControllerHost {
   onInstanceResetToIdle?: (
     inst: TaskInstance,
     context: { wasRunning: boolean },
-  ) => void
+  ) => void | Promise<void>
+  /** Called when manual time editing transitions running -> done. */
+  onInstanceStopped?: (inst: TaskInstance) => void | Promise<void>
+  /** Called when manual time editing transitions idle/done -> running. */
+  onInstanceStarted?: (inst: TaskInstance) => void | Promise<void>
 }
 
 export default class TaskTimeController {
@@ -279,7 +283,7 @@ export default class TaskTimeController {
       inst.state = 'idle'
       inst.startTime = undefined
       inst.stopTime = undefined
-      this.host.onInstanceResetToIdle?.(inst, { wasRunning })
+      await this.host.onInstanceResetToIdle?.(inst, { wasRunning })
 
       if (inst.instanceId) {
         await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)
@@ -326,10 +330,46 @@ export default class TaskTimeController {
     }
 
     const durationSec = Math.floor(this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime) / 1000)
-    await this.host.executionLogService.saveTaskLog(inst, durationSec)
-    if (wasRunning) {
-      await this.host.saveRunningTasksState()
+    let logFailed = false
+    let logError: unknown
+    try {
+      await this.host.executionLogService.saveTaskLog(inst, durationSec)
+    } catch (error) {
+      logFailed = true
+      logError = error
     }
+
+    let lifecycleFailed = false
+    let lifecycleError: unknown
+    if (wasRunning) {
+      try {
+        await this.host.saveRunningTasksState()
+      } catch (error) {
+        lifecycleFailed = true
+        lifecycleError = error
+      }
+      try {
+        await this.host.onInstanceStopped?.(inst)
+      } catch (error) {
+        if (!lifecycleFailed) {
+          lifecycleFailed = true
+          lifecycleError = error
+        }
+      }
+    }
+
+    // Preserve the pre-existing failure contract: a log persistence failure
+    // still rejects with that same error, after the mandatory stop lifecycle
+    // hook has had a chance to synchronize linked AI execution.
+    if (logFailed) {
+      // Preserve the exact rejection value supplied by the persistence layer.
+      throw logError
+    }
+    if (lifecycleFailed) {
+      // Preserve the exact rejection value supplied by the lifecycle layer.
+      throw lifecycleError
+    }
+
     this.host.renderTaskList()
     new Notice(
       this.host.tv('notices.taskTimesUpdated', 'Updated times for "{title}"', {
@@ -385,7 +425,30 @@ export default class TaskTimeController {
       this.host.setCurrentInstance(inst)
     }
 
-    await this.host.saveRunningTasksState()
+    let persistenceFailed = false
+    let persistenceError: unknown
+    try {
+      await this.host.saveRunningTasksState()
+    } catch (error) {
+      persistenceFailed = true
+      persistenceError = error
+    }
+
+    let lifecycleFailed = false
+    let lifecycleError: unknown
+    try {
+      await this.host.onInstanceStarted?.(inst)
+    } catch (error) {
+      lifecycleFailed = true
+      lifecycleError = error
+    }
+
+    // Once the human task has transitioned to running, linkage must observe
+    // that transition even if running-state persistence fails. Preserve the
+    // original rejection contract after the lifecycle hook has run.
+    if (persistenceFailed) throw persistenceError
+    if (lifecycleFailed) throw lifecycleError
+
     this.host.renderTaskList()
 
     if (isTodayView) {

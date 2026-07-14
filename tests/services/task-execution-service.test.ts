@@ -513,8 +513,14 @@ describe('TaskExecutionService', () => {
 
     it('startInstance rolls the optimistic mutations back when the flow throws midway', async () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-01-02T09:00:00.000Z'))
+      const previousCurrent = makeIdleInstance('TASKS/previous.md')
+      let currentInstance: TaskInstance | null = previousCurrent
       const host = createHost({
         saveRunningTasksState: jest.fn().mockRejectedValue(new Error('disk full')),
+        getCurrentInstance: jest.fn(() => currentInstance),
+        setCurrentInstance: jest.fn((next) => {
+          currentInstance = next
+        }),
         getSectionConfig: () =>
           ({ getCurrentTimeSlot: () => '8:00-12:00' }) as unknown as ReturnType<
             TaskExecutionHost['getSectionConfig']
@@ -532,6 +538,8 @@ describe('TaskExecutionService', () => {
       expect(instance.startTime).toBeUndefined()
       expect(instance.slotKey).toBe('12:00-16:00')
       expect(instance.originalSlotKey).toBeUndefined()
+      expect(currentInstance).toBe(previousCurrent)
+      expect(host.setCurrentInstance).toHaveBeenLastCalledWith(previousCurrent)
       // The rollback re-renders so the row reflects the restored state.
       expect(host.renderTaskList).toHaveBeenCalled()
     })

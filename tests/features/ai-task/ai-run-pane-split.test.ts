@@ -242,7 +242,7 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('split button', () => {
-    test('renders next to the expand button inside the corner actions', () => {
+    test('keeps split local to the panel and expand global in the AI Runs header', () => {
       controller.mount(container)
       manager.emit(createRun())
 
@@ -251,10 +251,14 @@ describe('AiRunPaneController split panels', () => {
       expect(split).not.toBeNull()
       expect(expand).not.toBeNull()
       expect(split?.getAttribute('aria-label')).toBeTruthy()
-      expect(split?.parentElement).toBe(expand?.parentElement)
       expect(split?.parentElement?.classList.contains('ai-run-pane__actions')).toBe(
         true,
       )
+      expect(expand?.parentElement?.classList.contains('ai-run-pane__header-actions')).toBe(
+        true,
+      )
+      expect(expand?.closest('.ai-run-pane__tabstrip')).toBeNull()
+      expect(container.querySelectorAll('.ai-run-pane__expand')).toHaveLength(1)
     })
 
     test('splitting creates a second panel, spawns a shell session, and focuses it', () => {
