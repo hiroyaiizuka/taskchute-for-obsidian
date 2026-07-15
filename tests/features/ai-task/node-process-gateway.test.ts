@@ -1,8 +1,31 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
+import {
+  NodeProcessGateway,
+  POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
+  POSIX_LOGIN_SHELL_FLAG,
+  buildWindowsTaskkillArgs,
+} from '../../../src/features/ai-task/services/NodeProcessGateway'
 
-const ENV_KEYS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'NO_COLOR', 'SHELL', 'PATH'] as const
+const ENV_KEYS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'NO_COLOR',
+  'SHELL',
+  'PATH',
+  'COMSPEC',
+  'SystemRoot',
+  'USERPROFILE',
+  'LOCALAPPDATA',
+  'APPDATA',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'NVM_SYMLINK',
+  'FNM_MULTISHELL_PATH',
+  'FNM_DIR',
+  'npm_config_prefix',
+  'ChocolateyInstall',
+] as const
 
 const FAKE_LOGIN_SHELL = path.join(__dirname, 'fixtures/fake-login-shell.sh')
 
@@ -58,6 +81,31 @@ describe('NodeProcessGateway', () => {
       const gateway = new NodeProcessGateway()
       expect(gateway.getBaseEnv().SHELL).toBe('/bin/bash')
     })
+
+    test('augments a stale Windows GUI PATH with common CLI manager directories', () => {
+      process.env.PATH = 'C:\\Windows\\System32;C:\\Users\\tester\\.VOLTA\\bin'
+      process.env.USERPROFILE = 'C:\\Users\\tester'
+      process.env.LOCALAPPDATA = 'C:\\Users\\tester\\AppData\\Local'
+      process.env.APPDATA = 'C:\\Users\\tester\\AppData\\Roaming'
+      process.env.FNM_MULTISHELL_PATH = 'C:\\Users\\tester\\AppData\\Local\\fnm_multishells\\42'
+      process.env.ChocolateyInstall = 'C:\\ProgramData\\chocolatey'
+
+      const env = new NodeProcessGateway(undefined, 'win32').getBaseEnv()
+      const entries = (env.PATH ?? '').split(';')
+
+      expect(entries).toEqual(expect.arrayContaining([
+        'C:\\Users\\tester\\.local\\bin',
+        'C:\\Users\\tester\\.volta\\bin',
+        'C:\\Users\\tester\\scoop\\shims',
+        'C:\\Users\\tester\\AppData\\Local\\pnpm',
+        'C:\\Users\\tester\\AppData\\Roaming\\npm',
+        'C:\\Users\\tester\\AppData\\Local\\fnm_multishells\\42',
+        'C:\\ProgramData\\chocolatey\\bin',
+        'C:\\Windows\\System32',
+      ]))
+      expect(entries.filter((entry) => entry.toLowerCase() === 'c:\\users\\tester\\.volta\\bin'))
+        .toHaveLength(1)
+    })
   })
 
   describe('primeLoginShellPath', () => {
@@ -74,7 +122,8 @@ describe('NodeProcessGateway', () => {
       const mergedPath = gateway.getBaseEnv().PATH ?? ''
       const mergedEntries = mergedPath.split(':')
 
-      // Login-shell entries come first, exactly as the fake .zprofile set them.
+      // Interactive-shell entries come first, as mise/nvm activation from
+      // .zshrc would set them in a real GUI-launched Obsidian session.
       expect(mergedEntries[0]).toBe('/fake-login-dir/bin')
       expect(mergedEntries[1]).toBe('/fake-login-dir/sbin')
       // Every original process entry is preserved.
@@ -90,6 +139,25 @@ describe('NodeProcessGateway', () => {
       // The live process environment is untouched.
       expect(process.env.PATH).toBe(originalPath)
     }, 15_000)
+
+    test('falls back to login-only flags when the shell rejects interactive mode', async () => {
+      const gateway = new NodeProcessGateway()
+      const execCapture = jest.spyOn(gateway, 'execCapture')
+      execCapture
+        .mockResolvedValueOnce({ code: 2, stdout: '', stderr: 'unsupported', timedOut: false })
+        .mockResolvedValueOnce({
+          code: 0,
+          stdout: 'shell noise\n__TASKCHUTE_AI_PATH__/fallback/bin:/usr/bin\nlogout noise\n',
+          stderr: '',
+          timedOut: false,
+        })
+
+      await gateway.primeLoginShellPath()
+
+      expect(execCapture.mock.calls[0]?.[1]?.[0]).toBe(POSIX_INTERACTIVE_LOGIN_SHELL_FLAG)
+      expect(execCapture.mock.calls[1]?.[1]?.[0]).toBe(POSIX_LOGIN_SHELL_FLAG)
+      expect(gateway.getBaseEnv().PATH?.split(':')[0]).toBe('/fallback/bin')
+    })
 
     test('getBaseEnv keeps the process PATH until priming completes', () => {
       process.env.SHELL = FAKE_LOGIN_SHELL
@@ -118,6 +186,15 @@ describe('NodeProcessGateway', () => {
       await first
       expect(gateway.primeLoginShellPath()).toBe(first)
     }, 15_000)
+
+    test('is a no-op on win32 instead of trying to launch /bin/sh', async () => {
+      const gateway = new NodeProcessGateway(undefined, 'win32')
+      const execCapture = jest.spyOn(gateway, 'execCapture')
+
+      await gateway.primeLoginShellPath()
+
+      expect(execCapture).not.toHaveBeenCalled()
+    })
   })
 
   describe('getShellPath', () => {
@@ -134,6 +211,45 @@ describe('NodeProcessGateway', () => {
     test('falls back to the POSIX-guaranteed /bin/sh when SHELL is blank', () => {
       process.env.SHELL = '   '
       expect(new NodeProcessGateway().getShellPath()).toBe('/bin/sh')
+    })
+
+    test('uses COMSPEC on win32 and never returns a POSIX shell', () => {
+      process.env.COMSPEC = 'C:\\Windows\\System32\\cmd.exe'
+      expect(new NodeProcessGateway(undefined, 'win32').getShellPath()).toBe(
+        'C:\\Windows\\System32\\cmd.exe',
+      )
+    })
+
+    test('uses the SystemRoot cmd.exe fallback on win32 when COMSPEC is missing', () => {
+      delete process.env.COMSPEC
+      process.env.SystemRoot = 'D:\\Windows'
+      expect(new NodeProcessGateway(undefined, 'win32').getShellPath()).toBe(
+        'D:\\Windows\\System32\\cmd.exe',
+      )
+    })
+  })
+
+  describe('runtime helpers', () => {
+    test('reports an injected platform for deterministic Windows resolution', () => {
+      expect(new NodeProcessGateway(undefined, 'win32').getPlatform()).toBe('win32')
+    })
+
+    test('isFile distinguishes files from directories and missing paths', async () => {
+      const gateway = new NodeProcessGateway()
+      await expect(gateway.isFile(__filename)).resolves.toBe(true)
+      await expect(gateway.isFile(__dirname)).resolves.toBe(false)
+      await expect(gateway.isFile(path.join(__dirname, 'missing-file'))).resolves.toBe(false)
+    })
+
+    test('builds non-forced and forced Windows process-tree stop arguments', () => {
+      expect(buildWindowsTaskkillArgs(4321, false)).toEqual(['/PID', '4321', '/T'])
+      expect(buildWindowsTaskkillArgs(4321, true)).toEqual([
+        '/PID',
+        '4321',
+        '/T',
+        '/F',
+      ])
+      expect(buildWindowsTaskkillArgs(0, true)).toEqual([])
     })
   })
 
@@ -174,6 +290,67 @@ describe('NodeProcessGateway', () => {
   })
 
   describe('spawnProcess', () => {
+    test('retries a failed graceful win32 tree stop with force before child.kill', async () => {
+      const terminateWindowsTree = jest.fn(() => false)
+      const gateway = new NodeProcessGateway(undefined, 'win32', terminateWindowsTree)
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'setInterval(function () {}, 1000)'],
+        env: gateway.getBaseEnv(),
+      })
+      expect(handle.pid).toBeGreaterThan(0)
+
+      handle.kill('SIGTERM')
+      await new Promise<void>((resolve) => handle.onExit(() => resolve()))
+
+      expect(terminateWindowsTree).toHaveBeenNthCalledWith(
+        1,
+        handle.pid,
+        false,
+        expect.any(Function),
+      )
+      expect(terminateWindowsTree).toHaveBeenNthCalledWith(
+        2,
+        handle.pid,
+        true,
+        expect.any(Function),
+      )
+      handle.kill('SIGKILL')
+      expect(terminateWindowsTree).toHaveBeenCalledTimes(2)
+    }, 15_000)
+
+    test('falls back to child.kill when taskkill reports an asynchronous launch failure', async () => {
+      let reportTaskkillFailure: (() => void) | undefined
+      const terminateWindowsTree = jest.fn(
+        (_pid: number, force: boolean, onFailure: () => void) => {
+          if (!force) {
+            reportTaskkillFailure = onFailure
+            return true
+          }
+          return false
+        },
+      )
+      const gateway = new NodeProcessGateway(undefined, 'win32', terminateWindowsTree)
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'setInterval(function () {}, 1000)'],
+        env: gateway.getBaseEnv(),
+      })
+      const exited = new Promise<void>((resolve) => handle.onExit(() => resolve()))
+
+      handle.kill('SIGTERM')
+      expect(reportTaskkillFailure).toBeDefined()
+      reportTaskkillFailure?.()
+      await exited
+
+      expect(terminateWindowsTree).toHaveBeenCalledTimes(2)
+      expect(terminateWindowsTree).toHaveBeenLastCalledWith(
+        handle.pid,
+        true,
+        expect.any(Function),
+      )
+    }, 15_000)
+
     test('streams utf8 stdout chunks and reports the exit code', async () => {
       const gateway = new NodeProcessGateway()
       const handle = gateway.spawnProcess({

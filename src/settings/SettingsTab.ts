@@ -13,6 +13,10 @@ import { SectionConfigService } from "../services/SectionConfigService"
 import { showConfirmModal } from "../ui/modals/ConfirmModal"
 import { listFoldersInFolder, type VaultFolderEntry } from "../utils/vaultFiles"
 
+function isUnsupportedWindowsCliShim(path: string): boolean {
+  return /\.(?:bat|cmd|ps1)$/iu.test(path)
+}
+
 interface PluginWithSettings extends Plugin {
   app: App
   settings: TaskChuteSettings
@@ -622,7 +626,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       .setDesc(
         t(
           "settings.aiTask.runModeDesc",
-          "Terminal embeds the interactive CLI session (type into it at any time); headless streams parsed events and offers a follow-up composer. Windows always runs headless.",
+          "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
         ),
       )
       .addDropdown((dropdown) => {
@@ -633,7 +637,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           )
           .addOption(
             "headless",
-            t("settings.aiTask.runModeHeadless", "Headless (parsed events)"),
+            t("settings.aiTask.runModeHeadless", "Conversation (cross-platform)"),
           )
           .setValue(
             this.plugin.settings.aiTaskRunMode === "headless"
@@ -648,38 +652,62 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
 
     new Setting(container)
-      .setName(t("settings.aiTask.claudePathName", "Claude binary path"))
+      .setName(t("settings.aiTask.claudePathName", "Claude CLI path (advanced fallback)"))
       .setDesc(
         t(
           "settings.aiTask.claudePathDesc",
-          "Full path to the claude binary. Leave empty to auto-detect.",
+          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
         ),
       )
       .addText((text) => {
         text
-          .setPlaceholder("/usr/local/bin/claude")
+          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
           .setValue(this.plugin.settings.aiTaskClaudePath ?? "")
           .onChange(async (value) => {
-            this.plugin.settings.aiTaskClaudePath = value.trim()
+            const normalized = value.trim()
+            if (isUnsupportedWindowsCliShim(normalized)) {
+              text.setValue("")
+              new Notice(
+                t(
+                  "settings.aiTask.pathShimUnsupported",
+                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
+                ),
+              )
+            }
+            this.plugin.settings.aiTaskClaudePath = isUnsupportedWindowsCliShim(normalized)
+              ? ""
+              : normalized
             await this.plugin.saveSettings()
             this.plugin.aiTaskManager?.invalidateBinaryCache()
           })
       })
 
     new Setting(container)
-      .setName(t("settings.aiTask.codexPathName", "Codex binary path"))
+      .setName(t("settings.aiTask.codexPathName", "Codex CLI path (advanced fallback)"))
       .setDesc(
         t(
           "settings.aiTask.codexPathDesc",
-          "Full path to the codex binary. Leave empty to auto-detect.",
+          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
         ),
       )
       .addText((text) => {
         text
-          .setPlaceholder("/usr/local/bin/codex")
+          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
           .setValue(this.plugin.settings.aiTaskCodexPath ?? "")
           .onChange(async (value) => {
-            this.plugin.settings.aiTaskCodexPath = value.trim()
+            const normalized = value.trim()
+            if (isUnsupportedWindowsCliShim(normalized)) {
+              text.setValue("")
+              new Notice(
+                t(
+                  "settings.aiTask.pathShimUnsupported",
+                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
+                ),
+              )
+            }
+            this.plugin.settings.aiTaskCodexPath = isUnsupportedWindowsCliShim(normalized)
+              ? ""
+              : normalized
             await this.plugin.saveSettings()
             this.plugin.aiTaskManager?.invalidateBinaryCache()
           })

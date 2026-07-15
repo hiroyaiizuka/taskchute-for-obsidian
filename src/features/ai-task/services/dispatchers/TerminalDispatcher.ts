@@ -33,6 +33,8 @@ import type { AiGraceTimer, AiRunExitOutcome } from './Dispatcher'
 export interface TerminalRunRequest {
   /** Absolute path to the CLI binary */
   binaryPath: string
+  /** Package entrypoint argv inserted before the host-specific CLI args. */
+  binaryArgsPrefix?: string[]
   /** Initial prompt submitted into the REPL; '' opens a plain REPL */
   prompt: string
   /** Working directory for the child process */
@@ -126,8 +128,9 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle {
     const args = buildTerminalArgs(request.extraArgs, request.prompt)
+    const executableArgs = [...(request.binaryArgsPrefix ?? []), ...args]
     const shellLaunchCommand = request.launchInShell
-      ? buildShellLaunchCommand(request.binaryPath, args)
+      ? buildShellLaunchCommand(request.binaryPath, executableArgs)
       : null
     const ptyBinaryPath = request.launchInShell
       ? quoteCheckedShellPath(this.gateway.getShellPath())
@@ -135,7 +138,7 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
 
     const ptyCommand = this.gateway.buildPtyCommand({
       binaryPath: ptyBinaryPath,
-      args: request.launchInShell ? [...LOGIN_SHELL_ARGS] : args,
+      args: request.launchInShell ? [...LOGIN_SHELL_ARGS] : executableArgs,
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,

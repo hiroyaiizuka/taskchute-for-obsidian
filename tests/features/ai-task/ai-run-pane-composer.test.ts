@@ -319,7 +319,7 @@ describe('AiRunPaneController composer', () => {
     const noticeMock = Notice as unknown as jest.Mock
     const message = String(noticeMock.mock.calls[0][0])
     expect(message).toBe(
-      'AI CLI binary was not found: claude. Set the path in settings.',
+      'AI CLI was not found: claude. Install it or check PATH; use the advanced path fallback only for a custom location.',
     )
   })
 

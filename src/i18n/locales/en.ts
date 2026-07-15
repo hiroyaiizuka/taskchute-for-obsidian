@@ -68,13 +68,18 @@ export const en = {
         "Run tasks with the claude or codex CLI inside the AI run pane (desktop only).",
       runModeName: "Run mode",
       runModeDesc:
-        "Terminal embeds the interactive CLI session (type into it at any time); headless streams parsed events and offers a follow-up composer. Windows always runs headless.",
+        "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
       runModeTerminal: "Terminal (interactive)",
-      runModeHeadless: "Headless (parsed events)",
-      claudePathName: "Claude binary path",
-      claudePathDesc: "Full path to the claude binary. Leave empty to auto-detect.",
-      codexPathName: "Codex binary path",
-      codexPathDesc: "Full path to the codex binary. Leave empty to auto-detect.",
+      runModeHeadless: "Conversation (cross-platform)",
+      claudePathName: "Claude CLI path (advanced fallback)",
+      claudePathDesc:
+        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+      codexPathName: "Codex CLI path (advanced fallback)",
+      codexPathDesc:
+        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+      pathPlaceholder: "Auto-detect (recommended)",
+      pathShimUnsupported:
+        "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
       retentionName: "Run log retention (days)",
       retentionDesc: "Run log notes older than this many days are deleted automatically.",
     },
@@ -291,7 +296,8 @@ export const en = {
       },
       notices: {
         noPrompt: "No prompt section found. Add a \"## prompt\" heading to the task note.",
-        binaryNotFound: "AI CLI binary was not found: {host}. Set the path in settings.",
+        binaryNotFound:
+          "AI CLI was not found: {host}. Install it or check PATH; use the advanced path fallback only for a custom location.",
         alreadyRunning: "An AI run is already in progress for this task.",
         desktopOnly: "AI task runs are available on desktop only.",
         startFailed: "Failed to start AI run: {message}",

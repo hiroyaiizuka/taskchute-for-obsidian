@@ -106,6 +106,12 @@ describe('style regressions', () => {
     expect(expand).toMatch(/background-color:\s*transparent;/)
   })
 
+  test('Obsidian-linked AI task icon keeps space from the task title', () => {
+    const linkIcon = readRule(styles(), '.ai-task-obsidian-link-icon {')
+
+    expect(linkIcon).toMatch(/padding-left:\s*5px;/)
+  })
+
   test('AI task dropdowns stay scrollable and directory rows keep compact two-line spacing', () => {
     const css = styles()
     const directoryMenu = readRule(css, '.ai-working-directory-select__menu {')

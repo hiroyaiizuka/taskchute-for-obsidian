@@ -1738,7 +1738,7 @@ export class AiRunPaneController {
       new Notice(
         this.host.tv(
           'aiTask.notices.binaryNotFound',
-          'AI CLI binary was not found: {host}. Set the path in settings.',
+          'AI CLI was not found: {host}. Install it or check PATH; use the advanced path fallback only for a custom location.',
           { host: error.host },
         ),
       )

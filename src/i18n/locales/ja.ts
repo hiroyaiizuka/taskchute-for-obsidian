@@ -66,13 +66,18 @@ export const ja = {
         "AI CLI（Claude Code / Codex）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。",
       runModeName: "実行モード",
       runModeDesc:
-        "Terminal は対話型CLIセッションをそのまま埋め込みます（いつでも入力可能）。Headless は解析済みイベントを表示し、フォローアップ入力欄を使えます。Windows では常に headless になります。",
+        "ターミナルはmacOS / Linuxで対話型CLIを埋め込みます。会話モードは全デスクトップOSで解析済みイベントとフォローアップ入力に対応します。ネイティブConPTYを同梱していないため、Windowsでは自動的に会話モードを使用します。",
       runModeTerminal: "ターミナル（対話型）",
-      runModeHeadless: "ヘッドレス（イベント表示）",
-      claudePathName: "Claude Code バイナリパス",
-      claudePathDesc: "claude バイナリのフルパス。空欄で自動検出します。",
-      codexPathName: "Codex バイナリパス",
-      codexPathDesc: "codex バイナリのフルパス。空欄で自動検出します。",
+      runModeHeadless: "会話モード（全OS対応）",
+      claudePathName: "Claude Code CLIパス（詳細・予備）",
+      claudePathDesc:
+        "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではclaude.cmdではなくclaude.exeまたはcli-wrapper.cjsを指定してください。",
+      codexPathName: "Codex CLIパス（詳細・予備）",
+      codexPathDesc:
+        "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではcodex.cmdではなくcodex.exeまたはbin/codex.jsを指定してください。",
+      pathPlaceholder: "自動検出（推奨）",
+      pathShimUnsupported:
+        "Windowsの.cmd/.bat/.ps1 shimは手動CLIパスに使用できません。空欄で自動検出するか、実体の実行ファイル／パッケージentrypointを指定してください。",
       retentionName: "実行ログの保持期間（日）",
       retentionDesc: "この日数より古い実行ログノートは自動的に削除されます。",
     },
@@ -289,7 +294,8 @@ export const ja = {
       },
       notices: {
         noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
-        binaryNotFound: "AI CLIバイナリが見つかりません: {host}。設定でパスを指定してください。",
+        binaryNotFound:
+          "AI CLIが見つかりません: {host}。インストール状態とPATHを確認し、独自の配置だけ詳細設定の予備パスを使用してください。",
         alreadyRunning: "このタスクのAI実行はすでに進行中です。",
         desktopOnly: "AIタスクの実行はデスクトップ版でのみ利用できます。",
         startFailed: "AI実行の開始に失敗しました: {message}",

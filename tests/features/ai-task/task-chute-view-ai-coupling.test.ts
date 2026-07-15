@@ -15,7 +15,10 @@
  * inst.state untouched, and success by mutating inst.state and returning true.
  */
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
+import {
+  TaskChuteView,
+  type AmbientAiTaskStartedRun,
+} from '../../../src/features/core/views/TaskChuteView'
 import { AiRunAlreadyActiveError } from '../../../src/features/ai-task/services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
 import type { AiRunRecord } from '../../../src/features/ai-task/types'
@@ -928,5 +931,443 @@ describe('TaskChuteView duplicated-instance stop coupling', () => {
 
     expect(manager.requestStopForTask).not.toHaveBeenCalled()
     expect(manager.stopRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskChuteView Ambient AI routine bridge', () => {
+  const dueAt = new Date(2026, 6, 15, 8, 0, 0, 0)
+
+  function makeAmbientInstance(
+    overrides: Record<string, unknown> = {},
+  ): TaskInstance {
+    const inst = makeInstance({
+      ai_task: true,
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_enabled: true,
+      scheduled_time: '08:00',
+      ...overrides,
+    })
+    inst.task.isRoutine = true
+    inst.task.scheduledTime =
+      typeof overrides.scheduled_time === 'string'
+        ? overrides.scheduled_time
+        : '08:00'
+    inst.date = '2026-07-15'
+    return inst
+  }
+
+  function prepareAmbientView(view: TaskChuteView): void {
+    view.currentDate = new Date(2026, 6, 15)
+    view.reloadTasksAndRestore = jest.fn(async () => undefined)
+    ;(
+      view.taskHeaderController as unknown as {
+        refreshDateLabel: jest.Mock
+      }
+    ).refreshDateLabel = jest.fn()
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: jest.Mock
+        saveRunningTasksState: jest.Mock
+      }
+    ).removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as {
+        saveRunningTasksState: jest.Mock
+      }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+  }
+
+  function makeAmbientStartedRun(
+    overrides: Partial<AmbientAiTaskStartedRun> = {},
+  ): AmbientAiTaskStartedRun {
+    return {
+      runId: 'ai-run-1',
+      path: TASK_PATH,
+      instanceId: 'inst-1',
+      startTime: new Date(2026, 6, 15, 8, 0, 5, 123).getTime(),
+      slotKey: '8:00-12:00',
+      originalSlotKey: 'none',
+      ...overrides,
+    }
+  }
+
+  test('starts a due unlinked AI routine and reports it for once-per-day persistence', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    manager.startRun.mockResolvedValueOnce(makeRecord())
+    const inst = makeAmbientInstance()
+    const timerStartedAt = new Date(2026, 6, 15, 8, 0, 5, 123)
+    execution.startInstance.mockImplementationOnce(async (target) => {
+      target.state = 'running'
+      target.startTime = timerStartedAt
+      target.originalSlotKey = 'none'
+      target.slotKey = '8:00-12:00'
+      return true
+    })
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({
+      satisfiedPaths: [TASK_PATH],
+      startedRuns: [
+        {
+          runId: 'ai-run-1',
+          path: TASK_PATH,
+          instanceId: inst.instanceId,
+          startTime: timerStartedAt.getTime(),
+          slotKey: '8:00-12:00',
+          originalSlotKey: 'none',
+        },
+      ],
+    })
+    expect(execution.startInstance).toHaveBeenCalledWith(inst)
+    expect(manager.startRun).toHaveBeenCalledTimes(1)
+    expect(inst.state).toBe('running')
+  })
+
+  test('does not start before the scheduled time', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks(
+      [TASK_PATH],
+      new Date(2026, 6, 15, 7, 59, 59),
+    )
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test('keeps an Obsidian-linked AI routine click-only even after its time', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance({
+      obsidian_sync: {
+        enabled: true,
+        taskTitle: 'CEO review',
+        matchType: 'exact',
+      },
+    })
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test.each(['running', 'done', 'paused'] as const)(
+    'treats an already %s routine as satisfied without a duplicate run',
+    async (state) => {
+      const { manager, view, execution } = setUp()
+      prepareAmbientView(view)
+      const inst = makeAmbientInstance()
+      inst.state = state
+      view.taskInstances = [inst]
+
+      const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+      expect(satisfied).toEqual({
+        satisfiedPaths: [TASK_PATH],
+        startedRuns: [],
+      })
+      expect(execution.startInstance).not.toHaveBeenCalled()
+      expect(manager.startRun).not.toHaveBeenCalled()
+    },
+  )
+
+  test('rolls the timer back and leaves the date unmarked when AI dispatch fails', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    manager.startRun.mockRejectedValueOnce(new AiBinaryNotFoundError('claude'))
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).toHaveBeenCalledWith(inst)
+    expect(inst.state).toBe('idle')
+    expect(
+      (view as unknown as { removeRunningTaskRecord: jest.Mock })
+        .removeRunningTaskRecord,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ taskPath: TASK_PATH }),
+    )
+  })
+
+  test('rolls back an already-active pending-start race so a failed owner can be retried', async () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    manager.startRun.mockRejectedValueOnce(
+      new AiRunAlreadyActiveError(TASK_PATH),
+    )
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(manager.getActiveRunForTask).toHaveBeenCalledWith(TASK_PATH)
+    expect(inst.state).toBe('idle')
+  })
+
+  test('stops the old process and rolls back when the AI manager changes during dispatch', async () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    const plugin = (view as unknown as { plugin: TaskChutePluginLike }).plugin
+    manager.startRun.mockImplementationOnce(async () => {
+      plugin.aiTaskManager = createManagerStub() as unknown as typeof plugin.aiTaskManager
+      return makeRecord()
+    })
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(inst.state).toBe('idle')
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(TASK_PATH)
+  })
+
+  test('does not borrow or change a view that is showing another date', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+    view.currentDate = new Date(2026, 6, 10)
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(view.getCurrentDateString()).toBe('2026-07-10')
+    expect(view.reloadTasksAndRestore).not.toHaveBeenCalled()
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test('retries when a transient load failure leaves the candidate path absent', async () => {
+    const { view, execution } = setUp()
+    prepareAmbientView(view)
+    view.taskInstances = []
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+  })
+
+  test('marks an explicitly hidden candidate as satisfied without launching it', async () => {
+    const { view, execution } = setUp()
+    prepareAmbientView(view)
+    view.taskInstances = []
+    view.dayStateManager.isHidden = jest.fn(() => true)
+
+    const satisfied = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(satisfied).toEqual({
+      satisfiedPaths: [TASK_PATH],
+      startedRuns: [],
+    })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+  })
+
+  test('syncs the exact background instance and timer snapshot without rechecking the active run', () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    const startedAt = new Date(2026, 6, 15, 9, 5, 0, 0).getTime()
+    const fallback = makeAmbientInstance()
+    fallback.instanceId = 'fallback-instance'
+    const exact = makeAmbientInstance()
+    exact.instanceId = 'background-instance'
+    view.taskInstances = [fallback, exact]
+    view.startGlobalTimer = jest.fn()
+    view.restartTimerService = jest.fn()
+
+    view.syncAmbientAiTaskRuns(
+      [
+        makeAmbientStartedRun({
+          instanceId: exact.instanceId,
+          startTime: startedAt,
+          slotKey: '12:00-16:00',
+          originalSlotKey: '8:00-12:00',
+        }),
+      ],
+      '2026-07-15',
+    )
+
+    expect(manager.getActiveRunForTask).not.toHaveBeenCalled()
+    expect(fallback.state).toBe('idle')
+    expect(exact.state).toBe('running')
+    expect(exact.startTime?.getTime()).toBe(startedAt)
+    expect(exact.slotKey).toBe('12:00-16:00')
+    expect(exact.originalSlotKey).toBe('8:00-12:00')
+    expect(view.currentInstance).toBe(exact)
+    expect(view.startGlobalTimer).toHaveBeenCalledTimes(1)
+    expect(view.restartTimerService).toHaveBeenCalledTimes(1)
+    expect(view.renderTaskList).toHaveBeenCalledTimes(1)
+  })
+
+  test('falls back to the task path when the background instance id is unavailable in the visible view', () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+    view.startGlobalTimer = jest.fn()
+    view.restartTimerService = jest.fn()
+    const startedRun = makeAmbientStartedRun({
+      instanceId: 'background-only-instance',
+    })
+
+    view.syncAmbientAiTaskRuns([startedRun], '2026-07-15')
+
+    expect(manager.getActiveRunForTask).not.toHaveBeenCalled()
+    expect(inst.state).toBe('running')
+    expect(inst.startTime?.getTime()).toBe(startedRun.startTime)
+    expect(inst.slotKey).toBe(startedRun.slotKey)
+    expect(inst.originalSlotKey).toBe(startedRun.originalSlotKey)
+    expect(view.currentInstance).toBe(inst)
+  })
+
+  test('opens exact Ambient runs in start order even when their timers are already mirrored', () => {
+    const { view } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    inst.state = 'running'
+    view.taskInstances = [inst]
+    const openRun = jest.fn()
+    ;(
+      view as unknown as {
+        aiRunPaneController: { openRun: jest.Mock }
+      }
+    ).aiRunPaneController = { openRun }
+
+    view.syncAmbientAiTaskRuns(
+      [
+        makeAmbientStartedRun({ runId: 'ai-run-ambient-a' }),
+        makeAmbientStartedRun({
+          runId: 'ai-run-ambient-b',
+          path: 'TASKS/other-ambient.md',
+          instanceId: 'other-ambient-instance',
+        }),
+      ],
+      '2026-07-15',
+    )
+
+    // AiRunPaneController.openRun owns reveal + uncollapse + selection. The
+    // final call therefore leaves the last run from this scheduler tick open.
+    expect(openRun.mock.calls.map(([runId]) => runId)).toEqual([
+      'ai-run-ambient-a',
+      'ai-run-ambient-b',
+    ])
+    expect(view.renderTaskList).not.toHaveBeenCalled()
+  })
+
+  test('mirrors the authoritative timer snapshot even when startRun exits immediately', async () => {
+    const background = setUp()
+    prepareAmbientView(background.view)
+    const timerStartedAt = new Date(2026, 6, 15, 8, 0, 7, 456)
+    const backgroundInstance = makeAmbientInstance()
+    background.execution.startInstance.mockImplementationOnce(async (target) => {
+      target.state = 'running'
+      target.startTime = timerStartedAt
+      target.originalSlotKey = 'none'
+      target.slotKey = '8:00-12:00'
+      return true
+    })
+    background.manager.startRun.mockResolvedValueOnce(
+      makeRecord({
+        status: 'succeeded',
+        startedAt: timerStartedAt.getTime() - 5_000,
+        endedAt: timerStartedAt.getTime() - 4_000,
+      }),
+    )
+    background.view.taskInstances = [backgroundInstance]
+
+    const result = await background.view.runDueAmbientAiTasks(
+      [TASK_PATH],
+      dueAt,
+    )
+
+    const visible = setUp()
+    prepareAmbientView(visible.view)
+    const visibleInstance = makeAmbientInstance()
+    visible.view.taskInstances = [visibleInstance]
+    visible.view.startGlobalTimer = jest.fn()
+    visible.view.restartTimerService = jest.fn()
+
+    visible.view.syncAmbientAiTaskRuns(result.startedRuns, '2026-07-15')
+
+    expect(result.startedRuns).toEqual([
+      {
+        runId: 'ai-run-1',
+        path: TASK_PATH,
+        instanceId: backgroundInstance.instanceId,
+        startTime: timerStartedAt.getTime(),
+        slotKey: '8:00-12:00',
+        originalSlotKey: 'none',
+      },
+    ])
+    expect(visible.manager.getActiveRunForTask).not.toHaveBeenCalled()
+    expect(visibleInstance.state).toBe('running')
+    expect(visibleInstance.startTime?.getTime()).toBe(timerStartedAt.getTime())
+    expect(visibleInstance.slotKey).toBe('8:00-12:00')
+    expect(visibleInstance.originalSlotKey).toBe('none')
+    expect(visible.view.currentInstance).toBe(visibleInstance)
+  })
+
+  test('does not sync a run whose path was not selected for mirroring', () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+    view.startGlobalTimer = jest.fn()
+    view.restartTimerService = jest.fn()
+
+    view.syncAmbientAiTaskRuns(
+      [
+        makeAmbientStartedRun({
+          path: 'TASKS/other-ai-task.md',
+          instanceId: 'other-instance',
+        }),
+      ],
+      '2026-07-15',
+    )
+
+    expect(manager.getActiveRunForTask).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+    expect(inst.startTime).toBeUndefined()
+    expect(view.currentInstance).toBeNull()
+    expect(view.startGlobalTimer).not.toHaveBeenCalled()
+    expect(view.restartTimerService).not.toHaveBeenCalled()
+    expect(view.renderTaskList).not.toHaveBeenCalled()
+  })
+
+  test('does not sync an ambient run into a view showing another date', () => {
+    const { manager, view } = setUp()
+    prepareAmbientView(view)
+    const inst = makeAmbientInstance()
+    view.taskInstances = [inst]
+    view.startGlobalTimer = jest.fn()
+    view.restartTimerService = jest.fn()
+
+    view.syncAmbientAiTaskRuns(
+      [makeAmbientStartedRun()],
+      '2026-07-14',
+    )
+
+    expect(manager.getActiveRunForTask).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+    expect(inst.startTime).toBeUndefined()
+    expect(view.currentInstance).toBeNull()
+    expect(view.startGlobalTimer).not.toHaveBeenCalled()
+    expect(view.restartTimerService).not.toHaveBeenCalled()
+    expect(view.renderTaskList).not.toHaveBeenCalled()
   })
 })

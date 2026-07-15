@@ -90,6 +90,30 @@ describe('ClaudeCodeDispatcher', () => {
       expect(handle.pid).toBe(4242)
     })
 
+    test('prepends a Windows npm entrypoint while preserving shell metacharacters as one argv token', () => {
+      const gateway = createSpyGateway()
+      const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())
+      const prompt = '%PATH% & | ^ ! " 日本語'
+
+      dispatcher.start(
+        {
+          binaryPath: 'C:\\Program Files\\nodejs\\node.exe',
+          binaryArgsPrefix: [
+            'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs',
+          ],
+          prompt,
+        },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+
+      const request = gateway.spawnMock.mock.calls[0][0]
+      expect(request.command).toBe('C:\\Program Files\\nodejs\\node.exe')
+      expect(request.args[0]).toBe(
+        'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs',
+      )
+      expect(request.args.at(-1)).toBe(prompt)
+    })
+
     test('passes model and reasoning effort through as literal argv tokens', () => {
       const gateway = createSpyGateway()
       const dispatcher = new ClaudeCodeDispatcher(gateway, createRecordingGraceTimer())

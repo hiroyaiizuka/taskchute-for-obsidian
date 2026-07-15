@@ -1,4 +1,4 @@
-import { Setting, mockApp } from 'obsidian'
+import { Notice, Setting, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
 import { createAiTaskManager } from '../../../src/features/ai-task'
@@ -282,6 +282,23 @@ describe('TaskChute AI task settings section', () => {
     expect(tab.plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
     expect(tab.plugin.settings.aiTaskCodexPath).toBe('')
     expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(2)
+    expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
+  })
+
+  test('rejects Windows command shims as manual binary paths with a visible notice', async () => {
+    const manager = createFakeManager()
+    const tab = createTab()
+    tab.plugin.aiTaskManager = manager
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await texts[0]?.trigger('C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd')
+    await texts[1]?.trigger('C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.ps1')
+
+    expect(tab.plugin.settings.aiTaskClaudePath).toBe('')
+    expect(tab.plugin.settings.aiTaskCodexPath).toBe('')
+    expect(texts[0]?.setValue).toHaveBeenLastCalledWith('')
+    expect(texts[1]?.setValue).toHaveBeenLastCalledWith('')
+    expect(Notice).toHaveBeenCalledTimes(2)
     expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
   })
 

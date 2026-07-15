@@ -728,6 +728,63 @@ describe('AiTaskManager terminal snapshot provider', () => {
     expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'second provider')
   })
 
+  test('unmounting a later background provider restores the visible provider', async () => {
+    const harness = createTerminalHarness()
+    const visibleProvider = jest.fn(() => 'visible buffer')
+    const backgroundProvider = jest.fn(() => 'background buffer')
+    harness.manager.registerTerminalSnapshotProvider(visibleProvider)
+    const unmountBackground = harness.manager.registerTerminalSnapshotProvider(
+      backgroundProvider,
+    )
+
+    // A short-lived Ambient TaskChute view registers after the visible view.
+    // Detaching it must reveal the still-mounted visible provider again.
+    unmountBackground()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+
+    expect(backgroundProvider).not.toHaveBeenCalled()
+    expect(visibleProvider).toHaveBeenCalledWith(record.id)
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      'visible buffer',
+    )
+  })
+
+  test.each([
+    ['has no adapter for the run', () => undefined],
+    ['returns a blank snapshot', () => '  \n '],
+    ['throws while reading its adapter', () => {
+      throw new Error('background adapter unavailable')
+    }],
+  ])(
+    'falls back to the visible provider while the background provider %s',
+    async (_scenario, backgroundSnapshot) => {
+      const harness = createTerminalHarness()
+      const visibleProvider = jest.fn(() => 'visible fallback buffer')
+      const backgroundProvider = jest.fn(backgroundSnapshot)
+      harness.manager.registerTerminalSnapshotProvider(visibleProvider)
+      harness.manager.registerTerminalSnapshotProvider(backgroundProvider)
+      const record = await harness.manager.startRun(makeTaskFile())
+
+      harness.terminal.last.exit({
+        status: 'succeeded',
+        exitCode: 0,
+        signal: null,
+      })
+      await flushPromises()
+
+      expect(backgroundProvider).toHaveBeenCalledWith(record.id)
+      expect(visibleProvider).toHaveBeenCalledWith(record.id)
+      expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+        record,
+        'visible fallback buffer',
+      )
+    },
+  )
+
   test('headless runs never consult the snapshot provider', async () => {
     const harness = createTerminalHarness({ runMode: 'headless' })
     const provider = jest.fn(() => 'terminal-only')

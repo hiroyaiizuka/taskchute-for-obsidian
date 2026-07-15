@@ -99,6 +99,34 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     )
   })
 
+  test('shell-backed package launches keep the node entrypoint before CLI arguments', () => {
+    const gateway = createSpyGateway()
+    const writeStdin = jest.fn()
+    gateway.spawnMock.mockReturnValue({
+      pid: 4242,
+      onStdout: () => undefined,
+      onStderr: () => undefined,
+      onExit: () => undefined,
+      kill: jest.fn(),
+      writeStdin,
+    })
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+
+    dispatcher.start(
+      {
+        ...BASE_REQUEST,
+        binaryPath: '/usr/local/bin/node',
+        binaryArgsPrefix: ['/npm/claude/cli-wrapper.cjs'],
+        launchInShell: true,
+      },
+      noopCallbacks(),
+    )
+
+    expect(writeStdin).toHaveBeenCalledWith(
+      "'/usr/local/bin/node' '/npm/claude/cli-wrapper.cjs' '--dangerously-skip-permissions' '--' 'do the thing'\r",
+    )
+  })
+
   test('direct runs never inject a startup command into stdin', () => {
     const gateway = createSpyGateway()
     const writeStdin = jest.fn()

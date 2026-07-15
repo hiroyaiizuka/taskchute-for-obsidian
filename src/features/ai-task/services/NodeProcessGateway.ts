@@ -316,20 +316,79 @@ const LOGIN_SHELL_PATH_MARKER = '__TASKCHUTE_AI_PATH__'
 
 export const LOGIN_SHELL_PATH_TIMEOUT_MS = 10_000
 
-const PATH_DELIMITER = ':'
+/**
+ * Prefer an interactive login shell so version managers configured from
+ * `.zshrc` / `.bashrc` (mise, nvm, nodenv, etc.) participate even when
+ * Obsidian was launched by the OS with a minimal PATH. Some shells do not
+ * support the interactive form, so callers retry the traditional login-only
+ * form as a compatibility fallback.
+ */
+export const POSIX_INTERACTIVE_LOGIN_SHELL_FLAG = '-lic'
+export const POSIX_LOGIN_SHELL_FLAG = '-lc'
 
 /** Login-shell entries first, then any process entries not already present */
-function mergePathLists(loginShellPath: string, processPath: string | undefined): string {
+function mergePathLists(
+  loginShellPath: string,
+  processPath: string | undefined,
+  delimiter: string,
+  caseInsensitive: boolean,
+): string {
   const merged: string[] = []
   const seen = new Set<string>()
   const append = (entry: string): void => {
-    if (entry.length === 0 || seen.has(entry)) return
-    seen.add(entry)
+    const key = caseInsensitive ? entry.toLowerCase() : entry
+    if (entry.length === 0 || seen.has(key)) return
+    seen.add(key)
     merged.push(entry)
   }
-  for (const entry of loginShellPath.split(PATH_DELIMITER)) append(entry)
-  for (const entry of (processPath ?? '').split(PATH_DELIMITER)) append(entry)
-  return merged.join(PATH_DELIMITER)
+  for (const entry of loginShellPath.split(delimiter)) append(entry)
+  for (const entry of (processPath ?? '').split(delimiter)) append(entry)
+  return merged.join(delimiter)
+}
+
+function getEnvValueCaseInsensitive(
+  env: Record<string, string | undefined>,
+  name: string,
+): string | undefined {
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase())
+  return key === undefined ? undefined : env[key]
+}
+
+function joinWindowsPath(root: string | undefined, ...parts: string[]): string {
+  const trimmedRoot = root?.trim().replace(/[\\/]+$/u, '')
+  if (trimmedRoot === undefined || !/^(?:[A-Za-z]:[\\/]|\\\\)/u.test(trimmedRoot)) {
+    return ''
+  }
+  return [trimmedRoot, ...parts.map((part) => part.replace(/^[\\/]+|[\\/]+$/gu, ''))]
+    .join('\\')
+}
+
+/** GUI-launched Windows apps often miss version-manager/global npm paths. */
+function getWindowsPathAdditions(env: Record<string, string | undefined>): string[] {
+  const userProfile = getEnvValueCaseInsensitive(env, 'USERPROFILE')
+  const localAppData = getEnvValueCaseInsensitive(env, 'LOCALAPPDATA')
+  const appData = getEnvValueCaseInsensitive(env, 'APPDATA')
+  const programFiles = getEnvValueCaseInsensitive(env, 'ProgramFiles') ?? 'C:\\Program Files'
+  const programFilesX86 =
+    getEnvValueCaseInsensitive(env, 'ProgramFiles(x86)') ?? 'C:\\Program Files (x86)'
+  const candidates = [
+    getEnvValueCaseInsensitive(env, 'NVM_SYMLINK')?.trim() ?? '',
+    getEnvValueCaseInsensitive(env, 'FNM_MULTISHELL_PATH')?.trim() ?? '',
+    getEnvValueCaseInsensitive(env, 'FNM_DIR')?.trim() ?? '',
+    getEnvValueCaseInsensitive(env, 'npm_config_prefix')?.trim() ?? '',
+    joinWindowsPath(userProfile, '.local', 'bin'),
+    joinWindowsPath(userProfile, '.volta', 'bin'),
+    joinWindowsPath(userProfile, 'scoop', 'shims'),
+    joinWindowsPath(localAppData, 'pnpm'),
+    joinWindowsPath(localAppData, 'Programs', 'nodejs'),
+    joinWindowsPath(appData, 'npm'),
+    joinWindowsPath(programFiles, 'nodejs'),
+    joinWindowsPath(programFilesX86, 'nodejs'),
+    joinWindowsPath(getEnvValueCaseInsensitive(env, 'ChocolateyInstall'), 'bin'),
+  ]
+  return mergePathLists(candidates.join(';'), undefined, ';', true)
+    .split(';')
+    .filter((candidate) => /^(?:[A-Za-z]:[\\/]|\\\\)/u.test(candidate))
 }
 
 function extractMarkedPathLine(stdout: string): string | undefined {
@@ -387,6 +446,54 @@ function describeSpawnError(error: unknown): string {
     return (error as { message: string }).message
   }
   return 'Process error'
+}
+
+export function buildWindowsTaskkillArgs(pid: number, force: boolean): string[] {
+  if (!Number.isSafeInteger(pid) || pid < 1) return []
+  return force
+    ? ['/PID', String(pid), '/T', '/F']
+    : ['/PID', String(pid), '/T']
+}
+
+type WindowsTreeTerminator = (
+  pid: number,
+  force: boolean,
+  onFailure: () => void,
+) => boolean
+
+function terminateWindowsProcessTree(
+  pid: number,
+  force: boolean,
+  onFailure: () => void,
+): boolean {
+  const args = buildWindowsTaskkillArgs(pid, force)
+  if (args.length === 0) return false
+  try {
+    const systemRoot = process.env['SystemRoot'] ?? process.env['SYSTEMROOT'] ?? 'C:\\Windows'
+    const command = `${systemRoot.replace(/[\\/]+$/u, '')}\\System32\\taskkill.exe`
+    const child = loadChildProcessModule().spawn(command, args, {
+      detached: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    // taskkill output is diagnostic only; drain it and prevent a missing
+    // executable from becoming an unhandled renderer error.
+    child.stdout?.on('data', () => undefined)
+    child.stderr?.on('data', () => undefined)
+    let failureReported = false
+    const reportFailure = (): void => {
+      if (failureReported) return
+      failureReported = true
+      onFailure()
+    }
+    child.on('error', reportFailure)
+    child.on('close', (code) => {
+      if (code !== 0) reportFailure()
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 const WORKSPACE_EXCLUDED_NAMES: ReadonlySet<string> = new Set([
@@ -533,6 +640,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   constructor(
     private readonly snapshotDescendantPids: (rootPid: number) => number[] =
       collectDescendantPids,
+    private readonly platformOverride?: string,
+    private readonly terminateWindowsTree: WindowsTreeTerminator =
+      terminateWindowsProcessTree,
   ) {}
 
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
@@ -570,7 +680,10 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       child = loadChildProcessModule().spawn(request.command, request.args, {
         cwd: request.cwd,
         env: request.env,
-        detached: true,
+        // POSIX uses a process group for descendant cleanup. A detached
+        // Windows child creates an independent console and is harder to reap;
+        // keep it attached and use the Windows tree-stop path instead.
+        detached: this.getPlatform() !== 'win32',
         windowsHide: true,
         stdio: [stdinMode, 'pipe', 'pipe'],
       })
@@ -653,6 +766,48 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // kill where group signalling is unsupported (Windows) or the group
         // is already gone.
         const pid = child.pid
+        if (this.getPlatform() === 'win32') {
+          // Never call taskkill after close: Windows may already have reused
+          // the numeric PID for an unrelated process.
+          if (exited) return
+          const killChildDirectly = (): void => {
+            if (exited) return
+            try {
+              child?.kill(signal)
+            } catch {
+              // The child disappeared between taskkill failure and fallback.
+            }
+          }
+          const forceTreeOrKillChild = (): void => {
+            if (exited) return
+            // A graceful /T can fail before it reaches descendants (missing
+            // executable, access error, unsupported termination). Retry the
+            // same still-live PID with /T /F before falling back to the root
+            // handle; otherwise an agent subprocess could outlive the UI run.
+            if (
+              signal !== 'SIGKILL' &&
+              typeof pid === 'number' &&
+              pid > 0 &&
+              this.terminateWindowsTree(pid, true, killChildDirectly)
+            ) {
+              return
+            }
+            killChildDirectly()
+          }
+          if (
+            typeof pid === 'number' &&
+            pid > 0 &&
+            this.terminateWindowsTree(
+              pid,
+              signal === 'SIGKILL',
+              forceTreeOrKillChild,
+            )
+          ) {
+            return
+          }
+          forceTreeOrKillChild()
+          return
+        }
         if (typeof pid === 'number' && pid > 0 && typeof process.kill === 'function') {
           if (!exited) {
             for (const descendantPid of this.snapshotDescendantPids(pid)) {
@@ -716,19 +871,56 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     delete env['CLAUDECODE']
     delete env['CLAUDE_CODE_ENTRYPOINT']
     env['NO_COLOR'] = '1'
+    const isWindows = this.getPlatform() === 'win32'
+    const pathKey = isWindows
+      ? Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+      : 'PATH'
+    if (isWindows) {
+      env[pathKey] = mergePathLists(
+        getWindowsPathAdditions(env).join(';'),
+        env[pathKey],
+        ';',
+        true,
+      )
+    }
     if (this.loginShellPath !== null) {
-      env['PATH'] = mergePathLists(this.loginShellPath, env['PATH'])
+      env[pathKey] = mergePathLists(
+        this.loginShellPath,
+        env[pathKey],
+        isWindows ? ';' : ':',
+        isWindows,
+      )
     }
     return env
   }
 
   getShellPath(): string {
+    if (this.getPlatform() === 'win32') {
+      const comspec = process.env['COMSPEC']
+      if (typeof comspec === 'string' && comspec.trim().length > 0) return comspec
+      const systemRoot = process.env['SystemRoot'] ?? process.env['SYSTEMROOT'] ?? 'C:\\Windows'
+      return `${systemRoot.replace(/[\\/]+$/u, '')}\\System32\\cmd.exe`
+    }
     const shell = process.env['SHELL']
     if (typeof shell === 'string' && shell.trim().length > 0) return shell
     // POSIX-guaranteed fallback: /bin/zsh is not present on all Linux
     // desktops, and a missing fallback shell would make every shell-session
     // spawn fail when $SHELL is unset.
     return '/bin/sh'
+  }
+
+  /** Runtime platform seam used by the cross-platform CLI locator tests. */
+  getPlatform(): string {
+    return this.platformOverride ?? process.platform ?? 'unknown'
+  }
+
+  /** Cross-platform file probe kept inside the sole Node.js boundary. */
+  async isFile(path: string): Promise<boolean> {
+    try {
+      return (await loadFsModule().promises.stat(path)).isFile()
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -894,14 +1086,14 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   isPtySupported(): boolean {
-    const platform = process.platform
+    const platform = this.getPlatform()
     return platform === 'darwin' || platform === 'linux'
   }
 
   buildPtyCommand(request: PtyCommandRequest): PtyCommand {
     const rows = sanitizeDimension(request.rows, 24)
     const cols = sanitizeDimension(request.cols, 80)
-    const platform = process.platform ?? 'unknown'
+    const platform = this.getPlatform()
     const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
     const ptyPreamble =
       `tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; ${sttyPreamble}`
@@ -964,7 +1156,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     const normalizedRows = normalizeResizeDimension(rows)
     if (normalizedCols === null || normalizedRows === null) return false
 
-    const platform = process.platform
+    const platform = this.getPlatform()
     const ttyFlag = platform === 'darwin' ? '-f' : platform === 'linux' ? '-F' : null
     if (ttyFlag === null) return false
 
@@ -1020,6 +1212,10 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   primeLoginShellPath(): Promise<void> {
+    if (this.getPlatform() === 'win32') {
+      this.loginShellPathPrimed ??= Promise.resolve()
+      return this.loginShellPathPrimed
+    }
     // Defer the capture to a microtask so the promise field is assigned
     // before any inner execCapture -> getBaseEnv call runs; the second call
     // then reuses the pending promise instead of spawning another shell.
@@ -1028,19 +1224,27 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   private async captureLoginShellPath(): Promise<void> {
-    try {
-      const result = await this.execCapture(
-        this.getShellPath(),
-        ['-lc', `echo "${LOGIN_SHELL_PATH_MARKER}$PATH"`],
-        LOGIN_SHELL_PATH_TIMEOUT_MS,
-      )
-      if (result.code !== 0 || result.timedOut) return
-      const captured = extractMarkedPathLine(result.stdout)
-      if (captured !== undefined) {
-        this.loginShellPath = captured
+    const command = `echo "${LOGIN_SHELL_PATH_MARKER}$PATH"`
+    for (const flag of [
+      POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
+      POSIX_LOGIN_SHELL_FLAG,
+    ]) {
+      try {
+        const result = await this.execCapture(
+          this.getShellPath(),
+          [flag, command],
+          LOGIN_SHELL_PATH_TIMEOUT_MS,
+        )
+        if (result.code !== 0 || result.timedOut) continue
+        const captured = extractMarkedPathLine(result.stdout)
+        if (captured !== undefined) {
+          this.loginShellPath = captured
+          return
+        }
+      } catch {
+        // Try the less demanding login-only invocation next.
       }
-    } catch {
-      // Capture failures are non-fatal: getBaseEnv keeps the process PATH.
     }
+    // Capture failures are non-fatal: getBaseEnv keeps the process PATH.
   }
 }

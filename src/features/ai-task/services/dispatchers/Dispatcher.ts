@@ -15,6 +15,8 @@ import { LineSplitter } from '../streams/LineSplitter'
 export interface AiRunRequest {
   /** Absolute path to the CLI binary */
   binaryPath: string
+  /** Package entrypoint argv inserted before the host-specific CLI args. */
+  binaryArgsPrefix?: string[]
   prompt: string
   /** Working directory for the child process */
   cwd?: string
@@ -100,7 +102,7 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
   start(request: AiRunRequest, callbacks: AiRunCallbacks): AiRunProcessHandle {
     const handle = this.gateway.spawnProcess({
       command: request.binaryPath,
-      args: this.buildArgs(request),
+      args: [...(request.binaryArgsPrefix ?? []), ...this.buildArgs(request)],
       cwd: request.cwd,
       env: this.gateway.getBaseEnv(),
     })

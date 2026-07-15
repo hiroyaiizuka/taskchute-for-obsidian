@@ -64,9 +64,9 @@ export interface TaskChuteSettings {
 
   // AI Task (manual CLI runs; desktop only)
   aiTaskEnabled?: boolean // default false; enables the AI Task feature
-  aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 always runs headless
-  aiTaskClaudePath?: string // optional binary path override (empty = auto detect)
-  aiTaskCodexPath?: string // optional binary path override (empty = auto detect)
+  aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless
+  aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
+  aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
 }
 

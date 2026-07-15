@@ -9,6 +9,8 @@ import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewContr
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
 import { registerAiTaskAppShutdownCleanup } from "./features/ai-task/registerProcessCleanup"
+import { createAiTaskAmbientScheduler } from "./features/ai-task/AiTaskAmbientRuntime"
+import type { AiTaskAmbientScheduler } from "./features/ai-task/services/AiTaskAmbientScheduler"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -26,6 +28,8 @@ export default class TaskChutePlusPlugin extends Plugin {
   reminderManager?: ReminderSystemManager
   /** AI task run manager (present only when enabled on desktop) */
   aiTaskManager?: AiTaskManager
+  /** Plugin-owned Ambient routine clock (one instance, independent of views). */
+  private aiTaskAmbientScheduler?: AiTaskAmbientScheduler
   /** Disabled managers whose SIGTERM -> SIGKILL disposal is still pending */
   readonly aiTaskManagersPendingDisposal = new Set<AiTaskManager>()
 
@@ -60,6 +64,19 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.localeCoordinator = context.localeCoordinator
     this.reminderManager = context.reminderManager
     registerAiTaskAppShutdownCleanup(this)
+    const ambientScheduler = createAiTaskAmbientScheduler(
+      this,
+      this.viewController,
+    )
+    this.aiTaskAmbientScheduler = ambientScheduler
+    // Leaf creation is reliable only after Obsidian has restored the layout.
+    // If the plugin unloads first, dispose() makes the callback a no-op.
+    this.app.workspace.onLayoutReady(() => {
+      if (this.aiTaskAmbientScheduler !== ambientScheduler) return
+      void ambientScheduler.start().catch((error) => {
+        this._log('warn', '[AiTaskAmbientScheduler] Startup failed', error)
+      })
+    })
   }
 
   onunload(): void {
@@ -73,6 +90,10 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Dispose reminder system
     this.reminderManager?.dispose()
+
+    // Stop Ambient checks and resume/focus listeners.
+    this.aiTaskAmbientScheduler?.dispose()
+    this.aiTaskAmbientScheduler = undefined
 
     // Stop all AI runs (SIGTERM now, SIGKILL escalation on a window timer)
     this.aiTaskManager?.dispose()

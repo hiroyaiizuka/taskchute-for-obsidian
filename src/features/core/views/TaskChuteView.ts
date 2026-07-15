@@ -73,8 +73,13 @@ import {
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
 import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsidianLinkCoordinator"
+import { readObsidianTaskLinkConfig } from "../../ai-task/services/ObsidianTaskLinkConfig"
 import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
 import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
+import type { AiTaskManager } from "../../ai-task/services/AiTaskManager"
+import RoutineService from "../../routine/services/RoutineService"
+import { getScheduledTime } from "../../../utils/fieldMigration"
+import { extractTaskIdFromFrontmatter } from "../../../services/TaskIdManager"
 import type {
   AiRunMode,
   AiRunRecord,
@@ -88,6 +93,23 @@ import type {
 export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view'
 
 const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
+
+export interface AmbientAiTaskRunResult {
+  satisfiedPaths: string[]
+  startedRuns: AmbientAiTaskStartedRun[]
+}
+
+/** Authoritative timer state produced by the background Ambient view. */
+export interface AmbientAiTaskStartedRun {
+  /** Exact manager record to reveal in every already-open AI Runs pane. */
+  runId: string
+  path: string
+  instanceId: string
+  /** Epoch milliseconds copied from the TaskExecutionService start transition. */
+  startTime: number
+  slotKey: string
+  originalSlotKey: string | undefined
+}
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
@@ -587,7 +609,7 @@ export class TaskChuteView
         }
 
         if (this.plugin.aiTaskManager !== managerAtDispatch) {
-          await this.rollbackLinkedAiTimerStart(
+          await this.rollbackAiTimerStart(
             startedTarget,
             preStartSnapshot,
           )
@@ -892,13 +914,21 @@ export class TaskChuteView
   private async startAiRun(
     inst: TaskInstance,
     options: { suppressAlreadyActive?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const manager = this.plugin.aiTaskManager
-    if (!manager) return
+    if (!manager) return false
+    return Boolean(await this.startAiRunWithManager(inst, manager, options))
+  }
+
+  private async startAiRunWithManager(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+    options: { suppressAlreadyActive?: boolean } = {},
+  ): Promise<AiRunRecord | null> {
     const file = inst.task.file
     if (!file) {
       this.notifyAiRunError(new Error(inst.task.path))
-      return
+      return null
     }
     try {
       // Derive the initial PTY grid from the pane before the run starts
@@ -919,11 +949,13 @@ export class TaskChuteView
       })
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
+      return record
     } catch (error) {
       if (options.suppressAlreadyActive && error instanceof AiRunAlreadyActiveError) {
-        return
+        return manager.getActiveRunForTask(inst.task.path) ?? null
       }
       this.notifyAiRunError(error)
+      return null
     }
   }
 
@@ -946,7 +978,7 @@ export class TaskChuteView
     void this.startAiRun(inst, { suppressAlreadyActive: true })
   }
 
-  private async rollbackLinkedAiTimerStart(
+  private async rollbackAiTimerStart(
     inst: TaskInstance,
     snapshot: {
       state: TaskInstance['state']
@@ -978,7 +1010,7 @@ export class TaskChuteView
       })
     } catch (error) {
       console.warn(
-        '[TaskChuteView] linked AI timer rollback running-state cleanup failed',
+        '[TaskChuteView] AI timer rollback running-state cleanup failed',
         error,
       )
     }
@@ -986,11 +1018,269 @@ export class TaskChuteView
       await this.saveRunningTasksState()
     } catch (error) {
       console.warn(
-        '[TaskChuteView] linked AI timer rollback persist failed',
+        '[TaskChuteView] AI timer rollback persist failed',
         error,
       )
     }
     this.renderTaskList()
+  }
+
+  /**
+   * Execute due Ambient AI routines through the same timer/process path as a
+   * play-button start. The plugin-owned scheduler passes paths discovered from
+   * vault metadata; a dedicated background view reloads today's persisted task
+   * state before it decides whether each candidate still needs a launch.
+   *
+   * Returned satisfied paths are safe for the scheduler to persist for the day
+   * (newly launched, already running/completed, or intentionally hidden).
+   * Newly launched runs also carry the exact timer snapshot for visible-view
+   * mirroring. Transient failures and candidates that became linked/ineligible
+   * are omitted so a later tick may retry or re-evaluate them.
+   */
+  public async runDueAmbientAiTasks(
+    candidatePaths: readonly string[],
+    now: Date = new Date(),
+  ): Promise<AmbientAiTaskRunResult> {
+    const emptyResult = (): AmbientAiTaskRunResult => ({
+      satisfiedPaths: [],
+      startedRuns: [],
+    })
+    if (this.isClosingOrClosed || !this.plugin.aiTaskManager) {
+      return emptyResult()
+    }
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayKey = this.formatDateKey(today)
+    // Runtime composition always supplies a transient view initialized to
+    // today. Refuse a borrowed/user-visible view instead of changing its date.
+    if (this.getCurrentDateString() !== todayKey) return emptyResult()
+    const uniquePaths = [
+      ...new Set(candidatePaths.filter((path) => path.trim().length > 0)),
+    ]
+
+    this.currentDayState = null
+    this.currentDayStateKey = null
+    await this.reloadTasksAndRestore({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'current',
+      queueIfInProgress: true,
+    })
+    if (this.getCurrentDateString() !== todayKey) return emptyResult()
+
+    const satisfied: string[] = []
+    const startedRuns: AmbientAiTaskStartedRun[] = []
+    for (const path of uniquePaths) {
+      const pathInstances = this.taskInstances.filter(
+        (instance) => instance.task?.path === path,
+      )
+
+      if (pathInstances.length === 0) {
+        // Empty results also occur when vault/day-state loading fails. Only an
+        // explicit day-state tombstone is safe to persist as satisfied.
+        if (this.isAmbientAiPathSuppressed(path, todayKey)) {
+          satisfied.push(path)
+        }
+        continue
+      }
+
+      const representative = pathInstances[0]
+      if (!this.isDueAmbientAiInstance(representative, now, todayKey)) {
+        continue
+      }
+
+      const manager = this.plugin.aiTaskManager
+      if (!manager) break
+
+      const alreadySatisfied = pathInstances.some(
+        (instance) => instance.state !== 'idle',
+      ) || Boolean(manager.getActiveRunForTask(path))
+      if (alreadySatisfied) {
+        satisfied.push(path)
+        continue
+      }
+
+      const target = pathInstances.find(
+        (instance) =>
+          instance.state === 'idle' && instance.isDuplicate !== true,
+      )
+      if (!target) {
+        satisfied.push(path)
+        continue
+      }
+
+      const startedRun = await this.startAmbientAiInstance(target, manager)
+      if (startedRun) {
+        satisfied.push(path)
+        startedRuns.push(startedRun)
+      }
+    }
+    return { satisfiedPaths: satisfied, startedRuns }
+  }
+
+  /** Mirror newly auto-started timers into an already-open visible view. */
+  public syncAmbientAiTaskRuns(
+    startedRuns: readonly AmbientAiTaskStartedRun[],
+    dateKey: string,
+  ): void {
+    if (
+      this.isClosingOrClosed ||
+      this.getCurrentDateString() !== dateKey ||
+      !this.plugin.aiTaskManager
+    ) {
+      return
+    }
+
+    let changed = false
+    const uniqueRuns = new Map<string, AmbientAiTaskStartedRun>()
+    for (const run of startedRuns) {
+      uniqueRuns.set(`${run.instanceId}\u0000${run.path}`, run)
+    }
+    for (const run of uniqueRuns.values()) {
+      if (!Number.isFinite(run.startTime)) continue
+      const matchingInstance = this.taskInstances.find(
+        (candidate) => candidate.instanceId === run.instanceId,
+      )
+      const instance = matchingInstance ?? this.taskInstances.find(
+        (candidate) =>
+          candidate.task?.path === run.path &&
+          candidate.state === 'idle' &&
+          candidate.isDuplicate !== true,
+      )
+      if (!instance || instance.state !== 'idle') continue
+
+      instance.state = 'running'
+      instance.startTime = new Date(run.startTime)
+      instance.slotKey = run.slotKey
+      instance.originalSlotKey = run.originalSlotKey
+      this.currentInstance = instance
+      changed = true
+    }
+
+    // Manager change events create the run view in every mounted pane, but
+    // only the background source calls openRun during dispatch. Mirror the
+    // manual-start contract here as well: uncollapse the visible AI Runs pane
+    // and select the exact newly-started terminal. Calling in start order
+    // intentionally leaves the final run selected when one tick starts many.
+    for (const run of uniqueRuns.values()) {
+      this.aiRunPaneController?.openRun(run.runId)
+    }
+
+    if (!changed) return
+    this.startGlobalTimer()
+    this.restartTimerService()
+    this.renderTaskList()
+  }
+
+  private isAmbientAiPathSuppressed(path: string, dateKey: string): boolean {
+    try {
+      if (this.dayStateManager.isHidden({ path, dateKey })) return true
+
+      const file = this.app.vault.getAbstractFileByPath(path)
+      const frontmatter =
+        file instanceof TFile
+          ? this.app.metadataCache.getFileCache(file)?.frontmatter
+          : undefined
+      const taskId = extractTaskIdFromFrontmatter(frontmatter)
+      return this.dayStateManager.isDeleted({
+        path,
+        dateKey,
+        ...(taskId ? { taskId } : {}),
+      })
+    } catch {
+      // A state/cache read failure must retry on the next scheduler tick.
+      return false
+    }
+  }
+
+  private isDueAmbientAiInstance(
+    inst: TaskInstance,
+    now: Date,
+    dateKey: string,
+  ): boolean {
+    const frontmatter = inst.task?.frontmatter
+    if (!frontmatter || readAiTaskConfig(frontmatter) === null) return false
+    if (readObsidianTaskLinkConfig(frontmatter) !== null) return false
+    if (inst.task.isRoutine !== true && frontmatter['isRoutine'] !== true) {
+      return false
+    }
+
+    const rule = RoutineService.parseFrontmatter(frontmatter)
+    const targetDate =
+      typeof frontmatter['target_date'] === 'string' &&
+      frontmatter['target_date'] !== frontmatter['routine_start']
+        ? frontmatter['target_date']
+        : undefined
+    if (!RoutineService.isDue(dateKey, rule, targetDate)) return false
+
+    const scheduledTime = normalizeReminderTime(
+      getScheduledTime(frontmatter) ?? inst.task.scheduledTime,
+    )
+    if (!scheduledTime) return false
+    const [hours, minutes] = scheduledTime.split(':').map(Number)
+    const scheduledAt = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      hours,
+      minutes,
+      0,
+      0,
+    )
+    return now.getTime() >= scheduledAt.getTime()
+  }
+
+  private async startAmbientAiInstance(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+  ): Promise<AmbientAiTaskStartedRun | null> {
+    const snapshot = {
+      state: inst.state,
+      startTime: inst.startTime,
+      stopTime: inst.stopTime,
+      slotKey: inst.slotKey,
+      originalSlotKey: inst.originalSlotKey,
+      currentInstance: this.currentInstance,
+    }
+    const started = await this.taskExecutionService.startInstance(inst)
+    if (!started) return null
+
+    if (this.plugin.aiTaskManager !== manager) {
+      await this.rollbackAiTimerStart(inst, snapshot)
+      return null
+    }
+
+    const record = await this.startAiRunWithManager(inst, manager)
+    if (!record) {
+      await this.rollbackAiTimerStart(inst, snapshot)
+      return null
+    }
+
+    if (this.plugin.aiTaskManager !== manager) {
+      manager.requestStopForTask(inst.task.path)
+      await this.rollbackAiTimerStart(inst, snapshot)
+      return null
+    }
+    const startTime = inst.startTime?.getTime()
+    if (startTime === undefined || !Number.isFinite(startTime)) {
+      manager.requestStopForTask(inst.task.path)
+      await this.rollbackAiTimerStart(inst, snapshot)
+      return null
+    }
+    return {
+      runId: record.id,
+      path: inst.task.path,
+      instanceId: inst.instanceId,
+      startTime,
+      slotKey: inst.slotKey,
+      originalSlotKey: inst.originalSlotKey,
+    }
+  }
+
+  private formatDateKey(date: Date): string {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   /** Play/stop coupling: a human stop also stops the task's active AI run */
@@ -1049,7 +1339,7 @@ export class TaskChuteView
       new Notice(
         this.tv(
           "aiTask.notices.binaryNotFound",
-          "AI CLI binary was not found: {host}. Set the path in settings.",
+          "AI CLI was not found: {host}. Install it or check PATH; use the advanced path fallback only for a custom location.",
           { host: error.host },
         ),
       )

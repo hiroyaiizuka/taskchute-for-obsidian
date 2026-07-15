@@ -96,8 +96,8 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       getShellPath: () => gateway.getShellPath(),
     },
     workspaceFiles: new WorkspaceFileService(gateway),
-    // Terminal is the default experience; win32 is force-degraded to
-    // headless inside the manager via isSupported().
+    // Terminal is the default experience. Without a bundled Windows ConPTY
+    // native runtime, win32 uses the cross-platform conversation pipeline.
     getRunMode: (): AiRunMode =>
       plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
     log,

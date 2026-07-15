@@ -7207,6 +7207,7 @@ textarea.form-textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding-left: 5px;
   color: var(--color-purple, #a78bfa);
 }
 

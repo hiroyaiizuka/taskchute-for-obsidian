@@ -19,6 +19,7 @@ import type {
   AiRunRequest,
 } from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
 import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
+import type { AiBinaryResolution } from '../../../src/features/ai-task/services/BinaryLocator'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
@@ -104,7 +105,7 @@ interface HarnessOptions {
   frontmatter?: Record<string, unknown> | null
   content?: string
   basePath?: string | null
-  resolveBinary?: (host: string) => Promise<string>
+  resolveBinary?: (host: string) => Promise<AiBinaryResolution>
   cachedRead?: () => Promise<string>
   /** When true, the log writer also exposes the upsert path used for rewrites */
   withUpsert?: boolean
@@ -203,6 +204,24 @@ describe('AiTaskManager.startRun', () => {
     expect(harness.resolve).toHaveBeenCalledWith('codex')
   })
 
+  test('passes a package-backed binary prefix from the locator to the dispatcher', async () => {
+    const harness = createHarness({
+      resolveBinary: async () => ({
+        binaryPath: 'C:\\Program Files\\nodejs\\node.exe',
+        argsPrefix: ['C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs'],
+      }),
+    })
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(harness.claude.last.request).toMatchObject({
+      binaryPath: 'C:\\Program Files\\nodejs\\node.exe',
+      binaryArgsPrefix: [
+        'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs',
+      ],
+    })
+  })
+
   test('keeps an absolute ai_task_cwd as-is', async () => {
     const harness = createHarness({
       frontmatter: { ai_task: true, ai_task_cwd: '/absolute/dir' },
@@ -211,6 +230,34 @@ describe('AiTaskManager.startRun', () => {
     await harness.manager.startRun(makeTaskFile())
 
     expect(harness.claude.last.request.cwd).toBe('/absolute/dir')
+  })
+
+  test.each([
+    ['backslash drive path', 'C:\\Users\\me\\project'],
+    ['forward-slash drive path', 'D:/Users/me/project'],
+    ['UNC share path', '\\\\build-server\\projects\\taskchute-plus'],
+  ])('keeps an absolute Windows %s as-is', async (_label, cwd) => {
+    const harness = createHarness({
+      frontmatter: { ai_task: true, ai_task_cwd: cwd },
+    })
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(harness.claude.last.request.cwd).toBe(cwd)
+  })
+
+  test.each([
+    ['drive-relative path', 'C:..\\outside'],
+    ['UNC path without a share', '\\\\build-server'],
+    ['UNC path with a traversal share', '\\\\build-server\\..\\outside'],
+  ])('does not treat a Windows %s as absolute', async (_label, cwd) => {
+    const harness = createHarness({
+      frontmatter: { ai_task: true, ai_task_cwd: cwd },
+    })
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(harness.claude.last.request.cwd).toBe(`/vault/base/${cwd}`)
   })
 
   test('joins a relative ai_task_cwd onto the vault base path', async () => {

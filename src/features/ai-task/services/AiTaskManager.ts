@@ -46,6 +46,7 @@ import type {
   WorkspaceFileService,
   WorkspaceFileVersion,
 } from './WorkspaceFileService'
+import type { AiBinaryResolution } from './BinaryLocator'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -187,7 +188,7 @@ export interface AiTaskManagerDeps {
   }
   dispatchers: Record<AiTaskHost, AiDispatcher>
   binaryLocator: {
-    resolve(host: AiTaskHost): Promise<string>
+    resolve(host: AiTaskHost): Promise<AiBinaryResolution>
     invalidateCache?(): void
   }
   logWriter: {
@@ -371,13 +372,33 @@ const defaultTimer: AiGraceTimer = {
 }
 
 function isAbsolutePathLike(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return true
+
+  // A Windows UNC path is absolute only after both the server and share
+  // components are present. Keeping incomplete UNC, device namespaces, dot
+  // segments, and drive-relative forms out of this branch prevents them from
+  // bypassing vault-relative handling.
+  const unc = /^\\\\([^\\/:*?"<>|]+)[\\/]([^\\/:*?"<>|]+)(?:[\\/]|$)/.exec(path)
+  if (unc === null) return false
+  return unc[1] !== '.' && unc[1] !== '..' && unc[2] !== '.' && unc[2] !== '..'
 }
 
 function joinCwd(basePath: string, relative: string): string {
   const base = basePath.replace(/[\\/]+$/, '')
   const rest = relative.replace(/^\.\//, '')
   return `${base}/${rest}`
+}
+
+function normalizeBinaryResolution(resolution: AiBinaryResolution): {
+  binaryPath: string
+  binaryArgsPrefix?: string[]
+} {
+  if (typeof resolution === 'string') return { binaryPath: resolution }
+  return {
+    binaryPath: resolution.binaryPath,
+    binaryArgsPrefix:
+      resolution.argsPrefix.length > 0 ? [...resolution.argsPrefix] : undefined,
+  }
 }
 
 export class AiTaskManager {
@@ -392,7 +413,9 @@ export class AiTaskManager {
   private readonly stopRequestedDuringStart = new Set<string>()
   private readonly listeners = new Set<AiRunChangeListener>()
   private readonly timer: AiGraceTimer
-  private terminalSnapshotProvider: AiTerminalSnapshotProvider | null = null
+  private readonly terminalSnapshotProviders: Array<{
+    provider: AiTerminalSnapshotProvider
+  }> = []
   private disposed = false
   private disposeCompletion: Promise<void> | null = null
   private runSequence = 0
@@ -410,7 +433,8 @@ export class AiTaskManager {
    *
    * `options.mode` (or the settings accessor) picks between an interactive
    * terminal (PTY) session and the headless stream-json pipeline; terminal
-   * mode silently degrades to headless where no PTY wrapper exists (win32).
+   * mode degrades to the conversation/headless pipeline where no PTY wrapper
+   * exists (currently win32); follow-up input remains available there.
    * A missing or empty '## Prompt' section only rejects for headless runs —
    * a terminal session simply opens the CLI as a plain REPL (the user types
    * the prompt into the terminal).
@@ -441,7 +465,8 @@ export class AiTaskManager {
       const prompt = extractedPrompt ?? ''
 
       const cwd = this.resolveCwd(config.cwd)
-      const binaryPath = await this.deps.binaryLocator.resolve(config.host)
+      const binaryResolution = await this.deps.binaryLocator.resolve(config.host)
+      const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
       this.throwIfDisposed()
 
       this.runSequence += 1
@@ -492,6 +517,7 @@ export class AiTaskManager {
           const terminalHandle = terminal.dispatcher.start(
             {
               binaryPath,
+              binaryArgsPrefix,
               prompt,
               cwd,
               extraArgs: config.args,
@@ -509,7 +535,7 @@ export class AiTaskManager {
           internal.handle = terminalHandle
         } else {
           internal.handle = this.deps.dispatchers[config.host].start(
-            { binaryPath, prompt, cwd, extraArgs: config.args },
+            { binaryPath, binaryArgsPrefix, prompt, cwd, extraArgs: config.args },
             {
               onEvent: (event) => this.handleEvent(internal, event),
               onExit: (outcome) => this.handleExit(internal, outcome),
@@ -689,7 +715,8 @@ export class AiTaskManager {
       this.throwIfReleased(runId, internal)
       // Resolve the binary BEFORE mutating the record so a missing binary
       // leaves the run in its finished state and the follow-up retryable.
-      const binaryPath = await this.deps.binaryLocator.resolve(host)
+      const binaryResolution = await this.deps.binaryLocator.resolve(host)
+      const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
       this.throwIfDisposed()
       this.throwIfReleased(runId, internal)
 
@@ -709,6 +736,7 @@ export class AiTaskManager {
         internal.handle = this.deps.dispatchers[host].start(
           {
             binaryPath,
+            binaryArgsPrefix,
             prompt: text,
             cwd: internal.cwd,
             extraArgs: internal.extraArgs,
@@ -905,16 +933,20 @@ export class AiTaskManager {
    * Register the SINGLE snapshot provider used to read a terminal run's live
    * xterm buffer when its log note is composed at exit (preferred over the
    * ANSI-stripped PTY transcript file, which is TUI redraw garbage). A later
-   * registration replaces the current one; the returned disposer only
-   * unregisters its own provider, so a stale disposer never clobbers a newer
-   * registration.
+   * registration becomes active; unregistering it restores the most recently
+   * registered provider that is still mounted. Registrations are represented
+   * by distinct tokens so a stale disposer (or the same callback registered
+   * twice) can remove only its own entry without clobbering a newer provider.
    */
   registerTerminalSnapshotProvider(provider: AiTerminalSnapshotProvider): () => void {
-    this.terminalSnapshotProvider = provider
+    const registration = { provider }
+    this.terminalSnapshotProviders.push(registration)
+    let unregistered = false
     return () => {
-      if (this.terminalSnapshotProvider === provider) {
-        this.terminalSnapshotProvider = null
-      }
+      if (unregistered) return
+      unregistered = true
+      const index = this.terminalSnapshotProviders.indexOf(registration)
+      if (index >= 0) this.terminalSnapshotProviders.splice(index, 1)
     }
   }
 
@@ -976,7 +1008,7 @@ export class AiTaskManager {
     }
 
     this.listeners.clear()
-    this.terminalSnapshotProvider = null
+    this.terminalSnapshotProviders.length = 0
   }
 
   /**
@@ -1156,23 +1188,25 @@ export class AiTaskManager {
   }
 
   /**
-   * Best-effort snapshot of the run's live xterm buffer through the
-   * registered provider. Returns undefined when no provider is registered,
-   * the provider has no adapter for the run, the text is blank, or the
-   * provider throws — every one of those falls back to the transcript file.
+   * Best-effort snapshot of the run's live xterm buffer through the registered
+   * providers, newest first. A pane may not own every run, so an absent/blank
+   * result or a provider failure falls through to the next still-mounted pane.
+   * Returns undefined only when none can provide text; the caller then falls
+   * back to the transcript file.
    */
   private captureTerminalSnapshot(runId: string): string | undefined {
-    const provider = this.terminalSnapshotProvider
-    if (!provider) return undefined
-    try {
-      const text = provider(runId)
-      if (typeof text === 'string' && text.trim().length > 0) return text
-    } catch (error) {
-      this.deps.log?.(
-        'warn',
-        '[AiTaskManager] Terminal snapshot provider failed',
-        error,
-      )
+    const registrations = [...this.terminalSnapshotProviders].reverse()
+    for (const { provider } of registrations) {
+      try {
+        const text = provider(runId)
+        if (typeof text === 'string' && text.trim().length > 0) return text
+      } catch (error) {
+        this.deps.log?.(
+          'warn',
+          '[AiTaskManager] Terminal snapshot provider failed',
+          error,
+        )
+      }
     }
     return undefined
   }
@@ -1301,8 +1335,8 @@ export class AiTaskManager {
 
   /**
    * Effective run mode: an explicit request wins over the settings accessor;
-   * terminal degrades to headless when the capability is missing or the
-   * platform lacks a PTY wrapper (win32).
+   * terminal degrades to the conversation/headless pipeline when the
+   * capability is missing or the platform lacks a PTY wrapper (win32).
    */
   private resolveRunMode(requested?: AiRunMode): AiRunMode {
     const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'
