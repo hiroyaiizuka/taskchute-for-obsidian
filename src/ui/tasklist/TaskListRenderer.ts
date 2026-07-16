@@ -48,7 +48,7 @@ export type TaskListRendererHost = {
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
   openProjectInSplit?: (projectPath: string) => Promise<void> | void
   isAiTaskFeatureEnabled?: () => boolean
-  startAiRun?: (inst: TaskInstance) => void
+  editAiTask?: (inst: TaskInstance) => void
   /**
    * Board view filter (human / ai / mixed). RENDER-ONLY: it decides which
    * rows are drawn but never mutates taskInstances, so counts, execution
@@ -109,11 +109,11 @@ export default class TaskListRenderer {
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })
-    if (this.host.isAiTaskFeatureEnabled && this.host.startAiRun) {
+    if (this.host.isAiTaskFeatureEnabled && this.host.editAiTask) {
       this.aiTaskRowRenderer = new AiTaskRowRenderer({
         tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
         isAiTaskFeatureEnabled: () => this.host.isAiTaskFeatureEnabled!(),
-        startAiRun: (inst) => this.host.startAiRun!(inst),
+        editAiTask: (inst) => this.host.editAiTask!(inst),
       })
     }
   }

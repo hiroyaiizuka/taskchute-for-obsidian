@@ -16,7 +16,11 @@ import { TFile } from 'obsidian'
 import TaskCreationController, {
   TaskCreationControllerHost,
 } from '../../../src/ui/task/TaskCreationController'
-import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
+import type {
+  TaskInstance,
+  TaskNameValidator,
+  TaskChutePluginLike,
+} from '../../../src/types'
 import type { App } from 'obsidian'
 import { en } from '../../../src/i18n/locales/en'
 import { ja } from '../../../src/i18n/locales/ja'
@@ -83,6 +87,10 @@ function createHost(
       instanceId: 'reuse-instance-1',
     }),
   }
+  const aiTaskEditService = {
+    load: jest.fn().mockResolvedValue(null),
+    save: jest.fn().mockResolvedValue(undefined),
+  }
 
   const saveLocalStorage = jest.fn()
   const loadLocalStorage = jest.fn((key: string) =>
@@ -139,6 +147,8 @@ function createHost(
     getTaskNameValidator: () => validator,
     taskCreationService:
       taskCreationService as unknown as TaskCreationControllerHost['taskCreationService'],
+    aiTaskEditService:
+      aiTaskEditService as unknown as TaskCreationControllerHost['aiTaskEditService'],
     taskReuseService:
       taskReuseService as unknown as TaskCreationControllerHost['taskReuseService'],
     registerAutocompleteCleanup: jest.fn(),
@@ -165,6 +175,7 @@ function createHost(
   return {
     host,
     taskCreationService,
+    aiTaskEditService,
     taskReuseService,
     loadLocalStorage,
     saveLocalStorage,
@@ -177,6 +188,55 @@ function openModal(host: TaskCreationControllerHost): HTMLElement {
   const modal = document.querySelector<HTMLElement>('.task-modal-overlay')
   if (!modal) throw new Error('modal did not open')
   return modal
+}
+
+async function openEditModal(
+  host: TaskCreationControllerHost,
+  inst: TaskInstance,
+): Promise<HTMLElement> {
+  const controller = new TaskCreationController(host)
+  await controller.showEditAiTaskModal(inst)
+  const modal = document.querySelector<HTMLElement>('.task-modal-overlay')
+  if (!modal) throw new Error('edit modal did not open')
+  return modal
+}
+
+function createAiTaskInstance(file: TFile): TaskInstance {
+  return {
+    task: {
+      file,
+      frontmatter: { ai_task: true, ai_task_host: 'codex' },
+      path: file.path,
+      name: 'Existing AI task',
+      displayTitle: 'Existing AI task',
+      isRoutine: true,
+    },
+    instanceId: 'existing-ai-instance',
+    state: 'idle',
+    slotKey: '8:00-12:00',
+  }
+}
+
+function existingCodexEditValue(file: TFile) {
+  return {
+    file,
+    taskName: 'Existing AI task',
+    host: 'codex' as const,
+    args: [
+      '--ask-for-approval',
+      'never',
+      '--sandbox',
+      'workspace-write',
+      '--model=gpt-5.6-sol',
+      '--config',
+      'model_reasoning_effort="max"',
+      '--future-flag',
+      'future-value',
+    ],
+    cwd: '/Users/me/existing-project',
+    prompt: 'Review the existing project',
+    scheduledTime: '08:45',
+  }
 }
 
 function typeButton(modal: HTMLElement, type: 'human' | 'ai'): HTMLButtonElement {
@@ -288,6 +348,143 @@ async function submit(modal: HTMLElement): Promise<void> {
 
 beforeEach(() => {
   document.body.replaceChildren()
+})
+
+describe('AI task edit modal', () => {
+  test('loads an existing Codex task into the shared controls without exposing task type', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+
+    const modal = await openEditModal(host, inst)
+
+    expect(aiTaskEditService.load).toHaveBeenCalledWith(
+      file,
+      inst.task.frontmatter,
+      'Existing AI task',
+    )
+    const nameInput = modal.querySelector<HTMLInputElement>(
+      '.task-name-input--readonly',
+    )
+    expect(nameInput?.value).toBe('Existing AI task')
+    expect(nameInput?.readOnly).toBe(true)
+    expect(modal.querySelector('.task-type-group')?.classList.contains('hidden')).toBe(true)
+    expect(modal.querySelector('.ai-task-section')?.classList.contains('hidden')).toBe(false)
+    expect(agentCard(modal, 'codex').classList.contains('is-selected')).toBe(true)
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-exec-mode')?.value,
+    ).toBe('full-auto')
+    expect(
+      modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.textContent,
+    ).toContain('GPT-5.6 Sol')
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')?.value,
+    ).toBe('specified')
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-budget')?.value,
+    ).toBe('max')
+    expect(
+      modal.querySelector('.ai-task-reasoning-budget-field')?.classList.contains('hidden'),
+    ).toBe(false)
+    expect(
+      modal.querySelector<HTMLInputElement>('.ai-task-cwd-input')?.value,
+    ).toBe('/Users/me/existing-project')
+    expect(
+      modal.querySelector<HTMLTextAreaElement>('.ai-task-prompt-input')?.value,
+    ).toBe('Review the existing project')
+    expect(
+      modal.querySelector<HTMLInputElement>('.ai-task-scheduled-time')?.value,
+    ).toBe('08:45')
+    expect(previewCode(modal)).toBe(
+      'codex --ask-for-approval never --sandbox workspace-write ' +
+        '--model=gpt-5.6-sol --config model_reasoning_effort="max" ' +
+        '--future-flag future-value -- "Review the existing project"',
+    )
+  })
+
+  test('saves edited settings without creating a task and retains unknown arguments', async () => {
+    const {
+      host,
+      aiTaskEditService,
+      taskCreationService,
+    } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openEditModal(host, inst)
+
+    setPrompt(modal, 'Updated review prompt')
+    selectReasoningBudget(modal, 'high')
+    const cwd = modal.querySelector<HTMLInputElement>('.ai-task-cwd-input')
+    if (!cwd) throw new Error('working directory input missing')
+    cwd.value = '/Users/me/updated-project'
+    cwd.dispatchEvent(new Event('input', { bubbles: true }))
+    const scheduled = modal.querySelector<HTMLInputElement>(
+      '.ai-task-scheduled-time',
+    )
+    if (!scheduled) throw new Error('scheduled time input missing')
+    scheduled.value = '09:15'
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).not.toHaveBeenCalled()
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '09:15',
+      {
+        host: 'codex',
+        args: [
+          '--ask-for-approval',
+          'never',
+          '--sandbox',
+          'workspace-write',
+          '--model=gpt-5.6-sol',
+          '--config',
+          'model_reasoning_effort="high"',
+          '--future-flag',
+          'future-value',
+        ],
+        cwd: '/Users/me/updated-project',
+        prompt: 'Updated review prompt',
+      },
+    )
+    expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({
+      runBoundaryCheck: true,
+    })
+    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+  })
+
+  test('keeps the edit modal open when saving fails', async () => {
+    const {
+      host,
+      aiTaskEditService,
+      taskCreationService,
+    } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+    aiTaskEditService.save.mockRejectedValue(new Error('save failed'))
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const modal = await openEditModal(host, inst)
+
+    try {
+      await submit(modal)
+
+      expect(taskCreationService.createTaskFile).not.toHaveBeenCalled()
+      expect(aiTaskEditService.save).toHaveBeenCalledTimes(1)
+      expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+      expect(document.body.contains(modal)).toBe(true)
+      expect(
+        modal.querySelector<HTMLButtonElement>('.form-button.create')?.disabled,
+      ).toBe(false)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
 })
 
 describe('task-type selector gating', () => {
@@ -599,6 +796,28 @@ describe('command preview', () => {
     expect(previewCode(modal)).toBe('codex -- "Go"')
   })
 
+  test('keeps reasoning settings when the selected agent card is clicked again', () => {
+    const { host } = createHost()
+    const modal = openModal(host)
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Go')
+    setModel(modal, 'claude-fable-5')
+    selectReasoningMode(modal, 'specified')
+    selectReasoningBudget(modal, 'max')
+
+    agentCard(modal, 'claude').click()
+
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')?.value,
+    ).toBe('specified')
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-budget')?.value,
+    ).toBe('max')
+    expect(previewCode(modal)).toBe(
+      'claude --model=claude-fable-5 --effort=max -- "Go"',
+    )
+  })
+
   test('maps Claude and Codex reasoning budgets to their documented CLI args', () => {
     const { host } = createHost()
     const modal = openModal(host)
@@ -607,6 +826,9 @@ describe('command preview', () => {
     setModel(modal, 'claude-fable-5')
 
     const budgetField = modal.querySelector('.ai-task-reasoning-budget-field')
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')?.value,
+    ).toBe('automatic')
     expect(budgetField?.classList.contains('hidden')).toBe(true)
 
     selectReasoningMode(modal, 'specified')
@@ -871,6 +1093,55 @@ describe('AI mode submission', () => {
       }),
     )
   })
+
+  test.each([
+    {
+      label: 'Claude',
+      aiHost: 'claude' as const,
+      model: 'claude-fable-5',
+      expectedArgs: ['--model=claude-fable-5', '--effort=max'],
+    },
+    {
+      label: 'Codex',
+      aiHost: 'codex' as const,
+      model: 'gpt-5.6-sol',
+      expectedArgs: [
+        '--model=gpt-5.6-sol',
+        '--config',
+        'model_reasoning_effort="max"',
+      ],
+    },
+  ])(
+    'submits $label Specify budget + Maximum as literal argv tokens',
+    async ({ label, aiHost, model, expectedArgs }) => {
+      const { host, taskCreationService } = createHost()
+      const modal = openModal(host)
+      const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
+      nameInput.value = `${label} Maximum Task`
+
+      typeButton(modal, 'ai').click()
+      if (aiHost === 'codex') agentCard(modal, 'codex').click()
+      setModel(modal, model)
+      selectReasoningMode(modal, 'specified')
+      selectReasoningBudget(modal, 'max')
+
+      await submit(modal)
+
+      expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+        `${label} Maximum Task`,
+        '2025-10-09',
+        undefined,
+        expect.objectContaining({
+          aiTask: {
+            host: aiHost,
+            args: expectedArgs,
+            cwd: undefined,
+            prompt: '',
+          },
+        }),
+      )
+    },
+  )
 
   test('submits a Codex preset and Ultra reasoning as literal argv tokens', async () => {
     const { host, taskCreationService } = createHost()

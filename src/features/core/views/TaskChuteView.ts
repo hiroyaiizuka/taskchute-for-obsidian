@@ -72,6 +72,7 @@ import {
 } from "../../ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
+import { AiTaskEditService } from "../../ai-task/services/AiTaskEditService"
 import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsidianLinkCoordinator"
 import { readObsidianTaskLinkConfig } from "../../ai-task/services/ObsidianTaskLinkConfig"
 import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
@@ -414,6 +415,7 @@ export class TaskChuteView
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       getTaskNameValidator: () => this.getTaskNameValidator(),
       taskCreationService: this.taskCreationService,
+      aiTaskEditService: new AiTaskEditService(this.app),
       taskReuseService: this.taskReuseService,
       hasInstanceForPathToday: (path) => this.hasInstanceForPathToday(path),
       duplicateInstanceForPath: (path, options) =>
@@ -730,8 +732,8 @@ export class TaskChuteView
       openProjectInSplit: (projectPath) =>
         view.projectController.openProjectInSplit(projectPath),
       isAiTaskFeatureEnabled: () => view.isAiTaskFeatureEnabled(),
-      startAiRun: (inst) => {
-        void view.startAiRun(inst)
+      editAiTask: (inst) => {
+        void view.taskCreationController.showEditAiTaskModal(inst)
       },
       getAiTaskBoardView: () => view.getAiTaskBoardView(),
     }

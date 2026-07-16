@@ -169,10 +169,12 @@ describe('ai-task task-note write guardrail', () => {
 
   test('src/features/ai-task never writes task-note frontmatter or task notes', () => {
     const offenders: Array<{ file: string; line: number; text: string }> = []
-    // Task notes are strictly read-only from ai-task code. The ONE sanctioned
-    // vault.modify lives in AiTaskLogWriter.upsertRunLog, which rewrites only
-    // the run-log notes the writer itself created (never a task note).
-    const MODIFY_ALLOWLIST = new Set(['services/AiTaskLogWriter.ts'])
+    // AI-task code is read-only except for the two narrow writers below:
+    // run logs, and the explicit user-driven existing-task settings editor.
+    const MODIFY_ALLOWLIST = new Set([
+      'services/AiTaskEditService.ts',
+      'services/AiTaskLogWriter.ts',
+    ])
     const patterns: Array<{ pattern: RegExp; allowlist?: Set<string> }> = [
       { pattern: /processFrontMatter\s*\(/u },
       { pattern: /vault\.modify\s*\(/u, allowlist: MODIFY_ALLOWLIST },
@@ -201,6 +203,15 @@ describe('ai-task task-note write guardrail', () => {
     // Exactly one call site, and it must target the record's own log note.
     expect(occurrences).toHaveLength(1)
     expect(source).toContain('record.logNotePath')
+    expect(source).not.toContain('processFrontMatter')
+  })
+
+  test('the task-editor vault.modify exemption stays confined to its selected file', () => {
+    const editorPath = path.join(AI_TASK_ROOT, 'services/AiTaskEditService.ts')
+    const source = fs.readFileSync(editorPath, 'utf8')
+    const occurrences = source.match(/vault\.modify\s*\(/gu) ?? []
+    expect(occurrences).toHaveLength(1)
+    expect(source).toContain('await this.app.vault.modify(file, updated)')
     expect(source).not.toContain('processFrontMatter')
   })
 })

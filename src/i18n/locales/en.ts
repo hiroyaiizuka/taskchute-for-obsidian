@@ -232,6 +232,9 @@ export const en = {
     aiTask: {
       paneTitle: "AI runs",
       run: "Run AI task",
+      edit: "Edit AI task",
+      editTitle: "Edit AI task settings",
+      editSaved: "AI task settings saved",
       obsidianLink: {
         status: "Linked with Obsidian",
       },
@@ -295,6 +298,7 @@ export const en = {
         unavailablePlaceholder: "Follow-up is not available for this run",
       },
       notices: {
+        editFailed: "Could not load or save the AI task settings.",
         noPrompt: "No prompt section found. Add a \"## prompt\" heading to the task note.",
         binaryNotFound:
           "AI CLI was not found: {host}. Install it or check PATH; use the advanced path fallback only for a custom location.",

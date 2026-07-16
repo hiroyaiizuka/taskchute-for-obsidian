@@ -85,18 +85,18 @@ describe('TaskListRenderer AI task integration', () => {
     const host = createBaseHost([createAiInstance()])
     new TaskListRenderer(host).render()
 
-    expect(host.taskList.querySelector('.ai-task-run-button')).toBeNull()
+    expect(host.taskList.querySelector('.ai-task-edit-button')).toBeNull()
   })
 
   test('renders the AI controls inside the task name container, not as a task item column', () => {
     const host = createBaseHost([createAiInstance()])
     host.isAiTaskFeatureEnabled = () => true
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
     const taskItem = host.taskList.querySelector('.task-item') as HTMLElement
-    const button = taskItem.querySelector('.ai-task-run-button')
+    const button = taskItem.querySelector('.ai-task-edit-button')
     expect(button).not.toBeNull()
 
     // The .task-item grid uses a fixed column template, so the AI controls
@@ -114,19 +114,19 @@ describe('TaskListRenderer AI task integration', () => {
     ).toBe(false)
   })
 
-  test('clicking the AI run button calls startAiRun without selecting the row', () => {
+  test('clicking the robot opens AI task settings without selecting the row', () => {
     const host = createBaseHost([createAiInstance()])
     host.isAiTaskFeatureEnabled = () => true
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
     const button = host.taskList.querySelector<HTMLButtonElement>(
-      '.ai-task-run-button',
+      '.ai-task-edit-button',
     )
     button?.click()
 
-    expect(host.startAiRun).toHaveBeenCalledTimes(1)
+    expect(host.editAiTask).toHaveBeenCalledTimes(1)
     expect(host.selectTaskForKeyboard).not.toHaveBeenCalled()
   })
 
@@ -135,20 +135,19 @@ describe('TaskListRenderer AI task integration', () => {
     running.state = 'running'
     const host = createBaseHost([running])
     host.isAiTaskFeatureEnabled = () => true
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
     const button = host.taskList.querySelector<HTMLButtonElement>(
-      '.ai-task-run-button:not(.ai-task-run-button--stop)',
+      '.ai-task-edit-button',
     )
     expect(button).not.toBeNull()
     expect(button?.textContent).toBe('🤖')
-    expect(host.taskList.querySelector('.ai-task-run-button--stop')).toBeNull()
     expect(host.taskList.querySelector('.ai-task-status-chip')).toBeNull()
 
     button?.click()
-    expect(host.startAiRun).toHaveBeenCalledTimes(1)
+    expect(host.editAiTask).toHaveBeenCalledTimes(1)
   })
 
   test('duplicated idle and running rows both keep the same robot button', () => {
@@ -160,7 +159,7 @@ describe('TaskListRenderer AI task integration', () => {
     } as TaskInstance
     const host = createBaseHost([first, second])
     host.isAiTaskFeatureEnabled = () => true
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
@@ -169,28 +168,23 @@ describe('TaskListRenderer AI task integration', () => {
     )
     expect(items).toHaveLength(2)
     expect(items[0].querySelector('.ai-task-status-chip')).toBeNull()
-    expect(items[0].querySelector('.ai-task-run-button--stop')).toBeNull()
     expect(
-      items[0].querySelector(
-        '.ai-task-run-button:not(.ai-task-run-button--stop)',
-      ),
+      items[0].querySelector('.ai-task-edit-button'),
     ).not.toBeNull()
     expect(items[1].querySelector('.ai-task-status-chip')).toBeNull()
     expect(
-      items[1].querySelector(
-        '.ai-task-run-button:not(.ai-task-run-button--stop)',
-      ),
+      items[1].querySelector('.ai-task-edit-button'),
     ).not.toBeNull()
   })
 
   test('does not render AI controls when the feature toggle reports disabled', () => {
     const host = createBaseHost([createAiInstance()])
     host.isAiTaskFeatureEnabled = () => false
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
-    expect(host.taskList.querySelector('.ai-task-run-button')).toBeNull()
+    expect(host.taskList.querySelector('.ai-task-edit-button')).toBeNull()
     expect(host.taskList.querySelector('.ai-task-status-chip')).toBeNull()
   })
 
@@ -209,10 +203,10 @@ describe('TaskListRenderer AI task integration', () => {
     } as TaskInstance
     const host = createBaseHost([plain])
     host.isAiTaskFeatureEnabled = () => true
-    host.startAiRun = jest.fn()
+    host.editAiTask = jest.fn()
 
     new TaskListRenderer(host).render()
 
-    expect(host.taskList.querySelector('.ai-task-run-button')).toBeNull()
+    expect(host.taskList.querySelector('.ai-task-edit-button')).toBeNull()
   })
 })

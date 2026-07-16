@@ -15,14 +15,28 @@ import type { TaskReuseService } from "../../features/core/services/TaskReuseSer
 import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
 import type { AiTaskHost } from "../../features/ai-task/types"
 import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
+import type {
+  AiTaskEditService,
+  AiTaskEditValue,
+} from "../../features/ai-task/services/AiTaskEditService"
 import {
+  AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
   buildReasoningArgs,
   getAvailableReasoningModes,
   type AiReasoningBudget,
   type AiReasoningMode,
 } from "../../features/ai-task/config/AiTaskAdvancedOptions"
-import type { TaskChutePluginLike, TaskNameValidator, DeletedInstance } from "../../types"
+import {
+  AI_EXEC_MODE_VARIANTS,
+  decodeAiTaskArgs,
+} from "../../features/ai-task/config/AiTaskArgsCodec"
+import type {
+  TaskChutePluginLike,
+  TaskNameValidator,
+  DeletedInstance,
+  TaskInstance,
+} from "../../types"
 import { addMinutesToTime } from "../../utils/date"
 import {
   WorkingDirectoryHistory,
@@ -62,6 +76,7 @@ export interface TaskCreationControllerHost {
   ) => string
   getTaskNameValidator: () => TaskNameValidator
   taskCreationService: TaskCreationService
+  aiTaskEditService: AiTaskEditService
   taskReuseService: TaskReuseService
   hasInstanceForPathToday: (path: string) => boolean
   duplicateInstanceForPath: (
@@ -92,58 +107,6 @@ type CreationMode = "reuse" | "copy"
 
 /** Human vs AI task selector state of the add-task modal (U3) */
 type TaskType = "human" | "ai"
-
-/** One execution-mode variant of an AI host (ports the reference's variants) */
-interface AiExecModeVariant {
-  id: string
-  labelKey: string
-  labelFallback: string
-  /** argv tokens the variant contributes to ai_task_args */
-  tokens: readonly string[]
-}
-
-/**
- * Execution-mode variants per host, mirroring the reference app's
- * commandVariants. The codex "Full auto" flags were re-verified against
- * `codex --help` (0.144.x): the legacy `--full-auto` flag no longer exists;
- * its documented expansion is the approval-policy + sandbox pair below.
- */
-const AI_EXEC_MODE_VARIANTS: Record<AiTaskHost, readonly AiExecModeVariant[]> = {
-  claude: [
-    {
-      id: "default",
-      labelKey: "addTask.aiExecModeDefault",
-      labelFallback: "Normal",
-      tokens: [],
-    },
-    {
-      id: "auto",
-      labelKey: "addTask.aiExecModeAuto",
-      labelFallback: "Auto mode",
-      tokens: ["--permission-mode", "auto"],
-    },
-    {
-      id: "skip-permissions",
-      labelKey: "addTask.aiExecModeSkipPermissions",
-      labelFallback: "Skip permissions",
-      tokens: ["--dangerously-skip-permissions"],
-    },
-  ],
-  codex: [
-    {
-      id: "default",
-      labelKey: "addTask.aiExecModeDefault",
-      labelFallback: "Normal",
-      tokens: [],
-    },
-    {
-      id: "full-auto",
-      labelKey: "addTask.aiExecModeFullAuto",
-      labelFallback: "Full auto",
-      tokens: ["--ask-for-approval", "never", "--sandbox", "workspace-write"],
-    },
-  ],
-}
 
 /** Main-agent cards of the AI mode (only hosts TCO can actually run) */
 const AI_AGENT_CARDS: ReadonlyArray<{
@@ -193,16 +156,62 @@ interface AiTaskControls {
   destroy(): void
 }
 
+interface AiTaskControlsInitialValue {
+  host: AiTaskHost
+  args: string[]
+  cwd?: string
+  prompt: string
+  scheduledTime?: string
+  lockTaskType?: boolean
+}
+
 export default class TaskCreationController {
   constructor(private readonly host: TaskCreationControllerHost) {}
 
   showAddTaskModal(): void {
+    this.showTaskModal()
+  }
+
+  async showEditAiTaskModal(inst: TaskInstance): Promise<void> {
+    const file = inst.task.file
+    if (!file) {
+      new Notice(
+        this.host.tv(
+          "aiTask.notices.editFailed",
+          "Could not load or save the AI task settings.",
+        ),
+      )
+      return
+    }
+
+    try {
+      const target = await this.host.aiTaskEditService.load(
+        file,
+        inst.task.frontmatter,
+        inst.task.displayTitle ?? inst.task.name,
+      )
+      if (!target) throw new Error("The selected note is not an AI task")
+      this.showTaskModal(target)
+    } catch (error) {
+      console.error("[TaskCreationController] Failed to load AI task", error)
+      new Notice(
+        this.host.tv(
+          "aiTask.notices.editFailed",
+          "Could not load or save the AI task settings.",
+        ),
+      )
+    }
+  }
+
+  private showTaskModal(editTarget?: AiTaskEditValue): void {
     const context = this.host.getDocumentContext?.()
     const doc = context?.doc ?? document
     const win = context?.win ?? window
 
     const modal = createNameModal({
-      title: this.host.tv("addTask.title", "Add new task"),
+      title: editTarget
+        ? this.host.tv("aiTask.editTitle", "Edit AI task settings")
+        : this.host.tv("addTask.title", "Add new task"),
       label: this.host.tv("addTask.nameLabel", "Task name:"),
       placeholder: this.host.tv("addTask.namePlaceholder", "Enter task name"),
       submitText: this.host.tv("buttons.save", "Save"),
@@ -213,6 +222,11 @@ export default class TaskCreationController {
 
     const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
     const buttonGroup = form.querySelector(".form-button-group")
+    if (editTarget) {
+      nameInput.value = editTarget.taskName
+      nameInput.readOnly = true
+      nameInput.classList.add("task-name-input--readonly")
+    }
 
     const modeGroup = doc.createElement("div")
     modeGroup.className = "task-mode-group hidden"
@@ -270,7 +284,7 @@ export default class TaskCreationController {
     restoreBanner.appendChild(restoreMessage)
     restoreBanner.appendChild(restoreButton)
 
-    const advancedControls = this.createAdvancedControls(doc)
+    const advancedControls = editTarget ? null : this.createAdvancedControls(doc)
 
     form.insertBefore(restoreBanner, buttonGroup ?? null)
     if (advancedControls) {
@@ -284,8 +298,19 @@ export default class TaskCreationController {
     // real body further down (after the reuse-state helpers exist); the
     // controls' construction-time callback runs against this no-op.
     let syncAiRelatedVisibility: () => void = () => undefined
-    const aiControls = this.createAiTaskControls(doc, () =>
-      syncAiRelatedVisibility(),
+    const aiControls = this.createAiTaskControls(
+      doc,
+      () => syncAiRelatedVisibility(),
+      editTarget
+        ? {
+          host: editTarget.host,
+          args: editTarget.args,
+          cwd: editTarget.cwd,
+          prompt: editTarget.prompt,
+          scheduledTime: editTarget.scheduledTime,
+          lockTaskType: true,
+        }
+        : undefined,
     )
     if (aiControls) {
       form.insertBefore(aiControls.typeGroup, nameGroup.nextSibling)
@@ -344,25 +369,27 @@ export default class TaskCreationController {
     }
 
     let cleanupAutocomplete: (() => void) | null = null
-    try {
-      const autocomplete = new TaskNameAutocomplete(
-        this.host.plugin,
-        nameInput,
-        nameGroup,
-        { doc, win },
-      )
-      autocomplete.initialize()
-      cleanupAutocomplete = () => {
-        if (typeof autocomplete.destroy === "function") {
-          autocomplete.destroy()
+    if (!editTarget) {
+      try {
+        const autocomplete = new TaskNameAutocomplete(
+          this.host.plugin,
+          nameInput,
+          nameGroup,
+          { doc, win },
+        )
+        autocomplete.initialize()
+        cleanupAutocomplete = () => {
+          if (typeof autocomplete.destroy === "function") {
+            autocomplete.destroy()
+          }
         }
+        this.host.registerAutocompleteCleanup(cleanupAutocomplete)
+      } catch (error) {
+        console.error(
+          "[TaskCreationController] Failed to initialize autocomplete",
+          error,
+        )
       }
-      this.host.registerAutocompleteCleanup(cleanupAutocomplete)
-    } catch (error) {
-      console.error(
-        "[TaskCreationController] Failed to initialize autocomplete",
-        error,
-      )
     }
 
     const validationControls = this.setupTaskNameValidation(
@@ -429,6 +456,42 @@ export default class TaskCreationController {
           return
         }
 
+        if (editTarget) {
+          if (!aiControls) {
+            new Notice(
+              this.host.tv(
+                "aiTask.notices.editFailed",
+                "Could not load or save the AI task settings.",
+              ),
+            )
+            return
+          }
+          saveButton.disabled = true
+          try {
+            await this.host.aiTaskEditService.save(
+              editTarget.file,
+              aiControls.getScheduledTime(),
+              aiControls.getAiTaskOptions(),
+            )
+            aiControls.commit()
+            await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+            new Notice(
+              this.host.tv("aiTask.editSaved", "AI task settings saved"),
+            )
+            close()
+          } catch (error) {
+            console.error("[TaskCreationController] Failed to save AI task", error)
+            saveButton.disabled = false
+            new Notice(
+              this.host.tv(
+                "aiTask.notices.editFailed",
+                "Could not load or save the AI task settings.",
+              ),
+            )
+          }
+          return
+        }
+
         const creationMode = resolveCreationMode()
         // Reuse mode ignores the (hidden) AI configuration entirely — the
         // reused note keeps its own frontmatter — so AI mode is effective
@@ -481,6 +544,10 @@ export default class TaskCreationController {
     }
 
     const updateRestoreCandidate = () => {
+      if (editTarget) {
+        hideRestoreBanner()
+        return
+      }
       if (typeof this.host.findDeletedTaskRestoreCandidate !== "function") {
         hideRestoreBanner()
         return
@@ -646,6 +713,7 @@ export default class TaskCreationController {
   private createAiTaskControls(
     doc: Document,
     onTaskTypeChange: () => void,
+    initialValue?: AiTaskControlsInitialValue,
   ): AiTaskControls | null {
     if (
       this.host.plugin.settings.aiTaskEnabled !== true ||
@@ -654,8 +722,8 @@ export default class TaskCreationController {
       return null
     }
 
-    let taskType: TaskType = "human"
-    let selectedHost: AiTaskHost = "claude"
+    let taskType: TaskType = initialValue ? "ai" : "human"
+    let selectedHost: AiTaskHost = initialValue?.host ?? "claude"
     let reuseActive = false
     const storageApp = this.host.plugin.app as unknown as {
       loadLocalStorage?: (key: string) => unknown
@@ -666,6 +734,23 @@ export default class TaskCreationController {
       saveLocalStorage: (key, value) =>
         storageApp.saveLocalStorage?.(key, value),
     })
+    const decodedInitialArgs = initialValue
+      ? decodeAiTaskArgs(
+        initialValue.host,
+        initialValue.args,
+        (modelId) =>
+          AI_MODEL_PRESETS[initialValue.host].some(
+            (model) => model.id === modelId,
+          ) || customModelStore.hasModelId(initialValue.host, modelId),
+      )
+      : null
+    let passthroughArgs = [...(decodedInitialArgs?.passthroughArgs ?? [])]
+    const initialModelIsCustom = Boolean(
+      decodedInitialArgs?.modelId &&
+        customModelStore
+          .getCustomModels(selectedHost)
+          .some((model) => model.id === decodedInitialArgs.modelId),
+    )
 
     // --- Task-type selector -------------------------------------------------
     const typeGroup = doc.createElement("div")
@@ -746,6 +831,7 @@ export default class TaskCreationController {
       "addTask.aiPromptPlaceholder",
       "Review this pull request and point out improvements",
     )
+    promptInput.value = initialValue?.prompt ?? ""
     promptField.appendChild(promptInput)
     const preview = doc.createElement("div")
     preview.className = "ai-task-command-preview"
@@ -766,6 +852,7 @@ export default class TaskCreationController {
     const scheduledInput = doc.createElement("input")
     scheduledInput.type = "time"
     scheduledInput.className = "form-input ai-task-scheduled-time"
+    scheduledInput.value = initialValue?.scheduledTime ?? ""
     scheduledField.appendChild(scheduledInput)
 
     // Advanced block: execution mode / model / reasoning / working directory.
@@ -806,6 +893,8 @@ export default class TaskCreationController {
     const modelSelect = new AiModelSelectController(modelField, {
       doc,
       host: selectedHost,
+      modelId: decodedInitialArgs?.modelId || null,
+      isCustom: initialModelIsCustom,
       store: customModelStore,
       labels: {
         openMenu: this.host.tv("addTask.aiModelOpen", "Choose AI model"),
@@ -840,6 +929,7 @@ export default class TaskCreationController {
       },
       customModelModalLabels: this.buildCustomModelModalLabels(),
       onChange: () => {
+        passthroughArgs = this.removeModelArgs(passthroughArgs)
         rebuildReasoningModeOptions()
         updateReasoningBudgetVisibility()
         refreshPreview()
@@ -893,6 +983,7 @@ export default class TaskCreationController {
     const workingDirectorySelect = new WorkingDirectorySelectController(
       cwdField,
       {
+        value: initialValue?.cwd,
         defaultDirectory: defaultWorkingDirectory,
         candidateDirectories:
           this.host.getAiTaskWorkingDirectoryCandidates?.() ?? [],
@@ -945,6 +1036,7 @@ export default class TaskCreationController {
           reasoningBudgetSelect.value,
         ),
       )
+      args.push(...passthroughArgs)
       return args
     }
 
@@ -995,27 +1087,35 @@ export default class TaskCreationController {
       return this.host.tv(definition.key, definition.fallback)
     }
 
+    const reasoningModeLabels = (): Record<AiReasoningMode, string> => ({
+      automatic: this.host.tv(
+        "addTask.aiReasoningModeAutomatic",
+        "Automatic (model default)",
+      ),
+      specified: this.host.tv(
+        "addTask.aiReasoningModeSpecified",
+        "Specify budget",
+      ),
+      ultra: this.host.tv(
+        selectedHost === "claude"
+          ? "addTask.aiReasoningModeClaudeUltra"
+          : "addTask.aiReasoningModeCodexUltra",
+        selectedHost === "claude"
+          ? "Ultracode (parallel workflow)"
+          : "Ultra (parallel delegation)",
+      ),
+    })
+
+    const appendReasoningModeOption = (mode: AiReasoningMode) => {
+      const option = doc.createElement("option")
+      option.value = mode
+      option.textContent = reasoningModeLabels()[mode]
+      reasoningModeSelect.appendChild(option)
+    }
+
     const rebuildReasoningModeOptions = (preserveSelection = true) => {
       const previousMode = reasoningModeSelect.value as AiReasoningMode
       reasoningModeSelect.replaceChildren()
-      const labels: Record<AiReasoningMode, string> = {
-        automatic: this.host.tv(
-          "addTask.aiReasoningModeAutomatic",
-          "Automatic (model default)",
-        ),
-        specified: this.host.tv(
-          "addTask.aiReasoningModeSpecified",
-          "Specify budget",
-        ),
-        ultra: this.host.tv(
-          selectedHost === "claude"
-            ? "addTask.aiReasoningModeClaudeUltra"
-            : "addTask.aiReasoningModeCodexUltra",
-          selectedHost === "claude"
-            ? "Ultracode (parallel workflow)"
-            : "Ultra (parallel delegation)",
-        ),
-      }
       const selectedModel = modelSelect.getValue()
       const modes = getAvailableReasoningModes(
         selectedHost,
@@ -1023,10 +1123,7 @@ export default class TaskCreationController {
         { isCustomModel: selectedModel.isCustom },
       )
       for (const mode of modes) {
-        const option = doc.createElement("option")
-        option.value = mode
-        option.textContent = labels[mode]
-        reasoningModeSelect.appendChild(option)
+        appendReasoningModeOption(mode)
       }
       reasoningModeSelect.value =
         preserveSelection && modes.some((mode) => mode === previousMode)
@@ -1064,14 +1161,20 @@ export default class TaskCreationController {
       }
       // The variant set belongs to the host: reset to its default.
       rebuildExecModeOptions()
-      if (hostChanged) modelSelect.setHost(nextHost)
+      if (hostChanged) {
+        passthroughArgs = []
+        modelSelect.setHost(nextHost)
+      }
       rebuildReasoningModeOptions(false)
       rebuildReasoningBudgetOptions()
       refreshPreview()
     }
 
     const applyVisibility = () => {
-      typeGroup.classList.toggle("hidden", reuseActive)
+      typeGroup.classList.toggle(
+        "hidden",
+        reuseActive || initialValue?.lockTaskType === true,
+      )
       section.classList.toggle("hidden", reuseActive || taskType !== "ai")
     }
 
@@ -1088,18 +1191,40 @@ export default class TaskCreationController {
     humanButton.addEventListener("click", () => selectTaskType("human"))
     aiButton.addEventListener("click", () => selectTaskType("ai"))
     for (const [cardHost, card] of agentCards) {
-      card.addEventListener("click", () => selectHost(cardHost))
+      card.addEventListener("click", () => {
+        // Clicking the already-selected agent is a no-op. Rebuilding its
+        // controls would silently reset execution/model/reasoning choices.
+        if (cardHost === selectedHost) return
+        selectHost(cardHost)
+      })
     }
     promptInput.addEventListener("input", refreshPreview)
     reasoningModeSelect.addEventListener("change", () => {
+      passthroughArgs = this.removeReasoningArgs(
+        passthroughArgs,
+        selectedHost,
+      )
       updateReasoningBudgetVisibility()
       refreshPreview()
     })
     reasoningBudgetSelect.addEventListener("change", refreshPreview)
     execModeSelect.addEventListener("change", refreshPreview)
 
-    selectTaskType("human")
-    selectHost("claude")
+    selectTaskType(initialValue ? "ai" : "human")
+    selectHost(initialValue?.host ?? "claude")
+    if (decodedInitialArgs) {
+      execModeSelect.value = decodedInitialArgs.execModeId
+      const modeAvailable = Array.from(reasoningModeSelect.options).some(
+        (option) => option.value === decodedInitialArgs.reasoningMode,
+      )
+      if (!modeAvailable) {
+        appendReasoningModeOption(decodedInitialArgs.reasoningMode)
+      }
+      reasoningModeSelect.value = decodedInitialArgs.reasoningMode
+      reasoningBudgetSelect.value = decodedInitialArgs.reasoningBudget
+      updateReasoningBudgetVisibility()
+      refreshPreview()
+    }
 
     return {
       typeGroup,
@@ -1132,6 +1257,44 @@ export default class TaskCreationController {
         workingDirectorySelect.destroy()
       },
     }
+  }
+
+  /** Remove modal-owned model flags after the user explicitly changes model. */
+  private removeModelArgs(args: readonly string[]): string[] {
+    const retained: string[] = []
+    for (let index = 0; index < args.length; index += 1) {
+      const token = args[index]
+      if (token.startsWith("--model=")) continue
+      if (token === "--model") {
+        if (index + 1 < args.length) index += 1
+        continue
+      }
+      retained.push(token)
+    }
+    return retained
+  }
+
+  /** Remove modal-owned reasoning flags after the user changes that control. */
+  private removeReasoningArgs(
+    args: readonly string[],
+    host: AiTaskHost,
+  ): string[] {
+    const retained: string[] = []
+    for (let index = 0; index < args.length; index += 1) {
+      const token = args[index]
+      if (host === "claude" && token.startsWith("--effort=")) continue
+      if (
+        host === "codex" &&
+        token === "--config" &&
+        index + 1 < args.length &&
+        /^model_reasoning_effort=/u.test(args[index + 1])
+      ) {
+        index += 1
+        continue
+      }
+      retained.push(token)
+    }
+    return retained
   }
 
   private resolveVaultWorkingDirectory(): string {

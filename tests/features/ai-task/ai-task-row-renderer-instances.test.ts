@@ -32,7 +32,7 @@ function createHost(
   return {
     tv: (_key, fallback) => fallback,
     isAiTaskFeatureEnabled: () => true,
-    startAiRun: jest.fn(),
+    editAiTask: jest.fn(),
     ...overrides,
   }
 }
@@ -60,27 +60,24 @@ describe('AiTaskRowRenderer instance association', () => {
 
     for (const row of [owner, other]) {
       expect(row.querySelector('.ai-task-status-chip')).toBeNull()
-      expect(row.querySelector('.ai-task-run-button--stop')).toBeNull()
-      const button = row.querySelector(
-        '.ai-task-run-button:not(.ai-task-run-button--stop)',
-      )
+      const button = row.querySelector('.ai-task-edit-button')
       expect(button).not.toBeNull()
       expect(button?.textContent).toBe('🤖')
     }
   })
 
-  test('running-task robot still starts a run attempt for its own instance', () => {
-    const startAiRun = jest.fn()
-    const host = createHost({ startAiRun })
+  test('running-task robot opens the editor for its own instance', () => {
+    const editAiTask = jest.fn()
+    const host = createHost({ editAiTask })
     const inst = createInstance('instance-1', 'running')
 
     const taskItem = renderRow(host, inst)
     taskItem
       .querySelector<HTMLButtonElement>(
-        '.ai-task-run-button:not(.ai-task-run-button--stop)',
+        '.ai-task-edit-button',
       )
       ?.click()
 
-    expect(startAiRun).toHaveBeenCalledWith(inst)
+    expect(editAiTask).toHaveBeenCalledWith(inst)
   })
 })

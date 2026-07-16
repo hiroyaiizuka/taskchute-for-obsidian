@@ -26,7 +26,7 @@ function createHost(
   return {
     tv: (_key, fallback) => fallback,
     isAiTaskFeatureEnabled: () => true,
-    startAiRun: jest.fn(),
+    editAiTask: jest.fn(),
     ...overrides,
   }
 }
@@ -47,7 +47,7 @@ describe('AiTaskRowRenderer', () => {
     new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
     expect(nameContainer.children).toHaveLength(0)
-    expect(taskItem.querySelector('.ai-task-run-button')).toBeNull()
+    expect(taskItem.querySelector('.ai-task-edit-button')).toBeNull()
   })
 
   test('renders nothing when the task has no ai_task frontmatter', () => {
@@ -67,13 +67,13 @@ describe('AiTaskRowRenderer', () => {
     expect(nameContainer.children).toHaveLength(0)
   })
 
-  test('renders a run button with aria-label for a configured idle task', () => {
+  test('renders an edit button with aria-label for a configured idle task', () => {
     const host = createHost()
     new AiTaskRowRenderer(host).render(nameContainer, createInstance())
 
-    const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-run-button')
+    const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-edit-button')
     expect(button).not.toBeNull()
-    expect(button?.getAttribute('aria-label')).toBe('Run AI task')
+    expect(button?.getAttribute('aria-label')).toBe('Edit AI task')
     expect(taskItem.querySelector('.ai-task-status-chip')).toBeNull()
   })
 
@@ -132,38 +132,37 @@ describe('AiTaskRowRenderer', () => {
     ).toBe(false)
   })
 
-  test('run button click starts the run and stops propagation', () => {
+  test('robot click opens the AI task editor and stops propagation', () => {
     const host = createHost()
     const inst = createInstance()
     const parentClick = jest.fn()
     document.body.addEventListener('click', parentClick)
 
     new AiTaskRowRenderer(host).render(nameContainer, inst)
-    const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-run-button')
+    const button = taskItem.querySelector<HTMLButtonElement>('.ai-task-edit-button')
     button?.click()
 
-    expect(host.startAiRun).toHaveBeenCalledWith(inst)
+    expect(host.editAiTask).toHaveBeenCalledWith(inst)
     expect(parentClick).not.toHaveBeenCalled()
     document.body.removeEventListener('click', parentClick)
   })
 
-  test('keeps the plain robot button and omits redundant status for a running task', () => {
+  test('keeps the plain robot edit button and omits redundant status for a running task', () => {
     const host = createHost()
     const inst = createInstance()
     inst.state = 'running'
     new AiTaskRowRenderer(host).render(nameContainer, inst)
 
     const button = taskItem.querySelector<HTMLButtonElement>(
-      '.ai-task-run-button:not(.ai-task-run-button--stop)',
+      '.ai-task-edit-button',
     )
     expect(button).not.toBeNull()
     expect(button?.textContent).toBe('🤖')
-    expect(button?.getAttribute('aria-label')).toBe('Run AI task')
-    expect(taskItem.querySelector('.ai-task-run-button--stop')).toBeNull()
+    expect(button?.getAttribute('aria-label')).toBe('Edit AI task')
     expect(taskItem.querySelector('.ai-task-status-chip')).toBeNull()
   })
 
-  test('running-task robot button keeps its normal start action and stops propagation', () => {
+  test('running-task robot still opens its editor and stops propagation', () => {
     const host = createHost()
     const inst = createInstance()
     inst.state = 'running'
@@ -172,11 +171,11 @@ describe('AiTaskRowRenderer', () => {
 
     new AiTaskRowRenderer(host).render(nameContainer, inst)
     const button = taskItem.querySelector<HTMLButtonElement>(
-      '.ai-task-run-button:not(.ai-task-run-button--stop)',
+      '.ai-task-edit-button',
     )
     button?.click()
 
-    expect(host.startAiRun).toHaveBeenCalledWith(inst)
+    expect(host.editAiTask).toHaveBeenCalledWith(inst)
     expect(parentClick).not.toHaveBeenCalled()
     document.body.removeEventListener('click', parentClick)
   })

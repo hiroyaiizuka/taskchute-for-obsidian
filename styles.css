@@ -871,6 +871,10 @@
   gap: 6px;
 }
 
+.ai-task-reasoning-budget-field.hidden {
+  display: none;
+}
+
 .ai-task-field .form-label {
   font-size: inherit;
   font-weight: 500;
@@ -7216,7 +7220,7 @@ textarea.form-textarea {
   height: 14px;
 }
 
-.ai-task-run-button {
+.ai-task-edit-button {
   border: none;
   background: none;
   cursor: pointer;
@@ -7227,7 +7231,7 @@ textarea.form-textarea {
   color: var(--text-muted);
 }
 
-.ai-task-run-button:hover {
+.ai-task-edit-button:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }

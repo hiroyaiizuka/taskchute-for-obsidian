@@ -112,6 +112,15 @@ describe('style regressions', () => {
     expect(linkIcon).toMatch(/padding-left:\s*5px;/)
   })
 
+  test('AI task automatic reasoning keeps the budget field visually hidden', () => {
+    const hiddenBudget = readRule(
+      styles(),
+      '.ai-task-reasoning-budget-field.hidden {',
+    )
+
+    expect(hiddenBudget).toMatch(/display:\s*none;/)
+  })
+
   test('AI task dropdowns stay scrollable and directory rows keep compact two-line spacing', () => {
     const css = styles()
     const directoryMenu = readRule(css, '.ai-working-directory-select__menu {')

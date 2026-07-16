@@ -230,6 +230,9 @@ export const ja = {
     aiTask: {
       paneTitle: "AI実行",
       run: "AIタスクを実行",
+      edit: "AIタスクを編集",
+      editTitle: "AIタスクの設定を編集",
+      editSaved: "AIタスクの設定を保存しました",
       obsidianLink: {
         status: "Obsidianと連携中",
       },
@@ -293,6 +296,7 @@ export const ja = {
         unavailablePlaceholder: "この実行ではフォローアップを利用できません",
       },
       notices: {
+        editFailed: "AIタスクの設定を読み込みまたは保存できませんでした。",
         noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
         binaryNotFound:
           "AI CLIが見つかりません: {host}。インストール状態とPATHを確認し、独自の配置だけ詳細設定の予備パスを使用してください。",
