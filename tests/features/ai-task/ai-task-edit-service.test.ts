@@ -10,6 +10,7 @@ import {
   EXACT_PROMPT_START_MARKER,
   extractPromptSection,
 } from '../../../src/features/ai-task/services/PromptExtractor'
+import { TaskRecipeAssignmentService } from '../../../src/features/recipe/services/TaskRecipeAssignmentService'
 
 function makeFile(path = 'TaskChute/Task/AI Review.md'): TFile {
   const file = new TFile()
@@ -35,17 +36,30 @@ function createHarness(initial: string, cachedReadError?: Error) {
   const modify = jest.fn(async (_file: TFile, updated: string) => {
     content = updated
   })
+  const recipeFile = makeFile('TaskChute/Recipes/Publish.md')
   const app = {
-    vault: { cachedRead, read, modify },
+    vault: {
+      cachedRead,
+      read,
+      modify,
+      getAbstractFileByPath: jest.fn((path: string) =>
+        path === recipeFile.path ? recipeFile : null,
+      ),
+    },
   } as unknown as App
+  const assignments = new TaskRecipeAssignmentService({
+    app,
+    getRecipeFolderPath: () => 'TaskChute/Recipes',
+  })
 
   return {
     file,
-    service: new AiTaskEditService(app),
+    service: new AiTaskEditService(app, assignments),
     cachedRead,
     read,
     modify,
     getContent: () => content,
+    recipeFile,
   }
 }
 
@@ -128,6 +142,39 @@ describe('AiTaskEditService', () => {
   })
 
   describe('save', () => {
+    test('sets and explicitly clears recipe while undefined preserves it', async () => {
+      const initial = [
+        '---',
+        'ai_task: true',
+        'ai_task_host: claude',
+        'recipe: "[[TaskChute/Recipes/Old.md]]"',
+        '---',
+        '## Prompt',
+        EXACT_PROMPT_START_MARKER,
+        'old',
+        EXACT_PROMPT_END_MARKER,
+      ].join('\n')
+      const harness = createHarness(initial)
+
+      await harness.service.save(harness.file, undefined, {
+        host: 'claude',
+        args: [],
+        prompt: 'new',
+        recipePath: harness.recipeFile.path,
+      })
+      expect(parseFrontmatter(harness.getContent()).recipe).toBe(
+        '[[TaskChute/Recipes/Publish.md]]',
+      )
+
+      await harness.service.save(harness.file, undefined, {
+        host: 'claude',
+        args: [],
+        prompt: 'new',
+        recipePath: null,
+      })
+      expect(parseFrontmatter(harness.getContent())).not.toHaveProperty('recipe')
+    })
+
     test('updates only managed frontmatter and marked prompt while preserving task metadata and custom Markdown', async () => {
       const customBody = [
         '## Notes',

@@ -8,6 +8,11 @@ import {
   EXACT_PROMPT_START_MARKER,
   extractPromptSection,
 } from './PromptExtractor'
+import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
+import {
+  TaskRecipeAssignmentService,
+  createRecipeReferenceLink,
+} from '../../recipe/services/TaskRecipeAssignmentService'
 
 export interface AiTaskEditValue {
   file: TFile
@@ -17,6 +22,7 @@ export interface AiTaskEditValue {
   cwd?: string
   prompt: string
   scheduledTime?: string
+  recipePath?: string
 }
 
 const FRONTMATTER_FENCE = /^(?:\uFEFF)?---[ \t]*(?:\r?\n|$)/u
@@ -76,7 +82,10 @@ function findFrontmatterEnd(lines: string[]): number {
  * byte-for-byte intact. Indented continuation lines belong to the preceding
  * managed value (notably the ai_task_args block list) and are removed too.
  */
-function stripManagedFrontmatterLines(lines: string[]): {
+function stripManagedFrontmatterLines(
+  lines: string[],
+  managedKeys: ReadonlySet<string> = MANAGED_KEYS,
+): {
   lines: string[]
   insertionIndex: number
 } {
@@ -85,7 +94,7 @@ function stripManagedFrontmatterLines(lines: string[]): {
 
   for (let index = 0; index < lines.length;) {
     const key = parseTopLevelKey(lines[index])
-    if (!key || !MANAGED_KEYS.has(key)) {
+    if (!key || !managedKeys.has(key)) {
       retained.push(lines[index])
       index += 1
       continue
@@ -122,6 +131,7 @@ function stripManagedFrontmatterLines(lines: string[]): {
 function buildManagedFrontmatterLines(
   scheduledTime: string | undefined,
   aiTask: CreateTaskFileAiTaskOptions,
+  resolvedRecipePath: string | null | undefined,
 ): string[] {
   const lines = [
     'ai_task: true',
@@ -140,6 +150,11 @@ function buildManagedFrontmatterLines(
   if (normalizedScheduledTime) {
     lines.push(`scheduled_time: ${toYamlQuoted(normalizedScheduledTime)}`)
   }
+  if (typeof resolvedRecipePath === 'string') {
+    lines.push(
+      `recipe: ${toYamlQuoted(createRecipeReferenceLink(resolvedRecipePath))}`,
+    )
+  }
 
   return lines
 }
@@ -148,17 +163,27 @@ function updateFrontmatter(
   content: string,
   scheduledTime: string | undefined,
   aiTask: CreateTaskFileAiTaskOptions,
+  resolvedRecipePath: string | null | undefined,
 ): string {
   const newline = lineEndingOf(content)
   const lines = content.split(/\r?\n/u)
   const endIndex = findFrontmatterEnd(lines)
-  const managed = buildManagedFrontmatterLines(scheduledTime, aiTask)
+  const managed = buildManagedFrontmatterLines(
+    scheduledTime,
+    aiTask,
+    resolvedRecipePath,
+  )
 
   if (endIndex < 0) {
     return ['---', ...managed, '---', '', ...lines].join(newline)
   }
 
-  const frontmatter = stripManagedFrontmatterLines(lines.slice(1, endIndex))
+  const managedKeys = new Set(MANAGED_KEYS)
+  if (resolvedRecipePath !== undefined) managedKeys.add('recipe')
+  const frontmatter = stripManagedFrontmatterLines(
+    lines.slice(1, endIndex),
+    managedKeys,
+  )
   frontmatter.lines.splice(frontmatter.insertionIndex, 0, ...managed)
   return [
     lines[0],
@@ -221,7 +246,10 @@ function updatePrompt(content: string, prompt: string, filePath: string): string
 }
 
 export class AiTaskEditService {
-  constructor(private readonly app: App) {}
+  constructor(
+    private readonly app: App,
+    private readonly recipeAssignments?: TaskRecipeAssignmentService,
+  ) {}
 
   async load(
     file: TFile,
@@ -238,6 +266,7 @@ export class AiTaskEditService {
       content = await this.app.vault.read(file)
     }
 
+    const recipePath = normalizeRecipeReference(frontmatter.recipe)
     return {
       file,
       taskName,
@@ -246,6 +275,7 @@ export class AiTaskEditService {
       cwd: config.cwd,
       prompt: extractPromptSection(content) ?? '',
       scheduledTime: getScheduledTime(frontmatter),
+      ...(recipePath ? { recipePath } : {}),
     }
   }
 
@@ -254,8 +284,19 @@ export class AiTaskEditService {
     scheduledTime: string | undefined,
     aiTask: CreateTaskFileAiTaskOptions,
   ): Promise<void> {
+    const resolvedRecipePath = aiTask.recipePath === undefined
+      ? undefined
+      : this.recipeAssignments?.resolve({ recipePath: aiTask.recipePath })
+    if (aiTask.recipePath !== undefined && !this.recipeAssignments) {
+      throw new Error('Recipe assignment service is unavailable')
+    }
     const original = await this.app.vault.read(file)
-    const withFrontmatter = updateFrontmatter(original, scheduledTime, aiTask)
+    const withFrontmatter = updateFrontmatter(
+      original,
+      scheduledTime,
+      aiTask,
+      resolvedRecipePath,
+    )
     const updated = updatePrompt(withFrontmatter, aiTask.prompt, file.path)
     if (updated === original) return
     await this.app.vault.modify(file, updated)

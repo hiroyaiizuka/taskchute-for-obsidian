@@ -134,6 +134,10 @@ export interface AiRunRecord {
   taskName: string
   /** Resolved absolute workspace root used by the process and Files view. */
   cwd?: string
+  /** Immutable Recipe v2 snapshot metadata captured during initial preflight. */
+  recipePath?: string
+  recipeVersion?: 1 | 2
+  recipeContentHash?: string
   /** Top-level AI run that owns this panel-local shell session. */
   parentRunId?: string
   host: AiRunHost

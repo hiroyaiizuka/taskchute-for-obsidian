@@ -887,6 +887,34 @@
   line-height: 1.4;
 }
 
+.ai-task-recipe-select {
+  width: 100%;
+}
+
+.ai-task-recipe-preview {
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.ai-task-recipe-preview > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ai-task-recipe-preview > pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .ai-working-directory-select {
   position: relative;
   display: flex;
@@ -6049,6 +6077,8 @@ textarea.form-textarea {
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 12px;
+  max-height: min(76vh, 720px);
+  overflow-y: auto;
 }
 
 .recipe-run-popover--mobile {
@@ -6133,11 +6163,61 @@ textarea.form-textarea {
   gap: 8px;
 }
 
-.recipe-run-steps {
+.recipe-run-steps,
+.recipe-run-quality-checks {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 12px 0;
+  margin: 6px 0 0;
+}
+
+.recipe-run-section {
+  margin-top: 12px;
+}
+
+.recipe-run-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recipe-run-section-title,
+.recipe-run-context-title {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.recipe-run-section-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-run-context {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.recipe-run-context-text {
+  margin-top: 5px;
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recipe-run-constraints-list {
+  margin: 5px 0 0;
+  padding-left: 20px;
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .recipe-run-step {
@@ -6173,6 +6253,7 @@ textarea.form-textarea {
   overflow-wrap: anywhere;
 }
 
+.recipe-list-drag-handle,
 .recipe-step-drag-handle {
   width: 18px;
   height: 24px;
@@ -6189,11 +6270,13 @@ textarea.form-textarea {
   transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
 }
 
+.recipe-step-row:hover .recipe-list-drag-handle,
 .recipe-step-row:hover .recipe-step-drag-handle,
 .recipe-run-step:hover .recipe-step-drag-handle {
   opacity: 0.6;
 }
 
+.recipe-step-row:hover .recipe-list-drag-handle:hover,
 .recipe-step-row:hover .recipe-step-drag-handle:hover,
 .recipe-run-step:hover .recipe-step-drag-handle:hover {
   opacity: 1;
@@ -6201,12 +6284,14 @@ textarea.form-textarea {
   color: var(--text-normal);
 }
 
+.recipe-list-drag-handle:hover,
 .recipe-step-drag-handle:hover {
   opacity: 1;
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
+.recipe-list-drag-handle:active,
 .recipe-step-drag-handle:active {
   cursor: grabbing;
 }
@@ -6225,6 +6310,8 @@ textarea.form-textarea {
   width: 600px;
   max-width: min(600px, 90vw);
   padding: 20px;
+  max-height: min(90vh, 880px);
+  overflow-y: auto;
 }
 
 .recipe-modal-content > .modal-header {
@@ -6249,8 +6336,64 @@ textarea.form-textarea {
 
 .recipe-search-input,
 .recipe-title-input,
-.recipe-step-input {
+.recipe-step-input,
+.recipe-quality-check-input,
+.recipe-editor-fields .recipe-goal-input,
+.recipe-editor-fields .recipe-constraints-input {
   width: 100%;
+}
+
+.recipe-editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.recipe-field-description {
+  margin: -3px 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.recipe-goal-input,
+.recipe-constraints-input {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.recipe-goal-group .recipe-goal-input {
+  min-height: 76px;
+}
+
+.recipe-constraints-group .recipe-constraints-input {
+  min-height: 92px;
+}
+
+.recipe-quality-checks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recipe-form-error {
+  display: none;
+  color: var(--text-error);
+  font-size: 12px;
+}
+
+.recipe-form-error.is-visible {
+  display: block;
+}
+
+.recipe-select-create-fields {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.recipe-select-clear-button {
+  color: var(--text-error);
 }
 
 .recipe-select-list {

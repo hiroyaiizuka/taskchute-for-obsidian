@@ -10,7 +10,7 @@
 
 import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
-import type { PathManagerLike, TaskChuteSettings } from '../../types'
+import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '../../types'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
 import { AiTaskManager } from './services/AiTaskManager'
@@ -21,6 +21,8 @@ import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatche
 import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
 import { TerminalDispatcher } from './services/dispatchers/TerminalDispatcher'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
+import { RecipeService } from '../recipe/services/RecipeService'
+import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 
 export interface AiTaskPluginLike {
   app: App
@@ -81,6 +83,9 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     },
     log,
   })
+  const recipeService = new RecipeService(
+    plugin as unknown as TaskChutePluginLike,
+  )
 
   return new AiTaskManager({
     app: plugin.app,
@@ -96,6 +101,11 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       getShellPath: () => gateway.getShellPath(),
     },
     workspaceFiles: new WorkspaceFileService(gateway),
+    recipeContextProvider: new RecipeContextProvider({
+      isFeatureEnabled: () => plugin.settings.recipeFeatureEnabled === true,
+      getRecipeFolderPath: () => recipeService.getRecipeFolderPath(),
+      loadRecipe: (path) => recipeService.loadRecipe(path),
+    }),
     // Terminal is the default experience. Without a bundled Windows ConPTY
     // native runtime, win32 uses the cross-platform conversation pipeline.
     getRunMode: (): AiRunMode =>

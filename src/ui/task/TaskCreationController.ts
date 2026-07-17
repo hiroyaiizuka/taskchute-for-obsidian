@@ -50,6 +50,8 @@ import {
   AiCustomModelStore,
 } from "../../features/ai-task/models/AiCustomModelStore"
 import { AiModelSelectController } from "../../features/ai-task/ui/AiModelSelectController"
+import type { Recipe, RecipeService } from "../../features/recipe/services/RecipeService"
+import { normalizeRecipeReference } from "../../features/recipe/services/RecipeService"
 
 export interface DeletedTaskRestoreCandidate {
   entry: DeletedInstance
@@ -101,6 +103,7 @@ export interface TaskCreationControllerHost {
   getAiTaskDefaultWorkingDirectory?: () => string
   getAiTaskWorkingDirectoryCandidates?: () => string[]
   selectAiTaskDirectory?: (defaultPath?: string) => Promise<string | null>
+  recipeService?: RecipeService
 }
 
 type CreationMode = "reuse" | "copy"
@@ -162,6 +165,7 @@ interface AiTaskControlsInitialValue {
   cwd?: string
   prompt: string
   scheduledTime?: string
+  recipePath?: string
   lockTaskType?: boolean
 }
 
@@ -308,6 +312,7 @@ export default class TaskCreationController {
           cwd: editTarget.cwd,
           prompt: editTarget.prompt,
           scheduledTime: editTarget.scheduledTime,
+          recipePath: editTarget.recipePath,
           lockTaskType: true,
         }
         : undefined,
@@ -845,6 +850,118 @@ export default class TaskCreationController {
     preview.appendChild(previewCode)
     promptField.appendChild(preview)
 
+    // Recipe v2 is intentionally outside Advanced settings: it is part of
+    // the task request sent to the agent, not a CLI tuning option.
+    let recipeSelect: HTMLSelectElement | null = null
+    let recipeDetails: HTMLDetailsElement | null = null
+    let recipeLoadDisposed = false
+    const initialRecipePath = normalizeRecipeReference(initialValue?.recipePath)
+    const recipesByPath = new Map<string, Recipe>()
+    if (
+      this.host.plugin.settings.recipeFeatureEnabled === true &&
+      this.host.recipeService
+    ) {
+      const recipeField = buildField(
+        this.host.tv("addTask.aiRecipeLabel", "レシピ（任意）"),
+      )
+      recipeSelect = doc.createElement("select")
+      recipeSelect.className = "form-input ai-task-recipe-select"
+      const noneOption = doc.createElement("option")
+      noneOption.value = ""
+      noneOption.textContent = this.host.tv(
+        "addTask.aiRecipeNone",
+        "レシピなし",
+      )
+      recipeSelect.appendChild(noneOption)
+      let pendingInitialOption: HTMLOptionElement | null = null
+      if (initialRecipePath) {
+        pendingInitialOption = doc.createElement("option")
+        pendingInitialOption.value = initialRecipePath
+        pendingInitialOption.textContent = initialRecipePath
+        recipeSelect.appendChild(pendingInitialOption)
+        recipeSelect.value = initialRecipePath
+      }
+      recipeField.appendChild(recipeSelect)
+
+      const disclosure = doc.createElement("div")
+      disclosure.className = "ai-task-field-description"
+      disclosure.textContent = this.host.tv(
+        "addTask.aiRecipeDisclosure",
+        "選択したレシピの完了基準・手順・品質基準・制約は、実行時にClaude Code/Codexへ送信されます。秘密情報を含めないでください。",
+      )
+      recipeField.appendChild(disclosure)
+
+      recipeDetails = doc.createElement("details")
+      recipeDetails.className = "ai-task-recipe-preview"
+      const detailsSummary = doc.createElement("summary")
+      detailsSummary.textContent = this.host.tv(
+        "addTask.aiRecipePreview",
+        "内容を確認",
+      )
+      recipeDetails.appendChild(detailsSummary)
+      const detailsBody = doc.createElement("pre")
+      recipeDetails.appendChild(detailsBody)
+      recipeDetails.classList.add("hidden")
+      recipeField.appendChild(recipeDetails)
+
+      const updateRecipePreview = () => {
+        if (!recipeSelect || !recipeDetails) return
+        const recipe = recipesByPath.get(recipeSelect.value)
+        recipeDetails.classList.toggle("hidden", !recipe)
+        detailsBody.textContent = recipe
+          ? [
+              recipe.goal
+                ? `${this.host.tv("recipes.manager.goalLabel", "完了基準")}\n${recipe.goal}`
+                : "",
+              recipe.steps.length > 0
+                ? `${this.host.tv("recipes.manager.stepsLabel", "手順チェックリスト")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
+                : "",
+              recipe.qualityChecks.length > 0
+                ? `${this.host.tv("recipes.manager.qualityChecksLabel", "品質基準チェックリスト")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
+                : "",
+              recipe.constraints.length > 0
+                ? `${this.host.tv("recipes.manager.constraintsLabel", "制約・ルール")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
+                : "",
+            ].filter(Boolean).join("\n\n")
+          : ""
+      }
+      recipeSelect.addEventListener("change", updateRecipePreview)
+
+      void this.host.recipeService.loadRecipes().then((recipes) => {
+        if (recipeLoadDisposed || !recipeSelect) return
+        pendingInitialOption?.remove()
+        pendingInitialOption = null
+        for (const recipe of recipes) {
+          recipesByPath.set(recipe.path, recipe)
+          const option = doc.createElement("option")
+          option.value = recipe.path
+          const summaryParts = [
+            recipe.goal.trim().length > 0
+              ? this.host.tv("addTask.aiRecipeHasGoal", "ゴールあり")
+              : null,
+            `${this.host.tv("recipes.manager.stepsLabel", "手順")} ${recipe.steps.length}`,
+            `${this.host.tv("recipes.manager.qualityChecksLabel", "品質")} ${recipe.qualityChecks.length}`,
+            `${this.host.tv("recipes.manager.constraintsLabel", "制約")} ${recipe.constraints.length}`,
+          ].filter((value): value is string => value !== null)
+          option.textContent = `${recipe.title} — ${summaryParts.join(" / ")}`
+          recipeSelect.appendChild(option)
+        }
+        if (
+          initialRecipePath &&
+          !recipesByPath.has(initialRecipePath)
+        ) {
+          const broken = doc.createElement("option")
+          broken.value = initialRecipePath
+          broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "見つかりません")})`
+          recipeSelect.appendChild(broken)
+        }
+        recipeSelect.value = initialRecipePath ?? ""
+        updateRecipePreview()
+      }).catch((error) => {
+        console.warn("[TaskCreationController] Failed to load recipes", error)
+      })
+    }
+
     // Start time (visible in AI mode regardless of the advanced flag).
     const scheduledField = buildField(
       this.withTrailingColon(this.host.tv("addTask.scheduledTimeLabel", "Start time")),
@@ -1242,17 +1359,27 @@ export default class TaskCreationController {
           normalizeDirectoryPathForComparison(cwd) ===
             normalizeDirectoryPathForComparison(defaultWorkingDirectory)
         const prompt = promptInput.value
+        const selectedRecipePath = recipeSelect?.value ?? ""
+        const recipePath = !recipeSelect
+          ? undefined
+          : !initialValue
+            ? selectedRecipePath || undefined
+            : selectedRecipePath === (initialRecipePath ?? "")
+              ? undefined
+              : selectedRecipePath || null
         return {
           host: selectedHost,
           args: buildArgs(),
           cwd: cwd.length > 0 && !usesDefault ? cwd : undefined,
           prompt: prompt.trim().length > 0 ? prompt : "",
+          ...(recipePath !== undefined ? { recipePath } : {}),
         }
       },
       commit: () => {
         workingDirectorySelect.commitHistory()
       },
       destroy: () => {
+        recipeLoadDisposed = true
         modelSelect.destroy()
         workingDirectorySelect.destroy()
       },

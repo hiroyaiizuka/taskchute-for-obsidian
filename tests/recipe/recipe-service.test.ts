@@ -135,6 +135,74 @@ describe('RecipeService', () => {
     expect(files.get('TaskChute/Recipes/ジム基本.md')?.content).toContain('- [ ] 筋トレをする')
   })
 
+  test('saves goal, quality checks and constraints without procedure steps', async () => {
+    const files = new Map<string, { file: TFile; content: string; frontmatter?: Record<string, unknown> }>()
+    const service = new RecipeService(createPlugin(files) as never)
+
+    const recipe = await service.saveRecipe({
+      title: '公開品質',
+      goal: '公開URLを確認できること',
+      steps: [],
+      qualityChecks: ['リンク切れがない'],
+      constraints: ['個人情報を含めない'],
+    })
+
+    expect(recipe.schemaVersion).toBe(2)
+    expect(recipe.goal).toBe('公開URLを確認できること')
+    expect(recipe.qualityChecks[0]).toMatchObject({ text: 'リンク切れがない' })
+    expect(recipe.qualityChecks[0].id).toMatch(/^quality-/u)
+    expect(recipe.constraints[0]).toMatchObject({ text: '個人情報を含めない' })
+  })
+
+  test('only preserves IDs through explicit IDs or exact text matches', async () => {
+    const files = new Map<string, { file: TFile; content: string; frontmatter?: Record<string, unknown> }>()
+    const service = new RecipeService(createPlugin(files) as never)
+    const created = await service.saveRecipe({
+      title: '安定ID',
+      steps: ['旧手順'],
+      qualityChecks: ['旧品質'],
+    })
+
+    const updated = await service.saveRecipe({
+      path: created.path,
+      title: '安定ID',
+      steps: [
+        { id: created.steps[0].id, text: '編集済み手順' },
+        '新しい手順',
+      ],
+      qualityChecks: [
+        { id: created.qualityChecks[0].id, text: '編集済み品質' },
+        '新しい品質',
+      ],
+    })
+
+    expect(updated.steps[0].id).toBe(created.steps[0].id)
+    expect(updated.qualityChecks[0].id).toBe(created.qualityChecks[0].id)
+    expect(updated.steps[1].id).not.toBe(created.steps[0].id)
+    expect(updated.qualityChecks[1].id).not.toBe(created.qualityChecks[0].id)
+  })
+
+  test('does not reuse a deleted row ID for a new row after deletion and reorder', async () => {
+    const files = new Map<string, { file: TFile; content: string; frontmatter?: Record<string, unknown> }>()
+    const service = new RecipeService(createPlugin(files) as never)
+    const created = await service.saveRecipe({
+      title: '削除と並替',
+      steps: ['A', 'B'],
+    })
+    const idA = created.steps.find((step) => step.text === 'A')?.id
+    const idB = created.steps.find((step) => step.text === 'B')?.id
+
+    const updated = await service.saveRecipe({
+      path: created.path,
+      title: '削除と並替',
+      steps: ['B', 'C'],
+    })
+
+    expect(updated.steps.find((step) => step.text === 'B')?.id).toBe(idB)
+    expect(updated.steps.find((step) => step.text === 'C')?.id).not.toBe(idA)
+    expect(updated.steps.find((step) => step.text === 'C')?.id).not.toBe(idB)
+  })
+
   test('returns saved title from raw frontmatter without waiting for metadata cache refresh', async () => {
     const file = createFile('TaskChute/Recipes/Gym.md')
     const files = new Map([
@@ -156,12 +224,14 @@ describe('RecipeService', () => {
     expect(files.get(file.path)?.frontmatter?.title).toBe('古いタイトル')
   })
 
-  test('rejects saving a new recipe without steps', async () => {
+  test('rejects saving a new recipe without any contract content', async () => {
     const files = new Map<string, { file: TFile; content: string; frontmatter?: Record<string, unknown> }>()
     const plugin = createPlugin(files)
     const service = new RecipeService(plugin as never)
 
-    await expect(service.saveRecipe({ title: 'ジム基本', steps: [] })).rejects.toThrow('Recipe requires at least one step')
+    await expect(service.saveRecipe({ title: 'ジム基本', steps: [] })).rejects.toThrow(
+      'Recipe requires at least one content field',
+    )
 
     expect(plugin.app.vault.create).not.toHaveBeenCalled()
     expect(files.has('TaskChute/Recipes/ジム基本.md')).toBe(false)
@@ -180,6 +250,63 @@ describe('RecipeService', () => {
 
     expect(files.get(task.path)?.frontmatter?.recipe).toBe('[[TaskChute/Recipes/Gym.md]]')
     expect(normalizeRecipeReference(files.get(task.path)?.frontmatter?.recipe)).toBe(recipe.path)
+  })
+
+  test('rejects folder-external and missing recipe references before task mutation', async () => {
+    const task = createFile('TaskChute/Task/Gym.md')
+    const externalRecipe = createFile('Other/Gym.md')
+    const files = new Map([
+      [task.path, { file: task, content: '', frontmatter: { title: 'ジムに行く' } }],
+      [externalRecipe.path, { file: externalRecipe, content: '- [ ] A', frontmatter: { title: 'Gym' } }],
+    ])
+    const plugin = createPlugin(files)
+    const service = new RecipeService(plugin as never)
+
+    await expect(service.assignRecipeToTask(task.path, externalRecipe.path)).rejects.toThrow(
+      'outside the configured recipe folder',
+    )
+    await expect(service.assignRecipeToTask(task.path, 'TaskChute/Recipes/Missing.md')).rejects.toThrow(
+      'Recipe not found',
+    )
+    expect(plugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled()
+  })
+
+  test('rejects loading and saving through sibling-prefix recipe folders', async () => {
+    const externalRecipe = createFile('TaskChute/Recipes-Archive/Gym.md')
+    const files = new Map([
+      [externalRecipe.path, { file: externalRecipe, content: '- [ ] A', frontmatter: { title: 'Gym' } }],
+    ])
+    const service = new RecipeService(createPlugin(files) as never)
+
+    await expect(service.loadRecipe(externalRecipe.path)).rejects.toThrow(
+      'outside the configured recipe folder',
+    )
+    await expect(service.saveRecipe({
+      path: externalRecipe.path,
+      title: 'Gym',
+      steps: ['A'],
+    })).rejects.toThrow('outside the configured recipe folder')
+    await expect(service.saveRecipe({
+      path: 'TaskChute/Recipes/Missing.md',
+      title: 'Missing',
+      steps: ['A'],
+    })).rejects.toThrow('Recipe not found')
+  })
+
+  test('unassigns a recipe from a task without changing other frontmatter', async () => {
+    const task = createFile('TaskChute/Task/Gym.md')
+    const files = new Map([
+      [task.path, {
+        file: task,
+        content: '',
+        frontmatter: { title: 'ジムに行く', recipe: '[[TaskChute/Recipes/Gym.md]]', custom: true },
+      }],
+    ])
+    const service = new RecipeService(createPlugin(files) as never)
+
+    await service.unassignRecipeFromTask(task.path)
+
+    expect(files.get(task.path)?.frontmatter).toEqual({ title: 'ジムに行く', custom: true })
   })
 
   test('deleting recipe unlinks tasks that reference it', async () => {

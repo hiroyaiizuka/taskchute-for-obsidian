@@ -304,6 +304,10 @@ export class DayStatePersistenceService {
                 checkedStepIds: Array.isArray(progress.checkedStepIds)
                   ? progress.checkedStepIds.filter((item): item is string => typeof item === 'string')
                   : [],
+                stepsUpdatedAt: typeof progress.stepsUpdatedAt === 'number'
+                  && Number.isFinite(progress.stepsUpdatedAt)
+                  ? progress.stepsUpdatedAt
+                  : undefined,
                 stepOrder: Array.isArray(progress.stepOrder)
                   ? progress.stepOrder.filter((item): item is string => typeof item === 'string')
                   : undefined,
@@ -312,6 +316,26 @@ export class DayStatePersistenceService {
                     ? Object.fromEntries(
                         Object.entries(progress.completedAtByStepId).filter(
                           ([stepId, completedAt]) => typeof stepId === 'string' && typeof completedAt === 'string',
+                        ),
+                      )
+                    : undefined,
+                checkedQualityCheckIds: Array.isArray(progress.checkedQualityCheckIds)
+                  ? progress.checkedQualityCheckIds.filter((item): item is string => typeof item === 'string')
+                  : undefined,
+                qualityChecksUpdatedAt: typeof progress.qualityChecksUpdatedAt === 'number'
+                  && Number.isFinite(progress.qualityChecksUpdatedAt)
+                  ? progress.qualityChecksUpdatedAt
+                  : undefined,
+                qualityCheckOrder: Array.isArray(progress.qualityCheckOrder)
+                  ? progress.qualityCheckOrder.filter((item): item is string => typeof item === 'string')
+                  : undefined,
+                completedAtByQualityCheckId:
+                  progress.completedAtByQualityCheckId && typeof progress.completedAtByQualityCheckId === 'object'
+                    ? Object.fromEntries(
+                        Object.entries(progress.completedAtByQualityCheckId).filter(
+                          ([qualityCheckId, completedAt]) => (
+                            typeof qualityCheckId === 'string' && typeof completedAt === 'string'
+                          ),
                         ),
                       )
                     : undefined,

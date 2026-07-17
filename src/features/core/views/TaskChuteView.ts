@@ -61,6 +61,7 @@ import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeleted
 import { SectionConfigService } from "../../../services/SectionConfigService"
 import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
 import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/services/RecipeService"
+import { TaskRecipeAssignmentService } from "../../recipe/services/TaskRecipeAssignmentService"
 import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
 import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
 import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
@@ -77,7 +78,10 @@ import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsi
 import { readObsidianTaskLinkConfig } from "../../ai-task/services/ObsidianTaskLinkConfig"
 import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
 import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
-import type { AiTaskManager } from "../../ai-task/services/AiTaskManager"
+import type {
+  AiTaskManager,
+  PreparedAiRun,
+} from "../../ai-task/services/AiTaskManager"
 import RoutineService from "../../routine/services/RoutineService"
 import { getScheduledTime } from "../../../utils/fieldMigration"
 import { extractTaskIdFromFrontmatter } from "../../../services/TaskIdManager"
@@ -174,6 +178,11 @@ export class TaskChuteView
   private aiRunPaneController: AiRunPaneController | null = null
   /** Selected board view (render-only filter); restored in the constructor */
   private aiTaskBoardView: AiTaskBoardView = 'mixed'
+  /**
+   * Per-instance generation used to invalidate an async AI preflight/start
+   * when stop (or a newer start) wins the race before dispatch completes.
+   */
+  private readonly aiStartGenerations = new WeakMap<TaskInstance, number>()
 
   // State Management
   public useOrderBasedSort: boolean
@@ -415,7 +424,14 @@ export class TaskChuteView
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       getTaskNameValidator: () => this.getTaskNameValidator(),
       taskCreationService: this.taskCreationService,
-      aiTaskEditService: new AiTaskEditService(this.app),
+      aiTaskEditService: new AiTaskEditService(
+        this.app,
+        new TaskRecipeAssignmentService({
+          app: this.app,
+          getRecipeFolderPath: () => this.recipeService.getRecipeFolderPath(),
+        }),
+      ),
+      recipeService: this.recipeService,
       taskReuseService: this.taskReuseService,
       hasInstanceForPathToday: (path) => this.hasInstanceForPathToday(path),
       duplicateInstanceForPath: (path, options) =>
@@ -554,6 +570,13 @@ export class TaskChuteView
         // that case, so gate before TaskExecutionService changes the target.
         const managerAtDispatch = this.plugin.aiTaskManager
         if (!managerAtDispatch) return null
+        const targetGeneration = this.beginAiStartAttempt(target)
+        const preflight = await this.prepareAiRunForInstance(
+          target,
+          managerAtDispatch,
+        )
+        if (preflight.kind === 'failed') return null
+        if (!this.isCurrentAiStartAttempt(target, targetGeneration)) return null
 
         let startedTarget = target
         let materializedTarget: TaskInstance | null = null
@@ -571,6 +594,18 @@ export class TaskChuteView
           startedTarget = duplicate
           materializedTarget = duplicate
         }
+
+        if (!this.isCurrentAiStartAttempt(target, targetGeneration)) {
+          if (materializedTarget) {
+            await this.taskMutationService.rollbackDuplicateInstance(
+              materializedTarget,
+            )
+          }
+          return null
+        }
+        const startedTargetGeneration = startedTarget === target
+          ? targetGeneration
+          : this.beginAiStartAttempt(startedTarget)
 
         if (this.plugin.aiTaskManager !== managerAtDispatch) {
           if (materializedTarget) {
@@ -610,11 +645,20 @@ export class TaskChuteView
           return null
         }
 
-        if (this.plugin.aiTaskManager !== managerAtDispatch) {
-          await this.rollbackAiTimerStart(
+        if (
+          this.plugin.aiTaskManager !== managerAtDispatch ||
+          !this.isCurrentAiStartAttempt(
             startedTarget,
-            preStartSnapshot,
-          )
+            startedTargetGeneration,
+          ) ||
+          startedTarget.state !== 'running'
+        ) {
+          if (startedTarget.state === 'running') {
+            await this.rollbackAiTimerStart(
+              startedTarget,
+              preStartSnapshot,
+            )
+          }
           if (materializedTarget) {
             await this.taskMutationService.rollbackDuplicateInstance(
               materializedTarget,
@@ -623,10 +667,51 @@ export class TaskChuteView
           return null
         }
 
-        this.maybeStartAiRunForInstance(startedTarget)
+        if (preflight.kind === 'ready') {
+          const record = await this.startAiRunWithManager(
+            startedTarget,
+            managerAtDispatch,
+            {},
+            preflight.prepared,
+          )
+          if (!record) {
+            await this.rollbackAiTimerStart(startedTarget, preStartSnapshot)
+            if (materializedTarget) {
+              await this.taskMutationService.rollbackDuplicateInstance(
+                materializedTarget,
+              )
+            }
+            return null
+          }
+          if (
+            this.plugin.aiTaskManager !== managerAtDispatch ||
+            !this.isCurrentAiStartAttempt(
+              startedTarget,
+              startedTargetGeneration,
+            ) ||
+            startedTarget.state !== 'running'
+          ) {
+            managerAtDispatch.requestStopForTask(startedTarget.task.path)
+            if (startedTarget.state === 'running') {
+              await this.rollbackAiTimerStart(
+                startedTarget,
+                preStartSnapshot,
+              )
+            }
+            if (materializedTarget) {
+              await this.taskMutationService.rollbackDuplicateInstance(
+                materializedTarget,
+              )
+            }
+            return null
+          }
+        } else {
+          this.maybeStartAiRunForInstance(startedTarget)
+        }
         return startedTarget
       },
       stopLinkedAiTask: async (target) => {
+        this.invalidateAiStartAttempt(target)
         const stopped = await this.taskExecutionService.stopInstance(
           target,
           undefined,
@@ -926,6 +1011,7 @@ export class TaskChuteView
     inst: TaskInstance,
     manager: AiTaskManager,
     options: { suppressAlreadyActive?: boolean } = {},
+    prepared?: PreparedAiRun,
   ): Promise<AiRunRecord | null> {
     const file = inst.task.file
     if (!file) {
@@ -943,12 +1029,18 @@ export class TaskChuteView
       }
       const mode: AiRunMode =
         this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
-      const record = await manager.startRun(file, {
-        mode,
-        instanceId: inst.instanceId,
-        cols: size.cols,
-        rows: size.rows,
-      })
+      const record = prepared
+        ? await manager.startPreparedRun(prepared, {
+            instanceId: inst.instanceId,
+            cols: size.cols,
+            rows: size.rows,
+          })
+        : await manager.startRun(file, {
+            mode,
+            instanceId: inst.instanceId,
+            cols: size.cols,
+            rows: size.rows,
+          })
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
       return record
@@ -961,11 +1053,59 @@ export class TaskChuteView
     }
   }
 
+  private async prepareAiRunForInstance(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+  ): Promise<
+    | { kind: 'not-needed' }
+    | { kind: 'ready'; prepared: PreparedAiRun }
+    | { kind: 'failed' }
+  > {
+    if (!readAiTaskConfig(inst.task.frontmatter)) return { kind: 'not-needed' }
+    if (!inst.task.file || !inst.task.path) return { kind: 'not-needed' }
+    if (manager.getActiveRunForTask(inst.task.path)) return { kind: 'not-needed' }
+
+    // Older injected test doubles intentionally implement only startRun.
+    // Production managers always expose prepareRun; keep the legacy fallback
+    // so unrelated host tests do not gain a new mock requirement.
+    if (typeof manager.prepareRun !== 'function') return { kind: 'not-needed' }
+    try {
+      const mode: AiRunMode =
+        this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
+      const prepared = await manager.prepareRun(inst.task.file, { mode })
+      return { kind: 'ready', prepared }
+    } catch (error) {
+      this.notifyAiRunError(error)
+      return { kind: 'failed' }
+    }
+  }
+
+  private beginAiStartAttempt(inst: TaskInstance): number {
+    const generation = (this.aiStartGenerations.get(inst) ?? 0) + 1
+    this.aiStartGenerations.set(inst, generation)
+    return generation
+  }
+
+  private invalidateAiStartAttempt(inst: TaskInstance): void {
+    this.aiStartGenerations.set(
+      inst,
+      (this.aiStartGenerations.get(inst) ?? 0) + 1,
+    )
+  }
+
+  private isCurrentAiStartAttempt(
+    inst: TaskInstance,
+    generation: number,
+  ): boolean {
+    return this.aiStartGenerations.get(inst) === generation
+  }
+
   /**
    * Play/stop coupling: a successful human start of an ai_task instance also
    * fires the AI run (same path as the row 🤖 button, pane tab included).
-   * Guarded and additive: an already-active run is skipped silently, and AI
-   * start failures notify but never block or roll back the human start.
+   * An already-active run is skipped silently. Prepared-run failures roll the
+   * just-started timer back so the UI cannot claim Running without a process;
+   * the legacy non-preflight fallback remains additive for injected mocks.
    */
   private maybeStartAiRunForInstance(inst: TaskInstance): void {
     const manager = this.plugin.aiTaskManager
@@ -1235,6 +1375,10 @@ export class TaskChuteView
     inst: TaskInstance,
     manager: AiTaskManager,
   ): Promise<AmbientAiTaskStartedRun | null> {
+    const startGeneration = this.beginAiStartAttempt(inst)
+    const preflight = await this.prepareAiRunForInstance(inst, manager)
+    if (preflight.kind === 'failed') return null
+    if (!this.isCurrentAiStartAttempt(inst, startGeneration)) return null
     const snapshot = {
       state: inst.state,
       startTime: inst.startTime,
@@ -1246,20 +1390,41 @@ export class TaskChuteView
     const started = await this.taskExecutionService.startInstance(inst)
     if (!started) return null
 
+    if (
+      !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+      inst.state !== 'running'
+    ) {
+      if (inst.state === 'running') {
+        await this.rollbackAiTimerStart(inst, snapshot)
+      }
+      return null
+    }
+
     if (this.plugin.aiTaskManager !== manager) {
       await this.rollbackAiTimerStart(inst, snapshot)
       return null
     }
 
-    const record = await this.startAiRunWithManager(inst, manager)
+    const record = await this.startAiRunWithManager(
+      inst,
+      manager,
+      {},
+      preflight.kind === 'ready' ? preflight.prepared : undefined,
+    )
     if (!record) {
       await this.rollbackAiTimerStart(inst, snapshot)
       return null
     }
 
-    if (this.plugin.aiTaskManager !== manager) {
+    if (
+      this.plugin.aiTaskManager !== manager ||
+      !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+      inst.state !== 'running'
+    ) {
       manager.requestStopForTask(inst.task.path)
-      await this.rollbackAiTimerStart(inst, snapshot)
+      if (inst.state === 'running') {
+        await this.rollbackAiTimerStart(inst, snapshot)
+      }
       return null
     }
     const startTime = inst.startTime?.getTime()
@@ -2479,16 +2644,76 @@ export class TaskChuteView
   // ===========================================
 
   async startInstance(inst: TaskInstance): Promise<void> {
+    const startGeneration = this.beginAiStartAttempt(inst)
+    const manager = this.plugin.aiTaskManager
+    const preflight = manager
+      ? await this.prepareAiRunForInstance(inst, manager)
+      : { kind: 'not-needed' as const }
+    // A broken/missing recipe must fail closed before timer persistence.
+    if (preflight.kind === 'failed') return
+    // A stop or a newer play action that happened during preflight wins.
+    if (!this.isCurrentAiStartAttempt(inst, startGeneration)) return
+
+    const snapshot = {
+      state: inst.state,
+      startTime: inst.startTime,
+      stopTime: inst.stopTime,
+      slotKey: inst.slotKey,
+      originalSlotKey: inst.originalSlotKey,
+      currentInstance: this.currentInstance,
+    }
     const started = await this.taskExecutionService.startInstance(inst)
     // Fire the coupled AI run only when the human start actually happened
     // (the service resolves false on refusals like the future-date guard).
     if (started) {
-      this.maybeStartAiRunForInstance(inst)
+      if (
+        !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+        inst.state !== 'running'
+      ) {
+        if (inst.state === 'running') {
+          await this.rollbackAiTimerStart(inst, snapshot)
+        }
+        return
+      }
+      if (preflight.kind === 'ready' && manager) {
+        if (this.plugin.aiTaskManager !== manager) {
+          await this.rollbackAiTimerStart(inst, snapshot)
+          return
+        }
+        const record = await this.startAiRunWithManager(
+          inst,
+          manager,
+          {},
+          preflight.prepared,
+        )
+        if (!record) {
+          await this.rollbackAiTimerStart(inst, snapshot)
+          return
+        }
+        if (
+          this.plugin.aiTaskManager !== manager ||
+          !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+          inst.state !== 'running'
+        ) {
+          // The old manager may already have spawned while settings reload
+          // replaced it, or stop may have won startPreparedRun's async edge.
+          manager.requestStopForTask(inst.task.path)
+          if (inst.state === 'running') {
+            await this.rollbackAiTimerStart(inst, snapshot)
+          }
+          return
+        }
+      } else {
+        this.maybeStartAiRunForInstance(inst)
+      }
       await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
     }
   }
 
   async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
+    // Invalidate even when TaskExecutionService later reports a no-op: an
+    // idle instance can still have an asynchronous AI preflight in progress.
+    this.invalidateAiStartAttempt(inst)
     const stopped = await this.taskExecutionService.stopInstance(inst, stopTime)
     // Kill the coupled AI run only when the instance actually transitioned
     // running -> done (a no-op stop must not touch the AI run).

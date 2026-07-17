@@ -47,6 +47,9 @@ import type {
   WorkspaceFileVersion,
 } from './WorkspaceFileService'
 import type { AiBinaryResolution } from './BinaryLocator'
+import type { RecipeContextSnapshot } from '../../recipe/services/RecipeDelegationContextBuilder'
+import { buildRecipeDelegationPrompt } from '../../recipe/services/RecipeDelegationContextBuilder'
+import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -235,6 +238,12 @@ export interface AiTaskManagerDeps {
   workspaceFiles?: Pick<WorkspaceFileService, 'listDirectory' | 'readFile' | 'writeFile'>
   /** Effective run mode from settings; consulted when startRun gets none */
   getRunMode?(): AiRunMode
+  /** Optional Recipe v2 preflight. Disabled/missing recipes return null. */
+  recipeContextProvider?: {
+    getSnapshot(
+      frontmatter: Record<string, unknown> | undefined,
+    ): Promise<RecipeContextSnapshot | null>
+  }
   /** Timer override for tests; production uses activeWindow timers */
   timer?: AiGraceTimer
   log?(level: 'warn' | 'error' | 'debug', ...args: unknown[]): void
@@ -275,6 +284,25 @@ export interface AiRunStartOptions {
   /** PTY size derived from the pane; defaults apply when omitted */
   rows?: number
   cols?: number
+}
+
+export type AiPreparedRunStartOptions = Omit<AiRunStartOptions, 'mode'>
+
+/**
+ * Fully validated, immutable input produced before TaskChute changes a task
+ * to Running. No vault read or binary lookup remains after this point.
+ */
+export interface PreparedAiRun {
+  readonly taskPath: string
+  readonly taskName: string
+  readonly host: AiTaskHost
+  readonly mode: AiRunMode
+  readonly prompt: string
+  readonly cwd?: string
+  readonly extraArgs: readonly string[]
+  readonly binaryPath: string
+  readonly binaryArgsPrefix?: readonly string[]
+  readonly recipeSnapshot: RecipeContextSnapshot | null
 }
 
 export interface AiShellSessionOptions {
@@ -442,134 +470,219 @@ export class AiTaskManager {
   async startRun(file: TFile, options?: AiRunStartOptions): Promise<AiRunRecord> {
     this.throwIfDisposed()
     const taskPath = file.path
-    if (this.pendingStarts.has(taskPath) || this.getActiveRunForTask(taskPath)) {
-      throw new AiRunAlreadyActiveError(taskPath)
-    }
+    this.assertCanStart(taskPath)
     this.pendingStarts.add(taskPath)
     try {
-      const cache = this.deps.app.metadataCache.getFileCache(file) ?? undefined
-      const config = readAiTaskConfig(cache?.frontmatter)
-      if (!config) throw new AiTaskNotConfiguredError(taskPath)
-
-      const content = await this.deps.app.vault.cachedRead(file)
-      this.throwIfDisposed()
-      // The effective mode decides how a missing/empty '## Prompt' section is
-      // treated, so resolve it BEFORE the prompt gate: terminal sessions open
-      // a plain interactive REPL with an empty prompt (typing happens in the
-      // terminal), while headless runs have nothing to execute without one.
-      const mode = this.resolveRunMode(options?.mode)
-      const extractedPrompt = extractPromptSection(content, cache?.headings)
-      if (extractedPrompt === null && mode !== 'terminal') {
-        throw new AiPromptNotFoundError(taskPath)
-      }
-      const prompt = extractedPrompt ?? ''
-
-      const cwd = this.resolveCwd(config.cwd)
-      const binaryResolution = await this.deps.binaryLocator.resolve(config.host)
-      const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
-      this.throwIfDisposed()
-
-      this.runSequence += 1
-      const record: AiRunRecord = {
-        id: `ai-run-${Date.now()}-${this.runSequence}`,
-        taskPath,
-        taskName: file.basename,
-        cwd,
-        host: config.host,
-        status: 'starting',
-        mode,
-        instanceId: options?.instanceId,
-        startedAt: Date.now(),
-        events: [],
-      }
-      // resolveRunMode only returns 'terminal' when deps.terminal exists and
-      // is supported, so `terminal` is set exactly for terminal runs.
-      const terminal = mode === 'terminal' ? this.deps.terminal : undefined
-      if (terminal) {
-        // Stamp the terminal-session fields BEFORE the first notifyChange
-        // below: the pane reacts to 'starting' synchronously and opens its
-        // ONE-SHOT xterm view with the grid read off the record, so a late
-        // stamp would open the view at the 80x24 fallback while the PTY
-        // spawns at the pane-derived size — a permanent mismatch that
-        // garbles the TUI for the run's entire lifetime. The grid is fixed
-        // for the session; recording it lets the pane open a matching view.
-        record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
-        record.rows = options?.rows ?? DEFAULT_TERMINAL_ROWS
-        record.cols = options?.cols ?? DEFAULT_TERMINAL_COLS
-      }
-      const internal: InternalRun = {
-        record,
-        handle: null,
-        terminalHandle: null,
-        exited: false,
-        terminalData: terminal ? { chunks: [], totalLength: 0 } : null,
-        terminalListeners: new Set(),
-        cwd,
-        extraArgs: config.args,
-        continuation: null,
-        persistQueue: Promise.resolve(),
-      }
-      this.runs.set(record.id, internal)
-      this.notifyChange(record)
-
-      try {
-        if (terminal) {
-          const terminalHandle = terminal.dispatcher.start(
-            {
-              binaryPath,
-              binaryArgsPrefix,
-              prompt,
-              cwd,
-              extraArgs: config.args,
-              launchInShell: true,
-              rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
-              cols: record.cols ?? DEFAULT_TERMINAL_COLS,
-              transcriptPath: record.transcriptPath ?? '',
-            },
-            {
-              onData: (chunk) => this.handleTerminalData(internal, chunk),
-              onExit: (outcome) => this.handleExit(internal, outcome),
-            },
-          )
-          internal.terminalHandle = terminalHandle
-          internal.handle = terminalHandle
-        } else {
-          internal.handle = this.deps.dispatchers[config.host].start(
-            { binaryPath, binaryArgsPrefix, prompt, cwd, extraArgs: config.args },
-            {
-              onEvent: (event) => this.handleEvent(internal, event),
-              onExit: (outcome) => this.handleExit(internal, outcome),
-            },
-          )
-        }
-      } catch (error) {
-        internal.exited = true
-        record.status = 'failed'
-        record.endedAt = Date.now()
-        record.errorMessage = error instanceof Error ? error.message : String(error)
-        this.notifyChange(record)
-        // The dispatch failed before any child existed, but the run's
-        // lifecycle contract still holds: persist a minimal failed-run note
-        // and end with 'persisted' (see AiRunChangeType).
-        this.queueExitPersist(internal)
-        throw error
-      }
-
-      if (!internal.exited && record.status === 'starting') {
-        record.pid = internal.handle.pid
-        record.status = 'running'
-        this.notifyChange(record)
-      }
-      // A human stop that arrived during the async start window above was
-      // queued by requestStopForTask; honour it now that the child exists.
-      if (this.stopRequestedDuringStart.has(taskPath)) {
-        this.stopRun(record.id)
-      }
-      return record
+      const prepared = await this.prepareRunCore(file, options?.mode)
+      return this.startPreparedRunCore(prepared, options)
     } finally {
       this.pendingStarts.delete(taskPath)
       this.stopRequestedDuringStart.delete(taskPath)
     }
+  }
+
+  /**
+   * Resolve prompt, recipe snapshot, binary, cwd, and arguments before the
+   * caller mutates TaskChute timer state. This method has no process or vault
+   * write side effects.
+   */
+  async prepareRun(file: TFile, options?: Pick<AiRunStartOptions, 'mode'>): Promise<PreparedAiRun> {
+    this.throwIfDisposed()
+    this.assertCanStart(file.path)
+    return this.prepareRunCore(file, options?.mode)
+  }
+
+  /** Spawn a value returned by prepareRun after the caller starts its timer. */
+  async startPreparedRun(
+    prepared: PreparedAiRun,
+    options?: AiPreparedRunStartOptions,
+  ): Promise<AiRunRecord> {
+    // Preserve the asynchronous public boundary even though a prepared run
+    // has no remaining I/O before dispatch.
+    await Promise.resolve()
+    this.throwIfDisposed()
+    this.assertCanStart(prepared.taskPath)
+    this.pendingStarts.add(prepared.taskPath)
+    try {
+      return this.startPreparedRunCore(prepared, options)
+    } finally {
+      this.pendingStarts.delete(prepared.taskPath)
+      this.stopRequestedDuringStart.delete(prepared.taskPath)
+    }
+  }
+
+  private assertCanStart(taskPath: string): void {
+    if (this.pendingStarts.has(taskPath) || this.getActiveRunForTask(taskPath)) {
+      throw new AiRunAlreadyActiveError(taskPath)
+    }
+  }
+
+  private async prepareRunCore(
+    file: TFile,
+    requestedMode?: AiRunMode,
+  ): Promise<PreparedAiRun> {
+    const taskPath = file.path
+    const cache = this.deps.app.metadataCache.getFileCache(file) ?? undefined
+    const config = readAiTaskConfig(cache?.frontmatter)
+    if (!config) throw new AiTaskNotConfiguredError(taskPath)
+
+    const content = await this.deps.app.vault.cachedRead(file)
+    this.throwIfDisposed()
+    const mode = this.resolveRunMode(requestedMode)
+    const extractedPrompt = extractPromptSection(content, cache?.headings)
+    const recipeSnapshot = this.deps.recipeContextProvider
+      ? await this.deps.recipeContextProvider.getSnapshot(cache?.frontmatter)
+      : null
+    this.throwIfDisposed()
+    if (extractedPrompt === null && mode !== 'terminal' && recipeSnapshot === null) {
+      throw new AiPromptNotFoundError(taskPath)
+    }
+    const prompt = buildRecipeDelegationPrompt(
+      extractedPrompt ?? '',
+      recipeSnapshot,
+    )
+
+    const cwd = this.resolveCwd(config.cwd)
+    const binaryResolution = await this.deps.binaryLocator.resolve(config.host)
+    const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
+    this.throwIfDisposed()
+    assertAiRunLaunchSize({
+      binaryPath,
+      binaryArgsPrefix,
+      extraArgs: config.args,
+      prompt,
+    })
+
+    return Object.freeze({
+      taskPath,
+      taskName: file.basename,
+      host: config.host,
+      mode,
+      prompt,
+      cwd,
+      extraArgs: Object.freeze([...config.args]),
+      binaryPath,
+      binaryArgsPrefix: binaryArgsPrefix
+        ? Object.freeze([...binaryArgsPrefix])
+        : undefined,
+      recipeSnapshot,
+    })
+  }
+
+  private startPreparedRunCore(
+    prepared: PreparedAiRun,
+    options?: AiPreparedRunStartOptions,
+  ): AiRunRecord {
+    this.throwIfDisposed()
+    const {
+      taskPath,
+      taskName,
+      host,
+      mode,
+      prompt,
+      cwd,
+      binaryPath,
+      binaryArgsPrefix,
+      recipeSnapshot,
+    } = prepared
+    const extraArgs = [...prepared.extraArgs]
+
+    this.runSequence += 1
+    const record: AiRunRecord = {
+      id: `ai-run-${Date.now()}-${this.runSequence}`,
+      taskPath,
+      taskName,
+      cwd,
+      host,
+      status: 'starting',
+      mode,
+      instanceId: options?.instanceId,
+      startedAt: Date.now(),
+      events: [],
+      ...(recipeSnapshot
+        ? {
+            recipePath: recipeSnapshot.recipePath,
+            recipeVersion: recipeSnapshot.recipeVersion,
+            recipeContentHash: recipeSnapshot.recipeContentHash,
+          }
+        : {}),
+    }
+    const terminal = mode === 'terminal' ? this.deps.terminal : undefined
+    if (terminal) {
+      record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+      record.rows = options?.rows ?? DEFAULT_TERMINAL_ROWS
+      record.cols = options?.cols ?? DEFAULT_TERMINAL_COLS
+    }
+    const internal: InternalRun = {
+      record,
+      handle: null,
+      terminalHandle: null,
+      exited: false,
+      terminalData: terminal ? { chunks: [], totalLength: 0 } : null,
+      terminalListeners: new Set(),
+      cwd,
+      extraArgs,
+      continuation: null,
+      persistQueue: Promise.resolve(),
+    }
+    this.runs.set(record.id, internal)
+    this.notifyChange(record)
+
+    try {
+      if (terminal) {
+        const terminalHandle = terminal.dispatcher.start(
+          {
+            binaryPath,
+            binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
+            prompt,
+            cwd,
+            extraArgs,
+            launchInShell: true,
+            rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
+            cols: record.cols ?? DEFAULT_TERMINAL_COLS,
+            transcriptPath: record.transcriptPath ?? '',
+          },
+          {
+            onData: (chunk) => this.handleTerminalData(internal, chunk),
+            onExit: (outcome) => this.handleExit(internal, outcome),
+          },
+        )
+        internal.terminalHandle = terminalHandle
+        internal.handle = terminalHandle
+      } else {
+        internal.handle = this.deps.dispatchers[host].start(
+          {
+            binaryPath,
+            binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
+            prompt,
+            cwd,
+            extraArgs,
+          },
+          {
+            onEvent: (event) => this.handleEvent(internal, event),
+            onExit: (outcome) => this.handleExit(internal, outcome),
+          },
+        )
+      }
+    } catch (error) {
+      internal.exited = true
+      record.status = 'failed'
+      record.endedAt = Date.now()
+      record.errorMessage = error instanceof Error ? error.message : String(error)
+      this.notifyChange(record)
+      this.queueExitPersist(internal)
+      throw error
+    }
+
+    if (!internal.exited && record.status === 'starting') {
+      record.pid = internal.handle.pid
+      record.status = 'running'
+      this.notifyChange(record)
+    }
+    if (this.stopRequestedDuringStart.has(taskPath)) {
+      this.stopRun(record.id)
+    }
+    return record
   }
 
   /**
@@ -719,6 +832,12 @@ export class AiTaskManager {
       const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
       this.throwIfDisposed()
       this.throwIfReleased(runId, internal)
+      assertAiRunLaunchSize({
+        binaryPath,
+        binaryArgsPrefix,
+        extraArgs: internal.extraArgs,
+        prompt: text,
+      })
 
       const userEvent: AiStreamEvent = { kind: 'user-text', text }
       this.appendEvent(record, userEvent)

@@ -230,9 +230,18 @@ export interface SlotOverrideEntry {
 export interface RecipeProgressEntry {
   recipePath: string
   checkedStepIds: string[]
+  /** Last write affecting procedure checks or their display order. */
+  stepsUpdatedAt?: number
   /** Per-day, per-task display order for recipe steps. Source recipe order is unchanged. */
   stepOrder?: string[]
   completedAtByStepId?: Record<string, string>
+  /** Checked quality criteria are tracked separately from procedure steps. */
+  checkedQualityCheckIds?: string[]
+  /** Last write affecting quality checks or their display order. */
+  qualityChecksUpdatedAt?: number
+  /** Per-day, per-task display order for quality criteria. */
+  qualityCheckOrder?: string[]
+  completedAtByQualityCheckId?: Record<string, string>
   updatedAt: number
 }
 

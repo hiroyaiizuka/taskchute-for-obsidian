@@ -189,6 +189,24 @@ describe('AiTaskLogWriter.writeRunLog', () => {
     expect(content).toContain('num_turns: 3')
   })
 
+  test('adds immutable recipe audit metadata without storing a second raw payload', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeRunLog(
+      makeRecord({
+        recipePath: 'TaskChute/Recipes/Publish.md',
+        recipeVersion: 2,
+        recipeContentHash: 'abc123',
+      }),
+    )
+    const content = harness.created[0].content
+
+    expect(content).toContain('recipe_path: "TaskChute/Recipes/Publish.md"')
+    expect(content).toContain('recipe_version: 2')
+    expect(content).toContain('recipe_content_hash: "abc123"')
+    expect(content).not.toContain('procedureChecklist')
+  })
+
   test('omits unavailable numeric fields instead of writing placeholders', async () => {
     const harness = createHarness()
 

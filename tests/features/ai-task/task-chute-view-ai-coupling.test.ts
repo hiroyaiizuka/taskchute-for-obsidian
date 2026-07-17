@@ -19,7 +19,10 @@ import {
   TaskChuteView,
   type AmbientAiTaskStartedRun,
 } from '../../../src/features/core/views/TaskChuteView'
-import { AiRunAlreadyActiveError } from '../../../src/features/ai-task/services/AiTaskManager'
+import {
+  AiRunAlreadyActiveError,
+  type PreparedAiRun,
+} from '../../../src/features/ai-task/services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
 import type { AiRunRecord } from '../../../src/features/ai-task/types'
 import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
@@ -37,6 +40,22 @@ interface ManagerStub {
   onChange: jest.Mock<() => void, [(record: AiRunRecord) => void]>
   invalidateBinaryCache: jest.Mock
   dispose: jest.Mock
+  prepareRun?: jest.Mock<Promise<PreparedAiRun>, [TFile, { mode?: string }?]>
+  startPreparedRun?: jest.Mock<Promise<AiRunRecord>, [PreparedAiRun, unknown?]>
+}
+
+function makePreparedRun(path = TASK_PATH): PreparedAiRun {
+  return {
+    taskPath: path,
+    taskName: path.split('/').pop()?.replace(/\.md$/u, '') ?? 'ai-task',
+    host: 'claude',
+    mode: 'headless',
+    prompt: 'prepared',
+    cwd: '/vault',
+    extraArgs: [],
+    binaryPath: '/bin/claude',
+    recipeSnapshot: null,
+  }
 }
 
 function createManagerStub(): ManagerStub {
@@ -302,6 +321,122 @@ beforeEach(() => {
 })
 
 describe('TaskChuteView play button coupling', () => {
+  test('recipe preflight failure leaves the task idle and never starts its timer', async () => {
+    const { manager, view, execution } = setUp()
+    manager.prepareRun = jest.fn().mockRejectedValueOnce(
+      new Error('Recipe could not be loaded'),
+    )
+    manager.startPreparedRun = jest.fn()
+    const inst = makeInstance({
+      ai_task: true,
+      recipe: '[[TaskChute/Recipes/Missing]]',
+    })
+
+    await view.startInstance(inst)
+
+    expect(manager.prepareRun).toHaveBeenCalledTimes(1)
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+  })
+
+  test('prepared dispatch failure rolls the already-started timer back to idle', async () => {
+    const { manager, view, execution } = setUp()
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.startPreparedRun = jest.fn().mockRejectedValueOnce(
+      new Error('spawn failed'),
+    )
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: jest.Mock
+        saveRunningTasksState: jest.Mock
+      }
+    ).removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as { saveRunningTasksState: jest.Mock }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+    const inst = makeInstance({
+      ai_task: true,
+      recipe: '[[TaskChute/Recipes/Publish]]',
+    })
+
+    await view.startInstance(inst)
+
+    expect(execution.startInstance).toHaveBeenCalledWith(inst)
+    expect(manager.startPreparedRun).toHaveBeenCalledTimes(1)
+    expect(inst.state).toBe('idle')
+    expect(
+      (view as unknown as { removeRunningTaskRecord: jest.Mock })
+        .removeRunningTaskRecord,
+    ).toHaveBeenCalledWith(expect.objectContaining({ taskPath: TASK_PATH }))
+  })
+
+  test('stops the old run and rolls the timer back when the manager changes after manual dispatch', async () => {
+    const { manager, view } = setUp()
+    const plugin = (view as unknown as { plugin: TaskChutePluginLike }).plugin
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.startPreparedRun = jest.fn().mockImplementationOnce(async () => {
+      plugin.aiTaskManager = createManagerStub() as unknown as typeof plugin.aiTaskManager
+      return makeRecord()
+    })
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: jest.Mock
+        saveRunningTasksState: jest.Mock
+      }
+    ).removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as { saveRunningTasksState: jest.Mock }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+    const inst = makeInstance()
+
+    await view.startInstance(inst)
+
+    expect(manager.startPreparedRun).toHaveBeenCalledTimes(1)
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(TASK_PATH)
+    expect(inst.state).toBe('idle')
+  })
+
+  test('a stop during preflight invalidates the pending start before its timer begins', async () => {
+    const { manager, view, execution } = setUp()
+    let resolvePreflight!: (prepared: PreparedAiRun) => void
+    manager.prepareRun = jest.fn(() => new Promise((resolve) => {
+      resolvePreflight = resolve
+    }))
+    manager.startPreparedRun = jest.fn()
+    const inst = makeInstance()
+
+    const startPromise = view.startInstance(inst)
+    await flushPromises()
+    await view.stopInstance(inst)
+    resolvePreflight(makePreparedRun())
+    await startPromise
+
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+  })
+
+  test('a stop that wins the prepared-dispatch edge stops the late run and keeps the task done', async () => {
+    const { manager, view } = setUp()
+    let resolveDispatch!: (record: AiRunRecord) => void
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.startPreparedRun = jest.fn(() => new Promise((resolve) => {
+      resolveDispatch = resolve
+    }))
+    const inst = makeInstance()
+
+    const startPromise = view.startInstance(inst)
+    await flushPromises()
+    expect(inst.state).toBe('running')
+    await view.stopInstance(inst)
+    resolveDispatch(makeRecord())
+    await startPromise
+
+    expect(manager.requestStopForTask).toHaveBeenCalledWith(TASK_PATH)
+    expect(inst.state).toBe('done')
+  })
+
   test('a human start of an ai_task instance also fires the AI run', async () => {
     const { manager, view, execution } = setUp()
     manager.startRun.mockResolvedValueOnce(makeRecord())
@@ -389,6 +524,27 @@ describe('TaskChuteView play button coupling', () => {
 })
 
 describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
+  test('linked recipe preflight failure never starts or owns the target', async () => {
+    const { manager, view, execution, mutation } = setUp()
+    manager.prepareRun = jest.fn().mockRejectedValueOnce(
+      new Error('Recipe markers are corrupt'),
+    )
+    manager.startPreparedRun = jest.fn()
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    target.task.frontmatter.recipe = '[[TaskChute/Recipes/Corrupt]]'
+    view.taskInstances = [source, target]
+
+    await view.startInstance(source)
+
+    expect(source.state).toBe('running')
+    expect(target.state).toBe('idle')
+    expect(execution.startInstance).toHaveBeenCalledTimes(1)
+    expect(execution.startInstance).toHaveBeenCalledWith(source)
+    expect(mutation.duplicateInstance).not.toHaveBeenCalled()
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+  })
+
   test('does not change the linked target when the AI manager is unavailable', async () => {
     const plugin = createPluginStub()
     const { view, execution, mutation } = createView(plugin)
@@ -579,6 +735,49 @@ describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
 
     expect(target.state).toBe('idle')
     expect(manager.startRun).not.toHaveBeenCalled()
+  })
+
+  test('stops the old linked run and rolls back when the manager changes after dispatch', async () => {
+    const { manager, view, mutation } = setUp()
+    const plugin = (view as unknown as { plugin: TaskChutePluginLike }).plugin
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    target.state = 'done'
+    const duplicate = {
+      ...target,
+      instanceId: 'linked-ai-replaced-manager',
+      state: 'idle',
+      isDuplicate: true,
+    } as TaskInstance
+    mutation.duplicateInstance.mockImplementationOnce(async () => {
+      view.taskInstances.push(duplicate)
+      return duplicate
+    })
+    view.taskInstances = [source, target]
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(
+      makePreparedRun('TASKS/linked-ai.md'),
+    )
+    manager.startPreparedRun = jest.fn().mockImplementationOnce(async () => {
+      plugin.aiTaskManager = createManagerStub() as unknown as typeof plugin.aiTaskManager
+      return makeRecord({ taskPath: 'TASKS/linked-ai.md' })
+    })
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: jest.Mock
+        saveRunningTasksState: jest.Mock
+      }
+    ).removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as { saveRunningTasksState: jest.Mock }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+
+    await view.startInstance(source)
+
+    expect(manager.startPreparedRun).toHaveBeenCalledTimes(1)
+    expect(manager.requestStopForTask).toHaveBeenCalledWith('TASKS/linked-ai.md')
+    expect(mutation.rollbackDuplicateInstance).toHaveBeenCalledWith(duplicate)
+    expect(duplicate.state).toBe('idle')
+    expect(target.state).toBe('done')
   })
 
   test('stopping the source task stops the AI instance and its terminal run', async () => {
@@ -991,6 +1190,26 @@ describe('TaskChuteView Ambient AI routine bridge', () => {
       ...overrides,
     }
   }
+
+  test('recipe preflight failure leaves an Ambient candidate idle and retryable', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    manager.prepareRun = jest.fn().mockRejectedValueOnce(
+      new Error('Recipe could not be loaded'),
+    )
+    manager.startPreparedRun = jest.fn()
+    const inst = makeAmbientInstance({
+      recipe: '[[TaskChute/Recipes/Missing]]',
+    })
+    view.taskInstances = [inst]
+
+    const result = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+
+    expect(result).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+  })
 
   test('starts a due unlinked AI routine and reports it for once-per-day persistence', async () => {
     const { manager, view, execution } = setUp()

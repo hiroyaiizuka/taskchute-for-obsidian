@@ -6,11 +6,16 @@ import {
   EXACT_PROMPT_END_MARKER,
   EXACT_PROMPT_START_MARKER,
 } from '../../ai-task/services/PromptExtractor'
+import {
+  TaskRecipeAssignmentService,
+  createRecipeReferenceLink,
+} from '../../recipe/services/TaskRecipeAssignmentService'
 
 interface PluginLike {
   app: App
   pathManager: {
     getTaskFolderPath(): string
+    getRecipeFolderPath?: () => string
     ensureFolderExists?: (path: string) => Promise<void>
   }
 }
@@ -35,6 +40,8 @@ export interface CreateTaskFileAiTaskOptions {
   args?: string[]
   cwd?: string
   prompt: string
+  /** undefined: leave absent/unchanged, null: explicitly unassign. */
+  recipePath?: string | null
 }
 
 export interface CreateTaskFileOptions {
@@ -79,9 +86,15 @@ function escapePromptLine(line: string): string {
 
 export class TaskCreationService {
   private plugin: PluginLike
+  private readonly recipeAssignments: TaskRecipeAssignmentService
 
   constructor(plugin: PluginLike) {
     this.plugin = plugin
+    this.recipeAssignments = new TaskRecipeAssignmentService({
+      app: plugin.app,
+      getRecipeFolderPath: () =>
+        plugin.pathManager.getRecipeFolderPath?.() ?? 'TaskChute/Recipes',
+    })
   }
 
   /**
@@ -141,6 +154,9 @@ export class TaskCreationService {
     }
 
     const aiTask = options?.aiTask
+    const resolvedRecipePath = aiTask
+      ? this.recipeAssignments.resolve({ recipePath: aiTask.recipePath })
+      : undefined
     if (aiTask) {
       frontmatterLines.push('ai_task: true')
       frontmatterLines.push(`ai_task_host: ${aiTask.host}`)
@@ -153,6 +169,11 @@ export class TaskCreationService {
       const cwd = aiTask.cwd?.trim()
       if (cwd) {
         frontmatterLines.push(`ai_task_cwd: ${toYamlQuoted(cwd)}`)
+      }
+      if (typeof resolvedRecipePath === 'string') {
+        frontmatterLines.push(
+          `recipe: ${toYamlQuoted(createRecipeReferenceLink(resolvedRecipePath))}`,
+        )
       }
     }
 

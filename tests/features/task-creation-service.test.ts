@@ -366,4 +366,31 @@ describe('TaskCreationService AI task notes (U3)', () => {
     // The prompt section sits AFTER the H1 heading.
     expect(content.indexOf('## Prompt')).toBeGreaterThan(content.indexOf('# AI Task'))
   })
+
+  test('writes a validated recipe link in the initial AI task file creation', async () => {
+    const plugin = createPlugin()
+    const recipe = new TFile()
+    recipe.path = 'TaskChute/Recipes/Publish.md'
+    recipe.basename = 'Publish'
+    recipe.extension = 'md'
+    plugin.pathManager.getRecipeFolderPath = () => 'TaskChute/Recipes'
+    plugin.app.vault.getAbstractFileByPath.mockImplementation((path: string) =>
+      path === recipe.path ? recipe : null,
+    )
+    const service = new TaskCreationService(plugin)
+
+    await service.createTaskFile('AI Task', '2025-11-16', undefined, {
+      aiTask: {
+        host: 'claude',
+        args: [],
+        prompt: 'Publish it',
+        recipePath: recipe.path,
+      },
+    })
+
+    const content = plugin.app.vault.create.mock.calls[0]?.[1] as string
+    expect(parseRealFrontmatter(content).recipe).toBe(
+      '[[TaskChute/Recipes/Publish.md]]',
+    )
+  })
 })

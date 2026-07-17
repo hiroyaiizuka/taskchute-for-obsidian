@@ -96,6 +96,15 @@ function composeFrontmatter(record: AiRunRecord): string[] {
     // their exact shape.
     lines.push('mode: terminal')
   }
+  if (record.recipePath) {
+    lines.push(`recipe_path: ${JSON.stringify(record.recipePath)}`)
+  }
+  if (record.recipeVersion !== undefined) {
+    lines.push(`recipe_version: ${record.recipeVersion}`)
+  }
+  if (record.recipeContentHash) {
+    lines.push(`recipe_content_hash: ${JSON.stringify(record.recipeContentHash)}`)
+  }
   lines.push(`started_at: ${JSON.stringify(new Date(record.startedAt).toISOString())}`)
   if (record.endedAt !== undefined) {
     lines.push(`ended_at: ${JSON.stringify(new Date(record.endedAt).toISOString())}`)

@@ -24,6 +24,7 @@ import type {
 import type { App } from 'obsidian'
 import { en } from '../../../src/i18n/locales/en'
 import { ja } from '../../../src/i18n/locales/ja'
+import type { Recipe } from '../../../src/features/recipe/types'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -69,6 +70,7 @@ interface CreateHostOptions {
   workingDirectoryCandidates?: string[]
   storedWorkingDirectories?: string[]
   selectDirectory?: (defaultPath?: string) => Promise<string | null>
+  recipes?: Recipe[]
 }
 
 function createHost(
@@ -170,6 +172,13 @@ function createHost(
     invalidateDayStateCache: jest.fn(),
     findDeletedTaskRestoreCandidate: jest.fn(() => null),
     restoreDeletedTaskCandidate: jest.fn().mockResolvedValue(true),
+    ...(options.recipes
+      ? {
+          recipeService: {
+            loadRecipes: jest.fn(async () => options.recipes ?? []),
+          } as unknown as TaskCreationControllerHost['recipeService'],
+        }
+      : {}),
   }
 
   return {
@@ -179,6 +188,19 @@ function createHost(
     taskReuseService,
     loadLocalStorage,
     saveLocalStorage,
+  }
+}
+
+function makeRecipe(path = 'TaskChute/Recipes/Publish.md'): Recipe {
+  return {
+    path,
+    title: 'Publish',
+    schemaVersion: 2,
+    goal: 'A public URL exists',
+    steps: [{ id: 'step-1', text: 'Publish the article' }],
+    qualityChecks: [{ id: 'quality-1', text: 'Open the URL' }],
+    constraints: [{ id: 'constraint-1', text: 'Do not expose secrets' }],
+    file: new TFile(),
   }
 }
 
@@ -351,6 +373,89 @@ beforeEach(() => {
 })
 
 describe('AI task edit modal', () => {
+  test('preserves an unchanged recipe assignment with the undefined tri-state', async () => {
+    const recipe = makeRecipe()
+    const { host, aiTaskEditService } = createHost(
+      { recipeFeatureEnabled: true },
+      { recipes: [recipe] },
+    )
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      recipePath: recipe.path,
+    })
+
+    const modal = await openEditModal(host, inst)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-recipe-select')?.value,
+    ).toBe(recipe.path)
+
+    await submit(modal)
+
+    const savedOptions = aiTaskEditService.save.mock.calls[0]?.[2]
+    expect(savedOptions).toBeDefined()
+    expect(savedOptions).not.toHaveProperty('recipePath')
+  })
+
+  test('preserves an unchanged empty recipe assignment with the undefined tri-state', async () => {
+    const { host, aiTaskEditService } = createHost(
+      { recipeFeatureEnabled: true },
+      { recipes: [makeRecipe()] },
+    )
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+
+    const modal = await openEditModal(host, inst)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(
+      modal.querySelector<HTMLSelectElement>('.ai-task-recipe-select')?.value,
+    ).toBe('')
+
+    await submit(modal)
+
+    const savedOptions = aiTaskEditService.save.mock.calls[0]?.[2]
+    expect(savedOptions).toBeDefined()
+    expect(savedOptions).not.toHaveProperty('recipePath')
+  })
+
+  test('loads the assigned recipe and allows an explicit unlink', async () => {
+    const recipe = makeRecipe()
+    const { host, aiTaskEditService } = createHost(
+      { recipeFeatureEnabled: true },
+      { recipes: [recipe] },
+    )
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    const inst = createAiTaskInstance(file)
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      recipePath: recipe.path,
+    })
+
+    const modal = await openEditModal(host, inst)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const select = modal.querySelector<HTMLSelectElement>(
+      '.ai-task-recipe-select',
+    )
+    expect(select?.value).toBe(recipe.path)
+    if (!select) throw new Error('recipe select missing')
+    select.value = ''
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+
+    await submit(modal)
+
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '08:45',
+      expect.objectContaining({ recipePath: null }),
+    )
+  })
+
   test('loads an existing Codex task into the shared controls without exposing task type', async () => {
     const { host, aiTaskEditService } = createHost()
     const file = new TFile()
@@ -526,6 +631,43 @@ describe('task-type selector gating', () => {
 })
 
 describe('AI mode UI', () => {
+  test('shows recipe disclosure and submits the selected Recipe v2 link', async () => {
+    const recipe = makeRecipe()
+    const { host, taskCreationService } = createHost(
+      { recipeFeatureEnabled: true },
+      { recipes: [recipe] },
+    )
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value =
+      'AI Publish'
+    typeButton(modal, 'ai').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const select = modal.querySelector<HTMLSelectElement>(
+      '.ai-task-recipe-select',
+    )
+    expect(select).not.toBeNull()
+    expect(select?.options[1]?.textContent).toContain('Publish')
+    expect(modal.textContent).toContain('秘密情報を含めないでください')
+    if (!select) throw new Error('recipe select missing')
+    select.value = recipe.path
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(modal.querySelector('.ai-task-recipe-preview')?.textContent).toContain(
+      'A public URL exists',
+    )
+
+    await submit(modal)
+
+    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
+      'AI Publish',
+      '2025-10-09',
+      undefined,
+      expect.objectContaining({
+        aiTask: expect.objectContaining({ recipePath: recipe.path }),
+      }),
+    )
+  })
+
   test('switching to AI mode reveals the section; back to human hides it', () => {
     const { host } = createHost()
     const modal = openModal(host)
