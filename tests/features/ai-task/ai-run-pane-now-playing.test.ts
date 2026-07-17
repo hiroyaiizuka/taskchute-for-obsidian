@@ -417,7 +417,47 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       ).toBe(false)
     })
 
-    test('the content area keeps one internal tab per run in the panel', () => {
+    test('vertical run tabs use roving focus and APG arrow navigation', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'Task A' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'Task B' }))
+
+      const tablist = container.querySelector<HTMLElement>(
+        '.ai-run-pane__sidebar-runs',
+      )
+      const row = (runId: string): HTMLElement | null =>
+        container.querySelector(
+          `.ai-run-pane__run[data-run-id="${runId}"]`,
+        )
+      expect(tablist?.getAttribute('role')).toBe('tablist')
+      expect(tablist?.getAttribute('aria-orientation')).toBe('vertical')
+      expect(row('run-a')?.getAttribute('tabindex')).toBe('0')
+      expect(row('run-b')?.getAttribute('tabindex')).toBe('-1')
+      expect(row('run-a')?.getAttribute('aria-controls')).toBe(
+        'ai-run-body-run-a',
+      )
+      expect(
+        container
+          .querySelector('.ai-run-pane__body[data-run-id="run-a"]')
+          ?.getAttribute('role'),
+      ).toBe('tabpanel')
+
+      row('run-a')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      )
+      expect(row('run-b')?.classList.contains('is-active')).toBe(true)
+      expect(row('run-a')?.getAttribute('tabindex')).toBe('-1')
+      expect(row('run-b')?.getAttribute('tabindex')).toBe('0')
+      expect(document.activeElement).toBe(row('run-b'))
+
+      row('run-b')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
+      )
+      expect(row('run-a')?.classList.contains('is-active')).toBe(true)
+      expect(document.activeElement).toBe(row('run-a'))
+    })
+
+    test('multiple AI runs share one replaceable task tab until + or split is explicit', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
       manager.emit(createRun({ id: 'run-b', mode: 'headless' }))
@@ -426,7 +466,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(strip).not.toBeNull()
       expect(strip?.classList).toContain('ai-run-pane__work-tabbar')
       let tabs = container.querySelectorAll('.ai-run-pane__tab')
-      expect(tabs).toHaveLength(2)
+      expect(tabs).toHaveLength(1)
       expect(tabs[0].classList).toContain('ai-run-pane__work-tab')
       expect(tabs[0].querySelector('.ai-run-pane__work-tab-close')).not.toBeNull()
       expect(tabs[0].getAttribute('data-run-id')).toBe('run-a')
@@ -439,15 +479,19 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         tabs[0].querySelector('.ai-run-pane__tab-label')?.textContent,
       ).toBe('Terminal')
 
-      controller.openRun('run-b')
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
       tabs = container.querySelectorAll('.ai-run-pane__tab')
-      expect(tabs).toHaveLength(2)
-      expect(tabs[1].getAttribute('data-run-id')).toBe('run-b')
+      expect(tabs).toHaveLength(1)
+      expect(tabs[0].getAttribute('data-run-id')).toBe('run-b')
       expect(
-        tabs[1].querySelector('.ai-run-pane__tab-label')?.textContent,
+        tabs[0].querySelector('.ai-run-pane__tab-label')?.textContent,
       ).toBe('Events')
-      expect(tabs[1].classList.contains('is-active')).toBe(true)
-      expect(tabs[0].classList.contains('is-active')).toBe(false)
+      expect(tabs[0].classList.contains('is-active')).toBe(true)
+      expect(
+        container.querySelector('.ai-run-pane__tab[data-run-id="run-a"]'),
+      ).toBeNull()
     })
 
     test('sidebar and content live inside a layout row that collapse hides', () => {
@@ -968,6 +1012,25 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(rows()).toHaveLength(0)
       expect(adapters[0].disposed).toBe(true)
       expect(pane()?.classList.contains('is-hidden')).toBe(true)
+    })
+
+    test('a restored interrupted run is visible as non-active and can be closed', () => {
+      const run = createRun({ id: 'run-interrupted', status: 'interrupted' })
+      manager.records.push(run)
+      controller.mount(container)
+
+      expect(
+        container.querySelector('.ai-run-pane__run-dot--interrupted'),
+      ).not.toBeNull()
+      const close = container.querySelector<HTMLButtonElement>(
+        '.ai-run-pane__tab-close',
+      )
+      expect(close?.getAttribute('aria-label')).toBe('Close run tab')
+      close?.click()
+
+      expect(manager.stopRun).not.toHaveBeenCalled()
+      expect(onStopAndCloseTaskRun).not.toHaveBeenCalled()
+      expect(rows()).toHaveLength(0)
     })
 
     test('the sidebar row × mirrors the tab × for active runs', () => {

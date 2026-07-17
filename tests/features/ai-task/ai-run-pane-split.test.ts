@@ -198,6 +198,8 @@ describe('AiRunPaneController split panels', () => {
 
   const panels = (): HTMLElement[] =>
     Array.from(container.querySelectorAll<HTMLElement>('.ai-run-pane__panel'))
+  const visiblePanels = (): HTMLElement[] =>
+    panels().filter((panel) => !panel.hidden)
   const rows = (): HTMLElement[] =>
     Array.from(container.querySelectorAll<HTMLElement>('.ai-run-pane__run'))
   const splitButton = (): HTMLButtonElement | null =>
@@ -549,32 +551,91 @@ describe('AiRunPaneController split panels', () => {
       expect(allPanels[1].classList.contains('is-focused')).toBe(false)
     })
 
-    test('sidebar clicks show the run in the FOCUSED panel', () => {
+    test('sidebar clicks swap the complete task workspace through the primary panel', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a', taskName: 'Task A' }))
       manager.emit(createRun({ id: 'run-b', taskName: 'Task B', taskPath: 'TASKS/b.md' }))
       splitButton()?.click()
       const allPanels = panels()
 
-      // Panel 2 (focused) takes run-b when its sidebar row is clicked.
+      // A Vertical Tab never grafts task B into task A's focused split.
+      // It swaps to B's own one-panel workspace through the shared primary.
       container
         .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
         ?.click()
-      expect(panelTab(allPanels[1])?.getAttribute('data-run-id')).toBe('run-b')
+      expect(panelTab(allPanels[0])?.getAttribute('data-run-id')).toBe('run-b')
       expect(
-        allPanels[1].querySelector('.ai-run-pane__body[data-run-id="run-b"]'),
+        allPanels[0].querySelector('.ai-run-pane__body[data-run-id="run-b"]'),
       ).not.toBeNull()
-      // Panel 1 still shows run-a.
-      expect(panelTab(allPanels[0])?.getAttribute('data-run-id')).toBe('run-a')
+      expect(allPanels[1].hidden).toBe(true)
 
-      // Clicking a run already displayed in another panel focuses that panel
-      // instead of duplicating the view.
+      // Returning to A restores A's secondary split and main task.
       container
         .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
         ?.click()
-      expect(allPanels[0].classList.contains('is-focused')).toBe(true)
+      expect(allPanels[0].classList.contains('is-focused')).toBe(false)
+      expect(allPanels[1].classList.contains('is-focused')).toBe(true)
       expect(panelTab(allPanels[0])?.getAttribute('data-run-id')).toBe('run-a')
-      expect(panelTab(allPanels[1])?.getAttribute('data-run-id')).toBe('run-b')
+      expect(allPanels[1].hidden).toBe(false)
+      expect(panelTab(allPanels[1])?.getAttribute('data-run-id')).toBe('shell-1')
+    })
+
+    test('vertical task rail keeps one roving tab across split panels', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'Task A' }))
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'Task B',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+      splitButton()?.click()
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+
+      const selectedRows = (): HTMLElement[] =>
+        Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '.ai-run-pane__sidebar-runs [role="tab"][aria-selected="true"]',
+          ),
+        )
+      const rovingRows = (): HTMLElement[] =>
+        Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '.ai-run-pane__sidebar-runs [role="tab"][tabindex="0"]',
+          ),
+        )
+
+      expect(selectedRows()).toHaveLength(1)
+      expect(rovingRows()).toHaveLength(1)
+      expect(selectedRows()[0]?.getAttribute('data-run-id')).toBe('run-b')
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      expect(selectedRows()).toHaveLength(1)
+      expect(rovingRows()).toHaveLength(1)
+      expect(selectedRows()[0]?.getAttribute('data-run-id')).toBe('run-a')
+    })
+
+    test('shell-selected panel retains one task row as the roving target', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'Task A' }))
+
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      const selectedRows = container.querySelectorAll(
+        '.ai-run-pane__sidebar-runs [role="tab"][aria-selected="true"]',
+      )
+      const rovingRows = container.querySelectorAll(
+        '.ai-run-pane__sidebar-runs [role="tab"][tabindex="0"]',
+      )
+      expect(selectedRows).toHaveLength(1)
+      expect(rovingRows).toHaveLength(1)
+      expect(selectedRows[0]?.getAttribute('data-run-id')).toBe('run-a')
     })
   })
 
@@ -660,6 +721,409 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('+ button (new shell in the focused panel)', () => {
+    test('restores each Vertical Tab own + and split workspace', () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          id: 'run-a',
+          taskName: 'AAA',
+          taskPath: 'TASKS/a.md',
+        }),
+      )
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'GGG',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+
+      // AAA: main task + an explicit tab + an explicit split panel.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__split')
+        ?.click()
+      expect(visiblePanels()).toHaveLength(2)
+      expect(manager.getRun('shell-1')?.parentRunId).toBe('run-a')
+      expect(manager.getRun('shell-2')?.parentRunId).toBe('run-a')
+
+      // GGG has never used + or split: it must open as one panel / one tab.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+      expect(visiblePanels()).toHaveLength(1)
+      expect(
+        Array.from(
+          visiblePanels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-b'])
+
+      // GGG's own + is retained only in GGG.
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__add')
+        ?.click()
+      expect(manager.getRun('shell-3')?.parentRunId).toBe('run-b')
+      expect(
+        Array.from(
+          visiblePanels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-b', 'shell-3'])
+
+      // Returning to AAA revives AAA's original two-panel layout and tabs.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      expect(visiblePanels()).toHaveLength(2)
+      expect(
+        Array.from(
+          visiblePanels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-a', 'shell-1'])
+      expect(
+        Array.from(
+          visiblePanels()[1].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['shell-2'])
+      expect(
+        container.querySelector('.ai-run-pane__panels')?.classList,
+      ).toContain('is-split')
+    })
+
+    test('restores each task primary selection and focused split panel', () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          id: 'run-a',
+          taskName: 'AAA',
+          taskPath: 'TASKS/a.md',
+        }),
+      )
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'GGG',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__add')
+        ?.click()
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__split')
+        ?.click()
+
+      const taskAPanels = visiblePanels()
+      expect(panelTab(taskAPanels[0])?.getAttribute('data-run-id')).toBe(
+        'shell-1',
+      )
+      expect(panelTab(taskAPanels[1])?.getAttribute('data-run-id')).toBe(
+        'shell-2',
+      )
+      expect(taskAPanels[1].classList.contains('is-focused')).toBe(true)
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+      expect(panelTab(visiblePanels()[0])?.getAttribute('data-run-id')).toBe(
+        'run-b',
+      )
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+
+      expect(visiblePanels()).toHaveLength(2)
+      expect(panelTab(taskAPanels[0])?.getAttribute('data-run-id')).toBe(
+        'shell-1',
+      )
+      expect(panelTab(taskAPanels[1])?.getAttribute('data-run-id')).toBe(
+        'shell-2',
+      )
+      expect(taskAPanels[1].classList.contains('is-focused')).toBe(true)
+      expect(taskAPanels[0].classList.contains('is-focused')).toBe(false)
+    })
+
+    test('fits only the newly active task terminals while switching workspaces', () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          id: 'run-a',
+          taskName: 'AAA',
+          taskPath: 'TASKS/a.md',
+        }),
+      )
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'GGG',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__split')
+        ?.click()
+      expect(adapters).toHaveLength(2)
+      adapters[0].fit.mockClear()
+      adapters[1].fit.mockClear()
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+
+      expect(adapters).toHaveLength(3)
+      expect(adapters[0].fit).not.toHaveBeenCalled()
+      expect(adapters[1].fit).not.toHaveBeenCalled()
+
+      adapters[2].fit.mockClear()
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      expect(adapters[2].fit).not.toHaveBeenCalled()
+      expect(adapters[0].fit).toHaveBeenCalled()
+      expect(adapters[1].fit).toHaveBeenCalled()
+    })
+
+    test('a hidden panel close fallback never steals the active task workspace', () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          id: 'run-a',
+          taskName: 'AAA',
+          taskPath: 'TASKS/a.md',
+        }),
+      )
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'GGG',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+      visiblePanels()[0]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__split')
+        ?.click()
+      visiblePanels()[1]
+        .querySelector<HTMLButtonElement>('.ai-run-pane__add')
+        ?.click()
+      const taskAPanels = visiblePanels()
+      taskAPanels[1]
+        .querySelector<HTMLElement>(
+          '.ai-run-pane__tab[data-run-id="shell-1"]',
+        )
+        ?.click()
+      taskAPanels[1]
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__tab[data-run-id="shell-1"] .ai-run-pane__tab-close',
+        )
+        ?.click()
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+      const stoppedShell = manager.getRun('shell-1')
+      if (!stoppedShell) throw new Error('shell record missing')
+      stoppedShell.status = 'stopped'
+      manager.emit(stoppedShell)
+      manager.emit(stoppedShell, 'persisted')
+
+      expect(visiblePanels()).toHaveLength(1)
+      expect(panelTab(visiblePanels()[0])?.getAttribute('data-run-id')).toBe(
+        'run-b',
+      )
+      expect(
+        container
+          .querySelector('.ai-run-pane__run[data-run-id="run-b"]')
+          ?.classList.contains('is-active'),
+      ).toBe(true)
+
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      expect(visiblePanels()).toHaveLength(2)
+      expect(panelTab(taskAPanels[1])?.getAttribute('data-run-id')).toBe(
+        'shell-2',
+      )
+    })
+
+    test('a + pressed from a shell keeps the original task as root owner', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AAA' }))
+
+      const add = (): void => {
+        visiblePanels()[0]
+          .querySelector<HTMLButtonElement>('.ai-run-pane__add')
+          ?.click()
+      }
+      add()
+      expect(panelTab(visiblePanels()[0])?.getAttribute('data-run-id')).toBe(
+        'shell-1',
+      )
+      add()
+
+      expect(manager.getRun('shell-1')?.parentRunId).toBe('run-a')
+      expect(manager.getRun('shell-2')?.parentRunId).toBe('run-a')
+      expect(
+        Array.from(
+          visiblePanels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-a', 'shell-1', 'shell-2'])
+    })
+
+    test('keeps explicit shell tabs scoped to the Vertical Tab that created them', () => {
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          id: 'run-a',
+          taskName: 'AAA',
+          taskPath: 'TASKS/a.md',
+        }),
+      )
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'GGG',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+
+      // AAA owns shell-1.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      expect(manager.getRun('shell-1')?.parentRunId).toBe('run-a')
+      expect(
+        panels()[0].querySelectorAll('.ai-run-pane__tab'),
+      ).toHaveLength(2)
+
+      // Switching to GGG swaps the complete task-local tab set. AAA's shell
+      // remains alive, but is neither a visible tab nor an active body.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
+        ?.click()
+      expect(
+        Array.from(
+          panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-b'])
+      expect(
+        panels()[0]
+          .querySelector('.ai-run-pane__body[data-run-id="shell-1"]')
+          ?.classList.contains('is-active'),
+      ).toBe(false)
+
+      // GGG's + creates an independent shell set.
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      expect(manager.getRun('shell-2')?.parentRunId).toBe('run-b')
+      expect(
+        Array.from(
+          panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-b', 'shell-2'])
+
+      // Returning to AAA restores only AAA + its own shell.
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      expect(
+        Array.from(
+          panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-a', 'shell-1'])
+      expect(
+        panels()[0].querySelector('.ai-run-pane__tab[data-run-id="shell-2"]'),
+      ).toBeNull()
+
+      // The persisted parentRunId relationship rebuilds the same task-local
+      // tab set after a pane remount (the UI equivalent of plugin reload).
+      controller.unmount()
+      controller.mount(container)
+      expect(
+        Array.from(
+          panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        ).map((tab) => tab.getAttribute('data-run-id')),
+      ).toEqual(['run-a', 'shell-1'])
+    })
+
+    test('closing a selected shell returns to the existing task slot, not a hidden concurrent run', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'Task A' }))
+      manager.emit(
+        createRun({
+          id: 'run-b',
+          taskName: 'Task B',
+          taskPath: 'TASKS/b.md',
+        }),
+      )
+      container
+        .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-a"]')
+        ?.click()
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      const shell = manager.getRun('shell-1')
+      if (!shell) throw new Error('shell record missing')
+      shell.status = 'succeeded'
+      manager.emit(shell)
+
+      panels()[0]
+        .querySelector<HTMLButtonElement>(
+          '.ai-run-pane__tab[data-run-id="shell-1"] .ai-run-pane__tab-close',
+        )
+        ?.click()
+
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
+      expect(
+        panels()[0].querySelector('.ai-run-pane__tab[data-run-id="run-b"]'),
+      ).toBeNull()
+      expect(
+        container
+          .querySelector('.ai-run-pane__run[data-run-id="run-a"]')
+          ?.classList.contains('is-active'),
+      ).toBe(true)
+    })
+
+    test('task slot and explicit shell tabs expose a roving ARIA tablist', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      const tablist = panels()[0].querySelector<HTMLElement>(
+        '.ai-run-pane__tabs',
+      )
+      expect(tablist?.getAttribute('role')).toBe('tablist')
+      expect(tablist?.getAttribute('aria-orientation')).toBe('horizontal')
+
+      const press = (runId: string, key: string): void => {
+        const tab = panels()[0].querySelector<HTMLElement>(
+          `.ai-run-pane__tab[data-run-id="${runId}"]`,
+        )
+        tab?.focus()
+        tab?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      }
+      const activeRunId = (): string | null =>
+        panelTab(panels()[0])?.getAttribute('data-run-id') ?? null
+
+      press('run-a', 'ArrowRight')
+      expect(activeRunId()).toBe('shell-1')
+      expect(document.activeElement?.getAttribute('data-run-id')).toBe('shell-1')
+
+      press('shell-1', 'ArrowLeft')
+      expect(activeRunId()).toBe('run-a')
+
+      press('run-a', 'End')
+      expect(activeRunId()).toBe('shell-1')
+
+      press('shell-1', 'Home')
+      expect(activeRunId()).toBe('run-a')
+      expect(document.activeElement?.getAttribute('data-run-id')).toBe('run-a')
+    })
+
     test('closing a non-selected internal tab removes its stale tab DOM', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))

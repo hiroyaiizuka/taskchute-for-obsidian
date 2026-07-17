@@ -36,6 +36,7 @@ export type AiRunStatus =
   | 'starting'
   | 'running'
   | 'stopping'
+  | 'interrupted'
   | 'succeeded'
   | 'failed'
   | 'stopped'
@@ -169,6 +170,11 @@ export interface AiRunRecord {
   endedAt?: number
   /** CLI session/thread id reported by the stream; enables resume follow-ups */
   sessionId?: string
+  /**
+   * Stable renderer-independent terminal broker session. Unlike sessionId,
+   * this identifies the live PTY wrapper rather than an AI provider thread.
+   */
+  terminalSessionId?: string
   /** Vault path of the persisted run log note (rewritten on follow-ups) */
   logNotePath?: string
   /** Bounded event buffer (head + tail with omission marker) */

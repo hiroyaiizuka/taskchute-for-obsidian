@@ -5,13 +5,14 @@
  * reference app's NOW PLAYING structure: a LEFT vertical sidebar with one
  * row per run (status dot + truncated task name + × control) and a RIGHT
  * content area made of one or more side-by-side PANELS. Each panel carries a
- * slim internal tab strip (one tab per run assigned to the panel, plus a +
- * new-shell button) and its own bodies element;
+ * slim internal tab strip (one replaceable top-level AI-task slot plus any
+ * explicit + shell tabs) and its own bodies element;
  * each panel's corner actions hold its local ◫ split control, while the
  * global ⤢ expand toggle lives in the AI Runs header. Bodies are kept per run
  * in a Map and only each
  * panel's selected body is visible, so state (scroll position, terminal
- * screen) survives selection switches.
+ * screen) survives selection switches. Starting concurrent AI tasks only
+ * adds Vertical Tabs; it never multiplies horizontal tabs by itself.
  *
  * SPLIT (U2, mirrors the reference panel-reducer): the ◫ control splits the
  * content area by inserting a new panel after its own. The split is refused
@@ -168,6 +169,8 @@ export interface AiRunPaneControllerHost {
    * persistence failure can never leave the PTY alive.
    */
   onStopAndCloseTaskRun?: (record: AiRunRecord) => void
+  /** Reconcile a TaskChute timer when a late broker attach becomes unavailable. */
+  onInterruptedTaskRun?: (record: AiRunRecord) => void
   /**
    * Per-device persistence bridge for the expanded state
    * (App#saveLocalStorage / App#loadLocalStorage — device-local by design,
@@ -210,7 +213,35 @@ interface PanelView {
   el: HTMLElement
   tabsEl: HTMLElement
   bodiesEl: HTMLElement
+  /**
+   * Logical top-level AI run whose card state this panel is currently
+   * showing. Explicit + terminals belong to this scope through
+   * AiRunRecord.parentRunId, so switching the Vertical Tab swaps the entire
+   * task-local tab set instead of leaking another task's terminals.
+   *
+   * This is deliberately separate from taskRunId: a split panel can show
+   * task-owned shell tabs without hosting the task run's body itself.
+   */
+  taskScopeRunId: string | null
+  /**
+   * The single top-level AI run represented by this panel's task slot.
+   * Other top-level runs stay reachable from the vertical sidebar without
+   * automatically multiplying horizontal tabs. Explicit + shell sessions
+   * remain independent tabs alongside this slot.
+   */
+  taskRunId: string | null
   selectedRunId: string | null
+}
+
+/**
+ * UI state owned by one top-level AI task while the shared primary panel is
+ * temporarily presenting another task. Secondary panels retain their own
+ * selectedRunId directly; only the shared primary selection and the focused
+ * panel need an explicit per-task snapshot.
+ */
+interface TaskWorkspaceState {
+  primarySelectedRunId: string | null
+  focusedPanelId: string | null
 }
 
 const ACTIVE_STATUSES: ReadonlySet<AiRunStatus> = new Set([
@@ -223,6 +254,7 @@ const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
   starting: 'Starting',
   running: 'Running',
   stopping: 'Stopping',
+  interrupted: 'Interrupted',
   succeeded: 'Succeeded',
   failed: 'Failed',
   stopped: 'Stopped',
@@ -324,6 +356,13 @@ export class AiRunPaneController {
   private activeWorkspaceDragPath: string | null = null
   private panelsEl: HTMLElement | null = null
   private panels: PanelView[] = []
+  private readonly taskWorkspaceStates = new Map<string, TaskWorkspaceState>()
+  /**
+   * Vertical Tab currently presented in the work area. The primary panel is
+   * shared as the task's main-terminal slot; secondary split panels retain a
+   * stable taskScopeRunId and are hidden while another task is selected.
+   */
+  private activeTaskScopeRunId: string | null = null
   private focusedPanelId: string | null = null
   private panelSequence = 0
   private expandButton: HTMLElement | null = null
@@ -426,7 +465,11 @@ export class AiRunPaneController {
     })
     this.sidebarRunsEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-runs',
-      attr: { role: 'tablist' },
+      attr: {
+        role: 'tablist',
+        'aria-orientation': 'vertical',
+        'aria-label': this.host.tv('aiTask.runTabs', 'AI run tabs'),
+      },
     })
     this.sidebarFilesEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-files-view is-hidden',
@@ -548,6 +591,8 @@ export class AiRunPaneController {
     this.activeWorkspaceDragPath = null
     this.panelsEl = null
     this.panels = []
+    this.taskWorkspaceStates.clear()
+    this.activeTaskScopeRunId = null
     this.focusedPanelId = null
     this.panelSequence = 0
     this.expandButton = null
@@ -574,12 +619,7 @@ export class AiRunPaneController {
     }
     this.revealPane()
     this.setCollapsed(false)
-    const view = this.runViews.get(runId)
-    if (!view) return
-    const panel = this.getPanel(view.panelId) ?? this.getPrimaryPanel()
-    if (!panel) return
-    this.focusPanel(panel)
-    this.selectRunInPanel(panel, runId)
+    this.showRunInFocusedPanel(runId)
   }
 
   setCollapsed(collapsed: boolean): void {
@@ -730,7 +770,7 @@ export class AiRunPaneController {
    */
   computeTerminalSize(): { cols: number; rows: number } {
     const container = this.containerEl
-    const panelCount = Math.max(1, this.panels.length)
+    const panelCount = Math.max(1, this.getVisiblePanels().length)
     const width = this.measureContentWidth() / panelCount
     const parentHeight = container?.parentElement?.clientHeight ?? 0
     if (width <= 0 || parentHeight <= 0) {
@@ -829,10 +869,24 @@ export class AiRunPaneController {
     return this.panels.find((panel) => panel.id === panelId)
   }
 
+  private getVisiblePanels(): PanelView[] {
+    const primary = this.getPrimaryPanel()
+    return this.panels.filter(
+      (panel) =>
+        panel === primary ||
+        (this.activeTaskScopeRunId !== null &&
+          panel.taskScopeRunId === this.activeTaskScopeRunId),
+    )
+  }
+
+  private isPanelVisible(panel: PanelView): boolean {
+    return this.getVisiblePanels().includes(panel)
+  }
+
   private getFocusedPanel(): PanelView | undefined {
     if (this.focusedPanelId !== null) {
       const focused = this.getPanel(this.focusedPanelId)
-      if (focused) return focused
+      if (focused && this.isPanelVisible(focused)) return focused
     }
     return this.getPrimaryPanel()
   }
@@ -842,7 +896,10 @@ export class AiRunPaneController {
    * element) and insert it after `afterPanel` (or append it). Global pane
    * actions stay in the AI Runs header rather than belonging to a panel.
    */
-  private createPanel(afterPanel: PanelView | null): PanelView {
+  private createPanel(
+    afterPanel: PanelView | null,
+    taskScopeRunId: string | null = null,
+  ): PanelView {
     const panelsEl = this.panelsEl
     if (!panelsEl) throw new Error('AiRunPaneController is not mounted')
     const el = panelsEl.createDiv({ cls: 'ai-run-pane__panel' })
@@ -853,13 +910,22 @@ export class AiRunPaneController {
     const tabstrip = el.createDiv({
       cls: 'ai-run-pane__tabstrip ai-run-pane__work-tabbar',
     })
-    const tabsEl = tabstrip.createDiv({ cls: 'ai-run-pane__tabs' })
+    const tabsEl = tabstrip.createDiv({
+      cls: 'ai-run-pane__tabs',
+      attr: {
+        role: 'tablist',
+        'aria-orientation': 'horizontal',
+        'aria-label': this.host.tv('aiTask.contentTabs', 'Terminal tabs'),
+      },
+    })
 
     const panel: PanelView = {
       id: `panel-${(this.panelSequence += 1)}`,
       el,
       tabsEl,
       bodiesEl: null as unknown as HTMLElement,
+      taskScopeRunId,
+      taskRunId: null,
       selectedRunId: null,
     }
 
@@ -905,6 +971,7 @@ export class AiRunPaneController {
     } else {
       this.panels.push(panel)
     }
+    this.syncTaskWorkspaceVisibility()
     this.refreshPanelsSplitState()
     return panel
   }
@@ -917,15 +984,22 @@ export class AiRunPaneController {
   private closePanel(panel: PanelView): void {
     const primary = this.getPrimaryPanel()
     if (!primary || panel === primary) return
+    const wasFocused = this.focusedPanelId === panel.id
     for (const view of this.runViews.values()) {
       if (view.panelId !== panel.id) continue
       view.panelId = primary.id
       view.body.classList.remove('is-active')
       primary.bodiesEl.appendChild(view.body)
     }
+    if (primary.taskRunId === null) {
+      primary.taskRunId = panel.taskRunId
+      primary.taskScopeRunId = panel.taskScopeRunId
+    }
     this.panels = this.panels.filter((other) => other !== panel)
     panel.el.remove()
-    if (this.focusedPanelId === panel.id) {
+    this.ensurePanelTaskSlot(primary)
+    this.syncTaskWorkspaceVisibility()
+    if (wasFocused) {
       // The keyboard focus follows the ring (same contract as clicking a
       // panel): without ensureTerminalView the highlight would move to the
       // primary panel while keystrokes kept going nowhere until a click.
@@ -940,17 +1014,116 @@ export class AiRunPaneController {
   }
 
   private focusPanel(panel: PanelView): void {
+    if (!this.isPanelVisible(panel)) return
     this.focusedPanelId = panel.id
     for (const other of this.panels) {
       other.el.classList.toggle('is-focused', other === panel)
     }
+    // The sidebar is one global vertical tablist even when the work area is
+    // split. Its single selected/roving tab therefore follows the focused
+    // panel, rather than exposing one selected row per panel.
+    this.syncPanelSelectionClasses()
+    this.rememberActiveTaskWorkspaceState()
     this.updateComposerState()
     this.refreshWorkspaceFiles()
   }
 
+  /**
+   * Stack each task's secondary split layout behind the selected Vertical
+   * Tab, matching the reference's one QuestCard/useSplitPanelState instance
+   * per task. The shared primary panel remains mounted because it hosts the
+   * replaceable main-task bodies; only secondary panels are task-owned.
+   */
+  private syncTaskWorkspaceVisibility(): void {
+    const primary = this.getPrimaryPanel()
+    for (const panel of this.panels) {
+      const visible =
+        panel === primary ||
+        (this.activeTaskScopeRunId !== null &&
+          panel.taskScopeRunId === this.activeTaskScopeRunId)
+      panel.el.hidden = !visible
+      panel.el.setAttribute('aria-hidden', visible ? 'false' : 'true')
+    }
+    const focused = this.focusedPanelId
+      ? this.getPanel(this.focusedPanelId)
+      : undefined
+    if (primary && (!focused || !this.isPanelVisible(focused))) {
+      this.focusedPanelId = primary.id
+    }
+    for (const panel of this.panels) {
+      panel.el.classList.toggle(
+        'is-focused',
+        panel.id === this.focusedPanelId && this.isPanelVisible(panel),
+      )
+    }
+  }
+
+  /**
+   * Snapshot the state that cannot live on a task-owned secondary panel
+   * before the shared primary panel starts presenting another task.
+   */
+  private rememberActiveTaskWorkspaceState(): void {
+    const taskScopeRunId = this.activeTaskScopeRunId
+    const primary = this.getPrimaryPanel()
+    if (taskScopeRunId === null || !primary) return
+
+    const primarySelectedRunId =
+      primary.selectedRunId !== null &&
+      this.runViews.get(primary.selectedRunId)?.panelId === primary.id &&
+      this.runBelongsToTaskScope(primary.selectedRunId, taskScopeRunId)
+        ? primary.selectedRunId
+        : null
+    const focused = this.focusedPanelId
+      ? this.getPanel(this.focusedPanelId)
+      : undefined
+    const focusedPanelId =
+      focused && this.isPanelVisible(focused) ? focused.id : primary.id
+
+    this.taskWorkspaceStates.set(taskScopeRunId, {
+      primarySelectedRunId,
+      focusedPanelId,
+    })
+  }
+
+  private runBelongsToTaskScope(
+    runId: string,
+    taskScopeRunId: string,
+  ): boolean {
+    const record = this.host.manager.getRun(runId)
+    return record !== undefined && this.getTaskScopeRunId(record) === taskScopeRunId
+  }
+
+  /**
+   * Apply a task scope after its primary selection/focus have already been
+   * chosen. The body classes are synchronized before fit(), so switching
+   * A→B never resizes A's now-hidden terminal using B's panel geometry.
+   */
+  private applyTaskWorkspace(taskScopeRunId: string): void {
+    this.activeTaskScopeRunId = taskScopeRunId
+    const primary = this.getPrimaryPanel()
+    if (primary) {
+      primary.taskScopeRunId = taskScopeRunId
+      const owner = this.host.manager.getRun(taskScopeRunId)
+      const ownerView = this.runViews.get(taskScopeRunId)
+      if (
+        owner?.host !== 'shell' &&
+        ownerView?.panelId === primary.id
+      ) {
+        primary.taskRunId = taskScopeRunId
+      }
+    }
+    this.syncTaskWorkspaceVisibility()
+    if (primary) this.refreshContentTab(primary)
+    this.syncPanelSelectionClasses()
+    this.refreshPanelsSplitState()
+  }
+
   /** Marker class for styles.css: highlight the focus only while split */
   private refreshPanelsSplitState(): void {
-    this.panelsEl?.classList.toggle('is-split', this.panels.length > 1)
+    this.panelsEl?.classList.toggle(
+      'is-split',
+      this.getVisiblePanels().length > 1,
+    )
     this.fitVisibleTerminalViews()
   }
 
@@ -964,7 +1137,10 @@ export class AiRunPaneController {
   private canSplit(): boolean {
     const width = this.measureContentWidth()
     if (width <= 0) return true
-    return width / (this.panels.length + 1) >= SPLIT_MIN_PANEL_WIDTH_PX
+    return (
+      width / (this.getVisiblePanels().length + 1) >=
+      SPLIT_MIN_PANEL_WIDTH_PX
+    )
   }
 
   /**
@@ -989,7 +1165,10 @@ export class AiRunPaneController {
     }
 
     const preexistingRunIds = new Set(this.runViews.keys())
-    const newPanel = this.createPanel(sourcePanel)
+    const newPanel = this.createPanel(
+      sourcePanel,
+      sourcePanel.taskScopeRunId ?? this.activeTaskScopeRunId,
+    )
     // Focus BEFORE spawning: the manager emits the new run synchronously and
     // createRunView assigns fresh runs to the focused panel.
     this.focusPanel(newPanel)
@@ -1063,7 +1242,7 @@ export class AiRunPaneController {
         : undefined
     const parentRunId =
       contextRecord?.host === 'shell'
-        ? contextRecord.parentRunId
+        ? (contextRecord.parentRunId ?? contextRecord.id)
         : contextRecord?.id
     return manager.startShellSession({
       cols: size.cols,
@@ -1124,6 +1303,9 @@ export class AiRunPaneController {
         this.closeRun(record.id)
       }
       return
+    }
+    if (record.status === 'interrupted' && record.host !== 'shell') {
+      this.host.onInterruptedTaskRun?.(record)
     }
     const existing = this.runViews.get(record.id)
     if (!existing) {
@@ -1207,22 +1389,39 @@ export class AiRunPaneController {
     this.host.manager.releaseRun?.(runId)
 
     const panel = this.getPanel(view.panelId)
+    if (panel?.taskRunId === runId) {
+      panel.taskRunId = null
+      this.ensurePanelTaskSlot(panel)
+    }
     if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
-      let mostRecent: string | undefined
-      for (const [id, other] of this.runViews) {
-        if (other.panelId === panel.id) mostRecent = id
+      let fallbackRunId =
+        panel.taskRunId !== null &&
+        this.runViews.get(panel.taskRunId)?.panelId === panel.id
+          ? panel.taskRunId
+          : undefined
+      if (fallbackRunId === undefined) {
+        for (const [id, other] of this.runViews) {
+          if (other.panelId === panel.id) fallbackRunId = id
+        }
       }
-      if (mostRecent !== undefined) {
-        this.selectRunInPanel(panel, mostRecent)
+      if (fallbackRunId !== undefined) {
+        const fallbackRecord = this.host.manager.getRun(fallbackRunId)
+        const fallbackTaskScopeRunId = fallbackRecord
+          ? this.getTaskScopeRunId(fallbackRecord)
+          : null
+        const mayActivateWorkspace =
+          this.isPanelVisible(panel) &&
+          fallbackTaskScopeRunId === this.activeTaskScopeRunId
+        this.selectRunInPanel(panel, fallbackRunId, mayActivateWorkspace)
         return
       }
       if (panel === this.getPrimaryPanel()) {
         // The primary emptied. While split, merge the next panel into the
         // primary (the reference reducer removes any panel whose last tab
         // closes) instead of keeping a dead primary panel on screen.
-        const nextPanel = this.panels[1]
+        const nextPanel = this.getVisiblePanels()[1]
         if (nextPanel !== undefined) {
           const nextSelected = nextPanel.selectedRunId
           this.closePanel(nextPanel)
@@ -1253,27 +1452,29 @@ export class AiRunPaneController {
 
   private createRunView(record: AiRunRecord): void {
     const sidebarEl = this.sidebarRunsEl
-    const target = this.getFocusedPanel()
+    const isShell = record.host === 'shell'
+    // A task's main terminal always lives in the shared primary panel.
+    // Otherwise starting task B while task A's split panel is focused would
+    // accidentally graft B into A's workspace.
+    const target = isShell ? this.getFocusedPanel() : this.getPrimaryPanel()
     if (!sidebarEl || !target) return
 
-    const isShell = record.host === 'shell'
     const row = isShell
       ? null
       : sidebarEl.createDiv({
           cls: 'ai-run-pane__run',
           attr: {
             role: 'tab',
-            tabindex: '0',
+            tabindex: '-1',
             'data-run-id': record.id,
+            'aria-controls': `ai-run-body-${record.id}`,
           },
         })
     row?.addEventListener('click', () => {
       this.showRunInFocusedPanel(record.id)
     })
     row?.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return
-      event.preventDefault()
-      this.showRunInFocusedPanel(record.id)
+      this.handleSidebarTabKeydown(record.id, event)
     })
 
     const isTerminal = record.mode === 'terminal'
@@ -1281,7 +1482,11 @@ export class AiRunPaneController {
       cls: isTerminal
         ? 'ai-run-pane__body ai-run-pane__body--terminal'
         : 'ai-run-pane__body',
-      attr: { 'data-run-id': record.id },
+      attr: {
+        id: `ai-run-body-${record.id}`,
+        role: 'tabpanel',
+        'data-run-id': record.id,
+      },
     })
     if (isTerminal) {
       body.addEventListener('dragover', (event) => {
@@ -1326,6 +1531,10 @@ export class AiRunPaneController {
       lastOmittedCount: record.omittedEventCount ?? 0,
     }
     this.runViews.set(record.id, view)
+    if (!isShell && target.taskRunId === null) {
+      target.taskRunId = record.id
+      target.taskScopeRunId = record.id
+    }
     this.refreshRunRow(view, record)
     if (!isTerminal) {
       this.renderAllEvents(view, record)
@@ -1337,6 +1546,49 @@ export class AiRunPaneController {
     } else {
       this.refreshContentTab(target)
     }
+    this.syncPanelSelectionClasses()
+  }
+
+  /** WAI-ARIA vertical tablist keyboard navigation for the task rail. */
+  private handleSidebarTabKeydown(runId: string, event: KeyboardEvent): void {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      this.showRunInFocusedPanel(runId)
+      return
+    }
+    const rows = Array.from(
+      this.sidebarRunsEl?.querySelectorAll<HTMLElement>(
+        '[role="tab"][data-run-id]',
+      ) ?? [],
+    )
+    const currentIndex = rows.findIndex(
+      (row) => row.getAttribute('data-run-id') === runId,
+    )
+    if (currentIndex < 0 || rows.length === 0) return
+
+    let targetIndex: number
+    switch (event.key) {
+      case 'ArrowUp':
+        targetIndex = (currentIndex - 1 + rows.length) % rows.length
+        break
+      case 'ArrowDown':
+        targetIndex = (currentIndex + 1) % rows.length
+        break
+      case 'Home':
+        targetIndex = 0
+        break
+      case 'End':
+        targetIndex = rows.length - 1
+        break
+      default:
+        return
+    }
+    const target = rows[targetIndex]
+    const targetRunId = target?.getAttribute('data-run-id')
+    if (!target || !targetRunId) return
+    event.preventDefault()
+    this.showRunInFocusedPanel(targetRunId)
+    target.focus()
   }
 
   /** Rebuild one sidebar row (status dot, truncated name, × control) */
@@ -1372,10 +1624,35 @@ export class AiRunPaneController {
    */
   private refreshContentTab(panel: PanelView): void {
     panel.tabsEl.empty()
+
+    const visibleRunIds: string[] = []
+    if (
+      panel.taskRunId !== null &&
+      panel.taskRunId === panel.taskScopeRunId
+    ) {
+      visibleRunIds.push(panel.taskRunId)
+    }
     for (const [runId, view] of this.runViews) {
       if (view.panelId !== panel.id) continue
       const record = this.host.manager.getRun(runId)
       if (!record) continue
+      if (
+        record.host === 'shell' &&
+        this.getTaskScopeRunId(record) === panel.taskScopeRunId
+      ) {
+        visibleRunIds.push(runId)
+      }
+    }
+
+    // A panel owns exactly one replaceable top-level AI-task slot. Merely
+    // starting another task adds its Vertical Tab/body, but not another
+    // horizontal tab. Horizontal tabs only multiply through the explicit
+    // + action, whose records use host === 'shell'. Keep the task slot first
+    // even when it was activated after an already-open shell tab.
+    for (const runId of visibleRunIds) {
+      const record = this.host.manager.getRun(runId)
+      const view = this.runViews.get(runId)
+      if (!record || view?.panelId !== panel.id) continue
       const selected = panel.selectedRunId === runId
       const tab = panel.tabsEl.createDiv({
         cls: selected
@@ -1386,6 +1663,7 @@ export class AiRunPaneController {
           tabindex: selected ? '0' : '-1',
           'aria-selected': selected ? 'true' : 'false',
           'data-run-id': record.id,
+          'aria-controls': `ai-run-body-${record.id}`,
         },
       })
       tab.addEventListener('click', () => {
@@ -1394,10 +1672,7 @@ export class AiRunPaneController {
       })
       tab.addEventListener('keydown', (event) => {
         if (event.target !== tab) return
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        this.focusPanel(panel)
-        this.selectRunInPanel(panel, record.id)
+        this.handleContentTabKeydown(panel, record.id, event)
       })
       const statusLabel = this.host.tv(
         `aiTask.status.${record.status}`,
@@ -1423,6 +1698,58 @@ export class AiRunPaneController {
     }
   }
 
+  /** WAI-ARIA tablist keyboard navigation for task-slot and + shell tabs. */
+  private handleContentTabKeydown(
+    panel: PanelView,
+    runId: string,
+    event: KeyboardEvent,
+  ): void {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      this.focusPanel(panel)
+      this.selectRunInPanel(panel, runId)
+      return
+    }
+
+    const tabs = Array.from(
+      panel.tabsEl.querySelectorAll<HTMLElement>('[role="tab"][data-run-id]'),
+    )
+    const currentIndex = tabs.findIndex(
+      (tab) => tab.getAttribute('data-run-id') === runId,
+    )
+    if (currentIndex < 0 || tabs.length === 0) return
+
+    let targetIndex: number
+    switch (event.key) {
+      case 'ArrowLeft':
+        targetIndex = (currentIndex - 1 + tabs.length) % tabs.length
+        break
+      case 'ArrowRight':
+        targetIndex = (currentIndex + 1) % tabs.length
+        break
+      case 'Home':
+        targetIndex = 0
+        break
+      case 'End':
+        targetIndex = tabs.length - 1
+        break
+      default:
+        return
+    }
+
+    const targetRunId = tabs[targetIndex]?.getAttribute('data-run-id')
+    if (!targetRunId) return
+    event.preventDefault()
+    this.focusPanel(panel)
+    this.selectRunInPanel(panel, targetRunId)
+    // selectRunInPanel rebuilds the tab DOM, so focus its replacement.
+    Array.from(
+      panel.tabsEl.querySelectorAll<HTMLElement>('[role="tab"][data-run-id]'),
+    )
+      .find((tab) => tab.getAttribute('data-run-id') === targetRunId)
+      ?.focus()
+  }
+
   /** Refresh the tab of every panel currently displaying the run */
   private refreshTabsShowingRun(runId: string): void {
     const view = this.runViews.get(runId)
@@ -1443,7 +1770,12 @@ export class AiRunPaneController {
     cls: string,
   ): void {
     const isActive = ACTIVE_STATUSES.has(record.status)
-    if (!isActive && record.status !== 'succeeded' && record.status !== 'failed') {
+    if (
+      !isActive &&
+      record.status !== 'interrupted' &&
+      record.status !== 'succeeded' &&
+      record.status !== 'failed'
+    ) {
       return
     }
     const label = isActive
@@ -1467,44 +1799,202 @@ export class AiRunPaneController {
    */
   private showRunInFocusedPanel(runId: string): void {
     const view = this.runViews.get(runId)
+    const record = this.host.manager.getRun(runId)
+    if (!view || !record) return
+
+    // A Vertical Tab switches the complete task-local workspace. Its main
+    // body is normalized into the shared primary panel; secondary panels
+    // with the same scope become visible again, while every other task's
+    // split layout stays mounted but hidden.
+    if (record.host !== 'shell') {
+      const primary = this.getPrimaryPanel()
+      if (!primary) return
+      if (view.panelId !== primary.id) {
+        const hostPanel = this.getPanel(view.panelId)
+        view.panelId = primary.id
+        primary.bodiesEl.appendChild(view.body)
+        if (hostPanel) {
+          if (hostPanel.taskRunId === runId) hostPanel.taskRunId = null
+          this.ensurePanelTaskSlot(hostPanel)
+          this.refreshContentTab(hostPanel)
+        }
+      }
+      if (this.activeTaskScopeRunId !== runId) {
+        this.rememberActiveTaskWorkspaceState()
+      }
+      const stored = this.taskWorkspaceStates.get(runId)
+      const storedPrimaryRunId = stored?.primarySelectedRunId
+      primary.taskRunId = runId
+      primary.taskScopeRunId = runId
+      primary.selectedRunId =
+        storedPrimaryRunId &&
+        this.runViews.get(storedPrimaryRunId)?.panelId === primary.id &&
+        this.runBelongsToTaskScope(storedPrimaryRunId, runId)
+          ? storedPrimaryRunId
+          : runId
+
+      const storedFocusedPanel = stored?.focusedPanelId
+        ? this.getPanel(stored.focusedPanelId)
+        : undefined
+      const restoredFocusedPanel =
+        storedFocusedPanel &&
+        (storedFocusedPanel === primary ||
+          storedFocusedPanel.taskScopeRunId === runId)
+          ? storedFocusedPanel
+          : primary
+      this.focusedPanelId = restoredFocusedPanel.id
+      this.applyTaskWorkspace(runId)
+      this.focusPanel(restoredFocusedPanel)
+      if (!this.isCollapsed()) {
+        this.ensureTerminalView(restoredFocusedPanel)
+      }
+      this.updateContainerChrome()
+      return
+    }
+
     const focused = this.getFocusedPanel()
-    if (!view || !focused) return
+    if (!focused) return
     if (view.panelId !== focused.id) {
       const hostPanel = this.getPanel(view.panelId)
-      if (hostPanel && hostPanel.selectedRunId === runId) {
+      if (
+        hostPanel &&
+        (hostPanel.selectedRunId === runId || hostPanel.taskRunId === runId)
+      ) {
         this.focusPanel(hostPanel)
-        if (!this.isCollapsed()) {
-          this.ensureTerminalView(hostPanel)
-        }
+        this.selectRunInPanel(hostPanel, runId)
         return
       }
       // Adopt the hidden body into the focused panel.
       view.panelId = focused.id
       focused.bodiesEl.appendChild(view.body)
-      if (hostPanel) this.refreshContentTab(hostPanel)
+      if (hostPanel) {
+        if (hostPanel.taskRunId === runId) hostPanel.taskRunId = null
+        this.ensurePanelTaskSlot(hostPanel)
+        this.refreshContentTab(hostPanel)
+      }
     }
     this.selectRunInPanel(focused, runId)
   }
 
-  private selectRunInPanel(panel: PanelView, runId: string): void {
+  private selectRunInPanel(
+    panel: PanelView,
+    runId: string,
+    activateWorkspace = true,
+  ): void {
+    const record = this.host.manager.getRun(runId)
+    if (!record) return
+    const taskScopeRunId = this.getTaskScopeRunId(record)
+    if (
+      activateWorkspace &&
+      this.activeTaskScopeRunId !== taskScopeRunId
+    ) {
+      this.rememberActiveTaskWorkspaceState()
+    }
+    if (record?.host !== 'shell') {
+      panel.taskRunId = runId
+      panel.taskScopeRunId = runId
+    } else {
+      panel.taskScopeRunId = taskScopeRunId
+    }
     panel.selectedRunId = runId
-    this.syncPanelSelectionClasses()
+    if (activateWorkspace) {
+      this.applyTaskWorkspace(taskScopeRunId)
+    } else {
+      this.syncPanelSelectionClasses()
+    }
     this.refreshContentTab(panel)
-    if (!this.isCollapsed()) {
+    if (activateWorkspace && !this.isCollapsed()) {
       this.ensureTerminalView(panel)
     }
+    if (activateWorkspace) this.rememberActiveTaskWorkspaceState()
     this.updateContainerChrome()
     this.updateComposerState()
     this.refreshWorkspaceFiles()
   }
 
-  /** Row/body active classes follow each panel's selected run */
+  /**
+   * Repair a panel's replaceable AI-task slot after a close/move/unsplit.
+   * Shell sessions never occupy this slot: they only exist because the user
+   * explicitly pressed + (or split, which creates its own shell panel).
+   */
+  private ensurePanelTaskSlot(panel: PanelView): void {
+    const current = panel.taskRunId
+    if (current !== null) {
+      const view = this.runViews.get(current)
+      const record = this.host.manager.getRun(current)
+      if (view?.panelId === panel.id && record?.host !== 'shell') {
+        panel.taskScopeRunId = current
+        return
+      }
+    }
+
+    panel.taskRunId = null
+    for (const [runId, view] of this.runViews) {
+      if (view.panelId !== panel.id) continue
+      if (this.host.manager.getRun(runId)?.host === 'shell') continue
+      panel.taskRunId = runId
+    }
+    if (panel.taskRunId !== null) {
+      panel.taskScopeRunId = panel.taskRunId
+    } else if (panel.selectedRunId !== null) {
+      const selectedRecord = this.host.manager.getRun(panel.selectedRunId)
+      panel.taskScopeRunId = selectedRecord
+        ? this.getTaskScopeRunId(selectedRecord)
+        : null
+    } else {
+      panel.taskScopeRunId = null
+    }
+  }
+
+  /**
+   * Stable owner key used by the task-local horizontal tab set. Top-level
+   * runs own themselves. A + terminal inherits parentRunId; an orphan shell
+   * (possible through an external quick-launch integration) owns itself.
+   */
+  private getTaskScopeRunId(record: AiRunRecord): string {
+    return record.host === 'shell'
+      ? (record.parentRunId ?? record.id)
+      : record.id
+  }
+
+  /**
+   * Resolve the one task row represented by the global Vertical Tabs rail.
+   * When the focused panel currently shows an explicit shell tab, retain its
+   * replaceable task slot as the roving target. A shell-only panel falls back
+   * to the first task row so the tablist never has zero keyboard stops.
+   */
+  private getSelectedSidebarRunId(): string | null {
+    const focused = this.getFocusedPanel()
+    const candidates = [focused?.selectedRunId, focused?.taskRunId]
+    for (const runId of candidates) {
+      if (!runId) continue
+      const view = this.runViews.get(runId)
+      const record = this.host.manager.getRun(runId)
+      if (view?.row && record?.host !== 'shell') return runId
+    }
+    if (this.activeTaskScopeRunId !== null) {
+      const activeView = this.runViews.get(this.activeTaskScopeRunId)
+      if (activeView?.row) return this.activeTaskScopeRunId
+    }
+    for (const [runId, view] of this.runViews) {
+      if (view.row) return runId
+    }
+    return null
+  }
+
+  /** Body visibility follows each panel; the global task rail has one tab. */
   private syncPanelSelectionClasses(): void {
+    const selectedSidebarRunId = this.getSelectedSidebarRunId()
     for (const [id, view] of this.runViews) {
-      const isSelected = this.getPanel(view.panelId)?.selectedRunId === id
-      view.row?.classList.toggle('is-active', isSelected)
-      view.row?.setAttribute('aria-selected', isSelected ? 'true' : 'false')
-      view.body.classList.toggle('is-active', isSelected)
+      const isBodySelected = this.getPanel(view.panelId)?.selectedRunId === id
+      const isSidebarSelected = id === selectedSidebarRunId
+      view.row?.classList.toggle('is-active', isSidebarSelected)
+      view.row?.setAttribute(
+        'aria-selected',
+        isSidebarSelected ? 'true' : 'false',
+      )
+      view.row?.setAttribute('tabindex', isSidebarSelected ? '0' : '-1')
+      view.body.classList.toggle('is-active', isBodySelected)
     }
   }
 
@@ -1568,13 +2058,13 @@ export class AiRunPaneController {
 
   /** Create/focus the selected terminal view of every panel (uncollapse) */
   private ensureVisibleTerminalViews(): void {
-    for (const panel of this.panels) {
+    for (const panel of this.getVisiblePanels()) {
       this.ensureTerminalView(panel)
     }
   }
 
   private fitVisibleTerminalViews(): void {
-    for (const panel of this.panels) {
+    for (const panel of this.getVisiblePanels()) {
       const runId = panel.selectedRunId
       if (runId === null) continue
       this.runViews.get(runId)?.terminal?.adapter.fit?.()
@@ -1604,7 +2094,7 @@ export class AiRunPaneController {
     if (!container) return
     const paneVisible = !this.isHidden()
     const visible = !this.isCollapsed() && paneVisible
-    const anyTerminalOnScreen = this.panels.some(
+    const anyTerminalOnScreen = this.getVisiblePanels().some(
       (panel) =>
         panel.selectedRunId !== null &&
         this.runViews.get(panel.selectedRunId)?.isTerminal === true,

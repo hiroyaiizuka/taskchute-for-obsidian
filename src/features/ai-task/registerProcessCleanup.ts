@@ -1,11 +1,15 @@
 import type { Plugin } from 'obsidian'
 import type { AiTaskManager } from './services/AiTaskManager'
+import { forgetRetainedAiTaskManager } from './services/AiTaskRuntimeLease'
 
 type AiTaskProcessCleanupHost = Pick<
   Plugin,
   'app' | 'registerDomEvent' | 'registerEvent'
 > & {
-  aiTaskManager?: Pick<AiTaskManager, 'dispose' | 'disposeAndWait'>
+  aiTaskManager?: Pick<
+    AiTaskManager,
+    'dispose' | 'disposeAndWait' | 'prepareForRendererReload'
+  >
   aiTaskManagersPendingDisposal?: Set<
     Pick<AiTaskManager, 'dispose' | 'disposeAndWait'>
   >
@@ -21,6 +25,7 @@ export function disposeAiTaskManagerTracked(
   host: Pick<AiTaskProcessCleanupHost, 'aiTaskManagersPendingDisposal'>,
   manager: DisposableAiTaskManager,
 ): void {
+  forgetRetainedAiTaskManager(manager)
   const pending = host.aiTaskManagersPendingDisposal
   pending?.add(manager)
   const completion = manager.disposeAndWait()
@@ -40,8 +45,8 @@ function collectManagers(host: AiTaskProcessCleanupHost): Set<DisposableAiTaskMa
 
 /**
  * Obsidian does not reliably call Plugin.onunload while the desktop app is
- * quitting. Register a renderer beforeunload guard as a second synchronous
- * stop path so detached PTY process groups cannot be orphaned with PPID 1.
+ * quitting. App quit awaits full broker shutdown; renderer replacement only
+ * detaches IPC so broker-owned PTYs remain available to the next renderer.
  *
  * Managers are resolved when the event fires because the settings toggle can
  * replace them after startup. Managers already removed by an OFF toggle stay
@@ -60,6 +65,6 @@ export function registerAiTaskAppShutdownCleanup(
     }),
   )
   host.registerDomEvent(win, 'beforeunload', () => {
-    for (const manager of collectManagers(host)) manager.dispose()
+    host.aiTaskManager?.prepareForRendererReload()
   })
 }

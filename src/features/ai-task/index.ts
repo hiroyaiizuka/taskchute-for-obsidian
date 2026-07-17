@@ -13,16 +13,26 @@ import type { App } from 'obsidian'
 import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '../../types'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
-import { AiTaskManager } from './services/AiTaskManager'
+import {
+  AiTaskManager,
+  type AiTaskManagerDeps,
+} from './services/AiTaskManager'
 import { BinaryLocator } from './services/BinaryLocator'
 import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
 import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
 import { TerminalDispatcher } from './services/dispatchers/TerminalDispatcher'
+import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalDispatcher'
+import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
+import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
+import {
+  acquireRetainedAiTaskManager,
+  retainAiTaskManager,
+} from './services/AiTaskRuntimeLease'
 
 export interface AiTaskPluginLike {
   app: App
@@ -32,6 +42,17 @@ export interface AiTaskPluginLike {
 }
 
 const DEFAULT_LOG_RETENTION_DAYS = 30
+
+function getVaultBrokerIdentity(app: App): string | undefined {
+  const adapter = app.vault.adapter as unknown as
+    | { getBasePath?: () => unknown }
+    | undefined
+  const basePath = adapter?.getBasePath?.()
+  if (typeof basePath !== 'string' || basePath.trim().length === 0) {
+    return undefined
+  }
+  return `taskchute-plus:${basePath}`
+}
 
 /**
  * Create the AiTaskManager for this plugin instance, or undefined when the
@@ -86,14 +107,43 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
   const recipeService = new RecipeService(
     plugin as unknown as TaskChutePluginLike,
   )
+  const localStorageApp = plugin.app as unknown as {
+    loadLocalStorage?: (key: string) => unknown
+    saveLocalStorage?: (key: string, value: unknown) => void
+  }
+  const sessionState =
+    typeof localStorageApp.loadLocalStorage === 'function' &&
+    typeof localStorageApp.saveLocalStorage === 'function'
+      ? new AiRunSessionStateStore(
+          {
+            loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
+            saveLocalStorage: (key, value) => {
+              localStorageApp.saveLocalStorage?.(key, value)
+            },
+          },
+          { log },
+        )
+      : undefined
+  const brokerIdentity = getVaultBrokerIdentity(plugin.app)
+  const terminalDispatcher =
+    gateway.isPtySupported() && brokerIdentity !== undefined
+      ? new BrokerTerminalDispatcher(
+          gateway,
+          new TerminalSessionBrokerClient({
+            identity: brokerIdentity,
+            getEnv: () => gateway.getBaseEnv(),
+            log: (level, ...args) => log(level, ...args),
+          }),
+        )
+      : new TerminalDispatcher(gateway)
 
-  return new AiTaskManager({
+  const deps: AiTaskManagerDeps = {
     app: plugin.app,
     dispatchers,
     binaryLocator,
     logWriter,
     terminal: {
-      dispatcher: new TerminalDispatcher(gateway),
+      dispatcher: terminalDispatcher,
       isSupported: () => gateway.isPtySupported(),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
@@ -110,6 +160,17 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     // native runtime, win32 uses the cross-platform conversation pipeline.
     getRunMode: (): AiRunMode =>
       plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
+    sessionState,
     log,
-  })
+  }
+
+  const retained = acquireRetainedAiTaskManager(plugin.app, deps)
+  if (retained) {
+    log('debug', '[AiTask] Adopted live runtime after plugin reload')
+    return retained
+  }
+
+  const manager = new AiTaskManager(deps)
+  retainAiTaskManager(plugin.app, manager)
+  return manager
 }

@@ -1,10 +1,10 @@
 /**
  * TaskHeaderController AI board-view segmented control:
- *   - rendered in the header action section ONLY while the AI Task feature is
+ *   - rendered in the right header action section ONLY while the AI Task feature is
  *     enabled (host callback); a disabled feature leaves the header exactly
  *     as it was before the control existed
- *   - three segments (human / ai / mixed) with emoji prefixes composed in
- *     code (👤 / 🤖) and i18n labels; the active segment mirrors
+ *   - three segments (human / ai / mixed) with Lucide icons composed in
+ *     code and i18n labels; the active segment mirrors
  *     host.getAiTaskBoardView()
  *   - clicking a segment calls host.setAiTaskBoardView and re-syncs the
  *     active state
@@ -35,6 +35,7 @@ jest.mock('../../../src/i18n', () => {
 interface AiHostOptions {
   enabled?: boolean
   initialView?: AiTaskBoardView
+  robotEnabled?: boolean
 }
 
 function createHost(options: AiHostOptions = {}): {
@@ -58,7 +59,7 @@ function createHost(options: AiHostOptions = {}): {
     showAddTaskModal: jest.fn(),
     toggleNavigation: jest.fn(),
     plugin: {
-      settings: { aiRobotButtonEnabled: false },
+      settings: { aiRobotButtonEnabled: options.robotEnabled ?? false },
     } as unknown as TaskHeaderControllerHost['plugin'],
     app: {
       commands: { commands: {}, executeCommandById: jest.fn() },
@@ -97,7 +98,7 @@ beforeEach(() => {
 })
 
 describe('TaskHeaderController board view switch', () => {
-  test('renders three segments in the action section while the feature is enabled', () => {
+  test('renders three segments in the right action section while the feature is enabled', () => {
     const { host } = createHost()
     const { container } = renderHeader(host)
 
@@ -106,6 +107,7 @@ describe('TaskHeaderController board view switch', () => {
     expect(
       group?.parentElement?.classList.contains('header-action-section'),
     ).toBe(true)
+    expect(container.querySelector('.drawer-toggle')?.parentElement).toBe(container)
     const buttons = segments(container)
     expect(buttons).toHaveLength(3)
     expect(buttons.map((button) => button.getAttribute('data-view'))).toEqual([
@@ -115,19 +117,40 @@ describe('TaskHeaderController board view switch', () => {
     ])
   })
 
-  test('emoji prefixes are composed in code around the i18n labels', () => {
+  test('Lucide icons are composed in code beside the i18n labels', () => {
     const { host } = createHost()
     const { container } = renderHeader(host)
 
     const [human, ai, mixed] = segments(container)
-    expect(human.textContent).toContain('👤')
     expect(human.textContent).toContain('Human')
-    expect(ai.textContent).toContain('🤖')
     expect(ai.textContent).toContain('AI')
     expect(mixed.textContent).toContain('Mixed')
+    expect(
+      [human, ai, mixed].map((button) =>
+        button
+          .querySelector('.ai-board-view-switch__icon')
+          ?.getAttribute('data-icon'),
+      ),
+    ).toEqual(['user-round', 'bot', 'layers'])
     for (const button of [human, ai, mixed]) {
       expect(button.getAttribute('aria-label')).toBeTruthy()
     }
+  })
+
+  test('keeps the view switch beside the far-right add button when the legacy terminal action is enabled', () => {
+    const { host } = createHost({ robotEnabled: true })
+    const { container } = renderHeader(host)
+    const actions = container.querySelector('.header-action-section')
+    const group = actions?.querySelector('.ai-board-view-switch')
+    const addButton = actions?.querySelector('.add-task-button')
+
+    expect(actions?.lastElementChild?.classList.contains('add-task-button')).toBe(
+      true,
+    )
+    expect(group?.nextElementSibling).toBe(addButton)
+    expect(actions?.firstElementChild?.classList.contains('robot-terminal-button')).toBe(
+      true,
+    )
   })
 
   test('the active segment mirrors host.getAiTaskBoardView (default mixed)', () => {
@@ -192,6 +215,9 @@ describe('TaskHeaderController board view switch', () => {
     controller.refreshAiTaskBoardSwitch()
     expect(container.querySelector('.ai-board-view-switch')).not.toBeNull()
     expect(segments(container)).toHaveLength(3)
+    expect(
+      container.querySelector('.ai-board-view-switch')?.nextElementSibling,
+    ).toBe(container.querySelector('.add-task-button'))
 
     state.enabled = false
     controller.refreshAiTaskBoardSwitch()
@@ -202,6 +228,9 @@ describe('TaskHeaderController board view switch', () => {
     controller.refreshAiTaskBoardSwitch()
     controller.refreshAiTaskBoardSwitch()
     expect(container.querySelectorAll('.ai-board-view-switch')).toHaveLength(1)
+    expect(
+      container.querySelector('.ai-board-view-switch')?.nextElementSibling,
+    ).toBe(container.querySelector('.add-task-button'))
   })
 
   test('repeated refreshes never re-register segment click handlers', () => {

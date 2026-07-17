@@ -641,6 +641,7 @@
 .add-task-button:hover {
   background: var(--background-modifier-hover);
 }
+
 .robot-terminal-button {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -3029,6 +3030,21 @@
 
 /* TASK-012: タスク名自動補完のスタイル */
 /* Main Container Layout */
+.taskchute-view-root {
+  container-type: inline-size;
+  container-name: taskchute-view;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.taskchute-view-root > .taskchute-container {
+  flex: 1 1 auto;
+  height: auto;
+}
+
 .main-container {
   display: flex;
   flex-direction: column;
@@ -3041,11 +3057,16 @@
 
 /* Top Bar Container */
 .top-bar-container {
-  display: flex;
+  /* Keep the date navigator on the visual centre line of the whole view.
+     Equal outer tracks prevent controls added on either side (for example
+     the AI board-view switch) from pushing the navigator off centre. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
   height: 30px; /* Fixed height matching date navigation */
+  flex-shrink: 0;
 }
 
 /* Header Divider */
@@ -3062,6 +3083,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  grid-column: 3;
+  justify-self: end;
+  min-width: 0;
 }
 
 /* Drawer Toggle Button */
@@ -3076,10 +3100,51 @@
   height: 100%;
   display: flex;
   align-items: center;
+  grid-column: 1;
+  justify-self: start;
 }
 
 .drawer-toggle:hover {
   background: var(--background-modifier-hover);
+}
+
+/* Obsidian leaf splits do not change the viewport width, so use the view
+   container instead of a media query. At narrow widths the right-side switch
+   and add action stay together on a second row while the drawer returns to
+   its original top-left position. */
+@container taskchute-view (max-width: 680px) {
+  .top-bar-container:has(
+    > .header-action-section > .ai-board-view-switch
+  ) {
+    grid-template-rows: repeat(2, 30px);
+    height: 66px;
+    row-gap: 6px;
+  }
+
+  .date-nav-container.compact {
+    grid-row: 1;
+  }
+
+  .top-bar-container > .drawer-toggle {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .top-bar-container
+    > .header-action-section:has(> .ai-board-view-switch) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: end;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .top-bar-container
+    > .header-action-section:has(> .ai-board-view-switch)::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Navigation Overlay */
@@ -3711,8 +3776,14 @@
 }
 
 .add-task-button.repositioned {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
   margin-left: 0;
   margin-right: 0;
+  box-shadow: none;
+  line-height: 1;
 }
 
 .robot-terminal-button:hover {
@@ -4015,7 +4086,8 @@ textarea.form-textarea {
 }
 
 .date-nav-container.compact {
-  flex: 1; /* Take remaining space in top-bar-container */
+  grid-column: 2;
+  justify-self: center;
   margin-bottom: 0; /* Remove bottom margin */
   gap: 1px;
   height: 100%; /* Match parent height */
@@ -8165,6 +8237,11 @@ textarea.form-textarea {
   background: var(--color-red, var(--text-error));
 }
 
+.ai-run-pane__tab-dot--interrupted,
+.ai-run-pane__run-dot--interrupted {
+  background: var(--text-muted);
+}
+
 /* Plain shell sessions pulse blue instead of amber while alive, so they
    read apart from AI task runs in the sidebar; finished/failed colors are
    shared. */
@@ -8367,32 +8444,127 @@ textarea.form-textarea {
    --------------------------------------------------------------------------- */
 
 .ai-board-view-switch {
+  --ai-board-view-border: var(--background-modifier-border);
+  --ai-board-view-active-border: color-mix(
+    in srgb,
+    var(--interactive-accent) 52%,
+    var(--background-modifier-border)
+  );
+
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--background-secondary);
+  gap: 0;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ai-board-view-border);
+  border-radius: 7px;
+  background: color-mix(
+    in srgb,
+    var(--background-secondary) 78%,
+    transparent
+  );
+  box-sizing: border-box;
 }
 
 .ai-board-view-switch__segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
   border: none;
   background: transparent;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 1.4;
+  padding: 0 10px;
+  border-radius: 0;
+  box-shadow: none;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.ai-board-view-switch__segment + .ai-board-view-switch__segment {
+  border-left: 1px solid var(--ai-board-view-border);
+}
+
+.ai-board-view-switch__segment:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.ai-board-view-switch__segment:last-child {
+  border-radius: 0 6px 6px 0;
 }
 
 .ai-board-view-switch__segment:hover {
+  background: color-mix(
+    in srgb,
+    var(--text-normal) 6%,
+    transparent
+  );
   color: var(--text-normal);
 }
 
 .ai-board-view-switch__segment.is-active {
-  background: var(--background-primary);
+  z-index: 1;
+  border-left-color: transparent;
+  background: color-mix(
+    in srgb,
+    var(--interactive-accent) 8%,
+    var(--background-secondary)
+  );
+  box-shadow: none;
   color: var(--text-normal);
-  box-shadow: var(--shadow-s, 0 1px 2px rgb(0 0 0 / 0.15));
+}
+
+.ai-board-view-switch__segment.is-active
+  + .ai-board-view-switch__segment {
+  border-left-color: transparent;
+}
+
+.ai-board-view-switch__segment.is-active::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--ai-board-view-active-border);
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.ai-board-view-switch__segment.is-active:first-child::after {
+  border-radius: 5px 0 0 5px;
+}
+
+.ai-board-view-switch__segment.is-active:last-child::after {
+  border-radius: 0 5px 5px 0;
+}
+
+.ai-board-view-switch__segment:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -3px;
+  border-radius: 0;
+}
+
+.ai-board-view-switch__segment:first-child:focus-visible {
+  border-radius: 5px 0 0 5px;
+}
+
+.ai-board-view-switch__segment:last-child:focus-visible {
+  border-radius: 0 5px 5px 0;
+}
+
+.ai-board-view-switch__icon {
+  display: inline-flex;
+  color: currentcolor;
+}
+
+.ai-board-view-switch__icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
 }

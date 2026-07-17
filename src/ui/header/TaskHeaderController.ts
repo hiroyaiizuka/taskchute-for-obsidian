@@ -1,4 +1,4 @@
-import { Notice, App } from 'obsidian'
+import { Notice, App, setIcon } from 'obsidian'
 import TaskMoveCalendar, {
   TaskMoveCalendarFactory,
   TaskMoveCalendarHandle,
@@ -32,13 +32,12 @@ export interface TaskHeaderControllerHost {
 const TERMINAL_COMMAND_ID = 'terminal:open-terminal.integrated.root'
 
 /**
- * Segment definitions of the board view switch. The emoji prefixes come from
- * the approved mock and are composed in code so the i18n strings stay plain
- * sentence-case labels.
+ * Segment definitions of the approved A board-view switch. Lucide icons are
+ * composed in code so i18n strings stay plain sentence-case labels.
  */
 const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
   view: AiTaskBoardView
-  emoji: string | null
+  icon: string
   labelKey: string
   labelFallback: string
   ariaKey: string
@@ -46,7 +45,7 @@ const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
 }> = [
   {
     view: 'human',
-    emoji: '👤',
+    icon: 'user-round',
     labelKey: 'aiTask.boardView.human',
     labelFallback: 'Human',
     ariaKey: 'aiTask.boardView.humanAria',
@@ -54,7 +53,7 @@ const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
   },
   {
     view: 'ai',
-    emoji: '🤖',
+    icon: 'bot',
     labelKey: 'aiTask.boardView.ai',
     labelFallback: 'AI',
     ariaKey: 'aiTask.boardView.aiAria',
@@ -62,7 +61,7 @@ const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
   },
   {
     view: 'mixed',
-    emoji: null,
+    icon: 'layers',
     labelKey: 'aiTask.boardView.mixed',
     labelFallback: 'Mixed',
     ariaKey: 'aiTask.boardView.mixedAria',
@@ -185,21 +184,6 @@ export default class TaskHeaderController {
       cls: 'header-action-section',
     })
     this.actionSectionEl = actionSection
-    this.renderAiTaskBoardSwitch(actionSection)
-
-    const addTaskButton = actionSection.createEl('button', {
-      cls: 'add-task-button repositioned',
-      text: '+',
-      attr: {
-        title: this.host.tv('header.addTask', 'Add new task'),
-        'aria-label': this.host.tv('header.addTask', 'Add new task'),
-      },
-    })
-
-    this.host.registerManagedDomEvent(addTaskButton, 'click', (event) => {
-      event.stopPropagation()
-      this.host.showAddTaskModal()
-    })
 
     if (this.host.plugin.settings.aiRobotButtonEnabled === true) {
       const robotButton = actionSection.createEl('button', {
@@ -240,11 +224,29 @@ export default class TaskHeaderController {
         })()
       })
     }
+
+    // Keep the view switch immediately beside the primary add action.
+    // Optional legacy actions stay before this pair.
+    this.renderAiTaskBoardSwitch(actionSection)
+
+    const addTaskButton = actionSection.createEl('button', {
+      cls: 'add-task-button repositioned',
+      text: '+',
+      attr: {
+        title: this.host.tv('header.addTask', 'Add new task'),
+        'aria-label': this.host.tv('header.addTask', 'Add new task'),
+      },
+    })
+
+    this.host.registerManagedDomEvent(addTaskButton, 'click', (event) => {
+      event.stopPropagation()
+      this.host.showAddTaskModal()
+    })
   }
 
   /**
-   * Attach (or detach) the 3-way board view switch at the left edge of the
-   * action section. Nothing renders while the AI Task feature is disabled or
+   * Attach (or detach) the 3-way board view switch immediately before the
+   * add-task action. Nothing renders while the AI Task feature is disabled or
    * the host lacks the callbacks — the header then matches its pre-feature
    * markup exactly. The control (and its managed click handlers) is built
    * ONCE and cached: refreshes only reattach it, because managed
@@ -263,18 +265,24 @@ export default class TaskHeaderController {
     }
 
     const group = this.boardViewSwitchEl ?? this.createBoardViewSwitch(actionSection)
-    // A refresh appends into an already-populated section (and a re-enable
-    // reattaches the cached control); keep the switch at the front so its
-    // position never depends on WHEN it rendered.
-    if (actionSection.firstChild !== group) {
-      actionSection.insertBefore(group, actionSection.firstChild)
+    const addTaskButton = Array.from(actionSection.children).find((child) =>
+      child.classList.contains('add-task-button'),
+    ) ?? null
+    // A refresh can reattach the cached control after the add button already
+    // exists. Inserting immediately before it keeps the pair adjacent while
+    // leaving optional legacy actions at the start of the action section.
+    if (
+      group.parentElement !== actionSection ||
+      group.nextElementSibling !== addTaskButton
+    ) {
+      actionSection.insertBefore(group, addTaskButton)
     }
     this.refreshBoardViewActiveState()
   }
 
   /** Build the segmented control and register its handlers exactly once */
-  private createBoardViewSwitch(actionSection: HTMLElement): HTMLElement {
-    const group = actionSection.createDiv( {
+  private createBoardViewSwitch(section: HTMLElement): HTMLElement {
+    const group = section.createDiv( {
       cls: 'ai-board-view-switch',
       attr: {
         role: 'group',
@@ -287,13 +295,24 @@ export default class TaskHeaderController {
       const aria = this.host.tv(segment.ariaKey, segment.ariaFallback)
       const button = group.createEl('button', {
         cls: 'ai-board-view-switch__segment',
-        text: segment.emoji !== null ? `${segment.emoji} ${label}` : label,
         attr: {
           'aria-label': aria,
           title: aria,
           'data-view': segment.view,
           'aria-pressed': 'false',
         },
+      })
+      const icon = button.createSpan({
+        cls: 'ai-board-view-switch__icon',
+        attr: {
+          'aria-hidden': 'true',
+          'data-icon': segment.icon,
+        },
+      })
+      setIcon(icon, segment.icon)
+      button.createSpan({
+        cls: 'ai-board-view-switch__label',
+        text: label,
       })
       this.host.registerManagedDomEvent(button, 'click', (event) => {
         event.stopPropagation()

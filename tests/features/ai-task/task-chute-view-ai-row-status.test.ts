@@ -1,7 +1,8 @@
 /**
- * TaskChuteView intentionally has no row-status listener: task rows keep the
- * same robot control while running, so only AiRunPaneController subscribes to
- * manager changes and task-list rendering is decoupled from run status.
+ * TaskChuteView intentionally has no second row-status listener: task rows
+ * keep the same robot control while running, so AiRunPaneController owns the
+ * manager subscription. It only calls back into the view when a late broker
+ * attach failure needs timer reconciliation.
  */
 import { WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
@@ -106,6 +107,7 @@ function createPluginStub(): TaskChutePluginLike {
 interface ViewInternals {
   mountAiRunPane(): void
   aiPaneContainer: HTMLElement | null
+  reconcileInterruptedAiRunTasks(): Promise<void>
 }
 
 function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
@@ -125,6 +127,7 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
 function setUp(): {
   paneListener: ChangeListener
   renderTaskList: jest.Mock
+  reconcileInterruptedAiRunTasks: jest.Mock<Promise<void>, []>
 } {
   const plugin = createPluginStub()
   const { manager, listeners } = createManagerStub()
@@ -136,11 +139,18 @@ function setUp(): {
   view.renderTaskList = renderTaskList
 
   const internals = view as unknown as ViewInternals
+  const reconcileInterruptedAiRunTasks = jest
+    .spyOn(internals, 'reconcileInterruptedAiRunTasks')
+    .mockResolvedValue(undefined)
   internals.aiPaneContainer = document.body.createDiv()
   internals.mountAiRunPane()
 
   expect(listeners).toHaveLength(1)
-  return { paneListener: listeners[0], renderTaskList }
+  return {
+    paneListener: listeners[0],
+    renderTaskList,
+    reconcileInterruptedAiRunTasks,
+  }
 }
 
 afterEach(() => {
@@ -155,5 +165,13 @@ describe('TaskChuteView AI pane status subscription', () => {
     paneListener({ ...record, status: 'running' }, 'update')
     paneListener({ ...record, status: 'stopped' }, 'update')
     expect(renderTaskList).not.toHaveBeenCalled()
+  })
+
+  test('late broker attach failure triggers TaskChute timer reconciliation', () => {
+    const { paneListener, reconcileInterruptedAiRunTasks } = setUp()
+
+    paneListener(makeRecord({ status: 'interrupted' }), 'update')
+
+    expect(reconcileInterruptedAiRunTasks).toHaveBeenCalledTimes(1)
   })
 })

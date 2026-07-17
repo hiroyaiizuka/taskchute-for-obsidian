@@ -31,6 +31,8 @@ import { STOP_GRACE_MS } from './Dispatcher'
 import type { AiGraceTimer, AiRunExitOutcome } from './Dispatcher'
 
 export interface TerminalRunRequest {
+  /** Stable broker identity; omitted by direct/non-persistent dispatchers. */
+  sessionId?: string
   /** Absolute path to the CLI binary */
   binaryPath: string
   /** Package entrypoint argv inserted before the host-specific CLI args. */
@@ -54,10 +56,19 @@ export interface TerminalRunCallbacks {
   /** Raw utf8 output chunks (stdout and stderr merged by the PTY) */
   onData(bytes: string): void
   onExit(outcome: AiRunExitOutcome): void
+  /**
+   * Persistent broker confirmed the live child identity and the trusted temp
+   * transcript path captured when that broker session was first spawned.
+   */
+  onAttached?(pid?: number, transcriptPath?: string): void
+  /** Persistent attach could not find the renderer-independent session. */
+  onUnavailable?(): void
 }
 
 export interface TerminalRunHandle {
   pid?: number
+  /** Renderer-independent session id when a persistent dispatcher is used. */
+  sessionId?: string
   /** Relay keyboard input to the session's stdin */
   write(data: string): void
   /** Resize both xterm's backing PTY dimensions (cols first, then rows) */
@@ -70,6 +81,17 @@ export interface TerminalRunHandle {
 
 export interface AiTerminalDispatcher {
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle
+  /** Reattach callbacks/input to a session owned outside this renderer. */
+  attach?(
+    sessionId: string,
+    callbacks: TerminalRunCallbacks,
+  ): TerminalRunHandle
+  /** True only when active sessions can survive a renderer reload. */
+  readonly isPersistent?: boolean
+  /** Close this renderer's transport without killing broker-owned sessions. */
+  detach?(): void
+  /** Stop all sessions and terminate the renderer-independent broker. */
+  shutdown?(): void | Promise<void>
 }
 
 /**

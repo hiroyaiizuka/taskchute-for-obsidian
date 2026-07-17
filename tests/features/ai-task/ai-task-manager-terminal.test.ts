@@ -71,6 +71,7 @@ interface FakeTerminalRun {
 class FakeTerminalDispatcher implements AiTerminalDispatcher {
   runs: FakeTerminalRun[] = []
   failNextStart: Error | null = null
+  shutdown = jest.fn(async () => undefined)
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks) {
     if (this.failNextStart) {
@@ -188,6 +189,7 @@ function createTerminalHarness(options: HarnessOptions = {}) {
 
   return {
     manager: new AiTaskManager(deps),
+    deps,
     headless,
     terminal,
     writeRunLog,
@@ -224,7 +226,9 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(record.transcriptPath).toContain('/tmp/fake-transcripts/')
 
     expect(harness.terminal.last.request).toEqual({
+      sessionId: record.id,
       binaryPath: '/bin/claude',
+      binaryArgsPrefix: undefined,
       prompt: 'Do the thing',
       cwd: '/vault/base',
       extraArgs: ['--dangerously-skip-permissions'],
@@ -492,6 +496,21 @@ describe('AiTaskManager terminal data flow', () => {
     harness.manager.sendTerminalInput(record.id, 'ls -la\r')
 
     expect(harness.terminal.last.write).toHaveBeenCalledWith('ls -la\r')
+  })
+
+  test('runtime dependency handoff preserves the live terminal handle', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    const originalRun = harness.terminal.last
+    const nextRuntime = createTerminalHarness()
+    nextRuntime.manager.dispose()
+
+    harness.manager.rebindRuntimeDependencies(nextRuntime.deps)
+    harness.manager.sendTerminalInput(record.id, 'after-reload\r')
+
+    expect(record.status).toBe('running')
+    expect(originalRun.write).toHaveBeenCalledWith('after-reload\r')
+    expect(originalRun.stop).not.toHaveBeenCalled()
   })
 
   test('sendTerminalInput is a no-op for finished, unknown, and headless runs', async () => {
@@ -979,6 +998,39 @@ describe('AiTaskManager dispose during live terminal sessions', () => {
     timerCallbacks[0]()
     await completion
     expect(run.forceKill).toHaveBeenCalledTimes(1)
+    expect(completed).toBe(true)
+  })
+
+  test('disposeAndWait also awaits renderer-independent broker shutdown', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    await harness.manager.startRun(makeTaskFile())
+    let finishShutdown: () => void = () => undefined
+    harness.terminal.shutdown.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishShutdown = resolve
+        }),
+    )
+    let completed = false
+
+    const completion = harness.manager.disposeAndWait().then(() => {
+      completed = true
+    })
+    timerCallbacks[0]?.()
+    await Promise.resolve()
+    expect(completed).toBe(false)
+
+    finishShutdown()
+    await completion
+    expect(harness.terminal.shutdown).toHaveBeenCalledTimes(1)
     expect(completed).toBe(true)
   })
 })

@@ -586,7 +586,11 @@ describe('RunningTasksService.restoreForDate', () => {
             store.content = content
           }),
           adapter: {
-            write: jest.fn(),
+            exists: jest.fn(async (path: string) => path === dataPath),
+            read: jest.fn(async () => store.content),
+            write: jest.fn(async (_path: string, content: string) => {
+              store.content = content
+            }),
           },
         },
       },
@@ -628,7 +632,11 @@ describe('RunningTasksService.restoreForDate', () => {
             store.content = content
           }),
           adapter: {
-            write: jest.fn(),
+            exists: jest.fn(async (path: string) => path === dataPath),
+            read: jest.fn(async () => store.content),
+            write: jest.fn(async (_path: string, content: string) => {
+              store.content = content
+            }),
           },
         },
       },
@@ -641,6 +649,218 @@ describe('RunningTasksService.restoreForDate', () => {
     const updated = JSON.parse(store.content) as RunningTaskRecord[]
     expect(updated).toHaveLength(1)
     expect(updated[0]?.instanceId).toBe('keep-1')
+  })
+
+  it('serializes strict recovery deletions across service instances', async () => {
+    let content = JSON.stringify([
+      createRecord({ instanceId: 'delete-a', taskPath: 'TASKS/a.md' }),
+      createRecord({ instanceId: 'delete-b', taskPath: 'TASKS/b.md' }),
+      createRecord({ instanceId: 'keep', taskPath: 'TASKS/keep.md' }),
+    ])
+    const adapter = {
+      exists: jest.fn(async () => true),
+      read: jest.fn(async () => content),
+      write: jest.fn(async (_path: string, next: string) => {
+        content = next
+      }),
+    }
+    const plugin = {
+      app: { vault: { adapter } },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+
+    await Promise.all([
+      new RunningTasksService(plugin).deleteByInstanceOrPathStrict({
+        instanceId: 'delete-a',
+      }),
+      new RunningTasksService(plugin).deleteByInstanceOrPathStrict({
+        instanceId: 'delete-b',
+      }),
+    ])
+
+    const remaining = JSON.parse(content) as RunningTaskRecord[]
+    expect(remaining.map((record) => record.instanceId)).toEqual(['keep'])
+    expect(adapter.write).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets strict recovery deletion failures reject for caller rollback', async () => {
+    const plugin = {
+      app: {
+        vault: {
+          adapter: {
+            exists: jest.fn(async () => true),
+            read: jest.fn(async () => JSON.stringify([createRecord()])),
+            write: jest.fn(async () => {
+              throw new Error('disk full')
+            }),
+          },
+        },
+      },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+
+    await expect(
+      new RunningTasksService(plugin).deleteByInstanceOrPathStrict({
+        instanceId: 'routine-instance',
+      }),
+    ).rejects.toThrow('disk full')
+  })
+
+  it('serializes rename with strict deletion so a stale rename cannot restore a deleted record', async () => {
+    let content = JSON.stringify([
+      createRecord({
+        instanceId: 'delete-me',
+        taskPath: 'TASKS/old.md',
+        taskTitle: 'Old title',
+      }),
+      createRecord({
+        instanceId: 'keep',
+        taskPath: 'TASKS/keep.md',
+        taskTitle: 'Keep',
+      }),
+    ])
+    let readCount = 0
+    let releaseFirstRead!: () => void
+    const firstReadReleased = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve
+    })
+    let signalFirstRead!: () => void
+    const firstReadStarted = new Promise<void>((resolve) => {
+      signalFirstRead = resolve
+    })
+    const adapter = {
+      exists: jest.fn(async () => true),
+      read: jest.fn(async () => {
+        readCount += 1
+        const snapshot = content
+        if (readCount === 1) {
+          signalFirstRead()
+          await firstReadReleased
+        }
+        return snapshot
+      }),
+      write: jest.fn(async (_path: string, next: string) => {
+        content = next
+      }),
+    }
+    const plugin = {
+      app: { vault: { adapter } },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+    const renameService = new RunningTasksService(plugin)
+    const deleteService = new RunningTasksService(plugin)
+
+    const renamePromise = renameService.renameTaskPath(
+      'TASKS/old.md',
+      'TASKS/renamed.md',
+      { newTitle: 'Renamed' },
+    )
+    await firstReadStarted
+    const deletePromise = deleteService.deleteByInstanceOrPathStrict({
+      instanceId: 'delete-me',
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The delete cannot read the stale pre-rename snapshot while rename owns
+    // the shared adapter/path mutation boundary.
+    expect(readCount).toBe(1)
+
+    releaseFirstRead()
+    await Promise.all([renamePromise, deletePromise])
+
+    const remaining = JSON.parse(content) as RunningTaskRecord[]
+    expect(remaining.map((record) => record.instanceId)).toEqual(['keep'])
+  })
+
+  it('does not resurrect a deleted record from a stale slot-migration snapshot', async () => {
+    const staleRecord = createRecord({
+      instanceId: 'delete-me',
+      taskPath: 'TASKS/migrate-then-delete.md',
+      slotKey: '8:00-12:00',
+    })
+    let content = JSON.stringify([staleRecord])
+    const dataPath = 'LOGS/running-task.json'
+    const file = new TFile()
+    file.path = dataPath
+    Object.setPrototypeOf(file, TFile.prototype)
+
+    let releaseDeleteWrite!: () => void
+    const deleteWriteReleased = new Promise<void>((resolve) => {
+      releaseDeleteWrite = resolve
+    })
+    let signalDeleteWrite!: () => void
+    const deleteWriteStarted = new Promise<void>((resolve) => {
+      signalDeleteWrite = resolve
+    })
+    let adapterReadCount = 0
+    const adapter = {
+      exists: jest.fn(async () => true),
+      read: jest.fn(async () => {
+        adapterReadCount += 1
+        return content
+      }),
+      write: jest.fn(async (_path: string, next: string) => {
+        if (adapter.write.mock.calls.length === 1) {
+          signalDeleteWrite()
+          await deleteWriteReleased
+        }
+        content = next
+      }),
+    }
+    let signalRestoreLoad!: () => void
+    const restoreLoadStarted = new Promise<void>((resolve) => {
+      signalRestoreLoad = resolve
+    })
+    const plugin = {
+      app: {
+        vault: {
+          getAbstractFileByPath: jest.fn((path: string) => (path === dataPath ? file : null)),
+          read: jest.fn(async () => {
+            signalRestoreLoad()
+            return content
+          }),
+          adapter,
+        },
+      },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+    const deleteService = new RunningTasksService(plugin)
+    const restoreService = new RunningTasksService(plugin)
+    restoreService.setSectionConfig(new SectionConfigService([
+      { hour: 0, minute: 0 },
+      { hour: 6, minute: 0 },
+      { hour: 12, minute: 0 },
+      { hour: 18, minute: 0 },
+    ]))
+
+    const deletePromise = deleteService.deleteByInstanceOrPathStrict({
+      instanceId: 'delete-me',
+    })
+    await deleteWriteStarted
+
+    const restorePromise = restoreService.restoreForDate({
+      dateString,
+      instances: [],
+      deletedPaths: [],
+      hiddenRoutines: [],
+      deletedInstances: [],
+      findTaskByPath: () => createTaskData({ path: staleRecord.taskPath }),
+      generateInstanceId: () => 'generated-instance',
+    })
+    await restoreLoadStarted
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // loadForDate read the old snapshot, but its migration write must wait for
+    // the strict deletion and then re-read current storage under the same lock.
+    expect(adapterReadCount).toBe(1)
+
+    releaseDeleteWrite()
+    await Promise.all([deletePromise, restorePromise])
+
+    expect(JSON.parse(content)).toEqual([])
+    expect(adapter.write).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -667,6 +887,8 @@ describe('RunningTasksService.renameTaskPath', () => {
         store.set(file.path, content)
       }),
       adapter: {
+        exists: jest.fn(async (path: string) => store.has(path)),
+        read: jest.fn(async (path: string) => store.get(path) ?? ''),
         write: jest.fn(async (path: string, content: string) => {
           store.set(path, content)
         }),
@@ -704,7 +926,7 @@ describe('RunningTasksService.renameTaskPath', () => {
 
     await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md', { newTitle: 'New Title' })
 
-    expect(vault.modify).toHaveBeenCalled()
+    expect(vault.adapter.write).toHaveBeenCalled()
     const updated = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
     expect(updated[0]).toEqual(
       expect.objectContaining({ taskPath: 'TASKS/new.md', taskTitle: 'New Title' }),
@@ -716,7 +938,7 @@ describe('RunningTasksService.renameTaskPath', () => {
 
     await service.renameTaskPath('TASKS/missing.md', 'TASKS/new.md')
 
-    expect(vault.modify).not.toHaveBeenCalled()
+    expect(vault.adapter.write).not.toHaveBeenCalled()
     const unchanged = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
     expect(unchanged[0]).toEqual(
       expect.objectContaining({ taskPath: 'TASKS/old.md', taskTitle: 'Old Title' }),
@@ -743,6 +965,8 @@ describe('RunningTasksService.renameTaskPath', () => {
         store.set(file.path, content)
       }),
       adapter: {
+        exists: jest.fn(async (path: string) => store.has(path)),
+        read: jest.fn(async (path: string) => store.get(path) ?? ''),
         write: jest.fn(async (path: string, content: string) => {
           store.set(path, content)
         }),
@@ -775,7 +999,7 @@ describe('RunningTasksService.renameTaskPath', () => {
 
     await service.renameTaskPath('TASKS/old.md', 'TASKS/new.md', { newTitle: 'New Task' })
 
-    expect(vault.modify).toHaveBeenCalled()
+    expect(vault.adapter.write).toHaveBeenCalled()
     const updated = JSON.parse(store.get(dataPath) ?? '[]') as RunningTaskRecord[]
     expect(updated[0]).toEqual(
       expect.objectContaining({

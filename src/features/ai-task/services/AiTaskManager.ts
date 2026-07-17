@@ -50,6 +50,11 @@ import type { AiBinaryResolution } from './BinaryLocator'
 import type { RecipeContextSnapshot } from '../../recipe/services/RecipeDelegationContextBuilder'
 import { buildRecipeDelegationPrompt } from '../../recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
+import {
+  type AiRunSessionSnapshot,
+  type AiRunSessionStateStore,
+  wasActiveBeforeRestore,
+} from './AiRunSessionStateStore'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -73,6 +78,9 @@ export const DEFAULT_TERMINAL_COLS = 80
  */
 export const TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER =
   '(The terminal transcript could not be read; the session output was not captured.)'
+
+export const INTERRUPTED_RUN_ERROR_MESSAGE =
+  'This run was interrupted by an Obsidian reload or restart. The previous terminal process cannot be reattached.'
 
 /**
  * Arguments a plain shell session passes to the user's login shell
@@ -238,6 +246,11 @@ export interface AiTaskManagerDeps {
   workspaceFiles?: Pick<WorkspaceFileService, 'listDirectory' | 'readFile' | 'writeFile'>
   /** Effective run mode from settings; consulted when startRun gets none */
   getRunMode?(): AiRunMode
+  /** Device-local run workspace metadata + bounded terminal replay. */
+  sessionState?: Pick<
+    AiRunSessionStateStore,
+    'load' | 'scheduleSave' | 'saveNow' | 'flush'
+  >
   /** Optional Recipe v2 preflight. Disabled/missing recipes return null. */
   recipeContextProvider?: {
     getSnapshot(
@@ -350,6 +363,23 @@ interface InternalRun {
    * never interleave on the same file.
    */
   persistQueue: Promise<void>
+  /** One-shot reverse timer reconciliation for a restored active task run. */
+  needsTaskStateReconciliation: boolean
+  /** In-memory claim; the durable marker remains until completion succeeds. */
+  taskStateReconciliationClaimed: boolean
+  /**
+   * Shared reconciliation result scoped to the exact restored timer
+   * generation. A settled operation remains observable by late-mounted
+   * leaves, but must never be applied to a later timer of the same task.
+   */
+  taskStateReconciliationOperation: {
+    generation: {
+      instanceId?: string
+      timerStartedAt?: number
+    }
+    pending: boolean
+    promise: Promise<void>
+  } | null
 }
 
 /** Mutable event buffer bounded by the shared head + tail cap */
@@ -439,6 +469,25 @@ export class AiTaskManager {
    * spawns, so the stop is never silently lost.
    */
   private readonly stopRequestedDuringStart = new Set<string>()
+  /** Cross-view lock for orphaned TaskChute timer repair. */
+  private readonly orphanedTaskStateReconciliationClaims = new Set<string>()
+  /** Prevent a fresh process start from racing an orphan repair write. */
+  private readonly orphanedTaskPathReconciliationClaims = new Set<string>()
+  /** Prevent a fresh process start while an interrupted timer is repaired. */
+  private readonly interruptedTaskPathReconciliationClaims = new Set<string>()
+  /**
+   * One orphan repair per task path, shared by every mounted TaskChute view.
+   * A successful entry is retained for the same timer identity so a late
+   * participant can observe completion and clear its own TaskInstance.
+   */
+  private readonly orphanedTaskStateReconciliations = new Map<
+    string,
+    {
+      ownerKey: string
+      pending: boolean
+      promise: Promise<void>
+    }
+  >()
   private readonly listeners = new Set<AiRunChangeListener>()
   private readonly timer: AiGraceTimer
   private readonly terminalSnapshotProviders: Array<{
@@ -448,8 +497,38 @@ export class AiTaskManager {
   private disposeCompletion: Promise<void> | null = null
   private runSequence = 0
 
-  constructor(private readonly deps: AiTaskManagerDeps) {
+  constructor(private deps: AiTaskManagerDeps) {
     this.timer = deps.timer ?? defaultTimer
+    this.restoreSessionState()
+  }
+
+  /**
+   * Rebind plugin-owned adapters after an Obsidian plugin hot reload.
+   *
+   * The manager itself may outlive one Plugin instance so its live process
+   * handles and callbacks remain writable. New starts and eventual log writes
+   * must nevertheless use the newly loaded settings/path services. Flush the
+   * old coalesced store first so it cannot race a later write through the new
+   * bridge, then atomically replace the dependency bundle.
+   */
+  rebindRuntimeDependencies(deps: AiTaskManagerDeps): void {
+    this.throwIfDisposed()
+    try {
+      this.deps.sessionState?.flush()
+    } catch (error) {
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Failed to flush state before runtime handoff',
+        error,
+      )
+    }
+    this.deps = deps
+    this.persistSessionStateNow()
+  }
+
+  /** Runtime-lease guard: disposed managers must never be adopted. */
+  isDisposed(): boolean {
+    return this.disposed
   }
 
   /**
@@ -512,7 +591,12 @@ export class AiTaskManager {
   }
 
   private assertCanStart(taskPath: string): void {
-    if (this.pendingStarts.has(taskPath) || this.getActiveRunForTask(taskPath)) {
+    if (
+      this.pendingStarts.has(taskPath) ||
+      this.orphanedTaskPathReconciliationClaims.has(taskPath) ||
+      this.interruptedTaskPathReconciliationClaims.has(taskPath) ||
+      this.getActiveRunForTask(taskPath)
+    ) {
       throw new AiRunAlreadyActiveError(taskPath)
     }
   }
@@ -624,14 +708,19 @@ export class AiTaskManager {
       extraArgs,
       continuation: null,
       persistQueue: Promise.resolve(),
+      needsTaskStateReconciliation: false,
+      taskStateReconciliationClaimed: false,
+      taskStateReconciliationOperation: null,
     }
     this.runs.set(record.id, internal)
+    this.persistSessionStateNow()
     this.notifyChange(record)
 
     try {
       if (terminal) {
         const terminalHandle = terminal.dispatcher.start(
           {
+            sessionId: record.id,
             binaryPath,
             binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
             prompt,
@@ -645,8 +734,11 @@ export class AiTaskManager {
           {
             onData: (chunk) => this.handleTerminalData(internal, chunk),
             onExit: (outcome) => this.handleExit(internal, outcome),
+            onAttached: (pid, transcriptPath) =>
+              this.handleTerminalAttached(internal, pid, transcriptPath),
           },
         )
+        record.terminalSessionId = terminalHandle.sessionId
         internal.terminalHandle = terminalHandle
         internal.handle = terminalHandle
       } else {
@@ -737,13 +829,18 @@ export class AiTaskManager {
       extraArgs: [],
       continuation: null,
       persistQueue: Promise.resolve(),
+      needsTaskStateReconciliation: false,
+      taskStateReconciliationClaimed: false,
+      taskStateReconciliationOperation: null,
     }
     this.runs.set(record.id, internal)
+    this.persistSessionStateNow()
     this.notifyChange(record)
 
     try {
       const terminalHandle = terminal.dispatcher.start(
         {
+          sessionId: record.id,
           binaryPath: shellPath,
           prompt: '',
           cwd: internal.cwd,
@@ -755,8 +852,11 @@ export class AiTaskManager {
         {
           onData: (chunk) => this.handleTerminalData(internal, chunk),
           onExit: (outcome) => this.handleExit(internal, outcome),
+          onAttached: (pid, transcriptPath) =>
+            this.handleTerminalAttached(internal, pid, transcriptPath),
         },
       )
+      record.terminalSessionId = terminalHandle.sessionId
       internal.terminalHandle = terminalHandle
       internal.handle = terminalHandle
     } catch (error) {
@@ -921,6 +1021,125 @@ export class AiTaskManager {
     return this.runs.get(runId)?.record
   }
 
+  /**
+   * Claim the one-time TaskChute timer reconciliation for a run that was live
+   * before this manager instance restored it as interrupted. Multiple mounted
+   * views cannot race the same running -> done transition.
+   */
+  claimInterruptedTaskStateReconciliation(runId: string): boolean {
+    const internal = this.runs.get(runId)
+    if (
+      !internal ||
+      !internal.needsTaskStateReconciliation ||
+      internal.taskStateReconciliationClaimed ||
+      internal.record.status !== 'interrupted' ||
+      internal.record.host === 'shell'
+    ) {
+      return false
+    }
+    internal.taskStateReconciliationClaimed = true
+    return true
+  }
+
+  /** Clear the durable marker only after TaskChute's running state settled. */
+  completeInterruptedTaskStateReconciliation(runId: string): void {
+    const internal = this.runs.get(runId)
+    if (!internal || !internal.needsTaskStateReconciliation) return
+    internal.needsTaskStateReconciliation = false
+    internal.taskStateReconciliationClaimed = false
+    if (!this.disposed) this.persistSessionStateNow()
+  }
+
+  /** Allow a failed reconciliation attempt to retry without losing history. */
+  retryInterruptedTaskStateReconciliation(runId: string): void {
+    const internal = this.runs.get(runId)
+    if (!internal || !internal.needsTaskStateReconciliation) return
+    internal.taskStateReconciliationClaimed = false
+  }
+
+  /**
+   * Run the durable interrupted-timer repair once and expose that same
+   * promise to every mounted view. Callers must still re-read and clear their
+   * own TaskInstance objects after this resolves: those objects are not
+   * shared between leaves.
+   *
+   * Returns false when the run has no reconciliation marker. A failed repair
+   * rejects for every waiter and re-arms the marker for a later reload.
+   */
+  async coordinateInterruptedTaskStateReconciliation(
+    runId: string,
+    generation: { instanceId?: string; timerStartedAt?: number },
+    repair: () => Promise<void>,
+  ): Promise<boolean> {
+    const internal = this.runs.get(runId)
+    if (
+      !internal ||
+      internal.record.status !== 'interrupted' ||
+      internal.record.host === 'shell'
+    ) {
+      return false
+    }
+    const existing = internal.taskStateReconciliationOperation
+    if (existing) {
+      if (
+        existing.generation.instanceId !== generation.instanceId ||
+        existing.generation.timerStartedAt !== generation.timerStartedAt
+      ) {
+        return false
+      }
+      await existing.promise
+      return true
+    }
+    if (!internal.needsTaskStateReconciliation) return false
+    const restoredCutoff = internal.record.endedAt
+    if (
+      generation.timerStartedAt === undefined
+        ? (
+            internal.record.instanceId === undefined ||
+            generation.instanceId !== internal.record.instanceId
+          )
+        : (
+            restoredCutoff !== undefined &&
+            generation.timerStartedAt > restoredCutoff
+          )
+    ) {
+      return false
+    }
+
+    internal.taskStateReconciliationClaimed = true
+    if (internal.record.taskPath.length > 0) {
+      this.interruptedTaskPathReconciliationClaims.add(internal.record.taskPath)
+    }
+    const operation = {
+      generation: { ...generation },
+      pending: true,
+      promise: Promise.resolve(),
+    }
+    const reconciliation = Promise.resolve()
+      .then(repair)
+      .then(() => {
+        this.completeInterruptedTaskStateReconciliation(runId)
+        operation.pending = false
+        this.interruptedTaskPathReconciliationClaims.delete(
+          internal.record.taskPath,
+        )
+      })
+      .catch((error: unknown) => {
+        this.interruptedTaskPathReconciliationClaims.delete(
+          internal.record.taskPath,
+        )
+        if (internal.taskStateReconciliationOperation === operation) {
+          internal.taskStateReconciliationOperation = null
+        }
+        this.retryInterruptedTaskStateReconciliation(runId)
+        throw error
+      })
+    operation.promise = reconciliation
+    internal.taskStateReconciliationOperation = operation
+    await reconciliation
+    return true
+  }
+
   async listWorkspaceDirectory(
     rootPath: string,
     directoryPath?: string,
@@ -967,6 +1186,7 @@ export class AiTaskManager {
     if (!internal.exited || ACTIVE_STATUSES.has(internal.record.status)) return
     internal.terminalListeners.clear()
     this.runs.delete(runId)
+    this.persistSessionStateNow()
   }
 
   /**
@@ -1031,6 +1251,7 @@ export class AiTaskManager {
     internal.terminalHandle.resize?.(cols, rows)
     internal.record.cols = cols
     internal.record.rows = rows
+    this.scheduleSessionStatePersist()
   }
 
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
@@ -1046,6 +1267,127 @@ export class AiTaskManager {
       }
     }
     return undefined
+  }
+
+  /**
+   * Whether a TaskChute running timer still has a corresponding AI lifecycle.
+   *
+   * This is intentionally broader than getActiveRunForTask(): while a start
+   * is awaiting note/binary I/O there is no run record yet, and a restored
+   * interrupted run remains responsible for resetting its timer until the
+   * durable reconciliation marker is cleared.  TaskChuteView uses this as a
+   * crash-recovery guard so a missing/corrupt workspace snapshot cannot leave
+   * an AI task timer running forever.
+   */
+  hasTaskRunLifecycle(
+    taskPath: string,
+    owner?: { instanceId?: string; timerStartedAt?: number },
+  ): boolean {
+    if (this.pendingStarts.has(taskPath)) return true
+    for (const internal of this.runs.values()) {
+      const record = internal.record
+      if (record.host === 'shell' || record.taskPath !== taskPath) continue
+      if (ACTIVE_STATUSES.has(record.status)) return true
+      if (
+        record.status === 'interrupted' &&
+        internal.needsTaskStateReconciliation
+      ) {
+        return true
+      }
+      // A headless run may finish before its TaskChute timer is stopped. Its
+      // completed record is still valid ownership evidence for that exact
+      // timer, but an older run of the same task must not mask a newly
+      // orphaned start. `endedAt >= timerStartedAt` separates those cases.
+      if (
+        owner?.instanceId &&
+        record.instanceId === owner.instanceId &&
+        owner.timerStartedAt !== undefined &&
+        record.endedAt !== undefined &&
+        record.endedAt >= owner.timerStartedAt
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Claim an orphan repair across every mounted TaskChute view. Each view has
+   * its own TaskInstance objects, so a manager-owned lock prevents two leaves
+   * from racing writes to the same running-task.json record.
+   */
+  claimOrphanedTaskStateReconciliation(
+    taskPath: string,
+    owner?: { instanceId?: string; timerStartedAt?: number },
+  ): boolean {
+    if (this.hasTaskRunLifecycle(taskPath, owner)) return false
+    const identity = owner?.instanceId || taskPath
+    if (
+      this.orphanedTaskStateReconciliationClaims.has(identity) ||
+      this.orphanedTaskPathReconciliationClaims.has(taskPath)
+    ) {
+      return false
+    }
+    this.orphanedTaskStateReconciliationClaims.add(identity)
+    this.orphanedTaskPathReconciliationClaims.add(taskPath)
+    return true
+  }
+
+  /** Release the cross-view orphan lock after success or a retryable failure. */
+  releaseOrphanedTaskStateReconciliation(
+    taskPath: string,
+    instanceId?: string,
+  ): void {
+    this.orphanedTaskStateReconciliationClaims.delete(instanceId || taskPath)
+    this.orphanedTaskPathReconciliationClaims.delete(taskPath)
+  }
+
+  /**
+   * Coordinate a missing-snapshot repair across mounted views. The durable
+   * running-task record is deleted once; every caller awaits that deletion
+   * and can then idle its independently restored TaskInstance objects.
+   */
+  async coordinateOrphanedTaskStateReconciliation(
+    taskPath: string,
+    owner: { instanceId?: string; timerStartedAt?: number } | undefined,
+    repair: () => Promise<void>,
+  ): Promise<boolean> {
+    const existing = this.orphanedTaskStateReconciliations.get(taskPath)
+    if (existing?.pending) {
+      await existing.promise
+      return true
+    }
+    if (this.hasTaskRunLifecycle(taskPath, owner)) return false
+
+    const ownerKey = `${owner?.instanceId ?? ''}\u0000${owner?.timerStartedAt ?? ''}`
+    if (existing?.ownerKey === ownerKey) {
+      await existing.promise
+      return true
+    }
+    if (!this.claimOrphanedTaskStateReconciliation(taskPath, owner)) return false
+
+    const operation = {
+      ownerKey,
+      pending: true,
+      promise: Promise.resolve(),
+    }
+    const reconciliation = Promise.resolve()
+      .then(repair)
+      .then(() => {
+        operation.pending = false
+        this.releaseOrphanedTaskStateReconciliation(taskPath, owner?.instanceId)
+      })
+      .catch((error: unknown) => {
+        this.releaseOrphanedTaskStateReconciliation(taskPath, owner?.instanceId)
+        if (this.orphanedTaskStateReconciliations.get(taskPath) === operation) {
+          this.orphanedTaskStateReconciliations.delete(taskPath)
+        }
+        throw error
+      })
+    operation.promise = reconciliation
+    this.orphanedTaskStateReconciliations.set(taskPath, operation)
+    await reconciliation
+    return true
   }
 
   /**
@@ -1083,10 +1425,53 @@ export class AiTaskManager {
     }
   }
 
+  /**
+   * Renderer replacement is not an app quit. Persist live broker identities
+   * and close only this renderer's IPC transport; non-persistent processes
+   * are stopped because no future renderer can safely own their callbacks.
+   */
+  prepareForRendererReload(): void {
+    if (this.disposed) return
+    this.persistSessionStateNow()
+    const persistentTerminal =
+      this.deps.terminal?.dispatcher.isPersistent === true
+    for (const internal of this.runs.values()) {
+      internal.terminalListeners.clear()
+      if (internal.exited || !internal.handle) continue
+      if (internal.record.mode === 'terminal' && persistentTerminal) continue
+      try {
+        internal.handle.stop()
+      } catch (error) {
+        this.deps.log?.(
+          'warn',
+          '[AiTaskManager] Failed to stop non-persistent run on renderer reload',
+          error,
+        )
+      }
+    }
+    try {
+      this.deps.terminal?.dispatcher.detach?.()
+    } catch (error) {
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Failed to detach terminal broker',
+        error,
+      )
+    }
+    this.listeners.clear()
+    this.terminalSnapshotProviders.length = 0
+  }
+
   /** Stop every active run. Idempotent; see disposeAndWait for app quit. */
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+
+    // Persist the pre-stop statuses first. Exit callbacks may race the
+    // SIGTERM sweep below, but once disposed they must not overwrite these
+    // snapshots with `stopped`; the next manager restores them safely as
+    // interrupted and preserves their replay/history in the pane.
+    this.persistSessionStateNow()
 
     const activeHandles: AiRunProcessHandle[] = []
     for (const internal of this.runs.values()) {
@@ -1100,6 +1485,7 @@ export class AiTaskManager {
       }
     }
 
+    let handleStopCompletion: Promise<void>
     if (activeHandles.length > 0) {
       const forceKillHandles = () => {
         for (const handle of activeHandles) {
@@ -1110,7 +1496,7 @@ export class AiTaskManager {
           }
         }
       }
-      this.disposeCompletion = new Promise<void>((resolve) => {
+      handleStopCompletion = new Promise<void>((resolve) => {
         try {
           this.timer.setTimeout(() => {
             forceKillHandles()
@@ -1123,8 +1509,31 @@ export class AiTaskManager {
         }
       })
     } else {
-      this.disposeCompletion = Promise.resolve()
+      handleStopCompletion = Promise.resolve()
     }
+
+    let terminalShutdownCompletion = Promise.resolve()
+    try {
+      terminalShutdownCompletion = Promise.resolve(
+        this.deps.terminal?.dispatcher.shutdown?.(),
+      ).catch((error: unknown) => {
+        this.deps.log?.(
+          'warn',
+          '[AiTaskManager] Terminal broker shutdown failed',
+          error,
+        )
+      })
+    } catch (error) {
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Terminal broker shutdown failed',
+        error,
+      )
+    }
+    this.disposeCompletion = Promise.all([
+      handleStopCompletion,
+      terminalShutdownCompletion,
+    ]).then(() => undefined)
 
     this.listeners.clear()
     this.terminalSnapshotProviders.length = 0
@@ -1161,6 +1570,7 @@ export class AiTaskManager {
       const evicted = buffer.chunks.shift()
       buffer.totalLength -= evicted?.length ?? 0
     }
+    this.scheduleSessionStatePersist()
 
     for (const listener of Array.from(internal.terminalListeners)) {
       try {
@@ -1184,6 +1594,39 @@ export class AiTaskManager {
     this.appendEvent(internal.record, event)
     if (internal.continuation) {
       appendBoundedEvent(internal.continuation, event)
+    }
+    this.notifyChange(internal.record)
+  }
+
+  /**
+   * The persistent terminal broker reports the wrapper PID asynchronously
+   * after spawn/reattach. Keep it on the same run record so TaskChute remains
+   * coupled to the exact live process across renderer replacement.
+   */
+  private handleTerminalAttached(
+    internal: InternalRun,
+    pid: number | undefined,
+    transcriptPath: string | undefined,
+  ): void {
+    if (
+      this.disposed ||
+      internal.exited ||
+      this.runs.get(internal.record.id) !== internal
+    ) {
+      return
+    }
+    if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) {
+      internal.record.pid = pid
+    }
+    if (
+      typeof transcriptPath === 'string' &&
+      transcriptPath.length > 0 &&
+      transcriptPath.length <= 8 * 1024
+    ) {
+      internal.record.transcriptPath = transcriptPath
+    }
+    if (internal.record.status === 'starting') {
+      internal.record.status = 'running'
     }
     this.notifyChange(internal.record)
   }
@@ -1443,12 +1886,205 @@ export class AiTaskManager {
     record: AiRunRecord,
     changeType: AiRunChangeType = 'update',
   ): void {
+    if (!this.disposed) this.scheduleSessionStatePersist()
     for (const listener of Array.from(this.listeners)) {
       try {
         listener(record, changeType)
       } catch (error) {
         this.deps.log?.('warn', '[AiTaskManager] onChange listener failed', error)
       }
+    }
+  }
+
+  /**
+   * Restore serializable run state. Broker-backed terminal sessions rebuild
+   * their input/resize handle; every other formerly-active process is safely
+   * normalized to interrupted.
+   */
+  private restoreSessionState(): void {
+    const state = this.deps.sessionState
+    if (!state) return
+    let snapshots: AiRunSessionSnapshot[]
+    try {
+      snapshots = state.load()
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Failed to restore run state', error)
+      return
+    }
+
+    let normalizedActiveState = false
+    for (const snapshot of snapshots) {
+      const record: AiRunRecord = {
+        ...snapshot.record,
+        events: snapshot.record.events.map((event) => ({ ...event })),
+      }
+      const wasActive = wasActiveBeforeRestore(record.status)
+      const dispatcher = this.deps.terminal?.dispatcher
+      const canAttachLiveTerminal =
+        wasActive &&
+        record.mode === 'terminal' &&
+        typeof record.terminalSessionId === 'string' &&
+        record.terminalSessionId.length > 0 &&
+        dispatcher?.isPersistent === true &&
+        typeof dispatcher.attach === 'function'
+      if (wasActive && !canAttachLiveTerminal) {
+        record.status = 'interrupted'
+        record.endedAt = Date.now()
+        record.exitCode = null
+        record.errorMessage = INTERRUPTED_RUN_ERROR_MESSAGE
+        normalizedActiveState = true
+      }
+      // Never trust a stale pid. Persistent attach reports the broker-owned
+      // process identity again through onAttached.
+      record.pid = undefined
+      // Never trust a persisted filesystem path. The authenticated broker
+      // returns the path it captured at the original spawn.
+      record.transcriptPath = undefined
+      if (!canAttachLiveTerminal) {
+        record.terminalSessionId = undefined
+      }
+      const replay = snapshot.terminalReplay ?? ''
+      const internal: InternalRun = {
+        record,
+        handle: null,
+        terminalHandle: null,
+        exited: !canAttachLiveTerminal,
+        terminalData:
+          record.mode === 'terminal'
+            ? {
+                // A live broker replays its authoritative buffer on attach;
+                // seeding the local snapshot too would render every line
+                // twice. Keep the snapshot only as the missing-broker
+                // fallback used by markRestoredTerminalUnavailable.
+                chunks:
+                  !canAttachLiveTerminal && replay.length > 0 ? [replay] : [],
+                totalLength: !canAttachLiveTerminal ? replay.length : 0,
+              }
+            : null,
+        terminalListeners: new Set(),
+        cwd: record.cwd,
+        extraArgs: [...snapshot.extraArgs],
+        continuation: null,
+        persistQueue: Promise.resolve(),
+        needsTaskStateReconciliation:
+          record.host !== 'shell' &&
+          !canAttachLiveTerminal &&
+          (wasActive || snapshot.needsTaskStateReconciliation === true),
+        taskStateReconciliationClaimed: false,
+        taskStateReconciliationOperation: null,
+      }
+      this.runs.set(record.id, internal)
+      this.runSequence += 1
+      if (canAttachLiveTerminal) {
+        try {
+          const terminalHandle = dispatcher.attach!(
+            record.terminalSessionId ?? '',
+            {
+              onData: (chunk) => this.handleTerminalData(internal, chunk),
+              onExit: (outcome) => this.handleExit(internal, outcome),
+              onAttached: (pid, transcriptPath) =>
+                this.handleTerminalAttached(internal, pid, transcriptPath),
+              onUnavailable: () =>
+                this.markRestoredTerminalUnavailable(internal, replay),
+            },
+          )
+          if (!internal.exited) {
+            internal.terminalHandle = terminalHandle
+            internal.handle = terminalHandle
+          }
+        } catch (error) {
+          this.deps.log?.(
+            'warn',
+            '[AiTaskManager] Failed to attach restored terminal',
+            error,
+          )
+          this.markRestoredTerminalUnavailable(internal, replay)
+          normalizedActiveState = true
+        }
+      }
+    }
+    if (normalizedActiveState) this.persistSessionStateNow()
+  }
+
+  /** Convert an active snapshot to interrupted only after broker attach fails. */
+  private markRestoredTerminalUnavailable(
+    internal: InternalRun,
+    fallbackReplay: string,
+  ): void {
+    if (
+      internal.exited ||
+      this.runs.get(internal.record.id) !== internal
+    ) {
+      return
+    }
+    internal.exited = true
+    internal.handle = null
+    internal.terminalHandle = null
+    internal.terminalData = {
+      chunks: fallbackReplay.length > 0 ? [fallbackReplay] : [],
+      totalLength: fallbackReplay.length,
+    }
+    const record = internal.record
+    record.status = 'interrupted'
+    record.endedAt = Date.now()
+    record.exitCode = null
+    record.errorMessage = INTERRUPTED_RUN_ERROR_MESSAGE
+    record.pid = undefined
+    record.terminalSessionId = undefined
+    // transcriptPath is deliberately absent until a broker-confirmed attach.
+    record.transcriptPath = undefined
+    internal.needsTaskStateReconciliation = record.host !== 'shell'
+    this.notifyChange(record)
+    this.persistSessionStateNow()
+  }
+
+  private createSessionSnapshots(): AiRunSessionSnapshot[] {
+    const snapshots: AiRunSessionSnapshot[] = []
+    for (const internal of this.runs.values()) {
+      // Stopped records auto-close once their log persist finishes and should
+      // not reappear if the app reloads inside that short window.
+      if (internal.record.status === 'stopped') continue
+      const preserveLiveTerminalAttachment =
+        ACTIVE_STATUSES.has(internal.record.status) &&
+        internal.record.mode === 'terminal' &&
+        this.deps.terminal?.dispatcher.isPersistent === true &&
+        typeof internal.record.terminalSessionId === 'string'
+      const record: AiRunRecord = {
+        ...internal.record,
+        events: internal.record.events.map((event) => ({ ...event })),
+        // Temp paths are never trusted after crossing localStorage.
+        transcriptPath: undefined,
+        terminalSessionId: preserveLiveTerminalAttachment
+          ? internal.record.terminalSessionId
+          : undefined,
+        pid: undefined,
+      }
+      const terminalReplay = internal.terminalData?.chunks.join('')
+      snapshots.push({
+        record,
+        ...(terminalReplay ? { terminalReplay } : {}),
+        extraArgs: [...internal.extraArgs],
+        ...(internal.needsTaskStateReconciliation
+          ? { needsTaskStateReconciliation: true }
+          : {}),
+      })
+    }
+    return snapshots
+  }
+
+  private scheduleSessionStatePersist(): void {
+    try {
+      this.deps.sessionState?.scheduleSave(() => this.createSessionSnapshots())
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Failed to schedule run state save', error)
+    }
+  }
+
+  private persistSessionStateNow(): void {
+    try {
+      this.deps.sessionState?.saveNow(this.createSessionSnapshots())
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Failed to save run state', error)
     }
   }
 

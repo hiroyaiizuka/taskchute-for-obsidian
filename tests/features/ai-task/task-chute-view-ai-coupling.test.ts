@@ -36,6 +36,34 @@ interface ManagerStub {
   getRuns: jest.Mock
   getRun: jest.Mock
   getActiveRunForTask: jest.Mock
+  hasTaskRunLifecycle: jest.Mock<
+    boolean,
+    [string, { instanceId?: string; timerStartedAt?: number }?]
+  >
+  claimOrphanedTaskStateReconciliation: jest.Mock<
+    boolean,
+    [string, { instanceId?: string; timerStartedAt?: number }?]
+  >
+  releaseOrphanedTaskStateReconciliation: jest.Mock<void, [string, string?]>
+  claimInterruptedTaskStateReconciliation: jest.Mock<boolean, [string]>
+  completeInterruptedTaskStateReconciliation: jest.Mock<void, [string]>
+  retryInterruptedTaskStateReconciliation: jest.Mock<void, [string]>
+  coordinateInterruptedTaskStateReconciliation: jest.Mock<
+    Promise<boolean>,
+    [
+      string,
+      { instanceId?: string; timerStartedAt?: number },
+      () => Promise<void>,
+    ]
+  >
+  coordinateOrphanedTaskStateReconciliation: jest.Mock<
+    Promise<boolean>,
+    [
+      string,
+      { instanceId?: string; timerStartedAt?: number } | undefined,
+      () => Promise<void>,
+    ]
+  >
   requestStopForTask: jest.Mock<void, [string]>
   onChange: jest.Mock<() => void, [(record: AiRunRecord) => void]>
   invalidateBinaryCache: jest.Mock
@@ -66,6 +94,14 @@ function createManagerStub(): ManagerStub {
     getRuns: jest.fn(() => []),
     getRun: jest.fn(() => undefined),
     getActiveRunForTask: jest.fn(() => undefined),
+    hasTaskRunLifecycle: jest.fn(() => false),
+    claimOrphanedTaskStateReconciliation: jest.fn(() => true),
+    releaseOrphanedTaskStateReconciliation: jest.fn(),
+    claimInterruptedTaskStateReconciliation: jest.fn(() => false),
+    completeInterruptedTaskStateReconciliation: jest.fn(),
+    retryInterruptedTaskStateReconciliation: jest.fn(),
+    coordinateInterruptedTaskStateReconciliation: jest.fn(),
+    coordinateOrphanedTaskStateReconciliation: jest.fn(),
     requestStopForTask: jest.fn(),
     onChange: jest.fn(() => jest.fn()),
     invalidateBinaryCache: jest.fn(),
@@ -78,6 +114,33 @@ function createManagerStub(): ManagerStub {
     const active = stub.getActiveRunForTask(taskPath) as AiRunRecord | undefined
     if (active) stub.stopRun(active.id)
   })
+  stub.claimOrphanedTaskStateReconciliation.mockImplementation(
+    (taskPath, owner) => !stub.hasTaskRunLifecycle(taskPath, owner),
+  )
+  stub.coordinateInterruptedTaskStateReconciliation.mockImplementation(
+    async (runId, _generation, repair) => {
+      if (!stub.claimInterruptedTaskStateReconciliation(runId)) return false
+      try {
+        await repair()
+        stub.completeInterruptedTaskStateReconciliation(runId)
+        return true
+      } catch (error) {
+        stub.retryInterruptedTaskStateReconciliation(runId)
+        throw error
+      }
+    },
+  )
+  stub.coordinateOrphanedTaskStateReconciliation.mockImplementation(
+    async (taskPath, owner, repair) => {
+      if (!stub.claimOrphanedTaskStateReconciliation(taskPath, owner)) return false
+      try {
+        await repair()
+        return true
+      } finally {
+        stub.releaseOrphanedTaskStateReconciliation(taskPath, owner?.instanceId)
+      }
+    },
+  )
   return stub
 }
 
@@ -927,6 +990,371 @@ describe('AI run tab close coupling back to TaskChute', () => {
     await flushPromises()
 
     expect(execution.stopInstance).not.toHaveBeenCalled()
+  })
+})
+
+describe('interrupted AI run timer reconciliation', () => {
+  const reconcile = async (view: TaskChuteView): Promise<void> => {
+    await (view as unknown as {
+      reconcileInterruptedAiRunTasks(): Promise<void>
+    }).reconcileInterruptedAiRunTasks()
+  }
+
+  const stubInterruptedCleanup = (view: TaskChuteView) => {
+    const runningTasksDelete = jest
+      .spyOn(view.runningTasksService, 'deleteByInstanceOrPathStrict')
+      .mockResolvedValue(1)
+    const removeTaskLogForInstanceOnDate = jest
+      .spyOn(view, 'removeTaskLogForInstanceOnDate')
+      .mockResolvedValue(undefined)
+    return {
+      runningTasksDelete,
+      removeTaskLogForInstanceOnDate,
+    }
+  }
+
+  test('silently resets a restored timer to idle and only then completes the marker', async () => {
+    const { manager, view, execution } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const record = makeRecord({ status: 'interrupted' })
+    const inst = makeInstance()
+    inst.state = 'running'
+    inst.startTime = new Date('2026-07-17T08:00:00')
+    inst.stopTime = new Date('2026-07-17T09:00:00')
+    view.taskInstances = [inst]
+    view.currentInstance = inst
+    manager.getRuns.mockReturnValue([record])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+
+    const reconciliation = reconcile(view)
+    expect(manager.completeInterruptedTaskStateReconciliation).not.toHaveBeenCalled()
+    await reconciliation
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+    expect(inst.startTime).toBeUndefined()
+    expect(inst.stopTime).toBeUndefined()
+    expect(view.currentInstance).toBeNull()
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith({
+      taskPath: record.taskPath,
+    })
+    expect(cleanup.removeTaskLogForInstanceOnDate).toHaveBeenCalledWith(
+      inst.instanceId,
+      '2026-07-17',
+      inst.task.taskId,
+      inst.task.path,
+    )
+    expect(
+      cleanup.removeTaskLogForInstanceOnDate.mock.invocationCallOrder[0] ??
+        Infinity,
+    ).toBeLessThan(
+      cleanup.runningTasksDelete.mock.invocationCallOrder[0] ?? Infinity,
+    )
+    expect(manager.completeInterruptedTaskStateReconciliation).toHaveBeenCalledWith(
+      record.id,
+    )
+    expect(manager.retryInterruptedTaskStateReconciliation).not.toHaveBeenCalled()
+  })
+
+  test('re-arms the durable marker when stopping the restored timer fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { manager, view } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const record = makeRecord({ status: 'interrupted' })
+    const inst = makeInstance()
+    inst.state = 'running'
+    const startedAt = new Date('2026-07-17T08:00:00')
+    inst.startTime = startedAt
+    view.taskInstances = [inst]
+    view.currentInstance = inst
+    manager.getRuns.mockReturnValue([record])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+    manager.hasTaskRunLifecycle.mockReturnValue(true)
+    cleanup.runningTasksDelete.mockRejectedValueOnce(
+      new Error('state write failed'),
+    )
+
+    await reconcile(view)
+
+    expect(manager.completeInterruptedTaskStateReconciliation).not.toHaveBeenCalled()
+    expect(manager.retryInterruptedTaskStateReconciliation).toHaveBeenCalledWith(
+      record.id,
+    )
+    expect(inst.state).toBe('running')
+    expect(inst.startTime).toBe(startedAt)
+    expect(view.currentInstance).toBe(inst)
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  test('keeps the marker when this leaf cannot see a running timer', async () => {
+    const { manager, view, execution } = setUp()
+    const record = makeRecord({ status: 'interrupted' })
+    view.taskInstances = [makeInstance()]
+    manager.getRuns.mockReturnValue([record])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+
+    await reconcile(view)
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(
+      manager.coordinateInterruptedTaskStateReconciliation,
+    ).not.toHaveBeenCalled()
+    expect(manager.completeInterruptedTaskStateReconciliation).not.toHaveBeenCalled()
+  })
+
+  test('resets an orphaned AI timer when the workspace snapshot is missing', async () => {
+    const { manager, view, execution } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const inst = makeInstance()
+    inst.state = 'running'
+    inst.startTime = new Date('2026-07-17T08:00:00')
+    view.taskInstances = [inst]
+    view.currentInstance = inst
+    manager.getRuns.mockReturnValue([])
+    manager.hasTaskRunLifecycle.mockReturnValue(false)
+
+    await reconcile(view)
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(inst.state).toBe('idle')
+    expect(inst.startTime).toBeUndefined()
+    expect(view.currentInstance).toBeNull()
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps running AI and human timers that are not orphaned AI runs', async () => {
+    const { manager, view } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const pendingAi = makeInstance()
+    pendingAi.state = 'running'
+    const human = makeHumanInstance('Human')
+    human.state = 'running'
+    view.taskInstances = [pendingAi, human]
+    manager.getRuns.mockReturnValue([])
+    manager.hasTaskRunLifecycle.mockImplementation(
+      (taskPath: string) => taskPath === pendingAi.task.path,
+    )
+
+    await reconcile(view)
+
+    expect(pendingAi.state).toBe('running')
+    expect(human.state).toBe('running')
+    expect(cleanup.runningTasksDelete).not.toHaveBeenCalled()
+  })
+
+  test('resets every running duplicate owned by one interrupted AI run', async () => {
+    const { manager, view } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const record = makeRecord({ status: 'interrupted' })
+    const first = makeInstance()
+    first.state = 'running'
+    first.startTime = new Date('2026-07-17T08:00:00')
+    const second = makeInstance()
+    second.instanceId = 'inst-duplicate'
+    second.state = 'running'
+    second.startTime = new Date('2026-07-17T08:01:00')
+    view.taskInstances = [first, second]
+    manager.getRuns.mockReturnValue([record])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+
+    await reconcile(view)
+
+    expect(first.state).toBe('idle')
+    expect(second.state).toBe('idle')
+    expect(cleanup.removeTaskLogForInstanceOnDate).toHaveBeenCalledTimes(2)
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith({
+      taskPath: record.taskPath,
+    })
+  })
+
+  test('all mounted views await one interrupted repair and idle their own instances', async () => {
+    const plugin = createPluginStub()
+    const manager = createManagerStub()
+    ;(plugin as { aiTaskManager?: unknown }).aiTaskManager = manager
+    const firstView = createView(plugin).view
+    const secondView = createView(plugin).view
+    const firstCleanup = stubInterruptedCleanup(firstView)
+    const secondCleanup = stubInterruptedCleanup(secondView)
+    const record = makeRecord({ status: 'interrupted' })
+    const firstInstance = makeInstance()
+    const secondInstance = makeInstance()
+    firstInstance.state = 'running'
+    secondInstance.state = 'running'
+    firstInstance.startTime = new Date('2026-07-16T23:58:00')
+    secondInstance.startTime = new Date('2026-07-16T23:58:00')
+    firstView.taskInstances = [firstInstance]
+    secondView.taskInstances = [secondInstance]
+    manager.getRuns.mockReturnValue([record])
+
+    let finishDelete: (count: number) => void = () => undefined
+    firstCleanup.runningTasksDelete.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          finishDelete = resolve
+        }),
+    )
+    let sharedRepair: Promise<boolean> | undefined
+    manager.coordinateInterruptedTaskStateReconciliation.mockImplementation(
+      (_runId, _generation, repair) => {
+        if (sharedRepair) return sharedRepair
+        sharedRepair = repair().then(() => true)
+        return sharedRepair
+      },
+    )
+
+    const firstReconciliation = reconcile(firstView)
+    await flushPromises()
+    const secondReconciliation = reconcile(secondView)
+    await flushPromises()
+
+    expect(firstInstance.state).toBe('idle')
+    expect(secondInstance.state).toBe('running')
+    expect(firstCleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+    expect(secondCleanup.runningTasksDelete).not.toHaveBeenCalled()
+    expect(firstCleanup.removeTaskLogForInstanceOnDate).toHaveBeenCalledWith(
+      firstInstance.instanceId,
+      '2026-07-16',
+      firstInstance.task.taskId,
+      firstInstance.task.path,
+    )
+
+    finishDelete(1)
+    await Promise.all([firstReconciliation, secondReconciliation])
+
+    expect(firstInstance.state).toBe('idle')
+    expect(secondInstance.state).toBe('idle')
+    expect(firstCleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+    expect(secondCleanup.runningTasksDelete).not.toHaveBeenCalled()
+  })
+
+  test('a settled interrupted repair never idles a newer timer of the same task', async () => {
+    const { manager, view } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    const interruptedAt = new Date('2026-07-17T09:00:00').getTime()
+    const record = makeRecord({
+      status: 'interrupted',
+      endedAt: interruptedAt,
+      instanceId: 'inst-1',
+    })
+    const instance = makeInstance()
+    instance.state = 'running'
+    instance.startTime = new Date('2026-07-17T08:00:00')
+    view.taskInstances = [instance]
+    manager.getRuns.mockReturnValue([record])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+
+    await reconcile(view)
+    expect(instance.state).toBe('idle')
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+
+    manager.coordinateInterruptedTaskStateReconciliation.mockClear()
+    manager.hasTaskRunLifecycle.mockReturnValue(true)
+    instance.state = 'running'
+    instance.startTime = new Date(interruptedAt + 1_000)
+
+    await reconcile(view)
+
+    expect(instance.state).toBe('running')
+    expect(
+      manager.coordinateInterruptedTaskStateReconciliation,
+    ).not.toHaveBeenCalled()
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+  })
+
+  test('all mounted views await one orphan repair and idle their own instances', async () => {
+    const plugin = createPluginStub()
+    const manager = createManagerStub()
+    ;(plugin as { aiTaskManager?: unknown }).aiTaskManager = manager
+    const firstView = createView(plugin).view
+    const secondView = createView(plugin).view
+    const firstCleanup = stubInterruptedCleanup(firstView)
+    const secondCleanup = stubInterruptedCleanup(secondView)
+    const firstInstance = makeInstance()
+    const secondInstance = makeInstance()
+    firstInstance.state = 'running'
+    secondInstance.state = 'running'
+    firstInstance.startTime = new Date('2026-07-17T08:00:00')
+    secondInstance.startTime = new Date('2026-07-17T08:00:00')
+    firstView.taskInstances = [firstInstance]
+    secondView.taskInstances = [secondInstance]
+    manager.getRuns.mockReturnValue([])
+    manager.hasTaskRunLifecycle.mockReturnValue(false)
+
+    let finishDelete: (count: number) => void = () => undefined
+    firstCleanup.runningTasksDelete.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          finishDelete = resolve
+        }),
+    )
+    let sharedRepair: Promise<boolean> | undefined
+    manager.coordinateOrphanedTaskStateReconciliation.mockImplementation(
+      (_taskPath, _owner, repair) => {
+        if (sharedRepair) return sharedRepair
+        sharedRepair = repair().then(() => true)
+        return sharedRepair
+      },
+    )
+
+    const firstReconciliation = reconcile(firstView)
+    await flushPromises()
+    const secondReconciliation = reconcile(secondView)
+    await flushPromises()
+
+    expect(firstInstance.state).toBe('idle')
+    expect(secondInstance.state).toBe('running')
+    expect(firstCleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+    expect(secondCleanup.runningTasksDelete).not.toHaveBeenCalled()
+
+    finishDelete(1)
+    await Promise.all([firstReconciliation, secondReconciliation])
+
+    expect(firstInstance.state).toBe('idle')
+    expect(secondInstance.state).toBe('idle')
+    expect(firstCleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
+    expect(secondCleanup.runningTasksDelete).not.toHaveBeenCalled()
+  })
+
+  test('runs reconciliation only after reload restored task instances', async () => {
+    const { view } = setUp()
+    const order: string[] = []
+    let finishReconciliation: () => void = () => undefined
+    ;(
+      view as unknown as {
+        taskReloadCoordinator: {
+          reloadTasksAndRestore(): Promise<void>
+        }
+        reconcileInterruptedAiRunTasks(): Promise<void>
+      }
+    ).taskReloadCoordinator = {
+      reloadTasksAndRestore: jest.fn(async () => {
+        order.push('reload')
+      }),
+    }
+    ;(
+      view as unknown as { reconcileInterruptedAiRunTasks(): Promise<void> }
+    ).reconcileInterruptedAiRunTasks = jest.fn(() => {
+      order.push('reconcile')
+      return new Promise<void>((resolve) => {
+        finishReconciliation = resolve
+      })
+    })
+
+    let settled = false
+    const reload = view
+      .reloadTasksAndRestore({ runBoundaryCheck: true })
+      .then(() => {
+        settled = true
+      })
+    await flushPromises()
+
+    expect(order).toEqual(['reload', 'reconcile'])
+    expect(settled).toBe(false)
+    finishReconciliation()
+    await reload
+    expect(settled).toBe(true)
   })
 })
 

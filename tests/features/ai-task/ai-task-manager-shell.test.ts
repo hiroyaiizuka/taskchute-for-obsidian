@@ -153,6 +153,7 @@ describe('AiTaskManager.startShellSession spawn shape', () => {
 
     expect(harness.terminal.runs).toHaveLength(1)
     expect(harness.terminal.last.request).toEqual({
+      sessionId: record.id,
       binaryPath: '/bin/zsh',
       prompt: '',
       cwd: '/vault/base',

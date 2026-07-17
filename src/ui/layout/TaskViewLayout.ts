@@ -17,6 +17,10 @@ export default class TaskViewLayout {
   constructor(private readonly host: TaskViewLayoutHost) {}
 
   render(root: HTMLElement): TaskViewLayoutRenderResult {
+    // Container-query boundary for the whole TaskChute leaf. Obsidian can
+    // split a desktop leaf without changing the browser viewport, so header
+    // responsiveness must follow this element's width rather than @media.
+    root.classList.add('taskchute-view-root')
     const topBarContainer = root.createDiv( { cls: 'top-bar-container' })
     this.host.renderHeader(topBarContainer)
 

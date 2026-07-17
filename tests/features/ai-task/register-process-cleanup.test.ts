@@ -53,9 +53,12 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     await completion
   })
 
-  test('disposes the current manager synchronously on beforeunload', () => {
+  test('detaches the current manager synchronously on beforeunload', () => {
     let beforeUnload: (() => void) | null = null
-    const manager = { dispose: jest.fn() }
+    const manager = {
+      dispose: jest.fn(),
+      prepareForRendererReload: jest.fn(),
+    }
     const host = {
       ...quitRegistrationStub(),
       aiTaskManager: manager,
@@ -74,7 +77,8 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     )
 
     ;(beforeUnload as (() => void) | null)?.()
-    expect(manager.dispose).toHaveBeenCalledTimes(1)
+    expect(manager.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    expect(manager.dispose).not.toHaveBeenCalled()
   })
 
   test('waits for a manager still disposing after the settings toggle removed it', () => {
@@ -118,7 +122,11 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     const host = {
       ...quitRegistrationStub(),
       aiTaskManager: undefined as
-        | { dispose(): void; disposeAndWait(): Promise<void> }
+        | {
+            dispose(): void
+            disposeAndWait(): Promise<void>
+            prepareForRendererReload(): void
+          }
         | undefined,
       registerDomEvent: (_target: Window, _event: string, listener: () => void) => {
         beforeUnload = listener
@@ -131,10 +139,12 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     const laterManager = {
       dispose: jest.fn(),
       disposeAndWait: jest.fn().mockResolvedValue(undefined),
+      prepareForRendererReload: jest.fn(),
     }
     host.aiTaskManager = laterManager
     ;(beforeUnload as (() => void) | null)?.()
-    expect(laterManager.dispose).toHaveBeenCalledTimes(1)
+    expect(laterManager.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    expect(laterManager.dispose).not.toHaveBeenCalled()
   })
 })
 

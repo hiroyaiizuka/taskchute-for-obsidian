@@ -330,6 +330,137 @@ describe('AiTaskManager.startRun', () => {
     expect(harness.claude.runs).toHaveLength(1)
   })
 
+  test('reports a task lifecycle while its run is still pending', async () => {
+    let resolveRead: (content: string) => void = () => undefined
+    const harness = createHarness({
+      cachedRead: () =>
+        new Promise<string>((resolve) => {
+          resolveRead = resolve
+        }),
+    })
+
+    const startPromise = harness.manager.startRun(makeTaskFile())
+
+    expect(
+      harness.manager.hasTaskRunLifecycle('TaskChute/Task/My Task.md'),
+    ).toBe(true)
+    resolveRead('# Task\n\n## Prompt\n\nDo the thing\n')
+    await startPromise
+    expect(
+      harness.manager.hasTaskRunLifecycle('TaskChute/Task/My Task.md'),
+    ).toBe(true)
+  })
+
+  test('matches a finished run only to the timer instance it actually owned', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile(), {
+      instanceId: 'instance-1',
+    })
+    harness.claude.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    const endedAt = record.endedAt
+    if (endedAt === undefined) throw new Error('endedAt was not recorded')
+
+    expect(
+      harness.manager.hasTaskRunLifecycle(record.taskPath, {
+        instanceId: 'instance-1',
+        timerStartedAt: record.startedAt - 1,
+      }),
+    ).toBe(true)
+    expect(
+      harness.manager.hasTaskRunLifecycle(record.taskPath, {
+        instanceId: 'instance-1',
+        timerStartedAt: endedAt + 1,
+      }),
+    ).toBe(false)
+    expect(
+      harness.manager.hasTaskRunLifecycle(record.taskPath, {
+        instanceId: 'another-instance',
+        timerStartedAt: record.startedAt - 1,
+      }),
+    ).toBe(false)
+  })
+
+  test('serializes orphan timer repair claims and blocks a racing fresh start', async () => {
+    const harness = createHarness()
+    const owner = { instanceId: 'orphan-instance', timerStartedAt: 1_000 }
+
+    expect(
+      harness.manager.claimOrphanedTaskStateReconciliation(
+        'TaskChute/Task/My Task.md',
+        owner,
+      ),
+    ).toBe(true)
+    expect(
+      harness.manager.claimOrphanedTaskStateReconciliation(
+        'TaskChute/Task/My Task.md',
+        owner,
+      ),
+    ).toBe(false)
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiRunAlreadyActiveError,
+    )
+
+    harness.manager.releaseOrphanedTaskStateReconciliation(
+      'TaskChute/Task/My Task.md',
+      owner.instanceId,
+    )
+    expect(
+      harness.manager.claimOrphanedTaskStateReconciliation(
+        'TaskChute/Task/My Task.md',
+        owner,
+      ),
+    ).toBe(true)
+    harness.manager.releaseOrphanedTaskStateReconciliation(
+      'TaskChute/Task/My Task.md',
+      owner.instanceId,
+    )
+    await expect(harness.manager.startRun(makeTaskFile())).resolves.toBeDefined()
+  })
+
+  test('shares one orphan repair promise and lets late views observe completion', async () => {
+    const harness = createHarness()
+    const taskPath = 'TaskChute/Task/My Task.md'
+    const owner = { instanceId: 'orphan-instance', timerStartedAt: 1_000 }
+    let finishRepair: () => void = () => undefined
+    const repair = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRepair = resolve
+        }),
+    )
+
+    const first = harness.manager.coordinateOrphanedTaskStateReconciliation(
+      taskPath,
+      owner,
+      repair,
+    )
+    const second = harness.manager.coordinateOrphanedTaskStateReconciliation(
+      taskPath,
+      owner,
+      repair,
+    )
+    await Promise.resolve()
+
+    expect(repair).toHaveBeenCalledTimes(1)
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiRunAlreadyActiveError,
+    )
+
+    finishRepair()
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+
+    const lateRepair = jest.fn(async () => undefined)
+    await expect(
+      harness.manager.coordinateOrphanedTaskStateReconciliation(
+        taskPath,
+        owner,
+        lateRepair,
+      ),
+    ).resolves.toBe(true)
+    expect(lateRepair).not.toHaveBeenCalled()
+    await expect(harness.manager.startRun(makeTaskFile())).resolves.toBeDefined()
+  })
+
   test('allows parallel runs for different tasks', async () => {
     const harness = createHarness()
 

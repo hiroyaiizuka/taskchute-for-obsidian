@@ -246,6 +246,8 @@ export const ja = {
       splitPane: "実行ペインを分割",
       newShell: "新しいターミナルセッション",
       shellSessionName: "ターミナル",
+      contentTabs: "ターミナルタブ",
+      runTabs: "AI実行タブ",
       files: {
         label: "ファイル",
         loading: "ファイルを読み込み中…",
@@ -272,6 +274,7 @@ export const ja = {
         starting: "開始中",
         running: "実行中",
         stopping: "停止中",
+        interrupted: "中断",
         succeeded: "成功",
         failed: "失敗",
         stopped: "停止",

@@ -248,6 +248,8 @@ export const en = {
       splitPane: "Split the run pane",
       newShell: "New terminal session",
       shellSessionName: "Terminal",
+      contentTabs: "Terminal tabs",
+      runTabs: "AI run tabs",
       files: {
         label: "Files",
         loading: "Loading files…",
@@ -274,6 +276,7 @@ export const en = {
         starting: "Starting",
         running: "Running",
         stopping: "Stopping",
+        interrupted: "Interrupted",
         succeeded: "Succeeded",
         failed: "Failed",
         stopped: "Stopped",

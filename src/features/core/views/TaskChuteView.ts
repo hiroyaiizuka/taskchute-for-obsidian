@@ -1479,7 +1479,15 @@ export class TaskChuteView
    * this method owns only the normal TaskChute running -> done transition.
    */
   private handleAiRunStopAndClose(record: AiRunRecord): void {
-    if (record.host === 'shell') return
+    const target = this.findRunningInstanceForAiRun(record)
+    if (!target) return
+    void this.stopInstance(target).catch((error: unknown) => {
+      console.error('[TaskChuteView] Failed to stop task from AI run close', error)
+    })
+  }
+
+  private findRunningInstanceForAiRun(record: AiRunRecord): TaskInstance | undefined {
+    if (record.host === 'shell') return undefined
     const byInstanceId = record.instanceId
       ? this.taskInstances.find(
           (instance) =>
@@ -1487,7 +1495,7 @@ export class TaskChuteView
             instance.state === 'running',
         )
       : undefined
-    const target =
+    return (
       byInstanceId ??
       this.taskInstances.find(
         (instance) =>
@@ -1495,10 +1503,251 @@ export class TaskChuteView
           record.taskPath.length > 0 &&
           instance.task?.path === record.taskPath,
       )
-    if (!target) return
-    void this.stopInstance(target).catch((error: unknown) => {
-      console.error('[TaskChuteView] Failed to stop task from AI run close', error)
-    })
+    )
+  }
+
+  /** One AI process is shared by duplicate instances of the same task note. */
+  private findRunningInstancesForAiRunRecovery(record: AiRunRecord): TaskInstance[] {
+    if (record.host === 'shell') return []
+    const belongsToRestoredGeneration = (instance: TaskInstance): boolean => {
+      if (instance.state !== 'running') return false
+      const startedAt = instance.startTime?.getTime()
+      if (startedAt === undefined || !Number.isFinite(startedAt)) {
+        return (
+          record.instanceId !== undefined &&
+          instance.instanceId === record.instanceId
+        )
+      }
+      // restoreSessionState stamps endedAt when the former live process is
+      // normalized to interrupted. A timer started after that cutoff is a new
+      // generation and must never be cleared by the settled old repair.
+      return record.endedAt === undefined || startedAt <= record.endedAt
+    }
+    if (record.taskPath.length > 0) {
+      return this.taskInstances.filter(
+        (instance) =>
+          instance.task?.path === record.taskPath &&
+          belongsToRestoredGeneration(instance),
+      )
+    }
+    const exact = record.instanceId
+      ? this.taskInstances.find(
+          (instance) =>
+            instance.instanceId === record.instanceId &&
+            belongsToRestoredGeneration(instance),
+        )
+      : undefined
+    return exact ? [exact] : []
+  }
+
+  private getAiRunRecoveryGeneration(
+    record: AiRunRecord,
+    instances: readonly TaskInstance[],
+  ): { instanceId?: string; timerStartedAt?: number } {
+    const exact = record.instanceId
+      ? instances.find((instance) => instance.instanceId === record.instanceId)
+      : undefined
+    const owner = exact ?? instances.reduce<TaskInstance | undefined>(
+      (earliest, instance) => {
+        if (!earliest) return instance
+        const earliestStartedAt =
+          earliest.startTime?.getTime() ?? Number.POSITIVE_INFINITY
+        const startedAt =
+          instance.startTime?.getTime() ?? Number.POSITIVE_INFINITY
+        return startedAt < earliestStartedAt ? instance : earliest
+      },
+      undefined,
+    )
+    return {
+      instanceId: owner?.instanceId,
+      timerStartedAt: owner?.startTime?.getTime(),
+    }
+  }
+
+  /**
+   * A renderer crash is not task completion. Return the restored timer to an
+   * executable idle state without calling TaskExecutionService.stopInstance
+   * (which would write a normal completion log and inflate completed counts).
+   */
+  private async resetInterruptedAiRunTimers(
+    instances: readonly TaskInstance[],
+    taskPath: string,
+  ): Promise<void> {
+    const uniqueInstances = [...new Set(instances)]
+    if (uniqueInstances.length === 0) return
+    const snapshots = uniqueInstances.map((instance) => ({
+      instance,
+      state: instance.state,
+      startTime: instance.startTime,
+      stopTime: instance.stopTime,
+    }))
+    const currentInstance = this.currentInstance
+    for (const instance of uniqueInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'idle'
+      instance.startTime = undefined
+      instance.stopTime = undefined
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+
+    try {
+      // Clean the execution log first. If this fails the persisted running
+      // record is still intact, so the next reload restores the timer and can
+      // retry. The removal is idempotent when no partial log exists.
+      for (const { instance, startTime } of snapshots) {
+        const startedAt =
+          startTime instanceof Date && Number.isFinite(startTime.getTime())
+            ? this.formatDateKey(startTime)
+            : this.getCurrentDateString()
+        await this.removeTaskLogForInstanceOnDate(
+          instance.instanceId,
+          startedAt,
+          instance.task?.taskId,
+          instance.task?.path,
+        )
+      }
+      // Delete only this AI task's persisted records. The strict service
+      // serializes the read-modify-write across mounted views and propagates
+      // failures, avoiding the stale whole-list rewrite race on reload.
+      await this.runningTasksService.deleteByInstanceOrPathStrict({ taskPath })
+    } catch (error) {
+      for (const snapshot of snapshots) {
+        snapshot.instance.state = snapshot.state
+        snapshot.instance.startTime = snapshot.startTime
+        snapshot.instance.stopTime = snapshot.stopTime
+      }
+      this.currentInstance = currentInstance
+      this.renderTaskList()
+      throw error
+    }
+    this.renderTaskList()
+  }
+
+  /**
+   * Each mounted TaskChute leaf owns different TaskInstance objects. After
+   * the manager-wide durable repair settles, every leaf re-reads its current
+   * list and applies the same idle transition locally.
+   */
+  private idleReconciledAiRunInstances(
+    instances: readonly TaskInstance[],
+  ): void {
+    const runningInstances = [...new Set(instances)].filter(
+      (instance) => instance.state === 'running',
+    )
+    if (runningInstances.length === 0) return
+    for (const instance of runningInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'idle'
+      instance.startTime = undefined
+      instance.stopTime = undefined
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+    this.renderTaskList()
+  }
+
+  /**
+   * Reconcile timers only after task loading has restored DayState. The
+   * manager coordinates the durable mutation across all mounted views. Every
+   * waiter then re-evaluates and clears its own independently restored
+   * TaskInstance objects. A failed repair leaves the marker available for a
+   * later reload.
+   */
+  private async reconcileInterruptedAiRunTasks(): Promise<void> {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const recoveries: Promise<void>[] = []
+    for (const record of manager.getRuns()) {
+      if (
+        record.status !== 'interrupted' ||
+        record.host === 'shell'
+      ) {
+        continue
+      }
+      const targets = this.findRunningInstancesForAiRunRecovery(record)
+      // Do not consume the durable marker from a leaf that cannot see the
+      // timer (for example, a leaf displaying another date).
+      if (targets.length === 0) continue
+      recoveries.push(manager
+        .coordinateInterruptedTaskStateReconciliation(
+          record.id,
+          this.getAiRunRecoveryGeneration(record, targets),
+          () => this.resetInterruptedAiRunTimers(targets, record.taskPath),
+        )
+        .then((reconciled) => {
+          if (!reconciled || this.plugin.aiTaskManager !== manager) return
+          this.idleReconciledAiRunInstances(
+            this.findRunningInstancesForAiRunRecovery(record),
+          )
+        })
+        .catch((error: unknown) => {
+          console.error(
+            '[TaskChuteView] Failed to reconcile interrupted AI run task',
+            error,
+          )
+        }))
+    }
+    await Promise.all(recoveries)
+    if (this.plugin.aiTaskManager === manager) {
+      await this.reconcileOrphanedAiRunTasks(manager)
+    }
+  }
+
+  /**
+   * localStorage and running-task.json are separate persistence boundaries.
+   * If the AI workspace snapshot is unavailable after a crash, an AI timer
+   * can otherwise be restored without any process/run capable of owning it.
+   * Reset only strict ai_task instances with no active, pending, or recoverable
+   * manager lifecycle; ordinary human tasks are never touched.
+   */
+  private async reconcileOrphanedAiRunTasks(manager: AiTaskManager): Promise<void> {
+    const instancesByPath = new Map<string, TaskInstance[]>()
+    for (const instance of this.taskInstances) {
+      if (
+        instance.state !== 'running' ||
+        readAiTaskConfig(instance.task?.frontmatter) === null
+      ) {
+        continue
+      }
+      const taskPath = instance.task?.path
+      if (!taskPath) continue
+      const group = instancesByPath.get(taskPath) ?? []
+      group.push(instance)
+      instancesByPath.set(taskPath, group)
+    }
+
+    const recoveries: Promise<void>[] = []
+    for (const [taskPath, instances] of instancesByPath) {
+      const representative = instances[0]
+      if (!representative) continue
+      const owner = {
+        instanceId: representative.instanceId,
+        timerStartedAt: representative.startTime?.getTime(),
+      }
+      recoveries.push(manager
+        .coordinateOrphanedTaskStateReconciliation(
+          taskPath,
+          owner,
+          () => this.resetInterruptedAiRunTimers(instances, taskPath),
+        )
+        .then((reconciled) => {
+          if (!reconciled || this.plugin.aiTaskManager !== manager) return
+          this.idleReconciledAiRunInstances(
+            this.taskInstances.filter(
+              (instance) =>
+                instance.state === 'running' &&
+                instance.task?.path === taskPath &&
+                readAiTaskConfig(instance.task?.frontmatter) !== null,
+            ),
+          )
+        })
+        .catch((error: unknown) => {
+          console.error(
+            '[TaskChuteView] Failed to reconcile orphaned AI task timer',
+            error,
+          )
+        }))
+    }
+    await Promise.all(recoveries)
   }
 
   private notifyAiRunError(error: unknown): void {
@@ -1554,6 +1803,11 @@ export class TaskChuteView
       createTerminalAdapter: () => createTerminalViewAdapter(),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
+      onInterruptedTaskRun: () => {
+        // Attach can fail after the mount-time recovery pass. Re-run it on
+        // that transition so the TaskChute row/timer cannot remain Running.
+        void this.reconcileInterruptedAiRunTasks()
+      },
       saveLocalStorage: (key, value) => {
         if (typeof app.saveLocalStorage === 'function') {
           app.saveLocalStorage(key, value)
@@ -1576,6 +1830,7 @@ export class TaskChuteView
   public onAiTaskSettingsChanged(): void {
     if (this.plugin.aiTaskManager) {
       this.mountAiRunPane()
+      void this.reconcileInterruptedAiRunTasks()
     } else {
       this.unmountAiRunPane()
     }
@@ -1589,6 +1844,7 @@ export class TaskChuteView
     options: { runBoundaryCheck?: boolean; clearDayStateCache?: DayStateCacheClearMode; queueIfInProgress?: boolean } = {},
   ): Promise<void> {
     await this.taskReloadCoordinator.reloadTasksAndRestore(options)
+    await this.reconcileInterruptedAiRunTasks()
   }
 
   // ===========================================

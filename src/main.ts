@@ -11,6 +11,7 @@ import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
 import { registerAiTaskAppShutdownCleanup } from "./features/ai-task/registerProcessCleanup"
 import { createAiTaskAmbientScheduler } from "./features/ai-task/AiTaskAmbientRuntime"
 import type { AiTaskAmbientScheduler } from "./features/ai-task/services/AiTaskAmbientScheduler"
+import { scheduleAiTaskManagerHotReloadHandoff } from "./features/ai-task/services/AiTaskRuntimeLease"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -95,8 +96,12 @@ export default class TaskChutePlusPlugin extends Plugin {
     this.aiTaskAmbientScheduler?.dispose()
     this.aiTaskAmbientScheduler = undefined
 
-    // Stop all AI runs (SIGTERM now, SIGKILL escalation on a window timer)
-    this.aiTaskManager?.dispose()
+    // Keep live PTY handles for a short renderer-local plugin hot-reload
+    // handoff. A real renderer reload detaches from the external PTY broker;
+    // workspace quit and settings OFF still await full broker shutdown.
+    if (this.aiTaskManager) {
+      scheduleAiTaskManagerHotReloadHandoff(this.aiTaskManager)
+    }
 
     // Clear boundary check timeout
     const view = this.viewController?.getView?.()
