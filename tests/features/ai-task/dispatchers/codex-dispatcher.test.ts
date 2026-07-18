@@ -1,6 +1,7 @@
 import * as path from 'path'
 import { CodexDispatcher } from '../../../../src/features/ai-task/services/dispatchers/CodexDispatcher'
 import { STOP_GRACE_MS } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
+import { EVENT_TEXT_LIMIT } from '../../../../src/features/ai-task/services/streams/StreamJsonParser'
 import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
 import {
   FIXTURES_DIR,
@@ -321,6 +322,35 @@ describe('CodexDispatcher', () => {
       stderrListener?.('real warning\n')
 
       expect(events).toEqual([{ kind: 'stderr', text: 'real warning' }])
+    })
+
+    test('caps an oversized stderr line so it cannot bypass EVENT_TEXT_LIMIT', () => {
+      const gateway = createSpyGateway()
+      let stderrListener: ((text: string) => void) | undefined
+      gateway.spawnMock.mockImplementation(() => ({
+        pid: 4243,
+        onStdout: () => undefined,
+        onStderr: (listener: (text: string) => void) => {
+          stderrListener = listener
+        },
+        onExit: () => undefined,
+        kill: () => undefined,
+      }))
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+      const events: Array<{ kind: string; text?: string }> = []
+
+      dispatcher.start(
+        { binaryPath: '/fake/bin/codex', prompt: 'p' },
+        { onEvent: (event) => events.push(event), onExit: () => undefined },
+      )
+      stderrListener?.(`${'e'.repeat(EVENT_TEXT_LIMIT * 2)}TAIL\n`)
+
+      expect(events).toHaveLength(1)
+      const event = events[0]
+      expect(event.kind).toBe('stderr')
+      expect(event.text?.startsWith('…[+')).toBe(true)
+      expect(event.text?.endsWith('TAIL')).toBe(true)
+      expect(event.text?.length).toBeLessThanOrEqual(EVENT_TEXT_LIMIT + 64)
     })
   })
 

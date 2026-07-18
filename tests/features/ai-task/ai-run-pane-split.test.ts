@@ -85,6 +85,7 @@ class FakeManager {
   })
   failNextShellStart: Error | null = null
   private shellSequence = 0
+  private readonly exitPersistedRunIds = new Set<string>()
 
   readonly startShellSession = jest.fn(
     (options?: {
@@ -136,6 +137,10 @@ class FakeManager {
     return this.records.find((record) => record.id === runId)
   }
 
+  isRunExitPersisted(runId: string): boolean {
+    return this.exitPersistedRunIds.has(runId)
+  }
+
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined {
     return this.records.find(
       (record) =>
@@ -166,6 +171,15 @@ class FakeManager {
   emit(record: AiRunRecord, changeType: AiRunChangeType = 'update'): void {
     if (!this.records.includes(record)) {
       this.records.push(record)
+    }
+    if (changeType === 'persisted') {
+      this.exitPersistedRunIds.add(record.id)
+    } else if (
+      record.status === 'starting' ||
+      record.status === 'running' ||
+      record.status === 'stopping'
+    ) {
+      this.exitPersistedRunIds.delete(record.id)
     }
     for (const listener of Array.from(this.listeners)) {
       listener(record, changeType)
@@ -447,6 +461,7 @@ describe('AiRunPaneController split panels', () => {
       splitButton()?.click()
       run.status = 'succeeded'
       manager.emit(run)
+      manager.emit(run, 'persisted')
 
       container
         .querySelector<HTMLButtonElement>(
@@ -476,6 +491,7 @@ describe('AiRunPaneController split panels', () => {
       if (!shellRecord) throw new Error('shell record missing')
       shellRecord.status = 'succeeded'
       manager.emit(shellRecord)
+      manager.emit(shellRecord, 'persisted')
       const focusCallsBefore = adapters[0].focus.mock.calls.length
 
       panels()[1]
@@ -496,6 +512,7 @@ describe('AiRunPaneController split panels', () => {
       manager.emit(run)
       run.status = 'succeeded'
       manager.emit(run)
+      manager.emit(run, 'persisted')
 
       container
         .querySelector<HTMLButtonElement>(
@@ -650,6 +667,7 @@ describe('AiRunPaneController split panels', () => {
       if (!newest) throw new Error('second shell record missing')
       newest.status = 'succeeded'
       manager.emit(newest)
+      manager.emit(newest, 'persisted')
 
       secondPanel
         .querySelector<HTMLButtonElement>(
@@ -701,7 +719,7 @@ describe('AiRunPaneController split panels', () => {
       ).toBe(false)
     })
 
-    test('the × on a finished shell unsplits immediately', () => {
+    test('the × on a persisted finished shell unsplits immediately', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))
       splitButton()?.click()
@@ -709,6 +727,7 @@ describe('AiRunPaneController split panels', () => {
       if (!shellRecord) throw new Error('shell record missing')
       shellRecord.status = 'succeeded'
       manager.emit(shellRecord)
+      manager.emit(shellRecord, 'persisted')
 
       panels()[1]
         .querySelector<HTMLButtonElement>('.ai-run-pane__tab-close')
@@ -1070,6 +1089,7 @@ describe('AiRunPaneController split panels', () => {
       if (!shell) throw new Error('shell record missing')
       shell.status = 'succeeded'
       manager.emit(shell)
+      manager.emit(shell, 'persisted')
 
       panels()[0]
         .querySelector<HTMLButtonElement>(
@@ -1135,6 +1155,7 @@ describe('AiRunPaneController split panels', () => {
         ?.click()
       shell.status = 'succeeded'
       manager.emit(shell)
+      manager.emit(shell, 'persisted')
 
       panels()[0]
         .querySelector<HTMLButtonElement>(
@@ -1189,6 +1210,11 @@ describe('AiRunPaneController split panels', () => {
         )
         ?.click()
 
+      // The parent view (and its live terminal snapshot provider) stays until
+      // persistence completes; only then does owned-shell teardown begin.
+      expect(manager.stopRun).not.toHaveBeenCalledWith('shell-1')
+      expect(rows()).toHaveLength(1)
+      manager.emit(parent, 'persisted')
       expect(manager.stopRun).toHaveBeenCalledWith('shell-1')
       expect(rows()).toHaveLength(0)
       shell.status = 'stopped'

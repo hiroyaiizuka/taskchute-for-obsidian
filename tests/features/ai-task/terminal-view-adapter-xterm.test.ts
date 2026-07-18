@@ -5,8 +5,13 @@
  * relies on:
  *   - open() constructs the Terminal with the record's fixed cols/rows and a
  *     BOUNDED scrollback (very long sessions must not grow memory unbounded)
- *   - open() loads FitAddon, fits once after attachment, and a ResizeObserver
- *     keeps the xterm viewport fitted when its panel changes size
+ *   - open() loads FitAddon, fits once after attachment, performs one
+ *     next-frame convergence fit, and a ResizeObserver keeps the xterm
+ *     viewport fitted when its panel changes size — with a trailing debounce
+ *     so a drag-resize burst produces ONE fit; pending work dies with dispose()
+ *   - fit() skips the FitAddon refit when the proposed grid equals the last
+ *     applied one, and the resize relay drops same-size echoes (no redundant
+ *     buffer re-wrap or PTY resize IPC)
  *   - writes buffered before open() flush into the terminal in order
  *   - keystrokes relay through adapter.onData; disposers detach them
  *   - snapshotText() renders buffer.active as plain text (lines right-trimmed
@@ -63,6 +68,8 @@ interface RecordingLineMetadata {
 interface RecordingTerminal {
   options: Record<string, unknown>
   writes: string[]
+  deferWriteCallbacks: boolean
+  writeCallbacks: Array<() => void>
   openedContainer: HTMLElement | null
   focusCount: number
   disposed: boolean
@@ -73,15 +80,19 @@ interface RecordingTerminal {
   linkProviderRegistrations: RecordingLinkProviderRegistration[]
   emitData(data: string): void
   emitResize(cols: number, rows: number): void
+  flushWriteCallbacks(): void
 }
 
 interface RecordingFitAddon {
   fitCount: number
   disposed: boolean
+  proposedDimensions: { cols: number; rows: number } | undefined
 }
 
 const TerminalStub = Terminal as unknown as { instances: RecordingTerminal[] }
 const FitAddonStub = FitAddon as unknown as { instances: RecordingFitAddon[] }
+let animationFrameSequence = 0
+let animationFrameCallbacks = new Map<number, FrameRequestCallback>()
 
 class RecordingResizeObserver implements ResizeObserver {
   static readonly instances: RecordingResizeObserver[] = []
@@ -121,7 +132,29 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     FitAddonStub.instances.length = 0
     RecordingResizeObserver.instances.length = 0
     window.ResizeObserver = RecordingResizeObserver
+    animationFrameSequence = 0
+    animationFrameCallbacks = new Map()
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameSequence += 1
+      animationFrameCallbacks.set(animationFrameSequence, callback)
+      return animationFrameSequence
+    })
+    jest.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+      animationFrameCallbacks.delete(frameId)
+    })
   })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  function flushAnimationFrames(): void {
+    const pending = Array.from(animationFrameCallbacks.entries())
+    animationFrameCallbacks.clear()
+    for (const [frameId, callback] of pending) {
+      callback(frameId)
+    }
+  }
 
   function lastTerminal(): RecordingTerminal {
     const instance = TerminalStub.instances[TerminalStub.instances.length - 1]
@@ -159,7 +192,7 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     expect(terminal.options.rows).toBe(31)
     expect(typeof terminal.options.scrollback).toBe('number')
     expect(terminal.options.scrollback as number).toBeGreaterThan(0)
-    expect(terminal.options.scrollback as number).toBeLessThanOrEqual(10_000)
+    expect(terminal.options.scrollback as number).toBeLessThanOrEqual(2_000)
     expect(terminal.openedContainer).toBe(container)
   })
 
@@ -176,16 +209,152 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     expect(RecordingResizeObserver.instances[0].observed).toEqual([container])
   })
 
-  test('ResizeObserver and public fit() refit the opened terminal', () => {
+  test('open() performs one post-layout convergence fit on the next animation frame', () => {
     const adapter = createTerminalViewAdapter()
-    adapter.fit?.()
     adapter.open(document.body.createDiv(), 80, 24)
     const fitAddon = FitAddonStub.instances[0]
 
-    RecordingResizeObserver.instances[0].emit()
-    adapter.fit?.()
+    expect(fitAddon.fitCount).toBe(1)
+    expect(animationFrameCallbacks.size).toBe(1)
 
-    expect(fitAddon.fitCount).toBe(3)
+    fitAddon.proposedDimensions = { cols: 96, rows: 18 }
+    flushAnimationFrames()
+
+    expect(fitAddon.fitCount).toBe(2)
+    expect(animationFrameCallbacks.size).toBe(0)
+  })
+
+  test('public fit() is immediate; ResizeObserver refits after a trailing debounce', () => {
+    jest.useFakeTimers()
+    try {
+      const adapter = createTerminalViewAdapter()
+      adapter.fit?.()
+      adapter.open(document.body.createDiv(), 80, 24)
+      const fitAddon = FitAddonStub.instances[0]
+      fitAddon.proposedDimensions = { cols: 80, rows: 24 }
+      jest.runOnlyPendingTimers()
+      fitAddon.proposedDimensions = undefined
+
+      adapter.fit?.()
+      expect(fitAddon.fitCount).toBe(2)
+
+      RecordingResizeObserver.instances[0].emit()
+      expect(fitAddon.fitCount).toBe(2)
+      jest.runOnlyPendingTimers()
+      expect(fitAddon.fitCount).toBe(3)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a rapid ResizeObserver burst collapses into one trailing fit', () => {
+    jest.useFakeTimers()
+    try {
+      const adapter = createTerminalViewAdapter()
+      adapter.open(document.body.createDiv(), 80, 24)
+      const fitAddon = FitAddonStub.instances[0]
+      const observer = RecordingResizeObserver.instances[0]
+      fitAddon.proposedDimensions = { cols: 80, rows: 24 }
+      jest.runOnlyPendingTimers()
+      fitAddon.proposedDimensions = undefined
+      expect(fitAddon.fitCount).toBe(1)
+
+      observer.emit()
+      jest.advanceTimersByTime(30)
+      observer.emit()
+      jest.advanceTimersByTime(30)
+      observer.emit()
+      expect(fitAddon.fitCount).toBe(1)
+
+      jest.advanceTimersByTime(30)
+      expect(fitAddon.fitCount).toBe(1)
+      jest.advanceTimersByTime(30)
+      expect(fitAddon.fitCount).toBe(2)
+
+      jest.runOnlyPendingTimers()
+      expect(fitAddon.fitCount).toBe(2)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('fit() skips the refit when the proposed grid equals the last applied one', () => {
+    const adapter = createTerminalViewAdapter()
+    const seen: Array<{ cols: number; rows: number }> = []
+    adapter.onResize?.((size) => seen.push(size))
+    adapter.open(document.body.createDiv(), 80, 24)
+    const fitAddon = FitAddonStub.instances[0]
+    expect(fitAddon.fitCount).toBe(1)
+
+    fitAddon.proposedDimensions = { cols: 80, rows: 24 }
+    adapter.fit?.()
+    expect(fitAddon.fitCount).toBe(1)
+    expect(seen).toEqual([])
+
+    fitAddon.proposedDimensions = { cols: 100, rows: 30 }
+    adapter.fit?.()
+    expect(fitAddon.fitCount).toBe(2)
+    lastTerminal().emitResize(100, 30)
+    expect(seen).toEqual([{ cols: 100, rows: 30 }])
+
+    fitAddon.proposedDimensions = { cols: 100, rows: 30 }
+    adapter.fit?.()
+    expect(fitAddon.fitCount).toBe(2)
+  })
+
+  test('the resize relay drops same-size echoes (no redundant PTY resize)', () => {
+    const adapter = createTerminalViewAdapter()
+    const seen: Array<{ cols: number; rows: number }> = []
+    adapter.onResize?.((size) => seen.push(size))
+    adapter.open(document.body.createDiv(), 80, 24)
+
+    lastTerminal().emitResize(80, 24)
+    expect(seen).toEqual([])
+
+    lastTerminal().emitResize(132, 41)
+    lastTerminal().emitResize(132, 41)
+    expect(seen).toEqual([{ cols: 132, rows: 41 }])
+
+    lastTerminal().emitResize(80, 24)
+    expect(seen).toEqual([
+      { cols: 132, rows: 41 },
+      { cols: 80, rows: 24 },
+    ])
+  })
+
+  test('dispose() clears a pending debounced fit (no late fit after dispose)', () => {
+    jest.useFakeTimers()
+    try {
+      const adapter = createTerminalViewAdapter()
+      adapter.open(document.body.createDiv(), 80, 24)
+      const fitAddon = FitAddonStub.instances[0]
+      fitAddon.proposedDimensions = { cols: 80, rows: 24 }
+      jest.runOnlyPendingTimers()
+      fitAddon.proposedDimensions = undefined
+      RecordingResizeObserver.instances[0].emit()
+      expect(jest.getTimerCount()).toBe(1)
+
+      adapter.dispose()
+      expect(jest.getTimerCount()).toBe(0)
+
+      jest.runAllTimers()
+      expect(fitAddon.fitCount).toBe(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('dispose() cancels the pending post-layout convergence fit', () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    const fitAddon = FitAddonStub.instances[0]
+    expect(animationFrameCallbacks.size).toBe(1)
+
+    adapter.dispose()
+    expect(animationFrameCallbacks.size).toBe(0)
+
+    flushAnimationFrames()
+    expect(fitAddon.fitCount).toBe(1)
   })
 
   test('open() is one-shot: a second open never constructs another terminal', () => {
@@ -409,6 +578,49 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     lastTerminal().bufferLines = ['$ claude   ', '  answer text', 'done']
 
     expect(adapter.snapshotText()).toBe('$ claude\n  answer text\ndone')
+  })
+
+  test('snapshotTextAfterWrites waits for xterm to parse the final queued write', async () => {
+    const adapter = createTerminalViewAdapter()
+    adapter.open(document.body.createDiv(), 80, 24)
+    const terminal = lastTerminal()
+    terminal.deferWriteCallbacks = true
+
+    adapter.write('FINAL OUTPUT\r\n')
+    terminal.bufferLines = ['before final parse']
+    const snapshot = adapter.snapshotTextAfterWrites?.()
+    let settled = false
+    void snapshot?.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    // xterm applies the chunk before invoking its write callback.
+    terminal.bufferLines = ['before final parse', 'FINAL OUTPUT']
+    terminal.flushWriteCallbacks()
+
+    await expect(snapshot).resolves.toBe('before final parse\nFINAL OUTPUT')
+  })
+
+  test('snapshotTextAfterWrites times out to blank so the transcript fallback can win', async () => {
+    jest.useFakeTimers()
+    try {
+      const adapter = createTerminalViewAdapter()
+      adapter.open(document.body.createDiv(), 80, 24)
+      const terminal = lastTerminal()
+      terminal.deferWriteCallbacks = true
+      terminal.bufferLines = ['partial screen']
+      adapter.write('never acknowledged')
+
+      const snapshot = adapter.snapshotTextAfterWrites?.()
+      jest.advanceTimersByTime(2_000)
+
+      await expect(snapshot).resolves.toBe('')
+      terminal.flushWriteCallbacks()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('snapshotText() collapses runs of 3+ blank lines to one and trims trailing blanks', () => {

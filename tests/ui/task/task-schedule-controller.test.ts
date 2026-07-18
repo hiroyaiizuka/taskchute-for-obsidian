@@ -87,6 +87,121 @@ describe('TaskScheduleController', () => {
     expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
   })
 
+  test('moveTaskToDate migrates a running-task record before structural move and reload', async () => {
+    const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+    const { host, fileManager } = createHost({ moveRunningTaskToDate })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'running',
+      instanceId: 'running-instance',
+    })
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate).toHaveBeenCalledWith(instance, '2025-10-10')
+    const structuralMoveOrder =
+      fileManager.processFrontMatter.mock.invocationCallOrder[0] ?? 0
+    const runningRecordMoveOrder =
+      moveRunningTaskToDate.mock.invocationCallOrder[0] ?? 0
+    const reloadOrder =
+      (host.reloadTasksAndRestore as jest.Mock).mock.invocationCallOrder[0] ?? 0
+    expect(runningRecordMoveOrder).toBeLessThan(structuralMoveOrder)
+    expect(structuralMoveOrder).toBeLessThan(reloadOrder)
+  })
+
+  test('moveTaskToDate does not migrate a running-task record for an idle task', async () => {
+    const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+    const { host } = createHost({ moveRunningTaskToDate })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'idle',
+      instanceId: 'idle-instance',
+    })
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
+  })
+
+  test('moveTaskToDate aborts before structural mutation when running-task migration fails', async () => {
+    const moveRunningTaskToDate = jest.fn().mockRejectedValue(new Error('disk full'))
+    const { host, fileManager } = createHost({ moveRunningTaskToDate })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'running',
+      instanceId: 'running-instance',
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate).toHaveBeenCalledTimes(1)
+    expect(fileManager.processFrontMatter).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  test('moveTaskToDate aborts before structural mutation when no running-task record matches', async () => {
+    const moveRunningTaskToDate = jest.fn().mockResolvedValue(0)
+    const { host, fileManager } = createHost({ moveRunningTaskToDate })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'running',
+      instanceId: 'missing-running-instance',
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate).toHaveBeenCalledTimes(1)
+    expect(fileManager.processFrontMatter).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  test('moveTaskToDate compensates the running-task record when structural mutation fails', async () => {
+    const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+    const { host, fileManager } = createHost({ moveRunningTaskToDate })
+    fileManager.processFrontMatter.mockRejectedValue(new Error('frontmatter write failed'))
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'running',
+      instanceId: 'running-instance',
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate.mock.calls).toEqual([
+      [instance, '2025-10-10'],
+      [instance, '2025-10-09'],
+    ])
+    expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  test('moveTaskToDate keeps the migrated record when only reload fails after structural success', async () => {
+    const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+    const reloadTasksAndRestore = jest.fn().mockRejectedValue(new Error('reload failed'))
+    const { host } = createHost({
+      moveRunningTaskToDate,
+      reloadTasksAndRestore,
+    })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance({
+      state: 'running',
+      instanceId: 'running-instance',
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moveRunningTaskToDate).toHaveBeenCalledTimes(1)
+    expect(moveRunningTaskToDate).toHaveBeenCalledWith(instance, '2025-10-10')
+    errorSpy.mockRestore()
+  })
+
   test('moveTaskToDate keeps non-routine slot assignment across date move', async () => {
     const moveNonRoutineSlotOverrideToDate = jest.fn().mockResolvedValue(undefined)
     const { host } = createHost({
@@ -201,6 +316,61 @@ describe('TaskScheduleController', () => {
   })
 
   describe('duplicate instance move behavior', () => {
+    test('running duplicate move to its current date is an idempotent no-op', async () => {
+      const moveDuplicateInstanceToDate = jest.fn().mockResolvedValue(undefined)
+      const removeDuplicateInstanceFromCurrentDate = jest.fn().mockResolvedValue(undefined)
+      const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+      const { host, fileManager } = createHost({
+        isDuplicateInstance: jest.fn().mockReturnValue(true),
+        moveDuplicateInstanceToDate,
+        removeDuplicateInstanceFromCurrentDate,
+        moveRunningTaskToDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        instanceId: 'live-duplicate',
+        state: 'running',
+      })
+
+      await controller.moveTaskToDate(instance, '2025-10-09')
+
+      expect(moveDuplicateInstanceToDate).not.toHaveBeenCalled()
+      expect(removeDuplicateInstanceFromCurrentDate).not.toHaveBeenCalled()
+      expect(moveRunningTaskToDate).not.toHaveBeenCalled()
+      expect(fileManager.processFrontMatter).not.toHaveBeenCalled()
+      expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+    })
+
+    test('running duplicate structural failure restores its running-task record', async () => {
+      const moveDuplicateInstanceToDate = jest
+        .fn()
+        .mockRejectedValue(new Error('target dayState write failed'))
+      const removeDuplicateInstanceFromCurrentDate = jest.fn().mockResolvedValue(undefined)
+      const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
+      const { host } = createHost({
+        isDuplicateInstance: jest.fn().mockReturnValue(true),
+        moveDuplicateInstanceToDate,
+        removeDuplicateInstanceFromCurrentDate,
+        moveRunningTaskToDate,
+      })
+      const controller = new TaskScheduleController(host)
+      const instance = createInstance({
+        instanceId: 'live-duplicate',
+        state: 'running',
+      })
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      await controller.moveTaskToDate(instance, '2025-10-10')
+
+      expect(moveRunningTaskToDate.mock.calls).toEqual([
+        [instance, '2025-10-10'],
+        [instance, '2025-10-09'],
+      ])
+      expect(removeDuplicateInstanceFromCurrentDate).not.toHaveBeenCalled()
+      expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+      errorSpy.mockRestore()
+    })
+
     test('moveTaskToDate for duplicate instance should NOT modify frontmatter, only call moveDuplicateInstanceToDate', async () => {
       const moveDuplicateInstanceToDate = jest.fn().mockResolvedValue(undefined)
       const isDuplicateInstance = jest.fn().mockReturnValue(true)

@@ -9,8 +9,10 @@
  */
 
 import type { AiStreamEvent } from '../../types'
+import { stableTimeoutSource } from '../../../../utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
 import { LineSplitter } from '../streams/LineSplitter'
+import { capEventText } from '../streams/StreamJsonParser'
 
 export interface AiRunRequest {
   /** Absolute path to the CLI binary */
@@ -58,8 +60,8 @@ export interface AiDispatcher {
 }
 
 /**
- * Injectable timer for the stop grace period. Production uses activeWindow
- * timers (the window outlives the plugin, preventing zombie children);
+ * Injectable timer for the stop grace period. Production uses the root
+ * renderer window so a focused popout cannot strand a kill deadline;
  * tests inject a recording fake.
  */
 export interface AiGraceTimer {
@@ -70,12 +72,7 @@ export interface AiGraceTimer {
 /** Grace period between SIGTERM and the SIGKILL escalation */
 export const STOP_GRACE_MS = 5000
 
-const defaultGraceTimer: AiGraceTimer = {
-  setTimeout: (handler, timeoutMs) => activeWindow.setTimeout(handler, timeoutMs),
-  clearTimeout: (handle) => {
-    activeWindow.clearTimeout(handle)
-  },
-}
+const defaultGraceTimer: AiGraceTimer = stableTimeoutSource
 
 export abstract class HeadlessCliDispatcher implements AiDispatcher {
   constructor(
@@ -128,7 +125,7 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
     const emitStderrLine = (line: string): void => {
       if (line.trim().length === 0) return
       if (this.isNoiseStderrLine(line)) return
-      callbacks.onEvent({ kind: 'stderr', text: line })
+      callbacks.onEvent({ kind: 'stderr', text: capEventText(line) })
     }
 
     handle.onStdout((text) => {

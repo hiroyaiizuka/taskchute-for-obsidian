@@ -21,6 +21,7 @@ import {
 } from '../../../src/features/core/views/TaskChuteView'
 import {
   AiRunAlreadyActiveError,
+  type AiTaskStartReservation,
   type PreparedAiRun,
 } from '../../../src/features/ai-task/services/AiTaskManager'
 import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
@@ -69,7 +70,12 @@ interface ManagerStub {
   invalidateBinaryCache: jest.Mock
   dispose: jest.Mock
   prepareRun?: jest.Mock<Promise<PreparedAiRun>, [TFile, { mode?: string }?]>
-  startPreparedRun?: jest.Mock<Promise<AiRunRecord>, [PreparedAiRun, unknown?]>
+  reserveTaskStart?: jest.Mock<AiTaskStartReservation, [string]>
+  releaseTaskStartReservation?: jest.Mock<void, [AiTaskStartReservation]>
+  startPreparedRun?: jest.Mock<
+    Promise<AiRunRecord>,
+    [PreparedAiRun, unknown?, AiTaskStartReservation?]
+  >
 }
 
 function makePreparedRun(path = TASK_PATH): PreparedAiRun {
@@ -434,6 +440,159 @@ describe('TaskChuteView play button coupling', () => {
     ).toHaveBeenCalledWith(expect.objectContaining({ taskPath: TASK_PATH }))
   })
 
+  test('past-date reload keeps the rematerialized timer owned until prepared dispatch', async () => {
+    const { manager, view, execution } = setUp()
+    const original = makeInstance()
+    original.instanceId = 'cross-day-instance'
+    view.taskInstances = [original]
+    const reservation: AiTaskStartReservation = {
+      taskPath: TASK_PATH,
+      reservationId: Symbol('cross-day'),
+    }
+    let reserved = false
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.reserveTaskStart = jest.fn(() => {
+      reserved = true
+      return reservation
+    })
+    manager.releaseTaskStartReservation = jest.fn((token) => {
+      if (token === reservation) reserved = false
+    })
+    manager.hasTaskRunLifecycle.mockImplementation(
+      (taskPath) => taskPath === TASK_PATH && reserved,
+    )
+    manager.startPreparedRun = jest.fn(async (_prepared, options, token) => {
+      expect(token).toBe(reservation)
+      reserved = false
+      const instanceId = (
+        options as { instanceId?: string } | undefined
+      )?.instanceId
+      return makeRecord({ instanceId })
+    })
+    const runningDelete = jest
+      .spyOn(view.runningTasksService, 'deleteByInstanceOrPathStrict')
+      .mockResolvedValue(0)
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementationOnce(async (inst) => {
+      inst.state = 'running'
+      inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+      rematerialized = {
+        ...inst,
+        task: { ...inst.task },
+        state: 'running',
+      }
+      view.taskInstances = [rematerialized]
+      await (
+        view as unknown as {
+          reconcileInterruptedAiRunTasks(): Promise<void>
+        }
+      ).reconcileInterruptedAiRunTasks()
+      return true
+    })
+
+    await view.startInstance(original)
+
+    expect(manager.reserveTaskStart).toHaveBeenCalledWith(TASK_PATH)
+    expect(manager.claimOrphanedTaskStateReconciliation).toHaveBeenCalled()
+    expect(runningDelete).not.toHaveBeenCalled()
+    expect(rematerialized.state).toBe('running')
+    expect(rematerialized.instanceId).toBe('cross-day-instance')
+    expect(manager.startPreparedRun).toHaveBeenCalledWith(
+      expect.objectContaining({ taskPath: TASK_PATH }),
+      expect.objectContaining({ instanceId: 'cross-day-instance' }),
+      reservation,
+    )
+    expect(manager.releaseTaskStartReservation).toHaveBeenCalledWith(
+      reservation,
+    )
+  })
+
+  test('past-date dispatch failure rolls back the rematerialized current row', async () => {
+    const { manager, view, execution } = setUp()
+    const original = makeInstance()
+    original.instanceId = 'cross-day-failure'
+    view.taskInstances = [original]
+    const reservation: AiTaskStartReservation = {
+      taskPath: TASK_PATH,
+      reservationId: Symbol('cross-day-failure'),
+    }
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.releaseTaskStartReservation = jest.fn()
+    manager.startPreparedRun = jest.fn().mockRejectedValueOnce(
+      new Error('spawn failed after reload'),
+    )
+    const removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: typeof removeRunningTaskRecord
+      }
+    ).removeRunningTaskRecord = removeRunningTaskRecord
+    ;(
+      view as unknown as { saveRunningTasksState: jest.Mock }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementationOnce(async (inst) => {
+      inst.state = 'running'
+      inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+      rematerialized = {
+        ...inst,
+        task: { ...inst.task },
+        state: 'running',
+      }
+      view.taskInstances = [rematerialized]
+      view.currentInstance = rematerialized
+      return true
+    })
+
+    await view.startInstance(original)
+
+    expect(rematerialized.state).toBe('idle')
+    expect(view.currentInstance).toBeNull()
+    expect(removeRunningTaskRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: 'cross-day-failure',
+        taskPath: TASK_PATH,
+      }),
+    )
+  })
+
+  test('a stop on the rematerialized row cancels the reserved start before dispatch', async () => {
+    const { manager, view, execution } = setUp()
+    const original = makeInstance()
+    original.instanceId = 'cross-day-stop'
+    view.taskInstances = [original]
+    const reservation: AiTaskStartReservation = {
+      taskPath: TASK_PATH,
+      reservationId: Symbol('cross-day-stop'),
+    }
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
+    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.releaseTaskStartReservation = jest.fn()
+    manager.startPreparedRun = jest.fn()
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementationOnce(async (inst) => {
+      inst.state = 'running'
+      inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+      rematerialized = {
+        ...inst,
+        task: { ...inst.task },
+        state: 'running',
+      }
+      view.taskInstances = [rematerialized]
+      await view.stopInstance(rematerialized)
+      return true
+    })
+
+    await view.startInstance(original)
+
+    expect(rematerialized.state).toBe('done')
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+    expect(manager.releaseTaskStartReservation).toHaveBeenCalledWith(
+      reservation,
+    )
+  })
+
   test('stops the old run and rolls the timer back when the manager changes after manual dispatch', async () => {
     const { manager, view } = setUp()
     const plugin = (view as unknown as { plugin: TaskChutePluginLike }).plugin
@@ -645,6 +804,187 @@ describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
     expect(target.state).toBe('running')
     expect(manager.startRun).toHaveBeenCalledTimes(1)
     expect(manager.startRun.mock.calls[0][0].path).toBe('TASKS/linked-ai.md')
+  })
+
+  test('reserves a linked past-date start across reload and owns the rematerialized row', async () => {
+    const { manager, view, execution } = setUp()
+    const source = makeHumanInstance(
+      'CEO review',
+      'linked-cross-day-source',
+    )
+    const target = makeLinkedAiInstance('CEO review')
+    target.instanceId = 'linked-cross-day-target'
+    view.taskInstances = [source, target]
+    const reservation: AiTaskStartReservation = {
+      taskPath: target.task.path,
+      reservationId: Symbol('linked-cross-day'),
+    }
+    let reserved = false
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(
+      makePreparedRun(target.task.path),
+    )
+    manager.reserveTaskStart = jest.fn(() => {
+      reserved = true
+      return reservation
+    })
+    manager.releaseTaskStartReservation = jest.fn((token) => {
+      if (token === reservation) reserved = false
+    })
+    manager.hasTaskRunLifecycle.mockImplementation(
+      (taskPath) => taskPath === target.task.path && reserved,
+    )
+    manager.startPreparedRun = jest.fn(async (_prepared, options, token) => {
+      expect(token).toBe(reservation)
+      reserved = false
+      return makeRecord({
+        taskPath: target.task.path,
+        instanceId: (
+          options as { instanceId?: string } | undefined
+        )?.instanceId,
+      })
+    })
+    const runningDelete = jest
+      .spyOn(view.runningTasksService, 'deleteByInstanceOrPathStrict')
+      .mockResolvedValue(0)
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementation(async (inst) => {
+      inst.state = 'running'
+      if (inst === target) {
+        inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+        rematerialized = {
+          ...inst,
+          task: { ...inst.task },
+          state: 'running',
+        }
+        view.taskInstances = [source, rematerialized]
+        await (
+          view as unknown as {
+            reconcileInterruptedAiRunTasks(): Promise<void>
+          }
+        ).reconcileInterruptedAiRunTasks()
+      }
+      return true
+    })
+
+    await view.startInstance(source)
+
+    expect(manager.reserveTaskStart).toHaveBeenCalledWith(target.task.path)
+    expect(manager.claimOrphanedTaskStateReconciliation).toHaveBeenCalled()
+    expect(runningDelete).not.toHaveBeenCalled()
+    expect(rematerialized.state).toBe('running')
+    expect(manager.startPreparedRun).toHaveBeenCalledWith(
+      expect.objectContaining({ taskPath: target.task.path }),
+      expect.objectContaining({ instanceId: 'linked-cross-day-target' }),
+      reservation,
+    )
+    expect(manager.releaseTaskStartReservation).toHaveBeenCalledWith(
+      reservation,
+    )
+  })
+
+  test('rolls back the rematerialized linked row when prepared dispatch fails', async () => {
+    const { manager, view, execution } = setUp()
+    const source = makeHumanInstance(
+      'CEO review',
+      'linked-cross-day-failure-source',
+    )
+    const target = makeLinkedAiInstance('CEO review')
+    target.instanceId = 'linked-cross-day-failure-target'
+    view.taskInstances = [source, target]
+    const reservation: AiTaskStartReservation = {
+      taskPath: target.task.path,
+      reservationId: Symbol('linked-cross-day-failure'),
+    }
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(
+      makePreparedRun(target.task.path),
+    )
+    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.releaseTaskStartReservation = jest.fn()
+    manager.startPreparedRun = jest.fn().mockRejectedValueOnce(
+      new Error('linked spawn failed after reload'),
+    )
+    const removeRunningTaskRecord = jest.fn(async () => undefined)
+    ;(
+      view as unknown as {
+        removeRunningTaskRecord: typeof removeRunningTaskRecord
+      }
+    ).removeRunningTaskRecord = removeRunningTaskRecord
+    ;(
+      view as unknown as { saveRunningTasksState: jest.Mock }
+    ).saveRunningTasksState = jest.fn(async () => undefined)
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementation(async (inst) => {
+      inst.state = 'running'
+      if (inst === target) {
+        inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+        rematerialized = {
+          ...inst,
+          task: { ...inst.task },
+          state: 'running',
+        }
+        view.taskInstances = [source, rematerialized]
+        view.currentInstance = rematerialized
+      }
+      return true
+    })
+
+    await view.startInstance(source)
+
+    expect(rematerialized.state).toBe('idle')
+    expect(view.currentInstance).toBeNull()
+    expect(removeRunningTaskRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: 'linked-cross-day-failure-target',
+        taskPath: target.task.path,
+      }),
+    )
+    expect(manager.releaseTaskStartReservation).toHaveBeenCalledWith(
+      reservation,
+    )
+  })
+
+  test('a stop on a rematerialized linked row cancels dispatch and releases its reservation', async () => {
+    const { manager, view, execution } = setUp()
+    const source = makeHumanInstance(
+      'CEO review',
+      'linked-cross-day-stop-source',
+    )
+    const target = makeLinkedAiInstance('CEO review')
+    target.instanceId = 'linked-cross-day-stop-target'
+    view.taskInstances = [source, target]
+    const reservation: AiTaskStartReservation = {
+      taskPath: target.task.path,
+      reservationId: Symbol('linked-cross-day-stop'),
+    }
+    manager.prepareRun = jest.fn().mockResolvedValueOnce(
+      makePreparedRun(target.task.path),
+    )
+    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.releaseTaskStartReservation = jest.fn()
+    manager.startPreparedRun = jest.fn()
+    let rematerialized!: TaskInstance
+    execution.startInstance.mockImplementation(async (inst) => {
+      inst.state = 'running'
+      if (inst === target) {
+        inst.startTime = new Date('2026-07-18T09:03:04+09:00')
+        rematerialized = {
+          ...inst,
+          task: { ...inst.task },
+          state: 'running',
+        }
+        view.taskInstances = [source, rematerialized]
+        await view.stopInstance(rematerialized)
+      }
+      return true
+    })
+
+    await view.startInstance(source)
+
+    expect(rematerialized.state).toBe('done')
+    expect(manager.startPreparedRun).not.toHaveBeenCalled()
+    expect(manager.releaseTaskStartReservation).toHaveBeenCalledWith(
+      reservation,
+    )
   })
 
   test('duplicates a completed linked target and owns the new running instance', async () => {

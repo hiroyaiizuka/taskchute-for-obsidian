@@ -81,10 +81,14 @@ class FakeManager {
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
   readonly releaseRun = jest.fn()
-  snapshotProvider: ((runId: string) => string | undefined) | null = null
+  snapshotProvider:
+    | ((runId: string) => string | undefined | Promise<string | undefined>)
+    | null = null
 
   registerTerminalSnapshotProvider(
-    provider: (runId: string) => string | undefined,
+    provider: (
+      runId: string,
+    ) => string | undefined | Promise<string | undefined>,
   ): () => void {
     this.snapshotProvider = provider
     return () => {
@@ -314,7 +318,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     expect(container.querySelector('.ai-run-pane__tab-close')).not.toBeNull()
   })
 
-  test('the close control disposes the adapter, removes the row, and hides the pane when last', () => {
+  test('a final-status close waits for persisted before disposing the snapshot adapter', () => {
     controller.mount(container)
     const run = createRun()
     manager.emit(run)
@@ -326,6 +330,12 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     )
     expect(closeButton).not.toBeNull()
     closeButton?.click()
+
+    expect(rows()).toHaveLength(1)
+    expect(adapters[0].disposed).toBe(false)
+    expect(manager.snapshotProvider?.(run.id)).toBe('fake terminal snapshot')
+
+    manager.emit(run, 'persisted')
 
     expect(rows()).toHaveLength(0)
     expect(bodies()).toHaveLength(0)
@@ -341,6 +351,7 @@ describe('AiRunPaneController stopped-run tab cleanup', () => {
     manager.emit(runB)
     runB.status = 'succeeded'
     manager.emit(runB)
+    manager.emit(runB, 'persisted')
 
     container
       .querySelector<HTMLButtonElement>(

@@ -20,6 +20,13 @@ import type { AiResultEvent, AiRunRecord, AiStreamEvent } from '../types'
 /** Maximum stderr lines preserved at the end of a run log note */
 export const STDERR_TAIL_LIMIT = 50
 
+/**
+ * Maximum transcript characters embedded in a terminal run log note. The
+ * note lives in the vault (Obsidian indexes it), so an unbounded PTY
+ * transcript is capped to its trailing portion with a notice line.
+ */
+export const TERMINAL_LOG_BODY_LIMIT = 512 * 1024
+
 const DAY_MS = 24 * 60 * 60 * 1000
 const MAX_NAME_LENGTH = 60
 
@@ -219,15 +226,28 @@ function pickFence(content: string): string {
 }
 
 function composeTerminalRunLogContent(record: AiRunRecord, transcript: string): string {
-  const fence = pickFence(transcript)
-  const body = transcript.replace(/\n+$/, '')
+  const trimmed = transcript.replace(/\n+$/, '')
+  const truncated = trimmed.length > TERMINAL_LOG_BODY_LIMIT
+  let body = truncated ? trimmed.slice(trimmed.length - TERMINAL_LOG_BODY_LIMIT) : trimmed
+  if (truncated && body.charCodeAt(0) >= 0xdc00 && body.charCodeAt(0) <= 0xdfff) {
+    // The cut landed inside a surrogate pair; drop the torn low surrogate.
+    body = body.slice(1)
+  }
+  // The fence (and its matchAll scan) is derived from the capped body only.
+  const fence = pickFence(body)
   const lines = [
     ...composeFrontmatter(record),
     '',
     '## Transcript',
     '',
-    `${fence}text`,
   ]
+  if (truncated) {
+    lines.push(
+      `Transcript truncated: showing the last ${TERMINAL_LOG_BODY_LIMIT} characters.`,
+      '',
+    )
+  }
+  lines.push(`${fence}text`)
   if (body.length > 0) {
     lines.push(body)
   }

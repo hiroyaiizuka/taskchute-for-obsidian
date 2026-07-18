@@ -1276,4 +1276,154 @@ describe('RunningTasksService.save - merge behavior', () => {
     expect(result).toHaveLength(1)
     expect(result[0].date).toBe('2025-01-28')
   })
+
+  it('uses the explicit view date instead of an older startTime date', async () => {
+    const { service, store, dataPath } = createServiceWithStore()
+    const instance = createInstance('2025-01-27', {
+      instanceId: 'moved-running-instance',
+      date: '2025-01-28',
+    })
+
+    await service.save([instance], '2025-01-28')
+
+    const result = JSON.parse(store.get(dataPath)!) as RunningTaskRecord[]
+    expect(result).toHaveLength(1)
+    expect(result[0]?.date).toBe('2025-01-28')
+    expect(result[0]?.startTime).toBe(instance.startTime?.toISOString())
+  })
+})
+
+describe('RunningTasksService.moveRunningTaskToDateStrict', () => {
+  const createRecord = (overrides: Partial<RunningTaskRecord> = {}): RunningTaskRecord => ({
+    date: overrides.date ?? '2025-01-27',
+    taskTitle: overrides.taskTitle ?? 'Task',
+    taskPath: overrides.taskPath ?? 'TASKS/task.md',
+    startTime: overrides.startTime ?? '2025-01-27T09:00:00.000Z',
+    instanceId: overrides.instanceId ?? 'instance-1',
+    taskId: overrides.taskId ?? 'task-1',
+  })
+
+  const createService = (
+    initialContent: string | null,
+    writeImplementation?: (path: string, content: string) => Promise<void>,
+  ) => {
+    let content = initialContent
+    const adapter = {
+      exists: jest.fn(async () => content !== null),
+      read: jest.fn(async () => content ?? ''),
+      write: jest.fn(async (path: string, next: string) => {
+        if (writeImplementation) {
+          await writeImplementation(path, next)
+        }
+        content = next
+      }),
+    }
+    const plugin = {
+      app: { vault: { adapter } },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+
+    return {
+      service: new RunningTasksService(plugin),
+      adapter,
+      readRecords: () => JSON.parse(content ?? '[]') as RunningTaskRecord[],
+    }
+  }
+
+  it('moves only the exact instance when sibling records share task identity', async () => {
+    const records = [
+      createRecord({ instanceId: 'move-me' }),
+      createRecord({ instanceId: 'keep-me' }),
+    ]
+    const { service, readRecords } = createService(JSON.stringify(records))
+
+    const moved = await service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'move-me',
+      taskId: 'task-1',
+      taskPath: 'TASKS/task.md',
+    })
+
+    expect(moved).toBe(1)
+    expect(readRecords()).toEqual([
+      expect.objectContaining({ instanceId: 'move-me', date: '2025-01-28' }),
+      expect.objectContaining({ instanceId: 'keep-me', date: '2025-01-27' }),
+    ])
+  })
+
+  it('does not fall back to taskId or path when a supplied instanceId is absent', async () => {
+    const { service, adapter, readRecords } = createService(JSON.stringify([
+      createRecord({ instanceId: 'sibling' }),
+    ]))
+
+    const moved = await service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'missing',
+      taskId: 'task-1',
+      taskPath: 'TASKS/task.md',
+    })
+
+    expect(moved).toBe(0)
+    expect(adapter.write).not.toHaveBeenCalled()
+    expect(readRecords()[0]?.date).toBe('2025-01-27')
+  })
+
+  it('returns zero without writing when no persisted record matches', async () => {
+    const { service, adapter } = createService(JSON.stringify([
+      createRecord({ instanceId: 'other', taskPath: 'TASKS/other.md' }),
+    ]))
+
+    await expect(service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'missing',
+    })).resolves.toBe(0)
+    expect(adapter.write).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed JSON and leaves storage untouched', async () => {
+    const { service, adapter } = createService('{not-json')
+
+    await expect(service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'instance-1',
+    })).rejects.toBeInstanceOf(SyntaxError)
+    expect(adapter.write).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-array JSON root instead of replacing corrupted storage', async () => {
+    const { service, adapter } = createService(JSON.stringify({ records: [] }))
+
+    await expect(service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'instance-1',
+    })).rejects.toThrow('running-task.json must contain an array')
+    expect(adapter.write).not.toHaveBeenCalled()
+  })
+
+  it('propagates write failures so callers can abort restoration', async () => {
+    const { service } = createService(
+      JSON.stringify([createRecord()]),
+      async () => {
+        throw new Error('disk full')
+      },
+    )
+
+    await expect(service.moveRunningTaskToDateStrict({
+      targetDate: '2025-01-28',
+      instanceId: 'instance-1',
+    })).rejects.toThrow('disk full')
+  })
+
+  it.each(['2025-02-30', '2025/01/28', ''])(
+    'rejects invalid target date %p before reading storage',
+    async (targetDate) => {
+      const { service, adapter } = createService(JSON.stringify([createRecord()]))
+
+      await expect(service.moveRunningTaskToDateStrict({
+        targetDate,
+        instanceId: 'instance-1',
+      })).rejects.toThrow('Invalid running-task target date')
+      expect(adapter.exists).not.toHaveBeenCalled()
+    },
+  )
 })

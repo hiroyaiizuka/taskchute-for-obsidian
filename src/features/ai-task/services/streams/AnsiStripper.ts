@@ -35,22 +35,27 @@ const OTHER_CONTROL_CHARS = /[\u0000-\u0007\u000b\u000c\u000e-\u001f\u007f]/g
 
 /**
  * Render one physical line, applying carriage-return (cursor to column 0)
- * and backspace (cursor left) as overwrite edits.
+ * and backspace (cursor left) as overwrite edits. The mutable cell array is
+ * linear in the input size even for adversarial input such as a very long
+ * line followed by thousands of `\rX` redraws; repeatedly slicing an
+ * immutable buffer would copy that long tail on every redraw (quadratic).
+ * `for...of` iterates Unicode code points, so surrogate pairs occupy one
+ * overwrite cell.
  */
 function renderLineEdits(line: string): string {
   if (!line.includes('\r') && !line.includes('\b')) return line
   const cells: string[] = []
   let column = 0
-  for (const char of line) {
-    if (char === '\r') {
+  for (const character of line) {
+    if (character === '\r') {
       column = 0
       continue
     }
-    if (char === '\b') {
+    if (character === '\b') {
       if (column > 0) column -= 1
       continue
     }
-    cells[column] = char
+    cells[column] = character
     column += 1
   }
   return cells.join('')

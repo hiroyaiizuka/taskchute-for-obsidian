@@ -2,8 +2,10 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import {
+  MAX_TRANSCRIPT_READ_BYTES,
   NodeProcessGateway,
   TERMINAL_EXIT_SENTINEL,
+  TRANSCRIPT_TRUNCATED_MARKER,
   TerminalUnsupportedError,
 } from '../../../src/features/ai-task/services/NodeProcessGateway'
 
@@ -42,8 +44,13 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
   //  - -F / -f flush the transcript so SIGTERM stops cannot truncate it
   //  - the CLI is a supervised background child so a HUP trap is not deferred
   //    behind a hostile foreground process that ignores HUP/TERM
+  //  - fd 3 closes in the kernel if the external broker crashes, so the
+  //    wrapper can reap its own group without signalling a reusable PID
+  const BROKER_WATCHDOG =
+    'if [ "${TASKCHUTE_BROKER_WATCH_FD:-}" = "3" ]; then ' +
+    '(IFS= read -r _ <&3; kill -9 0 2>/dev/null) & fi; '
   const DARWIN_WRAPPER =
-    'cat 2>/dev/null | { TASKCHUTE_AI_TTY_PATH="$0.tty" ' +
+    `${BROKER_WATCHDOG}cat 2>/dev/null | { TASKCHUTE_AI_TTY_PATH="$0.tty" ` +
     '/usr/bin/script -q -F "$0" /bin/sh -c ' +
     `'tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; ` +
     `trap "trap - HUP TERM; kill -9 0" HUP TERM; ` +
@@ -98,7 +105,13 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(command.command).toBe('/bin/sh')
     expect(command.args[0]).toBe('-c')
     expect(command.args[2]).toBe('/tmp/transcript.txt')
+    expect(command.args.slice(3)).toEqual([
+      '/bin/claude',
+      '--dangerously-skip-permissions',
+      'do it',
+    ])
     const wrapper = command.args[1]
+    expect(wrapper).toContain(BROKER_WATCHDOG)
     expect(wrapper).toContain('cat 2>/dev/null | {')
     expect(wrapper).toContain('TASKCHUTE_AI_TTY_PATH="$0.tty"')
     expect(wrapper).toContain(`printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2`)
@@ -188,6 +201,39 @@ describe('NodeProcessGateway temp file helpers', () => {
     expect(fs.existsSync(target)).toBe(false)
     expect(fs.existsSync(`${target}.tty`)).toBe(false)
   })
+
+  test('readAndDeleteFile reads only the tail of an oversized transcript and still deletes it', async () => {
+    const gateway = new NodeProcessGateway()
+    const target = gateway.makeTempFilePath('gateway-oversized-transcript')
+    const tailText = 'tail marker 日本語\n'
+    const tailBytes = Buffer.byteLength(tailText, 'utf8')
+    const filler = 'x'.repeat(MAX_TRANSCRIPT_READ_BYTES - 1 - tailBytes)
+    // Total size is MAX + 2 bytes: the tail read starts on the FINAL
+    // continuation byte of the leading 3-byte '日', exercising the UTF-8
+    // boundary trim (the torn character is dropped, not replaced).
+    fs.writeFileSync(target, `日${filler}${tailText}`, 'utf8')
+    fs.writeFileSync(`${target}.tty`, '/dev/ttys001\n', 'utf8')
+
+    const content = await gateway.readAndDeleteFile(target)
+
+    expect(content).toBe(`${TRANSCRIPT_TRUNCATED_MARKER}\n${filler}${tailText}`)
+    expect(content).not.toContain('�')
+    expect(content.length).toBeLessThanOrEqual(
+      MAX_TRANSCRIPT_READ_BYTES + TRANSCRIPT_TRUNCATED_MARKER.length + 1,
+    )
+    expect(fs.existsSync(target)).toBe(false)
+    expect(fs.existsSync(`${target}.tty`)).toBe(false)
+  }, 15_000)
+
+  test('readAndDeleteFile leaves transcripts at or below the read cap unmarked', async () => {
+    const gateway = new NodeProcessGateway()
+    const target = gateway.makeTempFilePath('gateway-cap-sized-transcript')
+    const content = 'y'.repeat(MAX_TRANSCRIPT_READ_BYTES)
+    fs.writeFileSync(target, content, 'utf8')
+
+    await expect(gateway.readAndDeleteFile(target)).resolves.toBe(content)
+    expect(fs.existsSync(target)).toBe(false)
+  }, 15_000)
 
   test('readAndDeleteFile rejects for a missing file', async () => {
     const gateway = new NodeProcessGateway()

@@ -4,6 +4,8 @@ import {
   AiTaskManager,
   AiTerminalFollowUpError,
   TERMINAL_DATA_BUFFER_LIMIT,
+  TERMINAL_SNAPSHOT_PROVIDER_TIMEOUT_MS,
+  TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT,
   TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER,
   type AiTaskManagerDeps,
 } from '../../../src/features/ai-task/services/AiTaskManager'
@@ -115,6 +117,8 @@ interface HarnessOptions {
   content?: string
   /** Grace-timer override injected into the manager deps */
   timer?: AiGraceTimer
+  /** Optional state bridge used by post-dispose callback race tests. */
+  sessionStateSaveNow?: jest.Mock
 }
 
 function createTerminalHarness(options: HarnessOptions = {}) {
@@ -185,6 +189,16 @@ function createTerminalHarness(options: HarnessOptions = {}) {
     },
     getRunMode,
     timer: options.timer,
+    ...(options.sessionStateSaveNow
+      ? {
+          sessionState: {
+            load: jest.fn(() => []),
+            scheduleSave: jest.fn(),
+            saveNow: options.sessionStateSaveNow,
+            flush: jest.fn(),
+          },
+        }
+      : {}),
   }
 
   return {
@@ -288,6 +302,37 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(harness.terminal.last.resize).toHaveBeenCalledWith(132, 41)
     expect(record.cols).toBe(132)
     expect(record.rows).toBe(41)
+  })
+
+  test("a first-fit resize during the 'starting' notification becomes the spawned PTY grid", async () => {
+    const harness = createTerminalHarness()
+    harness.manager.onChange((record) => {
+      if (record.status !== 'starting') return
+      harness.manager.resizeTerminal(record.id, 96, 18)
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile(), {
+      rows: 30,
+      cols: 120,
+    })
+
+    expect(harness.terminal.last.request.cols).toBe(96)
+    expect(harness.terminal.last.request.rows).toBe(18)
+    expect(record.cols).toBe(96)
+    expect(record.rows).toBe(18)
+    // The dispatcher was born at the corrected size; no redundant live
+    // resize is needed before its handle exists.
+    expect(harness.terminal.last.resize).not.toHaveBeenCalled()
+  })
+
+  test('resizeTerminal remains a no-op for a headless run without a PTY', async () => {
+    const harness = createTerminalHarness({ runMode: 'headless' })
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.manager.resizeTerminal(record.id, 96, 18)
+
+    expect(record.cols).toBeUndefined()
+    expect(record.rows).toBeUndefined()
   })
 
   test('passes explicit terminal dimensions through to the dispatcher', async () => {
@@ -657,6 +702,84 @@ describe('AiTaskManager terminal snapshot provider', () => {
     expect(statusesAtCapture).toEqual(['succeeded'])
   })
 
+  test('waits for an asynchronous xterm write barrier before composing the log', async () => {
+    const harness = createTerminalHarness()
+    let resolveSnapshot: ((value: string) => void) | null = null
+    harness.manager.registerTerminalSnapshotProvider(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveSnapshot = resolve
+        }),
+    )
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({
+      status: 'succeeded',
+      exitCode: 0,
+      signal: null,
+    })
+    await flushPromises()
+    expect(harness.writeTerminalRunLog).not.toHaveBeenCalled()
+
+    ;(resolveSnapshot as ((value: string) => void) | null)?.(
+      'final parsed xterm output',
+    )
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      'final parsed xterm output',
+    )
+  })
+
+  test('times out a never-settling snapshot provider and completes transcript persistence', async () => {
+    const timerCallbacks: Array<{
+      handler: () => void
+      timeoutMs: number
+    }> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler, timeoutMs) => {
+        timerCallbacks.push({ handler, timeoutMs })
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({
+      timer,
+      transcriptContent: '\u001b[32mfile fallback\u001b[0m',
+    })
+    harness.manager.registerTerminalSnapshotProvider(
+      () => new Promise<string>(() => undefined),
+    )
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({
+      status: 'succeeded',
+      exitCode: 0,
+      signal: null,
+    })
+    await Promise.resolve()
+
+    expect(harness.manager.isRunExitPersisted(record.id)).toBe(false)
+    expect(harness.writeTerminalRunLog).not.toHaveBeenCalled()
+    expect(timerCallbacks).toHaveLength(1)
+    expect(timerCallbacks[0].timeoutMs).toBe(
+      TERMINAL_SNAPSHOT_PROVIDER_TIMEOUT_MS,
+    )
+
+    timerCallbacks[0].handler()
+    await flushPromises()
+
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(
+      record,
+      'file fallback',
+    )
+    expect(harness.readAndDeleteFile).toHaveBeenCalledWith(
+      expect.stringContaining(record.id),
+    )
+    expect(harness.manager.isRunExitPersisted(record.id)).toBe(true)
+  })
+
   test('falls back to the stripped transcript file when the provider returns undefined', async () => {
     const harness = createTerminalHarness({
       transcriptContent: '\u001b[31mhello\u001b[0m\r\nworld',
@@ -681,6 +804,32 @@ describe('AiTaskManager terminal snapshot provider', () => {
     await flushPromises()
 
     expect(harness.writeTerminalRunLog).toHaveBeenCalledWith(record, 'hello\nworld')
+  })
+
+  test('bounds ANSI projection work before writing a huge raw transcript fallback', async () => {
+    const harness = createTerminalHarness({
+      transcriptContent: `${'old\r'.repeat(
+        Math.ceil(TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT / 4) + 1_000,
+      )}\nFINAL`,
+    })
+    harness.manager.registerTerminalSnapshotProvider(() => undefined)
+    await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({
+      status: 'succeeded',
+      exitCode: 0,
+      signal: null,
+    })
+    await flushPromises()
+
+    const transcript = harness.writeTerminalRunLog.mock.calls[0]?.[1]
+    expect(transcript).toContain(
+      '[transcript projection truncated: showing the final terminal output]',
+    )
+    expect(transcript.endsWith('FINAL')).toBe(true)
+    expect(transcript.length).toBeLessThanOrEqual(
+      TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT + 100,
+    )
   })
 
   test('a throwing provider falls back to the stripped transcript file', async () => {
@@ -1001,6 +1150,56 @@ describe('AiTaskManager dispose during live terminal sessions', () => {
     expect(completed).toBe(true)
   })
 
+  test('a late unavailable callback after dispose cannot rewrite the final session snapshot', async () => {
+    const saveNow = jest.fn()
+    const harness = createTerminalHarness({ sessionStateSaveNow: saveNow })
+    const record = await harness.manager.startRun(makeTaskFile())
+    const lateTranscriptPath = record.transcriptPath as string
+
+    harness.manager.dispose()
+    const savesAtDispose = saveNow.mock.calls.length
+    expect(record.status).toBe('running')
+
+    harness.terminal.last.callbacks.onUnavailable?.(lateTranscriptPath)
+    await flushPromises()
+
+    expect(record.status).toBe('running')
+    expect(record.endedAt).toBeUndefined()
+    expect(record.errorMessage).toBeUndefined()
+    expect(saveNow).toHaveBeenCalledTimes(savesAtDispose)
+    expect(harness.writeTerminalRunLog).not.toHaveBeenCalled()
+    expect(harness.readAndDeleteFile).toHaveBeenCalledWith(lateTranscriptPath)
+
+    // Duplicate unavailable plus the ordinary exit race cannot consume the
+    // same broker transcript twice.
+    harness.terminal.last.callbacks.onUnavailable?.(lateTranscriptPath)
+    harness.terminal.last.exit({
+      status: 'stopped',
+      exitCode: null,
+      signal: 'SIGKILL',
+    })
+    await flushPromises()
+    expect(harness.readAndDeleteFile).toHaveBeenCalledTimes(1)
+  })
+
+  test('an exit cleanup that wins the dispose race suppresses a duplicate late unavailable read', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    const transcriptPath = record.transcriptPath as string
+
+    harness.manager.dispose()
+    harness.terminal.last.exit({
+      status: 'stopped',
+      exitCode: null,
+      signal: 'SIGTERM',
+    })
+    harness.terminal.last.callbacks.onUnavailable?.(transcriptPath)
+    await flushPromises()
+
+    expect(harness.readAndDeleteFile).toHaveBeenCalledTimes(1)
+    expect(harness.readAndDeleteFile).toHaveBeenCalledWith(transcriptPath)
+  })
+
   test('disposeAndWait also awaits renderer-independent broker shutdown', async () => {
     const timerCallbacks: Array<() => void> = []
     const timer: AiGraceTimer = {
@@ -1032,6 +1231,121 @@ describe('AiTaskManager dispose during live terminal sessions', () => {
     await completion
     expect(harness.terminal.shutdown).toHaveBeenCalledTimes(1)
     expect(completed).toBe(true)
+  })
+
+  test('disposeAndWait reports broker shutdown failure only after force-kill cleanup finishes', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    await harness.manager.startRun(makeTaskFile())
+    const shutdownError = new Error('broker shutdown unconfirmed')
+    let rejectShutdown: (error: Error) => void = () => undefined
+    harness.terminal.shutdown.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectShutdown = reject
+        }),
+    )
+    let settled = false
+
+    const completion = harness.manager.disposeAndWait().finally(() => {
+      settled = true
+    })
+    // Observe the expected rejection immediately; dispose() also installs its
+    // own passive observer for callers that do not use disposeAndWait().
+    const assertion = expect(completion).rejects.toBe(shutdownError)
+    rejectShutdown(shutdownError)
+    await Promise.resolve()
+
+    expect(settled).toBe(false)
+    expect(timerCallbacks).toHaveLength(1)
+    timerCallbacks[0]?.()
+    await assertion
+    expect(harness.terminal.last.forceKill).toHaveBeenCalledTimes(1)
+    expect(settled).toBe(true)
+
+    // A later app-quit caller gets a fresh broker shutdown attempt instead
+    // of the permanently cached rejected Promise.
+    harness.terminal.shutdown.mockResolvedValue(undefined)
+    await harness.manager.disposeAndWait()
+    expect(harness.terminal.shutdown).toHaveBeenCalledTimes(2)
+  })
+
+  test('a shutdown retry still waits for the original force-kill cleanup', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    await harness.manager.startRun(makeTaskFile())
+    harness.terminal.shutdown
+      .mockRejectedValueOnce(new Error('first shutdown unconfirmed'))
+      .mockResolvedValueOnce(undefined)
+
+    // Settings OFF starts disposal without awaiting it. The broker failure
+    // arrives before the delayed SIGKILL sweep.
+    harness.manager.dispose()
+    await flushPromises()
+
+    let retrySettled = false
+    const retry = harness.manager.disposeAndWait().then(() => {
+      retrySettled = true
+    })
+    await flushPromises()
+
+    expect(harness.terminal.shutdown).toHaveBeenCalledTimes(2)
+    expect(retrySettled).toBe(false)
+    expect(harness.terminal.last.forceKill).not.toHaveBeenCalled()
+
+    timerCallbacks[0]?.()
+    await retry
+    expect(harness.terminal.last.forceKill).toHaveBeenCalledTimes(1)
+    expect(retrySettled).toBe(true)
+  })
+
+  test('a failed shutdown retry also waits for the original force-kill cleanup', async () => {
+    const timerCallbacks: Array<() => void> = []
+    const timer: AiGraceTimer = {
+      setTimeout: (handler) => {
+        timerCallbacks.push(handler)
+        return timerCallbacks.length
+      },
+      clearTimeout: jest.fn(),
+    }
+    const harness = createTerminalHarness({ timer })
+    await harness.manager.startRun(makeTaskFile())
+    harness.terminal.shutdown
+      .mockRejectedValueOnce(new Error('first shutdown unconfirmed'))
+      .mockRejectedValueOnce(new Error('retry shutdown unconfirmed'))
+
+    harness.manager.dispose()
+    await flushPromises()
+
+    let retrySettled = false
+    const retry = harness.manager.disposeAndWait().finally(() => {
+      retrySettled = true
+    })
+    const assertion = expect(retry).rejects.toThrow('retry shutdown unconfirmed')
+    await flushPromises()
+
+    expect(harness.terminal.shutdown).toHaveBeenCalledTimes(2)
+    expect(retrySettled).toBe(false)
+    expect(harness.terminal.last.forceKill).not.toHaveBeenCalled()
+
+    timerCallbacks[0]?.()
+    await assertion
+    expect(harness.terminal.last.forceKill).toHaveBeenCalledTimes(1)
+    expect(retrySettled).toBe(true)
   })
 })
 
@@ -1099,5 +1413,65 @@ describe('AiTaskManager carried fixes: stopped-run buffers + releaseRun', () => 
     expect(failed?.status).toBe('failed')
     harness.manager.releaseRun(failed.id)
     expect(harness.manager.getRuns()).toEqual([])
+  })
+
+  test('broker give-up on a LIVE run marks it interrupted instead of leaving it running forever', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    const transcriptPath = record.transcriptPath
+    harness.terminal.last.emitData('live output before the pipe died')
+    expect(record.status).toBe('running')
+
+    harness.terminal.last.callbacks.onUnavailable?.()
+
+    const updated = harness.manager.getRun(record.id)
+    expect(updated?.status).toBe('interrupted')
+    expect(typeof updated?.errorMessage).toBe('string')
+    expect(updated?.terminalSessionId).toBeUndefined()
+    // The buffered output survives so the pane/replay still show the tail.
+    let replayed = ''
+    harness.manager.onTerminalData(record.id, (chunk) => {
+      replayed += chunk
+    })
+    expect(replayed).toContain('live output before the pipe died')
+    expect(
+      harness.manager.claimInterruptedTaskStateReconciliation(record.id),
+    ).toBe(true)
+
+    // The broker calls onUnavailable only after the child is confirmed dead.
+    // The manager must then run the same transcript/log cleanup chain as a
+    // normal exit instead of dropping the trusted path on the floor.
+    await flushPromises()
+    expect(harness.readAndDeleteFile).toHaveBeenCalledWith(transcriptPath)
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledTimes(1)
+    expect(harness.manager.getRun(record.id)?.transcriptPath).toBeUndefined()
+
+    // Late/duplicate terminal notifications lose the race and are no-ops:
+    // one run has exactly one terminal persist chain.
+    harness.terminal.last.callbacks.onUnavailable?.()
+    harness.terminal.last.exit({
+      status: 'stopped',
+      exitCode: null,
+      signal: 'SIGKILL',
+    })
+    await flushPromises()
+    expect(harness.manager.getRun(record.id)?.status).toBe('interrupted')
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledTimes(1)
+  })
+
+  test('a normal terminal exit that wins the unavailable race keeps its outcome', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    harness.terminal.last.exit({
+      status: 'succeeded',
+      exitCode: 0,
+      signal: null,
+    })
+    harness.terminal.last.callbacks.onUnavailable?.()
+    await flushPromises()
+
+    expect(harness.manager.getRun(record.id)?.status).toBe('succeeded')
+    expect(harness.writeTerminalRunLog).toHaveBeenCalledTimes(1)
   })
 })

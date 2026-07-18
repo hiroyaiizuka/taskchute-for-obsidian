@@ -471,8 +471,15 @@ describe('NodeProcessGateway', () => {
 
     test('sweeps snapshotted detached descendants after the wrapper exits', async () => {
       const detachedPid = 987_654
-      const snapshotDescendantPids = jest.fn(() => [detachedPid])
-      const gateway = new NodeProcessGateway(snapshotDescendantPids)
+      const snapshotDescendantPids = jest.fn(() => [
+        { pid: detachedPid, birthToken: 'detached-birth' },
+      ])
+      const gateway = new NodeProcessGateway(
+        snapshotDescendantPids,
+        undefined,
+        undefined,
+        () => 'detached-birth',
+      )
       const handle = gateway.spawnProcess({
         command: process.execPath,
         args: ['-e', "process.stdout.write('READY'); setInterval(() => {}, 1000)"],
@@ -505,6 +512,65 @@ describe('NodeProcessGateway', () => {
         expect(killSpy).toHaveBeenCalledWith(detachedPid, 'SIGTERM')
         expect(killSpy).toHaveBeenCalledWith(detachedPid, 'SIGKILL')
         expect(killSpy).not.toHaveBeenCalledWith(-(wrapperPid ?? 0), 'SIGKILL')
+      } finally {
+        killSpy.mockRestore()
+        if (typeof wrapperPid === 'number') {
+          try {
+            originalKill(-wrapperPid, 'SIGKILL')
+          } catch {
+            // The wrapper was already reaped by the test.
+          }
+        }
+      }
+    }, 15_000)
+
+    test('does not SIGKILL a descendant PID reused after graceful stop', async () => {
+      const reusedPid = 987_653
+      const snapshotDescendantPids = jest.fn(() => [
+        { pid: reusedPid, birthToken: 'original-birth' },
+      ])
+      const readBirthToken = jest
+        .fn<(pid: number) => string | null>()
+        .mockReturnValueOnce('original-birth')
+        .mockReturnValue('replacement-birth')
+      const gateway = new NodeProcessGateway(
+        snapshotDescendantPids,
+        undefined,
+        undefined,
+        readBirthToken,
+      )
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', "process.stdout.write('READY'); setInterval(() => {}, 1000)"],
+        env: gateway.getBaseEnv(),
+      })
+      const wrapperPid = handle.pid
+      expect(wrapperPid).toBeGreaterThan(0)
+
+      await new Promise<void>((resolve) => {
+        handle.onStdout((text) => {
+          if (text.includes('READY')) resolve()
+        })
+      })
+
+      const originalKill = process.kill.bind(process)
+      const killSpy = jest.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        if (pid === reusedPid) return true
+        return originalKill(pid, signal)
+      })
+      try {
+        handle.kill('SIGTERM')
+        await new Promise<void>((resolve) => {
+          handle.onExit(() => resolve())
+        })
+
+        // Dispatcher escalation after the wrapper close must revalidate the
+        // remembered process birth identity before using its numeric PID.
+        handle.kill('SIGKILL')
+
+        expect(killSpy).toHaveBeenCalledWith(reusedPid, 'SIGTERM')
+        expect(killSpy).not.toHaveBeenCalledWith(reusedPid, 'SIGKILL')
+        expect(readBirthToken).toHaveBeenCalledTimes(2)
       } finally {
         killSpy.mockRestore()
         if (typeof wrapperPid === 'number') {

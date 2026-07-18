@@ -88,6 +88,12 @@ type TaskChutePluginAugment = {
   dayStateService: DayStateServiceAPI
   /** Present only when the AI task feature is enabled on desktop */
   aiTaskManager?: AiTaskManager
+  /** False as soon as plugin unload begins; fences async settings callbacks. */
+  aiTaskLifecycleActive?: boolean
+  /** Changes on every load/unload transition to reject stale callbacks. */
+  aiTaskLifecycleGeneration?: number
+  /** Ownership token for the renderer-local AI runtime lease. */
+  aiTaskRuntimeLeaseGeneration?: number
   saveSettings(): Promise<void>
   showSettingsModal(): void
   addRibbonIcon(

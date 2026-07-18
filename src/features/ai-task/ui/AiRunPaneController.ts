@@ -70,6 +70,25 @@
  * 'persisted', selects the most recent remaining run of the panel, and
  * hides the pane again when no runs remain.
  *
+ * Terminal bindings are additionally RECLAIMED while off screen: once a
+ * finished run's exit persist has completed, its hidden binding (adapter +
+ * subscriptions) is disposed. Bindings of still-ACTIVE runs are NEVER
+ * reclaimed, hidden or not: the manager's exit-time snapshot reads the live
+ * adapter, and the ANSI-stripped transcript fallback is mostly TUI redraw
+ * fragments — disposing an active binding would degrade that run's log note.
+ * Reselecting a reclaimed run re-creates the binding lazily through
+ * ensureTerminalView, whose subscribe-time replay of the manager's bounded
+ * output buffer restores the screen (the same mechanism as a renderer
+ * reload). Bindings presented by a visible panel, or whose exit persist is
+ * still pending (the exit-time snapshot must read a live adapter), are
+ * never reclaimed.
+ *
+ * Headless stream events render incrementally: bursts of synchronous
+ * manager notifications coalesce into one animation frame, and once the
+ * manager's bounded buffer overflows (fixed head + elision marker +
+ * rotating tail) only the marker text, the pruned oldest tail nodes, and
+ * the appended tail nodes change — never a full rebuild per event.
+ *
  * All content is written through createEl/createDiv/createSpan with
  * textContent only (xterm renders inside its own subtree via the adapter).
  */
@@ -106,6 +125,8 @@ import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
   getRun(runId: string): AiRunRecord | undefined
+  /** Exact persist state for final-status terminal binding reclamation. */
+  isRunExitPersisted?(runId: string): boolean
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined
   stopRun(runId: string): void
   followUp(runId: string, prompt: string): Promise<unknown>
@@ -150,7 +171,9 @@ export interface AiRunPaneManagerLike {
    * without it the manager falls back to the ANSI-stripped transcript file.
    */
   registerTerminalSnapshotProvider?(
-    provider: (runId: string) => string | undefined,
+    provider: (
+      runId: string,
+    ) => string | undefined | Promise<string | undefined>,
   ): () => void
 }
 
@@ -161,7 +184,12 @@ export interface AiRunPaneControllerHost {
   createTerminalAdapter: TerminalViewAdapterFactory
   /** Optional editor factory for focused pane tests; production uses CM6. */
   createFileEditorAdapter?: FileEditorAdapterFactory
-  registerManagedDisposer: (cleanup: () => void) => void
+  /**
+   * Register a view-lifetime fallback cleanup. Production hosts return an
+   * unregister function so an explicitly unmounted pane does not stay
+   * retained by the view until the whole leaf closes.
+   */
+  registerManagedDisposer: (cleanup: () => void) => void | (() => void)
   /**
    * Keep TaskChute's timer state in sync when the user stops a top-level AI
    * run through this pane's × control. Shell tabs and finished-run closes do
@@ -205,6 +233,17 @@ interface RunView {
   renderedEventCount: number
   lastStatus: AiRunStatus
   lastOmittedCount: number
+  /** Rendered elision marker element (post-overflow in-place updates) */
+  elisionEl: HTMLElement | null
+  /** Index of the marker among the rendered event nodes (-1 pre-overflow) */
+  elisionIndex: number
+  /**
+   * The run's exit persist chain has completed ('persisted' observed, or
+   * the view was created for an already-finished record whose persist ended
+   * in a previous pane lifetime). Gate for reclaiming the hidden binding —
+   * the manager's exit-time snapshot must never read a disposed adapter.
+   */
+  exitPersisted: boolean
 }
 
 /** One side-by-side content panel (tab strip + bodies + selection) */
@@ -312,6 +351,7 @@ const TERMINAL_MAX_ROWS = 200
  */
 export const SPLIT_MIN_PANEL_WIDTH_PX = 320
 
+
 /** Chrome class on the host container while a terminal run is on screen */
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 /** Chrome class on the host container while the pane is expanded */
@@ -375,6 +415,12 @@ export class AiRunPaneController {
   private sidebarMode: 'runs' | 'files' = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
+  private readonly unregisterManagedDisposers: Array<() => void> = []
+  /** Headless runs with events to render on the next coalescing frame */
+  private readonly pendingEventSyncRunIds = new Set<string>()
+  private eventSyncFrame: number | null = null
+  /** Window that owns eventSyncFrame; cancellation must use the same owner. */
+  private eventSyncFrameOwner: Window | null = null
 
   constructor(private readonly host: AiRunPaneControllerHost) {}
 
@@ -527,24 +573,32 @@ export class AiRunPaneController {
     this.unsubscribe = this.host.manager.onChange((record, changeType) => {
       this.handleChange(record, changeType)
     })
-    this.host.registerManagedDisposer(() => {
+    const unregisterManagedSubscription = this.host.registerManagedDisposer(() => {
       this.unsubscribe?.()
       this.unsubscribe = null
     })
+    if (typeof unregisterManagedSubscription === 'function') {
+      this.unregisterManagedDisposers.push(unregisterManagedSubscription)
+    }
 
     // The manager snapshots a terminal run's live xterm buffer at run exit
     // as the log-note transcript source (the raw PTY transcript file strips
-    // to TUI redraw garbage). Adapters of finished runs are kept alive for
-    // later viewing until unmount, so the exit-time capture always finds
-    // them.
+    // to TUI redraw garbage). Adapters are never disposed before the run's
+    // exit persist completed (reclaiming happens only afterwards, and only
+    // off screen), so the exit-time capture always finds them.
     this.unregisterSnapshotProvider =
-      this.host.manager.registerTerminalSnapshotProvider?.((runId) =>
-        this.runViews.get(runId)?.terminal?.adapter.snapshotText(),
-      ) ?? null
-    this.host.registerManagedDisposer(() => {
+      this.host.manager.registerTerminalSnapshotProvider?.((runId) => {
+        const adapter = this.runViews.get(runId)?.terminal?.adapter
+        if (!adapter) return undefined
+        return adapter.snapshotTextAfterWrites?.() ?? adapter.snapshotText()
+      }) ?? null
+    const unregisterManagedSnapshot = this.host.registerManagedDisposer(() => {
       this.unregisterSnapshotProvider?.()
       this.unregisterSnapshotProvider = null
     })
+    if (typeof unregisterManagedSnapshot === 'function') {
+      this.unregisterManagedDisposers.push(unregisterManagedSnapshot)
+    }
 
     for (const record of this.host.manager.getRuns()) {
       if (record.status === 'stopped') {
@@ -564,10 +618,21 @@ export class AiRunPaneController {
   unmount(): void {
     this.unsubscribe?.()
     this.unsubscribe = null
+    if (this.eventSyncFrame !== null) {
+      ;(this.eventSyncFrameOwner ?? window).cancelAnimationFrame(
+        this.eventSyncFrame,
+      )
+      this.eventSyncFrame = null
+      this.eventSyncFrameOwner = null
+    }
+    this.pendingEventSyncRunIds.clear()
     // Unregister BEFORE disposing adapters: a snapshot must never be taken
     // from a disposed terminal mid-teardown.
     this.unregisterSnapshotProvider?.()
     this.unregisterSnapshotProvider = null
+    while (this.unregisterManagedDisposers.length > 0) {
+      this.unregisterManagedDisposers.pop()?.()
+    }
     for (const view of this.runViews.values()) {
       this.disposeTerminalBinding(view)
     }
@@ -1056,6 +1121,7 @@ export class AiRunPaneController {
         panel.id === this.focusedPanelId && this.isPanelVisible(panel),
       )
     }
+    this.reclaimHiddenTerminalBindings()
   }
 
   /**
@@ -1301,6 +1367,12 @@ export class AiRunPaneController {
       // statuses close only when their × was clicked while still active.
       if (record.status === 'stopped' || this.pendingCloseRunIds.has(record.id)) {
         this.closeRun(record.id)
+        return
+      }
+      const persistedView = this.runViews.get(record.id)
+      if (persistedView) {
+        persistedView.exitPersisted = true
+        this.reclaimHiddenTerminalBindings()
       }
       return
     }
@@ -1319,21 +1391,61 @@ export class AiRunPaneController {
     }
     if (existing.lastStatus !== record.status) {
       existing.lastStatus = record.status
+      // A resumed run's next exit starts a fresh persist chain.
+      if (ACTIVE_STATUSES.has(record.status)) existing.exitPersisted = false
       this.refreshRunRow(existing, record)
       this.refreshTabsShowingRun(record.id)
     }
     if (!existing.isTerminal) {
-      this.syncEvents(existing, record)
+      this.scheduleEventSync(record.id)
     }
     this.updateComposerState()
+  }
+
+  /**
+   * Coalesce event rendering into one animation frame: the manager notifies
+   * synchronously per stream line, so a fast child process would otherwise
+   * force a DOM update (and layout) per line. Status/row updates stay
+   * synchronous — only the event list defers to the next frame.
+   */
+  private scheduleEventSync(runId: string): void {
+    this.pendingEventSyncRunIds.add(runId)
+    if (this.eventSyncFrame !== null) return
+    // Obsidian's activeWindow follows focus and can be a short-lived popout.
+    // Schedule on the renderer root and retain that exact owner for teardown.
+    const frameOwner = window
+    const frameId = frameOwner.requestAnimationFrame(() => {
+      if (
+        this.eventSyncFrame !== frameId ||
+        this.eventSyncFrameOwner !== frameOwner
+      ) {
+        return
+      }
+      this.eventSyncFrame = null
+      this.eventSyncFrameOwner = null
+      this.flushEventSync()
+    })
+    this.eventSyncFrameOwner = frameOwner
+    this.eventSyncFrame = frameId
+  }
+
+  private flushEventSync(): void {
+    const runIds = Array.from(this.pendingEventSyncRunIds)
+    this.pendingEventSyncRunIds.clear()
+    for (const runId of runIds) {
+      const view = this.runViews.get(runId)
+      const record = this.host.manager.getRun(runId)
+      if (!view || view.isTerminal || !record) continue
+      this.syncEvents(view, record)
+    }
   }
 
   /**
    * × entry point shared by the sidebar row and the content tab: an ACTIVE
    * run is stopped first and its view closes when 'persisted' arrives (the
    * exit-time snapshot must be read from a live adapter); a run already in
-   * the stopped mid-persist window just waits for that same notification;
-   * finished runs close immediately.
+   * any final-status-but-mid-persist window waits for that same notification;
+   * finished runs close immediately only after their persist chain completed.
    */
   private requestCloseRun(runId: string): void {
     const view = this.runViews.get(runId)
@@ -1352,7 +1464,7 @@ export class AiRunPaneController {
       this.host.manager.stopRun(runId)
       return
     }
-    if (status === 'stopped') {
+    if (!view.exitPersisted) {
       this.pendingCloseRunIds.add(runId)
       return
     }
@@ -1382,6 +1494,7 @@ export class AiRunPaneController {
     view.body.remove()
     this.runViews.delete(runId)
     this.pendingCloseRunIds.delete(runId)
+    this.pendingEventSyncRunIds.delete(runId)
     // The view is gone for good: drop the run's record from the manager so a
     // later pane remount does not resurrect the closed run (the manager
     // refuses to release still-active runs, so a rollback of a mid-dispatch
@@ -1529,6 +1642,15 @@ export class AiRunPaneController {
       renderedEventCount: 0,
       lastStatus: record.status,
       lastOmittedCount: record.omittedEventCount ?? 0,
+      elisionEl: null,
+      elisionIndex: -1,
+      // Final status is published BEFORE the log/transcript chain starts.
+      // Ask the manager for the exact state so a pane mount inside that gap
+      // cannot reclaim the adapter that the pending snapshot still needs.
+      // The fallback preserves compatibility with lightweight test hosts.
+      exitPersisted:
+        this.host.manager.isRunExitPersisted?.(record.id) ??
+        !ACTIVE_STATUSES.has(record.status),
     }
     this.runViews.set(record.id, view)
     if (!isShell && target.taskRunId === null) {
@@ -1845,10 +1967,14 @@ export class AiRunPaneController {
       this.focusedPanelId = restoredFocusedPanel.id
       this.applyTaskWorkspace(runId)
       this.focusPanel(restoredFocusedPanel)
-      if (!this.isCollapsed()) {
-        this.ensureTerminalView(restoredFocusedPanel)
-      }
       this.updateContainerChrome()
+      this.updateComposerState()
+      if (!this.isCollapsed()) {
+        // Every visible panel, not just the focused one: a secondary panel
+        // whose binding was reclaimed while its workspace was stacked away
+        // must get its terminal (and replay) back on the task switch.
+        this.ensureVisibleTerminalViews()
+      }
       return
     }
 
@@ -1903,12 +2029,19 @@ export class AiRunPaneController {
       this.syncPanelSelectionClasses()
     }
     this.refreshContentTab(panel)
+    // Establish the terminal pane's FINAL geometry before xterm opens:
+    // updateContainerChrome applies the fixed 40% terminal height, while
+    // updateComposerState removes the headless-only composer. Previously
+    // both happened after adapter.open()/fit(), so the first grid was
+    // measured against a transient, taller body and stayed clipped until a
+    // later sidebar/maximize resize forced another fit.
+    this.updateContainerChrome()
+    this.updateComposerState()
     if (activateWorkspace && !this.isCollapsed()) {
       this.ensureTerminalView(panel)
     }
     if (activateWorkspace) this.rememberActiveTaskWorkspaceState()
-    this.updateContainerChrome()
-    this.updateComposerState()
+    this.reclaimHiddenTerminalBindings()
     this.refreshWorkspaceFiles()
   }
 
@@ -2015,6 +2148,12 @@ export class AiRunPaneController {
     const view = this.runViews.get(runId)
     if (!view || !view.isTerminal) return
 
+    // Invariant for every entry point (initial selection, task-workspace
+    // switch, uncollapse, and panel focus): xterm never opens against the
+    // transient headless/auto-height geometry.
+    this.updateContainerChrome()
+    this.updateComposerState()
+
     if (!view.terminal) {
       const record = this.host.manager.getRun(runId)
       const adapter = this.host.createTerminalAdapter()
@@ -2081,6 +2220,34 @@ export class AiRunPaneController {
     binding.disposeResize()
     binding.disposeFilePath()
     binding.adapter.dispose()
+  }
+
+  /**
+   * Reclaim terminal wiring no visible panel is presenting: a finished
+   * run's hidden binding is disposed once its exit persist completed.
+   * ACTIVE runs are never reclaimed, hidden or not — the manager captures
+   * the exit-time log snapshot from the live adapter, and the transcript
+   * fallback (ANSI-stripped TUI redraw stream) is far less readable, so
+   * disposing an active binding would degrade that run's eventual log note.
+   * Also never touched: bindings a visible panel shows (collapsed pane
+   * included), runs whose × teardown is pending on 'persisted', and
+   * finished runs whose 'persisted' has not arrived yet. Reselecting a
+   * reclaimed run re-creates the binding in ensureTerminalView; the
+   * manager's subscribe-time replay restores the screen.
+   */
+  private reclaimHiddenTerminalBindings(): void {
+    const onScreenRunIds = new Set<string>()
+    for (const panel of this.getVisiblePanels()) {
+      if (panel.selectedRunId !== null) onScreenRunIds.add(panel.selectedRunId)
+    }
+    for (const [runId, view] of this.runViews) {
+      if (!view.isTerminal || !view.terminal) continue
+      if (onScreenRunIds.has(runId)) continue
+      if (this.pendingCloseRunIds.has(runId)) continue
+      const status = this.host.manager.getRun(runId)?.status ?? view.lastStatus
+      if (ACTIVE_STATUSES.has(status)) continue
+      if (view.exitPersisted) this.disposeTerminalBinding(view)
+    }
   }
 
   /**
@@ -2252,39 +2419,79 @@ export class AiRunPaneController {
   }
 
   /**
-   * Incremental append via a per-run cursor. When the manager's bounded
-   * buffer replaces middle events (the omitted count changed), positional
-   * indices are no longer stable, so rebuild the whole body instead.
+   * Incremental render via a per-run cursor. Before the manager's bounded
+   * buffer overflows, notifications only ever append events. After the
+   * overflow the buffer keeps a FIXED shape (head + one elision marker +
+   * rotating tail of constant length) and every append bumps the omitted
+   * count — so the marker text is updated in place, the oldest rendered
+   * tail nodes are pruned, and only the new tail events are appended. A
+   * full rebuild happens only when the structure genuinely changed (view
+   * creation, the first overflow, or a shape this sync cannot reconcile).
    */
   private syncEvents(view: RunView, record: AiRunRecord): void {
     const omittedCount = record.omittedEventCount ?? 0
-    if (omittedCount !== view.lastOmittedCount) {
-      view.lastOmittedCount = omittedCount
+    const events = record.events
+    if (omittedCount === view.lastOmittedCount) {
+      if (events.length === view.renderedEventCount) return
+      if (events.length < view.renderedEventCount) {
+        this.renderAllEvents(view, record)
+        return
+      }
+      const pinned = this.isPinnedToBottom(view.body)
+      for (let i = view.renderedEventCount; i < events.length; i += 1) {
+        this.appendEventElement(view.body, events[i])
+      }
+      view.renderedEventCount = events.length
+      if (pinned) this.scrollToBottom(view.body)
+      return
+    }
+
+    // Steady-state overflow: each dropped tail event matches one appended
+    // event, so the buffer (and the rendered node count) keeps its length.
+    const appended = omittedCount - view.lastOmittedCount
+    const marker = view.elisionEl
+    const tailLength = events.length - view.elisionIndex - 1
+    const canPatchInPlace =
+      appended > 0 &&
+      marker !== null &&
+      marker.parentElement === view.body &&
+      events.length === view.renderedEventCount &&
+      events[view.elisionIndex]?.kind === 'elision' &&
+      appended < tailLength
+    if (!canPatchInPlace) {
       this.renderAllEvents(view, record)
       return
     }
-    if (record.events.length <= view.renderedEventCount) return
 
     const pinned = this.isPinnedToBottom(view.body)
-    for (let i = view.renderedEventCount; i < record.events.length; i += 1) {
-      this.appendEventElement(view.body, record.events[i])
+    marker.textContent = this.formatEventText(events[view.elisionIndex])
+    for (let i = 0; i < appended; i += 1) {
+      marker.nextElementSibling?.remove()
+      this.appendEventElement(view.body, events[events.length - appended + i])
     }
-    view.renderedEventCount = record.events.length
+    view.lastOmittedCount = omittedCount
     if (pinned) this.scrollToBottom(view.body)
   }
 
   private renderAllEvents(view: RunView, record: AiRunRecord): void {
     const pinned = this.isPinnedToBottom(view.body)
     view.body.empty()
-    for (const event of record.events) {
-      this.appendEventElement(view.body, event)
-    }
+    view.elisionEl = null
+    view.elisionIndex = -1
+    record.events.forEach((event, index) => {
+      const el = this.appendEventElement(view.body, event)
+      if (event.kind === 'elision') {
+        view.elisionEl = el
+        view.elisionIndex = index
+      }
+    })
     view.renderedEventCount = record.events.length
+    view.lastOmittedCount = record.omittedEventCount ?? 0
     if (pinned) this.scrollToBottom(view.body)
   }
 
-  private appendEventElement(body: HTMLElement, event: AiStreamEvent): void {
-    body.createDiv({
+  private appendEventElement(body: HTMLElement, event: AiStreamEvent): HTMLElement {
+    return body.createDiv({
       cls: `ai-run-pane__event ai-run-pane__event--${event.kind}`,
       text: this.formatEventText(event),
     })

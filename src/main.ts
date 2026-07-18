@@ -8,10 +8,16 @@ import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
-import { registerAiTaskAppShutdownCleanup } from "./features/ai-task/registerProcessCleanup"
+import {
+  getSharedAiTaskManagersPendingDisposal,
+  registerAiTaskAppShutdownCleanup,
+} from "./features/ai-task/registerProcessCleanup"
 import { createAiTaskAmbientScheduler } from "./features/ai-task/AiTaskAmbientRuntime"
 import type { AiTaskAmbientScheduler } from "./features/ai-task/services/AiTaskAmbientScheduler"
-import { scheduleAiTaskManagerHotReloadHandoff } from "./features/ai-task/services/AiTaskRuntimeLease"
+import {
+  AI_TASK_RUNTIME_HANDOFF_GRACE_MS,
+  scheduleAiTaskManagerHotReloadHandoff,
+} from "./features/ai-task/services/AiTaskRuntimeLease"
 import { VIEW_TYPE_TASKCHUTE } from "./types"
 import { openSettingsModal } from "./ui/modals/PathSettingsModal"
 import { bootstrapPlugin, prepareSettings } from "./app/bootstrap"
@@ -29,10 +35,19 @@ export default class TaskChutePlusPlugin extends Plugin {
   reminderManager?: ReminderSystemManager
   /** AI task run manager (present only when enabled on desktop) */
   aiTaskManager?: AiTaskManager
+  /**
+   * Lifecycle fence for AI settings callbacks that can outlive saveSettings().
+   * The generation also rejects callbacks if this same instance is reloaded.
+   */
+  aiTaskLifecycleActive = false
+  aiTaskLifecycleGeneration = 0
+  /** Lease generation captured by this exact plugin instance. */
+  aiTaskRuntimeLeaseGeneration?: number
   /** Plugin-owned Ambient routine clock (one instance, independent of views). */
   private aiTaskAmbientScheduler?: AiTaskAmbientScheduler
   /** Disabled managers whose SIGTERM -> SIGKILL disposal is still pending */
-  readonly aiTaskManagersPendingDisposal = new Set<AiTaskManager>()
+  readonly aiTaskManagersPendingDisposal =
+    getSharedAiTaskManagersPendingDisposal(this.app)
 
   // Simple logger/notification wrapper
   _log(level: keyof Console | undefined, ...args: unknown[]): void {
@@ -58,6 +73,9 @@ export default class TaskChutePlusPlugin extends Plugin {
   }
 
   async onload(): Promise<void> {
+    this.aiTaskLifecycleGeneration += 1
+    this.aiTaskLifecycleActive = true
+
     this.settings = await prepareSettings(this)
 
     const context: PluginContext = await bootstrapPlugin(this)
@@ -81,6 +99,10 @@ export default class TaskChutePlusPlugin extends Plugin {
   }
 
   onunload(): void {
+    // Invalidate pending settings callbacks before any runtime handoff begins.
+    this.aiTaskLifecycleActive = false
+    this.aiTaskLifecycleGeneration += 1
+
     // Clear timer intervals
     if (this.globalTimerInterval) {
       activeWindow.clearInterval(this.globalTimerInterval)
@@ -100,7 +122,12 @@ export default class TaskChutePlusPlugin extends Plugin {
     // handoff. A real renderer reload detaches from the external PTY broker;
     // workspace quit and settings OFF still await full broker shutdown.
     if (this.aiTaskManager) {
-      scheduleAiTaskManagerHotReloadHandoff(this.aiTaskManager)
+      scheduleAiTaskManagerHotReloadHandoff(
+        this.aiTaskManager,
+        undefined,
+        AI_TASK_RUNTIME_HANDOFF_GRACE_MS,
+        this.aiTaskRuntimeLeaseGeneration,
+      )
     }
 
     // Clear boundary check timeout

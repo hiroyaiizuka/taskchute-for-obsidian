@@ -4,6 +4,7 @@ type TimerWindowMock = Window & {
   setInterval: jest.Mock<number, [TimerHandler, number?]>
   clearInterval: jest.Mock<void, [number?]>
   setTimeout: jest.Mock<number, [TimerHandler, number?]>
+  clearTimeout: jest.Mock<void, [number?]>
 }
 
 const setActiveWindow = (win: Window): void => {
@@ -27,6 +28,7 @@ const createTimerWindow = (ids: { intervalId?: number; timeoutId?: number } = {}
       }
       return timeoutId
     }),
+    clearTimeout: jest.fn(),
   } as unknown as TimerWindowMock
 }
 
@@ -107,5 +109,70 @@ describe('stableTimerSource', () => {
     expect(stableSetTimeout).toHaveBeenCalledWith(expect.any(Function), 25)
 
     await sleepPromise
+  })
+
+  test('timeout survives a popout focus switch and clears through its root-window owner', async () => {
+    const importTimeWindow = createTimerWindow({ timeoutId: 11 })
+    const focusedPopout = createTimerWindow({ timeoutId: 99 })
+    const laterPopout = createTimerWindow({ timeoutId: 100 })
+    let nativeCallback: (() => void) | null = null
+    const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation(
+      (handler: TimerHandler) => {
+        if (typeof handler === 'function') {
+          nativeCallback = handler
+        }
+        return 42
+      },
+    )
+    const stableClearTimeout = jest
+      .spyOn(window, 'clearTimeout')
+      .mockImplementation(() => undefined)
+    const callback = jest.fn()
+
+    setActiveWindow(importTimeWindow)
+    const { stableTimeoutSource } = await loadStableTimerModule()
+
+    setActiveWindow(focusedPopout)
+    const timeoutId = stableTimeoutSource.setTimeout(callback, 1500)
+
+    expect(importTimeWindow.setTimeout).not.toHaveBeenCalled()
+    expect(focusedPopout.setTimeout).not.toHaveBeenCalled()
+    expect(stableSetTimeout).toHaveBeenCalledWith(expect.any(Function), 1500)
+
+    setActiveWindow(laterPopout)
+    expect(nativeCallback).not.toBeNull()
+    ;(nativeCallback as unknown as () => void)()
+
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(laterPopout.setTimeout).not.toHaveBeenCalled()
+
+    // The fired record is gone; clearing the stable handle must never target
+    // either short-lived popout or the native root-window id.
+    stableTimeoutSource.clearTimeout(timeoutId)
+    expect(importTimeWindow.clearTimeout).not.toHaveBeenCalled()
+    expect(focusedPopout.clearTimeout).not.toHaveBeenCalled()
+    expect(laterPopout.clearTimeout).not.toHaveBeenCalled()
+    expect(stableClearTimeout).toHaveBeenCalledWith(timeoutId)
+    expect(stableClearTimeout).not.toHaveBeenCalledWith(42)
+  })
+
+  test('cancels an armed timeout through the same root window after activeWindow changes', async () => {
+    const focusedPopout = createTimerWindow({ timeoutId: 99 })
+    const laterPopout = createTimerWindow({ timeoutId: 100 })
+    const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation(() => 42)
+    const stableClearTimeout = jest
+      .spyOn(window, 'clearTimeout')
+      .mockImplementation(() => undefined)
+    const { stableTimeoutSource } = await loadStableTimerModule()
+
+    setActiveWindow(focusedPopout)
+    const timeoutId = stableTimeoutSource.setTimeout(jest.fn(), 1500)
+    setActiveWindow(laterPopout)
+    stableTimeoutSource.clearTimeout(timeoutId)
+
+    expect(stableSetTimeout).toHaveBeenCalledWith(expect.any(Function), 1500)
+    expect(stableClearTimeout).toHaveBeenCalledWith(42)
+    expect(focusedPopout.clearTimeout).not.toHaveBeenCalled()
+    expect(laterPopout.clearTimeout).not.toHaveBeenCalled()
   })
 })

@@ -91,7 +91,11 @@ export class RunningTasksService {
       const y = base.getFullYear();
       const m = String(base.getMonth() + 1).padStart(2, '0');
       const d = String(base.getDate()).padStart(2, '0');
-      const dateString = `${y}-${m}-${d}`;
+      // A task can keep yesterday's startTime after it is explicitly moved to
+      // today's board. The board date is authoritative when the caller
+      // supplies it; otherwise a later save would silently move the persisted
+      // record back to the start date.
+      const dateString = viewDateString ?? `${y}-${m}-${d}`;
       const descriptionField = inst.task?.description;
       const taskDescription =
         typeof descriptionField === 'string' ? descriptionField : undefined;
@@ -152,6 +156,69 @@ export class RunningTasksService {
       console.warn('[RunningTasksService] Failed to delete running task record', error);
       return 0;
     }
+  }
+
+  /**
+   * Move persisted running-task records to another board date.
+   *
+   * This is a strict storage boundary:
+   * - a missing file or unmatched selector returns 0;
+   * - malformed JSON / an invalid top-level value rejects;
+   * - write failures reject.
+   *
+   * An instanceId, when supplied, is always the selector. This deliberately
+   * avoids falling back to taskId/path and moving a sibling duplicate.
+   */
+  async moveRunningTaskToDateStrict(options: {
+    targetDate: string
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }): Promise<number> {
+    const { targetDate, instanceId, taskPath, taskId } = options
+    if (!this.isValidDateKey(targetDate)) {
+      throw new TypeError(`Invalid running-task target date: ${targetDate}`)
+    }
+    if (!instanceId && !taskPath && !taskId) return 0
+
+    const logDataPath = this.plugin.pathManager.getLogDataPath()
+    const dataPath = `${logDataPath}/running-task.json`
+    const adapter = this.plugin.app.vault.adapter
+
+    return await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      if (!(await adapter.exists(dataPath))) return 0
+      const raw = await adapter.read(dataPath)
+      if (!raw) return 0
+
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) {
+        throw new TypeError('running-task.json must contain an array')
+      }
+
+      const matches = (record: RunningTaskRecord): boolean => {
+        if (instanceId) return record.instanceId === instanceId
+        if (taskId) return record.taskId === taskId
+        return record.taskPath === taskPath
+      }
+
+      let moved = 0
+      const entries: unknown[] = parsed
+      const updated = entries.map((entry): unknown => {
+        if (
+          !this.isRunningTaskRecord(entry) ||
+          !matches(entry) ||
+          entry.date === targetDate
+        ) {
+          return entry
+        }
+        moved += 1
+        return { ...entry, date: targetDate }
+      })
+
+      if (moved === 0) return 0
+      await adapter.write(dataPath, JSON.stringify(updated, null, 2))
+      return moved
+    })
   }
 
   /**
@@ -534,5 +601,20 @@ export class RunningTasksService {
       taskId: extractTaskIdFromFrontmatter(frontmatter),
       reminder_time: normalizeReminderTime(frontmatter.reminder_time),
     }
+  }
+
+  private isValidDateKey(value: string): boolean {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+    if (!match) return false
+    const [, yearText, monthText, dayText] = match
+    const year = Number(yearText)
+    const month = Number(monthText)
+    const day = Number(dayText)
+    const date = new Date(year, month - 1, day)
+    return (
+      date.getFullYear() === year &&
+      date.getMonth() === month - 1 &&
+      date.getDate() === day
+    )
   }
 }

@@ -31,6 +31,7 @@ import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
 import {
   acquireRetainedAiTaskManager,
+  getAiTaskRuntimeLeaseGeneration,
   retainAiTaskManager,
 } from './services/AiTaskRuntimeLease'
 
@@ -38,6 +39,8 @@ export interface AiTaskPluginLike {
   app: App
   settings: TaskChuteSettings
   pathManager: PathManagerLike
+  /** Ownership token used to reject stale old-plugin unload callbacks. */
+  aiTaskRuntimeLeaseGeneration?: number
   _log?: (level?: string, ...args: unknown[]) => void
 }
 
@@ -59,6 +62,7 @@ function getVaultBrokerIdentity(app: App): string | undefined {
  * feature is disabled or the platform is not desktop.
  */
 export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | undefined {
+  plugin.aiTaskRuntimeLeaseGeneration = undefined
   if (plugin.settings.aiTaskEnabled !== true) return undefined
   if (!Platform?.isDesktop) return undefined
 
@@ -166,11 +170,15 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
 
   const retained = acquireRetainedAiTaskManager(plugin.app, deps)
   if (retained) {
+    plugin.aiTaskRuntimeLeaseGeneration =
+      getAiTaskRuntimeLeaseGeneration(retained)
     log('debug', '[AiTask] Adopted live runtime after plugin reload')
     return retained
   }
 
   const manager = new AiTaskManager(deps)
   retainAiTaskManager(plugin.app, manager)
+  plugin.aiTaskRuntimeLeaseGeneration =
+    getAiTaskRuntimeLeaseGeneration(manager)
   return manager
 }

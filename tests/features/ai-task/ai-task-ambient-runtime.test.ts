@@ -172,6 +172,28 @@ describe('AI Task Ambient runtime composition', () => {
     expect(harness.closeBackgroundView).toHaveBeenCalledTimes(1)
   })
 
+  test('does not create another background view while a failed candidate is backed off', async () => {
+    const harness = createHarness()
+    harness.runDueAmbientAiTasks.mockResolvedValue({
+      satisfiedPaths: [],
+      startedRuns: [],
+    })
+
+    await harness.scheduler.checkNow(DUE_AT)
+    expect(harness.createBackgroundView).toHaveBeenCalledTimes(1)
+
+    // Timer- or focus-driven re-checks inside the backoff window must not
+    // spin up a background TaskChuteView again.
+    await harness.scheduler.checkNow(new Date(2026, 6, 15, 8, 0, 30))
+    await harness.scheduler.checkNow(new Date(2026, 6, 15, 8, 0, 59))
+    expect(harness.createBackgroundView).toHaveBeenCalledTimes(1)
+    expect(harness.closeBackgroundView).toHaveBeenCalledTimes(1)
+
+    await harness.scheduler.checkNow(new Date(2026, 6, 15, 8, 1, 0))
+    expect(harness.createBackgroundView).toHaveBeenCalledTimes(2)
+    expect(harness.saveLocalStorage).not.toHaveBeenCalled()
+  })
+
   test('keeps an Obsidian-linked routine click-only', async () => {
     const harness = createHarness({ linked: true })
 

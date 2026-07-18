@@ -48,10 +48,13 @@ type FakeManager = {
 type MutableSettingTab = TaskChuteSettingTab & {
   app: typeof mockApp
   plugin: {
+    manifest: { id: string }
     settings: Record<string, unknown>
     saveSettings: jest.Mock<Promise<void>, []>
     aiTaskManager?: FakeManager
     aiTaskManagersPendingDisposal?: Set<FakeManager>
+    aiTaskLifecycleActive?: boolean
+    aiTaskLifecycleGeneration?: number
   }
   renderAiTaskSection: (container: HTMLElement) => void
 }
@@ -121,12 +124,21 @@ function createFakeManager(): FakeManager {
 
 function createTab(): MutableSettingTab {
   const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab
-  tab.app = mockApp
+  tab.app = {
+    ...mockApp,
+    plugins: { plugins: {} },
+  } as unknown as typeof mockApp
   tab.plugin = {
+    manifest: { id: 'taskchute-plus' },
     settings: {},
     saveSettings: jest.fn().mockResolvedValue(undefined),
     aiTaskManagersPendingDisposal: new Set(),
+    aiTaskLifecycleActive: true,
+    aiTaskLifecycleGeneration: 1,
   }
+  ;(tab.app as unknown as {
+    plugins: { plugins: Record<string, unknown> }
+  }).plugins.plugins['taskchute-plus'] = tab.plugin
   return tab
 }
 
@@ -221,6 +233,173 @@ describe('TaskChute AI task settings section', () => {
     expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tab.plugin.aiTaskManager).toBeUndefined()
     expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
+  })
+
+  test('re-enabling waits for the previous broker shutdown before creating a manager', async () => {
+    let finishShutdown: (() => void) | undefined
+    const shutdown = new Promise<void>((resolve) => {
+      finishShutdown = resolve
+    })
+    const oldManager = createFakeManager()
+    oldManager.disposeAndWait.mockImplementation(() => shutdown)
+    const replacementManager = createFakeManager()
+    createAiTaskManagerMock.mockReturnValue(replacementManager)
+    const tab = createTab()
+    tab.plugin.settings.aiTaskEnabled = true
+    tab.plugin.aiTaskManager = oldManager
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await toggles[0]?.trigger(false)
+    const enabling = toggles[0]?.trigger(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
+    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+
+    finishShutdown?.()
+    await enabling
+
+    expect(createAiTaskManagerMock).toHaveBeenCalledWith(tab.plugin)
+    expect(tab.plugin.aiTaskManager).toBe(replacementManager)
+    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(false)
+  })
+
+  test('failed prior broker shutdown keeps AI tasks disabled instead of racing a new manager', async () => {
+    const oldManager = createFakeManager()
+    oldManager.disposeAndWait.mockRejectedValue(new Error('broker still alive'))
+    const tab = createTab()
+    tab.plugin.settings.aiTaskEnabled = true
+    tab.plugin.aiTaskManager = oldManager
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await toggles[0]?.trigger(false)
+    await toggles[0]?.trigger(true)
+
+    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+    expect(tab.plugin.aiTaskManager).toBeUndefined()
+    expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
+    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
+    expect(Notice).toHaveBeenCalledWith(
+      'The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.',
+    )
+  })
+
+  test('a toggle save completed by an old plugin instance cannot mutate the adopted manager', async () => {
+    let finishSave: (() => void) | undefined
+    const tab = createTab()
+    tab.plugin.saveSettings.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    const pendingToggle = toggles[0]?.trigger(true)
+    await Promise.resolve()
+    tab.app = {
+      ...mockApp,
+      plugins: {
+        plugins: {
+          'taskchute-plus': { replacement: true },
+        },
+      },
+    } as unknown as typeof mockApp
+    finishSave?.()
+    await pendingToggle
+
+    expect(tab.plugin.settings.aiTaskEnabled).toBe(true)
+    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+    expect(tab.plugin.aiTaskManager).toBeUndefined()
+  })
+
+  test('an old disable callback cannot dispose a manager adopted by the replacement plugin', async () => {
+    let finishSave: (() => void) | undefined
+    const manager = createFakeManager()
+    const tab = createTab()
+    tab.plugin.settings.aiTaskEnabled = true
+    tab.plugin.aiTaskManager = manager
+    tab.plugin.saveSettings.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    const pendingToggle = toggles[0]?.trigger(false)
+    await Promise.resolve()
+    const replacement = { aiTaskManager: manager }
+    ;(tab.app as unknown as {
+      plugins: { plugins: Record<string, unknown> }
+    }).plugins.plugins['taskchute-plus'] = replacement
+    finishSave?.()
+    await pendingToggle
+
+    expect(manager.dispose).not.toHaveBeenCalled()
+    expect(manager.disposeAndWait).not.toHaveBeenCalled()
+    expect(replacement.aiTaskManager).toBe(manager)
+  })
+
+  test('an unload-started disable callback cannot dispose the manager while the registry still points to the old plugin', async () => {
+    let finishSave: (() => void) | undefined
+    const manager = createFakeManager()
+    const tab = createTab()
+    tab.plugin.settings.aiTaskEnabled = true
+    tab.plugin.aiTaskManager = manager
+    tab.plugin.saveSettings.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    const pendingToggle = toggles[0]?.trigger(false)
+    await Promise.resolve()
+
+    // Hostile event order: onunload has begun, but Obsidian has not replaced
+    // the old instance in its plugin registry yet.
+    tab.plugin.aiTaskLifecycleActive = false
+    tab.plugin.aiTaskLifecycleGeneration = 2
+    expect(
+      (tab.app as unknown as {
+        plugins: { plugins: Record<string, unknown> }
+      }).plugins.plugins['taskchute-plus'],
+    ).toBe(tab.plugin)
+
+    finishSave?.()
+    await pendingToggle
+
+    expect(manager.dispose).not.toHaveBeenCalled()
+    expect(manager.disposeAndWait).not.toHaveBeenCalled()
+    expect(tab.plugin.aiTaskManager).toBe(manager)
+  })
+
+  test('only the newest toggle operation applies when saves complete out of order', async () => {
+    const saveResolvers: Array<() => void> = []
+    const tab = createTab()
+    tab.plugin.saveSettings.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          saveResolvers.push(resolve)
+        }),
+    )
+    tab.renderAiTaskSection(document.createElement('div'))
+
+    const enable = toggles[0]?.trigger(true)
+    await Promise.resolve()
+    const disable = toggles[0]?.trigger(false)
+    await Promise.resolve()
+    saveResolvers[1]?.()
+    await disable
+    saveResolvers[0]?.()
+    await enable
+
+    expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
+    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+    expect(tab.plugin.aiTaskManager).toBeUndefined()
   })
 
   test('run mode dropdown lists terminal and headless and reflects the saved setting', () => {

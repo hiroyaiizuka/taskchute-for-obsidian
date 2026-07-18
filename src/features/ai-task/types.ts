@@ -97,8 +97,8 @@ export interface AiRawEvent {
 }
 
 /**
- * Synthetic marker inserted by the run manager when the middle of the event
- * buffer is dropped (head + tail cap). Never produced by the CLI parsers.
+ * Synthetic marker inserted when either a single JSONL record or the run
+ * manager's event buffer drops excess events.
  */
 export interface AiElisionEvent {
   kind: 'elision'

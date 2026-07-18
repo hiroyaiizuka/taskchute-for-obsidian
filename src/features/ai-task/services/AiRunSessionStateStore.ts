@@ -8,6 +8,7 @@
  */
 
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
+import { stableTimeoutSource } from '../../../utils/stableTimer'
 
 export const AI_RUN_SESSION_STATE_STORAGE_KEY =
   'taskchute-plus.ai-run-session-state.v1'
@@ -18,6 +19,14 @@ export const AI_RUN_SESSION_EVENT_LIMIT = 400
 export const AI_RUN_SESSION_EVENT_TEXT_LIMIT = 4 * 1024
 export const AI_RUN_SESSION_SERIALIZED_LIMIT = 2_500_000
 export const AI_RUN_SESSION_SAVE_DELAY_MS = 300
+/**
+ * Lazy tier for terminal-output-driven saves. A busy TUI (spinner frames)
+ * produces continuous PTY chunks; snapshotting every run each 300ms just to
+ * capture replay churn is wasted main-thread work. Status changes keep the
+ * prompt AI_RUN_SESSION_SAVE_DELAY_MS tier, and saveNow/flush still write the
+ * complete latest state synchronously regardless of the scheduled tier.
+ */
+export const AI_RUN_SESSION_SAVE_IDLE_DELAY_MS = 5000
 
 export interface AiRunSessionSnapshot {
   record: AiRunRecord
@@ -40,6 +49,8 @@ export interface AiRunSessionStorageBridge {
 export interface AiRunSessionTimer {
   setTimeout(handler: () => void, timeoutMs: number): number
   clearTimeout(handle: number): void
+  /** Clock for deadline comparison across save tiers; defaults to Date.now. */
+  now?(): number
 }
 
 export interface AiRunSessionStateStoreOptions {
@@ -67,10 +78,8 @@ const VALID_STATUSES: ReadonlySet<AiRunStatus> = new Set([
 ])
 
 const defaultTimer: AiRunSessionTimer = {
-  setTimeout: (handler, timeoutMs) => activeWindow.setTimeout(handler, timeoutMs),
-  clearTimeout: (handle) => {
-    activeWindow.clearTimeout(handle)
-  },
+  ...stableTimeoutSource,
+  now: () => Date.now(),
 }
 
 function boundedString(value: unknown, maxLength = AI_RUN_SESSION_EVENT_TEXT_LIMIT): string | undefined {
@@ -324,10 +333,35 @@ function fitStateToSerializedLimit(
     version: AI_RUN_SESSION_STATE_VERSION,
     runs: normalizeSnapshots(snapshots),
   }
-  let serialized = JSON.stringify(state)
   // Capacity pressure evicts disposable finished history first. Critical
   // active/reconciliation records are never shifted out: losing one would
-  // leave its TaskChute timer permanently running after a restart.
+  // leave its TaskChute timer permanently running after a restart. Each
+  // snapshot is serialized once and evictions adjust a running total, so
+  // shedding N snapshots no longer re-stringifies the whole state N times.
+  const wrapperLength = JSON.stringify({
+    version: state.version,
+    runs: [],
+  }).length
+  const snapshotLengths = state.runs.map(
+    (snapshot) => JSON.stringify(snapshot).length,
+  )
+  let estimatedLength =
+    wrapperLength +
+    snapshotLengths.reduce((sum, length) => sum + length, 0) +
+    Math.max(0, snapshotLengths.length - 1)
+  while (estimatedLength > AI_RUN_SESSION_SERIALIZED_LIMIT) {
+    const disposableIndex = state.runs.findIndex(
+      (snapshot) => !isCriticalSnapshot(snapshot),
+    )
+    if (disposableIndex < 0) break
+    state.runs.splice(disposableIndex, 1)
+    const [evictedLength] = snapshotLengths.splice(disposableIndex, 1)
+    estimatedLength -=
+      (evictedLength ?? 0) + (snapshotLengths.length > 0 ? 1 : 0)
+  }
+  let serialized = JSON.stringify(state)
+  // Correction loop for an estimate miss; the running total is exact for
+  // plain JSON data, so this should never iterate.
   while (serialized.length > AI_RUN_SESSION_SERIALIZED_LIMIT) {
     const disposableIndex = state.runs.findIndex(
       (snapshot) => !isCriticalSnapshot(snapshot),
@@ -381,6 +415,8 @@ export class AiRunSessionStateStore {
   private readonly saveDelayMs: number
   private pendingSource: AiRunSessionSnapshotSource | null = null
   private pendingTimer: number | null = null
+  /** Absolute deadline of pendingTimer; only meaningful while it is armed. */
+  private pendingDeadline = 0
 
   constructor(
     private readonly storage: AiRunSessionStorageBridge,
@@ -405,17 +441,39 @@ export class AiRunSessionStateStore {
     }
   }
 
-  scheduleSave(source: AiRunSessionSnapshotSource): void {
+  /**
+   * Coalesce a save. `delayMs` selects the tier (default
+   * AI_RUN_SESSION_SAVE_DELAY_MS; pass AI_RUN_SESSION_SAVE_IDLE_DELAY_MS for
+   * output-driven churn) with MIN-DEADLINE-WINS semantics: an earlier
+   * request's armed deadline is never extended, and a later request with an
+   * earlier deadline re-arms the timer sooner. The latest source always wins
+   * regardless of which tier armed the timer.
+   */
+  scheduleSave(source: AiRunSessionSnapshotSource, delayMs?: number): void {
     // Keep a lazy provider when the caller's snapshot includes a large xterm
     // replay. Repeated PTY chunks then replace one cheap closure instead of
     // joining/cloning the whole buffer before the throttle window expires.
     this.pendingSource = source
-    if (this.pendingTimer !== null) return
+    const delay =
+      delayMs !== undefined && Number.isFinite(delayMs)
+        ? Math.max(0, Math.round(delayMs))
+        : this.saveDelayMs
+    const deadline = this.now() + delay
+    if (this.pendingTimer !== null) {
+      if (deadline >= this.pendingDeadline) return
+      try {
+        this.timer.clearTimeout(this.pendingTimer)
+      } catch {
+        // Re-armed below; a late duplicate fire flushes an empty queue.
+      }
+      this.pendingTimer = null
+    }
     try {
+      this.pendingDeadline = deadline
       this.pendingTimer = this.timer.setTimeout(() => {
         this.pendingTimer = null
         this.flush()
-      }, this.saveDelayMs)
+      }, delay)
     } catch (error) {
       this.options.log?.('warn', '[AiRunSessionStateStore] Save timer failed', error)
       this.saveSourceNow(source)
@@ -454,6 +512,10 @@ export class AiRunSessionStateStore {
     const source = this.pendingSource
     this.pendingSource = null
     if (source) this.saveSourceNow(source)
+  }
+
+  private now(): number {
+    return this.timer.now?.() ?? Date.now()
   }
 
   private saveSourceNow(source: AiRunSessionSnapshotSource): void {

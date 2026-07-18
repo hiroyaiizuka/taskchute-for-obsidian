@@ -35,7 +35,16 @@ import {
 export const XTERM_CSS_STYLE_CLASS = 'taskchute-xterm-css'
 
 /** Scrollback kept by the embedded terminal (lines) */
-const TERMINAL_SCROLLBACK_LINES = 10000
+const TERMINAL_SCROLLBACK_LINES = 2000
+
+/**
+ * Trailing debounce for container ResizeObserver events. Fitting on every
+ * frame of a drag-resize forces layout, re-wraps the whole buffer, and sends
+ * a PTY resize per frame; one fit after the burst settles is enough.
+ */
+const RESIZE_FIT_DEBOUNCE_MS = 60
+/** Never let a broken/aborted xterm write callback block run persistence. */
+const XTERM_WRITE_DRAIN_TIMEOUT_MS = 2_000
 
 const TERMINAL_FONT_SIZE_PX = 12
 
@@ -100,6 +109,13 @@ export interface TerminalViewAdapterLike {
    * raw PTY transcript file is a TUI redraw stream that strips to garbage).
    */
   snapshotText(): string
+  /**
+   * Wait until xterm has parsed every write queued before this call, then
+   * snapshot the buffer. Terminal exit and data frames share one ordered
+   * broker socket, but xterm parses write() asynchronously; the barrier keeps
+   * the final output from disappearing from the run log.
+   */
+  snapshotTextAfterWrites?(): Promise<string>
   focus(): void
   dispose(): void
 }
@@ -476,6 +492,8 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
   private fitAddon: FitAddon | null = null
   private resizeObserver: ResizeObserver | null = null
   private pendingWrites: string[] = []
+  private pendingXtermWrites = 0
+  private readonly writeDrainWaiters = new Set<() => void>()
   private readonly dataListeners = new Set<(data: string) => void>()
   private readonly resizeListeners = new Set<
     (size: { cols: number; rows: number }) => void
@@ -484,6 +502,13 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     (target: TerminalFilePathActivation) => void
   >()
   private linkProviderDisposables: IDisposable[] = []
+  private fitDebounceTimer: ReturnType<typeof activeWindow.setTimeout> | null =
+    null
+  private timerWindow: Window | null = null
+  /** One-shot convergence fit after the browser commits the opening layout. */
+  private postLayoutFitFrame: number | null = null
+  private postLayoutFitFrameOwner: Window | null = null
+  private lastGridSize: { cols: number; rows: number } | null = null
   private disposed = false
 
   constructor(private readonly options: TerminalViewAdapterOptions) {}
@@ -491,6 +516,7 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
   open(container: HTMLElement, cols: number, rows: number): void {
     if (this.terminal || this.disposed) return
     ensureXtermCssInjected(container)
+    this.timerWindow = container.ownerDocument.defaultView ?? window
     const terminal = new Terminal({
       cols,
       rows,
@@ -508,6 +534,14 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
       }
     })
     terminal.onResize((size) => {
+      if (
+        this.lastGridSize &&
+        this.lastGridSize.cols === size.cols &&
+        this.lastGridSize.rows === size.rows
+      ) {
+        return
+      }
+      this.lastGridSize = { cols: size.cols, rows: size.rows }
       for (const listener of Array.from(this.resizeListeners)) {
         listener(size)
       }
@@ -531,35 +565,103 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     ]
     this.terminal = terminal
     this.fitAddon = fitAddon
-    this.fit()
+    this.lastGridSize = { cols, rows }
 
     const ResizeObserverCtor = container.ownerDocument.defaultView?.ResizeObserver
     if (ResizeObserverCtor) {
       this.resizeObserver = new ResizeObserverCtor(() => {
-        this.fit()
+        this.scheduleDebouncedFit()
       })
       this.resizeObserver.observe(container)
     }
 
+    // The controller applies its terminal-height chrome before open(), so
+    // this synchronous fit can update the pending run grid before the PTY is
+    // spawned. A single next-frame fit catches the remaining Obsidian flex
+    // layout/font-metric convergence without restoring per-frame resize work.
+    this.fit()
+    this.schedulePostLayoutFit()
+
     const buffered = this.pendingWrites
     this.pendingWrites = []
     for (const chunk of buffered) {
-      terminal.write(chunk)
+      this.writeToTerminal(terminal, chunk)
     }
   }
 
   fit(): void {
     if (this.disposed || !this.terminal || !this.fitAddon) return
+    // A fit that would land on the current grid is pure waste: FitAddon would
+    // re-wrap the buffer and the resize relay would echo a redundant PTY
+    // resize over IPC. Skip it entirely.
+    const proposed = this.fitAddon.proposeDimensions()
+    if (
+      proposed &&
+      this.lastGridSize &&
+      this.lastGridSize.cols === proposed.cols &&
+      this.lastGridSize.rows === proposed.rows
+    ) {
+      return
+    }
     this.fitAddon.fit()
+  }
+
+  private schedulePostLayoutFit(): void {
+    if (this.disposed || this.postLayoutFitFrame !== null) return
+    const frameOwner = this.timerWindow ?? window
+    const frameId = frameOwner.requestAnimationFrame(() => {
+      if (
+        this.postLayoutFitFrame !== frameId ||
+        this.postLayoutFitFrameOwner !== frameOwner
+      ) {
+        return
+      }
+      this.postLayoutFitFrame = null
+      this.postLayoutFitFrameOwner = null
+      this.fit()
+    })
+    this.postLayoutFitFrameOwner = frameOwner
+    this.postLayoutFitFrame = frameId
+  }
+
+  private scheduleDebouncedFit(): void {
+    if (this.disposed) return
+    if (this.fitDebounceTimer !== null) {
+      this.timerWindow?.clearTimeout(this.fitDebounceTimer)
+    }
+    const timerWindow = this.timerWindow ?? window
+    this.fitDebounceTimer = timerWindow.setTimeout(() => {
+      this.fitDebounceTimer = null
+      this.fit()
+    }, RESIZE_FIT_DEBOUNCE_MS)
   }
 
   write(data: string): void {
     if (this.disposed || data.length === 0) return
     if (this.terminal) {
-      this.terminal.write(data)
+      this.writeToTerminal(this.terminal, data)
       return
     }
     this.pendingWrites.push(data)
+  }
+
+  private writeToTerminal(terminal: Terminal, data: string): void {
+    this.pendingXtermWrites += 1
+    let settled = false
+    const settle = (): void => {
+      if (settled) return
+      settled = true
+      this.pendingXtermWrites = Math.max(0, this.pendingXtermWrites - 1)
+      if (this.pendingXtermWrites !== 0) return
+      for (const resolve of Array.from(this.writeDrainWaiters)) resolve()
+      this.writeDrainWaiters.clear()
+    }
+    try {
+      terminal.write(data, settle)
+    } catch (error) {
+      settle()
+      throw error
+    }
   }
 
   onData(callback: (data: string) => void): () => void {
@@ -605,6 +707,38 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     )
   }
 
+  async snapshotTextAfterWrites(): Promise<string> {
+    if (this.disposed || !this.terminal) return ''
+    if (this.pendingXtermWrites > 0) {
+      const drained = await new Promise<boolean>((resolve) => {
+        let settled = false
+        const finish = (value: boolean): void => {
+          if (settled) return
+          settled = true
+          this.writeDrainWaiters.delete(onDrain)
+          timerWindow.clearTimeout(timeout)
+          resolve(value)
+        }
+        const onDrain = (): void => finish(true)
+        const timerWindow = this.timerWindow ?? window
+        const timeout = timerWindow.setTimeout(
+          () => finish(false),
+          XTERM_WRITE_DRAIN_TIMEOUT_MS,
+        )
+        this.writeDrainWaiters.add(onDrain)
+        // A write callback may have drained between the check and insertion.
+        if (this.pendingXtermWrites === 0) {
+          finish(true)
+        }
+      })
+      // A timed-out write queue is not authoritative. Returning blank makes
+      // the manager use and delete the raw PTY transcript fallback instead
+      // of silently logging a partial xterm screen.
+      if (!drained) return ''
+    }
+    return this.snapshotText()
+  }
+
   focus(): void {
     this.terminal?.focus()
   }
@@ -612,18 +746,32 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    if (this.fitDebounceTimer !== null) {
+      this.timerWindow?.clearTimeout(this.fitDebounceTimer)
+      this.fitDebounceTimer = null
+    }
+    if (this.postLayoutFitFrame !== null) {
+      ;(this.postLayoutFitFrameOwner ?? this.timerWindow ?? window)
+        .cancelAnimationFrame(this.postLayoutFitFrame)
+      this.postLayoutFitFrame = null
+      this.postLayoutFitFrameOwner = null
+    }
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
     this.dataListeners.clear()
     this.resizeListeners.clear()
     this.filePathListeners.clear()
     this.pendingWrites = []
+    this.pendingXtermWrites = 0
+    for (const resolve of Array.from(this.writeDrainWaiters)) resolve()
+    this.writeDrainWaiters.clear()
     for (const disposable of this.linkProviderDisposables.splice(0)) {
       disposable.dispose()
     }
     this.terminal?.dispose()
     this.terminal = null
     this.fitAddon = null
+    this.timerWindow = null
   }
 }
 

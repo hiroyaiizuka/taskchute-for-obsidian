@@ -50,4 +50,28 @@ describe('stripAnsiSequences', () => {
   test('passes plain multibyte text through unchanged', () => {
     expect(stripAnsiSequences('こんにちは、世界')).toBe('こんにちは、世界')
   })
+
+  test('treats astral (surrogate-pair) characters as single overwrite columns', () => {
+    expect(stripAnsiSequences('😀😀😀\rXY')).toBe('XY😀')
+    expect(stripAnsiSequences('abc\r😀')).toBe('😀bc')
+    expect(stripAnsiSequences('😀b\b\bXY')).toBe('XY')
+  })
+
+  test('collapses many carriage-return redraws to the final overwrite state', () => {
+    const redraws = Array.from({ length: 200 }, (_, i) => `progress ${i}`).join('\r')
+    expect(stripAnsiSequences(redraws)).toBe('progress 199')
+  })
+
+  test('keeps the longer earlier tail when a shorter overwrite follows', () => {
+    expect(stripAnsiSequences('abcdef\rXY\bZ')).toBe('XZcdef')
+  })
+
+  test('handles a long line with thousands of short redraws without quadratic copies', () => {
+    const longTail = 'a'.repeat(200_000)
+    const redraws = '\rX'.repeat(5_000)
+    const result = stripAnsiSequences(longTail + redraws)
+    expect(result).toHaveLength(longTail.length)
+    expect(result.startsWith('X')).toBe(true)
+    expect(result.endsWith('a')).toBe(true)
+  })
 })

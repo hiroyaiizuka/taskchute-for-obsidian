@@ -6,7 +6,11 @@ import {
   INTERRUPTED_RUN_ERROR_MESSAGE,
   type AiTaskManagerDeps,
 } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { AiRunSessionSnapshot } from '../../../src/features/ai-task/services/AiRunSessionStateStore'
+import {
+  AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
+  AiRunSessionStateStore,
+  type AiRunSessionSnapshot,
+} from '../../../src/features/ai-task/services/AiRunSessionStateStore'
 import type {
   AiRunCallbacks,
   AiRunRequest,
@@ -207,6 +211,96 @@ describe('AiTaskManager persisted session restore', () => {
     expect(chunks.join('')).toContain('restored terminal')
   })
 
+  test('persists the bounded fallback replay when a missing broker has no trusted transcript path', async () => {
+    let callbacks: TerminalRunCallbacks | null = null
+    const snapshot = restoredSnapshot({
+      terminalReplay: '\u001b[32mRESTORED FALLBACK\u001b[0m\r\n',
+      record: {
+        ...restoredSnapshot().record,
+        terminalSessionId: 'restored-run',
+      },
+    })
+    const deps = createDeps([snapshot])
+    const writeTerminalRunLog = jest.fn(async () => 'interrupted-log.md')
+    deps.logWriter.writeTerminalRunLog = writeTerminalRunLog
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn((_sessionId, nextCallbacks) => {
+          callbacks = nextCallbacks
+          return {
+            sessionId: 'restored-run',
+            write: jest.fn(),
+            stop: jest.fn(),
+          }
+        }),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    new AiTaskManager(deps)
+
+    callbacks?.onUnavailable?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(writeTerminalRunLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'restored-run',
+        status: 'interrupted',
+      }),
+      'RESTORED FALLBACK\n',
+    )
+  })
+
+  test('never overwrites post-attach live data with an older persisted fallback replay', async () => {
+    let callbacks: TerminalRunCallbacks | null = null
+    const snapshot = restoredSnapshot({
+      terminalReplay: 'OLD LOCALSTORAGE REPLAY\r\n',
+      record: {
+        ...restoredSnapshot().record,
+        terminalSessionId: 'restored-run',
+      },
+    })
+    const deps = createDeps([snapshot])
+    const readAndDeleteFile = jest.fn(async () => 'broker transcript')
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn((_sessionId, nextCallbacks) => {
+          callbacks = nextCallbacks
+          return {
+            sessionId: 'restored-run',
+            write: jest.fn(),
+            stop: jest.fn(),
+          }
+        }),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile,
+    }
+    const manager = new AiTaskManager(deps)
+
+    callbacks?.onData('NEW BROKER DATA\r\n')
+    // The abnormal-termination acknowledgement can be the first usable
+    // broker frame when the original attached replay itself was oversized.
+    callbacks?.onUnavailable?.('/tmp/broker-confirmed-transcript')
+
+    const chunks: string[] = []
+    manager.onTerminalData('restored-run', (chunk) => chunks.push(chunk))
+    expect(chunks.join('')).toContain('NEW BROKER DATA')
+    expect(chunks.join('')).not.toContain('OLD LOCALSTORAGE REPLAY')
+    expect(manager.getRun('restored-run')?.status).toBe('interrupted')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(readAndDeleteFile).toHaveBeenCalledWith(
+      '/tmp/broker-confirmed-transcript',
+    )
+  })
+
   test('restores a formerly-active PTY as interrupted with replay, never as running', () => {
     const deps = createDeps([restoredSnapshot()])
     const manager = new AiTaskManager(deps)
@@ -348,6 +442,155 @@ describe('AiTaskManager persisted session restore', () => {
 
     expect(manager.getRuns()).toEqual([])
     expect(saveNow).toHaveBeenCalledWith([])
+  })
+
+  test('terminal output schedules the lazy save tier while other mutations stay prompt', () => {
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
+    const snapshot = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        terminalSessionId: 'restored-run',
+      },
+    })
+    const deps = createDeps([snapshot])
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn(
+          (sessionId: string, nextCallbacks: TerminalRunCallbacks): TerminalRunHandle => {
+            captured.callbacks = nextCallbacks
+            return {
+              sessionId,
+              write: jest.fn(),
+              resize: jest.fn(),
+              stop: jest.fn(),
+            }
+          },
+        ),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    const manager = new AiTaskManager(deps)
+    const scheduleSave = deps.sessionState.scheduleSave as jest.Mock
+    scheduleSave.mockClear()
+
+    captured.callbacks?.onData('spinner frame\r\n')
+    expect(scheduleSave).toHaveBeenCalledWith(
+      expect.any(Function),
+      AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
+    )
+
+    scheduleSave.mockClear()
+    manager.resizeTerminal('restored-run', 120, 40)
+    expect(scheduleSave).toHaveBeenCalledWith(expect.any(Function), undefined)
+  })
+
+  test('residual terminal output after dispose never re-arms a delayed save', () => {
+    // dispose() writes the authoritative final state via saveNow; a PTY chunk
+    // flushed during teardown must not schedule a later save that would
+    // overwrite it with post-kill statuses.
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
+    const snapshot = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        terminalSessionId: 'restored-run',
+      },
+    })
+    const deps = createDeps([snapshot])
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn(
+          (sessionId: string, nextCallbacks: TerminalRunCallbacks): TerminalRunHandle => {
+            captured.callbacks = nextCallbacks
+            return {
+              sessionId,
+              write: jest.fn(),
+              resize: jest.fn(),
+              stop: jest.fn(),
+            }
+          },
+        ),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    const manager = new AiTaskManager(deps)
+    const scheduleSave = deps.sessionState.scheduleSave as jest.Mock
+
+    manager.dispose()
+    scheduleSave.mockClear()
+    captured.callbacks?.onData('flushed during teardown')
+    expect(scheduleSave).not.toHaveBeenCalled()
+  })
+
+  test('renderer reload persists terminal output that only armed the lazy save tier', () => {
+    // End-to-end sacred path: a real store whose idle-tier timer never fires
+    // must still write the latest replay when prepareForRendererReload runs.
+    let stored: unknown = null
+    const pending: { fire?: () => void } = {}
+    const store = new AiRunSessionStateStore(
+      {
+        loadLocalStorage: () => stored,
+        saveLocalStorage: (_key, value) => {
+          stored = value
+        },
+      },
+      {
+        timer: {
+          setTimeout: (handler) => {
+            pending.fire = handler
+            return 1
+          },
+          clearTimeout: () => {
+            pending.fire = undefined
+          },
+          now: () => 0,
+        },
+      },
+    )
+    store.saveNow([
+      restoredSnapshot({
+        record: {
+          ...restoredSnapshot().record,
+          terminalSessionId: 'restored-run',
+        },
+      }),
+    ])
+
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
+    const deps = createDeps([])
+    deps.sessionState = store
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn(
+          (sessionId: string, nextCallbacks: TerminalRunCallbacks): TerminalRunHandle => {
+            captured.callbacks = nextCallbacks
+            return { sessionId, write: jest.fn(), stop: jest.fn() }
+          },
+        ),
+        detach: jest.fn(),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    const manager = new AiTaskManager(deps)
+
+    captured.callbacks?.onData('lazy spinner output\r\n')
+    manager.prepareForRendererReload()
+
+    expect(store.load()[0]?.terminalReplay).toContain('lazy spinner output')
+    // A stray late fire after the reload write must not resurrect anything.
+    pending.fire?.()
+    expect(store.load()[0]?.terminalReplay).toContain('lazy spinner output')
   })
 
   test('dispose snapshots the live status before a synchronous stop exit races in', async () => {

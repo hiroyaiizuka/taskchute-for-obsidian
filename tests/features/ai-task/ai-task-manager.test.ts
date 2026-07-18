@@ -109,6 +109,8 @@ interface HarnessOptions {
   cachedRead?: () => Promise<string>
   /** When true, the log writer also exposes the upsert path used for rewrites */
   withUpsert?: boolean
+  /** Exercise the production root-window timer instead of the recording fake. */
+  useDefaultTimer?: boolean
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -148,8 +150,8 @@ function createHarness(options: HarnessOptions = {}) {
     logWriter: options.withUpsert
       ? { writeRunLog, upsertRunLog, pruneOldLogs }
       : { writeRunLog, pruneOldLogs },
-    timer,
   }
+  if (!options.useDefaultTimer) deps.timer = timer
 
   return {
     manager: new AiTaskManager(deps),
@@ -349,6 +351,84 @@ describe('AiTaskManager.startRun', () => {
     expect(
       harness.manager.hasTaskRunLifecycle('TaskChute/Task/My Task.md'),
     ).toBe(true)
+  })
+
+  test('keeps a prepared TaskChute start owned while its timer reloads', async () => {
+    const harness = createHarness()
+    const file = makeTaskFile()
+    const prepared = await harness.manager.prepareRun(file)
+    const reservation = harness.manager.reserveTaskStart(file.path)
+
+    expect(harness.manager.hasTaskRunLifecycle(file.path)).toBe(true)
+    expect(
+      harness.manager.claimOrphanedTaskStateReconciliation(file.path, {
+        instanceId: 'timer-1',
+        timerStartedAt: Date.now(),
+      }),
+    ).toBe(false)
+    await expect(harness.manager.startRun(file)).rejects.toBeInstanceOf(
+      AiRunAlreadyActiveError,
+    )
+
+    const record = await harness.manager.startPreparedRun(
+      prepared,
+      { instanceId: 'timer-1' },
+      reservation,
+    )
+
+    expect(record.instanceId).toBe('timer-1')
+    expect(record.status).toBe('running')
+    expect(harness.claude.runs).toHaveLength(1)
+  })
+
+  test('releases a cancelled prepared-start reservation without poisoning a later run', async () => {
+    const harness = createHarness()
+    const file = makeTaskFile()
+    await harness.manager.prepareRun(file)
+    const reservation = harness.manager.reserveTaskStart(file.path)
+
+    harness.manager.requestStopForTask(file.path)
+    harness.manager.releaseTaskStartReservation(reservation)
+    harness.manager.releaseTaskStartReservation(reservation)
+
+    expect(harness.manager.hasTaskRunLifecycle(file.path)).toBe(false)
+    const record = await harness.manager.startRun(file)
+    expect(record.status).toBe('running')
+    expect(harness.claude.last.stop).not.toHaveBeenCalled()
+  })
+
+  test('honours a stop requested during the prepared-start reservation', async () => {
+    const harness = createHarness()
+    const file = makeTaskFile()
+    const prepared = await harness.manager.prepareRun(file)
+    const reservation = harness.manager.reserveTaskStart(file.path)
+
+    harness.manager.requestStopForTask(file.path)
+    const record = await harness.manager.startPreparedRun(
+      prepared,
+      { instanceId: 'timer-stop' },
+      reservation,
+    )
+
+    expect(record.status).toBe('stopping')
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+  })
+
+  test('rejects a forged or stale prepared-start reservation', async () => {
+    const harness = createHarness()
+    const file = makeTaskFile()
+    const prepared = await harness.manager.prepareRun(file)
+    const reservation = harness.manager.reserveTaskStart(file.path)
+    harness.manager.releaseTaskStartReservation(reservation)
+
+    await expect(
+      harness.manager.startPreparedRun(
+        prepared,
+        undefined,
+        reservation,
+      ),
+    ).rejects.toBeInstanceOf(AiRunAlreadyActiveError)
+    expect(harness.claude.runs).toHaveLength(0)
   })
 
   test('matches a finished run only to the timer instance it actually owned', async () => {
@@ -691,6 +771,43 @@ describe('AiTaskManager.dispose', () => {
     harness.timer.fireAll()
     expect(first.forceKill).toHaveBeenCalledTimes(1)
     expect(second.forceKill).toHaveBeenCalledTimes(1)
+  })
+
+  test('default force-kill deadline survives a focused popout closing', async () => {
+    const originalActiveWindow = activeWindow
+    const focusedPopout = {
+      setTimeout: jest.fn(() => 999),
+      clearTimeout: jest.fn(),
+    } as unknown as Window
+    const replacementPopout = {
+      setTimeout: jest.fn(() => 1000),
+      clearTimeout: jest.fn(),
+    } as unknown as Window
+    jest.useFakeTimers()
+
+    try {
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        focusedPopout
+      const harness = createHarness({ useDefaultTimer: true })
+      await harness.manager.startRun(makeTaskFile())
+      const run = harness.claude.last
+
+      harness.manager.dispose()
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        replacementPopout
+
+      expect(run.stop).toHaveBeenCalledTimes(1)
+      expect(focusedPopout.setTimeout).not.toHaveBeenCalled()
+      expect(replacementPopout.setTimeout).not.toHaveBeenCalled()
+
+      jest.advanceTimersByTime(DISPOSE_FORCE_KILL_MS)
+
+      expect(run.forceKill).toHaveBeenCalledTimes(1)
+    } finally {
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        originalActiveWindow
+      jest.useRealTimers()
+    }
   })
 
   test('is idempotent and clears listeners', async () => {

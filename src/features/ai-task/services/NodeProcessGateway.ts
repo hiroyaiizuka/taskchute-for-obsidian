@@ -18,6 +18,7 @@ import {
   WorkspaceEntry,
   WorkspaceFileGateway,
 } from './WorkspaceFileService'
+import { stableTimeoutSource } from '../../../utils/stableTimer'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -109,6 +110,18 @@ export class TerminalUnsupportedError extends Error {
  */
 export const TERMINAL_EXIT_SENTINEL = '__TASKCHUTE_AI_EXIT__'
 
+/**
+ * Upper bound on the transcript bytes readAndDeleteFile loads into memory.
+ * TUI redraws can grow a PTY transcript to hundreds of MB; only the tail is
+ * ever useful (the log note is capped further downstream), so an oversized
+ * file is read from the end instead of being slurped into the renderer heap.
+ */
+export const MAX_TRANSCRIPT_READ_BYTES = 8 * 1024 * 1024
+
+/** Line prepended when readAndDeleteFile keeps only the transcript tail */
+export const TRANSCRIPT_TRUNCATED_MARKER =
+  '[transcript truncated: earlier output was dropped]'
+
 export interface ProcessGateway {
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle
   execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult>
@@ -193,13 +206,19 @@ interface FsModuleLike {
     ): Promise<NodeDirectoryEntryLike[]>
     realpath(path: string): Promise<string>
     stat(path: string): Promise<NodeStatsLike>
-    open(path: string, flags: 'r+'): Promise<NodeFileHandleLike>
+    open(path: string, flags: 'r' | 'r+'): Promise<NodeFileHandleLike>
     unlink(path: string): Promise<void>
   }
 }
 
 interface NodeFileHandleLike {
   stat(): Promise<NodeStatsLike>
+  read(
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>
   writeFile(data: Uint8Array): Promise<void>
   truncate(length: number): Promise<void>
   close(): Promise<void>
@@ -269,37 +288,85 @@ function decodeChunk(chunk: unknown): string {
   return String(chunk)
 }
 
+export interface ProcessIdentitySnapshot {
+  pid: number
+  /** POSIX process start token from `ps lstart`, used to reject PID reuse. */
+  birthToken?: string
+}
+
+type DescendantProcessSnapshot = number | ProcessIdentitySnapshot
+
+function normalizeProcessIdentity(
+  value: DescendantProcessSnapshot,
+): ProcessIdentitySnapshot | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? { pid: value } : null
+  }
+  if (!Number.isSafeInteger(value.pid) || value.pid < 1) return null
+  return {
+    pid: value.pid,
+    ...(typeof value.birthToken === 'string' && value.birthToken.length > 0
+      ? { birthToken: value.birthToken }
+      : {}),
+  }
+}
+
+function readPosixProcessBirthToken(pid: number): string | null {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return null
+  if (!Number.isSafeInteger(pid) || pid < 1) return null
+  try {
+    const childProcess = loadChildProcessModule()
+    if (childProcess.execFileSync === undefined) return null
+    const value = childProcess.execFileSync(
+      '/bin/ps',
+      ['-p', String(pid), '-o', 'lstart='],
+      { encoding: 'utf8' },
+    ).trim()
+    return value.length > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
 /** Snapshot descendants before stopping the wrapper can reparent them. */
-function collectDescendantPids(rootPid: number): number[] {
+function collectDescendantPids(rootPid: number): ProcessIdentitySnapshot[] {
   if (process.platform !== 'darwin' && process.platform !== 'linux') return []
   try {
     const childProcess = loadChildProcessModule()
     if (childProcess.execFileSync === undefined) return []
     const output = childProcess.execFileSync(
       '/bin/ps',
-      ['-axo', 'pid=,ppid='],
+      ['-axo', 'pid=,ppid=,lstart='],
       { encoding: 'utf8' },
     )
-    const childrenByParent = new Map<number, number[]>()
+    const childrenByParent = new Map<number, ProcessIdentitySnapshot[]>()
     for (const line of output.split('\n')) {
-      const match = line.trim().match(/^(\d+)\s+(\d+)$/u)
+      const match = line
+        .trim()
+        .match(/^(\d+)\s+(\d+)\s+(.+)$/u)
       if (!match) continue
       const pid = Number(match[1])
       const parentPid = Number(match[2])
       const children = childrenByParent.get(parentPid) ?? []
-      children.push(pid)
+      children.push({ pid, birthToken: match[3].trim() })
       childrenByParent.set(parentPid, children)
     }
 
-    const descendants: number[] = []
+    const descendants: ProcessIdentitySnapshot[] = []
     const pending = [...(childrenByParent.get(rootPid) ?? [])]
     const seen = new Set<number>()
     while (pending.length > 0) {
-      const pid = pending.pop()
-      if (pid === undefined || pid < 1 || seen.has(pid)) continue
-      seen.add(pid)
-      descendants.push(pid)
-      pending.push(...(childrenByParent.get(pid) ?? []))
+      const identity = pending.pop()
+      if (
+        identity === undefined ||
+        identity.pid < 1 ||
+        seen.has(identity.pid)
+      ) {
+        continue
+      }
+      seen.add(identity.pid)
+      descendants.push(identity)
+      pending.push(...(childrenByParent.get(identity.pid) ?? []))
     }
     return descendants
   } catch {
@@ -428,6 +495,37 @@ function getTtySidecarPath(transcriptPath: string): string {
 
 function isTtyDevicePath(path: string): boolean {
   return path.startsWith('/dev/') && !path.includes('\0') && !/[\r\n]/.test(path)
+}
+
+/**
+ * Read only the trailing MAX_TRANSCRIPT_READ_BYTES of an oversized PTY
+ * transcript. The read may start inside a multibyte UTF-8 character, so
+ * leading continuation bytes are dropped to land on a character boundary
+ * (losing that one torn character of terminal noise).
+ */
+async function readTranscriptTail(path: string, fileSize: number): Promise<string> {
+  const handle = await loadFsModule().promises.open(path, 'r')
+  try {
+    const buffer = new Uint8Array(MAX_TRANSCRIPT_READ_BYTES)
+    const { bytesRead } = await handle.read(
+      buffer,
+      0,
+      MAX_TRANSCRIPT_READ_BYTES,
+      fileSize - MAX_TRANSCRIPT_READ_BYTES,
+    )
+    let start = 0
+    while (start < bytesRead && (buffer[start] & 0xc0) === 0x80) {
+      start += 1
+    }
+    const Decoder =
+      typeof TextDecoder === 'function'
+        ? TextDecoder
+        : loadTextCodecModule().TextDecoder
+    const tail = new Decoder('utf-8').decode(buffer.subarray(start, bytesRead))
+    return `${TRANSCRIPT_TRUNCATED_MARKER}\n${tail}`
+  } finally {
+    await handle.close()
+  }
 }
 
 /** Temp-file-name-safe prefix (path separators and shell metachars removed) */
@@ -638,11 +736,15 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   private tempFileSequence = 0
 
   constructor(
-    private readonly snapshotDescendantPids: (rootPid: number) => number[] =
+    private readonly snapshotDescendantPids: (
+      rootPid: number,
+    ) => DescendantProcessSnapshot[] =
       collectDescendantPids,
     private readonly platformOverride?: string,
     private readonly terminateWindowsTree: WindowsTreeTerminator =
       terminateWindowsProcessTree,
+    private readonly readProcessBirthToken: (pid: number) => string | null =
+      readPosixProcessBirthToken,
   ) {}
 
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
@@ -724,7 +826,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     }
 
     const failedChild = child === null
-    const knownDescendantPids = new Set<number>()
+    const knownDescendantPids = new Map<number, string | null>()
     const writeStdin =
       stdinMode === 'pipe'
         ? (data: string): void => {
@@ -754,7 +856,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         if (failedChild) {
           // Report the synchronous spawn failure asynchronously so callers
           // finish registering their callbacks first.
-          activeWindow.setTimeout(() => {
+          stableTimeoutSource.setTimeout(() => {
             notifyExit(null, null)
           }, 0)
         }
@@ -810,8 +912,14 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         }
         if (typeof pid === 'number' && pid > 0 && typeof process.kill === 'function') {
           if (!exited) {
-            for (const descendantPid of this.snapshotDescendantPids(pid)) {
-              if (descendantPid !== pid) knownDescendantPids.add(descendantPid)
+            for (const rawIdentity of this.snapshotDescendantPids(pid)) {
+              const identity = normalizeProcessIdentity(rawIdentity)
+              if (!identity || identity.pid === pid) continue
+              knownDescendantPids.set(
+                identity.pid,
+                identity.birthToken ??
+                  this.readProcessBirthToken(identity.pid),
+              )
             }
           }
           let groupSignalled = false
@@ -823,7 +931,16 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
               // Fall through to the direct child kill below.
             }
           }
-          for (const descendantPid of knownDescendantPids) {
+          for (const [descendantPid, birthToken] of knownDescendantPids) {
+            if (
+              birthToken !== null &&
+              this.readProcessBirthToken(descendantPid) !== birthToken
+            ) {
+              // The original descendant exited and the numeric PID has been
+              // reused. Never signal the unrelated replacement process.
+              knownDescendantPids.delete(descendantPid)
+              continue
+            }
             try {
               process.kill(descendantPid, signal)
             } catch {
@@ -848,7 +965,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       let stdout = ''
       let stderr = ''
       let timedOut = false
-      const timerId = activeWindow.setTimeout(() => {
+      const timerId = stableTimeoutSource.setTimeout(() => {
         timedOut = true
         handle.kill('SIGKILL')
       }, timeoutMs)
@@ -860,7 +977,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         stderr += text
       })
       handle.onExit((code) => {
-        activeWindow.clearTimeout(timerId)
+        stableTimeoutSource.clearTimeout(timerId)
         resolve({ code: timedOut ? null : code, stdout, stderr, timedOut })
       })
     })
@@ -1100,9 +1217,12 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     const ptySupervisor =
       'trap "trap - HUP TERM; kill -9 0" HUP TERM; ' +
       '"$0" "$@" <&0 & child=$!; wait "$child"'
+    const brokerWatchdog =
+      'if [ "${TASKCHUTE_BROKER_WATCH_FD:-}" = "3" ]; then ' +
+      '(IFS= read -r _ <&3; kill -9 0 2>/dev/null) & fi; '
     // See TERMINAL_EXIT_SENTINEL for why the wrapper looks like this.
     const wrap = (scriptInvocation: string): string =>
-      `cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
+      `${brokerWatchdog}cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
       `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
     if (platform === 'darwin') {
@@ -1144,6 +1264,11 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
               `${shellQuote(`${ptyPreamble}; ${ptySupervisor.replace('"$0" "$@"', execCommand)}`)} "$0"`,
           ),
           request.transcriptPath,
+          // Unused outer-shell positionals: the broker validates the real
+          // executable/argv before spawn without attempting to re-parse the
+          // nested quoted util-linux script program.
+          request.binaryPath,
+          ...request.args,
         ],
       }
     }
@@ -1199,7 +1324,11 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   async readAndDeleteFile(path: string): Promise<string> {
     const fs = loadFsModule().promises
     try {
-      return await fs.readFile(path, 'utf8')
+      const size = (await fs.stat(path)).size
+      if (size <= MAX_TRANSCRIPT_READ_BYTES) {
+        return await fs.readFile(path, 'utf8')
+      }
+      return await readTranscriptTail(path, size)
     } finally {
       for (const cleanupPath of [path, getTtySidecarPath(path)]) {
         try {

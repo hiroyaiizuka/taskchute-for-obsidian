@@ -1,17 +1,32 @@
 import type { AiTaskAmbientCandidate } from './AiTaskAmbientCandidateFinder'
 import type { AiTaskAmbientScheduleStateStore } from './AiTaskAmbientScheduleStateStore'
+import {
+  stableTimerSource,
+  type StableIntervalId,
+} from '../../../utils/stableTimer'
 
 export const AI_TASK_AMBIENT_CHECK_INTERVAL_MS = 60_000
 
+/** Consecutive-failure retry delays; the last entry caps further attempts. */
+export const AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS: readonly number[] = [
+  60_000, 300_000, 900_000, 3_600_000,
+]
+
 type AmbientMaybePromise<T> = T | Promise<T>
+
+interface AmbientFailureRecord {
+  dateKey: string
+  attempts: number
+  nextAttemptAt: number
+}
 
 export interface AiTaskAmbientTimerHost {
   setInterval: (
     handler: () => void,
     intervalMs: number,
-  ) => ReturnType<typeof activeWindow.setInterval>
+  ) => StableIntervalId
   clearInterval: (
-    handle: ReturnType<typeof activeWindow.setInterval>,
+    handle: StableIntervalId,
   ) => void
 }
 
@@ -22,7 +37,10 @@ export interface AiTaskAmbientEventTarget {
 
 export interface AiTaskAmbientSchedulerOptions {
   findCandidates(now: Date): AmbientMaybePromise<readonly AiTaskAmbientCandidate[]>
-  /** Returns the identities whose normal task + AI launch actually succeeded. */
+  /**
+   * Returns the identities whose normal task + AI launch actually succeeded.
+   * Omitted identities count as failed attempts and enter exponential backoff.
+   */
   executeCandidates(
     candidates: readonly AiTaskAmbientCandidate[],
     now: Date,
@@ -41,11 +59,7 @@ export interface AiTaskAmbientSchedulerOptions {
 }
 
 function defaultTimerHost(): AiTaskAmbientTimerHost {
-  return {
-    setInterval: (handler, intervalMs) =>
-      activeWindow.setInterval(handler, intervalMs),
-    clearInterval: (handle) => activeWindow.clearInterval(handle),
-  }
+  return stableTimerSource
 }
 
 /**
@@ -58,10 +72,16 @@ function defaultTimerHost(): AiTaskAmbientTimerHost {
 export class AiTaskAmbientScheduler {
   private readonly timerHost: AiTaskAmbientTimerHost
   private readonly intervalMs: number
-  private intervalHandle: ReturnType<typeof activeWindow.setInterval> | null = null
+  private intervalHandle: StableIntervalId | null = null
   private inFlight: Promise<readonly AiTaskAmbientCandidate[]> | null = null
   private started = false
   private disposed = false
+  /**
+   * In-memory failure backoff (identity → record). Not persisted on purpose:
+   * a reload retries immediately, but within a session a permanently failing
+   * candidate no longer spawns a background view on every timer/focus tick.
+   */
+  private readonly failureBackoff = new Map<string, AmbientFailureRecord>()
 
   private readonly handleFocus = (): void => {
     void this.checkNow()
@@ -141,19 +161,25 @@ export class AiTaskAmbientScheduler {
   private async runCheck(now: Date): Promise<readonly AiTaskAmbientCandidate[]> {
     if (!Number.isFinite(now.getTime())) return []
 
+    let pending: AiTaskAmbientCandidate[] = []
     try {
       this.options.stateStore.prune(now)
       const discovered = await this.options.findCandidates(now)
       if (this.disposed) return []
       const seen = new Set<string>()
-      const pending = discovered.filter((candidate) => {
+      pending = discovered.filter((candidate) => {
         if (!candidate?.identity || !candidate.dateKey) return false
         if (seen.has(candidate.identity)) return false
         seen.add(candidate.identity)
-        return !this.options.stateStore.isExecuted(
-          candidate.identity,
-          candidate.dateKey,
-        )
+        if (
+          this.options.stateStore.isExecuted(
+            candidate.identity,
+            candidate.dateKey,
+          )
+        ) {
+          return false
+        }
+        return !this.isBackedOff(candidate, now)
       })
       if (pending.length === 0) return []
 
@@ -162,7 +188,11 @@ export class AiTaskAmbientScheduler {
       const succeeded = result instanceof Set ? result : new Set(result)
       const completed: AiTaskAmbientCandidate[] = []
       for (const candidate of pending) {
-        if (!succeeded.has(candidate.identity)) continue
+        if (!succeeded.has(candidate.identity)) {
+          this.recordFailure(candidate, now)
+          continue
+        }
+        this.failureBackoff.delete(candidate.identity)
         if (
           this.options.stateStore.markExecuted(
             candidate.identity,
@@ -175,6 +205,9 @@ export class AiTaskAmbientScheduler {
       }
       return completed
     } catch (error) {
+      if (!this.disposed) {
+        for (const candidate of pending) this.recordFailure(candidate, now)
+      }
       this.options.log?.(
         'warn',
         '[AiTaskAmbientScheduler] Ambient check failed',
@@ -182,5 +215,32 @@ export class AiTaskAmbientScheduler {
       )
       return []
     }
+  }
+
+  private isBackedOff(candidate: AiTaskAmbientCandidate, now: Date): boolean {
+    const record = this.failureBackoff.get(candidate.identity)
+    if (!record) return false
+    if (record.dateKey !== candidate.dateKey) {
+      this.failureBackoff.delete(candidate.identity)
+      return false
+    }
+    return now.getTime() < record.nextAttemptAt
+  }
+
+  private recordFailure(candidate: AiTaskAmbientCandidate, now: Date): void {
+    const previous = this.failureBackoff.get(candidate.identity)
+    const attempts =
+      previous && previous.dateKey === candidate.dateKey
+        ? previous.attempts + 1
+        : 1
+    const steps = AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS
+    const delayMs =
+      steps[Math.min(attempts, steps.length) - 1] ??
+      AI_TASK_AMBIENT_CHECK_INTERVAL_MS
+    this.failureBackoff.set(candidate.identity, {
+      dateKey: candidate.dateKey,
+      attempts,
+      nextAttemptAt: now.getTime() + delayMs,
+    })
   }
 }

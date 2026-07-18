@@ -1,6 +1,7 @@
 import type { AiTaskAmbientCandidate } from '../../../src/features/ai-task/services/AiTaskAmbientCandidateFinder'
 import {
   AI_TASK_AMBIENT_CHECK_INTERVAL_MS,
+  AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS,
   AiTaskAmbientScheduler,
   type AiTaskAmbientEventTarget,
   type AiTaskAmbientTimerHost,
@@ -78,11 +79,12 @@ describe('AiTaskAmbientScheduler', () => {
     const findCandidates = jest.fn(() => [one, two])
     const executeCandidates = jest.fn(async () => new Set([one.identity]))
     const timerHost = createTimerHost()
+    let current = NOW
     const scheduler = new AiTaskAmbientScheduler({
       findCandidates,
       executeCandidates,
       stateStore: store,
-      now: () => new Date(NOW),
+      now: () => new Date(current),
       timerHost,
     })
 
@@ -94,9 +96,10 @@ describe('AiTaskAmbientScheduler', () => {
     expect(store.isExecuted(two.identity, two.dateKey)).toBe(false)
     expect(timerHost.intervalMs).toBe(AI_TASK_AMBIENT_CHECK_INTERVAL_MS)
 
+    current = new Date(NOW.getTime() + AI_TASK_AMBIENT_CHECK_INTERVAL_MS)
     timerHost.callback?.()
     await scheduler.checkNow()
-    expect(executeCandidates).toHaveBeenLastCalledWith([two], NOW)
+    expect(executeCandidates).toHaveBeenLastCalledWith([two], current)
   })
 
   test('filters already-executed identities before calling the executor', async () => {
@@ -140,7 +143,7 @@ describe('AiTaskAmbientScheduler', () => {
     expect(executeCandidates).toHaveBeenCalledTimes(1)
   })
 
-  test('does not mark failed execution and retries on the next check', async () => {
+  test('does not mark failed execution and retries after the backoff window', async () => {
     const item = candidate('taskId:retry')
     const store = createStore()
     const executeCandidates = jest
@@ -157,7 +160,18 @@ describe('AiTaskAmbientScheduler', () => {
 
     expect(await scheduler.checkNow(NOW)).toEqual([])
     expect(store.isExecuted(item.identity, item.dateKey)).toBe(false)
-    expect(await scheduler.checkNow(NOW)).toEqual([item])
+
+    // Within the first backoff window the candidate is skipped entirely.
+    expect(await scheduler.checkNow(NOW)).toEqual([])
+    expect(
+      await scheduler.checkNow(new Date(NOW.getTime() + 59_000)),
+    ).toEqual([])
+    expect(executeCandidates).toHaveBeenCalledTimes(1)
+
+    const retryAt = new Date(
+      NOW.getTime() + AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS[0],
+    )
+    expect(await scheduler.checkNow(retryAt)).toEqual([item])
     expect(store.isExecuted(item.identity, item.dateKey)).toBe(true)
     expect(executeCandidates).toHaveBeenCalledTimes(2)
     expect(log).toHaveBeenCalledWith(
@@ -165,6 +179,150 @@ describe('AiTaskAmbientScheduler', () => {
       '[AiTaskAmbientScheduler] Ambient check failed',
       expect.any(Error),
     )
+  })
+
+  test('escalates backoff for consecutive failures up to the cap and skips the executor while backed off', async () => {
+    const item = candidate('taskId:always-fails')
+    const executeCandidates = jest.fn(async () => [] as string[])
+    const scheduler = new AiTaskAmbientScheduler({
+      findCandidates: () => [item],
+      executeCandidates,
+      stateStore: createStore(),
+    })
+
+    const [oneMin, fiveMin, fifteenMin, oneHour] =
+      AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS
+    let at = NOW.getTime()
+    const check = (offsetMs: number) =>
+      scheduler.checkNow(new Date(at + offsetMs))
+
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(1)
+
+    await check(oneMin - 1)
+    expect(executeCandidates).toHaveBeenCalledTimes(1)
+    at += oneMin
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
+
+    await check(fiveMin - 1)
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
+    at += fiveMin
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+
+    await check(fifteenMin - 1)
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+    at += fifteenMin
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(4)
+
+    // Fourth failure reaches the cap; further failures stay at one hour.
+    await check(oneHour - 1)
+    expect(executeCandidates).toHaveBeenCalledTimes(4)
+    at += oneHour
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(5)
+    await check(oneHour - 1)
+    expect(executeCandidates).toHaveBeenCalledTimes(5)
+    at += oneHour
+    await check(0)
+    expect(executeCandidates).toHaveBeenCalledTimes(6)
+  })
+
+  test('resets the failure counter after a success', async () => {
+    const item = candidate('taskId:flaky')
+    const executeCandidates = jest
+      .fn<Promise<readonly string[]>, [readonly AiTaskAmbientCandidate[], Date]>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([item.identity])
+      .mockResolvedValue([])
+    const scheduler = new AiTaskAmbientScheduler({
+      findCandidates: () => [item],
+      executeCandidates,
+      stateStore: {
+        isExecuted: () => false,
+        markExecuted: () => true,
+        prune: () => {},
+      },
+    })
+
+    const [oneMin] = AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS
+
+    await scheduler.checkNow(NOW)
+    const successAt = NOW.getTime() + oneMin
+    expect(await scheduler.checkNow(new Date(successAt))).toEqual([item])
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
+
+    // A later failure restarts at the first delay, not the escalated one.
+    await scheduler.checkNow(new Date(successAt + 1_000))
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+    await scheduler.checkNow(new Date(successAt + 1_000 + oneMin - 1))
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+    await scheduler.checkNow(new Date(successAt + 1_000 + oneMin))
+    expect(executeCandidates).toHaveBeenCalledTimes(4)
+  })
+
+  test('resets backoff when the date key changes', async () => {
+    const dayOne = candidate('taskId:cross-day', { dateKey: '2026-07-15' })
+    const dayTwo = candidate('taskId:cross-day', { dateKey: '2026-07-16' })
+    let active = dayOne
+    const executeCandidates = jest.fn(async () => [] as string[])
+    const scheduler = new AiTaskAmbientScheduler({
+      findCandidates: () => [active],
+      executeCandidates,
+      stateStore: createStore(),
+    })
+
+    const [oneMin] = AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS
+    const lateNight = new Date(2026, 6, 15, 23, 58)
+    await scheduler.checkNow(lateNight)
+    await scheduler.checkNow(new Date(lateNight.getTime() + oneMin))
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
+    // Two consecutive failures: the five-minute window now spans midnight.
+    await scheduler.checkNow(new Date(lateNight.getTime() + 2 * oneMin))
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
+
+    // The new date key clears the record even inside the old window, and the
+    // counter restarts at the first delay.
+    active = dayTwo
+    const nextDay = new Date(2026, 6, 16, 0, 1)
+    await scheduler.checkNow(nextDay)
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+    await scheduler.checkNow(new Date(nextDay.getTime() + oneMin - 1))
+    expect(executeCandidates).toHaveBeenCalledTimes(3)
+    await scheduler.checkNow(new Date(nextDay.getTime() + oneMin))
+    expect(executeCandidates).toHaveBeenCalledTimes(4)
+  })
+
+  test('focus-triggered checks also respect the backoff window', async () => {
+    const item = candidate('taskId:focus-fail')
+    const focusTarget = new FakeEventTarget()
+    const timerHost = createTimerHost()
+    let current = NOW
+    const executeCandidates = jest.fn(async () => [] as string[])
+    const scheduler = new AiTaskAmbientScheduler({
+      findCandidates: () => [item],
+      executeCandidates,
+      stateStore: createStore(),
+      now: () => new Date(current),
+      timerHost,
+      focusTarget,
+    })
+    await scheduler.start()
+    expect(executeCandidates).toHaveBeenCalledTimes(1)
+
+    current = new Date(NOW.getTime() + 30_000)
+    focusTarget.emit('focus')
+    await scheduler.checkNow()
+    expect(executeCandidates).toHaveBeenCalledTimes(1)
+
+    current = new Date(
+      NOW.getTime() + AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS[0],
+    )
+    focusTarget.emit('focus')
+    await scheduler.checkNow()
+    expect(executeCandidates).toHaveBeenCalledTimes(2)
   })
 
   test('focus and visible visibilitychange trigger catch-up checks', async () => {
@@ -231,6 +389,56 @@ describe('AiTaskAmbientScheduler', () => {
     expect(focusTarget.listeners.get('focus')?.size).toBe(0)
     expect(visibilityTarget.listeners.get('visibilitychange')?.size).toBe(0)
     expect(scheduler.isStarted()).toBe(false)
+  })
+
+  test('default timer stays owned by the root renderer across activeWindow changes', async () => {
+    const originalActiveWindow = activeWindow
+    const rootSetInterval = jest
+      .spyOn(window, 'setInterval')
+      .mockReturnValue(901)
+    const rootClearInterval = jest
+      .spyOn(window, 'clearInterval')
+      .mockImplementation(() => undefined)
+    const popoutSetInterval = jest.fn(() => 902)
+    const popoutClearInterval = jest.fn()
+    const popout = {
+      setInterval: popoutSetInterval,
+      clearInterval: popoutClearInterval,
+    } as unknown as Window
+    const replacementPopout = {
+      setInterval: jest.fn(() => 903),
+      clearInterval: jest.fn(),
+    } as unknown as Window
+
+    try {
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        popout
+      const scheduler = new AiTaskAmbientScheduler({
+        findCandidates: () => [],
+        executeCandidates: jest.fn(async () => []),
+        stateStore: createStore(),
+        now: () => NOW,
+      })
+
+      await scheduler.start()
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        replacementPopout
+      scheduler.dispose()
+
+      expect(rootSetInterval).toHaveBeenCalledWith(
+        expect.any(Function),
+        AI_TASK_AMBIENT_CHECK_INTERVAL_MS,
+      )
+      expect(rootClearInterval).toHaveBeenCalledWith(901)
+      expect(popoutSetInterval).not.toHaveBeenCalled()
+      expect(popoutClearInterval).not.toHaveBeenCalled()
+      expect(replacementPopout.clearInterval).not.toHaveBeenCalled()
+    } finally {
+      ;(globalThis as typeof globalThis & { activeWindow: Window }).activeWindow =
+        originalActiveWindow
+      rootSetInterval.mockRestore()
+      rootClearInterval.mockRestore()
+    }
   })
 
   test('dispose prevents an in-flight discovery from launching work', async () => {

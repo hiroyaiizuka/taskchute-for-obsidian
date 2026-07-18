@@ -29,10 +29,12 @@
  */
 
 import type { TFile } from 'obsidian'
+import { stableTimeoutSource } from '../../../utils/stableTimer'
 import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
+import { capEventText } from './streams/StreamJsonParser'
 import type {
   AiDispatcher,
   AiGraceTimer,
@@ -51,6 +53,7 @@ import type { RecipeContextSnapshot } from '../../recipe/services/RecipeDelegati
 import { buildRecipeDelegationPrompt } from '../../recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import {
+  AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
   type AiRunSessionSnapshot,
   type AiRunSessionStateStore,
   wasActiveBeforeRestore,
@@ -78,6 +81,21 @@ export const DEFAULT_TERMINAL_COLS = 80
  */
 export const TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER =
   '(The terminal transcript could not be read; the session output was not captured.)'
+/**
+ * Raw PTY fallback bytes can contain dense redraw/control traffic. The vault
+ * log keeps at most 512KiB downstream, so bound the expensive ANSI projection
+ * to a 1MiB tail and avoid a transient multi-million-cell renderer array.
+ */
+export const TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT = 1024 * 1024
+const TERMINAL_TRANSCRIPT_STRIP_TRUNCATED_MARKER =
+  '[transcript projection truncated: showing the final terminal output]'
+/**
+ * A broken/unmounted adapter must not block the run's persist queue forever.
+ * The production xterm adapter has its own shorter write-drain deadline; this
+ * manager-level boundary also protects custom/test providers and guarantees
+ * transcript cleanup plus the terminal `persisted` notification.
+ */
+export const TERMINAL_SNAPSHOT_PROVIDER_TIMEOUT_MS = 2500
 
 export const INTERRUPTED_RUN_ERROR_MESSAGE =
   'This run was interrupted by an Obsidian reload or restart. The previous terminal process cannot be reattached.'
@@ -257,7 +275,7 @@ export interface AiTaskManagerDeps {
       frontmatter: Record<string, unknown> | undefined,
     ): Promise<RecipeContextSnapshot | null>
   }
-  /** Timer override for tests; production uses activeWindow timers */
+  /** Timer override for tests; production uses root-renderer stable timers */
   timer?: AiGraceTimer
   log?(level: 'warn' | 'error' | 'debug', ...args: unknown[]): void
 }
@@ -287,7 +305,9 @@ export type AiTerminalDataListener = (chunk: string) => void
  * tab never shown). Registered by the run pane; consumed once per terminal
  * run at exit as the preferred transcript source.
  */
-export type AiTerminalSnapshotProvider = (runId: string) => string | undefined
+export type AiTerminalSnapshotProvider = (
+  runId: string,
+) => string | undefined | Promise<string | undefined>
 
 export interface AiRunStartOptions {
   /** Overrides the settings-provided run mode for this run */
@@ -316,6 +336,20 @@ export interface PreparedAiRun {
   readonly binaryPath: string
   readonly binaryArgsPrefix?: readonly string[]
   readonly recipeSnapshot: RecipeContextSnapshot | null
+}
+
+/**
+ * Short-lived, manager-wide ownership marker for the gap between
+ * prepareRun() and startPreparedRun().
+ *
+ * TaskChute may reload/rematerialize its rows while moving a just-started
+ * timer from a past date to today. Keeping this reservation in the shared
+ * manager prevents every mounted view from mistaking that timer for an
+ * orphan before the prepared process is dispatched.
+ */
+export interface AiTaskStartReservation {
+  readonly taskPath: string
+  readonly reservationId: symbol
 }
 
 export interface AiShellSessionOptions {
@@ -363,6 +397,14 @@ interface InternalRun {
    * never interleave on the same file.
    */
   persistQueue: Promise<void>
+  /** Temp transcript paths already claimed for exactly-once consumption. */
+  consumedTranscriptPaths: Set<string>
+  /**
+   * True only after the current exit's log/transcript persist chain completed.
+   * A final status is published before persistence starts, so UI reclamation
+   * must consult this flag instead of inferring completion from the status.
+   */
+  exitPersisted: boolean
   /** One-shot reverse timer reconciliation for a restored active task run. */
   needsTaskStateReconciliation: boolean
   /** In-memory claim; the durable marker remains until completion succeeds. */
@@ -422,11 +464,8 @@ function appendBoundedEvent(buffer: BoundedEventBuffer, event: AiStreamEvent): v
   events.push(event)
 }
 
-const defaultTimer: AiGraceTimer = {
-  setTimeout: (handler, timeoutMs) => activeWindow.setTimeout(handler, timeoutMs),
-  clearTimeout: (handle) => {
-    activeWindow.clearTimeout(handle)
-  },
+function createDefaultTimer(): AiGraceTimer {
+  return stableTimeoutSource
 }
 
 function isAbsolutePathLike(path: string): boolean {
@@ -462,6 +501,8 @@ function normalizeBinaryResolution(resolution: AiBinaryResolution): {
 export class AiTaskManager {
   private readonly runs = new Map<string, InternalRun>()
   private readonly pendingStarts = new Set<string>()
+  private readonly preparedStartReservations =
+    new Map<string, AiTaskStartReservation>()
   /**
    * Task paths whose stop request arrived while startRun()/followUp() was
    * still in its async window (before the run registered or dispatched).
@@ -495,10 +536,15 @@ export class AiTaskManager {
   }> = []
   private disposed = false
   private disposeCompletion: Promise<void> | null = null
+  private disposeError: Error | null = null
+  /** True only after the first broker shutdown attempt was unconfirmed. */
+  private disposeShutdownFailed = false
+  /** Shares one explicit retry across concurrent quit/settings callers. */
+  private disposeShutdownRetry: Promise<void> | null = null
   private runSequence = 0
 
   constructor(private deps: AiTaskManagerDeps) {
-    this.timer = deps.timer ?? defaultTimer
+    this.timer = deps.timer ?? createDefaultTimer()
     this.restoreSessionState()
   }
 
@@ -571,17 +617,53 @@ export class AiTaskManager {
     return this.prepareRunCore(file, options?.mode)
   }
 
+  /**
+   * Reserve ownership of a TaskChute timer before the caller mutates and
+   * persists it. The returned object is an identity token: only that exact
+   * token can consume or release the reservation.
+   */
+  reserveTaskStart(taskPath: string): AiTaskStartReservation {
+    this.throwIfDisposed()
+    this.assertCanStart(taskPath)
+    const reservation = Object.freeze({
+      taskPath,
+      reservationId: Symbol(taskPath),
+    })
+    this.preparedStartReservations.set(taskPath, reservation)
+    return reservation
+  }
+
+  /**
+   * Cancel an unused reservation. Idempotent so callers can release from a
+   * finally block even after startPreparedRun() consumed it.
+   */
+  releaseTaskStartReservation(reservation: AiTaskStartReservation): void {
+    const current = this.preparedStartReservations.get(reservation.taskPath)
+    if (current !== reservation) return
+    this.preparedStartReservations.delete(reservation.taskPath)
+    if (
+      !this.pendingStarts.has(reservation.taskPath) &&
+      !this.getActiveRunForTask(reservation.taskPath)
+    ) {
+      this.stopRequestedDuringStart.delete(reservation.taskPath)
+    }
+  }
+
   /** Spawn a value returned by prepareRun after the caller starts its timer. */
   async startPreparedRun(
     prepared: PreparedAiRun,
     options?: AiPreparedRunStartOptions,
+    reservation?: AiTaskStartReservation,
   ): Promise<AiRunRecord> {
     // Preserve the asynchronous public boundary even though a prepared run
     // has no remaining I/O before dispatch.
     await Promise.resolve()
     this.throwIfDisposed()
-    this.assertCanStart(prepared.taskPath)
+    this.assertCanStart(prepared.taskPath, reservation)
     this.pendingStarts.add(prepared.taskPath)
+    if (reservation) {
+      this.preparedStartReservations.delete(prepared.taskPath)
+    }
     try {
       return this.startPreparedRunCore(prepared, options)
     } finally {
@@ -590,9 +672,24 @@ export class AiTaskManager {
     }
   }
 
-  private assertCanStart(taskPath: string): void {
+  private assertCanStart(
+    taskPath: string,
+    reservation?: AiTaskStartReservation,
+  ): void {
+    const currentReservation = this.preparedStartReservations.get(taskPath)
     if (
       this.pendingStarts.has(taskPath) ||
+      (
+        currentReservation !== undefined &&
+        currentReservation !== reservation
+      ) ||
+      (
+        reservation !== undefined &&
+        (
+          reservation.taskPath !== taskPath ||
+          currentReservation !== reservation
+        )
+      ) ||
       this.orphanedTaskPathReconciliationClaims.has(taskPath) ||
       this.interruptedTaskPathReconciliationClaims.has(taskPath) ||
       this.getActiveRunForTask(taskPath)
@@ -708,6 +805,8 @@ export class AiTaskManager {
       extraArgs,
       continuation: null,
       persistQueue: Promise.resolve(),
+      consumedTranscriptPaths: new Set(),
+      exitPersisted: false,
       needsTaskStateReconciliation: false,
       taskStateReconciliationClaimed: false,
       taskStateReconciliationOperation: null,
@@ -736,6 +835,12 @@ export class AiTaskManager {
             onExit: (outcome) => this.handleExit(internal, outcome),
             onAttached: (pid, transcriptPath) =>
               this.handleTerminalAttached(internal, pid, transcriptPath),
+            onUnavailable: (transcriptPath) =>
+              this.markTerminalUnavailable(
+                internal,
+                undefined,
+                transcriptPath,
+              ),
           },
         )
         record.terminalSessionId = terminalHandle.sessionId
@@ -829,6 +934,8 @@ export class AiTaskManager {
       extraArgs: [],
       continuation: null,
       persistQueue: Promise.resolve(),
+      consumedTranscriptPaths: new Set(),
+      exitPersisted: false,
       needsTaskStateReconciliation: false,
       taskStateReconciliationClaimed: false,
       taskStateReconciliationOperation: null,
@@ -854,6 +961,12 @@ export class AiTaskManager {
           onExit: (outcome) => this.handleExit(internal, outcome),
           onAttached: (pid, transcriptPath) =>
             this.handleTerminalAttached(internal, pid, transcriptPath),
+          onUnavailable: (transcriptPath) =>
+            this.markTerminalUnavailable(
+              internal,
+              undefined,
+              transcriptPath,
+            ),
         },
       )
       record.terminalSessionId = terminalHandle.sessionId
@@ -903,6 +1016,7 @@ export class AiTaskManager {
     const taskPath = record.taskPath
     if (
       this.pendingStarts.has(taskPath) ||
+      this.preparedStartReservations.has(taskPath) ||
       !internal.exited ||
       ACTIVE_STATUSES.has(record.status) ||
       this.getActiveRunForTask(taskPath)
@@ -939,7 +1053,7 @@ export class AiTaskManager {
         prompt: text,
       })
 
-      const userEvent: AiStreamEvent = { kind: 'user-text', text }
+      const userEvent: AiStreamEvent = { kind: 'user-text', text: capEventText(text) }
       this.appendEvent(record, userEvent)
       internal.continuation = { events: [], omittedCount: 0 }
       appendBoundedEvent(internal.continuation, userEvent)
@@ -949,6 +1063,7 @@ export class AiTaskManager {
       record.exitCode = undefined
       record.errorMessage = undefined
       internal.exited = false
+      internal.exitPersisted = false
       this.notifyChange(record)
 
       try {
@@ -1019,6 +1134,16 @@ export class AiTaskManager {
 
   getRun(runId: string): AiRunRecord | undefined {
     return this.runs.get(runId)?.record
+  }
+
+  /**
+   * Whether the current final status has completed its log/transcript chain.
+   * The pane uses this during mount so a final-status update followed by a
+   * view remount cannot dispose the snapshot source while persistence is
+   * still awaiting it.
+   */
+  isRunExitPersisted(runId: string): boolean {
+    return this.runs.get(runId)?.exitPersisted === true
   }
 
   /**
@@ -1202,7 +1327,10 @@ export class AiTaskManager {
       this.stopRun(activeRun.id)
       return
     }
-    if (this.pendingStarts.has(taskPath)) {
+    if (
+      this.pendingStarts.has(taskPath) ||
+      this.preparedStartReservations.has(taskPath)
+    ) {
       this.stopRequestedDuringStart.add(taskPath)
     }
   }
@@ -1246,11 +1374,16 @@ export class AiTaskManager {
   /** Keep the live OS PTY grid synchronized with xterm's fitted dimensions. */
   resizeTerminal(runId: string, cols: number, rows: number): void {
     const internal = this.runs.get(runId)
-    if (!internal || internal.exited || !internal.terminalHandle) return
+    if (!internal || internal.exited) return
+    if (internal.record.mode !== 'terminal') return
     if (!ACTIVE_STATUSES.has(internal.record.status)) return
-    internal.terminalHandle.resize?.(cols, rows)
     internal.record.cols = cols
     internal.record.rows = rows
+    // The pane opens synchronously from the first `starting` notification,
+    // just before the dispatcher returns a terminal handle. Preserve that
+    // exact first fit on the record so startPreparedRunCore spawns the PTY
+    // with it; once a handle exists, resize the live PTY as usual.
+    internal.terminalHandle?.resize?.(cols, rows)
     this.scheduleSessionStatePersist()
   }
 
@@ -1283,7 +1416,12 @@ export class AiTaskManager {
     taskPath: string,
     owner?: { instanceId?: string; timerStartedAt?: number },
   ): boolean {
-    if (this.pendingStarts.has(taskPath)) return true
+    if (
+      this.pendingStarts.has(taskPath) ||
+      this.preparedStartReservations.has(taskPath)
+    ) {
+      return true
+    }
     for (const internal of this.runs.values()) {
       const record = internal.record
       if (record.host === 'shell' || record.taskPath !== taskPath) continue
@@ -1466,6 +1604,8 @@ export class AiTaskManager {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.preparedStartReservations.clear()
+    this.stopRequestedDuringStart.clear()
 
     // Persist the pre-stop statuses first. Exit callbacks may race the
     // SIGTERM sweep below, but once disposed they must not overwrite these
@@ -1517,6 +1657,9 @@ export class AiTaskManager {
       terminalShutdownCompletion = Promise.resolve(
         this.deps.terminal?.dispatcher.shutdown?.(),
       ).catch((error: unknown) => {
+        this.disposeError =
+          error instanceof Error ? error : new Error(String(error))
+        this.disposeShutdownFailed = true
         this.deps.log?.(
           'warn',
           '[AiTaskManager] Terminal broker shutdown failed',
@@ -1524,6 +1667,9 @@ export class AiTaskManager {
         )
       })
     } catch (error) {
+      this.disposeError =
+        error instanceof Error ? error : new Error(String(error))
+      this.disposeShutdownFailed = true
       this.deps.log?.(
         'warn',
         '[AiTaskManager] Terminal broker shutdown failed',
@@ -1533,7 +1679,14 @@ export class AiTaskManager {
     this.disposeCompletion = Promise.all([
       handleStopCompletion,
       terminalShutdownCompletion,
-    ]).then(() => undefined)
+    ]).then(() => {
+      if (this.disposeError !== null) throw this.disposeError
+    })
+    // Runtime lease expiry can call dispose() without awaiting. Attach a
+    // passive rejection observer so a truthful broker-shutdown failure does
+    // not become an unhandled rejection; disposeAndWait() still awaits the
+    // original promise and receives the same failure after force-kill cleanup.
+    void this.disposeCompletion.catch(() => undefined)
 
     this.listeners.clear()
     this.terminalSnapshotProviders.length = 0
@@ -1546,7 +1699,66 @@ export class AiTaskManager {
    */
   async disposeAndWait(): Promise<void> {
     this.dispose()
+    // Do not hide the first truthful failure with an automatic tight retry.
+    // A later caller (notably workspace quit after settings OFF) gets a fresh
+    // authenticated shutdown attempt instead of reusing a rejected Promise.
+    if (this.disposeShutdownFailed) {
+      const originalCleanup = (
+        this.disposeCompletion ?? Promise.resolve()
+      ).catch(() => undefined)
+      let retryError: unknown
+      const observedRetry = this.retryTerminalShutdown().catch((error: unknown) => {
+        retryError = error
+      })
+      // Promise.all would fail fast on the retry and let Obsidian finish quit
+      // before the original SIGKILL deadline. Observe the retry rejection,
+      // wait for both branches, then report it.
+      await Promise.all([originalCleanup, observedRetry])
+      if (retryError !== undefined) {
+        throw retryError instanceof Error
+          ? retryError
+          : new Error(
+            typeof retryError === 'string'
+              ? retryError
+              : 'Terminal shutdown retry failed',
+          )
+      }
+      return
+    }
     await (this.disposeCompletion ?? Promise.resolve())
+  }
+
+  private retryTerminalShutdown(): Promise<void> {
+    if (this.disposeShutdownRetry) return this.disposeShutdownRetry
+    let retry: Promise<void>
+    try {
+      retry = Promise.resolve(
+        this.deps.terminal?.dispatcher.shutdown?.(),
+      )
+    } catch (error) {
+      retry = Promise.reject(
+        error instanceof Error ? error : new Error(String(error)),
+      )
+    }
+    const tracked = retry
+      .then(() => {
+        this.disposeError = null
+        this.disposeShutdownFailed = false
+      })
+      .catch((error: unknown) => {
+        this.disposeError =
+          error instanceof Error ? error : new Error(String(error))
+        this.disposeShutdownFailed = true
+        throw this.disposeError
+      })
+      .finally(() => {
+        if (this.disposeShutdownRetry === tracked) {
+          this.disposeShutdownRetry = null
+        }
+      })
+    this.disposeShutdownRetry = tracked
+    void tracked.catch(() => undefined)
+    return tracked
   }
 
   /**
@@ -1570,7 +1782,10 @@ export class AiTaskManager {
       const evicted = buffer.chunks.shift()
       buffer.totalLength -= evicted?.length ?? 0
     }
-    this.scheduleSessionStatePersist()
+    // Output-only churn (TUI spinners emit chunks continuously) uses the lazy
+    // idle tier; status-driven saves keep the prompt default, and saveNow on
+    // renderer reload still captures this buffer synchronously either way.
+    this.scheduleSessionStatePersist(AI_RUN_SESSION_SAVE_IDLE_DELAY_MS)
 
     for (const listener of Array.from(internal.terminalListeners)) {
       try {
@@ -1646,6 +1861,7 @@ export class AiTaskManager {
   private handleExit(internal: InternalRun, outcome: AiRunExitOutcome): void {
     if (internal.exited) return
     internal.exited = true
+    internal.exitPersisted = false
 
     const record = internal.record
     record.status = outcome.status
@@ -1667,6 +1883,7 @@ export class AiTaskManager {
    */
   private queueExitPersist(internal: InternalRun): void {
     const record = internal.record
+    internal.exitPersisted = false
     if (this.disposed) {
       this.cleanUpTranscript(internal)
       return
@@ -1678,7 +1895,7 @@ export class AiTaskManager {
         .then(() => this.discardTranscript(internal))
         .then(() => {
           this.dropStoppedReplayBuffer(internal)
-          this.notifyPersisted(record)
+          this.notifyPersisted(internal)
         })
       return
     }
@@ -1687,7 +1904,7 @@ export class AiTaskManager {
         .then(() => this.persistTerminalRunLog(internal))
         .then(() => {
           this.dropStoppedReplayBuffer(internal)
-          this.notifyPersisted(record)
+          this.notifyPersisted(internal)
         })
       return
     }
@@ -1697,7 +1914,7 @@ export class AiTaskManager {
     internal.continuation = null
     internal.persistQueue = internal.persistQueue
       .then(() => this.persistRunLog(internal, continuationEvents))
-      .then(() => this.notifyPersisted(record))
+      .then(() => this.notifyPersisted(internal))
   }
 
   /**
@@ -1706,9 +1923,10 @@ export class AiTaskManager {
    * terminal snapshot consumed by the persist above always found its adapter
    * alive. Skipped after dispose (listeners are cleared there anyway).
    */
-  private notifyPersisted(record: AiRunRecord): void {
+  private notifyPersisted(internal: InternalRun): void {
     if (this.disposed) return
-    this.notifyChange(record, 'persisted')
+    internal.exitPersisted = true
+    this.notifyChange(internal.record, 'persisted')
   }
 
   /**
@@ -1729,7 +1947,7 @@ export class AiTaskManager {
   private cleanUpTranscript(internal: InternalRun): void {
     const transcriptPath = internal.record.transcriptPath
     if (transcriptPath === undefined || !this.deps.terminal) return
-    internal.record.transcriptPath = undefined
+    if (!this.claimTranscriptPath(internal, transcriptPath)) return
     void this.deps.terminal.readAndDeleteFile(transcriptPath).catch(() => undefined)
   }
 
@@ -1741,12 +1959,30 @@ export class AiTaskManager {
   private async discardTranscript(internal: InternalRun): Promise<void> {
     const transcriptPath = internal.record.transcriptPath
     if (transcriptPath === undefined || !this.deps.terminal) return
-    internal.record.transcriptPath = undefined
+    if (!this.claimTranscriptPath(internal, transcriptPath)) return
     try {
       await this.deps.terminal.readAndDeleteFile(transcriptPath)
     } catch {
       // Best-effort cleanup: a missing/locked temp file is not fatal.
     }
+  }
+
+  /**
+   * Atomically claim a temp transcript before its asynchronous read/delete.
+   * Broker `onExit` and `onUnavailable` can race (including after dispose);
+   * every path goes through this gate so the same file is never consumed
+   * twice while still allowing distinct broker-confirmed paths to be cleaned.
+   */
+  private claimTranscriptPath(
+    internal: InternalRun,
+    transcriptPath: string,
+  ): boolean {
+    if (internal.consumedTranscriptPaths.has(transcriptPath)) return false
+    internal.consumedTranscriptPaths.add(transcriptPath)
+    if (internal.record.transcriptPath === transcriptPath) {
+      internal.record.transcriptPath = undefined
+    }
+    return true
   }
 
   /**
@@ -1756,11 +1992,42 @@ export class AiTaskManager {
    * Returns undefined only when none can provide text; the caller then falls
    * back to the transcript file.
    */
-  private captureTerminalSnapshot(runId: string): string | undefined {
+  private async captureTerminalSnapshot(
+    runId: string,
+  ): Promise<string | undefined> {
     const registrations = [...this.terminalSnapshotProviders].reverse()
     for (const { provider } of registrations) {
+      let timeoutHandle: number | null = null
+      const timeoutMarker = Symbol('terminal-snapshot-timeout')
       try {
-        const text = provider(runId)
+        let timeoutPromise: Promise<typeof timeoutMarker>
+        try {
+          timeoutPromise = new Promise((resolve) => {
+            timeoutHandle = this.timer.setTimeout(
+              () => resolve(timeoutMarker),
+              TERMINAL_SNAPSHOT_PROVIDER_TIMEOUT_MS,
+            )
+          })
+        } catch (error) {
+          this.deps.log?.(
+            'warn',
+            '[AiTaskManager] Terminal snapshot timeout could not be armed',
+            error,
+          )
+          continue
+        }
+        const text = await Promise.race([
+          Promise.resolve().then(() => provider(runId)),
+          timeoutPromise,
+        ])
+        if (text === timeoutMarker) {
+          this.deps.log?.(
+            'warn',
+            '[AiTaskManager] Terminal snapshot provider timed out',
+            runId,
+          )
+          continue
+        }
         if (typeof text === 'string' && text.trim().length > 0) return text
       } catch (error) {
         this.deps.log?.(
@@ -1768,6 +2035,14 @@ export class AiTaskManager {
           '[AiTaskManager] Terminal snapshot provider failed',
           error,
         )
+      } finally {
+        if (timeoutHandle !== null) {
+          try {
+            this.timer.clearTimeout(timeoutHandle)
+          } catch {
+            // The timeout already fired or its owner window is closing.
+          }
+        }
       }
     }
     return undefined
@@ -1779,28 +2054,47 @@ export class AiTaskManager {
    * xterm buffer snapshot — the raw `script` transcript is a TUI
    * screen-drawing byte stream (alternate screen, cursor moves) whose
    * ANSI-stripped remains are mostly spinner fragments, while the xterm
-   * buffer holds the readable final screen. The snapshot is captured
-   * synchronously BEFORE the first await so the pane's adapter (kept alive
-   * for finished runs until unmount) is still there. The PTY transcript temp
+   * buffer holds the readable final screen. The provider first waits for
+   * xterm's asynchronous write queue to drain; the pane keeps the adapter
+   * alive until the later `persisted` notification. The PTY transcript temp
    * file is always consumed (deleted) either way; its stripped content is
    * only used when no snapshot was available. Never rejects.
    */
   private async persistTerminalRunLog(internal: InternalRun): Promise<void> {
     const record = internal.record
-    const snapshot = this.captureTerminalSnapshot(record.id)
-    let transcript = snapshot ?? ''
+    const snapshot = await this.captureTerminalSnapshot(record.id)
+    const bufferedReplay = internal.terminalData?.chunks.join('') ?? ''
+    // An unavailable restored session may have neither a mounted xterm nor
+    // a broker-confirmed temp path. Its bounded local replay is still better
+    // evidence than an empty log, and is safe to use only as the final
+    // fallback after ANSI normalization.
+    const bufferedTranscript =
+      bufferedReplay.length > 0 ? stripAnsiSequences(bufferedReplay) : ''
+    let transcript = snapshot ?? bufferedTranscript
     const transcriptPath = record.transcriptPath
-    if (transcriptPath !== undefined && this.deps.terminal) {
-      record.transcriptPath = undefined
+    if (
+      transcriptPath !== undefined &&
+      this.deps.terminal &&
+      this.claimTranscriptPath(internal, transcriptPath)
+    ) {
       try {
-        const fileTranscript = stripAnsiSequences(
-          await this.deps.terminal.readAndDeleteFile(transcriptPath),
-        )
-        if (snapshot === undefined) {
+        const rawTranscript =
+          await this.deps.terminal.readAndDeleteFile(transcriptPath)
+        const projectionInput =
+          rawTranscript.length > TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT
+            ? `${TERMINAL_TRANSCRIPT_STRIP_TRUNCATED_MARKER}\n${rawTranscript.slice(
+                -TERMINAL_TRANSCRIPT_STRIP_INPUT_LIMIT,
+              )}`
+            : rawTranscript
+        const fileTranscript = stripAnsiSequences(projectionInput)
+        if (
+          snapshot === undefined &&
+          fileTranscript.trim().length > 0
+        ) {
           transcript = fileTranscript
         }
       } catch (error) {
-        if (snapshot === undefined) {
+        if (snapshot === undefined && transcript.trim().length === 0) {
           transcript = TERMINAL_TRANSCRIPT_UNAVAILABLE_PLACEHOLDER
         }
         this.deps.log?.(
@@ -1955,7 +2249,7 @@ export class AiTaskManager {
                 // A live broker replays its authoritative buffer on attach;
                 // seeding the local snapshot too would render every line
                 // twice. Keep the snapshot only as the missing-broker
-                // fallback used by markRestoredTerminalUnavailable.
+                // fallback used by markTerminalUnavailable.
                 chunks:
                   !canAttachLiveTerminal && replay.length > 0 ? [replay] : [],
                 totalLength: !canAttachLiveTerminal ? replay.length : 0,
@@ -1966,6 +2260,11 @@ export class AiTaskManager {
         extraArgs: [...snapshot.extraArgs],
         continuation: null,
         persistQueue: Promise.resolve(),
+        consumedTranscriptPaths: new Set(),
+        // Final records restored into a new manager have no in-flight
+        // renderer-local persist chain. Live records remain unpersisted until
+        // their eventual exit in this manager lifetime.
+        exitPersisted: !ACTIVE_STATUSES.has(record.status),
         needsTaskStateReconciliation:
           record.host !== 'shell' &&
           !canAttachLiveTerminal &&
@@ -1984,8 +2283,12 @@ export class AiTaskManager {
               onExit: (outcome) => this.handleExit(internal, outcome),
               onAttached: (pid, transcriptPath) =>
                 this.handleTerminalAttached(internal, pid, transcriptPath),
-              onUnavailable: () =>
-                this.markRestoredTerminalUnavailable(internal, replay),
+              onUnavailable: (transcriptPath) =>
+                this.markTerminalUnavailable(
+                  internal,
+                  replay,
+                  transcriptPath,
+                ),
             },
           )
           if (!internal.exited) {
@@ -1998,7 +2301,7 @@ export class AiTaskManager {
             '[AiTaskManager] Failed to attach restored terminal',
             error,
           )
-          this.markRestoredTerminalUnavailable(internal, replay)
+          this.markTerminalUnavailable(internal, replay)
           normalizedActiveState = true
         }
       }
@@ -2006,11 +2309,38 @@ export class AiTaskManager {
     if (normalizedActiveState) this.persistSessionStateNow()
   }
 
-  /** Convert an active snapshot to interrupted only after broker attach fails. */
-  private markRestoredTerminalUnavailable(
+  /**
+   * Convert a terminal run to interrupted once its broker session is
+   * unreachable: a restored snapshot whose attach failed (fallbackReplay
+   * carries the persisted replay), or a LIVE run whose broker connection was
+   * given up (fallbackReplay omitted — the in-memory buffer already holds
+   * the last output). Without this, a live run would stay 'running' forever
+   * against a dead pipe.
+   */
+  private markTerminalUnavailable(
     internal: InternalRun,
-    fallbackReplay: string,
+    fallbackReplay?: string,
+    trustedTranscriptPath?: string,
   ): void {
+    if (this.disposed) {
+      // A late broker callback belongs to an old manager lifetime. Never let
+      // it rewrite the authoritative pre-stop snapshot (or a newly adopted
+      // manager's shared localStorage). A broker-confirmed temp path is still
+      // safe to consume best-effort so abnormal termination leaves no file.
+      if (
+        typeof trustedTranscriptPath === 'string' &&
+        trustedTranscriptPath.length > 0 &&
+        trustedTranscriptPath.length <= 8 * 1024 &&
+        this.deps.terminal
+      ) {
+        if (this.claimTranscriptPath(internal, trustedTranscriptPath)) {
+          void this.deps.terminal
+            .readAndDeleteFile(trustedTranscriptPath)
+            .catch(() => undefined)
+        }
+      }
+      return
+    }
     if (
       internal.exited ||
       this.runs.get(internal.record.id) !== internal
@@ -2020,22 +2350,36 @@ export class AiTaskManager {
     internal.exited = true
     internal.handle = null
     internal.terminalHandle = null
-    internal.terminalData = {
-      chunks: fallbackReplay.length > 0 ? [fallbackReplay] : [],
-      totalLength: fallbackReplay.length,
+    if (
+      fallbackReplay !== undefined &&
+      (internal.terminalData?.totalLength ?? 0) === 0
+    ) {
+      internal.terminalData = {
+        chunks: fallbackReplay.length > 0 ? [fallbackReplay] : [],
+        totalLength: fallbackReplay.length,
+      }
     }
     const record = internal.record
+    if (
+      typeof trustedTranscriptPath === 'string' &&
+      trustedTranscriptPath.length > 0 &&
+      trustedTranscriptPath.length <= 8 * 1024
+    ) {
+      record.transcriptPath = trustedTranscriptPath
+    }
     record.status = 'interrupted'
     record.endedAt = Date.now()
     record.exitCode = null
     record.errorMessage = INTERRUPTED_RUN_ERROR_MESSAGE
     record.pid = undefined
     record.terminalSessionId = undefined
-    // transcriptPath is deliberately absent until a broker-confirmed attach.
-    record.transcriptPath = undefined
+    // Keep a broker-confirmed transcript path until the exit-persist chain
+    // consumes it. Restored snapshots never trust/preserve a localStorage
+    // path, so an unavailable-before-attach run still has undefined here.
     internal.needsTaskStateReconciliation = record.host !== 'shell'
     this.notifyChange(record)
     this.persistSessionStateNow()
+    this.queueExitPersist(internal)
   }
 
   private createSessionSnapshots(): AiRunSessionSnapshot[] {
@@ -2072,9 +2416,16 @@ export class AiTaskManager {
     return snapshots
   }
 
-  private scheduleSessionStatePersist(): void {
+  private scheduleSessionStatePersist(delayMs?: number): void {
+    // dispose() writes the authoritative final state via saveNow; residual
+    // PTY output flushed during teardown must not re-arm a delayed save
+    // that would overwrite it with post-kill statuses.
+    if (this.disposed) return
     try {
-      this.deps.sessionState?.scheduleSave(() => this.createSessionSnapshots())
+      this.deps.sessionState?.scheduleSave(
+        () => this.createSessionSnapshots(),
+        delayMs,
+      )
     } catch (error) {
       this.deps.log?.('warn', '[AiTaskManager] Failed to schedule run state save', error)
     }

@@ -23,11 +23,16 @@ interface PluginWithSettings extends Plugin {
   pathManager: PathManagerLike
   aiTaskManager?: AiTaskManager
   aiTaskManagersPendingDisposal?: Set<AiTaskManager>
+  aiTaskLifecycleActive?: boolean
+  aiTaskLifecycleGeneration?: number
+  aiTaskRuntimeLeaseGeneration?: number
   saveSettings(): Promise<void>
 }
 
 export class TaskChuteSettingTab extends PluginSettingTab {
   plugin: PluginWithSettings
+  /** Rejects an older async toggle completion after a newer operation wins. */
+  private aiTaskToggleOperation = 0
 
   constructor(app: App, plugin: PluginWithSettings) {
     super(app, plugin)
@@ -614,9 +619,32 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         toggle
           .setValue(this.plugin.settings.aiTaskEnabled ?? false)
           .onChange(async (value) => {
+            const operation = (this.aiTaskToggleOperation ?? 0) + 1
+            const lifecycleGeneration = this.plugin.aiTaskLifecycleGeneration
+            this.aiTaskToggleOperation = operation
             this.plugin.settings.aiTaskEnabled = value
             await this.plugin.saveSettings()
-            this.applyAiTaskEnabledChange(value)
+            // Settings tabs belong to one Plugin instance. A hot reload can
+            // replace that instance while saveSettings is pending; the old
+            // callback must never dispose or re-adopt the new owner's manager.
+            if (!this.isAiTaskToggleRequestCurrent(
+              operation,
+              lifecycleGeneration,
+              value,
+            )) return
+            const applied = await this.applyAiTaskEnabledChange(
+              value,
+              operation,
+              lifecycleGeneration,
+            )
+            if (
+              !applied ||
+              !this.isAiTaskToggleRequestCurrent(
+                operation,
+                lifecycleGeneration,
+                value,
+              )
+            ) return
             this.notifyAiTaskSettingsChanged()
           })
       })
@@ -742,18 +770,90 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     retentionSetting.controlEl?.addClass("taskchute-number-input")
   }
 
-  /** Create or dispose the AiTaskManager to match the toggle state */
-  private applyAiTaskEnabledChange(enabled: boolean): void {
+  /** Create or dispose the AiTaskManager to match the toggle state. */
+  private async applyAiTaskEnabledChange(
+    enabled: boolean,
+    operation: number,
+    lifecycleGeneration: number | undefined,
+  ): Promise<boolean> {
     if (enabled) {
+      const pending = this.plugin.aiTaskManagersPendingDisposal
+      const disposingManagers = Array.from(pending ?? [])
+      if (disposingManagers.length > 0) {
+        const results = await Promise.allSettled(
+          disposingManagers.map(async (manager) => {
+            await manager.disposeAndWait()
+            pending?.delete(manager)
+          }),
+        )
+        if (!this.isAiTaskToggleRequestCurrent(
+          operation,
+          lifecycleGeneration,
+          true,
+        )) return false
+        if (results.some((result) => result.status === 'rejected')) {
+          // A new manager uses the same vault-scoped broker identity. Starting
+          // it while the previous manager still owns an in-flight shutdown
+          // lets that old shutdown kill the new run. Fail closed and persist
+          // the actual disabled runtime state instead.
+          this.plugin.settings.aiTaskEnabled = false
+          await this.plugin.saveSettings()
+          new Notice(
+            t(
+              'settings.aiTask.previousRuntimeShutdownFailed',
+              'The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.',
+            ),
+          )
+          return false
+        }
+      }
       if (!this.plugin.aiTaskManager) {
         // Returns undefined off-desktop; the factory owns the platform gate.
         this.plugin.aiTaskManager = createAiTaskManager(this.plugin)
       }
-      return
+      return true
     }
     const manager = this.plugin.aiTaskManager
     if (manager) disposeAiTaskManagerTracked(this.plugin, manager)
     this.plugin.aiTaskManager = undefined
+    this.plugin.aiTaskRuntimeLeaseGeneration = undefined
+    return true
+  }
+
+  private isAiTaskToggleRequestCurrent(
+    operation: number,
+    lifecycleGeneration: number | undefined,
+    enabled: boolean,
+  ): boolean {
+    return (
+      this.aiTaskToggleOperation === operation &&
+      this.plugin.settings.aiTaskEnabled === enabled &&
+      this.isCurrentPluginInstance(lifecycleGeneration)
+    )
+  }
+
+  /**
+   * Obsidian keeps the current Plugin instance in its internal registry.
+   * Use it only as a stale-callback guard; lightweight test hosts without the
+   * registry retain the normal behavior.
+   */
+  private isCurrentPluginInstance(
+    expectedLifecycleGeneration: number | undefined,
+  ): boolean {
+    if (this.plugin.aiTaskLifecycleActive === false) return false
+    if (
+      expectedLifecycleGeneration !== undefined &&
+      this.plugin.aiTaskLifecycleGeneration !== expectedLifecycleGeneration
+    ) {
+      return false
+    }
+    const appWithPlugins = this.app as App & {
+      plugins?: { plugins?: Record<string, unknown> }
+    }
+    const registry = appWithPlugins.plugins?.plugins
+    if (!registry) return true
+    const pluginId = this.plugin.manifest?.id
+    return typeof pluginId === "string" && registry[pluginId] === this.plugin
   }
 
   private notifyAiTaskSettingsChanged(): void {

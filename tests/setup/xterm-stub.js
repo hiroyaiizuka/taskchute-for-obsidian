@@ -11,6 +11,8 @@ class Terminal {
   constructor(options) {
     this.options = options || {}
     this.writes = []
+    this.deferWriteCallbacks = false
+    this.writeCallbacks = []
     this.dataCallbacks = []
     this.resizeCallbacks = []
     this.openedContainer = null
@@ -104,8 +106,17 @@ class Terminal {
     this.openedContainer = container || null
   }
 
-  write(data) {
+  write(data, callback) {
     this.writes.push(data)
+    if (typeof callback === 'function') {
+      if (this.deferWriteCallbacks) this.writeCallbacks.push(callback)
+      else callback()
+    }
+  }
+
+  flushWriteCallbacks() {
+    const callbacks = this.writeCallbacks.splice(0)
+    for (const callback of callbacks) callback()
   }
 
   focus() {
@@ -114,6 +125,7 @@ class Terminal {
 
   dispose() {
     this.disposed = true
+    this.flushWriteCallbacks()
     for (const addon of this.loadedAddons) {
       addon.dispose?.()
     }
@@ -142,11 +154,17 @@ class FitAddon {
     this.fitCount = 0
     this.disposed = false
     this.terminal = null
+    /** Test helper: value returned by proposeDimensions() (default undefined) */
+    this.proposedDimensions = undefined
     FitAddon.instances.push(this)
   }
 
   activate(terminal) {
     this.terminal = terminal
+  }
+
+  proposeDimensions() {
+    return this.proposedDimensions
   }
 
   fit() {

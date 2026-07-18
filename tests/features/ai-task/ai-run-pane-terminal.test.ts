@@ -24,6 +24,8 @@ type TerminalDataListener = (chunk: string) => void
 
 class FakeTerminalAdapter implements TerminalViewAdapterLike {
   opened: { container: HTMLElement; cols: number; rows: number } | null = null
+  openedWithTerminalChrome = false
+  openedWithComposerHidden = false
   written: string[] = []
   focus = jest.fn()
   disposed = false
@@ -33,6 +35,14 @@ class FakeTerminalAdapter implements TerminalViewAdapterLike {
 
   open(container: HTMLElement, cols: number, rows: number): void {
     this.opened = { container, cols, rows }
+    const pane = container.closest('.ai-run-pane')
+    this.openedWithTerminalChrome =
+      pane?.parentElement?.classList.contains('ai-pane-container--terminal') ??
+      false
+    this.openedWithComposerHidden =
+      pane
+        ?.querySelector('.ai-run-pane__composer')
+        ?.classList.contains('is-hidden') ?? false
   }
 
   write(data: string): void {
@@ -79,11 +89,15 @@ class FakeManager {
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
   /** Mirrors the real manager's single-provider snapshot registration */
-  snapshotProvider: ((runId: string) => string | undefined) | null = null
+  snapshotProvider:
+    | ((runId: string) => string | undefined | Promise<string | undefined>)
+    | null = null
   snapshotProviderUnregisterCount = 0
 
   registerTerminalSnapshotProvider(
-    provider: (runId: string) => string | undefined,
+    provider: (
+      runId: string,
+    ) => string | undefined | Promise<string | undefined>,
   ): () => void {
     this.snapshotProvider = provider
     return () => {
@@ -218,6 +232,8 @@ describe('AiRunPaneController terminal mode', () => {
       body === adapter.opened?.container ||
         body?.contains(adapter.opened?.container ?? null),
     ).toBe(true)
+    expect(adapter.openedWithTerminalChrome).toBe(true)
+    expect(adapter.openedWithComposerHidden).toBe(true)
     expect(adapter.focus).toHaveBeenCalled()
   })
 
@@ -231,6 +247,33 @@ describe('AiRunPaneController terminal mode', () => {
     controller.openRun('run-b')
     expect(createTerminalAdapter).toHaveBeenCalledTimes(2)
     expect(adapters[1].opened?.cols).toBe(100)
+  })
+
+  test('applies terminal chrome and hides the composer before opening a terminal selected after a headless run', () => {
+    controller.mount(container)
+    manager.emit(
+      createRun({
+        id: 'run-headless',
+        taskPath: 'TASKS/headless.md',
+        mode: 'headless',
+        status: 'succeeded',
+        cols: undefined,
+        rows: undefined,
+      }),
+    )
+    manager.emit(
+      createRun({
+        id: 'run-terminal',
+        taskPath: 'TASKS/terminal.md',
+      }),
+    )
+
+    expect(createTerminalAdapter).not.toHaveBeenCalled()
+    controller.openRun('run-terminal')
+
+    expect(createTerminalAdapter).toHaveBeenCalledTimes(1)
+    expect(adapters[0].openedWithTerminalChrome).toBe(true)
+    expect(adapters[0].openedWithComposerHidden).toBe(true)
   })
 
   test('reselecting a tab reuses the existing adapter', () => {

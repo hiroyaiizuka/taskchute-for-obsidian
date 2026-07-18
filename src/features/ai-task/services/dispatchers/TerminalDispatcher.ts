@@ -25,6 +25,7 @@
  */
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
+import { stableTimeoutSource } from '../../../../utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
 import { buildTerminalArgs } from '../TerminalArguments'
 import { STOP_GRACE_MS } from './Dispatcher'
@@ -61,8 +62,11 @@ export interface TerminalRunCallbacks {
    * transcript path captured when that broker session was first spawned.
    */
   onAttached?(pid?: number, transcriptPath?: string): void
-  /** Persistent attach could not find the renderer-independent session. */
-  onUnavailable?(): void
+  /**
+   * Persistent session became unreachable. A broker-confirmed transcript
+   * path may accompany abnormal termination when attach replay was unusable.
+   */
+  onUnavailable?(transcriptPath?: string): void
 }
 
 export interface TerminalRunHandle {
@@ -113,12 +117,7 @@ export function buildTerminalEnv(
 /** `__TASKCHUTE_AI_EXIT__<code>` plus its trailing newline, if present */
 const SENTINEL_PATTERN = new RegExp(`${TERMINAL_EXIT_SENTINEL}(\\d+)\\r?\\n?`)
 
-const defaultGraceTimer: AiGraceTimer = {
-  setTimeout: (handler, timeoutMs) => activeWindow.setTimeout(handler, timeoutMs),
-  clearTimeout: (handle) => {
-    activeWindow.clearTimeout(handle)
-  },
-}
+const defaultGraceTimer: AiGraceTimer = stableTimeoutSource
 
 const LOGIN_SHELL_ARGS: readonly string[] = ['-i', '-l']
 

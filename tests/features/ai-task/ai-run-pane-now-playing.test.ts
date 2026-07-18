@@ -232,10 +232,14 @@ class FakeManager {
       }
     },
   )
-  snapshotProvider: ((runId: string) => string | undefined) | null = null
+  snapshotProvider:
+    | ((runId: string) => string | undefined | Promise<string | undefined>)
+    | null = null
 
   registerTerminalSnapshotProvider(
-    provider: (runId: string) => string | undefined,
+    provider: (
+      runId: string,
+    ) => string | undefined | Promise<string | undefined>,
   ): () => void {
     this.snapshotProvider = provider
     return () => {
@@ -1000,6 +1004,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       manager.emit(run)
       run.status = 'succeeded'
       manager.emit(run)
+      manager.emit(run, 'persisted')
 
       const close = container.querySelector<HTMLButtonElement>(
         '.ai-run-pane__tab-close',
@@ -1067,6 +1072,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       manager.emit(run)
       run.status = 'failed'
       manager.emit(run)
+      manager.emit(run, 'persisted')
 
       container
         .querySelector<HTMLButtonElement>('.ai-run-pane__run-close')
@@ -1182,6 +1188,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
 
       run.status = 'succeeded'
       manager.emit(run)
+      manager.emit(run, 'persisted')
       container
         .querySelector<HTMLButtonElement>('.ai-run-pane__tab-close')
         ?.click()

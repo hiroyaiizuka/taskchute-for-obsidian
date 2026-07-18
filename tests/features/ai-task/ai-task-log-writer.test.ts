@@ -2,6 +2,7 @@ import { TFile } from 'obsidian'
 import {
   AiTaskLogWriter,
   STDERR_TAIL_LIMIT,
+  TERMINAL_LOG_BODY_LIMIT,
   type AiTaskLogWriterDeps,
 } from '../../../src/features/ai-task/services/AiTaskLogWriter'
 import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
@@ -562,5 +563,44 @@ describe('AiTaskLogWriter.writeTerminalRunLog', () => {
     const content = harness.created[0].content
     expect(content).toContain('## Transcript')
     expect(content).toContain('```text\n```')
+  })
+
+  test('caps an oversized transcript to its tail with a truncation notice', async () => {
+    const harness = createHarness()
+    const oversized = `${'a'.repeat(TERMINAL_LOG_BODY_LIMIT)}TAIL-MARKER`
+
+    await harness.writer.writeTerminalRunLog(makeTerminalRecord(), oversized)
+
+    const content = harness.created[0].content
+    const expectedBody = oversized.slice(oversized.length - TERMINAL_LOG_BODY_LIMIT)
+    expect(content).toContain(
+      `Transcript truncated: showing the last ${TERMINAL_LOG_BODY_LIMIT} characters.`,
+    )
+    expect(content).toContain(`\`\`\`text\n${expectedBody}\n\`\`\``)
+    expect(content).toContain('mode: terminal')
+    expect(content.endsWith('\n')).toBe(true)
+  })
+
+  test('derives the fence from the capped tail, not from dropped head content', async () => {
+    const harness = createHarness()
+    // All backtick runs live in the head that truncation drops.
+    const oversized = `\`\`\`\`\n${'b'.repeat(TERMINAL_LOG_BODY_LIMIT)}`
+
+    await harness.writer.writeTerminalRunLog(makeTerminalRecord(), oversized)
+
+    const content = harness.created[0].content
+    expect(content).toContain('\n```text\n')
+    expect(content).not.toContain('````')
+  })
+
+  test('does not add a truncation notice at or below the body limit', async () => {
+    const harness = createHarness()
+    const exact = 'c'.repeat(TERMINAL_LOG_BODY_LIMIT)
+
+    await harness.writer.writeTerminalRunLog(makeTerminalRecord(), exact)
+
+    const content = harness.created[0].content
+    expect(content).not.toContain('Transcript truncated')
+    expect(content).toContain(`\`\`\`text\n${exact}\n\`\`\``)
   })
 })
