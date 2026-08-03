@@ -311,19 +311,25 @@ describe('ExecutionLogService.hasExecutionHistory', () => {
   });
 
   test('falls back to month probing when getFiles unavailable', async () => {
-    const { plugin, store, vault } = createPluginStub({ disableGetFiles: true });
-    store.set('LOGS/2025-08-tasks.json', {
-      taskExecutions: {
-        '2025-08-12': [{ taskPath: 'Tasks/history.md' }],
-      },
-      dailySummary: {},
-    });
-    const service = new ExecutionLogService(plugin);
+    // 探索範囲は現在日時から遡る12か月なので、システム時刻を固定する
+    jest.useFakeTimers().setSystemTime(new Date('2025-09-15T00:00:00Z'));
+    try {
+      const { plugin, store, vault } = createPluginStub({ disableGetFiles: true });
+      store.set('LOGS/2025-08-tasks.json', {
+        taskExecutions: {
+          '2025-08-12': [{ taskPath: 'Tasks/history.md' }],
+        },
+        dailySummary: {},
+      });
+      const service = new ExecutionLogService(plugin);
 
-    const result = await service.hasExecutionHistory('Tasks/history.md');
+      const result = await service.hasExecutionHistory('Tasks/history.md');
 
-    expect(result).toBe(true);
-    expect(vault.getAbstractFileByPath).toHaveBeenCalledWith('LOGS/2025-08-tasks.json');
+      expect(result).toBe(true);
+      expect(vault.getAbstractFileByPath).toHaveBeenCalledWith('LOGS/2025-08-tasks.json');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('returns false when no log entries exist for path', async () => {
