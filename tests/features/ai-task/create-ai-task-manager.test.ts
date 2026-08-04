@@ -72,6 +72,92 @@ describe('createAiTaskManager gating', () => {
     })
   })
 
+  test('constructs the broker client with the same persisted lease retained by the manager', () => {
+    jest.isolateModules(() => {
+      let constructedOptions: Record<string, unknown> | undefined
+      const setLease = jest.fn()
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: { isDesktop: true, isMobile: false },
+      }))
+      jest.doMock(
+        '../../../src/features/ai-task/services/TerminalSessionBroker',
+        () => ({
+          TerminalSessionBrokerClient: class {
+            constructor(options: Record<string, unknown>) {
+              constructedOptions = options
+            }
+
+            setRendererLeaseToken(
+              token: string,
+              ownerId?: string,
+              generation?: number,
+            ): Promise<void> {
+              setLease(token, ownerId, generation)
+              return Promise.resolve()
+            }
+
+            detach(): void {}
+
+            shutdown(): Promise<void> {
+              return Promise.resolve()
+            }
+          },
+        }),
+      )
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../../../src/features/ai-task') as FactoryModule
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const runtimeLease = require(
+        '../../../src/features/ai-task/services/AiTaskRuntimeLease'
+      ) as typeof import('../../../src/features/ai-task/services/AiTaskRuntimeLease')
+      const plugin = makePlugin()
+      let persistedGeneration: unknown = 41
+      ;(plugin.app.vault as unknown as Record<string, unknown>)['adapter'] = {
+        getBasePath: () => '/vault',
+      }
+      ;(plugin.app as unknown as Record<string, unknown>)['loadLocalStorage'] =
+        (key: string) =>
+          key ===
+          runtimeLease.AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY
+            ? persistedGeneration
+            : undefined
+      ;(plugin.app as unknown as Record<string, unknown>)['saveLocalStorage'] =
+        (key: string, value: unknown) => {
+          if (
+            key ===
+            runtimeLease.AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY
+          ) {
+            persistedGeneration = value
+          }
+        }
+
+      const created = mod.createAiTaskManager(plugin)
+      expect(created).toBeDefined()
+      const retainedIdentity =
+        runtimeLease.getAiTaskRuntimeTerminalLeaseIdentity(
+          created as NonNullable<typeof created>,
+        )
+      expect(retainedIdentity).toBeDefined()
+      expect(constructedOptions).toMatchObject({
+        rendererLeaseToken: retainedIdentity?.token,
+        rendererLeaseOwnerId: retainedIdentity?.ownerId,
+        rendererLeaseGeneration: retainedIdentity?.generation,
+      })
+      expect(setLease).toHaveBeenCalledWith(
+        retainedIdentity?.token,
+        retainedIdentity?.ownerId,
+        retainedIdentity?.generation,
+      )
+      expect(persistedGeneration).toBe(retainedIdentity?.generation)
+
+      runtimeLease.forgetRetainedAiTaskManager(
+        created as NonNullable<typeof created>,
+      )
+      created?.dispose()
+    })
+  })
+
   test('returns undefined when the path manager lacks AI log paths', () => {
     jest.isolateModules(() => {
       jest.doMock('obsidian', () => ({

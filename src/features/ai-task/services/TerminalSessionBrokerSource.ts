@@ -1,5 +1,10 @@
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
+import {
+  FISH_TERMINAL_BOOTSTRAP,
+  POSIX_TERMINAL_BOOTSTRAP,
+  TERMINAL_ARGV_BOOTSTRAP_ARG_ZERO,
+} from './dispatchers/TerminalShellBootstrap'
 
 /**
  * Renderer-independent Node broker program.
@@ -16,6 +21,9 @@ const crypto = require('crypto');
 const path = require('path');
 const ownerWatchdogProgram = ${JSON.stringify(TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE)};
 const sessionGuardProgram = ${JSON.stringify(TERMINAL_SESSION_GUARD_SOURCE)};
+const terminalArgvBootstrapProgram = ${JSON.stringify(POSIX_TERMINAL_BOOTSTRAP)};
+const fishTerminalArgvBootstrapProgram = ${JSON.stringify(FISH_TERMINAL_BOOTSTRAP)};
+const terminalArgvBootstrapArgZero = ${JSON.stringify(TERMINAL_ARGV_BOOTSTRAP_ARG_ZERO)};
 const descriptorPath = process.env.TASKCHUTE_BROKER_DESCRIPTOR;
 const token = process.env.TASKCHUTE_BROKER_TOKEN;
 const idleTtlMs = Number(process.env.TASKCHUTE_BROKER_TTL_MS || 1800000);
@@ -71,6 +79,90 @@ let shutdownRetryTimer = null;
 let shutdownRetryAcknowledge = false;
 let shutdownPendingAfterSessions = false;
 const shutdownWaiters = new Set();
+let deferredShutdownTimer = null;
+let activeRendererLease = null;
+const retiredRendererLeaseOwners = new Set();
+const rendererLeasePattern = /^[A-Za-z0-9._:-]{1,128}$/;
+const canonicalRendererLeaseOwnerId = 'taskchute-plus-ai-terminal';
+function cancelDeferredShutdown() {
+  if (!deferredShutdownTimer) return;
+  global.clearTimeout(deferredShutdownTimer);
+  deferredShutdownTimer = null;
+}
+function rendererLeaseOf(message) {
+  const token = (
+    message &&
+    typeof message.rendererLeaseToken === 'string' &&
+    rendererLeasePattern.test(message.rendererLeaseToken)
+  )
+    ? message.rendererLeaseToken
+    : null;
+  const ownerId = (
+    message &&
+    typeof message.rendererLeaseOwnerId === 'string' &&
+    rendererLeasePattern.test(message.rendererLeaseOwnerId)
+  )
+    ? message.rendererLeaseOwnerId
+    : null;
+  const generation = message && Number(message.rendererLeaseGeneration);
+  if (
+    !token ||
+    !ownerId ||
+    !Number.isSafeInteger(generation) ||
+    generation < 1
+  ) {
+    return null;
+  }
+  return { token, ownerId, generation };
+}
+function rendererLeaseIsCurrent(message) {
+  const lease = rendererLeaseOf(message);
+  if (!activeRendererLease) return true;
+  return Boolean(
+    lease &&
+    lease.token === activeRendererLease.token &&
+    lease.ownerId === activeRendererLease.ownerId &&
+    lease.generation === activeRendererLease.generation
+  );
+}
+function claimRendererLease(message) {
+  const lease = rendererLeaseOf(message);
+  if (!lease) return activeRendererLease === null;
+  if (retiredRendererLeaseOwners.has(lease.ownerId)) return false;
+  if (!activeRendererLease) {
+    activeRendererLease = lease;
+    return true;
+  }
+  if (lease.ownerId === activeRendererLease.ownerId) {
+    if (lease.generation < activeRendererLease.generation) return false;
+    if (lease.generation === activeRendererLease.generation) {
+      return lease.token === activeRendererLease.token;
+    }
+    activeRendererLease = lease;
+    return true;
+  }
+  // Modern renderers share one broker-lineage owner and use a persisted
+  // monotonic generation. Permit a one-way migration from older bundles
+  // whose owner was random, but once the canonical owner is active no late
+  // unseen legacy owner may reclaim the broker.
+  if (
+    activeRendererLease.ownerId === canonicalRendererLeaseOwnerId &&
+    lease.ownerId !== canonicalRendererLeaseOwnerId
+  ) return false;
+  if (
+    lease.ownerId !== canonicalRendererLeaseOwnerId &&
+    activeRendererLease.ownerId !== canonicalRendererLeaseOwnerId
+  ) {
+    // Compatibility for two legacy random-owner renderers. This path
+    // disappears after the first modern activation below.
+    retiredRendererLeaseOwners.add(activeRendererLease.ownerId);
+    activeRendererLease = lease;
+    return true;
+  }
+  retiredRendererLeaseOwners.add(activeRendererLease.ownerId);
+  activeRendererLease = lease;
+  return true;
+}
 function finishOwnerWatchdogDisarm(confirmed) {
   if (ownerWatchdogDisarmTimer) {
     global.clearTimeout(ownerWatchdogDisarmTimer);
@@ -1489,6 +1581,64 @@ function shellSegmentDisablesPythonOwnershipHook(segment) {
     pythonArgsDisableOwnershipHook(words.slice(1))
   );
 }
+function executableLaunchDisablesPythonOwnershipHook(binary, args) {
+  const name = executableName(binary);
+  if (
+    isPythonExecutable(name) &&
+    pythonArgsDisableOwnershipHook(args)
+  ) return true;
+  return (
+    name === 'env' &&
+    envLaunchDisablesPythonOwnershipHook(args)
+  );
+}
+function terminalArgvBootstrapDisablesPythonHook(binary, binaryArgs) {
+  const name = executableName(binary);
+  const commandIndex = binaryArgs.indexOf('-c');
+  if (commandIndex < 0) return false;
+  const program = binaryArgs[commandIndex + 1];
+  let positionals;
+  if (name === 'fish') {
+    if (
+      program !== fishTerminalArgvBootstrapProgram ||
+      binaryArgs[commandIndex + 2] !== terminalArgvBootstrapProgram
+    ) return false;
+    positionals = binaryArgs.slice(commandIndex + 3);
+  } else {
+    if (
+      !/^(?:a|ba|da|k|mk|z)?sh$/.test(name) ||
+      program !== terminalArgvBootstrapProgram ||
+      binaryArgs[commandIndex + 2] !== terminalArgvBootstrapArgZero
+    ) return false;
+    positionals = binaryArgs.slice(commandIndex + 3);
+  }
+  // shell, resolved, command, fallback, prefixCount
+  if (positionals.length < 5) return true;
+  const resolved = positionals[1];
+  const command = positionals[2];
+  const fallback = positionals[3];
+  const prefixCountText = positionals[4];
+  const payload = positionals.slice(5);
+  if (
+    typeof resolved !== 'string' ||
+    typeof command !== 'string' ||
+    typeof fallback !== 'string' ||
+    typeof prefixCountText !== 'string' ||
+    !/^(?:0|[1-9][0-9]*)$/.test(prefixCountText)
+  ) return true;
+  const prefixCount = Number(prefixCountText);
+  if (
+    !Number.isSafeInteger(prefixCount) ||
+    prefixCount < 0 ||
+    prefixCount > payload.length
+  ) return true;
+  const commandArgs = payload.slice(prefixCount);
+  return (
+    executableLaunchDisablesPythonOwnershipHook(resolved, payload) ||
+    executableLaunchDisablesPythonOwnershipHook(command, commandArgs) ||
+    executableLaunchDisablesPythonOwnershipHook(fallback, commandArgs)
+  );
+}
 function taskChutePtyPositionalLaunchDisablesPythonHook(
   request,
   commandIndex,
@@ -1505,15 +1655,10 @@ function taskChutePtyPositionalLaunchDisablesPythonHook(
   const binaryIndex = commandIndex + 3;
   const binary = request.args[binaryIndex];
   if (typeof binary !== 'string') return false;
-  const binaryName = executableName(binary);
   const binaryArgs = request.args.slice(binaryIndex + 1);
-  if (
-    isPythonExecutable(binaryName) &&
-    pythonArgsDisableOwnershipHook(binaryArgs)
-  ) return true;
   return (
-    binaryName === 'env' &&
-    envLaunchDisablesPythonOwnershipHook(binaryArgs)
+    executableLaunchDisablesPythonOwnershipHook(binary, binaryArgs) ||
+    terminalArgvBootstrapDisablesPythonHook(binary, binaryArgs)
   );
 }
 function launchDisablesPythonOwnershipHook(request, initialInput) {
@@ -1908,6 +2053,10 @@ function handle(socket, message) {
     return;
   }
   if (message.op === 'shutdown') {
+    if (!rendererLeaseIsCurrent(message)) {
+      socket.destroy();
+      return;
+    }
     // Shutdown is idempotent across renderer generations. Every authenticated
     // client receives the same completion ACK after all live children close;
     // a second request must not sit until its local timeout.
@@ -1952,7 +2101,67 @@ function handle(socket, message) {
     awaitSessionExit();
     return;
   }
+  if (message.op === 'activate-renderer-lease') {
+    if (!claimRendererLease(message)) {
+      socket.destroy();
+      return;
+    }
+    cancelDeferredShutdown();
+    send(socket, { type: 'renderer-lease-activated' });
+    return;
+  }
+  if (message.op === 'schedule-shutdown') {
+    const graceMs = Number(message.graceMs);
+    if (
+      !Number.isFinite(graceMs) ||
+      !Number.isInteger(graceMs) ||
+      graceMs < 100 ||
+      graceMs > 120000
+    ) {
+      send(socket, { type: 'error', message: 'Invalid shutdown grace' });
+      return;
+    }
+    if (!rendererLeaseIsCurrent(message)) {
+      // ACK stale requests so an old renderer can finish tearing down, but
+      // never let its delayed control socket re-arm the current renderer's
+      // deadline.
+      send(socket, { type: 'shutdown-scheduled' });
+      return;
+    }
+    cancelDeferredShutdown();
+    deferredShutdownTimer = global.setTimeout(() => {
+      deferredShutdownTimer = null;
+      // Only an authenticated command received AFTER this deadline was armed
+      // cancels it (see the connection handler below). The old renderer's
+      // socket can remain open until the timer boundary during true app exit;
+      // treating mere socket presence as a renewal would skip cleanup and
+      // fall back to the much longer clientless TTL.
+      for (const active of sessions.values()) {
+        if (!active.completed) {
+          active.stopRequested = true;
+          requestGuardStop(active, true);
+        }
+      }
+      shutdown(false);
+    }, graceMs);
+    deferredShutdownTimer.unref();
+    send(socket, { type: 'shutdown-scheduled' });
+    return;
+  }
+  if (message.op === 'cancel-deferred-shutdown') {
+    if (rendererLeaseIsCurrent(message)) cancelDeferredShutdown();
+    send(socket, { type: 'shutdown-canceled' });
+    return;
+  }
   if (shutdownRequested) {
+    socket.destroy();
+    return;
+  }
+  if (!rendererLeaseIsCurrent(message)) {
+    // An old renderer socket may remain authenticated after a replacement.
+    // Authentication proves only the vault broker secret; the monotonic
+    // renderer lease is what prevents its delayed input/stop/resize from
+    // controlling the newly adopted session.
     socket.destroy();
     return;
   }
@@ -2011,6 +2220,7 @@ function removeOwnDescriptor() {
 }
 function shutdown(acknowledge) {
   if (shuttingDown) return;
+  cancelDeferredShutdown();
   shutdownRetryAcknowledge = shutdownRetryAcknowledge || acknowledge === true;
   const unconfirmed = Array.from(sessions.values()).filter(session => !session.completed);
   if (unconfirmed.length > 0) {
@@ -2077,11 +2287,28 @@ const server = net.createServer(socket => {
         try {
           const message = JSON.parse(line);
           if (!message || message.token !== token) { socket.destroy(); return; }
+          if (
+            message.rendererLeaseToken !== undefined &&
+            rendererLeaseOf(message) === null
+          ) {
+            socket.destroy();
+            return;
+          }
           if (!authenticated) {
             authenticated = true;
             global.clearTimeout(authTimer);
             clients.add(socket);
             if (idleTimer) { global.clearTimeout(idleTimer); idleTimer = null; }
+          }
+          if (
+            (message.op === 'spawn' || message.op === 'attach') &&
+            !claimRendererLease(message)
+          ) {
+            socket.destroy();
+            return;
+          }
+          if (message.op === 'spawn' || message.op === 'attach') {
+            cancelDeferredShutdown();
           }
           handle(socket, message);
         } catch (_) { socket.destroy(); return; }

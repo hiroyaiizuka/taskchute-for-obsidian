@@ -1,7 +1,6 @@
 import type { ProcessGateway } from '../NodeProcessGateway'
 import { buildTerminalArgs } from '../TerminalArguments'
 import {
-  buildShellLaunchCommand,
   buildTerminalEnv,
   type AiTerminalDispatcher,
   type TerminalRunCallbacks,
@@ -9,8 +8,7 @@ import {
   type TerminalRunRequest,
 } from './TerminalDispatcher'
 import { TerminalSessionBrokerClient } from '../TerminalSessionBroker'
-
-const LOGIN_SHELL_ARGS: readonly string[] = ['-i', '-l']
+import { buildTerminalShellLaunch } from './TerminalShellBootstrap'
 
 function quoteShellPath(path: string): string {
   if (path.includes('\0')) throw new Error('Terminal shell path must not contain NUL bytes')
@@ -38,15 +36,21 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
       request.sessionId ??
       `terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
     const args = buildTerminalArgs(request.extraArgs, request.prompt)
-    const executableArgs = [...(request.binaryArgsPrefix ?? []), ...args]
-    const launchCommand = request.launchInShell
-      ? buildShellLaunchCommand(request.binaryPath, executableArgs)
+    const binaryArgsPrefix = request.binaryArgsPrefix ?? []
+    const executableArgs = [...binaryArgsPrefix, ...args]
+    const shellLaunch = request.launchInShell
+      ? buildTerminalShellLaunch(
+          quoteShellPath(this.gateway.getShellPath()),
+          request.binaryPath,
+          binaryArgsPrefix,
+          args,
+          request.terminalCommand,
+          request.terminalFallbackCommand,
+        )
       : undefined
     const ptyCommand = this.gateway.buildPtyCommand({
-      binaryPath: request.launchInShell
-        ? quoteShellPath(this.gateway.getShellPath())
-        : request.binaryPath,
-      args: request.launchInShell ? [...LOGIN_SHELL_ARGS] : executableArgs,
+      binaryPath: shellLaunch?.binaryPath ?? request.binaryPath,
+      args: shellLaunch?.args ?? executableArgs,
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,
@@ -58,11 +62,14 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
         command: ptyCommand.command,
         args: ptyCommand.args,
         cwd: request.cwd,
-        env: buildTerminalEnv(this.gateway.getBaseEnv()),
+        env: buildTerminalEnv({
+          ...this.gateway.getBaseEnv(),
+          ...(request.envPatch ?? {}),
+        }),
         stdinMode: 'pipe',
       },
       request.transcriptPath,
-      launchCommand === undefined ? undefined : `${launchCommand}\r`,
+      undefined,
       callbacks,
     )
     return this.createHandle(sessionId)
@@ -78,6 +85,52 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
 
   detach(): void {
     this.broker.detach()
+  }
+
+  async scheduleShutdownAfterGrace(
+    graceMs: number,
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    if (rendererLeaseToken === undefined) {
+      await this.broker.scheduleShutdownAfterGrace(graceMs)
+      return
+    }
+    await this.broker.scheduleShutdownAfterGrace(
+      graceMs,
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
+  }
+
+  async cancelDeferredShutdown(
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    if (rendererLeaseToken === undefined) {
+      await this.broker.cancelDeferredShutdown()
+      return
+    }
+    await this.broker.cancelDeferredShutdown(
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
+  }
+
+  async setRendererLeaseToken(
+    rendererLeaseToken: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    await this.broker.setRendererLeaseToken(
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
   }
 
   async shutdown(): Promise<void> {

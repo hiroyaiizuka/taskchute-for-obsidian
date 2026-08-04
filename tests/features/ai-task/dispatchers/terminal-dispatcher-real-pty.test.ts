@@ -12,7 +12,9 @@
  */
 
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import { createHash } from 'crypto'
 import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
 import { TerminalDispatcher } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type {
@@ -38,11 +40,21 @@ interface PtyRun {
 }
 
 function startRealPtyRun(options?: {
+  binaryPath?: string
+  binaryArgsPrefix?: string[]
+  envPatch?: Record<string, string | undefined>
   extraArgs?: string[]
   launchInShell?: boolean
+  prompt?: string
+  shellPath?: string
   snapshotDescendantPids?: (rootPid: number) => number[]
+  terminalCommand?: 'claude' | 'codex'
+  terminalFallbackCommand?: 'claude' | 'codex'
 }): PtyRun {
   const gateway = new NodeProcessGateway(options?.snapshotDescendantPids)
+  if (options?.shellPath !== undefined) {
+    jest.spyOn(gateway, 'getShellPath').mockReturnValue(options.shellPath)
+  }
   const dispatcher = new TerminalDispatcher(gateway)
   const transcriptPath = gateway.makeTempFilePath('real-pty-test')
   let data = ''
@@ -51,10 +63,14 @@ function startRealPtyRun(options?: {
 
   const handle = dispatcher.start(
     {
-      binaryPath: FAKE_INTERACTIVE,
-      prompt: '',
+      binaryPath: options?.binaryPath ?? FAKE_INTERACTIVE,
+      binaryArgsPrefix: options?.binaryArgsPrefix,
+      envPatch: options?.envPatch,
+      prompt: options?.prompt ?? '',
       extraArgs: options?.extraArgs,
       launchInShell: options?.launchInShell,
+      terminalCommand: options?.terminalCommand,
+      terminalFallbackCommand: options?.terminalFallbackCommand,
       rows: 24,
       cols: 80,
       transcriptPath,
@@ -210,6 +226,67 @@ describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () =>
     const transcript = await run.gateway.readAndDeleteFile(run.transcriptPath)
     expect(transcript).toContain('INTERACTIVE_READY')
     expect(transcript).toContain('__SHELL_RETURNED__')
+  }, 30_000)
+
+  test('a shell-backed AI CLI receives a multibyte prompt larger than MAX_CANON intact', async () => {
+    const prompt =
+      `AIメモリーupdate: ${'長い日本語プロンプト'.repeat(180)}\n` +
+      `quotes ' "$() \`pwd\` ; final-marker-終端`
+    const promptBytes = Buffer.byteLength(prompt, 'utf8')
+    const promptHash = createHash('sha256').update(prompt, 'utf8').digest('hex')
+    expect(promptBytes).toBeGreaterThan(1_024)
+
+    const run = startRealPtyRun({
+      launchInShell: true,
+      extraArgs: ['--report-prompt'],
+      prompt,
+    })
+
+    await run.waitForData(`PROMPT_BYTES:${promptBytes}`)
+    await run.waitForData(`PROMPT_SHA256:${promptHash}`)
+    run.handle.write('\x03')
+    run.handle.write("printf '__LONG_PROMPT_SHELL_RETURNED__\\n'\r")
+    await run.waitForData('__LONG_PROMPT_SHELL_RETURNED__')
+
+    run.handle.write('exit\r')
+    const outcome = await run.waitForExit()
+    expect(outcome.status).toBe('succeeded')
+
+    const transcript = await run.gateway.readAndDeleteFile(run.transcriptPath)
+    expect(transcript).toContain(`PROMPT_BYTES:${promptBytes}`)
+    expect(transcript).toContain(`PROMPT_SHA256:${promptHash}`)
+  }, 30_000)
+
+  test('a fresh shell command replaces a stale versioned executable without typing shell source', async () => {
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskchute-cli-shim-'))
+    const codexPath = path.join(binDir, 'codex')
+    fs.symlinkSync(FAKE_INTERACTIVE, codexPath)
+    try {
+      const run = startRealPtyRun({
+        binaryPath: '/deleted/versioned/path/codex',
+        envPatch: {
+          PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
+        launchInShell: true,
+        shellPath: '/bin/sh',
+        terminalCommand: 'codex',
+        terminalFallbackCommand: 'codex',
+      })
+
+      await run.waitForData('INTERACTIVE_READY')
+      expect(run.data()).not.toContain('if command -v')
+      expect(run.data()).not.toContain('No such file or directory')
+
+      run.handle.write('\x03')
+      run.handle.write("printf '__FRESH_COMMAND_SHELL_RETURNED__\\n'\r")
+      await run.waitForData('__FRESH_COMMAND_SHELL_RETURNED__')
+      run.handle.write('exit\r')
+      const outcome = await run.waitForExit()
+      expect(outcome.status).toBe('succeeded')
+      await run.gateway.readAndDeleteFile(run.transcriptPath)
+    } finally {
+      fs.rmSync(binDir, { force: true, recursive: true })
+    }
   }, 30_000)
 
   test('resize updates the real script PTY dimensions', async () => {

@@ -683,6 +683,111 @@ describe('RunningTasksService.restoreForDate', () => {
     expect(adapter.write).toHaveBeenCalledTimes(2)
   })
 
+  it('finds an off-screen running timer by instanceId across board dates', async () => {
+    const previousDay = createRecord({
+      date: '2026-07-18',
+      instanceId: 'previous-day',
+      taskPath: 'TASKS/ai-memory.md',
+    })
+    const today = createRecord({
+      date: '2026-07-19',
+      instanceId: 'today',
+      taskPath: 'TASKS/today.md',
+    })
+    const plugin = {
+      app: {
+        vault: {
+          adapter: {
+            exists: jest.fn(async () => true),
+            read: jest.fn(async () => JSON.stringify([previousDay, today])),
+          },
+        },
+      },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+
+    await expect(
+      new RunningTasksService(plugin).findByInstanceOrPathStrict({
+        instanceId: 'previous-day',
+        taskPath: 'TASKS/ai-memory.md',
+      }),
+    ).resolves.toEqual(previousDay)
+  })
+
+  it('does not use a path fallback when duplicated running records are ambiguous', async () => {
+    const records = [
+      createRecord({
+        instanceId: 'duplicate-a',
+        taskPath: 'TASKS/shared.md',
+      }),
+      createRecord({
+        instanceId: 'duplicate-b',
+        taskPath: 'TASKS/shared.md',
+      }),
+    ]
+    const plugin = {
+      app: {
+        vault: {
+          adapter: {
+            exists: jest.fn(async () => true),
+            read: jest.fn(async () => JSON.stringify(records)),
+          },
+        },
+      },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+
+    await expect(
+      new RunningTasksService(plugin).findByInstanceOrPathStrict({
+        instanceId: 'stale-instance',
+        taskPath: 'TASKS/shared.md',
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('runs orphan cleanup only when the durable running record still exists', async () => {
+    let content = JSON.stringify([
+      createRecord({
+        instanceId: 'running-instance',
+        taskPath: 'TASKS/ai-memory.md',
+      }),
+    ])
+    const order: string[] = []
+    const adapter = {
+      exists: jest.fn(async () => true),
+      read: jest.fn(async () => content),
+      write: jest.fn(async (_path: string, next: string) => {
+        order.push('write')
+        content = next
+      }),
+    }
+    const plugin = {
+      app: { vault: { adapter } },
+      pathManager: { getLogDataPath: () => 'LOGS' },
+    } as unknown as TaskChutePluginLike
+    const service = new RunningTasksService(plugin)
+    const cleanup = jest.fn(async () => {
+      order.push('cleanup')
+    })
+
+    await expect(
+      service.deleteByInstanceOrPathStrict(
+        { instanceId: 'running-instance' },
+        cleanup,
+      ),
+    ).resolves.toBe(1)
+    expect(order).toEqual(['cleanup', 'write'])
+
+    await expect(
+      service.deleteByInstanceOrPathStrict(
+        { instanceId: 'running-instance' },
+        cleanup,
+      ),
+    ).resolves.toBe(0)
+    expect(cleanup).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['cleanup', 'write'])
+  })
+
   it('lets strict recovery deletion failures reject for caller rollback', async () => {
     const plugin = {
       app: {

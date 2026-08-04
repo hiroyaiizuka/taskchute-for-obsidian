@@ -6,9 +6,14 @@ import type {
 } from '../../../../src/features/ai-task/services/NodeProcessGateway'
 import {
   TerminalDispatcher,
-  buildShellLaunchCommand,
   buildTerminalEnv,
 } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+import {
+  FISH_TERMINAL_BOOTSTRAP,
+  POSIX_TERMINAL_BOOTSTRAP,
+  TERMINAL_ARGV_BOOTSTRAP_ARG_ZERO,
+  buildTerminalShellLaunch,
+} from '../../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
 import type {
   TerminalRunHandle,
   TerminalRunRequest,
@@ -62,7 +67,7 @@ describe('TerminalDispatcher argv and spawn shape', () => {
     expect(spawnRequest.stdinMode).toBe('pipe')
   })
 
-  test('shell-backed runs start the login shell and inject the AI command after callback wiring', () => {
+  test('shell-backed runs carry AI argv in the login-shell spawn without writing an initial terminal line', () => {
     const gateway = createSpyGateway()
     const callOrder: string[] = []
     const writeStdin = jest.fn(() => {
@@ -88,15 +93,27 @@ describe('TerminalDispatcher argv and spawn shape', () => {
 
     expect(gateway.ptyMock).toHaveBeenCalledWith({
       binaryPath: '/bin/zsh',
-      args: ['-i', '-l'],
+      args: [
+        '-i',
+        '-l',
+        '-c',
+        POSIX_TERMINAL_BOOTSTRAP,
+        'taskchute-ai',
+        '/bin/zsh',
+        '/bin/claude',
+        '',
+        '',
+        '0',
+        '--dangerously-skip-permissions',
+        '--',
+        'do the thing',
+      ],
       rows: 30,
       cols: 100,
       transcriptPath: '/tmp/transcript.txt',
     })
-    expect(callOrder).toEqual(['stdout', 'stderr', 'exit', 'write'])
-    expect(writeStdin).toHaveBeenCalledWith(
-      "'/bin/claude' '--dangerously-skip-permissions' '--' 'do the thing'\r",
-    )
+    expect(callOrder).toEqual(['stdout', 'stderr', 'exit'])
+    expect(writeStdin).not.toHaveBeenCalled()
   })
 
   test('shell-backed package launches keep the node entrypoint before CLI arguments', () => {
@@ -122,9 +139,15 @@ describe('TerminalDispatcher argv and spawn shape', () => {
       noopCallbacks(),
     )
 
-    expect(writeStdin).toHaveBeenCalledWith(
-      "'/usr/local/bin/node' '/npm/claude/cli-wrapper.cjs' '--dangerously-skip-permissions' '--' 'do the thing'\r",
-    )
+    const ptyRequest = gateway.ptyMock.mock.calls[0][0]
+    expect(ptyRequest.args.slice(-4)).toEqual([
+      '/npm/claude/cli-wrapper.cjs',
+      '--dangerously-skip-permissions',
+      '--',
+      'do the thing',
+    ])
+    expect(ptyRequest.args[9]).toBe('1')
+    expect(writeStdin).not.toHaveBeenCalled()
   })
 
   test('direct runs never inject a startup command into stdin', () => {
@@ -203,20 +226,96 @@ describe('TerminalDispatcher argv and spawn shape', () => {
   })
 })
 
-describe('buildShellLaunchCommand', () => {
-  test('quotes every token as POSIX data, including apostrophes and shell metacharacters', () => {
-    expect(
-      buildShellLaunchCommand('/bin/my cli', [
-        "it's",
-        '$HOME',
-        '`pwd`',
-        'line one\nline two',
-      ]),
-    ).toBe("'/bin/my cli' 'it'\\''s' '$HOME' '`pwd`' 'line one\nline two'")
+describe('buildTerminalShellLaunch', () => {
+  test('keeps a long multibyte prompt as one argv value and never embeds it in shell source', () => {
+    const prompt =
+      `${'長い日本語'.repeat(400)}\nquotes ' "$() ; \`pwd\` final`
+    const launch = buildTerminalShellLaunch(
+      '/bin/zsh',
+      '/versions/1/bin/codex',
+      [],
+      ['--model', 'gpt-5.6-sol', '--', prompt],
+      'codex',
+      'codex',
+    )
+
+    expect(Buffer.byteLength(prompt, 'utf8')).toBeGreaterThan(1_024)
+    expect(launch.binaryPath).toBe('/bin/zsh')
+    expect(launch.args.slice(0, 4)).toEqual([
+      '-i',
+      '-l',
+      '-c',
+      POSIX_TERMINAL_BOOTSTRAP,
+    ])
+    expect(POSIX_TERMINAL_BOOTSTRAP).not.toContain(prompt)
+    expect(launch.args.filter((token) => token === prompt)).toHaveLength(1)
+    expect(launch.args.slice(-4)).toEqual([
+      '--model',
+      'gpt-5.6-sol',
+      '--',
+      prompt,
+    ])
   })
 
-  test('rejects NUL instead of silently changing an argv token', () => {
-    expect(() => buildShellLaunchCommand('/bin/claude', ['bad\0arg'])).toThrow('NUL')
+  test('rejects NUL in argv instead of silently changing it', () => {
+    expect(() =>
+      buildTerminalShellLaunch(
+        '/bin/zsh',
+        '/bin/claude',
+        [],
+        ['--', 'bad\0arg'],
+      ),
+    ).toThrow('NUL')
+  })
+
+  test('loads fish startup files before handing the unchanged argv to the POSIX bootstrap', () => {
+    const prompt = `fish prompt\nquotes ' "$() ; end-marker`
+    const launch = buildTerminalShellLaunch(
+      '/opt/homebrew/bin/fish',
+      '/versions/1/bin/codex',
+      [],
+      ['--', prompt],
+      'codex',
+      'codex',
+    )
+
+    expect(launch.binaryPath).toBe('/opt/homebrew/bin/fish')
+    expect(launch.args).toEqual([
+      '-i',
+      '-l',
+      '-c',
+      FISH_TERMINAL_BOOTSTRAP,
+      POSIX_TERMINAL_BOOTSTRAP,
+      '/opt/homebrew/bin/fish',
+      '/versions/1/bin/codex',
+      'codex',
+      'codex',
+      '0',
+      '--',
+      prompt,
+    ])
+    expect(FISH_TERMINAL_BOOTSTRAP).toContain(
+      `taskchute-ai $argv[2..-1]`,
+    )
+  })
+
+  test('uses the audited /bin/sh bootstrap for an unknown configured shell and returns to it afterward', () => {
+    const launch = buildTerminalShellLaunch(
+      '/opt/bin/custom-shell',
+      '/bin/claude',
+      [],
+      ['--', 'hello'],
+    )
+
+    expect(launch.binaryPath).toBe('/bin/sh')
+    expect(launch.args.slice(0, 5)).toEqual([
+      '-i',
+      '-l',
+      '-c',
+      POSIX_TERMINAL_BOOTSTRAP,
+      TERMINAL_ARGV_BOOTSTRAP_ARG_ZERO,
+    ])
+    expect(launch.args[5]).toBe('/opt/bin/custom-shell')
   })
 })
 

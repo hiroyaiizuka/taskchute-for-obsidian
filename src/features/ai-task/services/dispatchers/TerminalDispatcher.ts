@@ -3,11 +3,13 @@
  *
  * Runs a host CLI interactively inside an OS PTY wrapper (the gateway's
  * buildPtyCommand) so the full TUI renders and the user can type into it.
- * AI-task runs are shell-backed: the PTY owns the user's login shell and the
- * safely quoted AI command is submitted as its foreground job. Ctrl+C can
- * therefore end Claude/Codex and return to a usable shell prompt without
- * ending the terminal session. Plain shell sessions use direct mode and are
- * not wrapped in a second shell.
+ * AI-task runs are shell-backed: the PTY owns the user's login shell and a
+ * fixed bootstrap receives the AI executable + argv as real positional
+ * parameters. No startup command is typed into the terminal, so long and
+ * multibyte prompts cannot hit the TTY's canonical input-line limit. Ctrl+C
+ * can end Claude/Codex and return to a usable shell prompt without ending the
+ * terminal session. Plain shell sessions use direct mode and are not wrapped
+ * in a second shell.
  * The argv is `[...extraArgs, '--', prompt]` for every host — no `-p`, no
  * `--output-format`: the positional prompt drops the CLI into its REPL with
  * the prompt pre-submitted, and an empty prompt opens a plain REPL (no `--`
@@ -27,9 +29,11 @@
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
 import { stableTimeoutSource } from '../../../../utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
+import type { ProcessLaunchError } from '../NodeProcessGateway'
 import { buildTerminalArgs } from '../TerminalArguments'
 import { STOP_GRACE_MS } from './Dispatcher'
 import type { AiGraceTimer, AiRunExitOutcome } from './Dispatcher'
+import { buildTerminalShellLaunch } from './TerminalShellBootstrap'
 
 export interface TerminalRunRequest {
   /** Stable broker identity; omitted by direct/non-persistent dispatchers. */
@@ -38,6 +42,12 @@ export interface TerminalRunRequest {
   binaryPath: string
   /** Package entrypoint argv inserted before the host-specific CLI args. */
   binaryArgsPrefix?: string[]
+  /** Launch-only environment delta from the validated CLI LaunchSpec. */
+  envPatch?: Readonly<Record<string, string | undefined>>
+  /** Fixed `claude`/`codex` command resolved by the fresh login shell. */
+  terminalCommand?: 'claude' | 'codex'
+  /** Fixed fallback used only when the validated absolute path vanished. */
+  terminalFallbackCommand?: 'claude' | 'codex'
   /** Initial prompt submitted into the REPL; '' opens a plain REPL */
   prompt: string
   /** Working directory for the child process */
@@ -94,6 +104,38 @@ export interface AiTerminalDispatcher {
   readonly isPersistent?: boolean
   /** Close this renderer's transport without killing broker-owned sessions. */
   detach?(): void
+  /**
+   * Arm a broker-owned shutdown deadline for an ambiguous Obsidian
+   * workspace quit. A renderer that reconnects before the deadline cancels
+   * it; a real app exit leaves the broker to reap every owned process.
+   */
+  scheduleShutdownAfterGrace?(
+    graceMs: number,
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): void | Promise<void>
+  /**
+   * Cancel a previously armed ambiguous app-exit deadline. Implementations
+   * must authenticate this control request; ordinary terminal traffic is not
+   * proof that the application close was canceled.
+   */
+  cancelDeferredShutdown?(
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): void | Promise<void>
+  /**
+   * Rotate the complete renderer identity. The owner remains stable while a
+   * retained manager is adopted in the same renderer; generation is
+   * monotonic so a delayed request from the prior plugin instance can never
+   * reclaim the broker.
+   */
+  setRendererLeaseToken?(
+    rendererLeaseToken: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): void | Promise<void>
   /** Stop all sessions and terminate the renderer-independent broker. */
   shutdown?(): void | Promise<void>
 }
@@ -119,26 +161,11 @@ const SENTINEL_PATTERN = new RegExp(`${TERMINAL_EXIT_SENTINEL}(\\d+)\\r?\\n?`)
 
 const defaultGraceTimer: AiGraceTimer = stableTimeoutSource
 
-const LOGIN_SHELL_ARGS: readonly string[] = ['-i', '-l']
-
 function normalizeResizeDimension(value: number): number | null {
   if (!Number.isFinite(value)) return null
   const floored = Math.floor(value)
   if (floored < 1) return null
   return Math.min(floored, 999)
-}
-
-/** POSIX token quoting; reject NUL because neither argv nor shell input can preserve it. */
-function quoteShellToken(token: string): string {
-  if (token.includes('\0')) {
-    throw new Error('Terminal launch tokens must not contain NUL bytes')
-  }
-  return `'${token.replace(/'/g, `'\\''`)}'`
-}
-
-/** Build one injection-safe command line from an executable and its argv. */
-export function buildShellLaunchCommand(binaryPath: string, args: readonly string[]): string {
-  return [binaryPath, ...args].map(quoteShellToken).join(' ')
 }
 
 export class TerminalDispatcher implements AiTerminalDispatcher {
@@ -149,17 +176,22 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle {
     const args = buildTerminalArgs(request.extraArgs, request.prompt)
-    const executableArgs = [...(request.binaryArgsPrefix ?? []), ...args]
-    const shellLaunchCommand = request.launchInShell
-      ? buildShellLaunchCommand(request.binaryPath, executableArgs)
+    const binaryArgsPrefix = request.binaryArgsPrefix ?? []
+    const executableArgs = [...binaryArgsPrefix, ...args]
+    const shellLaunch = request.launchInShell
+      ? buildTerminalShellLaunch(
+          quoteCheckedShellPath(this.gateway.getShellPath()),
+          request.binaryPath,
+          binaryArgsPrefix,
+          args,
+          request.terminalCommand,
+          request.terminalFallbackCommand,
+        )
       : null
-    const ptyBinaryPath = request.launchInShell
-      ? quoteCheckedShellPath(this.gateway.getShellPath())
-      : request.binaryPath
 
     const ptyCommand = this.gateway.buildPtyCommand({
-      binaryPath: ptyBinaryPath,
-      args: request.launchInShell ? [...LOGIN_SHELL_ARGS] : executableArgs,
+      binaryPath: shellLaunch?.binaryPath ?? request.binaryPath,
+      args: shellLaunch?.args ?? executableArgs,
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,
@@ -169,7 +201,10 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       command: ptyCommand.command,
       args: ptyCommand.args,
       cwd: request.cwd,
-      env: buildTerminalEnv(this.gateway.getBaseEnv()),
+      env: buildTerminalEnv({
+        ...this.gateway.getBaseEnv(),
+        ...(request.envPatch ?? {}),
+      }),
       stdinMode: 'pipe',
     })
 
@@ -177,6 +212,7 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
     let exited = false
     let killTimerHandle: number | null = null
     let sentinelCode: number | null = null
+    let launchError: ProcessLaunchError | undefined
     let pendingResize: { cols: number; rows: number } | null = null
 
     const applyPendingResize = (): void => {
@@ -192,11 +228,15 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       }
     }
 
+    handle.onLaunchError?.((error) => {
+      launchError = error
+    })
     handle.onStdout((text) => {
       applyPendingResize()
       callbacks.onData(text)
     })
     handle.onStderr((text) => {
+      if (launchError !== undefined) return
       applyPendingResize()
       // The PTY merges the session's stderr into the terminal stream, so
       // the raw stderr channel carries only wrapper output: the exit-code
@@ -228,14 +268,15 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       // The wrapper reaps its own process group with SIGKILL, so the raw
       // exit is (null, SIGKILL) even for clean sessions; the sentinel
       // carries the child's real exit code.
-      callbacks.onExit(resolveTerminalExitOutcome(sentinelCode ?? code, signal, stopRequested))
+      callbacks.onExit(
+        resolveTerminalExitOutcome(
+          sentinelCode ?? code,
+          signal,
+          stopRequested,
+          launchError,
+        ),
+      )
     })
-    // Register every output/exit callback before submitting the startup
-    // command: a fast CLI must not emit output or exit into an unwired run.
-    if (shellLaunchCommand !== null) {
-      handle.writeStdin?.(`${shellLaunchCommand}\r`)
-    }
-
     return {
       pid: handle.pid,
       write: (data) => {
@@ -279,12 +320,22 @@ function resolveTerminalExitOutcome(
   code: number | null,
   signal: string | null,
   stopRequested: boolean,
+  launchError?: ProcessLaunchError,
 ): AiRunExitOutcome {
   if (stopRequested) {
     return { status: 'stopped', exitCode: code, signal }
   }
   if (code === 0) {
     return { status: 'succeeded', exitCode: code, signal }
+  }
+  if (launchError !== undefined) {
+    return {
+      status: 'failed',
+      exitCode: code,
+      signal,
+      errorMessage: launchError.message,
+      launchError,
+    }
   }
   const errorMessage =
     code === null

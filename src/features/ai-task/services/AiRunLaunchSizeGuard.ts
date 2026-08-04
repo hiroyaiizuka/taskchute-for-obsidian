@@ -2,8 +2,8 @@
  * Cross-platform launch-size guard for AI CLI requests.
  *
  * Windows CreateProcess has a 32,767 UTF-16 command-line limit. POSIX
- * terminal mode serializes the same request into a single-quoted shell
- * command before writing it to the PTY. We estimate both representations,
+ * terminal mode transports the same request as real argv through a fixed
+ * login-shell bootstrap. We conservatively estimate both representations,
  * reserve room for host-owned flags, and use the larger value. Keeping the
  * accepted envelope below 30,000 makes the preflight portable while still
  * allowing substantially larger prompts than the task UI normally creates.

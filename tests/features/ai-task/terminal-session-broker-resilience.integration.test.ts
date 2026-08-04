@@ -248,7 +248,15 @@ describePosix('TerminalSessionBroker resilience', () => {
     const unique = `shutdown-waiters-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-resilience-${unique}`
     const sessionId = `session-shutdown-waiters-${process.pid}-${Date.now()}`
-    const client = new TerminalSessionBrokerClient({ identity })
+    const rendererLeaseToken = `lease-${unique}`
+    const rendererLeaseOwnerId = 'taskchute-plus-ai-terminal'
+    const rendererLeaseGeneration = 1
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    })
     const exited = deferred<void>()
     let firstControl: ReturnType<typeof createConnection> | null = null
     let lateControl: ReturnType<typeof createConnection> | null = null
@@ -319,12 +327,18 @@ describePosix('TerminalSessionBroker resilience', () => {
         token: descriptor.token,
         op: 'attach',
         sessionId: 'missing-shutdown-waiter',
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
       })}\n`)
       await withTimeout(lateAuthenticated.promise)
 
       firstControl.write(`${JSON.stringify({
         token: descriptor.token,
         op: 'shutdown',
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
       })}\n`)
       await withTimeout(firstAck.promise)
 
@@ -334,6 +348,9 @@ describePosix('TerminalSessionBroker resilience', () => {
       lateControl.write(`${JSON.stringify({
         token: descriptor.token,
         op: 'shutdown',
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
       })}\n`)
       await withTimeout(lateAck.promise, 750)
     } finally {
@@ -348,7 +365,15 @@ describePosix('TerminalSessionBroker resilience', () => {
     const identity = `broker-resilience-${unique}`
     const sessionId = `session-terminate-${process.pid}-${Date.now()}`
     const transcriptPath = join(tmpdir(), `taskchute-broker-${unique}.log`)
-    const client = new TerminalSessionBrokerClient({ identity })
+    const rendererLeaseToken = `lease-${unique}`
+    const rendererLeaseOwnerId = 'taskchute-plus-ai-terminal'
+    const rendererLeaseGeneration = 1
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    })
     const ready = deferred<void>()
     const attached = deferred<number>()
     try {
@@ -406,6 +431,9 @@ describePosix('TerminalSessionBroker resilience', () => {
         token: descriptor.token,
         op: 'terminate-unavailable',
         sessionId,
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
       })}\n`)
 
       const acknowledgment = await withTimeout(terminated.promise)
@@ -428,7 +456,15 @@ describePosix('TerminalSessionBroker resilience', () => {
     const unique = `terminate-close-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-resilience-${unique}`
     const sessionId = `session-terminate-close-${process.pid}-${Date.now()}`
-    const client = new TerminalSessionBrokerClient({ identity })
+    const rendererLeaseToken = `lease-${unique}`
+    const rendererLeaseOwnerId = 'taskchute-plus-ai-terminal'
+    const rendererLeaseGeneration = 1
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    })
     const ready = deferred<void>()
     const attached = deferred<number>()
     try {
@@ -474,6 +510,9 @@ describePosix('TerminalSessionBroker resilience', () => {
         token: descriptor.token,
         op: 'terminate-unavailable',
         sessionId,
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
       })}\n`)
 
       const deadline = Date.now() + 5_000

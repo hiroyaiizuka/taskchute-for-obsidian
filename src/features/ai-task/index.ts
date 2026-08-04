@@ -22,7 +22,10 @@ import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
 import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
-import { TerminalDispatcher } from './services/dispatchers/TerminalDispatcher'
+import {
+  TerminalDispatcher,
+  type AiTerminalDispatcher,
+} from './services/dispatchers/TerminalDispatcher'
 import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalDispatcher'
 import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
@@ -31,6 +34,8 @@ import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
 import {
   acquireRetainedAiTaskManager,
+  AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
+  createAiTaskTerminalRendererLeaseIdentity,
   getAiTaskRuntimeLeaseGeneration,
   retainAiTaskManager,
 } from './services/AiTaskRuntimeLease'
@@ -128,13 +133,39 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
           { log },
         )
       : undefined
+  const rendererLeaseGenerationStore =
+    typeof localStorageApp.loadLocalStorage === 'function' &&
+    typeof localStorageApp.saveLocalStorage === 'function'
+      ? {
+          load: () =>
+            localStorageApp.loadLocalStorage?.(
+              AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
+            ),
+          save: (generation: number) => {
+            localStorageApp.saveLocalStorage?.(
+              AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
+              generation,
+            )
+          },
+        }
+      : undefined
   const brokerIdentity = getVaultBrokerIdentity(plugin.app)
-  const terminalDispatcher =
+  // Reserve before constructing the client. AiTaskManager's constructor can
+  // synchronously restore terminal sessions; no temporary random owner may
+  // ever reach the broker before the runtime slot is retained.
+  const initialRendererLease =
+    createAiTaskTerminalRendererLeaseIdentity(
+      rendererLeaseGenerationStore,
+    )
+  const terminalDispatcher: AiTerminalDispatcher =
     gateway.isPtySupported() && brokerIdentity !== undefined
       ? new BrokerTerminalDispatcher(
           gateway,
           new TerminalSessionBrokerClient({
             identity: brokerIdentity,
+            rendererLeaseToken: initialRendererLease.token,
+            rendererLeaseOwnerId: initialRendererLease.ownerId,
+            rendererLeaseGeneration: initialRendererLease.generation,
             getEnv: () => gateway.getBaseEnv(),
             log: (level, ...args) => log(level, ...args),
           }),
@@ -168,7 +199,13 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     log,
   }
 
-  const retained = acquireRetainedAiTaskManager(plugin.app, deps)
+  const retained = acquireRetainedAiTaskManager(
+    plugin.app,
+    deps,
+    undefined,
+    undefined,
+    rendererLeaseGenerationStore,
+  )
   if (retained) {
     plugin.aiTaskRuntimeLeaseGeneration =
       getAiTaskRuntimeLeaseGeneration(retained)
@@ -176,8 +213,39 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     return retained
   }
 
+  try {
+    // AiTaskManager restores persisted sessions in its constructor. Assign
+    // the final slot identity first, otherwise that early attach can publish
+    // a random temporary owner after retainAiTaskManager activates the real
+    // owner and roll the broker back to stale renderer state.
+    void Promise.resolve(
+      terminalDispatcher.setRendererLeaseToken?.(
+        initialRendererLease.token,
+        initialRendererLease.ownerId,
+        initialRendererLease.generation,
+      ),
+    ).catch((error) => {
+      log(
+        'warn',
+        '[AiTask] Initial terminal renderer lease activation failed',
+        error,
+      )
+    })
+  } catch (error) {
+    log(
+      'warn',
+      '[AiTask] Initial terminal renderer lease assignment failed',
+      error,
+    )
+  }
   const manager = new AiTaskManager(deps)
-  retainAiTaskManager(plugin.app, manager)
+  retainAiTaskManager(
+    plugin.app,
+    manager,
+    undefined,
+    initialRendererLease,
+    rendererLeaseGenerationStore,
+  )
   plugin.aiTaskRuntimeLeaseGeneration =
     getAiTaskRuntimeLeaseGeneration(manager)
   return manager

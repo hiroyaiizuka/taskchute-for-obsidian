@@ -1,6 +1,14 @@
 import type { Plugin } from 'obsidian'
 import type { AiTaskManager } from './services/AiTaskManager'
-import { forgetRetainedAiTaskManager } from './services/AiTaskRuntimeLease'
+import {
+  AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS,
+  forgetRetainedAiTaskManager,
+  getAiTaskRuntimeTerminalLeaseIdentity,
+  prepareRetainedAiTaskManagerForRendererTransition,
+} from './services/AiTaskRuntimeLease'
+
+export const AI_TASK_APP_RESTART_GRACE_MS =
+  AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS
 
 type AiTaskProcessCleanupHost = Pick<
   Plugin,
@@ -8,8 +16,19 @@ type AiTaskProcessCleanupHost = Pick<
 > & {
   aiTaskManager?: Pick<
     AiTaskManager,
-    'dispose' | 'disposeAndWait'
-  >
+    | 'dispose'
+    | 'disposeAndWait'
+    | 'isDisposed'
+    | 'persistSessionStateForRendererReload'
+    | 'prepareForRendererReload'
+  > &
+    Partial<
+      Pick<
+        AiTaskManager,
+        | 'scheduleTerminalShutdownAfterGrace'
+        | 'stopNonPersistentRunsForRendererTransitionAndWait'
+      >
+    >
   aiTaskManagersPendingDisposal?: Set<
     Pick<AiTaskManager, 'dispose' | 'disposeAndWait'>
   >
@@ -73,14 +92,6 @@ export function disposeAiTaskManagerTracked(
   )
 }
 
-function collectManagers(host: AiTaskProcessCleanupHost): Set<DisposableAiTaskManager> {
-  const managers = new Set<DisposableAiTaskManager>(
-    host.aiTaskManagersPendingDisposal ?? [],
-  )
-  if (host.aiTaskManager) managers.add(host.aiTaskManager)
-  return managers
-}
-
 /**
  * Obsidian does not reliably call Plugin.onunload while the desktop app is
  * quitting. App quit awaits full broker shutdown; renderer replacement only
@@ -101,7 +112,9 @@ export function registerAiTaskAppShutdownCleanup(
 ): void {
   host.registerEvent(
     host.app.workspace.on('quit', (tasks) => {
-      for (const manager of collectManagers(host)) {
+      // Managers already removed by settings OFF are unambiguously shutting
+      // down and must keep their force-kill completion attached to app quit.
+      for (const manager of host.aiTaskManagersPendingDisposal ?? []) {
         const completion = manager.disposeAndWait()
         tasks.addPromise(completion)
         void completion.then(
@@ -110,6 +123,43 @@ export function registerAiTaskAppShutdownCleanup(
             // Keep it discoverable if the app cancels quit and another retry
             // becomes possible.
           },
+        )
+      }
+
+      const activeManager = host.aiTaskManager
+      if (!activeManager) return
+      const retained =
+        prepareRetainedAiTaskManagerForRendererTransition(
+          activeManager as AiTaskManager,
+        )
+      if (!retained) {
+        const completion = activeManager.disposeAndWait()
+        tasks.addPromise(completion)
+        return
+      }
+
+      // Obsidian's app:reload and a true application exit emit the same
+      // workspace quit event. The broker owns this short deadline: a new
+      // renderer connection cancels it, while a genuine exit has no
+      // reconnect and is cleaned up after the grace window.
+      // Do not stop renderer-owned/headless runs at this ambiguous boundary:
+      // workspace quit is also emitted for a cancelable app-close attempt.
+      // The non-cancelable pagehide path performs their bounded stop, while
+      // NodeProcessGateway's renderer-exit reaper covers a missing pagehide.
+      if (
+        typeof activeManager.scheduleTerminalShutdownAfterGrace === 'function'
+      ) {
+        const rendererLease =
+          getAiTaskRuntimeTerminalLeaseIdentity(
+            activeManager as AiTaskManager,
+          )
+        tasks.addPromise(
+          activeManager.scheduleTerminalShutdownAfterGrace(
+            AI_TASK_APP_RESTART_GRACE_MS,
+            rendererLease?.token,
+            rendererLease?.ownerId,
+            rendererLease?.generation,
+          ),
         )
       }
     }),

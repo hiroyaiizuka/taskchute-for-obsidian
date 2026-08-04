@@ -1320,6 +1320,53 @@ describe('AI run tab close coupling back to TaskChute', () => {
     expect(execution.stopInstance).toHaveBeenCalledWith(inst, undefined)
   })
 
+  test('completes a previous-day timer from its persisted record when today is displayed', async () => {
+    const { view, execution } = setUp()
+    view.currentDate = new Date(2026, 6, 19)
+    view.taskInstances = [makeHumanInstance('Today task')]
+    const persistedStartedAt = '2026-07-18T09:14:28.784Z'
+    const lookup = jest
+      .spyOn(view.runningTasksService, 'findByInstanceOrPathStrict')
+      .mockResolvedValue({
+        date: '2026-07-18',
+        taskTitle: 'AI memory update',
+        taskPath: TASK_PATH,
+        taskId: 'tc-ai-memory',
+        instanceId: 'previous-day-instance',
+        startTime: persistedStartedAt,
+        slotKey: '18:00-0:00',
+        isRoutine: true,
+      })
+
+    requestTaskStop(
+      view,
+      makeRecord({
+        instanceId: 'previous-day-instance',
+        taskPath: TASK_PATH,
+        startedAt: new Date(persistedStartedAt).getTime(),
+      }),
+    )
+    await flushPromises()
+
+    expect(lookup).toHaveBeenCalledWith({
+      instanceId: 'previous-day-instance',
+      taskPath: TASK_PATH,
+    })
+    expect(execution.stopInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: 'previous-day-instance',
+        state: 'done',
+        startTime: new Date(persistedStartedAt),
+        task: expect.objectContaining({
+          path: TASK_PATH,
+          taskId: 'tc-ai-memory',
+          name: 'AI memory update',
+        }),
+      }),
+      undefined,
+    )
+  })
+
   test('does not stop an idle or unrelated task', async () => {
     const { view, execution } = setUp()
     const idle = makeInstance()
@@ -1343,7 +1390,10 @@ describe('interrupted AI run timer reconciliation', () => {
   const stubInterruptedCleanup = (view: TaskChuteView) => {
     const runningTasksDelete = jest
       .spyOn(view.runningTasksService, 'deleteByInstanceOrPathStrict')
-      .mockResolvedValue(1)
+      .mockImplementation(async (_options, beforeDelete) => {
+        await beforeDelete?.()
+        return 1
+      })
     const removeTaskLogForInstanceOnDate = jest
       .spyOn(view, 'removeTaskLogForInstanceOnDate')
       .mockResolvedValue(undefined)
@@ -1375,20 +1425,15 @@ describe('interrupted AI run timer reconciliation', () => {
     expect(inst.startTime).toBeUndefined()
     expect(inst.stopTime).toBeUndefined()
     expect(view.currentInstance).toBeNull()
-    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith({
-      taskPath: record.taskPath,
-    })
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith(
+      { taskPath: record.taskPath },
+      expect.any(Function),
+    )
     expect(cleanup.removeTaskLogForInstanceOnDate).toHaveBeenCalledWith(
       inst.instanceId,
       '2026-07-17',
       inst.task.taskId,
       inst.task.path,
-    )
-    expect(
-      cleanup.removeTaskLogForInstanceOnDate.mock.invocationCallOrder[0] ??
-        Infinity,
-    ).toBeLessThan(
-      cleanup.runningTasksDelete.mock.invocationCallOrder[0] ?? Infinity,
     )
     expect(manager.completeInterruptedTaskStateReconciliation).toHaveBeenCalledWith(
       record.id,
@@ -1463,6 +1508,30 @@ describe('interrupted AI run timer reconciliation', () => {
     expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
   })
 
+  test('preserves a completion log when another view already removed the running record', async () => {
+    const { manager, view } = setUp()
+    const cleanup = stubInterruptedCleanup(view)
+    cleanup.runningTasksDelete.mockReset().mockResolvedValue(0)
+    const inst = makeInstance()
+    inst.state = 'running'
+    inst.startTime = new Date('2026-07-18T09:14:28.784Z')
+    view.taskInstances = [inst]
+    view.currentInstance = inst
+    manager.getRuns.mockReturnValue([])
+    manager.hasTaskRunLifecycle.mockReturnValue(false)
+
+    await reconcile(view)
+
+    expect(inst.state).toBe('idle')
+    expect(inst.startTime).toBeUndefined()
+    expect(view.currentInstance).toBeNull()
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith(
+      { taskPath: TASK_PATH },
+      expect.any(Function),
+    )
+    expect(cleanup.removeTaskLogForInstanceOnDate).not.toHaveBeenCalled()
+  })
+
   test('keeps running AI and human timers that are not orphaned AI runs', async () => {
     const { manager, view } = setUp()
     const cleanup = stubInterruptedCleanup(view)
@@ -1504,9 +1573,10 @@ describe('interrupted AI run timer reconciliation', () => {
     expect(second.state).toBe('idle')
     expect(cleanup.removeTaskLogForInstanceOnDate).toHaveBeenCalledTimes(2)
     expect(cleanup.runningTasksDelete).toHaveBeenCalledTimes(1)
-    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith({
-      taskPath: record.taskPath,
-    })
+    expect(cleanup.runningTasksDelete).toHaveBeenCalledWith(
+      { taskPath: record.taskPath },
+      expect.any(Function),
+    )
   })
 
   test('all mounted views await one interrupted repair and idle their own instances', async () => {
@@ -1530,10 +1600,12 @@ describe('interrupted AI run timer reconciliation', () => {
 
     let finishDelete: (count: number) => void = () => undefined
     firstCleanup.runningTasksDelete.mockImplementationOnce(
-      () =>
-        new Promise<number>((resolve) => {
+      async (_options, beforeDelete) => {
+        await beforeDelete?.()
+        return await new Promise<number>((resolve) => {
           finishDelete = resolve
-        }),
+        })
+      },
     )
     let sharedRepair: Promise<boolean> | undefined
     manager.coordinateInterruptedTaskStateReconciliation.mockImplementation(

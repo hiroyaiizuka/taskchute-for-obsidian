@@ -30,18 +30,73 @@ export interface AiBinaryPathOverrides {
   aiTaskCodexPath?: string
 }
 
-/** A package-backed CLI needs prefix argv before the host-specific args. */
+/** Legacy package-backed shape accepted by AiTaskManager test doubles. */
 export interface AiBinaryLaunchSpec {
   binaryPath: string
   argsPrefix: string[]
 }
 
-/** Native/POSIX CLIs stay strings for backward compatibility with manager fakes. */
-export type AiBinaryResolution = string | AiBinaryLaunchSpec
+export type AiCliLaunchSource =
+  | 'manual-override'
+  | 'path'
+  | 'login-shell'
+  | 'known-location'
+  | 'package-payload'
+
+export type AiCliPackageManager =
+  | 'native'
+  | 'npm'
+  | 'pnpm'
+  | 'homebrew'
+  | 'mise'
+  | 'asdf'
+  | 'nvm'
+  | 'volta'
+  | 'scoop'
+  | 'winget'
+  | 'apt'
+  | 'dnf'
+  | 'apk'
+  | 'unknown'
+
+/**
+ * A validated, diagnostics-friendly launch plan. Production resolution
+ * always returns this shape. The executable path is deliberately lexical:
+ * stable shims/symlinks must not be realpath-resolved to a version directory.
+ */
+export interface AiCliLaunchSpec {
+  executable: string
+  argvPrefix: readonly string[]
+  envPatch: Readonly<Record<string, string | undefined>>
+  source: AiCliLaunchSource
+  packageManager: AiCliPackageManager
+  resolvedAt: number
+  pathFingerprint: string
+  requiredFiles: readonly string[]
+  /**
+   * Fixed allowlisted command name used by a fresh POSIX login shell for the
+   * final terminal lookup. It is never derived from task/prompt text.
+   */
+  terminalCommand?: AiTaskHost
+}
+
+/** Legacy shapes remain accepted at the manager boundary during migration. */
+export type AiBinaryResolution =
+  | string
+  | AiBinaryLaunchSpec
+  | AiCliLaunchSpec
+
+export interface AiBinaryResolveOptions {
+  forceRefresh?: boolean
+}
 
 export interface BinaryLocatorGateway extends Pick<
   ProcessGateway,
-  'execCapture' | 'getShellPath' | 'getBaseEnv' | 'primeLoginShellPath'
+  | 'execCapture'
+  | 'getShellPath'
+  | 'getBaseEnv'
+  | 'primeLoginShellPath'
+  | 'refreshLoginShellPath'
 > {
   getPlatform(): string
   isFile(path: string): Promise<boolean>
@@ -119,7 +174,11 @@ function dedupeWindowsPaths(paths: readonly string[]): string[] {
 }
 
 export class BinaryLocator {
-  private readonly cache = new Map<AiTaskHost, AiBinaryResolution>()
+  private readonly cache = new Map<AiTaskHost, AiCliLaunchSpec>()
+  private readonly inFlight = new Map<
+    AiTaskHost,
+    { operation: Promise<AiCliLaunchSpec>; forceRefresh: boolean }
+  >()
   private windowsNodePath: string | null | undefined
 
   constructor(
@@ -127,26 +186,81 @@ export class BinaryLocator {
     private readonly getOverrides: () => AiBinaryPathOverrides,
   ) {}
 
-  async resolve(host: AiTaskHost): Promise<AiBinaryResolution> {
-    // On POSIX this warms the user's real login-shell PATH. The gateway makes
-    // the call a no-op on Windows, where `/bin/sh -lc` must never be attempted.
+  resolve(
+    host: AiTaskHost,
+    options: AiBinaryResolveOptions = {},
+  ): Promise<AiCliLaunchSpec> {
+    const current = this.inFlight.get(host)
+    if (current !== undefined) {
+      if (!options.forceRefresh || current.forceRefresh) {
+        return current.operation
+      }
+      // A recovery refresh must not inherit a stale result from a normal
+      // lookup already in flight. Wait for it to settle, then perform one
+      // forced pass; subsequent forced callers coalesce with that pass.
+      return current.operation
+        .catch(() => undefined)
+        .then(() => this.resolve(host, { forceRefresh: true }))
+    }
+    const operation = this.resolveSingle(host, options).finally(() => {
+      if (this.inFlight.get(host)?.operation === operation) {
+        this.inFlight.delete(host)
+      }
+    })
+    this.inFlight.set(host, {
+      operation,
+      forceRefresh: options.forceRefresh === true,
+    })
+    return operation
+  }
+
+  private async resolveSingle(
+    host: AiTaskHost,
+    options: AiBinaryResolveOptions,
+  ): Promise<AiCliLaunchSpec> {
+    const platform = this.gateway.getPlatform()
+    // Refresh for every new launch. GUI apps otherwise keep the PATH captured
+    // before a package-manager update for their whole renderer lifetime.
     try {
-      await this.gateway.primeLoginShellPath()
+      if (platform === WINDOWS_PLATFORM) {
+        await this.gateway.primeLoginShellPath()
+      } else {
+        await (
+          this.gateway.refreshLoginShellPath?.() ??
+          this.gateway.primeLoginShellPath()
+        )
+      }
     } catch {
-      // Children fall back to the process PATH; detection can still work.
+      // The gateway keeps the last successful login PATH. Detection can still
+      // use it (or the process PATH) when a shell is temporarily unavailable.
     }
 
-    const platform = this.gateway.getPlatform()
+    const pathFingerprint = this.makePathFingerprint(platform)
     const override = this.readOverride(host)
     if (override !== undefined) {
       if (platform !== WINDOWS_PLATFORM) {
-        if (!isWindowsAbsolutePath(override) && (await this.isExistingFile(override))) {
-          return override
+        if (
+          !isWindowsAbsolutePath(override) &&
+          (await this.isExecutablePath(override, platform))
+        ) {
+          return this.makeLaunchSpec(
+            host,
+            override,
+            'manual-override',
+            pathFingerprint,
+          )
         }
       } else {
         if (await this.isExistingFile(override)) {
           const normalizedOverride = await this.normalizeWindowsCandidate(host, override)
-          if (normalizedOverride !== undefined) return normalizedOverride
+          if (normalizedOverride !== undefined) {
+            return this.makeLaunchSpec(
+              host,
+              normalizedOverride,
+              'manual-override',
+              pathFingerprint,
+            )
+          }
         }
       }
       // A stale path (or one synced from another OS) must not disable this
@@ -154,24 +268,187 @@ export class BinaryLocator {
     }
 
     const cached = this.cache.get(host)
-    if (cached !== undefined) return cached
+    if (
+      !options.forceRefresh &&
+      cached !== undefined &&
+      (await this.isCachedSpecValid(cached, pathFingerprint, platform))
+    ) {
+      return cached
+    }
+    this.cache.delete(host)
 
-    const detected =
-      platform === WINDOWS_PLATFORM
-        ? await this.detectWindows(host)
-        : (await this.detectViaPath(host)) ??
-          (await this.detectViaShell(host)) ??
-          (await this.probeKnownPaths(host))
+    let detected: AiBinaryResolution | undefined
+    let source: AiCliLaunchSource
+    if (platform === WINDOWS_PLATFORM) {
+      detected = await this.detectWindows(host)
+      source = 'package-payload'
+    } else {
+      detected = await this.detectViaPath(host)
+      source = 'path'
+      if (detected === undefined) {
+        detected = await this.detectViaShell(host)
+        source = 'login-shell'
+      }
+      if (detected === undefined) {
+        detected = await this.probeKnownPaths(host)
+        source = 'known-location'
+      }
+    }
     if (detected === undefined) {
       throw new AiBinaryNotFoundError(host)
     }
-    this.cache.set(host, detected)
-    return detected
+    const stableDetected =
+      platform === WINDOWS_PLATFORM
+        ? detected
+        : await this.preferStableFacade(host, detected)
+    const spec = this.makeLaunchSpec(
+      host,
+      stableDetected,
+      source,
+      pathFingerprint,
+    )
+    this.cache.set(host, spec)
+    return spec
   }
 
-  invalidateCache(): void {
-    this.cache.clear()
+  invalidateCache(host?: AiTaskHost): void {
+    if (host === undefined) {
+      this.cache.clear()
+      this.windowsNodePath = undefined
+      return
+    }
+    this.cache.delete(host)
+    // node.exe is shared, but validating it on the next Windows resolution
+    // is inexpensive and avoids retaining a replaced version-manager image.
     this.windowsNodePath = undefined
+  }
+
+  private makePathFingerprint(platform: string): string {
+    const env = this.gateway.getBaseEnv()
+    const path =
+      platform === WINDOWS_PLATFORM
+        ? getEnvValue(env, 'PATH') ?? ''
+        : env['PATH'] ?? ''
+    return `${platform}\0${path}`
+  }
+
+  private makeLaunchSpec(
+    host: AiTaskHost,
+    resolution: AiBinaryResolution,
+    source: AiCliLaunchSource,
+    pathFingerprint: string,
+  ): AiCliLaunchSpec {
+    if (this.isLaunchSpec(resolution)) return resolution
+    const executable =
+      typeof resolution === 'string' ? resolution : resolution.binaryPath
+    const argvPrefix =
+      typeof resolution === 'string' ? [] : [...resolution.argsPrefix]
+    const requiredFiles = [executable, ...argvPrefix.filter((value) =>
+      value.startsWith('/') || isWindowsAbsolutePath(value),
+    )]
+    return Object.freeze({
+      executable,
+      argvPrefix: Object.freeze(argvPrefix),
+      envPatch: Object.freeze({}),
+      source,
+      packageManager: this.classifyPackageManager(executable, argvPrefix),
+      resolvedAt: Date.now(),
+      pathFingerprint,
+      requiredFiles: Object.freeze(requiredFiles),
+      ...(source === 'path' || source === 'login-shell'
+        ? { terminalCommand: host }
+        : {}),
+    })
+  }
+
+  private isLaunchSpec(value: AiBinaryResolution): value is AiCliLaunchSpec {
+    return typeof value === 'object' && value !== null && 'executable' in value
+  }
+
+  private async isCachedSpecValid(
+    spec: AiCliLaunchSpec,
+    pathFingerprint: string,
+    platform: string,
+  ): Promise<boolean> {
+    if (spec.pathFingerprint !== pathFingerprint) return false
+    for (let index = 0; index < spec.requiredFiles.length; index += 1) {
+      const candidate = spec.requiredFiles[index]
+      const valid =
+        index === 0
+          ? await this.isExecutablePath(candidate, platform)
+          : await this.isExistingFile(candidate)
+      if (!valid) return false
+    }
+    return true
+  }
+
+  private async isExecutablePath(
+    candidate: string,
+    platform: string,
+  ): Promise<boolean> {
+    if (platform === WINDOWS_PLATFORM) return this.isExistingFile(candidate)
+    if (!candidate.startsWith('/') || candidate.includes('\0')) return false
+    if (!(await this.isExistingFile(candidate))) return false
+    try {
+      const result = await this.gateway.execCapture(
+        PROBE_COMMAND,
+        ['-x', candidate],
+        PROBE_TIMEOUT_MS,
+      )
+      return result.code === 0 && !result.timedOut
+    } catch {
+      return false
+    }
+  }
+
+  private async preferStableFacade(
+    host: AiTaskHost,
+    resolution: AiBinaryResolution,
+  ): Promise<AiBinaryResolution> {
+    if (typeof resolution !== 'string') return resolution
+    const env = this.gateway.getBaseEnv()
+    const home = env['HOME']?.replace(/\/+$/u, '')
+    const candidates: string[] = []
+    if (resolution.includes('/mise/installs/')) {
+      const miseData = env['MISE_DATA_DIR']?.replace(/\/+$/u, '')
+      if (miseData) candidates.push(`${miseData}/shims/${host}`)
+      if (home) candidates.push(`${home}/.local/share/mise/shims/${host}`)
+    }
+    if (resolution.includes('/.asdf/installs/')) {
+      const asdfData = env['ASDF_DATA_DIR']?.replace(/\/+$/u, '')
+      if (asdfData) candidates.push(`${asdfData}/shims/${host}`)
+      if (home) candidates.push(`${home}/.asdf/shims/${host}`)
+    }
+    if (resolution.includes('/.volta/tools/')) {
+      const voltaHome = env['VOLTA_HOME']?.replace(/\/+$/u, '')
+      if (voltaHome) candidates.push(`${voltaHome}/bin/${host}`)
+      if (home) candidates.push(`${home}/.volta/bin/${host}`)
+    }
+    if (resolution.includes('/Cellar/') || resolution.includes('/homebrew/Cellar/')) {
+      candidates.push(`/opt/homebrew/bin/${host}`, `/usr/local/bin/${host}`)
+    }
+    return (await this.probeExecutablePaths(candidates)) ?? resolution
+  }
+
+  private classifyPackageManager(
+    executable: string,
+    argvPrefix: readonly string[],
+  ): AiCliPackageManager {
+    const joined = [executable, ...argvPrefix].join('\n').toLowerCase()
+    if (joined.includes('/mise/') || joined.includes('\\mise\\')) return 'mise'
+    if (joined.includes('/.asdf/') || joined.includes('\\.asdf\\')) return 'asdf'
+    if (joined.includes('/.nvm/') || joined.includes('\\nvm\\')) return 'nvm'
+    if (joined.includes('/.volta/') || joined.includes('\\.volta\\')) return 'volta'
+    if (joined.includes('/cellar/') || joined.includes('/homebrew/')) return 'homebrew'
+    if (joined.includes('\\scoop\\')) return 'scoop'
+    if (joined.includes('\\winget\\') || joined.includes('\\windowsapps\\')) return 'winget'
+    if (joined.includes('/pnpm/') || joined.includes('\\pnpm\\')) return 'pnpm'
+    if (joined.includes('node_modules') || /[\\/]npm[\\/]/u.test(joined)) return 'npm'
+    if (/^\/(?:usr|opt)\/bin\//u.test(executable)) return 'native'
+    if (executable.includes('/.local/bin/') || executable.includes('\\.local\\bin\\')) {
+      return 'native'
+    }
+    return 'unknown'
   }
 
   private readOverride(host: AiTaskHost): string | undefined {
@@ -444,7 +721,15 @@ export class BinaryLocator {
   }
 
   private async resolveWindowsNodePath(): Promise<string | undefined> {
-    if (this.windowsNodePath !== undefined) return this.windowsNodePath ?? undefined
+    if (typeof this.windowsNodePath === 'string') {
+      if (await this.isExistingFile(this.windowsNodePath)) {
+        return this.windowsNodePath
+      }
+      this.windowsNodePath = undefined
+    }
+    // Negative results are deliberately not retained. A user can install or
+    // update Node while Obsidian stays open, and the next task must recover.
+    if (this.windowsNodePath === null) this.windowsNodePath = undefined
     try {
       const result = await this.gateway.execCapture(
         'where.exe',
@@ -468,7 +753,7 @@ export class BinaryLocator {
       windowsJoin(getEnvValue(env, 'USERPROFILE')?.trim(), '.volta', 'bin', 'node.exe'),
       windowsJoin(getEnvValue(env, 'USERPROFILE')?.trim(), 'scoop', 'apps', 'nodejs', 'current', 'node.exe'),
     ])
-    this.windowsNodePath = nodePath ?? null
+    this.windowsNodePath = nodePath
     return nodePath
   }
 

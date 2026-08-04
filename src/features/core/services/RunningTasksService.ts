@@ -159,6 +159,51 @@ export class RunningTasksService {
   }
 
   /**
+   * Resolve a persisted timer even when its originating board date is not
+   * mounted in the current TaskChute view.
+   *
+   * instanceId is the primary identity. A stale/missing id may fall back to
+   * taskId/path only when that selector has exactly one persisted match, so
+   * one duplicated task can never complete a sibling by accident.
+   */
+  async findByInstanceOrPathStrict(options: {
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }): Promise<RunningTaskRecord | undefined> {
+    const { instanceId, taskPath, taskId } = options
+    if (!instanceId && !taskPath && !taskId) return undefined
+
+    const logDataPath = this.plugin.pathManager.getLogDataPath()
+    const dataPath = `${logDataPath}/running-task.json`
+    const adapter = this.plugin.app.vault.adapter
+
+    return await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      if (!(await adapter.exists(dataPath))) return undefined
+      const raw = await adapter.read(dataPath)
+      if (!raw) return undefined
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) {
+        throw new TypeError('running-task.json must contain an array')
+      }
+      const records = parsed.filter(
+        (entry): entry is RunningTaskRecord =>
+          this.isRunningTaskRecord(entry),
+      )
+      if (instanceId) {
+        const exact = records.find(
+          (record) => record.instanceId === instanceId,
+        )
+        if (exact) return { ...exact }
+      }
+      const fallback = taskId
+        ? records.filter((record) => record.taskId === taskId)
+        : records.filter((record) => record.taskPath === taskPath)
+      return fallback.length === 1 ? { ...fallback[0] } : undefined
+    })
+  }
+
+  /**
    * Move persisted running-task records to another board date.
    *
    * This is a strict storage boundary:
@@ -229,7 +274,7 @@ export class RunningTasksService {
     instanceId?: string
     taskPath?: string
     taskId?: string
-  }): Promise<number> {
+  }, beforeDelete?: () => Promise<void>): Promise<number> {
     const { instanceId, taskPath, taskId } = options
     if (!instanceId && !taskPath && !taskId) return 0
 
@@ -256,6 +301,11 @@ export class RunningTasksService {
       }
       if (filtered.length === records.length) return 0
 
+      // Keep cleanup and deletion under the same adapter/path mutation lock.
+      // A deliberate completion can therefore remove the running record
+      // first; a later stale-view orphan repair then sees zero matches and
+      // cannot delete the newly written completion log.
+      await beforeDelete?.()
       await adapter.write(dataPath, JSON.stringify(filtered, null, 2))
       return records.length - filtered.length
     })

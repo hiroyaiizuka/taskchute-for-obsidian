@@ -11,6 +11,7 @@
 import type { AiStreamEvent } from '../../types'
 import { stableTimeoutSource } from '../../../../utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
+import type { ProcessLaunchError } from '../NodeProcessGateway'
 import { LineSplitter } from '../streams/LineSplitter'
 import { capEventText } from '../streams/StreamJsonParser'
 
@@ -19,6 +20,8 @@ export interface AiRunRequest {
   binaryPath: string
   /** Package entrypoint argv inserted before the host-specific CLI args. */
   binaryArgsPrefix?: string[]
+  /** Launch-only environment delta from the validated CLI LaunchSpec. */
+  envPatch?: Readonly<Record<string, string | undefined>>
   prompt: string
   /** Working directory for the child process */
   cwd?: string
@@ -38,6 +41,8 @@ export interface AiRunExitOutcome {
   exitCode: number | null
   signal: string | null
   errorMessage?: string
+  /** Present only when the OS never launched the requested executable. */
+  launchError?: ProcessLaunchError
 }
 
 export interface AiRunCallbacks {
@@ -97,11 +102,17 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
   }
 
   start(request: AiRunRequest, callbacks: AiRunCallbacks): AiRunProcessHandle {
+    const baseEnv = this.gateway.getBaseEnv()
+    const env =
+      request.envPatch !== undefined &&
+      Object.keys(request.envPatch).length > 0
+        ? { ...baseEnv, ...request.envPatch }
+        : baseEnv
     const handle = this.gateway.spawnProcess({
       command: request.binaryPath,
       args: [...(request.binaryArgsPrefix ?? []), ...this.buildArgs(request)],
       cwd: request.cwd,
-      env: this.gateway.getBaseEnv(),
+      env,
     })
 
     const stdoutSplitter = new LineSplitter()
@@ -110,6 +121,7 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
     let lastErrorResultText: string | undefined
     let stopRequested = false
     let exited = false
+    let launchError: ProcessLaunchError | undefined
     let killTimerHandle: number | null = null
 
     const emitStdoutLine = (line: string): void => {
@@ -128,10 +140,14 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
       callbacks.onEvent({ kind: 'stderr', text: capEventText(line) })
     }
 
+    handle.onLaunchError?.((error) => {
+      launchError = error
+    })
     handle.onStdout((text) => {
       for (const line of stdoutSplitter.push(text)) emitStdoutLine(line)
     })
     handle.onStderr((text) => {
+      if (launchError !== undefined) return
       for (const line of stderrSplitter.push(text)) emitStderrLine(line)
     })
     handle.onExit((code, signal) => {
@@ -148,7 +164,14 @@ export abstract class HeadlessCliDispatcher implements AiDispatcher {
       for (const line of stdoutSplitter.flush()) emitStdoutLine(line)
       for (const line of stderrSplitter.flush()) emitStderrLine(line)
       callbacks.onExit(
-        resolveExitOutcome({ code, signal, stopRequested, sawErrorResult, lastErrorResultText }),
+        resolveExitOutcome({
+          code,
+          signal,
+          stopRequested,
+          sawErrorResult,
+          lastErrorResultText,
+          launchError,
+        }),
       )
     })
 
@@ -178,13 +201,30 @@ function resolveExitOutcome(input: {
   stopRequested: boolean
   sawErrorResult: boolean
   lastErrorResultText: string | undefined
+  launchError?: ProcessLaunchError
 }): AiRunExitOutcome {
-  const { code, signal, stopRequested, sawErrorResult, lastErrorResultText } = input
+  const {
+    code,
+    signal,
+    stopRequested,
+    sawErrorResult,
+    lastErrorResultText,
+    launchError,
+  } = input
   if (stopRequested) {
     return { status: 'stopped', exitCode: code, signal }
   }
   if (code === 0 && !sawErrorResult) {
     return { status: 'succeeded', exitCode: code, signal }
+  }
+  if (launchError !== undefined) {
+    return {
+      status: 'failed',
+      exitCode: code,
+      signal,
+      errorMessage: launchError.message,
+      launchError,
+    }
   }
   let errorMessage: string
   if (sawErrorResult) {

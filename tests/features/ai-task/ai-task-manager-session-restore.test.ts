@@ -585,12 +585,41 @@ describe('AiTaskManager persisted session restore', () => {
     const manager = new AiTaskManager(deps)
 
     captured.callbacks?.onData('lazy spinner output\r\n')
-    manager.prepareForRendererReload()
+    manager.persistSessionStateForRendererReload()
 
     expect(store.load()[0]?.terminalReplay).toContain('lazy spinner output')
+    expect(deps.terminal.dispatcher.detach).not.toHaveBeenCalled()
     // A stray late fire after the reload write must not resurrect anything.
     pending.fire?.()
     expect(store.load()[0]?.terminalReplay).toContain('lazy spinner output')
+
+    manager.prepareForRendererReload()
+    expect(deps.terminal.dispatcher.detach).toHaveBeenCalledTimes(1)
+  })
+
+  test('workspace quit arms persistent broker cleanup without disposing the manager', async () => {
+    const scheduleShutdownAfterGrace = jest.fn().mockResolvedValue(undefined)
+    const cancelDeferredShutdown = jest.fn().mockResolvedValue(undefined)
+    const deps = createDeps([])
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        scheduleShutdownAfterGrace,
+        cancelDeferredShutdown,
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    const manager = new AiTaskManager(deps)
+
+    await manager.scheduleTerminalShutdownAfterGrace(15_000)
+    await manager.cancelTerminalShutdownAfterGrace()
+
+    expect(scheduleShutdownAfterGrace).toHaveBeenCalledWith(15_000)
+    expect(cancelDeferredShutdown).toHaveBeenCalledTimes(1)
+    expect(manager.isDisposed()).toBe(false)
   })
 
   test('dispose snapshots the live status before a synchronous stop exit races in', async () => {

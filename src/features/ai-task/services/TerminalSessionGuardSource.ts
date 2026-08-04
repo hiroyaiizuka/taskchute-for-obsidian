@@ -655,10 +655,13 @@ function finishNormalExit() {
     input.removeAllListeners();
     try { input.destroy(); } catch (_) {}
   }
-  // ChildProcess.close is the stream-drain barrier for the supervised
-  // process. Waiting for callbacks from zero-length writes can hang forever
-  // on inherited pipes, so there is nothing left for the guard to flush here.
-  process.exit(guardExitCode);
+  // ChildProcess.close is the stream-drain barrier from the supervised
+  // process into this guard, but the guard can still have bytes queued on its
+  // own stdout/stderr pipes to the broker. process.exit() discards those
+  // queued bytes under load (including a final sentinel or visible tail).
+  // Setting exitCode lets Node drain pending stdio naturally without relying
+  // on zero-length write callbacks, which can hang on inherited pipes.
+  process.exitCode = guardExitCode;
 }
 
 function reapDescendantsAfterTargetExit() {

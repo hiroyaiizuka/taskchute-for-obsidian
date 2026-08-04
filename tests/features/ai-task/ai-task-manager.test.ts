@@ -105,7 +105,10 @@ interface HarnessOptions {
   frontmatter?: Record<string, unknown> | null
   content?: string
   basePath?: string | null
-  resolveBinary?: (host: string) => Promise<AiBinaryResolution>
+  resolveBinary?: (
+    host: string,
+    options?: { forceRefresh?: boolean },
+  ) => Promise<AiBinaryResolution>
   cachedRead?: () => Promise<string>
   /** When true, the log writer also exposes the upsert path used for rewrites */
   withUpsert?: boolean
@@ -125,6 +128,7 @@ function createHarness(options: HarnessOptions = {}) {
   const resolve = jest.fn(
     options.resolveBinary ?? ((host: string) => Promise.resolve(`/bin/${host}`)),
   )
+  const invalidateCache = jest.fn()
   const frontmatter =
     options.frontmatter === undefined ? { ai_task: true } : options.frontmatter
   const content = options.content ?? '# Task\n\n## Prompt\n\nDo the thing\n'
@@ -146,7 +150,7 @@ function createHarness(options: HarnessOptions = {}) {
       },
     },
     dispatchers: { claude, codex },
-    binaryLocator: { resolve },
+    binaryLocator: { resolve, invalidateCache },
     logWriter: options.withUpsert
       ? { writeRunLog, upsertRunLog, pruneOldLogs }
       : { writeRunLog, pruneOldLogs },
@@ -162,10 +166,149 @@ function createHarness(options: HarnessOptions = {}) {
     upsertRunLog,
     pruneOldLogs,
     resolve,
+    invalidateCache,
   }
 }
 
 describe('AiTaskManager.startRun', () => {
+  test('does not retry a CLI that launched and then exited 127 before output', async () => {
+    const harness = createHarness({
+      resolveBinary: async (_host, options) =>
+        options?.forceRefresh ? '/bin/claude-v2' : '/bin/claude-v1',
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: 127,
+      signal: null,
+      errorMessage: 'command not found',
+    })
+    await flushPromises()
+
+    expect(harness.invalidateCache).not.toHaveBeenCalled()
+    expect(harness.resolve).toHaveBeenCalledTimes(1)
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(harness.claude.runs[0].request.binaryPath).toBe('/bin/claude-v1')
+    expect(record.status).toBe('failed')
+  })
+
+  test('re-resolves and retries exactly once after a structured OS launch failure', async () => {
+    const harness = createHarness({
+      resolveBinary: async (_host, options) =>
+        options?.forceRefresh ? '/bin/claude-v2' : '/bin/claude-v1',
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'spawn ENOENT',
+      launchError: { code: 'ENOENT', message: 'spawn ENOENT' },
+    })
+    await flushPromises()
+
+    expect(harness.invalidateCache).toHaveBeenCalledWith('claude')
+    expect(harness.resolve).toHaveBeenNthCalledWith(1, 'claude')
+    expect(harness.resolve).toHaveBeenNthCalledWith(2, 'claude', {
+      forceRefresh: true,
+    })
+    expect(harness.claude.runs).toHaveLength(2)
+    expect(harness.claude.runs[1].request.binaryPath).toBe('/bin/claude-v2')
+    expect(record.status).toBe('running')
+
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'still missing',
+      launchError: { code: 'ENOENT', message: 'still missing' },
+    })
+    await flushPromises()
+    expect(harness.claude.runs).toHaveLength(2)
+    expect(record.status).toBe('failed')
+  })
+
+  test('does not retry status 127 after any CLI event, preventing duplicate prompts', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.emit({ kind: 'assistant-text', text: 'started' })
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: 127,
+      signal: null,
+      errorMessage: 'tool returned 127',
+    })
+    await flushPromises()
+
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(harness.resolve).toHaveBeenCalledTimes(1)
+    expect(record.status).toBe('failed')
+  })
+
+  test('does not retry a non-recoverable pre-output CLI failure', async () => {
+    const harness = createHarness()
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: 2,
+      signal: null,
+      errorMessage: 'invalid option',
+    })
+    await flushPromises()
+
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(harness.resolve).toHaveBeenCalledTimes(1)
+    expect(harness.invalidateCache).not.toHaveBeenCalled()
+    expect(record.status).toBe('failed')
+  })
+
+  test('retries a synchronous ENOENT throw without publishing the proxy as the final handle', async () => {
+    const harness = createHarness()
+    harness.claude.failNextStart = Object.assign(new Error('spawn ENOENT'), {
+      code: 'ENOENT',
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+    await flushPromises()
+
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(harness.resolve).toHaveBeenNthCalledWith(2, 'claude', {
+      forceRefresh: true,
+    })
+    expect(record.status).toBe('running')
+    expect(record.pid).toBe(4321)
+  })
+
+  test('a stop during forced re-resolution prevents the retry child from spawning', async () => {
+    let releaseResolution: ((value: AiBinaryResolution) => void) | undefined
+    const harness = createHarness({
+      resolveBinary: async (_host, options) => {
+        if (!options?.forceRefresh) return '/bin/claude-v1'
+        return await new Promise<AiBinaryResolution>((resolve) => {
+          releaseResolution = resolve
+        })
+      },
+    })
+    const record = await harness.manager.startRun(makeTaskFile())
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'spawn ENOENT',
+      launchError: { code: 'ENOENT', message: 'spawn ENOENT' },
+    })
+    await Promise.resolve()
+
+    harness.manager.stopRun(record.id)
+    releaseResolution?.('/bin/claude-v2')
+    await flushPromises()
+
+    expect(harness.claude.runs).toHaveLength(1)
+    expect(record.status).toBe('stopped')
+  })
+
   test('starts a claude run and transitions starting -> running', async () => {
     const harness = createHarness({
       frontmatter: { ai_task: true, ai_task_args: '--max-turns 1' },
@@ -221,6 +364,29 @@ describe('AiTaskManager.startRun', () => {
       binaryArgsPrefix: [
         'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs',
       ],
+    })
+  })
+
+  test('passes the production LaunchSpec env and fixed terminal lookup metadata', async () => {
+    const harness = createHarness({
+      resolveBinary: async () => ({
+        executable: '/stable/shims/claude',
+        argvPrefix: [],
+        envPatch: { TASKCHUTE_LAUNCH_TEST: 'yes' },
+        source: 'path',
+        packageManager: 'asdf',
+        resolvedAt: Date.now(),
+        pathFingerprint: 'linux\u0000/stable/shims:/usr/bin',
+        requiredFiles: ['/stable/shims/claude'],
+        terminalCommand: 'claude',
+      }),
+    })
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(harness.claude.last.request).toMatchObject({
+      binaryPath: '/stable/shims/claude',
+      envPatch: { TASKCHUTE_LAUNCH_TEST: 'yes' },
     })
   })
 
@@ -727,6 +893,45 @@ describe('AiTaskManager events and exit mapping', () => {
     expect(record.status).toBe('succeeded')
   })
 
+  test('renderer transition waits for headless force-kill escalation without disposing', async () => {
+    const harness = createHarness()
+    await harness.manager.startRun(makeTaskFile())
+
+    const completion =
+      harness.manager.stopNonPersistentRunsForRendererTransitionAndWait()
+
+    expect(harness.claude.last.stop).toHaveBeenCalledTimes(1)
+    expect(harness.claude.last.forceKill).not.toHaveBeenCalled()
+    expect(harness.manager.isDisposed()).toBe(false)
+    expect(harness.timer.scheduled).toHaveLength(1)
+    expect(harness.timer.scheduled[0]?.timeoutMs).toBe(DISPOSE_FORCE_KILL_MS)
+
+    harness.timer.fireAll()
+    await completion
+
+    expect(harness.claude.last.forceKill).toHaveBeenCalledTimes(1)
+    expect(harness.manager.isDisposed()).toBe(false)
+  })
+
+  test('renderer transition resolves early when every headless process exits', async () => {
+    const harness = createHarness()
+    await harness.manager.startRun(makeTaskFile())
+
+    const completion =
+      harness.manager.stopNonPersistentRunsForRendererTransitionAndWait()
+    harness.claude.last.exit({
+      status: 'stopped',
+      exitCode: null,
+      signal: 'SIGTERM',
+    })
+    await completion
+
+    expect(harness.claude.last.forceKill).not.toHaveBeenCalled()
+    expect(harness.timer.cleared).toEqual([
+      harness.timer.scheduled[0]?.handle,
+    ])
+  })
+
   test('writes the run log and prunes old logs after exit', async () => {
     const harness = createHarness()
     const record = await harness.manager.startRun(makeTaskFile())
@@ -982,6 +1187,37 @@ describe('AiTaskManager.followUp', () => {
     // The manager still reports one single run for the task.
     expect(harness.manager.getRuns()).toEqual([record])
     expect(harness.manager.getActiveRunForTask(record.taskPath)).toBe(record)
+  })
+
+  test('retries a missing follow-up executable once without duplicating user text', async () => {
+    const harness = createHarness({
+      resolveBinary: async (_host, options) =>
+        options?.forceRefresh ? '/bin/claude-v2' : '/bin/claude-v1',
+    })
+    const record = await startFinishedRun(harness)
+
+    await harness.manager.followUp(record.id, 'continue once')
+    harness.claude.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'spawn ENOENT',
+      launchError: { code: 'ENOENT', message: 'spawn ENOENT' },
+    })
+    await flushPromises()
+
+    expect(harness.claude.runs).toHaveLength(3)
+    expect(harness.claude.last.request).toMatchObject({
+      binaryPath: '/bin/claude-v2',
+      prompt: 'continue once',
+      resumeSessionId: 'sess-1',
+    })
+    expect(
+      record.events.filter(
+        (event) => event.kind === 'user-text' && event.text === 'continue once',
+      ),
+    ).toHaveLength(1)
+    expect(record.status).toBe('running')
   })
 
   test('follow-up stream events append to the record and exit remaps the status', async () => {

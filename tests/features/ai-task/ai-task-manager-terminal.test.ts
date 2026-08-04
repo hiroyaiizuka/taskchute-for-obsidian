@@ -74,6 +74,7 @@ class FakeTerminalDispatcher implements AiTerminalDispatcher {
   runs: FakeTerminalRun[] = []
   failNextStart: Error | null = null
   shutdown = jest.fn(async () => undefined)
+  isPersistent = false
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks) {
     if (this.failNextStart) {
@@ -243,6 +244,7 @@ describe('AiTaskManager terminal mode routing', () => {
       sessionId: record.id,
       binaryPath: '/bin/claude',
       binaryArgsPrefix: undefined,
+      terminalFallbackCommand: 'claude',
       prompt: 'Do the thing',
       cwd: '/vault/base',
       extraArgs: ['--dangerously-skip-permissions'],
@@ -251,6 +253,18 @@ describe('AiTaskManager terminal mode routing', () => {
       cols: 80,
       transcriptPath: record.transcriptPath,
     })
+  })
+
+  test('renderer transition preserves a broker-owned terminal run', async () => {
+    const harness = createTerminalHarness()
+    harness.terminal.isPersistent = true
+    await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
+
+    await harness.manager.stopNonPersistentRunsForRendererTransitionAndWait()
+
+    expect(harness.terminal.last.stop).not.toHaveBeenCalled()
+    expect(harness.terminal.last.forceKill).not.toHaveBeenCalled()
+    expect(harness.manager.isDisposed()).toBe(false)
   })
 
   test('delegates lazy workspace listing through the desktop file service', async () => {

@@ -253,7 +253,10 @@ describe("AiTaskManager 'persisted' notifications", () => {
 describe("dispatch failures also end with 'persisted'", () => {
   test("a headless dispatcher that throws at start still fires 'persisted' once, after a minimal log note", async () => {
     const harness = createHarness({ runMode: 'headless' })
-    harness.headless.failNextStart = new Error('spawn ENOENT')
+    // Recoverable OS launch errors are retried once. Use an unrecoverable
+    // dispatcher/configuration error here to exercise the immediate failure
+    // persistence contract this test owns.
+    harness.headless.failNextStart = new Error('invalid launch configuration')
     const order: string[] = []
     harness.manager.onChange((record, changeType) => {
       order.push(`${changeType}:${record.status}`)
@@ -264,7 +267,7 @@ describe("dispatch failures also end with 'persisted'", () => {
     })
 
     await expect(harness.manager.startRun(makeTaskFile())).rejects.toThrow(
-      'spawn ENOENT',
+      'invalid launch configuration',
     )
     await flushPromises()
 

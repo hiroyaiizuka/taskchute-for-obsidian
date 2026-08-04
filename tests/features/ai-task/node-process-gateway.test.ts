@@ -187,6 +187,65 @@ describe('NodeProcessGateway', () => {
       expect(gateway.primeLoginShellPath()).toBe(first)
     }, 15_000)
 
+    test('refreshLoginShellPath captures a changed PATH after initial priming', async () => {
+      const gateway = new NodeProcessGateway()
+      const execCapture = jest.spyOn(gateway, 'execCapture')
+      execCapture
+        .mockResolvedValueOnce({
+          code: 0,
+          stdout: '__TASKCHUTE_AI_PATH__/versions/1/bin:/usr/bin\n',
+          stderr: '',
+          timedOut: false,
+        })
+        .mockResolvedValueOnce({
+          code: 0,
+          stdout: '__TASKCHUTE_AI_PATH__/versions/2/bin:/usr/bin\n',
+          stderr: '',
+          timedOut: false,
+        })
+
+      await gateway.primeLoginShellPath()
+      expect(gateway.getBaseEnv().PATH?.split(':')[0]).toBe('/versions/1/bin')
+      await gateway.refreshLoginShellPath()
+      expect(gateway.getBaseEnv().PATH?.split(':')[0]).toBe('/versions/2/bin')
+    })
+
+    test('coalesces concurrent PATH refreshes and preserves the last good PATH on failure', async () => {
+      const gateway = new NodeProcessGateway()
+      const execCapture = jest.spyOn(gateway, 'execCapture')
+      execCapture.mockResolvedValueOnce({
+        code: 0,
+        stdout: '__TASKCHUTE_AI_PATH__/stable/bin:/usr/bin\n',
+        stderr: '',
+        timedOut: false,
+      })
+      await gateway.primeLoginShellPath()
+
+      let release: (() => void) | undefined
+      execCapture.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve({ code: 1, stdout: '', stderr: 'temporary', timedOut: false })
+          }),
+      )
+      // The login-only fallback also fails after the shared first attempt.
+      execCapture.mockResolvedValueOnce({
+        code: 1,
+        stdout: '',
+        stderr: 'temporary',
+        timedOut: false,
+      })
+      const first = gateway.refreshLoginShellPath()
+      const second = gateway.refreshLoginShellPath()
+      expect(second).toBe(first)
+      await Promise.resolve()
+      release?.()
+      await first
+
+      expect(gateway.getBaseEnv().PATH?.split(':')[0]).toBe('/stable/bin')
+    })
+
     test('is a no-op on win32 instead of trying to launch /bin/sh', async () => {
       const gateway = new NodeProcessGateway(undefined, 'win32')
       const execCapture = jest.spyOn(gateway, 'execCapture')
@@ -290,6 +349,157 @@ describe('NodeProcessGateway', () => {
   })
 
   describe('spawnProcess', () => {
+    test('synchronously reaps an active renderer-owned POSIX process group on renderer exit', async () => {
+      const gateway = new NodeProcessGateway()
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'setInterval(function () {}, 1000)'],
+        env: gateway.getBaseEnv(),
+      })
+      const childPid = handle.pid
+      expect(childPid).toBeGreaterThan(0)
+      const exited = new Promise<void>((resolve) =>
+        handle.onExit(() => resolve()),
+      )
+
+      gateway.reapRendererOwnedProcessesForExit()
+      await exited
+
+      expect(() => process.kill(childPid ?? -1, 0)).toThrow()
+    }, 15_000)
+
+    test('uses synchronous taskkill for an active renderer-owned Windows tree', async () => {
+      const terminateWindowsTree = jest.fn(() => false)
+      const terminateWindowsTreeSync = jest.fn(() => true)
+      const readProcessBirthToken = jest.fn(() => 'original-start-time')
+      const gateway = new NodeProcessGateway(
+        undefined,
+        'win32',
+        terminateWindowsTree,
+        readProcessBirthToken,
+        terminateWindowsTreeSync,
+      )
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'setInterval(function () {}, 1000)'],
+        env: gateway.getBaseEnv(),
+      })
+      expect(handle.pid).toBeGreaterThan(0)
+
+      gateway.reapRendererOwnedProcessesForExit()
+      expect(terminateWindowsTreeSync).toHaveBeenCalledWith(handle.pid)
+
+      // The injected synchronous terminator only records the request. Clean
+      // up the real test child through the ordinary fallback path.
+      const exited = new Promise<void>((resolve) =>
+        handle.onExit(() => resolve()),
+      )
+      handle.kill('SIGKILL')
+      await exited
+    }, 15_000)
+
+    test('does not taskkill a Windows PID reused after the renderer-exit snapshot', async () => {
+      const terminateWindowsTree = jest.fn(() => false)
+      const terminateWindowsTreeSync = jest.fn(() => true)
+      const readProcessBirthToken = jest
+        .fn<() => string | null>()
+        .mockReturnValueOnce('original-start-time')
+        .mockReturnValue('replacement-start-time')
+      const gateway = new NodeProcessGateway(
+        undefined,
+        'win32',
+        terminateWindowsTree,
+        readProcessBirthToken,
+        terminateWindowsTreeSync,
+      )
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', 'setInterval(function () {}, 1000)'],
+        env: gateway.getBaseEnv(),
+      })
+      expect(handle.pid).toBeGreaterThan(0)
+
+      // The first token is captured at spawn. The second represents the same
+      // numeric PID after the reaper took its Map snapshot but before it
+      // reached taskkill.
+      gateway.reapRendererOwnedProcessesForExit()
+
+      expect(readProcessBirthToken).toHaveBeenCalledTimes(2)
+      expect(terminateWindowsTreeSync).not.toHaveBeenCalled()
+
+      // The reaper correctly skipped the synthetic replacement; clean up the
+      // still-real test child through the ordinary handle path.
+      const exited = new Promise<void>((resolve) =>
+        handle.onExit(() => resolve()),
+      )
+      handle.kill('SIGKILL')
+      await exited
+    }, 15_000)
+
+    test('does not taskkill a reused Windows PID after exit but before close', async () => {
+      const terminateWindowsTree = jest.fn(() => false)
+      const terminateWindowsTreeSync = jest.fn(() => true)
+      const gateway = new NodeProcessGateway(
+        undefined,
+        'win32',
+        terminateWindowsTree,
+        undefined,
+        terminateWindowsTreeSync,
+      )
+      // The grandchild inherits stdout, keeping the root ChildProcess `close`
+      // event pending after its earlier `exit` event. That is the exact PID
+      // reuse window where the renderer-exit reaper must no longer track root.
+      const script = [
+        "const cp = require('child_process')",
+        `cp.spawn(${JSON.stringify(process.execPath)}, ['-e', 'setTimeout(() => {}, 1200)'], { stdio: ['ignore', 1, 2], detached: true })`,
+        'process.exit(0)',
+      ].join('; ')
+      const handle = gateway.spawnProcess({
+        command: process.execPath,
+        args: ['-e', script],
+        env: gateway.getBaseEnv(),
+      })
+      const rootPid = handle.pid
+      const closed = new Promise<void>((resolve) =>
+        handle.onExit(() => resolve()),
+      )
+
+      const deadline = Date.now() + 5_000
+      while (Date.now() < deadline) {
+        try {
+          process.kill(rootPid ?? -1, 0)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        } catch {
+          break
+        }
+      }
+      expect(() => process.kill(rootPid ?? -1, 0)).toThrow()
+
+      gateway.reapRendererOwnedProcessesForExit()
+      // The ordinary run stop/dispose path uses handle.kill rather than the
+      // renderer-exit reaper. It must share the same exit-before-close fence.
+      handle.kill('SIGKILL')
+      expect(terminateWindowsTreeSync).not.toHaveBeenCalled()
+      expect(terminateWindowsTree).not.toHaveBeenCalled()
+      await closed
+    }, 15_000)
+
+    test('reports a structured ENOENT launch error before exit', async () => {
+      const gateway = new NodeProcessGateway()
+      const handle = gateway.spawnProcess({
+        command: '/nonexistent/taskchute-cli-for-test',
+        args: [],
+        env: gateway.getBaseEnv(),
+      })
+      const launchErrors: Array<{ code?: string; message: string }> = []
+      handle.onLaunchError?.((error) => launchErrors.push(error))
+      await new Promise<void>((resolve) => handle.onExit(() => resolve()))
+
+      expect(launchErrors).toHaveLength(1)
+      expect(launchErrors[0].code).toBe('ENOENT')
+      expect(launchErrors[0].message).toContain('ENOENT')
+    })
+
     test('retries a failed graceful win32 tree stop with force before child.kill', async () => {
       const terminateWindowsTree = jest.fn(() => false)
       const gateway = new NodeProcessGateway(undefined, 'win32', terminateWindowsTree)

@@ -217,8 +217,11 @@ export interface AiTaskManagerDeps {
   }
   dispatchers: Record<AiTaskHost, AiDispatcher>
   binaryLocator: {
-    resolve(host: AiTaskHost): Promise<AiBinaryResolution>
-    invalidateCache?(): void
+    resolve(
+      host: AiTaskHost,
+      options?: { forceRefresh?: boolean },
+    ): Promise<AiBinaryResolution>
+    invalidateCache?(host?: AiTaskHost): void
   }
   logWriter: {
     writeRunLog(record: AiRunRecord): Promise<unknown>
@@ -335,6 +338,8 @@ export interface PreparedAiRun {
   readonly extraArgs: readonly string[]
   readonly binaryPath: string
   readonly binaryArgsPrefix?: readonly string[]
+  readonly binaryEnvPatch?: Readonly<Record<string, string | undefined>>
+  readonly terminalCommand?: AiTaskHost
   readonly recipeSnapshot: RecipeContextSnapshot | null
 }
 
@@ -489,13 +494,67 @@ function joinCwd(basePath: string, relative: string): string {
 function normalizeBinaryResolution(resolution: AiBinaryResolution): {
   binaryPath: string
   binaryArgsPrefix?: string[]
+  binaryEnvPatch?: Readonly<Record<string, string | undefined>>
+  terminalCommand?: AiTaskHost
 } {
   if (typeof resolution === 'string') return { binaryPath: resolution }
+  if ('executable' in resolution) {
+    return {
+      binaryPath: resolution.executable,
+      binaryArgsPrefix:
+        resolution.argvPrefix.length > 0 ? [...resolution.argvPrefix] : undefined,
+      binaryEnvPatch:
+        Object.keys(resolution.envPatch).length > 0
+          ? { ...resolution.envPatch }
+          : undefined,
+      terminalCommand: resolution.terminalCommand,
+    }
+  }
   return {
     binaryPath: resolution.binaryPath,
     binaryArgsPrefix:
       resolution.argsPrefix.length > 0 ? [...resolution.argsPrefix] : undefined,
   }
+}
+
+interface NormalizedBinaryLaunch {
+  binaryPath: string
+  binaryArgsPrefix?: string[]
+  binaryEnvPatch?: Readonly<Record<string, string | undefined>>
+  terminalCommand?: AiTaskHost
+}
+
+function isRecoverableLaunchOutcome(outcome: AiRunExitOutcome): boolean {
+  const code = outcome.launchError?.code?.toUpperCase()
+  return (
+    code === 'ENOENT' ||
+    code === 'EACCES' ||
+    code === 'EPERM' ||
+    code === 'ERROR_FILE_NOT_FOUND' ||
+    code === 'ERROR_PATH_NOT_FOUND' ||
+    code === 'ERROR_ACCESS_DENIED'
+  )
+}
+
+function toLaunchFailureOutcome(error: unknown): AiRunExitOutcome {
+  const message = error instanceof Error ? error.message : String(error)
+  const code =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : undefined
+  return {
+    status: 'failed',
+    exitCode: null,
+    signal: null,
+    errorMessage: message,
+    launchError: { ...(code === undefined ? {} : { code }), message },
+  }
+}
+
+function isStoppingRun(record: AiRunRecord): boolean {
+  return record.status === 'stopping'
 }
 
 export class AiTaskManager {
@@ -536,6 +595,13 @@ export class AiTaskManager {
   }> = []
   private disposed = false
   private disposeCompletion: Promise<void> | null = null
+  /**
+   * One renderer-transition cleanup shared by workspace quit/page lifecycle.
+   * Persistent broker PTYs are deliberately excluded; headless/local handles
+   * cannot be adopted by another renderer and must finish their SIGKILL
+   * escalation before the current renderer is allowed to disappear.
+   */
+  private nonPersistentTransitionCleanup: Promise<void> | null = null
   private disposeError: Error | null = null
   /** True only after the first broker shutdown attempt was unconfirmed. */
   private disposeShutdownFailed = false
@@ -725,7 +791,12 @@ export class AiTaskManager {
 
     const cwd = this.resolveCwd(config.cwd)
     const binaryResolution = await this.deps.binaryLocator.resolve(config.host)
-    const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
+    const {
+      binaryPath,
+      binaryArgsPrefix,
+      binaryEnvPatch,
+      terminalCommand,
+    } = normalizeBinaryResolution(binaryResolution)
     this.throwIfDisposed()
     assertAiRunLaunchSize({
       binaryPath,
@@ -746,6 +817,11 @@ export class AiTaskManager {
       binaryArgsPrefix: binaryArgsPrefix
         ? Object.freeze([...binaryArgsPrefix])
         : undefined,
+      binaryEnvPatch:
+        binaryEnvPatch === undefined
+          ? undefined
+          : Object.freeze({ ...binaryEnvPatch }),
+      terminalCommand,
       recipeSnapshot,
     })
   }
@@ -764,6 +840,8 @@ export class AiTaskManager {
       cwd,
       binaryPath,
       binaryArgsPrefix,
+      binaryEnvPatch,
+      terminalCommand,
       recipeSnapshot,
     } = prepared
     const extraArgs = [...prepared.extraArgs]
@@ -822,6 +900,13 @@ export class AiTaskManager {
             sessionId: record.id,
             binaryPath,
             binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
+            ...(binaryEnvPatch === undefined
+              ? {}
+              : { envPatch: binaryEnvPatch }),
+            ...(terminalCommand === host
+              ? { terminalCommand }
+              : {}),
+            terminalFallbackCommand: host,
             prompt,
             cwd,
             extraArgs,
@@ -847,18 +932,20 @@ export class AiTaskManager {
         internal.terminalHandle = terminalHandle
         internal.handle = terminalHandle
       } else {
-        internal.handle = this.deps.dispatchers[host].start(
+        internal.handle = this.dispatchHeadlessAttempt(
+          internal,
+          host,
           {
             binaryPath,
-            binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
-            prompt,
-            cwd,
-            extraArgs,
+            binaryArgsPrefix: binaryArgsPrefix
+              ? [...binaryArgsPrefix]
+              : undefined,
+            binaryEnvPatch,
+            terminalCommand,
           },
-          {
-            onEvent: (event) => this.handleEvent(internal, event),
-            onExit: (outcome) => this.handleExit(internal, outcome),
-          },
+          prompt,
+          undefined,
+          0,
         )
       }
     } catch (error) {
@@ -880,6 +967,163 @@ export class AiTaskManager {
       this.stopRun(record.id)
     }
     return record
+  }
+
+  /**
+   * Dispatch one headless attempt. Only a failure that proves the OS/shell
+   * could not launch the command, before any event was emitted, is eligible
+   * for the single forced-refresh retry.
+   */
+  private dispatchHeadlessAttempt(
+    internal: InternalRun,
+    host: AiTaskHost,
+    launch: NormalizedBinaryLaunch,
+    prompt: string,
+    resumeSessionId: string | undefined,
+    attempt: 0 | 1,
+  ): AiRunProcessHandle {
+    let emittedEvent = false
+    try {
+      return this.deps.dispatchers[host].start(
+        {
+          binaryPath: launch.binaryPath,
+          binaryArgsPrefix: launch.binaryArgsPrefix
+            ? [...launch.binaryArgsPrefix]
+            : undefined,
+          envPatch: launch.binaryEnvPatch,
+          prompt,
+          cwd: internal.cwd,
+          extraArgs: [...internal.extraArgs],
+          resumeSessionId,
+        },
+        {
+          onEvent: (event) => {
+            emittedEvent = true
+            this.handleEvent(internal, event)
+          },
+          onExit: (outcome) => {
+            if (
+              attempt === 0 &&
+              !emittedEvent &&
+              isRecoverableLaunchOutcome(outcome)
+            ) {
+              void this.retryHeadlessLaunch(
+                internal,
+                host,
+                prompt,
+                resumeSessionId,
+                outcome,
+              )
+              return
+            }
+            this.handleExit(internal, outcome)
+          },
+        },
+      )
+    } catch (error) {
+      const outcome = toLaunchFailureOutcome(error)
+      if (attempt === 0 && isRecoverableLaunchOutcome(outcome)) {
+        // Defer until startPreparedRunCore/followUp has installed the proxy
+        // handle and completed its initial starting -> running publication.
+        // Calling an async retry directly would mutate back to `starting`
+        // before the caller's post-dispatch block, causing that block to
+        // publish the no-op proxy as the live process.
+        void Promise.resolve().then(() =>
+          this.retryHeadlessLaunch(
+            internal,
+            host,
+            prompt,
+            resumeSessionId,
+            outcome,
+          ),
+        )
+        return {
+          stop: () => undefined,
+          forceKill: () => undefined,
+        }
+      }
+      throw error
+    }
+  }
+
+  private async retryHeadlessLaunch(
+    internal: InternalRun,
+    host: AiTaskHost,
+    prompt: string,
+    resumeSessionId: string | undefined,
+    firstFailure: AiRunExitOutcome,
+  ): Promise<void> {
+    const record = internal.record
+    if (
+      this.disposed ||
+      internal.exited ||
+      this.runs.get(record.id) !== internal
+    ) {
+      return
+    }
+    record.status = 'starting'
+    record.pid = undefined
+    record.errorMessage = undefined
+    this.notifyChange(record)
+    this.deps.binaryLocator.invalidateCache?.(host)
+
+    let launch: NormalizedBinaryLaunch
+    try {
+      const resolution = await this.deps.binaryLocator.resolve(host, {
+        forceRefresh: true,
+      })
+      launch = normalizeBinaryResolution(resolution)
+      assertAiRunLaunchSize({
+        binaryPath: launch.binaryPath,
+        binaryArgsPrefix: launch.binaryArgsPrefix,
+        extraArgs: internal.extraArgs,
+        prompt,
+      })
+    } catch (error) {
+      if (!internal.exited && this.runs.get(record.id) === internal) {
+        this.handleExit(internal, {
+          ...firstFailure,
+          errorMessage:
+            error instanceof Error ? error.message : String(error),
+        })
+      }
+      return
+    }
+
+    if (
+      this.disposed ||
+      internal.exited ||
+      this.runs.get(record.id) !== internal
+    ) {
+      return
+    }
+    if (isStoppingRun(record)) {
+      this.handleExit(internal, {
+        status: 'stopped',
+        exitCode: firstFailure.exitCode,
+        signal: firstFailure.signal,
+      })
+      return
+    }
+
+    try {
+      internal.handle = this.dispatchHeadlessAttempt(
+        internal,
+        host,
+        launch,
+        prompt,
+        resumeSessionId,
+        1,
+      )
+    } catch (error) {
+      this.handleExit(internal, toLaunchFailureOutcome(error))
+      return
+    }
+    if (!internal.exited && record.status === 'starting') {
+      record.pid = internal.handle.pid
+      record.status = 'running'
+      this.notifyChange(record)
+    }
   }
 
   /**
@@ -1043,7 +1287,11 @@ export class AiTaskManager {
       // Resolve the binary BEFORE mutating the record so a missing binary
       // leaves the run in its finished state and the follow-up retryable.
       const binaryResolution = await this.deps.binaryLocator.resolve(host)
-      const { binaryPath, binaryArgsPrefix } = normalizeBinaryResolution(binaryResolution)
+      const {
+        binaryPath,
+        binaryArgsPrefix,
+        binaryEnvPatch,
+      } = normalizeBinaryResolution(binaryResolution)
       this.throwIfDisposed()
       this.throwIfReleased(runId, internal)
       assertAiRunLaunchSize({
@@ -1067,19 +1315,17 @@ export class AiTaskManager {
       this.notifyChange(record)
 
       try {
-        internal.handle = this.deps.dispatchers[host].start(
+        internal.handle = this.dispatchHeadlessAttempt(
+          internal,
+          host,
           {
             binaryPath,
             binaryArgsPrefix,
-            prompt: text,
-            cwd: internal.cwd,
-            extraArgs: internal.extraArgs,
-            resumeSessionId: sessionId,
+            binaryEnvPatch,
           },
-          {
-            onEvent: (event) => this.handleEvent(internal, event),
-            onExit: (outcome) => this.handleExit(internal, outcome),
-          },
+          text,
+          sessionId,
+          0,
         )
       } catch (error) {
         internal.exited = true
@@ -1568,6 +1814,218 @@ export class AiTaskManager {
    * and close only this renderer's IPC transport; non-persistent processes
    * are stopped because no future renderer can safely own their callbacks.
    */
+  persistSessionStateForRendererReload(): void {
+    if (this.disposed) return
+    this.persistSessionStateNow()
+  }
+
+  /**
+   * Obsidian emits workspace `quit` for both a genuine application exit and
+   * its normal renderer reload command. Ask the external broker to reap its
+   * sessions after a short reconnect window instead of killing them
+   * synchronously in the renderer. A new authenticated renderer cancels the
+   * deadline; a real exit leaves the broker to perform bounded cleanup.
+   *
+   * Older/non-persistent dispatchers cannot provide that contract. The
+   * caller deliberately treats the missing method as best-effort persistence
+   * rather than an immediate stop, because an immediate stop would recreate
+   * the reload data-loss bug this boundary exists to prevent.
+   */
+  async scheduleTerminalShutdownAfterGrace(
+    graceMs: number,
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    if (this.disposed) return
+    const dispatcher = this.deps.terminal?.dispatcher
+    if (
+      dispatcher?.isPersistent !== true ||
+      typeof dispatcher.scheduleShutdownAfterGrace !== 'function'
+    ) {
+      return
+    }
+    try {
+      if (rendererLeaseToken === undefined) {
+        await dispatcher.scheduleShutdownAfterGrace(graceMs)
+      } else {
+        await dispatcher.scheduleShutdownAfterGrace(
+          graceMs,
+          rendererLeaseToken,
+          rendererLeaseOwnerId,
+          rendererLeaseGeneration,
+        )
+      }
+    } catch (error) {
+      // A broker from the previous plugin bundle may not know the new
+      // protocol yet. Its existing clientless TTL remains the safe fallback.
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Failed to arm terminal shutdown grace; using broker TTL',
+        error,
+      )
+    }
+  }
+
+  /**
+   * Reverse an ambiguous workspace-quit deadline after the renderer remains
+   * alive long enough to prove the close was canceled. Old dispatchers do
+   * not expose this protocol; feature detection keeps a retained manager
+   * from the immediately preceding bundle compatible during hot upgrade.
+   */
+  async cancelTerminalShutdownAfterGrace(
+    rendererLeaseToken?: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    if (this.disposed) return
+    const dispatcher = this.deps.terminal?.dispatcher
+    if (
+      dispatcher?.isPersistent !== true ||
+      typeof dispatcher.cancelDeferredShutdown !== 'function'
+    ) {
+      return
+    }
+    try {
+      if (rendererLeaseToken === undefined) {
+        await dispatcher.cancelDeferredShutdown()
+      } else {
+        await dispatcher.cancelDeferredShutdown(
+          rendererLeaseToken,
+          rendererLeaseOwnerId,
+          rendererLeaseGeneration,
+        )
+      }
+    } catch (error) {
+      this.deps.log?.(
+        'warn',
+        '[AiTaskManager] Failed to cancel terminal shutdown grace',
+        error,
+      )
+    }
+  }
+
+  async setTerminalRendererLeaseToken(
+    rendererLeaseToken: string,
+    rendererLeaseOwnerId?: string,
+    rendererLeaseGeneration?: number,
+  ): Promise<void> {
+    if (this.disposed) return
+    const dispatcher = this.deps.terminal?.dispatcher
+    if (
+      dispatcher?.isPersistent !== true ||
+      typeof dispatcher.setRendererLeaseToken !== 'function'
+    ) {
+      return
+    }
+    await dispatcher.setRendererLeaseToken(
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
+  }
+
+  /**
+   * Stop only renderer-owned processes and wait through their force-kill
+   * deadline. Terminal sessions owned by the external broker remain live for
+   * renderer reload/restart and are reattached by the next manager.
+   *
+   * This method is invoked only after non-cancelable `pagehide` commits a
+   * renderer transition. The earlier workspace `quit` event is ambiguous and
+   * may represent a canceled close attempt, where stopping a headless run
+   * would be data loss. NodeProcessGateway's synchronous renderer-exit reaper
+   * is the last-resort path when Electron omits pagehide or tears down before
+   * this bounded force-kill timer completes.
+   */
+  stopNonPersistentRunsForRendererTransitionAndWait(): Promise<void> {
+    if (this.disposed) return Promise.resolve()
+    if (this.nonPersistentTransitionCleanup) {
+      return this.nonPersistentTransitionCleanup
+    }
+
+    this.persistSessionStateNow()
+    const persistentTerminal =
+      this.deps.terminal?.dispatcher.isPersistent === true
+    const targets = Array.from(this.runs.values()).filter(
+      (internal) =>
+        !internal.exited &&
+        internal.handle !== null &&
+        !(internal.record.mode === 'terminal' && persistentTerminal),
+    )
+    if (targets.length === 0) return Promise.resolve()
+
+    let finish: ((forceKill: boolean) => void) | null = null
+    const completion = new Promise<void>((resolve) => {
+      let settled = false
+      let timerHandle: number | null = null
+      const onChange: AiRunChangeListener = () => {
+        if (targets.every((internal) => internal.exited)) {
+          finish?.(false)
+        }
+      }
+      finish = (forceKill) => {
+        if (settled) return
+        settled = true
+        if (timerHandle !== null && !forceKill) {
+          this.timer.clearTimeout(timerHandle)
+        }
+        this.listeners.delete(onChange)
+        if (forceKill) {
+          for (const internal of targets) {
+            if (internal.exited || !internal.handle) continue
+            try {
+              internal.handle.forceKill?.()
+            } catch (error) {
+              this.deps.log?.(
+                'warn',
+                '[AiTaskManager] Renderer-transition force kill failed',
+                error,
+              )
+            }
+          }
+        }
+        resolve()
+      }
+      this.listeners.add(onChange)
+      try {
+        timerHandle = this.timer.setTimeout(
+          () => finish?.(true),
+          DISPOSE_FORCE_KILL_MS,
+        )
+      } catch (error) {
+        this.deps.log?.(
+          'warn',
+          '[AiTaskManager] Renderer-transition timer failed',
+          error,
+        )
+      }
+
+      for (const internal of targets) {
+        try {
+          internal.handle?.stop()
+        } catch (error) {
+          this.deps.log?.(
+            'warn',
+            '[AiTaskManager] Failed to stop renderer-owned run',
+            error,
+          )
+        }
+      }
+      if (targets.every((internal) => internal.exited)) {
+        finish(false)
+      } else if (timerHandle === null) {
+        finish(true)
+      }
+    })
+    const tracked = completion.finally(() => {
+      if (this.nonPersistentTransitionCleanup === tracked) {
+        this.nonPersistentTransitionCleanup = null
+      }
+    })
+    this.nonPersistentTransitionCleanup = tracked
+    return tracked
+  }
+
   prepareForRendererReload(): void {
     if (this.disposed) return
     this.persistSessionStateNow()

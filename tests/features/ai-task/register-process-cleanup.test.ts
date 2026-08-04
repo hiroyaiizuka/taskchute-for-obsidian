@@ -1,8 +1,14 @@
 import {
+  AI_TASK_APP_RESTART_GRACE_MS,
   disposeAiTaskManagerTracked,
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
 } from '../../../src/features/ai-task/registerProcessCleanup'
+import type { AiTaskManager } from '../../../src/features/ai-task/services/AiTaskManager'
+import {
+  forgetRetainedAiTaskManager,
+  retainAiTaskManager,
+} from '../../../src/features/ai-task/services/AiTaskRuntimeLease'
 
 type CleanupHost = Parameters<typeof registerAiTaskAppShutdownCleanup>[0]
 
@@ -79,6 +85,115 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tasks.addPromise).toHaveBeenCalledWith(completion)
     await completion
+  })
+
+  test('workspace quit arms retained broker cleanup without disposing the live run', async () => {
+    let onQuit:
+      | ((tasks: { addPromise(promise: Promise<unknown>): void }) => void)
+      | null = null
+    const scheduled = Promise.resolve()
+    const manager = {
+      dispose: jest.fn(),
+      disposeAndWait: jest.fn().mockResolvedValue(undefined),
+      isDisposed: jest.fn(() => false),
+      persistSessionStateForRendererReload: jest.fn(),
+      prepareForRendererReload: jest.fn(),
+      scheduleTerminalShutdownAfterGrace: jest.fn(() => scheduled),
+      stopNonPersistentRunsForRendererTransitionAndWait: jest.fn(
+        () => Promise.resolve(),
+      ),
+      rebindRuntimeDependencies: jest.fn(),
+    }
+    const app = {
+      workspace: {
+        on: jest.fn(
+          (
+            _event: string,
+            listener: (tasks: {
+              addPromise(promise: Promise<unknown>): void
+            }) => void,
+          ) => {
+            onQuit = listener
+            return { unload: jest.fn() }
+          },
+        ),
+      },
+    }
+    const host = {
+      app,
+      aiTaskManager: manager,
+      aiTaskManagersPendingDisposal: new Set(),
+      registerEvent: jest.fn(),
+    }
+    retainAiTaskManager(app, manager as unknown as AiTaskManager)
+
+    registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
+    const tasks = { addPromise: jest.fn() }
+    onQuit?.(tasks)
+
+    expect(manager.persistSessionStateForRendererReload).toHaveBeenCalledTimes(1)
+    expect(manager.scheduleTerminalShutdownAfterGrace).toHaveBeenCalledWith(
+      AI_TASK_APP_RESTART_GRACE_MS,
+      expect.any(String),
+      expect.any(String),
+      expect.any(Number),
+    )
+    expect(
+      manager.stopNonPersistentRunsForRendererTransitionAndWait,
+    ).not.toHaveBeenCalled()
+    expect(manager.dispose).not.toHaveBeenCalled()
+    expect(manager.disposeAndWait).not.toHaveBeenCalled()
+    expect(tasks.addPromise).toHaveBeenCalledWith(scheduled)
+    expect(tasks.addPromise).toHaveBeenCalledTimes(1)
+    await scheduled
+
+    forgetRetainedAiTaskManager(manager)
+  })
+
+  test('hot-upgraded retained manager without new shutdown APIs uses legacy preparation', () => {
+    let onQuit:
+      | ((tasks: { addPromise(promise: Promise<unknown>): void }) => void)
+      | null = null
+    const manager = {
+      dispose: jest.fn(),
+      disposeAndWait: jest.fn().mockResolvedValue(undefined),
+      isDisposed: jest.fn(() => false),
+      prepareForRendererReload: jest.fn(),
+      rebindRuntimeDependencies: jest.fn(),
+    }
+    const app = {
+      workspace: {
+        on: jest.fn(
+          (
+            _event: string,
+            listener: (tasks: {
+              addPromise(promise: Promise<unknown>): void
+            }) => void,
+          ) => {
+            onQuit = listener
+            return { unload: jest.fn() }
+          },
+        ),
+      },
+    }
+    const host = {
+      app,
+      aiTaskManager: manager,
+      aiTaskManagersPendingDisposal: new Set(),
+      registerEvent: jest.fn(),
+    }
+    retainAiTaskManager(app, manager as unknown as AiTaskManager)
+    registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
+
+    const tasks = { addPromise: jest.fn() }
+    expect(() => onQuit?.(tasks)).not.toThrow()
+
+    expect(manager.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    expect(manager.dispose).not.toHaveBeenCalled()
+    expect(manager.disposeAndWait).not.toHaveBeenCalled()
+    expect(tasks.addPromise).not.toHaveBeenCalled()
+
+    forgetRetainedAiTaskManager(manager)
   })
 
   test('does not register renderer lifecycle on a focus-sensitive window', () => {

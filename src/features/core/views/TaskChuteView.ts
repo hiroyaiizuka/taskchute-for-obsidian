@@ -1621,11 +1621,28 @@ export class TaskChuteView
    * this method owns only the normal TaskChute running -> done transition.
    */
   private handleAiRunStopAndClose(record: AiRunRecord): void {
-    const target = this.findRunningInstanceForAiRun(record)
-    if (!target) return
-    void this.stopInstance(target).catch((error: unknown) => {
+    void this.stopTaskForAiRunClose(record).catch((error: unknown) => {
       console.error('[TaskChuteView] Failed to stop task from AI run close', error)
     })
+  }
+
+  private async stopTaskForAiRunClose(record: AiRunRecord): Promise<void> {
+    const visibleTarget = this.findRunningInstanceForAiRun(record)
+    if (visibleTarget) {
+      await this.stopInstance(visibleTarget)
+      return
+    }
+
+    // AI Runs is global to the TaskChute view, but its originating timer may
+    // belong to yesterday (or another manually selected date). Resolve that
+    // durable timer instead of stopping only the CLI and leaving TaskChute
+    // with no completion entry.
+    const persisted = await this.runningTasksService.findByInstanceOrPathStrict({
+      instanceId: record.instanceId,
+      taskPath: record.taskPath,
+    })
+    if (!persisted) return
+    await this.stopInstance(this.createRunningInstanceFromRecord(persisted))
   }
 
   private findRunningInstanceForAiRun(record: AiRunRecord): TaskInstance | undefined {
@@ -1733,25 +1750,28 @@ export class TaskChuteView
     }
 
     try {
-      // Clean the execution log first. If this fails the persisted running
-      // record is still intact, so the next reload restores the timer and can
-      // retry. The removal is idempotent when no partial log exists.
-      for (const { instance, startTime } of snapshots) {
-        const startedAt =
-          startTime instanceof Date && Number.isFinite(startTime.getTime())
-            ? this.formatDateKey(startTime)
-            : this.getCurrentDateString()
-        await this.removeTaskLogForInstanceOnDate(
-          instance.instanceId,
-          startedAt,
-          instance.task?.taskId,
-          instance.task?.path,
-        )
-      }
-      // Delete only this AI task's persisted records. The strict service
-      // serializes the read-modify-write across mounted views and propagates
-      // failures, avoiding the stale whole-list rewrite race on reload.
-      await this.runningTasksService.deleteByInstanceOrPathStrict({ taskPath })
+      // Delete only this AI task's persisted records. Partial execution logs
+      // are removed inside the same running-task mutation boundary and only
+      // when a durable running record still exists. If another view already
+      // completed the task and removed that record, this stale view is merely
+      // idled and can never erase the legitimate completion log.
+      await this.runningTasksService.deleteByInstanceOrPathStrict(
+        { taskPath },
+        async () => {
+          for (const { instance, startTime } of snapshots) {
+            const startedAt =
+              startTime instanceof Date && Number.isFinite(startTime.getTime())
+                ? this.formatDateKey(startTime)
+                : this.getCurrentDateString()
+            await this.removeTaskLogForInstanceOnDate(
+              instance.instanceId,
+              startedAt,
+              instance.task?.taskId,
+              instance.task?.path,
+            )
+          }
+        },
+      )
     } catch (error) {
       for (const snapshot of snapshots) {
         snapshot.instance.state = snapshot.state
@@ -3335,6 +3355,7 @@ export class TaskChuteView
       name: record.taskTitle,
       displayTitle: record.taskTitle,
       isRoutine: record.isRoutine === true,
+      taskId: record.taskId,
     }
     if (record.taskDescription) {
       ;(task as TaskData & { description?: string }).description =

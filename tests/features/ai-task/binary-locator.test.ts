@@ -6,7 +6,7 @@ import {
   WHICH_TIMEOUT_MS,
 } from '../../../src/features/ai-task/services/BinaryLocator'
 import type {
-  AiBinaryLaunchSpec,
+  AiCliLaunchSpec,
   AiBinaryPathOverrides,
   BinaryLocatorGateway,
 } from '../../../src/features/ai-task/services/BinaryLocator'
@@ -37,6 +37,20 @@ function failure(code: number | null = 1): ExecCaptureResult {
   return { code, stdout: '', stderr: '', timedOut: false }
 }
 
+async function resolveExecutable(
+  locator: BinaryLocator,
+  host: 'claude' | 'codex',
+): Promise<string> {
+  return (await locator.resolve(host)).executable
+}
+
+async function resolveSpec(
+  locator: BinaryLocator,
+  host: 'claude' | 'codex',
+): Promise<AiCliLaunchSpec> {
+  return await locator.resolve(host)
+}
+
 function createLocator(options: {
   execCapture: ExecCaptureMock
   overrides?: AiBinaryPathOverrides
@@ -60,27 +74,30 @@ function createLocator(options: {
 
 describe('BinaryLocator', () => {
   test('settings override wins without touching the gateway', async () => {
-    const execCapture: ExecCaptureMock = jest.fn()
+    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '  /custom/claude  ' },
       isFile: jest.fn(() => Promise.resolve(true)),
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/custom/claude')
-    expect(execCapture).not.toHaveBeenCalled()
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/custom/claude')
+    expect(execCapture).toHaveBeenCalledWith(
+      '/bin/test',
+      ['-x', '/custom/claude'],
+      PROBE_TIMEOUT_MS,
+    )
   })
 
   test('codex override uses aiTaskCodexPath', async () => {
-    const execCapture: ExecCaptureMock = jest.fn()
+    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '/custom/claude', aiTaskCodexPath: '/custom/codex' },
       isFile: jest.fn(() => Promise.resolve(true)),
     })
 
-    await expect(locator.resolve('codex')).resolves.toBe('/custom/codex')
-    expect(execCapture).not.toHaveBeenCalled()
+    await expect(resolveExecutable(locator, 'codex')).resolves.toBe('/custom/codex')
   })
 
   test('a Windows override synced to POSIX is ignored in favor of local auto-detection', async () => {
@@ -92,7 +109,7 @@ describe('BinaryLocator', () => {
       overrides: { aiTaskClaudePath: 'C:\\Users\\other-device\\claude.exe' },
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('a blank override falls through to which-detection', async () => {
@@ -101,7 +118,7 @@ describe('BinaryLocator', () => {
       .mockResolvedValue(posixSuccess('/opt/homebrew/bin/claude'))
     const locator = createLocator({ execCapture, overrides: { aiTaskClaudePath: '   ' } })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('a stale POSIX override falls through to local auto-detection', async () => {
@@ -114,7 +131,7 @@ describe('BinaryLocator', () => {
       isFile: jest.fn(() => Promise.resolve(false)),
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('detects the binary via command lookup in an interactive login shell', async () => {
@@ -123,7 +140,9 @@ describe('BinaryLocator', () => {
       .mockResolvedValue(posixSuccess('/Users/tester/.local/bin/claude'))
     const locator = createLocator({ execCapture })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/Users/tester/.local/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe(
+      '/Users/tester/.local/bin/claude',
+    )
     expect(execCapture).toHaveBeenCalledWith(
       '/bin/zsh',
       [POSIX_INTERACTIVE_LOGIN_SHELL_FLAG, posixLookup('claude')],
@@ -137,7 +156,7 @@ describe('BinaryLocator', () => {
       .mockResolvedValue(posixSuccess('/usr/local/bin/codex'))
     const locator = createLocator({ execCapture })
 
-    await expect(locator.resolve('codex')).resolves.toBe('/usr/local/bin/codex')
+    await expect(resolveExecutable(locator, 'codex')).resolves.toBe('/usr/local/bin/codex')
     expect(execCapture).toHaveBeenCalledWith(
       '/bin/zsh',
       [POSIX_INTERACTIVE_LOGIN_SHELL_FLAG, posixLookup('codex')],
@@ -154,7 +173,8 @@ describe('BinaryLocator', () => {
     await locator.resolve('claude')
     await locator.resolve('claude')
 
-    expect(execCapture).toHaveBeenCalledTimes(1)
+    // The second resolve validates the cached executable before reusing it.
+    expect(execCapture).toHaveBeenCalledTimes(2)
   })
 
   test('invalidateCache forces re-detection', async () => {
@@ -179,7 +199,7 @@ describe('BinaryLocator', () => {
     })
     const locator = createLocator({ execCapture })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
     expect(execCapture).toHaveBeenNthCalledWith(
       1,
       '/bin/zsh',
@@ -245,7 +265,7 @@ describe('BinaryLocator', () => {
 
     await expect(locator.resolve('claude')).rejects.toBeInstanceOf(AiBinaryNotFoundError)
     execCapture.mockResolvedValue(posixSuccess('/opt/homebrew/bin/claude'))
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('treats execCapture rejections as detection misses', async () => {
@@ -266,7 +286,7 @@ describe('BinaryLocator', () => {
       )
     const locator = createLocator({ execCapture })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
     expect(execCapture).toHaveBeenCalledWith(
       '/bin/zsh',
       [POSIX_INTERACTIVE_LOGIN_SHELL_FLAG, posixLookup('claude')],
@@ -291,7 +311,7 @@ describe('BinaryLocator', () => {
       },
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe(miseClaude)
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe(miseClaude)
     expect(execCapture).toHaveBeenCalledWith(
       '/bin/test',
       ['-x', miseClaude],
@@ -312,7 +332,7 @@ describe('BinaryLocator', () => {
     })
     const locator = createLocator({ execCapture })
 
-    await expect(locator.resolve('codex')).resolves.toBe('/usr/local/bin/codex')
+    await expect(resolveExecutable(locator, 'codex')).resolves.toBe('/usr/local/bin/codex')
     expect(execCapture).toHaveBeenNthCalledWith(
       1,
       '/bin/zsh',
@@ -347,7 +367,7 @@ describe('BinaryLocator', () => {
 
   test('primes the login-shell PATH even when a settings override is set', async () => {
     const primeLoginShellPath = jest.fn(() => Promise.resolve())
-    const execCapture: ExecCaptureMock = jest.fn()
+    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '/custom/claude' },
@@ -355,9 +375,8 @@ describe('BinaryLocator', () => {
       isFile: jest.fn(() => Promise.resolve(true)),
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/custom/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/custom/claude')
     expect(primeLoginShellPath).toHaveBeenCalledTimes(1)
-    expect(execCapture).not.toHaveBeenCalled()
   })
 
   test('a priming failure does not break resolution', async () => {
@@ -367,7 +386,7 @@ describe('BinaryLocator', () => {
       .mockResolvedValue(posixSuccess('/opt/homebrew/bin/claude'))
     const locator = createLocator({ execCapture, primeLoginShellPath })
 
-    await expect(locator.resolve('claude')).resolves.toBe('/opt/homebrew/bin/claude')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
   })
 
   test('ignores shell output that has no marked absolute binary path', async () => {
@@ -395,7 +414,7 @@ describe('BinaryLocator', () => {
       env: { USERPROFILE: 'C:\\Users\\tester', LOCALAPPDATA: 'C:\\Users\\tester\\AppData\\Local' },
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe(
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe(
       'C:\\Users\\tester\\.local\\bin\\claude.exe',
     )
     expect(execCapture).toHaveBeenCalledWith('where.exe', ['claude'], WHICH_TIMEOUT_MS)
@@ -417,7 +436,7 @@ describe('BinaryLocator', () => {
       env: {},
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('C:\\Tools\\claude.exe')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('C:\\Tools\\claude.exe')
   })
 
   test('win32 ignores a stale local override and uses where.exe auto-detection', async () => {
@@ -436,7 +455,7 @@ describe('BinaryLocator', () => {
       env: {},
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe('C:\\Tools\\claude.exe')
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe('C:\\Tools\\claude.exe')
     expect(isFile).toHaveBeenCalledWith('C:\\Old\\claude.exe')
   })
 
@@ -456,10 +475,12 @@ describe('BinaryLocator', () => {
     })
     const locator = createLocator({ execCapture, isFile, platform: 'win32', env: {} })
 
-    await expect(locator.resolve('claude')).resolves.toEqual<AiBinaryLaunchSpec>({
-      binaryPath: nodePath,
-      argsPrefix: [cliEntry],
-    })
+    await expect(resolveSpec(locator, 'claude')).resolves.toEqual(
+      expect.objectContaining({
+        executable: nodePath,
+        argvPrefix: [cliEntry],
+      }),
+    )
   })
 
   test('win32 resolves a Codex npm cmd shim to its packaged native executable', async () => {
@@ -484,7 +505,29 @@ describe('BinaryLocator', () => {
       env: { PROCESSOR_ARCHITECTURE: 'AMD64' },
     })
 
-    await expect(locator.resolve('codex')).resolves.toBe(codexExe)
+    await expect(resolveExecutable(locator, 'codex')).resolves.toBe(codexExe)
+  })
+
+  test('win32 arm64 prefers the matching packaged Codex native executable', async () => {
+    const codexExe =
+      'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-arm64\\vendor\\aarch64-pc-windows-msvc\\bin\\codex.exe'
+    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === codexExe))
+    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+      if (command === 'where.exe' && args[0] === 'codex') {
+        return Promise.resolve(
+          success('C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.cmd\r\n'),
+        )
+      }
+      return Promise.resolve(failure())
+    })
+    const locator = createLocator({
+      execCapture,
+      isFile,
+      platform: 'win32',
+      env: { PROCESSOR_ARCHITECTURE: 'ARM64' },
+    })
+
+    await expect(resolveExecutable(locator, 'codex')).resolves.toBe(codexExe)
   })
 
   test('win32 falls back to node.exe plus the Codex npm JavaScript entrypoint', async () => {
@@ -503,10 +546,12 @@ describe('BinaryLocator', () => {
     })
     const locator = createLocator({ execCapture, isFile, platform: 'win32', env: {} })
 
-    await expect(locator.resolve('codex')).resolves.toEqual({
-      binaryPath: nodePath,
-      argsPrefix: [codexEntry],
-    })
+    await expect(resolveSpec(locator, 'codex')).resolves.toEqual(
+      expect.objectContaining({
+        executable: nodePath,
+        argvPrefix: [codexEntry],
+      }),
+    )
   })
 
   test('win32 probes the native Claude installer path when where.exe misses', async () => {
@@ -523,7 +568,7 @@ describe('BinaryLocator', () => {
       },
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe(nativePath)
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe(nativePath)
     expect(isFile).toHaveBeenCalledWith(nativePath)
   })
 
@@ -538,7 +583,7 @@ describe('BinaryLocator', () => {
       env: { USERPROFILE: 'C:\\Users\\tester' },
     })
 
-    await expect(locator.resolve('claude')).resolves.toBe(voltaPath)
+    await expect(resolveExecutable(locator, 'claude')).resolves.toBe(voltaPath)
   })
 
   test('win32 never probes a relative path when user environment roots are missing', async () => {

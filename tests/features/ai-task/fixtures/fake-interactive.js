@@ -22,6 +22,23 @@
 process.stdout.write('INTERACTIVE_READY\n')
 process.stdout.write('INTERACTIVE_PID:' + process.pid + '\n')
 
+if (process.argv.includes('--report-prompt')) {
+  const { createHash } = require('crypto')
+  const separatorIndex = process.argv.indexOf('--')
+  const prompt = separatorIndex >= 0
+    ? (process.argv[separatorIndex + 1] || '')
+    : ''
+  process.stdout.write(
+    'PROMPT_BYTES:' + Buffer.byteLength(prompt, 'utf8') + '\n',
+  )
+  process.stdout.write('PROMPT_TAIL:' + prompt.slice(-64) + '\n')
+  process.stdout.write(
+    'PROMPT_SHA256:' +
+      createHash('sha256').update(prompt, 'utf8').digest('hex') +
+      '\n',
+  )
+}
+
 if (process.argv.includes('--spawn-detached-child')) {
   const { spawn } = require('child_process')
   const detached = spawn(

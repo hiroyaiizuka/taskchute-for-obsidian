@@ -108,7 +108,8 @@ interface BrokerDescriptor {
 }
 
 type BrokerClientMessage =
-  | {
+  (
+    | {
       token: string
       op: 'spawn'
       sessionId: string
@@ -127,7 +128,15 @@ type BrokerClientMessage =
     }
   | { token: string; op: 'stop'; sessionId: string; force?: boolean }
   | { token: string; op: 'terminate-unavailable'; sessionId: string }
+  | { token: string; op: 'schedule-shutdown'; graceMs: number }
+  | { token: string; op: 'cancel-deferred-shutdown' }
+  | { token: string; op: 'activate-renderer-lease' }
   | { token: string; op: 'shutdown' }
+  ) & {
+    rendererLeaseToken?: string
+    rendererLeaseOwnerId?: string
+    rendererLeaseGeneration?: number
+  }
 
 type BrokerClientCommand =
   BrokerClientMessage extends infer Message
@@ -157,6 +166,9 @@ type BrokerServerMessage =
     }
   | { type: 'missing'; sessionId: string }
   | { type: 'error'; sessionId?: string; message: string }
+  | { type: 'shutdown-scheduled' }
+  | { type: 'shutdown-canceled' }
+  | { type: 'renderer-lease-activated' }
   | { type: 'shutdown-ack' }
 
 export interface TerminalBrokerSessionCallbacks {
@@ -189,6 +201,8 @@ export interface TerminalBrokerClientOptions {
   unavailableTerminationTimeoutMs?: number
   /** Test/embedding override for graceful broker shutdown confirmation. */
   shutdownTimeoutMs?: number
+  /** Test/embedding override for deferred-shutdown scheduling ACK. */
+  deferredShutdownTimeoutMs?: number
   /** Deadline for spawn/attach to receive attached/missing/error. */
   sessionAckTimeoutMs?: number
   /** Initial retry delay after an unavailable-session termination is unconfirmed. */
@@ -197,6 +211,12 @@ export interface TerminalBrokerClientOptions {
   unavailableRecoveryMaxMs?: number
   /** Test/embedding override for the renderer crash-reconnect window. */
   idleTtlMs?: number
+  /** Deterministic renderer-lease override used by lifecycle tests. */
+  rendererLeaseToken?: string
+  rendererLeaseOwnerId?: string
+  rendererLeaseGeneration?: number
+  /** Bounded retry window for renderer-lease activation control IPC. */
+  rendererLeaseActivationRetryWindowMs?: number
 }
 
 const BROKER_VERSION = 1
@@ -204,6 +224,9 @@ const BROKER_CONNECT_TIMEOUT_MS = 700
 const BROKER_STARTUP_TIMEOUT_MS = 5_000
 const BROKER_RETRY_MS = 50
 const BROKER_SHUTDOWN_TIMEOUT_MS = 2_500
+const BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS = 2_500
+const BROKER_DEFERRED_SHUTDOWN_MIN_MS = 100
+const BROKER_DEFERRED_SHUTDOWN_MAX_MS = 120_000
 const BROKER_SESSION_ACK_TIMEOUT_MS = 5_000
 const BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS = 2_500
 const BROKER_UNAVAILABLE_RECOVERY_BASE_MS = 250
@@ -212,6 +235,8 @@ const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
 // App/plugin shutdown still uses authenticated cleanup, so this TTL is only
 // the bounded crash-recovery window—not the normal process lifetime.
 const BROKER_RENDERER_RECONNECT_TTL_MS = 30 * 60 * 1000
+const BROKER_RENDERER_LEASE_ACTIVATION_RETRY_WINDOW_MS = 10_000
+const BROKER_RENDERER_LEASE_ACTIVATION_RETRY_MS = 200
 const MAX_CLIENT_FRAME_BYTES = 1024 * 1024
 const MAX_CONSECUTIVE_OVERFLOW_DESTROYS = 3
 /**
@@ -223,6 +248,13 @@ const MAX_CONSECUTIVE_OVERFLOW_DESTROYS = 3
  */
 const OVERFLOW_STREAK_RESET_MS = 5000
 const BROKER_SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/u
+const BROKER_RENDERER_LEASE_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u
+
+interface RendererLeaseIdentity {
+  token: string
+  ownerId: string
+  generation: number
+}
 
 function isValidBrokerSessionId(sessionId: string): boolean {
   return BROKER_SESSION_ID_PATTERN.test(sessionId)
@@ -383,9 +415,109 @@ export class TerminalSessionBrokerClient {
    * owner intentionally released the transport.
    */
   private transportGeneration = 0
+  private rendererLeaseToken: string
+  private rendererLeaseOwnerId: string
+  private rendererLeaseGeneration: number
+  private rendererLeaseActivationEpoch = 0
 
   constructor(private readonly options: TerminalBrokerClientOptions) {
     this.descriptorPath = getTerminalBrokerDescriptorPath(options.identity)
+    this.rendererLeaseToken =
+      options.rendererLeaseToken &&
+      BROKER_RENDERER_LEASE_PATTERN.test(options.rendererLeaseToken)
+        ? options.rendererLeaseToken
+        : loadCrypto().randomBytes(24).toString('hex')
+    this.rendererLeaseOwnerId =
+      options.rendererLeaseOwnerId &&
+      BROKER_RENDERER_LEASE_PATTERN.test(options.rendererLeaseOwnerId)
+        ? options.rendererLeaseOwnerId
+        : loadCrypto().randomBytes(24).toString('hex')
+    this.rendererLeaseGeneration =
+      Number.isSafeInteger(options.rendererLeaseGeneration) &&
+      (options.rendererLeaseGeneration ?? 0) >= 1
+        ? (options.rendererLeaseGeneration as number)
+        : 1
+  }
+
+  async setRendererLeaseToken(
+    rendererLeaseToken: string,
+    rendererLeaseOwnerId = this.rendererLeaseOwnerId,
+    rendererLeaseGeneration = this.rendererLeaseGeneration + 1,
+  ): Promise<void> {
+    if (!BROKER_RENDERER_LEASE_PATTERN.test(rendererLeaseToken)) {
+      throw new Error('Invalid terminal broker renderer lease token')
+    }
+    if (!BROKER_RENDERER_LEASE_PATTERN.test(rendererLeaseOwnerId)) {
+      throw new Error('Invalid terminal broker renderer lease owner')
+    }
+    if (
+      !Number.isSafeInteger(rendererLeaseGeneration) ||
+      rendererLeaseGeneration < 1
+    ) {
+      throw new Error('Invalid terminal broker renderer lease generation')
+    }
+    this.rendererLeaseToken = rendererLeaseToken
+    this.rendererLeaseOwnerId = rendererLeaseOwnerId
+    this.rendererLeaseGeneration = rendererLeaseGeneration
+    const activationEpoch = this.rendererLeaseActivationEpoch + 1
+    this.rendererLeaseActivationEpoch = activationEpoch
+    const initialTarget =
+      this.descriptor ??
+      this.lastAuthenticatedDescriptor ??
+      this.readDescriptor()
+    // A fresh broker has nothing to supersede; its first spawn claims this
+    // lease. Adoption has an existing descriptor and must cross an explicit
+    // activation barrier even when AI Runs stays closed.
+    if (!initialTarget) return
+    const identity = this.captureRendererLeaseIdentity(rendererLeaseToken)
+    const deadline =
+      Date.now() +
+      (this.options.rendererLeaseActivationRetryWindowMs ??
+        BROKER_RENDERER_LEASE_ACTIVATION_RETRY_WINDOW_MS)
+    let lastError: unknown = new Error(
+      'Terminal broker renderer lease activation timed out',
+    )
+    do {
+      if (
+        activationEpoch !== this.rendererLeaseActivationEpoch ||
+        this.closing
+      ) {
+        return
+      }
+      const target =
+        this.descriptor ??
+        this.lastAuthenticatedDescriptor ??
+        this.readDescriptor()
+      if (target) {
+        try {
+          await this.requestAuthenticatedDeferredShutdown(
+            target,
+            { op: 'activate-renderer-lease' },
+            'renderer-lease-activated',
+            identity,
+            this.options.deferredShutdownTimeoutMs ??
+              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+          )
+          return
+        } catch (error) {
+          lastError = error
+        }
+      }
+      await wait(BROKER_RENDERER_LEASE_ACTIVATION_RETRY_MS)
+    } while (Date.now() < deadline)
+    throw lastError
+  }
+
+  private captureRendererLeaseIdentity(
+    token = this.rendererLeaseToken,
+    ownerId = this.rendererLeaseOwnerId,
+    generation = this.rendererLeaseGeneration,
+  ): RendererLeaseIdentity {
+    return {
+      token,
+      ownerId,
+      generation,
+    }
   }
 
   start(
@@ -539,6 +671,77 @@ export class TerminalSessionBrokerClient {
     })
   }
 
+  /**
+   * Arm cleanup in the broker without marking this renderer client as
+   * closing. Obsidian reports both app quit and Page.reload through the same
+   * workspace event; a new authenticated renderer cancels this deadline.
+   */
+  async scheduleShutdownAfterGrace(
+    graceMs: number,
+    rendererLeaseToken = this.rendererLeaseToken,
+    rendererLeaseOwnerId = this.rendererLeaseOwnerId,
+    rendererLeaseGeneration = this.rendererLeaseGeneration,
+  ): Promise<void> {
+    if (this.closing) {
+      throw new Error('Terminal broker client is shutting down')
+    }
+    const normalizedGraceMs = Math.min(
+      BROKER_DEFERRED_SHUTDOWN_MAX_MS,
+      Math.max(
+        BROKER_DEFERRED_SHUTDOWN_MIN_MS,
+        Math.round(Number.isFinite(graceMs) ? graceMs : 0),
+      ),
+    )
+    const target =
+      this.descriptor ??
+      this.lastAuthenticatedDescriptor ??
+      this.readDescriptor()
+    if (!target) return
+    await this.requestAuthenticatedDeferredShutdown(
+      target,
+      { op: 'schedule-shutdown', graceMs: normalizedGraceMs },
+      'shutdown-scheduled',
+      this.captureRendererLeaseIdentity(
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
+      ),
+      this.options.deferredShutdownTimeoutMs ??
+        BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+    )
+  }
+
+  /**
+   * Cancel an ambiguous app-exit deadline after the renderer proves that a
+   * workspace quit was canceled. This is explicit on purpose: traffic on an
+   * already-authenticated old renderer socket (for example a late resize)
+   * must never keep a genuinely exiting app alive.
+   */
+  async cancelDeferredShutdown(
+    rendererLeaseToken = this.rendererLeaseToken,
+    rendererLeaseOwnerId = this.rendererLeaseOwnerId,
+    rendererLeaseGeneration = this.rendererLeaseGeneration,
+  ): Promise<void> {
+    if (this.closing) return
+    const target =
+      this.descriptor ??
+      this.lastAuthenticatedDescriptor ??
+      this.readDescriptor()
+    if (!target) return
+    await this.requestAuthenticatedDeferredShutdown(
+      target,
+      { op: 'cancel-deferred-shutdown' },
+      'shutdown-canceled',
+      this.captureRendererLeaseIdentity(
+        rendererLeaseToken,
+        rendererLeaseOwnerId,
+        rendererLeaseGeneration,
+      ),
+      this.options.deferredShutdownTimeoutMs ??
+        BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+    )
+  }
+
   shutdown(): Promise<void> {
     if (this.shutdownCompletion) return this.shutdownCompletion
     this.closing = true
@@ -625,6 +828,10 @@ export class TerminalSessionBrokerClient {
     if (this.closing) {
       throw new Error('Terminal broker client is shutting down')
     }
+    // Capture at invocation, before an async connect. Runtime adoption can
+    // rotate the live client's lease while this old-renderer request is
+    // waiting; the broker must still see (and reject) the old lease.
+    const rendererLeaseIdentity = this.captureRendererLeaseIdentity()
     const socket = allowBrokerStart
       ? await this.ensureConnected()
       : await this.ensureExistingConnected()
@@ -635,7 +842,13 @@ export class TerminalSessionBrokerClient {
     if (!descriptor || socket.destroyed || socket !== this.socket) {
       throw new Error('Terminal broker is disconnected')
     }
-    const frame = JSON.stringify({ ...message, token: descriptor.token })
+    const frame = JSON.stringify({
+      ...message,
+      token: descriptor.token,
+      rendererLeaseToken: rendererLeaseIdentity.token,
+      rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+      rendererLeaseGeneration: rendererLeaseIdentity.generation,
+    })
     if (frame.length > MAX_CLIENT_FRAME_BYTES) {
       throw new Error('Terminal broker request exceeds the IPC limit')
     }
@@ -1441,6 +1654,9 @@ export class TerminalSessionBrokerClient {
         for (const sessionId of sessionIds) {
           const frame: BrokerClientMessage = {
             token: descriptor.token,
+            rendererLeaseToken: this.rendererLeaseToken,
+            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+            rendererLeaseGeneration: this.rendererLeaseGeneration,
             op: 'terminate-unavailable',
             sessionId,
           }
@@ -1575,6 +1791,9 @@ export class TerminalSessionBrokerClient {
       socket.on('connect', () => {
         const frame: BrokerClientMessage = {
           token: descriptor.token,
+          rendererLeaseToken: this.rendererLeaseToken,
+          rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+          rendererLeaseGeneration: this.rendererLeaseGeneration,
           op: 'shutdown',
         }
         socket.write(`${JSON.stringify(frame)}\n`)
@@ -1616,6 +1835,99 @@ export class TerminalSessionBrokerClient {
     })
   }
 
+  private requestAuthenticatedDeferredShutdown(
+    descriptor: BrokerDescriptor,
+    command:
+      | { op: 'schedule-shutdown'; graceMs: number }
+      | { op: 'cancel-deferred-shutdown' }
+      | { op: 'activate-renderer-lease' },
+    expectedResponse:
+      | 'shutdown-scheduled'
+      | 'shutdown-canceled'
+      | 'renderer-lease-activated',
+    rendererLeaseIdentity: RendererLeaseIdentity,
+    timeoutMs: number,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const socket = loadNet().createConnection({
+        host: '127.0.0.1',
+        port: descriptor.port,
+      })
+      let settled = false
+      let receiveBuffer = ''
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        socket.end()
+        socket.destroy()
+        resolve()
+      }
+      const fail = (error: unknown): void => {
+        if (settled) return
+        settled = true
+        socket.destroy()
+        reject(error instanceof Error ? error : new Error(describeError(error)))
+      }
+      socket.setEncoding('utf8')
+      socket.setTimeout(
+        timeoutMs,
+        () => fail(new Error('Terminal broker deferred shutdown timed out')),
+      )
+      socket.on('connect', () => {
+        const frame: BrokerClientMessage = {
+          token: descriptor.token,
+          rendererLeaseToken: rendererLeaseIdentity.token,
+          rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+          rendererLeaseGeneration: rendererLeaseIdentity.generation,
+          ...command,
+        }
+        socket.write(`${JSON.stringify(frame)}\n`)
+      })
+      socket.on('data', (chunk) => {
+        receiveBuffer += chunk
+        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+          fail(
+            new Error(
+              'Terminal broker deferred shutdown response exceeds the IPC limit',
+            ),
+          )
+          return
+        }
+        let newline = receiveBuffer.indexOf('\n')
+        while (newline >= 0 && !settled) {
+          const line = receiveBuffer.slice(0, newline)
+          receiveBuffer = receiveBuffer.slice(newline + 1)
+          if (line.length > 0) {
+            try {
+              const message = JSON.parse(line) as BrokerServerMessage
+              if (message.type === expectedResponse) {
+                finish()
+                return
+              }
+            } catch (error) {
+              fail(error)
+              return
+            }
+          }
+          newline = receiveBuffer.indexOf('\n')
+        }
+      })
+      socket.on('timeout', () =>
+        fail(new Error('Terminal broker deferred shutdown timed out')),
+      )
+      socket.on('error', fail)
+      socket.on('close', () => {
+        if (!settled) {
+          fail(
+            new Error(
+              'Terminal broker deferred shutdown connection closed early',
+            ),
+          )
+        }
+      })
+    })
+  }
+
   private scheduleReconnect(): void {
     if (this.closing || this.reconnectPromise || this.intentionallyDisconnected) return
     this.reconnectPromise = wait(BROKER_RETRY_MS)
@@ -1627,6 +1939,9 @@ export class TerminalSessionBrokerClient {
         for (const sessionId of this.callbacks.keys()) {
           const frame: BrokerClientMessage = {
             token: descriptor.token,
+            rendererLeaseToken: this.rendererLeaseToken,
+            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+            rendererLeaseGeneration: this.rendererLeaseGeneration,
             op: 'attach',
             sessionId,
           }

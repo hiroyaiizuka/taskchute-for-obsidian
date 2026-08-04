@@ -394,7 +394,7 @@ describe('ClaudeCodeDispatcher', () => {
       expect(graceTimer.scheduled).toEqual([])
     }, 20_000)
 
-    test('reports a spawn failure as failed with a stderr event', async () => {
+    test('reports a spawn failure as a structured launch error without emitting output', async () => {
       const dispatcher = new ClaudeCodeDispatcher(new NodeProcessGateway())
       const { events, outcome } = await runDispatcherToCompletion(dispatcher, {
         binaryPath: '/nonexistent/fake-claude-binary',
@@ -403,8 +403,12 @@ describe('ClaudeCodeDispatcher', () => {
 
       expect(outcome.status).toBe('failed')
       expect(outcome.exitCode).toBeNull()
-      const stderrEvent = events.find((event) => event.kind === 'stderr')
-      expect(stderrEvent && stderrEvent.kind === 'stderr' ? stderrEvent.text : '').toContain('ENOENT')
+      expect(outcome.launchError).toMatchObject({ code: 'ENOENT' })
+      expect(outcome.errorMessage).toContain('ENOENT')
+      // The manager may safely retry only when the first launch produced no
+      // user-visible output. It reports the structured failure if retry also
+      // fails, rather than duplicating stderr before retry.
+      expect(events).toEqual([])
     }, 20_000)
   })
 })

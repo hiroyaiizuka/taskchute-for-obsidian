@@ -29,6 +29,8 @@ declare const process: {
   execPath?: string
   platform?: string
   kill?(pid: number, signal?: string): boolean
+  on?(event: 'exit', listener: () => void): void
+  removeListener?(event: 'exit', listener: () => void): void
 }
 
 /** Signals the AI Task feature is allowed to send */
@@ -49,11 +51,19 @@ export interface SpawnProcessRequest {
   stdinMode?: StdinMode
 }
 
+export interface ProcessLaunchError {
+  /** Node/libuv or Windows error code, e.g. ENOENT, EACCES, EPERM. */
+  code?: string
+  message: string
+}
+
 export interface SpawnedProcessHandle {
   pid?: number
   onStdout(callback: (text: string) => void): void
   onStderr(callback: (text: string) => void): void
   onExit(callback: (code: number | null, signal: string | null) => void): void
+  /** Emitted only when the requested process could not be launched. */
+  onLaunchError?(callback: (error: ProcessLaunchError) => void): void
   kill(signal: NodeKillSignal): void
   /**
    * Write utf8 data to the child's stdin. Present ONLY when the process was
@@ -134,6 +144,11 @@ export interface ProcessGateway {
    * and in-run agent tools (git, npm, rg) unresolvable in child processes.
    */
   primeLoginShellPath(): Promise<void>
+  /**
+   * Capture the login-shell PATH again. Concurrent refreshes are coalesced;
+   * a failed capture preserves the last successful value.
+   */
+  refreshLoginShellPath?(): Promise<void>
   /** Whether buildPtyCommand can produce a PTY wrapper on this platform */
   isPtySupported(): boolean
   /**
@@ -168,6 +183,7 @@ interface NodeChildProcessLike {
   stdout: NodeReadableLike | null
   stderr: NodeReadableLike | null
   on(event: 'close', listener: (code: number | null, signal: string | null) => void): void
+  on(event: 'exit', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'error', listener: (error: unknown) => void): void
   kill(signal?: string): boolean
 }
@@ -187,7 +203,11 @@ interface ChildProcessModuleLike {
   execFileSync?(
     command: string,
     args: string[],
-    options: { encoding: 'utf8' },
+    options: {
+      encoding: 'utf8'
+      maxBuffer?: number
+      windowsHide?: boolean
+    },
   ): string
 }
 
@@ -288,9 +308,22 @@ function decodeChunk(chunk: unknown): string {
   return String(chunk)
 }
 
+function toProcessLaunchError(error: unknown): ProcessLaunchError {
+  const code =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : undefined
+  return {
+    ...(code === undefined ? {} : { code }),
+    message: describeSpawnError(error),
+  }
+}
+
 export interface ProcessIdentitySnapshot {
   pid: number
-  /** POSIX process start token from `ps lstart`, used to reject PID reuse. */
+  /** OS process start token, used to reject PID reuse. */
   birthToken?: string
 }
 
@@ -311,12 +344,39 @@ function normalizeProcessIdentity(
   }
 }
 
-function readPosixProcessBirthToken(pid: number): string | null {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') return null
+function readOsProcessBirthToken(pid: number): string | null {
   if (!Number.isSafeInteger(pid) || pid < 1) return null
   try {
     const childProcess = loadChildProcessModule()
     if (childProcess.execFileSync === undefined) return null
+    if (process.platform === 'win32') {
+      const systemRoot =
+        process.env['SystemRoot'] ??
+        process.env['SYSTEMROOT'] ??
+        'C:\\Windows'
+      const powershell =
+        `${systemRoot.replace(/[\\/]+$/u, '')}` +
+        '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+      const value = childProcess.execFileSync(
+        powershell,
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-Process -Id ${String(pid)} -ErrorAction Stop)` +
+            ".StartTime.ToUniversalTime().ToString('o')",
+        ],
+        {
+          encoding: 'utf8',
+          maxBuffer: 4096,
+          windowsHide: true,
+        },
+      ).trim()
+      return value.length > 0 ? value : null
+    }
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
+      return null
+    }
     const value = childProcess.execFileSync(
       '/bin/ps',
       ['-p', String(pid), '-o', 'lstart='],
@@ -559,6 +619,8 @@ type WindowsTreeTerminator = (
   onFailure: () => void,
 ) => boolean
 
+type WindowsTreeSyncTerminator = (pid: number) => boolean
+
 function terminateWindowsProcessTree(
   pid: number,
   force: boolean,
@@ -588,6 +650,25 @@ function terminateWindowsProcessTree(
     child.on('close', (code) => {
       if (code !== 0) reportFailure()
     })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function terminateWindowsProcessTreeSync(pid: number): boolean {
+  const args = buildWindowsTaskkillArgs(pid, true)
+  if (args.length === 0) return false
+  const childProcess = loadChildProcessModule()
+  if (typeof childProcess.execFileSync !== 'function') return false
+  try {
+    const systemRoot =
+      process.env['SystemRoot'] ??
+      process.env['SYSTEMROOT'] ??
+      'C:\\Windows'
+    const command =
+      `${systemRoot.replace(/[\\/]+$/u, '')}\\System32\\taskkill.exe`
+    childProcess.execFileSync(command, args, { encoding: 'utf8' })
     return true
   } catch {
     return false
@@ -733,7 +814,26 @@ function encodeWorkspaceText(content: string): Uint8Array {
 export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway {
   private loginShellPath: string | null = null
   private loginShellPathPrimed: Promise<void> | null = null
+  private loginShellPathRefresh: Promise<void> | null = null
   private tempFileSequence = 0
+  /**
+   * Only processes spawned directly by this renderer gateway are registered.
+   * Broker-owned PTYs are spawned inside TerminalSessionBrokerSource and
+   * never enter this map, so a renderer exit cannot destroy reload-persistent
+   * sessions.
+   */
+  private readonly rendererOwnedProcesses =
+    new Map<
+      number,
+      {
+        child: NodeChildProcessLike
+        birthToken: string | null
+      }
+    >()
+  private rendererExitReaperInstalled = false
+  private readonly rendererExitReaper = (): void => {
+    this.reapRendererOwnedProcessesForExit()
+  }
 
   constructor(
     private readonly snapshotDescendantPids: (
@@ -744,23 +844,114 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     private readonly terminateWindowsTree: WindowsTreeTerminator =
       terminateWindowsProcessTree,
     private readonly readProcessBirthToken: (pid: number) => string | null =
-      readPosixProcessBirthToken,
+      readOsProcessBirthToken,
+    private readonly terminateWindowsTreeSync: WindowsTreeSyncTerminator =
+      terminateWindowsProcessTreeSync,
   ) {}
+
+  /**
+   * Synchronous last-resort cleanup for renderer-owned children. pagehide
+   * normally starts the graceful/bounded stop first; Node's exit event covers
+   * Electron teardown paths where pagehide never fires or its timer cannot
+   * finish. This must stay synchronous because no async work is guaranteed
+   * once the renderer process begins exiting.
+   */
+  reapRendererOwnedProcessesForExit(): void {
+    const active = Array.from(this.rendererOwnedProcesses.entries())
+    this.rendererOwnedProcesses.clear()
+    this.removeRendererExitReaper()
+    for (const [pid, tracked] of active) {
+      const { child, birthToken } = tracked
+      if (this.getPlatform() === 'win32') {
+        // The map snapshot and synchronous taskkill are not atomic. The root
+        // can exit and Windows can reuse its numeric PID while renderer exit
+        // cleanup is iterating, so prove process birth identity immediately
+        // before every numeric-PID signal.
+        if (
+          birthToken === null ||
+          this.readProcessBirthToken(pid) !== birthToken
+        ) {
+          continue
+        }
+        if (this.terminateWindowsTreeSync(pid)) continue
+        if (this.readProcessBirthToken(pid) !== birthToken) continue
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          // The child already exited while renderer teardown was beginning.
+        }
+        continue
+      }
+      let groupKilled = false
+      if (typeof process.kill === 'function') {
+        try {
+          process.kill(-pid, 'SIGKILL')
+          groupKilled = true
+        } catch {
+          // Fall back to the still-owned direct ChildProcess handle.
+        }
+      }
+      if (groupKilled) continue
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // The process already exited.
+      }
+    }
+  }
+
+  private trackRendererOwnedProcess(child: NodeChildProcessLike): void {
+    const pid = child.pid
+    if (!Number.isSafeInteger(pid) || (pid ?? 0) < 1) return
+    this.rendererOwnedProcesses.set(pid as number, {
+      child,
+      birthToken:
+        this.getPlatform() === 'win32'
+          ? this.readProcessBirthToken(pid as number)
+          : null,
+    })
+    if (this.rendererExitReaperInstalled) return
+    process.on?.('exit', this.rendererExitReaper)
+    this.rendererExitReaperInstalled = true
+  }
+
+  private untrackRendererOwnedProcess(pid: number | undefined): void {
+    if (typeof pid !== 'number') return
+    this.rendererOwnedProcesses.delete(pid)
+    if (this.rendererOwnedProcesses.size === 0) {
+      this.removeRendererExitReaper()
+    }
+  }
+
+  private removeRendererExitReaper(): void {
+    if (!this.rendererExitReaperInstalled) return
+    process.removeListener?.('exit', this.rendererExitReaper)
+    this.rendererExitReaperInstalled = false
+  }
 
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle {
     const stdoutCallbacks: Array<(text: string) => void> = []
     const stderrCallbacks: Array<(text: string) => void> = []
     const exitCallbacks: Array<(code: number | null, signal: string | null) => void> = []
+    const launchErrorCallbacks: Array<(error: ProcessLaunchError) => void> = []
     let exited = false
+    let rootExited = false
+    let launchError: ProcessLaunchError | null = null
+
+    const notifyLaunchError = (error: ProcessLaunchError): void => {
+      if (launchError !== null) return
+      launchError = error
+      for (const callback of launchErrorCallbacks) callback(error)
+    }
 
     const notifyExit = (code: number | null, signal: string | null): void => {
       if (exited) return
       exited = true
+      this.untrackRendererOwnedProcess(child?.pid)
       for (const callback of exitCallbacks) callback(code, signal)
     }
 
     let child: NodeChildProcessLike | null = null
-    let spawnErrorMessage: string | null = null
     const stdinMode: StdinMode = request.stdinMode ?? 'ignore'
     try {
       // detached:true makes the child a process-group leader (POSIX) so
@@ -790,10 +981,22 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         stdio: [stdinMode, 'pipe', 'pipe'],
       })
     } catch (error) {
-      spawnErrorMessage = describeSpawnError(error)
+      launchError = toProcessLaunchError(error)
     }
 
     if (child) {
+      // `exit` precedes `close` when descendants still hold inherited stdio.
+      // Stop tracking immediately: after OS exit the numeric Windows PID can
+      // be reused before close drains, and taskkill /PID would then target an
+      // unrelated process.
+      child.on('exit', () => {
+        rootExited = true
+        this.untrackRendererOwnedProcess(child?.pid)
+      })
+      // Install the exit fence before the Windows StartTime lookup used by
+      // tracking. PowerShell is synchronous and a short-lived child can exit
+      // while that lookup is in progress.
+      this.trackRendererOwnedProcess(child)
       // Decode via Node's StringDecoder so a multibyte UTF-8 character split
       // across pipe chunks is buffered instead of degrading to U+FFFD.
       child.stdout?.setEncoding('utf8')
@@ -810,8 +1013,11 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         notifyExit(code ?? null, signal ?? null)
       })
       child.on('error', (error) => {
-        const message = describeSpawnError(error)
-        for (const callback of stderrCallbacks) callback(`${message}\n`)
+        const launchFailure = toProcessLaunchError(error)
+        notifyLaunchError(launchFailure)
+        for (const callback of stderrCallbacks) {
+          callback(`${launchFailure.message}\n`)
+        }
         notifyExit(null, null)
       })
       if (stdinMode === 'pipe') {
@@ -847,9 +1053,13 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       },
       onStderr: (callback) => {
         stderrCallbacks.push(callback)
-        if (failedChild && spawnErrorMessage !== null) {
-          callback(`${spawnErrorMessage}\n`)
+        if (failedChild && launchError !== null) {
+          callback(`${launchError.message}\n`)
         }
+      },
+      onLaunchError: (callback) => {
+        launchErrorCallbacks.push(callback)
+        if (launchError !== null) callback(launchError)
       },
       onExit: (callback) => {
         exitCallbacks.push(callback)
@@ -869,11 +1079,13 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // is already gone.
         const pid = child.pid
         if (this.getPlatform() === 'win32') {
-          // Never call taskkill after close: Windows may already have reused
-          // the numeric PID for an unrelated process.
-          if (exited) return
+          // `exit` precedes `close` while descendants keep inherited stdio.
+          // The numeric root PID is reusable as soon as exit fires, so neither
+          // the regular handle nor a delayed taskkill failure callback may
+          // target it during that gap.
+          if (rootExited || exited) return
           const killChildDirectly = (): void => {
-            if (exited) return
+            if (rootExited || exited) return
             try {
               child?.kill(signal)
             } catch {
@@ -881,7 +1093,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
             }
           }
           const forceTreeOrKillChild = (): void => {
-            if (exited) return
+            if (rootExited || exited) return
             // A graceful /T can fail before it reaches descendants (missing
             // executable, access error, unsupported termination). Retry the
             // same still-live PID with /T /F before falling back to the root
@@ -1350,6 +1562,23 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     // then reuses the pending promise instead of spawning another shell.
     this.loginShellPathPrimed ??= Promise.resolve().then(() => this.captureLoginShellPath())
     return this.loginShellPathPrimed
+  }
+
+  refreshLoginShellPath(): Promise<void> {
+    if (this.getPlatform() === 'win32') return this.primeLoginShellPath()
+    if (this.loginShellPathRefresh !== null) return this.loginShellPathRefresh
+    const operation = Promise.resolve()
+      .then(() => this.captureLoginShellPath())
+      .finally(() => {
+        if (this.loginShellPathRefresh === operation) {
+          this.loginShellPathRefresh = null
+        }
+      })
+    this.loginShellPathRefresh = operation
+    // A refresh also satisfies future one-time priming callers, but unlike
+    // the old permanent promise it does not prevent the next explicit refresh.
+    this.loginShellPathPrimed ??= operation
+    return operation
   }
 
   private async captureLoginShellPath(): Promise<void> {
