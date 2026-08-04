@@ -290,6 +290,16 @@ describe('ExecutionLogService.removeTaskLogForInstanceOnDate', () => {
 });
 
 describe('ExecutionLogService.hasExecutionHistory', () => {
+  // collectLogFiles() probes the 12 months preceding the current date, so the
+  // fallback assertions below only hold with the clock pinned.
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-10-09T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test('returns true when any log entry matches path using getFiles', async () => {
     const { plugin, store, vault } = createPluginStub();
     store.set('LOGS/2025-10-tasks.json', {
