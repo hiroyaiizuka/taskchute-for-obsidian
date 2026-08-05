@@ -3,4 +3,8 @@ export PATH
 
 npm run lint
 
+# ts-jest transpiles without diagnostics and esbuild skips type checking, so
+# nothing else in this hook catches type errors.
+npm run typecheck
+
 npm test
