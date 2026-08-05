@@ -1,13 +1,5 @@
 name: Release
 
-# このリポジトリは配布専用です。ビルドは非公開のソースリポジトリで行い、
-# その成果物 (main.js / styles.css / manifest.json / versions.json) を
-# main に push した時点でこのワークフローが走り、Release を作ります。
-# ここではビルドを行わず、コミット済みのファイルをそのまま Release に添付します。
-#
-# リリース判定は manifest.json の version です。
-# その version のタグが既にあれば何もせず終了します（成果物だけの修正 push は無害）。
-
 on:
   push:
     branches: [main]
@@ -37,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Verify release artifacts
         id: verify
@@ -69,15 +61,13 @@ jobs:
 
       - name: Generate artifact attestations
         if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             main.js
             manifest.json
             styles.css
 
-      # リリースノートは、この commit に紐づく PR の本文を使う。
-      # 直接 push などで PR が見つからない場合は自動生成にフォールバックする。
       - name: Resolve release notes
         id: notes
         if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
