@@ -53,31 +53,31 @@ describe('CommandRegistrar', () => {
     ]);
 
     const openView = addCommand.mock.calls[0][0];
-    await openView.callback();
+    await openView.callback?.();
     expect(viewControllerMock.activateView).toHaveBeenCalled();
 
     const settings = addCommand.mock.calls[1][0];
-    await settings.callback();
+    await settings.callback?.();
     expect(showSettingsModal).toHaveBeenCalled();
 
     const showToday = addCommand.mock.calls[2][0];
-    await showToday.callback();
+    await showToday.callback?.();
     expect(viewControllerMock.triggerShowTodayTasks).toHaveBeenCalled();
 
     const reorganize = addCommand.mock.calls[3][0];
-    await reorganize.callback();
+    await reorganize.callback?.();
     expect(viewControllerMock.reorganizeIdleTasks).toHaveBeenCalled();
 
     const duplicate = addCommand.mock.calls[4][0];
-    duplicate.checkCallback(false);
+    duplicate.checkCallback?.(false);
     expect(viewControllerMock.triggerDuplicateSelectedTask).toHaveBeenCalled();
 
     const remove = addCommand.mock.calls[5][0];
-    remove.checkCallback(false);
+    remove.checkCallback?.(false);
     expect(viewControllerMock.triggerDeleteSelectedTask).toHaveBeenCalled();
 
     const reset = addCommand.mock.calls[6][0];
-    reset.checkCallback(false);
+    reset.checkCallback?.(false);
     expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
   });
 

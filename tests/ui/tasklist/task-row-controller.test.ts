@@ -11,8 +11,8 @@ jest.mock('obsidian', () => {
 
 describe('TaskRowController', () => {
   const attachCreateEl = (target: HTMLElement) => {
-    const typed = target as HTMLElement & { createEl?: typeof attachCreateEl }
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    const typed = target
+    typed.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const el = document.createElement(tag)
       if (options.cls) {
         el.className = options.cls as string
@@ -28,7 +28,7 @@ describe('TaskRowController', () => {
       attachCreateEl(el)
       this.appendChild(el)
       return el
-    }
+    }) as unknown as HTMLElement['createEl']
   }
 
   const createHost = (overrides: Partial<TaskRowControllerHost> = {}): TaskRowControllerHost => ({
@@ -38,6 +38,7 @@ describe('TaskRowController', () => {
     duplicateAndStartInstance: jest.fn(),
     showStartTimePopup: jest.fn(),
     showStopTimePopup: jest.fn(),
+    showReminderSettingsModal: jest.fn(),
     calculateCrossDayDuration: (start: Date, stop: Date) => stop.getTime() - start.getTime(),
     app: {
       workspace: {

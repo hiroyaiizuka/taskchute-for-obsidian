@@ -3,7 +3,7 @@ import { Notice, TFile } from 'obsidian'
 import RoutineController, {
   RoutineControllerHost,
 } from '../../../src/features/routine/controllers/RoutineController'
-import type { RoutineTaskShape } from '../../../src/types/Routine'
+import type { RoutineTaskShape } from '../../../src/types/routine'
 import type { TaskChutePluginLike } from '../../../src/types'
 import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
 
@@ -82,6 +82,7 @@ describe('RoutineController', () => {
   }
 
   const createTask = (overrides?: Partial<RoutineTaskShape>): RoutineTaskShape => ({
+    name: 'Sample Task',
     title: 'Sample Task',
     path: 'TASKS/sample.md',
     isRoutine: false,
@@ -275,7 +276,7 @@ describe('RoutineController', () => {
     controller.showRoutineEditModal(task)
 
     const overlay = document.body.querySelector('.task-modal-overlay')
-    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.value).toBe('2025-08-01')
     expect(dateInputs?.[1]?.value).toBe('')
@@ -292,7 +293,7 @@ describe('RoutineController', () => {
     controller.showRoutineEditModal(task)
 
     const overlay = document.body.querySelector('.task-modal-overlay')
-    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[1]?.value).toBe('')
   })
@@ -307,7 +308,7 @@ describe('RoutineController', () => {
     controller.showRoutineEditModal(task)
 
     const overlay = document.body.querySelector('.task-modal-overlay')
-    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.value).toBe('2025-10-09')
     expect(dateInputs?.[1]?.value).toBe('')
@@ -322,7 +323,7 @@ describe('RoutineController', () => {
     controller.showRoutineEditModal(task)
 
     const overlay = document.body.querySelector('.task-modal-overlay')
-    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.getAttribute('lang')).toBe('en-US')
     expect(dateInputs?.[1]?.getAttribute('lang')).toBe('en-US')
@@ -337,7 +338,7 @@ describe('RoutineController', () => {
     controller.showRoutineEditModal(task)
 
     const overlay = document.body.querySelector('.task-modal-overlay')
-    const dateInputs = overlay?.querySelectorAll('input[type="date"]')
+    const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.getAttribute('lang')).toBe('ja-JP')
     expect(dateInputs?.[1]?.getAttribute('lang')).toBe('ja-JP')

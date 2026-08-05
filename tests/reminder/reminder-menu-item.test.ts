@@ -27,13 +27,13 @@ const mockCreateEl = function (
   }
   this.appendChild(el);
   // Add createEl to the created element too
-  (el as HTMLElement & { createEl: typeof mockCreateEl }).createEl = mockCreateEl;
+  el.createEl = mockCreateEl as unknown as HTMLElement['createEl'];
   return el;
 };
 
 // Extend HTMLElement prototype for tests
 beforeAll(() => {
-  (HTMLElement.prototype as HTMLElement & { createEl: typeof mockCreateEl }).createEl = mockCreateEl;
+  HTMLElement.prototype.createEl = mockCreateEl as unknown as HTMLElement['createEl'];
 });
 
 describe('TaskSettingsTooltipController reminder menu item', () => {
@@ -73,7 +73,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
         scheduledTime: '09:00',
         reminder_time: undefined,
       },
-    } as TaskInstance;
+    } as unknown as TaskInstance;
 
     anchor = document.createElement('button');
     anchor.classList.add('test-anchor-fixed');

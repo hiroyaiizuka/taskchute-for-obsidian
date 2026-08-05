@@ -120,9 +120,10 @@ describe('TaskCreationController', () => {
         mergeDayState: jest.fn(),
         clearCache: jest.fn(),
         getDateFromKey: jest.fn(),
+        renameTaskPath: jest.fn(),
       },
       saveSettings: jest.fn(),
-      manifest: { id: 'taskchute-plus' },
+      manifest: { id: 'taskchute-plus' } as TaskChutePluginLike['manifest'],
     }
 
     const taskReuseService = {
@@ -157,7 +158,7 @@ describe('TaskCreationController', () => {
         metadataCache: {
           getFileCache: jest.fn(() => ({ frontmatter: {} })),
         },
-      },
+      } as unknown as TaskCreationControllerHost['app'],
       plugin: pluginStub,
       hasInstanceForPathToday: jest.fn(() => false),
       duplicateInstanceForPath: jest.fn().mockResolvedValue({

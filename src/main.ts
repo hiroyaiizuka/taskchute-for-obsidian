@@ -28,7 +28,7 @@ export default class TaskChutePlusPlugin extends Plugin {
   pathManager!: PathService
   routineAliasService!: RoutineAliasService
   dayStateService!: DayStatePersistenceService
-  globalTimerInterval?: ReturnType<typeof setInterval> | null
+  globalTimerInterval?: ReturnType<Window['setInterval']> | null
   private viewController!: TaskChuteViewController
   private localeCoordinator?: LocaleCoordinatorHandle
   /** Reminder manager for notification scheduling (exposed for TaskChuteView) */

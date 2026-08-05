@@ -5,6 +5,7 @@ import { t } from '../../../i18n';
 
 import {
   RoutineFrontmatter,
+  RoutineMonthday,
   RoutineType,
   RoutineWeek,
   TaskChutePluginLike,
@@ -496,10 +497,10 @@ export class RoutineManagerModal extends Modal {
     return typeof single === 'number' ? [single] : [];
   }
 
-  private getMonthlyMonthdaySet(fm: RoutineFrontmatter): Array<number | 'last'> {
+  private getMonthlyMonthdaySet(fm: RoutineFrontmatter): RoutineMonthday[] {
     if (Array.isArray(fm.routine_monthdays) && fm.routine_monthdays.length) {
       return fm.routine_monthdays.filter(
-        (value): value is number | 'last' =>
+        (value): value is RoutineMonthday =>
           value === 'last' || (typeof value === 'number' && value >= 1 && value <= 31),
       );
     }

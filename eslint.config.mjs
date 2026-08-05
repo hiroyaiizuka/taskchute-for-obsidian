@@ -167,7 +167,6 @@ export default [
       "node_modules/**",
       ".obsidian/**",
       ".husky/**",
-      "taskchute-docs/**",
       "tmp/**",
       // Plain Node scripts spawned as fake CLIs by dispatcher tests; they are
       // not part of the typed lint project (tsconfig.test.json has allowJs: false).

@@ -4,8 +4,6 @@
 
 **Execute tasks, don't just organize them.**
 
-![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
-
 TaskChute Plus is an Obsidian plugin focused on execution-first task management:
 you decide what to do now, run it, and keep a reliable log of what actually happened.
 

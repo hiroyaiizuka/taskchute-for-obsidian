@@ -828,7 +828,7 @@ describe('recipe UI helpers', () => {
       task: { path: 'TaskChute/Task/A.md', recipePath: 'TaskChute/Recipes/A.md' },
     } as never, anchor)
     currentDate = '2026-05-05'
-    resolveRecipe?.({
+    ;(resolveRecipe as ((value: unknown) => void) | null)?.({
       path: 'TaskChute/Recipes/A.md',
       title: 'aaa',
       file: {},
@@ -882,7 +882,7 @@ describe('recipe UI helpers', () => {
       task: { path: 'TaskChute/Task/B.md', recipePath: 'TaskChute/Recipes/B.md' },
     } as never, anchorB)
 
-    resolveB?.({
+    ;(resolveB as ((value: unknown) => void) | null)?.({
       path: 'TaskChute/Recipes/B.md',
       title: 'new recipe',
       file: {},
@@ -891,7 +891,7 @@ describe('recipe UI helpers', () => {
     await secondShow
     expect(document.body.textContent).toContain('new recipe')
 
-    resolveA?.({
+    ;(resolveA as ((value: unknown) => void) | null)?.({
       path: 'TaskChute/Recipes/A.md',
       title: 'old recipe',
       file: {},

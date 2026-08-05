@@ -9,11 +9,11 @@ import { initializeLocaleManager, setLocaleOverride } from '../../src/i18n'
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>
-  parent?: FolderNode
+  parent: FolderNode | null
 }
 
 interface FileNode extends TFile {
-  parent?: FolderNode
+  parent: FolderNode | null
 }
 
 function createFolder(path: string): FolderNode {
@@ -22,6 +22,7 @@ function createFolder(path: string): FolderNode {
   folder.path = path
   folder.name = path.split('/').pop() ?? path
   folder.children = []
+  folder.parent = null
   return folder
 }
 
@@ -121,7 +122,7 @@ function createRestoreContext() {
       getLogDataPath: () => 'LOGS',
       getTaskFolderPath: () => 'TaskChute/Task',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
-    },
+    } as unknown as TaskChutePluginLike['pathManager'],
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},

@@ -133,7 +133,7 @@ export class TaskChuteView
   /** Non-due linked AI routines available only for event materialization. */
   public linkedAiTaskCandidates: TaskInstance[] = []
   public currentInstance: TaskInstance | null = null
-  public globalTimerInterval: ReturnType<typeof setInterval> | null = null
+  public globalTimerInterval: ReturnType<Window['setInterval']> | null = null
   public timerService: TimerService | null = null
   public readonly runningTasksService: RunningTasksService
   public readonly executionLogService: ExecutionLogService
@@ -198,14 +198,14 @@ export class TaskChuteView
   private resizeObserver: ResizeObserver | null = null
 
   // Boundary Check (idle-task-auto-move feature)
-  public boundaryCheckTimeout: ReturnType<typeof setTimeout> | null = null
+  public boundaryCheckTimeout: ReturnType<Window['setTimeout']> | null = null
   public boundaryCheckWindow: Window | null = null
 
   // Debounce Timer
-  public renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  public renderDebounceTimer: ReturnType<Window['setTimeout']> | null = null
 
   // Debounce Timer for state file modification detection (cross-device sync)
-  private stateFileModifyDebounceTimer: ReturnType<typeof setTimeout> | null =
+  private stateFileModifyDebounceTimer: ReturnType<Window['setTimeout']> | null =
     null
   private stateFileModifyDebounceWindow: Window | null = null
   private stateFileModifyPendingMonthKeys: Set<string> = new Set()

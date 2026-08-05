@@ -27,10 +27,10 @@ describe('TimeEditPopup', () => {
 
     popup = new TimeEditPopup()
     anchor = document.createElement('span')
-    anchor.getBoundingClientRect = jest.fn().mockReturnValue({
+    anchor.getBoundingClientRect = jest.fn<() => DOMRect>().mockReturnValue({
       left: 100,
       bottom: 50,
-    })
+    } as DOMRect)
     document.body.appendChild(anchor)
 
     onSave = jest.fn()
@@ -47,7 +47,7 @@ describe('TimeEditPopup', () => {
   describe('desktop behavior (non-touch)', () => {
     beforeEach(() => {
       // Mock matchMedia for pointer: fine (desktop)
-      window.matchMedia = jest.fn().mockImplementation((query) => ({
+      window.matchMedia = jest.fn<typeof window.matchMedia>().mockImplementation((query: string) => ({
         matches: query === '(pointer: fine)',
         media: query,
         onchange: null,
@@ -56,7 +56,7 @@ describe('TimeEditPopup', () => {
         addEventListener: jest.fn(),
         removeEventListener: jest.fn(),
         dispatchEvent: jest.fn(),
-      }))
+      }) as unknown as MediaQueryList)
     })
 
     it('should save on outside click for desktop (pointer: fine)', async () => {
@@ -145,7 +145,7 @@ describe('TimeEditPopup', () => {
   describe('touch/mobile behavior', () => {
     beforeEach(() => {
       // Mock matchMedia for pointer: coarse (touch/mobile)
-      window.matchMedia = jest.fn().mockImplementation((query) => ({
+      window.matchMedia = jest.fn<typeof window.matchMedia>().mockImplementation((query: string) => ({
         matches: query === '(pointer: coarse)',
         media: query,
         onchange: null,
@@ -154,7 +154,7 @@ describe('TimeEditPopup', () => {
         addEventListener: jest.fn(),
         removeEventListener: jest.fn(),
         dispatchEvent: jest.fn(),
-      }))
+      }) as unknown as MediaQueryList)
     })
 
     it('should cancel on outside click for touch devices (pointer: coarse)', async () => {

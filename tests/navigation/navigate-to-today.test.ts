@@ -86,7 +86,7 @@ describe('Navigate to today (showTodayTasks)', () => {
     };
 
     // TaskChuteViewのインスタンスを作成
-    view = new TaskChuteView(mockLeaf as WorkspaceLeaf, mockPlugin);
+    view = new TaskChuteView(mockLeaf as unknown as WorkspaceLeaf, mockPlugin);
 
     // 必要なプロパティを設定
     view.containerEl = document.createElement('div');
@@ -121,7 +121,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       const futureDateStr = `${futureDate.getFullYear()}-${(futureDate.getMonth() + 1).toString().padStart(2, '0')}-${futureDate.getDate().toString().padStart(2, '0')}`;
       view['currentDayStateKey'] = futureDateStr;
       view['currentDayState'] = {
-        hiddenRoutines: ['future-routine'],
+        hiddenRoutines: [{ path: 'future-routine' }],
         deletedInstances: [],
         duplicatedInstances: [],
         slotOverrides: {},
@@ -131,7 +131,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       // showTodayTasksを呼び出す前の状態を確認
       expect(view['currentDayStateKey']).toBe(futureDateStr);
       expect(view['currentDayState']).not.toBeNull();
-      expect(view['currentDayState']?.hiddenRoutines).toContain('future-routine');
+      expect(view['currentDayState']?.hiddenRoutines).toContainEqual({ path: 'future-routine' });
 
       // showTodayTasksを実行
       view.showTodayTasks();
@@ -250,7 +250,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       view['currentDate'] = futureDate;
       view['currentDayStateKey'] = futureDateStr;
       view['currentDayState'] = {
-        hiddenRoutines: ['future-routine'],
+        hiddenRoutines: [{ path: 'future-routine' }],
         deletedInstances: [{ path: 'TASKS/future-deleted.md', deletionType: 'permanent', timestamp: Date.now() }],
         duplicatedInstances: [],
         slotOverrides: { 'TASKS/future-task.md': '15:00' },
@@ -268,7 +268,7 @@ describe('Navigate to today (showTodayTasks)', () => {
       // （reloadTasksAndRestoreが呼ばれる前の段階では）
       // 将来の日付のデータが持ち越されていないことを確認
       if (view['currentDayState']) {
-        expect(view['currentDayState'].hiddenRoutines).not.toContain('future-routine');
+        expect(view['currentDayState'].hiddenRoutines).not.toContainEqual({ path: 'future-routine' });
         expect(view['currentDayState'].slotOverrides).not.toHaveProperty('TASKS/future-task.md');
         expect(view['currentDayState'].orders).not.toHaveProperty('TASKS/future-task.md');
       }

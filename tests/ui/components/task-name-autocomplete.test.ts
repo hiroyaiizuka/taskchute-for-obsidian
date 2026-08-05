@@ -1,9 +1,11 @@
 import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
-import type { Plugin } from 'obsidian'
+
 
 describe('TaskNameAutocomplete popout scroll handling', () => {
   test('handleWindowScroll respects injected Node constructor', () => {
-    const pluginStub = { app: {} } as Plugin
+    const pluginStub = { app: {} } as unknown as ConstructorParameters<
+      typeof TaskNameAutocomplete
+    >[0]
     const inputEl = document.createElement('input')
     const containerEl = document.createElement('div')
 
@@ -27,12 +29,12 @@ describe('TaskNameAutocomplete popout scroll handling', () => {
     ;(autocomplete as unknown as { hideSuggestions: () => void }).hideSuggestions = hideSpy
 
     const containsMock = jest.fn().mockReturnValue(true)
-    ;(autocomplete as { suggestionsElement?: HTMLElement }).suggestionsElement = {
+    ;(autocomplete as unknown as { suggestionsElement?: HTMLElement }).suggestionsElement = {
       contains: containsMock,
     } as unknown as HTMLElement
 
     const eventTarget = new PopoutNode() as unknown as Node
-    const event = { target: eventTarget } as Event
+    const event = { target: eventTarget } as unknown as Event
     ;(autocomplete as unknown as { handleWindowScroll: (event: Event) => void }).handleWindowScroll(event)
 
     expect(containsMock).toHaveBeenCalledWith(eventTarget)

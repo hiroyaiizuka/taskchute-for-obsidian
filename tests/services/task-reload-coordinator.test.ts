@@ -92,7 +92,7 @@ describe('TaskReloadCoordinator', () => {
     const view = createViewStub();
     const coordinator = new TaskReloadCoordinator(view);
 
-    const timeout = setTimeout(() => undefined, 0);
+    const timeout = window.setTimeout(() => undefined, 0);
     view.boundaryCheckTimeout = timeout;
 
     coordinator.scheduleBoundaryCheck();
@@ -288,7 +288,7 @@ describe('TaskReloadCoordinator', () => {
     ).rejects.toThrow('load failed');
 
     expect(queuedPromise).not.toBeNull();
-    await expect(queuedPromise as Promise<void>).rejects.toThrow('load failed');
+    await expect(queuedPromise as unknown as Promise<void>).rejects.toThrow('load failed');
   });
 
   test('checkBoundaryTasks moves idle tasks from older slots into current slot', async () => {

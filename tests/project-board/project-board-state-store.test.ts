@@ -67,7 +67,7 @@ describe('ProjectBoardStateStore', () => {
   test('save writes filtered hidden statuses and ensures directory', async () => {
     const mkdir = jest.fn(async () => {})
     const exists = jest.fn(async (path: string) => path.endsWith('/data'))
-    const write = jest.fn(async () => {})
+    const write = jest.fn<Promise<void>, [string, string]>(async () => {})
 
     const plugin = createPlugin({ exists, mkdir, write })
     const store = new ProjectBoardStateStore(plugin)

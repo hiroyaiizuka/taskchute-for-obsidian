@@ -47,7 +47,7 @@ describe('stableTimerSource', () => {
   test('does not capture activeWindow at import time and clears the timer source that created the interval', async () => {
     const importTimeWindow = createTimerWindow({ intervalId: 11 })
     const focusedWindow = createTimerWindow({ intervalId: 99 })
-    const stableSetInterval = jest.spyOn(window, 'setInterval').mockImplementation(() => 41)
+    const stableSetInterval = jest.spyOn(window, 'setInterval').mockImplementation((() => 41) as unknown as typeof window.setInterval)
     const stableClearInterval = jest.spyOn(window, 'clearInterval').mockImplementation(() => undefined)
     const callback = jest.fn()
 
@@ -69,7 +69,7 @@ describe('stableTimerSource', () => {
   })
 
   test('keeps stable interval IDs separate from native interval IDs used by fallback clear', async () => {
-    const stableSetInterval = jest.spyOn(window, 'setInterval').mockImplementation(() => 41)
+    const stableSetInterval = jest.spyOn(window, 'setInterval').mockImplementation((() => 41) as unknown as typeof window.setInterval)
     const stableClearInterval = jest.spyOn(window, 'clearInterval').mockImplementation(() => undefined)
     const { stableTimerSource } = await loadStableTimerModule()
 
@@ -91,12 +91,12 @@ describe('stableTimerSource', () => {
   test('sleep does not bind to import-time or current activeWindow', async () => {
     const importTimeWindow = createTimerWindow({ timeoutId: 11 })
     const focusedWindow = createTimerWindow({ timeoutId: 99 })
-    const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation((handler: TimerHandler) => {
+    const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
       if (typeof handler === 'function') {
         handler()
       }
       return 42
-    })
+    }) as unknown as typeof window.setTimeout)
 
     setActiveWindow(importTimeWindow)
     const { sleepWithStableTimer } = await loadStableTimerModule()

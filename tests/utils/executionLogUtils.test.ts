@@ -19,7 +19,7 @@ describe('parseTaskLogSnapshot', () => {
 
       expect(result.taskExecutions).toEqual({})
       expect(result.dailySummary).toEqual({})
-      expect(result.meta.revision).toBe(0)
+      expect(result.meta?.revision).toBe(0)
     })
 
     test('returns empty snapshot for undefined input', () => {
@@ -56,7 +56,7 @@ describe('parseTaskLogSnapshot', () => {
 
       expect(result.taskExecutions['2026-01-30']).toHaveLength(1)
       expect(result.dailySummary['2026-01-30'].totalTasks).toBe(5)
-      expect(result.meta.revision).toBe(10)
+      expect(result.meta?.revision).toBe(10)
     })
   })
 
@@ -107,9 +107,9 @@ describe('parseTaskLogSnapshot', () => {
 
       const result = parseTaskLogSnapshot(input)
 
-      expect(result.meta.revision).toBe(0)
-      expect(result.meta.processedCursor).toEqual({})
-      expect(result.meta.lastBackupAt).toBeUndefined()
+      expect(result.meta?.revision).toBe(0)
+      expect(result.meta?.processedCursor).toEqual({})
+      expect(result.meta?.lastBackupAt).toBeUndefined()
     })
 
     test('preserves processedCursor when present', () => {
@@ -126,7 +126,7 @@ describe('parseTaskLogSnapshot', () => {
 
       const result = parseTaskLogSnapshot(input)
 
-      expect(result.meta.processedCursor).toEqual({
+      expect(result.meta?.processedCursor).toEqual({
         'device-1': 100,
         'device-2': 200,
       })
@@ -149,8 +149,8 @@ describe('createEmptyTaskLogSnapshot', () => {
 
     expect(snapshot.taskExecutions).toEqual({})
     expect(snapshot.dailySummary).toEqual({})
-    expect(snapshot.meta.revision).toBe(0)
-    expect(snapshot.meta.processedCursor).toEqual({})
+    expect(snapshot.meta?.revision).toBe(0)
+    expect(snapshot.meta?.processedCursor).toEqual({})
   })
 })
 

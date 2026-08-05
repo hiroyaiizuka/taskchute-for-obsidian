@@ -14,15 +14,14 @@ function addObsidianMethods(el: HTMLElement): void {
   (el as HTMLElement & { empty: () => void }).empty = function () {
     this.innerHTML = ''
   };
-  (el as HTMLElement & { createEl: (tag: string, options?: { text?: string; cls?: string }) => HTMLElement }).createEl =
-    function (tag: string, options?: { text?: string; cls?: string }): HTMLElement {
+  el.createEl = (function (this: HTMLElement, tag: string, options?: { text?: string; cls?: string }): HTMLElement {
       const child = document.createElement(tag)
       addObsidianMethods(child)
       if (options?.text) child.textContent = options.text
       if (options?.cls) child.classList.add(options.cls)
       this.appendChild(child)
       return child
-    }
+    }) as unknown as HTMLElement['createEl']
 }
 
 jest.mock('obsidian', () => {

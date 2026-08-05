@@ -2688,7 +2688,7 @@ describe('LogReconciler', () => {
         } as const
 
         for (const deviceId of deviceOrder) {
-          seedDeltaFile(abstractStore, deltaStore, deviceId, '2025-10', byDevice[deviceId])
+          seedDeltaFile(abstractStore, deltaStore, deviceId, '2025-10', [...byDevice[deviceId]])
         }
 
         const reconciler = new LogReconciler(plugin)

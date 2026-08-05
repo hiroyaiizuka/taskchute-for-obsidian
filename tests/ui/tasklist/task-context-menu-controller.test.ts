@@ -1,8 +1,14 @@
 import TaskContextMenuController, {
   type TaskContextMenuHost,
 } from '../../../src/ui/tasklist/TaskContextMenuController'
-import type { TaskInstance } from '../../../src/types'
+import type { TaskData, TaskInstance } from '../../../src/types'
 import { Menu } from 'obsidian'
+
+/** Test overrides may supply a partial task; the runtime shape stays as written. */
+type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
+  task?: Partial<TaskData>
+}
+
 
 type MenuItemHandler = () => void | Promise<void>
 
@@ -87,7 +93,7 @@ const createHost = (
   ...overrides,
 })
 
-const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance =>
+const createInstance = (overrides: InstanceOverrides = {}): TaskInstance =>
   ({
     instanceId: 'inst-1',
     state: 'idle',
@@ -98,7 +104,7 @@ const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance =>
     },
     slotKey: 'none',
     ...overrides,
-  } as TaskInstance)
+  } as unknown as TaskInstance)
 
 describe('TaskContextMenuController', () => {
   beforeEach(() => {

@@ -5,6 +5,7 @@ import { DATE_FORMAT_DISPLAY } from "../../../constants"
 
 import {
   RoutineFrontmatter,
+  RoutineMonthday,
   RoutineWeek,
   TaskChutePluginLike,
   RoutineType,
@@ -748,10 +749,10 @@ export default class RoutineEditModal {
 
   private normalizeMonthdaySelection(
     days: Array<number | "last">,
-  ): Array<number | "last"> {
+  ): RoutineMonthday[] {
     return days
       .filter(
-        (day): day is number | "last" =>
+        (day): day is RoutineMonthday =>
           day === "last" || (typeof day === "number" && day >= 1 && day <= 31),
       )
       .sort((a, b) => {

@@ -236,7 +236,9 @@ describe('ScheduledTimeModal', () => {
 
   test('shows notice when task file is missing', async () => {
     const host = createHost()
-    host.app.vault.getAbstractFileByPath = jest.fn(() => null)
+    host.app.vault.getAbstractFileByPath = jest.fn(
+      () => null,
+    ) as unknown as typeof host.app.vault.getAbstractFileByPath
     const instance = createInstance()
     const modal = new ScheduledTimeModal({ host, instance })
 

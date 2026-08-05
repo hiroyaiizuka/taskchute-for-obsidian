@@ -6,7 +6,7 @@ import { normalizeReminderTime } from '../../features/reminder/services/Reminder
 export interface TaskSettingsTooltipHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
   resetTaskToIdle: (inst: TaskInstance) => Promise<void>
-  showScheduledTimeEditModal: (inst: TaskInstance) => Promise<void>
+  showScheduledTimeEditModal: (inst: TaskInstance) => void | Promise<void>
   showTaskMoveDatePicker: (inst: TaskInstance, anchor: HTMLElement) => void
   duplicateInstance: (inst: TaskInstance) => Promise<TaskInstance | void>
   deleteRoutineTask: (inst: TaskInstance) => Promise<void>

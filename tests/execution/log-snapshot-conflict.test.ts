@@ -4,6 +4,12 @@ import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncC
 import { SnapshotConflictError } from '../../src/types/ExecutionLog'
 import { createPluginStub, seedDeltaFile, seedSnapshot } from './logTestUtils'
 
+/** Loosely-typed view of the snapshot returned by the private createMergedSnapshot. */
+type MergedSnapshot = {
+  taskExecutions: Record<string, Array<Record<string, unknown>>>
+  dailySummary: Record<string, Record<string, number>>
+}
+
 type TimeoutWindow = Window & {
   setTimeout: jest.Mock<number, [TimerHandler, number?]>
   clearTimeout: jest.Mock<void, [number]>
@@ -687,7 +693,7 @@ describe('Snapshot Conflict Detection', () => {
         payload: { instanceId: 'inst-shared', taskId: 'task-shared', taskTitle: 'Old Title', durationSec: 300, stopTime: '08:10' }
       }) + '\n')
 
-      const adapter = plugin.app.vault.adapter as { list?: jest.Mock }
+      const adapter = plugin.app.vault.adapter as unknown as { list?: jest.Mock }
       adapter.list = jest.fn(async (path: string) => {
         if (path === 'LOGS/inbox' || path === 'LOGS/.inbox') {
           return { folders: ['LOGS/inbox/device-normal', 'LOGS/inbox/device-archived'], files: [] }
@@ -748,7 +754,7 @@ describe('Snapshot Conflict Detection', () => {
         payload: { taskId: 'task-shared', taskTitle: 'Legacy Delete' }
       }) + '\n')
 
-      const adapter = plugin.app.vault.adapter as { list?: jest.Mock }
+      const adapter = plugin.app.vault.adapter as unknown as { list?: jest.Mock }
       adapter.list = jest.fn(async (path: string) => {
         if (path === 'LOGS/inbox' || path === 'LOGS/.inbox') {
           return { folders: ['LOGS/inbox/device-normal', 'LOGS/inbox/device-archived'], files: [] }
@@ -792,7 +798,7 @@ describe('Snapshot Conflict Detection', () => {
         payload: { taskId: 'missing-task', taskTitle: 'Legacy Delete' }
       }) + '\n')
 
-      const adapter = plugin.app.vault.adapter as { list?: jest.Mock }
+      const adapter = plugin.app.vault.adapter as unknown as { list?: jest.Mock }
       adapter.list = jest.fn(async (path: string) => {
         if (path === 'LOGS/inbox' || path === 'LOGS/.inbox') {
           return { folders: ['LOGS/inbox/device-normal', 'LOGS/inbox/device-archived'], files: [] }
@@ -864,7 +870,7 @@ describe('Snapshot Conflict Detection', () => {
 
       // Mock adapter.list to return the archived file
       // collectArchivedOnlyMonths uses adapter.list to find archived-only months
-      const mockAdapter = plugin.app.vault.adapter as { list?: jest.Mock }
+      const mockAdapter = plugin.app.vault.adapter as unknown as { list?: jest.Mock }
       mockAdapter.list = jest.fn(async (path: string) => {
         if (path === 'LOGS/inbox' || path === 'LOGS/.inbox') {
           return { folders: [devicePath], files: [] }
@@ -2227,7 +2233,10 @@ describe('Snapshot Conflict Detection', () => {
 
       // リフレクションで createMergedSnapshot を呼び出す
       const mergedSnapshot = (rec as unknown as {
-        createMergedSnapshot: (legacy: typeof legacySnapshot, current: typeof currentSnapshot) => typeof currentSnapshot
+        createMergedSnapshot: (
+          legacy: typeof legacySnapshot,
+          current: typeof currentSnapshot,
+        ) => MergedSnapshot
       }).createMergedSnapshot(legacySnapshot, currentSnapshot)
 
       // 期待: すべての日付が保持される
@@ -2272,7 +2281,10 @@ describe('Snapshot Conflict Detection', () => {
 
       const rec = new LogReconciler(plugin)
       const mergedSnapshot = (rec as unknown as {
-        createMergedSnapshot: (legacy: typeof legacySnapshot, current: typeof currentSnapshot) => typeof currentSnapshot
+        createMergedSnapshot: (
+          legacy: typeof legacySnapshot,
+          current: typeof currentSnapshot,
+        ) => MergedSnapshot
       }).createMergedSnapshot(legacySnapshot, currentSnapshot)
 
       const entries = mergedSnapshot.taskExecutions['2026-02-01'] ?? []
@@ -2332,7 +2344,10 @@ describe('Snapshot Conflict Detection', () => {
 
       const rec = new LogReconciler(plugin)
       const mergedSnapshot = (rec as unknown as {
-        createMergedSnapshot: (legacy: typeof legacySnapshot, current: typeof currentSnapshot) => typeof currentSnapshot
+        createMergedSnapshot: (
+          legacy: typeof legacySnapshot,
+          current: typeof currentSnapshot,
+        ) => MergedSnapshot
       }).createMergedSnapshot(legacySnapshot, currentSnapshot)
 
       const mergedSummary = mergedSnapshot.dailySummary['2026-02-01']

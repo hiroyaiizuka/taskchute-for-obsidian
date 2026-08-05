@@ -1,6 +1,12 @@
 import { TFile } from 'obsidian'
 import TaskScheduleController, { TaskScheduleControllerHost } from '../../../src/ui/task/TaskScheduleController'
-import type { TaskInstance } from '../../../src/types'
+import type { TaskData, TaskInstance } from '../../../src/types'
+
+/** Test overrides may supply a partial task; the runtime shape stays as written. */
+type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
+  task?: Partial<TaskData>
+}
+
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -63,14 +69,14 @@ describe('TaskScheduleController', () => {
     return { host, vault, fileManager }
   }
 
-  const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => ({
+  const createInstance = (overrides: InstanceOverrides = {}): TaskInstance => ({
     task: {
       path: overrides.task?.path ?? 'TASKS/sample.md',
       frontmatter: overrides.task?.frontmatter ?? {},
       name: overrides.task?.name ?? 'sample',
     },
     ...overrides,
-  } as TaskInstance)
+  } as unknown as TaskInstance)
 
   beforeEach(() => {
     jest.clearAllMocks()

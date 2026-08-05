@@ -226,7 +226,7 @@ export class MobileTimePicker implements TimePicker {
     wheel.appendChild(paddingBottom)
 
     // Handle scroll end to snap to nearest value
-    let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+    let scrollTimeout: ReturnType<Window['setTimeout']> | null = null
     wheel.addEventListener('scroll', () => {
       if (scrollTimeout) activeWindow.clearTimeout(scrollTimeout)
       scrollTimeout = activeWindow.setTimeout(() => {

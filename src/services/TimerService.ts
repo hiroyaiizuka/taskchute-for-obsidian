@@ -8,7 +8,7 @@ export interface TimerServiceOptions {
 }
 
 export class TimerService {
-  private interval: ReturnType<typeof setInterval> | null = null;
+  private interval: ReturnType<Window['setInterval']> | null = null;
   private intervalWindow: Window | null = null;
   private readonly getRunningInstances: () => TaskInstance[];
   private readonly onTick: (inst: TaskInstance) => void;

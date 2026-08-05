@@ -54,8 +54,11 @@ const ensureCreateEl = () => {
   }
 }
 
+/** The jest manual mock's TFile constructor accepts a path; the real one does not. */
+const MockedTFile = TFile as unknown as new (path?: string) => TFile
+
 const createFile = (path: string): TFile => {
-  const file = new TFile(path)
+  const file = new MockedTFile(path)
   const proto = (TFile as unknown as { prototype?: unknown }).prototype ?? Object.getPrototypeOf(file)
   if (Object.getPrototypeOf(file) !== proto && proto) {
     Object.setPrototypeOf(file, proto)
@@ -121,11 +124,11 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('prefills legacy monthly weeks and weekdays arrays', () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       routine_type: 'monthly',
       monthly_weeks: [0, 2, 'last'],
       monthly_weekdays: [1, 4],
-    }
+    } as unknown as RoutineFrontmatter
     const app = createApp(frontmatter)
     const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
 
@@ -157,11 +160,11 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('converts legacy zero-based monthly_week to 1-based selection', () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       routine_type: 'monthly',
       monthly_week: 0,
       monthly_weekday: 2,
-    }
+    } as unknown as RoutineFrontmatter
     const app = createApp(frontmatter)
     const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
 
@@ -187,9 +190,9 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('closes monthly date dropdown when clicking outside selector within modal', () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       routine_type: 'monthly_date',
-    }
+    } as unknown as RoutineFrontmatter
     const app = createApp(frontmatter)
     const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
 
@@ -221,9 +224,9 @@ describe('RoutineEditModal legacy frontmatter', () => {
     const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
     const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
     const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       routine_type: 'monthly_date',
-    }
+    } as unknown as RoutineFrontmatter
     const app = createApp(frontmatter)
     const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/sample.md'))
 
@@ -251,12 +254,12 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('uses current view date as target_date when disabling routine on save', async () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,
       routine_enabled: true,
-    }
+    } as RoutineFrontmatter
     const app = createApp(frontmatter, {
       currentDate: new Date(2025, 11, 24),
     })
@@ -281,12 +284,12 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('re-evaluates target_date after applying weekly selection when disabling on save', async () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,
       routine_enabled: true,
-    }
+    } as RoutineFrontmatter
     const app = createApp(frontmatter, {
       currentDate: new Date(2025, 11, 24), // Wed (3)
     })
@@ -321,13 +324,13 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('preserves existing target_date when saving already-disabled routine', async () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,
       routine_enabled: false,
       target_date: '2026-01-15',
-    }
+    } as RoutineFrontmatter
     const app = createApp(frontmatter, {
       currentDate: new Date(2025, 11, 24),
     })
@@ -352,12 +355,12 @@ describe('RoutineEditModal legacy frontmatter', () => {
   })
 
   it('uses active taskchute view date when multiple taskchute leaves are open', async () => {
-    const frontmatter: RoutineFrontmatter = {
+    const frontmatter = {
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,
       routine_enabled: true,
-    }
+    } as RoutineFrontmatter
     const app = createApp(frontmatter, {
       viewDates: [new Date(2025, 10, 30), new Date(2025, 11, 1)],
       activeLeafIndex: 1,

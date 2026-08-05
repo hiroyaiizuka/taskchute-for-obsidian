@@ -26,8 +26,8 @@ const mockCreateEl = function (
     });
   }
   this.appendChild(el);
-  (el as HTMLElement & { createEl: typeof mockCreateEl }).createEl = mockCreateEl;
-  (el as HTMLElement & { createSvg: typeof mockCreateSvg }).createSvg = mockCreateSvg;
+  el.createEl = createElStub;
+  el.createSvg = createSvgStub;
   return el;
 };
 
@@ -46,15 +46,17 @@ const mockCreateSvg = function (
     });
   }
   this.appendChild(el);
-  (el as SVGElement & { createSvg: typeof mockCreateSvg }).createSvg = mockCreateSvg;
+  (el as SVGElement & { createSvg: HTMLElement['createSvg'] }).createSvg = createSvgStub;
   return el;
 };
 
+/** Obsidian augments HTMLElement with these; the stubs above stand in for them. */
+const createElStub = mockCreateEl as unknown as HTMLElement['createEl'];
+const createSvgStub = mockCreateSvg as unknown as HTMLElement['createSvg'];
+
 beforeAll(() => {
-  (HTMLElement.prototype as HTMLElement & { createEl: typeof mockCreateEl }).createEl =
-    mockCreateEl;
-  (HTMLElement.prototype as HTMLElement & { createSvg: typeof mockCreateSvg }).createSvg =
-    mockCreateSvg;
+  HTMLElement.prototype.createEl = createElStub;
+  HTMLElement.prototype.createSvg = createSvgStub;
 });
 
 describe('ReminderIconRenderer', () => {
@@ -64,8 +66,8 @@ describe('ReminderIconRenderer', () => {
 
   beforeEach(() => {
     container = document.createElement('div');
-    (container as HTMLElement & { createEl: typeof mockCreateEl }).createEl = mockCreateEl;
-    (container as HTMLElement & { createSvg: typeof mockCreateSvg }).createSvg = mockCreateSvg;
+    container.createEl = createElStub;
+    container.createSvg = createSvgStub;
 
     options = {
       tv: jest.fn((key: string, fallback: string) => fallback),
@@ -88,7 +90,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: '08:55',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -110,7 +112,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: undefined,
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -132,7 +134,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: '',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -154,7 +156,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: '08:55',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -176,7 +178,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: '08:55',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -198,7 +200,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '09:00',
           reminder_time: '08:55',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -221,7 +223,7 @@ describe('ReminderIconRenderer', () => {
           scheduledTime: '10:30',
           reminder_time: '10:15',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       renderer.render(container, inst);
 
@@ -241,7 +243,7 @@ describe('ReminderIconRenderer', () => {
           name: 'Test Task',
           reminder_time: '08:55',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       expect(renderer.hasReminder(inst)).toBe(true);
     });
@@ -256,7 +258,7 @@ describe('ReminderIconRenderer', () => {
           name: 'Test Task',
           reminder_time: undefined,
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       expect(renderer.hasReminder(inst)).toBe(false);
     });
@@ -271,7 +273,7 @@ describe('ReminderIconRenderer', () => {
           name: 'Test Task',
           reminder_time: '',
         },
-      } as TaskInstance;
+      } as unknown as TaskInstance;
 
       expect(renderer.hasReminder(inst)).toBe(false);
     });

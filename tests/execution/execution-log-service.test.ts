@@ -95,14 +95,17 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
     }),
     adapter,
   };
+  const vaultWithGetFiles = vault as typeof vault & {
+    getFiles?: jest.Mock<TFile[], []>;
+  };
   if (!options.disableGetFiles) {
-    (vault as { getFiles?: () => TFile[] }).getFiles = jest.fn(() =>
+    vaultWithGetFiles.getFiles = jest.fn(() =>
       Array.from(store.keys()).map((path) => createTFile(path)),
     );
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault },
+    app: { vault } as unknown as TaskChutePluginLike['app'],
     settings: {
       taskFolderPath: '',
       projectFolderPath: '',
@@ -122,10 +125,12 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
       mergeDayState: jest.fn(),
       clearCache: jest.fn(),
       getDateFromKey: jest.fn((key: string) => new Date(key)),
+      renameTaskPath: jest.fn(),
     },
+    manifest: { id: 'taskchute-plus' } as TaskChutePluginLike['manifest'],
   };
 
-  return { plugin, store, pathManager, vault, deltaStore, adapter };
+  return { plugin, store, pathManager, vault: vaultWithGetFiles, deltaStore, adapter };
 }
 
 function primeDeviceId(id: string | null): void {
@@ -296,6 +301,16 @@ describe('ExecutionLogService.removeTaskLogForInstanceOnDate', () => {
 });
 
 describe('ExecutionLogService.hasExecutionHistory', () => {
+  // collectLogFiles() probes the 12 months preceding the current date, so the
+  // fallback assertions below only hold with the clock pinned.
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-10-09T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test('returns true when any log entry matches path using log folder listing', async () => {
     const { plugin, store, vault } = createPluginStub();
     store.set('LOGS/2025-10-tasks.json', {

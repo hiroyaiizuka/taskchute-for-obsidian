@@ -18,10 +18,9 @@ const MockedProjectSettingsModal = ProjectSettingsModal as jest.MockedClass<type
 describe('ProjectController', () => {
   function attachCreateEl(target: HTMLElement): void {
     const typed = target as HTMLElement & {
-      createEl?: (tag: string, options?: Record<string, unknown>) => HTMLElement
       empty?: () => void
     }
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    typed.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const el = document.createElement(tag)
       if (options.cls) el.className = options.cls as string
       if (options.text) el.textContent = options.text as string
@@ -33,7 +32,7 @@ describe('ProjectController', () => {
       attachCreateEl(el)
       this.appendChild(el)
       return el
-    }
+    }) as unknown as HTMLElement['createEl']
     typed.empty = function () {
       while (this.firstChild) {
         this.removeChild(this.firstChild)
@@ -120,7 +119,9 @@ describe('ProjectController', () => {
       registerDisposer: jest.fn(),
     }
 
-    const controller = new ProjectController(controllerOptions)
+    const controller = new ProjectController(
+      controllerOptions as unknown as ConstructorParameters<typeof ProjectController>[0],
+    )
 
     const task: TaskData = {
       name: 'Sample',

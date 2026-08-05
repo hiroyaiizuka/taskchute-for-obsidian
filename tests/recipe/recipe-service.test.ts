@@ -240,7 +240,10 @@ describe('RecipeService', () => {
   test('assigns recipe as an Obsidian link so renames can update it', async () => {
     const task = createFile('TaskChute/Task/Gym.md')
     const recipe = createFile('TaskChute/Recipes/Gym.md')
-    const files = new Map([
+    const files = new Map<
+      string,
+      { file: TFile; content: string; frontmatter?: Record<string, unknown> }
+    >([
       [task.path, { file: task, content: '', frontmatter: { title: 'ジムに行く' } }],
       [recipe.path, { file: recipe, content: '- [ ] A', frontmatter: { title: 'Gym' } }],
     ])
@@ -347,7 +350,7 @@ describe('RecipeService', () => {
       }],
     ])
     const plugin = createPlugin(files)
-    plugin.app.fileManager.trashFile = jest.fn(async () => {
+    plugin.app.fileManager.trashFile = jest.fn<Promise<void>, [TFile]>(async () => {
       throw new Error('trash failed')
     })
     const service = new RecipeService(plugin as never)

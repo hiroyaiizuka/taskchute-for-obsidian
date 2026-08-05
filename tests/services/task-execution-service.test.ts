@@ -3,10 +3,13 @@ import TaskExecutionService from '../../src/features/core/services/TaskExecution
 import { HeatmapService } from '../../src/features/log/services/HeatmapService'
 import type { TaskExecutionHost } from '../../src/features/core/services/TaskExecutionService'
 import type { TaskInstance, TaskChutePluginLike } from '../../src/types'
+import { SectionConfigService } from '../../src/services/SectionConfigService'
 
 describe('TaskExecutionService', () => {
   beforeEach(() => {
-    jest.spyOn(HeatmapService.prototype, 'updateDailyStats').mockResolvedValue(undefined)
+    jest
+      .spyOn(HeatmapService.prototype, 'updateDailyStats')
+      .mockResolvedValue(undefined as unknown as Awaited<ReturnType<HeatmapService['updateDailyStats']>>)
   })
 
   afterEach(() => {
@@ -38,6 +41,7 @@ describe('TaskExecutionService', () => {
       plugin,
       getViewDate: () => new Date('2025-01-02T00:00:00.000Z'),
       getCurrentDateString: () => '2025-01-02',
+      getSectionConfig: () => new SectionConfigService(),
       getInstanceDisplayTitle: () => 'Sample',
       renderTaskList: jest.fn(),
       startGlobalTimer: jest.fn(),

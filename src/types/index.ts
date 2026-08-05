@@ -176,7 +176,7 @@ export interface TaskInstance {
   // Optional: record keeping and display helpers
   executedTitle?: string
   originalSlotKey?: string
-  order?: number // For order-based sorting
+  order?: number | null // For order-based sorting; null marks "not yet ordered"
   positionInSlot?: number // Deprecated - kept for backward compatibility
   startTime?: Date
   stopTime?: Date
@@ -304,7 +304,7 @@ export interface DayStateServiceAPI {
     mutator: (state: DayState) => DayState | void,
   ): Promise<DayState>
   mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>
-  clearCache(): Promise<void>
+  clearCache(): void | Promise<void>
   clearCacheForDate?(dateKey: string): void | Promise<void>
   getDateFromKey(dateKey: string): Date
   renameTaskPath(oldPath: string, newPath: string): Promise<void>
@@ -407,12 +407,13 @@ export interface AutocompleteInstance {
 
 // Phase 3: Use properly typed frontmatter
 // Import from TaskFields module
-import type { TaskFrontmatter, RoutineType, RoutineWeek, RoutineMonthday } from "./TaskFields"
+import type { TaskFrontmatter, RoutineType, RoutineMonthday } from "./TaskFields"
 
 export interface RoutineFrontmatter extends TaskFrontmatter {
   // Legacy compatibility - keep the original shape but extend from TaskFrontmatter
   weekday?: number
-  monthly_week?: RoutineWeek
+  /** Legacy field: 0-based week index (0..4) or 'last' */
+  monthly_week?: number | 'last'
   monthly_weekday?: number
 }
 
