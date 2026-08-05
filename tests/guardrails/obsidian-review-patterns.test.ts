@@ -387,11 +387,17 @@ describe('Obsidian review guardrails', () => {
     expect(workflow).toMatch(/attestations:\s*write/)
     expect(workflow).toContain('uses: actions/attest-build-provenance@v2')
     expect(workflow).not.toContain('uses: actions/attest@v4')
-    expect(workflow).toContain('subject-path: |')
-    expect(workflow).not.toContain('${{ steps.prep.outputs.zip }}')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/main.js')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/manifest.json')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/styles.css')
+
+    // 証明の対象は、配布リポジトリへ渡す3ファイルそのもの
+    const subjectPaths = workflow.match(
+      /subject-path: \|\n((?:\s+\S+\n)+)/,
+    )?.[1]
+    expect(subjectPaths).toBeDefined()
+    expect(subjectPaths?.trim().split(/\s+/)).toEqual([
+      'main.js',
+      'manifest.json',
+      'styles.css',
+    ])
   })
 
   test('release workflow publishes only Obsidian-supported release assets', () => {
@@ -400,12 +406,13 @@ describe('Obsidian review guardrails', () => {
       'utf8',
     )
 
+    // zip は Obsidian が受け付けないので、成果物は素のファイルのまま扱う
     expect(workflow).not.toMatch(/\bzip\s+-r\b/)
     expect(workflow).not.toMatch(/release-\$\{?TAG\}?\.zip/)
-    expect(workflow).not.toContain('echo "zip=')
-    expect(workflow).not.toContain('${{ steps.prep.outputs.zip }}')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/main.js')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/manifest.json')
-    expect(workflow).toContain('${{ steps.prep.outputs.dir }}/styles.css')
+    expect(workflow).not.toContain('.zip')
+
+    for (const asset of ['main.js', 'manifest.json', 'styles.css']) {
+      expect(workflow).toContain(asset)
+    }
   })
 })

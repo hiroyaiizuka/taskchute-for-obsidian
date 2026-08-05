@@ -1,121 +1,234 @@
-name: Auto Release (manual)
+name: Release (build & push dist branch)
+
+# このリポジトリはソース専用です。ここでビルドし、成果物
+# (main.js / styles.css / manifest.json / versions.json) を配布リポジトリ
+# hiroyaiizuka/taskchute-for-obsidian の release/<version> ブランチへ push する
+# ところまでを行います。
+#
+# PR の作成とリリースノートの執筆は、配布リポジトリ側で人が手で行います。
+# 配布側のワークフローは「main への push」で発火し、マージ元 PR の本文を
+# そのままリリースノートに使います。
+# タグ作成と Release の公開も配布リポジトリ側の責務です。
+#
+# バージョンの情報源は manifest.json の version です。このワークフローは採番を
+# 行わず、リポジトリにコミット済みの値をそのまま使います。リリース前に
+# manifest.json と versions.json を手で更新してコミットしておいてください。
+#
+# 事前準備: 配布リポジトリに対して Contents:write / Pull requests:read を持つ
+# fine-grained PAT を、このリポジトリの Actions secret RELEASE_DIST_TOKEN に
+# 登録すること。
 
 on:
   workflow_dispatch:
     inputs:
-      version_type:
-        description: "Version bump type"
-        required: true
-        default: "patch"
-        type: choice
-        options: [patch, minor, major]
+      dry_run:
+        description: "ビルドと検証のみ行い、push はしない"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+  # 成果物証明 (SLSA provenance) の署名に必要。ビルドしているのはこのリポジトリ
+  # なので、証明もここで発行する。検証は次のコマンド:
+  #   gh attestation verify main.js --repo hiroyaiizuka/hiroyaiizuka-taskchute-for-obsidian-source
   id-token: write
   attestations: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DIST_REPO: hiroyaiizuka/taskchute-for-obsidian
+
 jobs:
-  auto-release:
+  release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Checkout distribution repo
+        uses: actions/checkout@v4
+        with:
+          repository: hiroyaiizuka/taskchute-for-obsidian
+          token: ${{ secrets.RELEASE_DIST_TOKEN }}
+          path: dist-repo
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
+          cache: npm
 
       - name: Install deps
-        run: npm ci || npm install
+        run: npm ci
 
-      - name: Configure git user
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
+      - name: Lint
+        run: npm run lint
 
-      # package.json をバンプし、manifest.json を Node で同期
-      - name: Bump version & sync manifest.json
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # 版数の情報源は manifest.json のみ。ここでは採番も書き換えもせず、
+      # コミット済みの値を読んで versions.json との整合だけを検査する。
+      - name: Resolve version from manifest.json
         id: bump
         run: |
-          npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          set -euo pipefail
 
-          node -e "const fs=require('fs');let m=JSON.parse(fs.readFileSync('manifest.json','utf8'));const v=require('./package.json').version;m.version=v;fs.writeFileSync('manifest.json',JSON.stringify(m,null,2)+'\n');"
+          NEW_VERSION=$(jq -er '.version' manifest.json)
+          MIN_APP=$(jq -er '.minAppVersion' manifest.json)
 
-          git add package.json manifest.json || true
-          [ -f versions.json ] && git add versions.json || true
-          [ -f README.md ] && git add README.md || true
-          git commit -m "chore: release ${NEW_VERSION}" || echo "No changes"
+          case "$NEW_VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::manifest.json の version が x.y.z 形式ではありません: $NEW_VERSION"; exit 1 ;;
+          esac
 
-      - name: Push changes
-        run: git push origin HEAD
+          # 配布側ワークフローは versions.json のエントリが無いと fail する
+          ENTRY=$(jq -r --arg v "$NEW_VERSION" '.[$v] // empty' versions.json)
+          if [ -z "$ENTRY" ]; then
+            echo "::error::versions.json に $NEW_VERSION のエントリがありません。手で追加してコミットしてください（値: $MIN_APP）。"
+            exit 1
+          fi
+          if [ "$ENTRY" != "$MIN_APP" ]; then
+            echo "::error::versions.json の $NEW_VERSION は $ENTRY ですが、manifest.json の minAppVersion は $MIN_APP です。"
+            exit 1
+          fi
 
-      # v なしタグ（例: 1.0.1）。v を付けたい場合は "v${{ steps.bump.outputs.new_version }}" に変更
-      - name: Create & push tag
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "### Release \`$NEW_VERSION\` (manifest.json より)" >> "$GITHUB_STEP_SUMMARY"
+
+      # 公開済みのバージョンより新しくなければ、ここで打ち切る。
+      - name: Check version is newer than released
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_DIST_TOKEN }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
         run: |
-          TAG="${{ steps.bump.outputs.new_version }}"
-          git tag "$TAG"
-          git push origin "$TAG"
+          set -euo pipefail
+
+          RELEASED=$(gh release view --repo "$DIST_REPO" --json tagName --jq '.tagName' 2>/dev/null || true)
+          if [ -z "$RELEASED" ]; then
+            echo "::notice::Release が見つからないため、配布リポジトリの manifest.json を比較対象にします。"
+            RELEASED=$(jq -er '.version' dist-repo/manifest.json)
+          fi
+
+          echo "公開済みバージョン: $RELEASED"
+          echo "これからリリースするバージョン: $NEW_VERSION"
+
+          NEWEST=$(printf '%s\n%s\n' "$RELEASED" "$NEW_VERSION" | sort -V | tail -n 1)
+          if [ "$NEW_VERSION" = "$RELEASED" ] || [ "$NEWEST" != "$NEW_VERSION" ]; then
+            echo "::error::$NEW_VERSION は公開済みの $RELEASED より新しくありません。manifest.json の version を上げてください。"
+            exit 1
+          fi
+
+          echo "OK: $NEW_VERSION は公開済みの $RELEASED より新しい"
+
+      # 同じバージョンの PR が既に開いていれば、ここで打ち切る。
+      - name: Check no open PR for this version
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_DIST_TOKEN }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="release/${NEW_VERSION}"
+          EXISTING_PR=$(gh pr list --repo "$DIST_REPO" --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "::error::$BRANCH の PR が既に開いています: $EXISTING_PR"
+            exit 1
+          fi
+
+          echo "OK: $BRANCH の open PR は無し"
 
       - name: Build plugin
         env:
           NODE_ENV: production
         run: npm run build
 
-      - name: Prepare release assets
-        id: prep
+      # 配布側と同じ検証をここで先出しし、壊れた成果物を push しないようにする。
+      # styles.css はビルド生成物ではなく手書きソース。
+      - name: Verify release artifacts
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
         run: |
-          set -e
-          TAG="${{ steps.bump.outputs.new_version }}"
-          PKG_DIR="release-${TAG}"
-          mkdir -p "$PKG_DIR"
+          set -euo pipefail
 
-          # main.js の検出（優先順）
-          if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
-          elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
-          elif [ -f main.js ]; then SRC_MAIN=main.js
-          else
-            echo "ERROR: main.js が見つかりません。"; exit 1
-          fi
-          cp "$SRC_MAIN" "$PKG_DIR/main.js"
+          for f in main.js styles.css manifest.json versions.json; do
+            [ -s "$f" ] || { echo "::error::$f が無いか空です。"; exit 1; }
+          done
 
-          # manifest.json（root）
-          if [ ! -f manifest.json ]; then
-            echo "ERROR: manifest.json が見つかりません。"; exit 1
-          fi
-          cp manifest.json "$PKG_DIR/manifest.json"
+          jq -e --arg v "$NEW_VERSION" '.version == $v' manifest.json >/dev/null \
+            || { echo "::error::manifest.json の version が $NEW_VERSION ではありません。"; exit 1; }
+          jq -e --arg v "$NEW_VERSION" 'has($v)' versions.json >/dev/null \
+            || { echo "::error::versions.json に $NEW_VERSION のエントリがありません。"; exit 1; }
 
-          # styles.css（必須）
-          if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
-          elif [ -f styles.css ]; then SRC_CSS=styles.css
-          else
-            echo "ERROR: styles.css が見つかりません。"; exit 1
-          fi
-          cp "$SRC_CSS" "$PKG_DIR/styles.css"
+      # dry run はここで終わり。以降の push 系ステップは走らない。
+      - name: Stop here (dry run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "### Dry run: 検証まで完了。配布リポジトリへの push は行っていません" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "dir=${PKG_DIR}" >> $GITHUB_OUTPUT
-
+      # 配布リポジトリへ渡すバイト列そのものに証明を付ける。dry run では
+      # 恒久的な記録を残したくないので実行しない。
       - name: Generate artifact attestations
+        if: ${{ !inputs.dry_run }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            ${{ steps.prep.outputs.dir }}/main.js
-            ${{ steps.prep.outputs.dir }}/manifest.json
-            ${{ steps.prep.outputs.dir }}/styles.css
+            main.js
+            manifest.json
+            styles.css
 
-      - name: Create GitHub Release (published)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.bump.outputs.new_version }}
-          name: ${{ steps.bump.outputs.new_version }}
-          generate_release_notes: true
-          files: |
-            ${{ steps.prep.outputs.dir }}/main.js
-            ${{ steps.prep.outputs.dir }}/manifest.json
-            ${{ steps.prep.outputs.dir }}/styles.css
+      # PR は無いがブランチだけ残っている場合（前回途中で止めた等）は、
+      # そのブランチの続きにコミットする。
+      - name: Push artifacts to release branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="release/${NEW_VERSION}"
+
+          cp main.js styles.css manifest.json versions.json dist-repo/
+
+          cd dist-repo
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            git switch -c "$BRANCH" "origin/$BRANCH"
+            echo "::notice::既存のブランチ $BRANCH に追加コミットします。"
+          else
+            git switch -c "$BRANCH"
+          fi
+
+          git add main.js styles.css manifest.json versions.json
+
+          if git diff --cached --quiet; then
+            echo "::notice::配布リポジトリに差分がありません。push をスキップします。"
+            echo "### 差分が無かったため push しませんでした（\`$BRANCH\`）" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git commit -m "chore: release ${NEW_VERSION}"
+          git push --set-upstream origin "$BRANCH"
+
+          {
+            echo "### \`$BRANCH\` を配布リポジトリへ push しました"
+            echo
+            echo "- https://github.com/${DIST_REPO}/compare/main...${BRANCH}?expand=1"
+            echo
+            echo "この後は手作業です。上のリンクから PR を作り、**本文にリリースノートを書いて**"
+            echo "main にマージしてください。配布側のワークフローがその PR 本文を"
+            echo "リリースノートに使い、タグ \`${NEW_VERSION}\` と Release を作成します。"
+          } >> "$GITHUB_STEP_SUMMARY"
