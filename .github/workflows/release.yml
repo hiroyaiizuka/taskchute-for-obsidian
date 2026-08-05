@@ -14,6 +14,10 @@ name: Release (build & push dist branch)
 # 行わず、リポジトリにコミット済みの値をそのまま使います。リリース前に
 # manifest.json と versions.json を手で更新してコミットしておいてください。
 #
+# 成果物証明 (SLSA provenance) はここでは発行しません。GitHub の Artifact
+# Attestations はユーザー所有の private リポジトリでは利用できないためです。
+# 証明の発行は public な配布リポジトリ側のワークフローが担当します。
+#
 # 事前準備: 配布リポジトリに対して Contents:write / Pull requests:read を持つ
 # fine-grained PAT を、このリポジトリの Actions secret RELEASE_DIST_TOKEN に
 # 登録すること。
@@ -28,11 +32,6 @@ on:
 
 permissions:
   contents: read
-  # 成果物証明 (SLSA provenance) の署名に必要。ビルドしているのはこのリポジトリ
-  # なので、証明もここで発行する。検証は次のコマンド:
-  #   gh attestation verify main.js --repo hiroyaiizuka/hiroyaiizuka-taskchute-for-obsidian-source
-  id-token: write
-  attestations: write
 
 concurrency:
   group: release
@@ -175,17 +174,6 @@ jobs:
         if: ${{ inputs.dry_run }}
         run: |
           echo "### Dry run: 検証まで完了。配布リポジトリへの push は行っていません" >> "$GITHUB_STEP_SUMMARY"
-
-      # 配布リポジトリへ渡すバイト列そのものに証明を付ける。dry run では
-      # 恒久的な記録を残したくないので実行しない。
-      - name: Generate artifact attestations
-        if: ${{ !inputs.dry_run }}
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            main.js
-            manifest.json
-            styles.css
 
       # PR は無いがブランチだけ残っている場合（前回途中で止めた等）は、
       # そのブランチの続きにコミットする。

@@ -377,28 +377,22 @@ describe('Obsidian review guardrails', () => {
     expect(packageJson.devDependencies?.['builtin-modules']).toBeUndefined()
   })
 
-  test('release workflow generates artifact attestations for published assets', () => {
+  // 成果物証明はこのリポジトリでは発行できない。GitHub の Artifact Attestations は
+  // ユーザー所有の private リポジトリでは利用できず、ここがそれに該当するため、
+  // ステップを置くと必ず失敗する。証明は public な配布リポジトリ側で発行する。
+  test('release workflow does not attempt artifact attestations', () => {
     const workflow = fs.readFileSync(
       path.join(ROOT, '.github/workflows/release.yml'),
       'utf8',
     )
 
-    expect(workflow).toMatch(/id-token:\s*write/)
-    expect(workflow).toMatch(/attestations:\s*write/)
-    // メジャーの引き上げで落ちないよう、版数ではなく使うアクションを検査する
-    expect(workflow).toMatch(/uses: actions\/attest-build-provenance@v\d+/)
+    // メジャーの引き上げで見逃さないよう、版数ではなく使うアクションを検査する
+    expect(workflow).not.toMatch(/uses: actions\/attest-build-provenance@v\d+/)
     expect(workflow).not.toMatch(/uses: actions\/attest@v\d+/)
 
-    // 証明の対象は、配布リポジトリへ渡す3ファイルそのもの
-    const subjectPaths = workflow.match(
-      /subject-path: \|\n((?:\s+\S+\n)+)/,
-    )?.[1]
-    expect(subjectPaths).toBeDefined()
-    expect(subjectPaths?.trim().split(/\s+/)).toEqual([
-      'main.js',
-      'manifest.json',
-      'styles.css',
-    ])
+    // 証明を行わないので、対応する権限も持たせない
+    expect(workflow).not.toMatch(/id-token:\s*write/)
+    expect(workflow).not.toMatch(/attestations:\s*write/)
   })
 
   test('release workflow publishes only Obsidian-supported release assets', () => {
