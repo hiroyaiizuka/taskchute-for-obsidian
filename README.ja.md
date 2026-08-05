@@ -4,7 +4,7 @@
 
 **タスクを整理するだけでなく、実行するためのプラグイン。**
 
-![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
+![TaskChute Plus - Execute tasks, don't just organize them](assets/taskchute-social-card.png)
 
 TaskChute Plus は、実行重視のタスク管理を Obsidian 上で行うためのプラグインです。  
 「今やること」を決めて実行し、実績ログを蓄積して改善につなげます。
@@ -91,27 +91,15 @@ scheduled_time: "09:00"
 
 `projectsFolder` はデフォルトで未設定です（必要時に個別指定）。
 
-## 開発
+## ソースコード
 
-### 要件
+本リポジトリは配布専用です。プラグイン本体のソースコードは非公開リポジトリで管理しており、
+ビルド成果物を GitHub Releases としてここで配布します。
 
-- Node.js 18+
-- npm
+MIT ライセンスで公開していた v1 時点のソースは引き続き参照できます。
 
-### セットアップ
-
-```bash
-npm install
-```
-
-### スクリプト
-
-```bash
-npm run dev       # esbuild watch
-npm run build     # production bundle
-npm run lint      # eslint for src/tests
-npm test          # jest
-```
+- ブランチ: <https://github.com/hiroyaiizuka/taskchute-for-obsidian/tree/v1>
+- タグ: `v1-oss-final`
 
 ### リリース成果物
 
@@ -120,6 +108,8 @@ Obsidian はプラグインルートの以下を読み込みます。
 - `main.js`
 - `manifest.json`
 - `styles.css`
+
+これらは各 GitHub Release に添付されます。
 
 ## ライセンス
 

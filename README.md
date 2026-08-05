@@ -4,7 +4,7 @@
 
 **Execute tasks, don't just organize them.**
 
-![TaskChute Plus - Execute tasks, don't just organize them](taskchute-docs/static/img/taskchute-social-card.png)
+![TaskChute Plus - Execute tasks, don't just organize them](assets/taskchute-social-card.png)
 
 TaskChute Plus is an Obsidian plugin focused on execution-first task management:
 you decide what to do now, run it, and keep a reliable log of what actually happened.
@@ -91,27 +91,15 @@ With default `vaultRoot` mode, TaskChute-managed folders are:
 
 `projectsFolder` is intentionally unset by default and can be configured separately.
 
-## Development
+## Source Code
 
-### Requirements
+This repository is now distribution-only. The plugin source code is maintained in a
+separate private repository, and builds are published here as GitHub Releases.
 
-- Node.js 18+
-- npm
+The last MIT-licensed open-source snapshot (v1) is still available:
 
-### Setup
-
-```bash
-npm install
-```
-
-### Scripts
-
-```bash
-npm run dev       # esbuild watch
-npm run build     # production bundle
-npm run lint      # eslint for src/tests
-npm test          # jest
-```
+- Branch: <https://github.com/hiroyaiizuka/taskchute-for-obsidian/tree/v1>
+- Tag: `v1-oss-final`
 
 ### Release Artifacts
 
@@ -120,6 +108,8 @@ Obsidian loads these files from the plugin root:
 - `main.js`
 - `manifest.json`
 - `styles.css`
+
+They are attached to each GitHub Release.
 
 ## License
 
