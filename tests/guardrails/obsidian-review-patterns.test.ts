@@ -385,8 +385,9 @@ describe('Obsidian review guardrails', () => {
 
     expect(workflow).toMatch(/id-token:\s*write/)
     expect(workflow).toMatch(/attestations:\s*write/)
-    expect(workflow).toContain('uses: actions/attest-build-provenance@v2')
-    expect(workflow).not.toContain('uses: actions/attest@v4')
+    // メジャーの引き上げで落ちないよう、版数ではなく使うアクションを検査する
+    expect(workflow).toMatch(/uses: actions\/attest-build-provenance@v\d+/)
+    expect(workflow).not.toMatch(/uses: actions\/attest@v\d+/)
 
     // 証明の対象は、配布リポジトリへ渡す3ファイルそのもの
     const subjectPaths = workflow.match(
