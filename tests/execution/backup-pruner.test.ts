@@ -6,11 +6,11 @@ const DAY = 24 * 60 * 60 * 1000
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>
-  parent?: FolderNode
+  parent: FolderNode | null
 }
 
 interface FileNode extends TFile {
-  parent?: FolderNode
+  parent: FolderNode | null
 }
 
 function createFolder(path: string): FolderNode {
@@ -19,6 +19,7 @@ function createFolder(path: string): FolderNode {
   folder.path = path
   folder.name = path.split('/').pop() ?? path
   folder.children = []
+  folder.parent = null
   return folder
 }
 
@@ -31,6 +32,7 @@ function createFile(path: string, mtime: number): FileNode {
   file.basename = dotIndex >= 0 ? filename.slice(0, dotIndex) : filename
   file.extension = dotIndex >= 0 ? filename.slice(dotIndex + 1) : ''
   file.stat = { mtime, ctime: mtime, size: 0 }
+  file.parent = null
   return file
 }
 
@@ -69,11 +71,11 @@ function createPrunerContext(retentionDays = 30) {
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault, fileManager } as TaskChutePluginLike['app'],
+    app: { vault, fileManager } as unknown as TaskChutePluginLike['app'],
     pathManager: {
       getLogDataPath: () => 'LOGS',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
-    },
+    } as unknown as TaskChutePluginLike['pathManager'],
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},

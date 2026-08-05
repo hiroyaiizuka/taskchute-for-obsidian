@@ -5,6 +5,7 @@ import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderSe
 import { isDeleted as isDeletedEntry } from '../../src/services/dayState/conflictResolver';
 import {
   DayState,
+  TaskData,
   TaskInstance,
   HiddenRoutine,
   DuplicatedInstance,
@@ -65,7 +66,7 @@ interface TaskChuteViewContextStub {
       getFileCache: jest.Mock<unknown, [unknown]>;
     };
   };
-  tasks: unknown[];
+  tasks: TaskData[];
   taskInstances: TaskInstance[];
   renderTaskList: jest.Mock<void, []>;
   currentDate: Date;
@@ -264,7 +265,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
         }),
       },
     },
-    tasks: [] as unknown[],
+    tasks: [] as TaskData[],
     taskInstances: [] as TaskInstance[],
     renderTaskList: jest.fn(),
     currentDate: new Date(date),
@@ -434,7 +435,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
         }),
       },
     },
-    tasks: [] as unknown[],
+    tasks: [] as TaskData[],
     taskInstances: [] as TaskInstance[],
     renderTaskList: jest.fn(),
     currentDate: new Date(date),
@@ -618,7 +619,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
         }),
       },
     },
-    tasks: [] as unknown[],
+    tasks: [] as TaskData[],
     taskInstances: [] as TaskInstance[],
     renderTaskList: jest.fn(),
     currentDate: new Date(date),

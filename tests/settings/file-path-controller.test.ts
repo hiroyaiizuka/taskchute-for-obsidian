@@ -5,7 +5,7 @@ import { FilePathFieldController } from '../../src/settings/filePathFieldControl
 describe('FilePathFieldController', () => {
   const createTextStub = () => {
     let value = ''
-    const text = {
+    const text: { setValue: jest.Mock; getValue: jest.Mock } = {
       setValue: jest.fn((next: string) => {
         value = next
         return text

@@ -89,14 +89,17 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
     }),
     adapter,
   };
+  const vaultWithGetFiles = vault as typeof vault & {
+    getFiles?: jest.Mock<TFile[], []>;
+  };
   if (!options.disableGetFiles) {
-    (vault as { getFiles?: () => TFile[] }).getFiles = jest.fn(() =>
+    vaultWithGetFiles.getFiles = jest.fn(() =>
       Array.from(store.keys()).map((path) => createTFile(path)),
     );
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault },
+    app: { vault } as unknown as TaskChutePluginLike['app'],
     settings: {
       taskFolderPath: '',
       projectFolderPath: '',
@@ -116,10 +119,12 @@ function createPluginStub(options: { disableGetFiles?: boolean } = {}) {
       mergeDayState: jest.fn(),
       clearCache: jest.fn(),
       getDateFromKey: jest.fn((key: string) => new Date(key)),
+      renameTaskPath: jest.fn(),
     },
+    manifest: { id: 'taskchute-plus' } as TaskChutePluginLike['manifest'],
   };
 
-  return { plugin, store, pathManager, vault, deltaStore, adapter };
+  return { plugin, store, pathManager, vault: vaultWithGetFiles, deltaStore, adapter };
 }
 
 function primeDeviceId(id: string | null): void {

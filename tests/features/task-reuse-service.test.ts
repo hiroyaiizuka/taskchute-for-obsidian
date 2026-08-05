@@ -64,11 +64,18 @@ describe('TaskReuseService', () => {
       } as unknown as TaskChutePluginLike['dayStateService'],
       routineAliasService: {} as TaskChutePluginLike['routineAliasService'],
       pathManager: {} as TaskChutePluginLike['pathManager'],
-      settings: { slotKeys: {} },
+      settings: { slotKeys: {}, useOrderBasedSort: true },
       saveSettings: jest.fn(),
       _log: jest.fn(),
       _notify: jest.fn(),
-      manifest: { id: 'taskchute-plus', name: 'TaskChute Plus', version: '1.0.0', minAppVersion: '1.4.0' },
+      manifest: {
+        id: 'taskchute-plus',
+        name: 'TaskChute Plus',
+        version: '1.0.0',
+        minAppVersion: '1.4.0',
+        author: 'test',
+        description: 'test plugin',
+      },
     }
   }
 
@@ -95,7 +102,7 @@ describe('TaskReuseService', () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
-    const metadataCache = plugin.app.metadataCache as { getFileCache: jest.Mock }
+    const metadataCache = plugin.app.metadataCache as unknown as { getFileCache: jest.Mock }
     metadataCache.getFileCache.mockReturnValue({
       frontmatter: { taskId: 'tc-task-sample', scheduled_time: '09:00' },
     })
@@ -111,7 +118,7 @@ describe('TaskReuseService', () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
-    const metadataCache = plugin.app.metadataCache as { getFileCache: jest.Mock }
+    const metadataCache = plugin.app.metadataCache as unknown as { getFileCache: jest.Mock }
     metadataCache.getFileCache.mockReturnValue({
       frontmatter: {
         taskId: 'tc-task-sample',

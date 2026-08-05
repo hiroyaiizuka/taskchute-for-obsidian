@@ -21,8 +21,7 @@ jest.mock('../../../src/i18n', () => {
 
 describe('TaskHeaderController', () => {
   const attachCreateEl = (target: HTMLElement) => {
-    const typed = target as HTMLElement & { createEl?: typeof attachCreateEl }
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    target.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const el = document.createElement(tag)
       if (options.cls) {
         el.className = options.cls as string
@@ -38,7 +37,7 @@ describe('TaskHeaderController', () => {
       attachCreateEl(el)
       this.appendChild(el)
       return el
-    }
+    }) as unknown as HTMLElement['createEl']
   }
 
   const createHost = (overrides: Partial<TaskHeaderControllerHost> = {}): TaskHeaderControllerHost => {
@@ -105,7 +104,7 @@ describe('TaskHeaderController', () => {
           commands: { 'terminal:open-terminal.integrated.root': {} },
           executeCommandById: executeCommand,
         },
-      },
+      } as unknown as TaskHeaderControllerHost['app'],
     })
     const controller = new TaskHeaderController(host)
     const container = document.createElement('div')
@@ -146,10 +145,10 @@ describe('TaskHeaderController', () => {
     calendarButton.dispatchEvent(new Event('click'))
 
     expect(capturedSelect).toBeTruthy()
-    await capturedSelect?.('2025-10-11')
+    await (capturedSelect as ((isoDate: string) => Promise<void> | void) | null)?.('2025-10-11')
     expect(setCurrentDate).toHaveBeenCalled()
     expect(reloadSpy).toHaveBeenCalled()
 
-    capturedClose?.()
+    ;(capturedClose as (() => void) | null)?.()
   })
 })

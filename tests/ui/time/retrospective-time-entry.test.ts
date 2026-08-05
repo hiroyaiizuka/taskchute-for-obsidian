@@ -57,7 +57,7 @@ describe('Retrospective time entry', () => {
         fileManager: {
           processFrontMatter: jest.fn(),
         },
-      },
+      } as unknown as TaskTimeControllerHost['app'],
       renderTaskList: jest.fn(),
       reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),
       getInstanceDisplayTitle: jest.fn(() => 'Sample Task'),
@@ -65,7 +65,7 @@ describe('Retrospective time entry', () => {
       executionLogService: {
         saveTaskLog: jest.fn().mockResolvedValue(undefined),
       },
-      calculateCrossDayDuration: jest.fn((start, stop) => stop.getTime() - start.getTime()),
+      calculateCrossDayDuration: jest.fn((start: Date, stop: Date) => stop.getTime() - start.getTime()),
       saveRunningTasksState: jest.fn().mockResolvedValue(undefined),
       stopInstance: jest.fn().mockResolvedValue(undefined),
       confirmStopNextDay: jest.fn().mockResolvedValue(true),

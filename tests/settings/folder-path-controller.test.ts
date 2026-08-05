@@ -5,7 +5,7 @@ import { FolderPathFieldController } from '../../src/settings/folderPathFieldCon
 describe('FolderPathFieldController', () => {
   const createTextStub = () => {
     let value = ''
-    const text = {
+    const text: { setValue: jest.Mock; getValue: jest.Mock } = {
       setValue: jest.fn((next: string) => {
         value = next
         return text
@@ -34,13 +34,13 @@ describe('FolderPathFieldController', () => {
     const options = {
       text: textStub,
       getStoredValue: () => storedValue,
-      setStoredValue: (next) => {
+      setStoredValue: (next: string | null | undefined) => {
         storedValue = next
       },
       saveSettings: jest.fn().mockResolvedValue(undefined),
       validatePath: jest.fn().mockReturnValue({ valid: true }),
       folderExists: jest.fn().mockReturnValue(true),
-      makeMissingNotice: (path) => `Missing: ${path}`,
+      makeMissingNotice: (path: string) => `Missing: ${path}`,
       emptyValue: undefined,
       notice: jest.fn(),
       ...overrides,

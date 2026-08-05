@@ -16,7 +16,12 @@ type TextStub = {
   trigger: (value: string) => Promise<void>
 }
 
-type MutableSettingTab = TaskChuteSettingTab & {
+/**
+ * Shape of the private members of TaskChuteSettingTab that this suite drives
+ * directly. The class itself cannot be intersected because those members are
+ * `private`.
+ */
+type MutableSettingTab = {
   app: typeof mockApp
   plugin: {
     settings: {
@@ -30,7 +35,7 @@ type MutableSettingTab = TaskChuteSettingTab & {
     }
     saveSettings: jest.Mock<Promise<void>, []>
   }
-  renderTaskCreationSection: (container: HTMLElement) => void
+  renderTaskCreationSection: jest.Mock<void, [HTMLElement]>
   renderAdvancedSection: (container: HTMLElement) => void
   renderRecipeFeatureSection: jest.Mock
   renderSectionCustomization: jest.Mock
@@ -49,7 +54,7 @@ function createToggleStub(): ToggleStub {
     trigger: async (value: boolean) => {
       await changeHandler?.(value)
     },
-  } as ToggleStub
+  } as unknown as ToggleStub
   return toggle
 }
 
@@ -69,12 +74,12 @@ function createTextStub(): TextStub {
     trigger: async (value: string) => {
       await changeHandler?.(value)
     },
-  } as TextStub
+  } as unknown as TextStub
   return text
 }
 
 function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab
+  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab
   tab.app = mockApp
   tab.plugin = {
     settings: {
@@ -103,16 +108,17 @@ describe('TaskChute task creation advanced setting', () => {
     const calendarToggle = createToggleStub()
     const toggleStubs = [advancedToggle, calendarToggle]
     const text = createTextStub()
-    const createdSettings: Array<{
+    type SettingInstance = {
       setName: jest.Mock
       setDesc: jest.Mock
       addToggle: jest.Mock
       addText: jest.Mock
       setHeading: jest.Mock
       controlEl?: { addClass: jest.Mock }
-    }> = []
+    }
+    const createdSettings: SettingInstance[] = []
     SettingMock.mockImplementation(() => {
-      const instance = {
+      const instance: SettingInstance = {
         setName: jest.fn().mockReturnThis(),
         setDesc: jest.fn().mockReturnThis(),
         setHeading: jest.fn().mockReturnThis(),

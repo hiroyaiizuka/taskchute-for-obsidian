@@ -58,7 +58,7 @@ describe('DayStateStoreService', () => {
     const manager = new DayStateStoreService(deps);
 
     manager.setHidden([
-      { path: 'TASKS/hidden.md', instanceId: null, date: '2025-10-09' },
+      { path: 'TASKS/hidden.md', instanceId: null },
     ]);
 
     await manager.persist();

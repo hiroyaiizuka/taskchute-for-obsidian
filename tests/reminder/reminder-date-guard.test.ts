@@ -89,7 +89,7 @@ describe('Date-aware Reminder Scheduling', () => {
       const reminderService = manager.getReminderService();
 
       // Simulate: Today is 2025-01-15
-      const actualToday = '2025-01-15';
+      const actualToday: string = '2025-01-15';
 
       // Case 1: Viewing today - should build schedules
       const viewingToday = '2025-01-15';
@@ -169,7 +169,7 @@ describe('Date-aware Reminder Scheduling', () => {
       const reminderService = manager.getReminderService();
 
       // Simulate: Today is 2025-01-15
-      const actualToday = '2025-01-15';
+      const actualToday: string = '2025-01-15';
 
       // First, build schedules for today
       manager.buildTodaySchedules([
@@ -220,7 +220,7 @@ describe('Date-aware Reminder Scheduling', () => {
       const reminderService = manager.getReminderService();
 
       // Simulate: Today is 2025-01-15
-      const actualToday = '2025-01-15';
+      const actualToday: string = '2025-01-15';
 
       // User navigates to tomorrow (2025-01-16) and creates a reminder
       // This simulates the bug: tomorrow's 09:00 reminder would fire today at 09:00
@@ -262,7 +262,7 @@ describe('Date-aware Reminder Scheduling', () => {
       const reminderService = manager.getReminderService();
 
       // Simulate: Today is 2025-01-15, current time is 10:00
-      const actualToday = '2025-01-15';
+      const actualToday: string = '2025-01-15';
 
       // Step 1: User loads today's tasks with a reminder at 10:05
       let viewingDate = actualToday;

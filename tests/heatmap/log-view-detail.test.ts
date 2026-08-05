@@ -53,7 +53,7 @@ const ensureObsidianDomHelpers = () => {
     }
   }
   if (!proto.createEl) {
-    proto.createEl = function (
+    proto.createEl = (function (
       this: HTMLElement,
       tag: string,
       options?: { cls?: string | string[]; text?: string; attr?: Record<string, string> },
@@ -76,7 +76,7 @@ const ensureObsidianDomHelpers = () => {
       }
       this.appendChild(el)
       return el
-    }
+    }) as unknown as HTMLElement['createEl']
   }
   if (!proto.setAttr) {
     proto.setAttr = function (this: HTMLElement, name: string, value: string) {
@@ -182,7 +182,7 @@ beforeAll(() => {
 
   test('renders today detail by default', async () => {
     const { plugin, container } = createPlugin()
-    const view = new LogView(plugin, container)
+    const view = new LogView(plugin as unknown as ConstructorParameters<typeof LogView>[0], container)
 
     const yearlyData: HeatmapYearData = {
       year: 2025,
@@ -226,7 +226,7 @@ beforeAll(() => {
 
   test('selecting another day updates detail panel', async () => {
     const { plugin, container } = createPlugin()
-    const view = new LogView(plugin, container)
+    const view = new LogView(plugin as unknown as ConstructorParameters<typeof LogView>[0], container)
 
     const yearlyData: HeatmapYearData = {
       year: 2025,
@@ -296,7 +296,7 @@ beforeAll(() => {
 
   test('calculateLevel maps completion rate into five buckets', () => {
     const { plugin, container } = createPlugin()
-    const view = new LogView(plugin, container)
+    const view = new LogView(plugin as unknown as ConstructorParameters<typeof LogView>[0], container)
     const calculator = view as unknown as {
       calculateLevel(stats: HeatmapDayStats): 0 | 1 | 2 | 3 | 4 | null
     }
@@ -319,7 +319,7 @@ beforeAll(() => {
 
   test('days with low completion but some progress render white cells', async () => {
     const { plugin, container } = createPlugin()
-    const view = new LogView(plugin, container)
+    const view = new LogView(plugin as unknown as ConstructorParameters<typeof LogView>[0], container)
 
     jest.setSystemTime(new Date('2025-10-10T09:00:00Z'))
 

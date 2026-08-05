@@ -6,9 +6,9 @@ interface CreateElOptions {
   attr?: Record<string, string>;
 }
 
-interface MockHTMLDivElement extends HTMLDivElement {
+type MockHTMLDivElement = Omit<HTMLDivElement, 'createEl'> & {
   createEl?: (tag: string, options?: CreateElOptions) => HTMLElement;
-}
+};
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -17,7 +17,7 @@ const setActiveDocument = (doc: Document): void => {
 // createElメソッドのモック
 beforeAll(() => {
   // HTMLDivElementのプロトタイプにcreateElを追加
-  const proto = HTMLDivElement.prototype as MockHTMLDivElement;
+  const proto = HTMLDivElement.prototype as unknown as MockHTMLDivElement;
   proto.createEl = function(tag: string, options?: CreateElOptions) {
     const el = document.createElement(tag)
     if (options?.cls) el.className = options.cls
@@ -34,7 +34,7 @@ beforeAll(() => {
 
 afterAll(() => {
   // クリーンアップ
-  const proto = HTMLDivElement.prototype as MockHTMLDivElement;
+  const proto = HTMLDivElement.prototype as unknown as MockHTMLDivElement;
   delete proto.createEl;
 })
 

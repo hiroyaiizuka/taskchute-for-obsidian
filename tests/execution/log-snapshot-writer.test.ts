@@ -48,11 +48,11 @@ function createWriterTestContext(): WriterTestContext {
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault } as TaskChutePluginLike['app'],
+    app: { vault } as unknown as TaskChutePluginLike['app'],
     pathManager: {
       getLogDataPath: () => 'LOGS',
       ensureFolderExists: jest.fn().mockResolvedValue(undefined),
-    },
+    } as unknown as TaskChutePluginLike['pathManager'],
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},

@@ -13,24 +13,24 @@ describe('ReminderScheduleManager', () => {
       const baseDate = new Date('2025-01-15');
       const result = calculateReminderTime('09:00', 5, baseDate);
 
-      expect(result.getHours()).toBe(8);
-      expect(result.getMinutes()).toBe(55);
+      expect(result?.getHours()).toBe(8);
+      expect(result?.getMinutes()).toBe(55);
     });
 
     it('should calculate reminder time correctly for 10 minutes before', () => {
       const baseDate = new Date('2025-01-15');
       const result = calculateReminderTime('14:30', 10, baseDate);
 
-      expect(result.getHours()).toBe(14);
-      expect(result.getMinutes()).toBe(20);
+      expect(result?.getHours()).toBe(14);
+      expect(result?.getMinutes()).toBe(20);
     });
 
     it('should handle reminder time crossing hour boundary', () => {
       const baseDate = new Date('2025-01-15');
       const result = calculateReminderTime('10:05', 10, baseDate);
 
-      expect(result.getHours()).toBe(9);
-      expect(result.getMinutes()).toBe(55);
+      expect(result?.getHours()).toBe(9);
+      expect(result?.getMinutes()).toBe(55);
     });
 
     it('should handle reminder time crossing midnight', () => {
@@ -38,9 +38,9 @@ describe('ReminderScheduleManager', () => {
       const result = calculateReminderTime('00:05', 10, baseDate);
 
       // Should be 23:55 of the previous day
-      expect(result.getHours()).toBe(23);
-      expect(result.getMinutes()).toBe(55);
-      expect(result.getDate()).toBe(14); // Previous day
+      expect(result?.getHours()).toBe(23);
+      expect(result?.getMinutes()).toBe(55);
+      expect(result?.getDate()).toBe(14); // Previous day
     });
 
     it('should return null for invalid time format', () => {

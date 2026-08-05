@@ -25,8 +25,12 @@ describe('TaskLoaderService reminder_time normalization (integration)', () => {
     });
 
     it('should return undefined when metadata is undefined', () => {
-      const metadata = undefined;
-      expect(normalizeReminderTime(metadata?.reminder_time)).toBeUndefined();
+      const metadata: Record<string, unknown> | undefined = undefined;
+      expect(
+        normalizeReminderTime(
+          (metadata as Record<string, unknown> | undefined)?.reminder_time,
+        ),
+      ).toBeUndefined();
     });
   });
 

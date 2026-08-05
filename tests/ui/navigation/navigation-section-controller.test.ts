@@ -147,7 +147,7 @@ describe('NavigationSectionController', () => {
           trashFile: jest.fn(),
         },
         workspace,
-      },
+      } as unknown as NavigationSectionHost['app'],
       plugin: {
         manifest: { id: 'taskchute-plus' },
         pathManager: {
@@ -253,7 +253,8 @@ describe('NavigationSectionController', () => {
 
     expect(host.app.workspace.getLeavesOfType).toHaveBeenCalledWith('taskchute-project-board')
     expect(host.app.workspace.getLeaf).toHaveBeenCalledWith(true)
-    const leaf = host.app.workspace.getLeaf.mock.results[0]?.value as { setViewState: jest.Mock }
+    const getLeafMock = host.app.workspace.getLeaf as unknown as jest.Mock
+    const leaf = getLeafMock.mock.results[0]?.value as { setViewState: jest.Mock }
     expect(leaf.setViewState).toHaveBeenCalledWith({ type: 'taskchute-project-board', active: true })
     expect(host.closeNavigation).toHaveBeenCalled()
   })

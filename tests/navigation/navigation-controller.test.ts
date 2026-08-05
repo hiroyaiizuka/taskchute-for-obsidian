@@ -1,7 +1,5 @@
 import NavigationController from '../../src/ui/navigation/NavigationController';
 
-type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement;
-
 type NavigationViewStub = {
   tv: (key: string, fallback: string) => string;
   app: {
@@ -15,13 +13,22 @@ type NavigationViewStub = {
     metadataCache: {
       getFileCache: jest.Mock<unknown, [unknown]>;
     };
+    fileManager: {
+      processFrontMatter: jest.Mock;
+    };
   };
   plugin: {
     manifest: { id: string };
     settings: {
       recipeFeatureEnabled?: boolean;
     };
-    pathManager: { getTaskFolderPath: () => string };
+    app?: unknown;
+    pathManager: {
+      getTaskFolderPath: () => string;
+      getLogDataPath: () => string;
+      getReviewDataPath: () => string;
+      ensureFolderExists: jest.Mock;
+    };
   };
   navigationState: { selectedSection: string | null; isOpen: boolean };
   registerManagedDomEvent: jest.Mock<void, [HTMLElement, string, EventListener]>;
@@ -37,8 +44,7 @@ type NavigationViewStub = {
 
 describe('NavigationController', () => {
   function attachCreateEl(target: HTMLElement): void {
-    const typed = target as HTMLElement & { createEl?: CreateEl };
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    target.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const el = document.createElement(tag);
       if (options.cls) {
         el.className = options.cls as string;
@@ -54,7 +60,7 @@ describe('NavigationController', () => {
       attachCreateEl(el);
       this.appendChild(el);
       return el;
-    };
+    }) as unknown as HTMLElement['createEl'];
   }
 
   function createController(recipeFeatureEnabled = false) {
@@ -75,7 +81,7 @@ describe('NavigationController', () => {
           getMarkdownFiles: jest.fn(() => []),
         },
         metadataCache: {
-          getFileCache: jest.fn(() => undefined),
+          getFileCache: jest.fn<unknown, [unknown]>(() => undefined),
         },
         fileManager: {
           processFrontMatter: jest.fn(async (_file, updater) => {
@@ -105,8 +111,10 @@ describe('NavigationController', () => {
       leaf: {},
     };
 
-    view.plugin.app = view.app as unknown; // align plugin/app linkage for controllers
-    const controller = new NavigationController(view);
+    view.plugin.app = view.app; // align plugin/app linkage for controllers
+    const controller = new NavigationController(
+      view as unknown as ConstructorParameters<typeof NavigationController>[0],
+    );
     return { controller, view, registerManagedDomEvent };
   }
 

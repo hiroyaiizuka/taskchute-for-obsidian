@@ -1,6 +1,6 @@
 import { Notice, TFile } from 'obsidian'
 import NavigationRoutineController, { NavigationRoutineHost } from '../../../src/ui/navigation/NavigationRoutineController'
-import type { RoutineTaskShape } from '../../../src/types/Routine'
+import type { RoutineTaskShape } from '../../../src/types/routine'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

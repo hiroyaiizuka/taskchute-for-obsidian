@@ -6,7 +6,7 @@ import type { SectionConfigService } from '../../../services/SectionConfigServic
 export type DayStateCacheClearMode = 'none' | 'current' | 'all'
 
 interface TaskReloadCoordinatorHost {
-  boundaryCheckTimeout: ReturnType<typeof setTimeout> | null
+  boundaryCheckTimeout: ReturnType<Window['setTimeout']> | null
   boundaryCheckWindow: Window | null
   currentDate: Date
   taskInstances: TaskInstance[]

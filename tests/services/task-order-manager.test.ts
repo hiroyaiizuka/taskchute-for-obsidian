@@ -1,6 +1,6 @@
 import TaskOrderManager, { TaskOrderManagerOptions } from '../../src/features/core/services/TaskOrderManager';
 import DayStateStoreService from '../../src/services/DayStateStoreService';
-import { DayState, TaskInstance } from '../../src/types';
+import { DayState, TaskData, TaskInstance } from '../../src/types';
 
 describe('TaskOrderManager', () => {
   const createOptions = (overrides: Partial<TaskOrderManagerOptions> = {}) => {
@@ -45,14 +45,25 @@ describe('TaskOrderManager', () => {
     return { options: { ...baseOptions, ...overrides }, dayState, dayStateManager };
   };
 
-  const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => ({
-    task: {
-      path: overrides.task?.path ?? 'TASKS/sample.md',
-      displayTitle: overrides.task?.displayTitle ?? 'Sample',
-      isRoutine: overrides.task?.isRoutine ?? false,
-      scheduledTime: overrides.task?.scheduledTime,
+  const createTask = (overrides: Partial<TaskData> = {}): TaskData => ({
+    file: null,
+    frontmatter: {},
+    path: 'TASKS/sample.md',
+    name: 'Sample',
+    displayTitle: 'Sample',
+    isRoutine: false,
+    ...overrides,
+  });
+
+  type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
+    task?: Partial<TaskData>;
+  };
+
+  const createInstance = (overrides: InstanceOverrides = {}): TaskInstance => ({
+    task: createTask({
+      ...overrides.task,
       createdMillis: overrides.task?.createdMillis ?? overrides.createdMillis,
-    },
+    }),
     instanceId: overrides.instanceId ?? `inst-${Math.random().toString(36).slice(2, 8)}`,
     state: overrides.state ?? 'idle',
     slotKey: overrides.slotKey ?? 'none',

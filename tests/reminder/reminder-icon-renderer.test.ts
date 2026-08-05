@@ -100,7 +100,7 @@ describe('ReminderIconRenderer', () => {
     date: '2025-01-15',
     slotKey: 'slot-08-12',
     state: 'pending',
-  } as TaskInstance);
+  } as unknown as TaskInstance);
 
   describe('hasReminder', () => {
     it('should return true when reminder_time is set', () => {

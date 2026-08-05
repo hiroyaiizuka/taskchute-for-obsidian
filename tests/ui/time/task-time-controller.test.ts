@@ -68,7 +68,7 @@ describe('TaskTimeController', () => {
         fileManager: {
           processFrontMatter: jest.fn(),
         },
-      },
+      } as unknown as TaskTimeControllerHost['app'],
       renderTaskList: jest.fn(),
       reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),
       getInstanceDisplayTitle: jest.fn(() => 'Sample Task'),

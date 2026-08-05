@@ -14,11 +14,8 @@ if (typeof globalThis.DragEvent === 'undefined') {
 
 describe('TaskListRenderer', () => {
   function attachCreateEl(target: HTMLElement): void {
-    const typed = target as HTMLElement & {
-      createEl?: (tag: string, options?: Record<string, unknown>) => HTMLElement;
-      createSvg?: (tag: string, options?: { attr?: Record<string, string>; cls?: string }) => SVGElement;
-    };
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    const typed = target;
+    typed.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const el = document.createElement(tag);
       if (options.cls) {
         el.className = options.cls as string;
@@ -34,8 +31,8 @@ describe('TaskListRenderer', () => {
       attachCreateEl(el);
       this.appendChild(el);
       return el;
-    };
-    typed.createSvg = function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
+    }) as unknown as HTMLElement['createEl'];
+    typed.createSvg = (function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', tag);
       if (options.cls) {
         svg.setAttribute('class', options.cls);
@@ -48,7 +45,7 @@ describe('TaskListRenderer', () => {
       attachCreateEl(svg as unknown as HTMLElement);
       this.appendChild(svg as unknown as HTMLElement);
       return svg as unknown as SVGElement;
-    };
+    }) as unknown as HTMLElement['createSvg'];
     (typed as HTMLElement & { empty?: () => void }).empty = function () {
       while (this.firstChild) {
         this.removeChild(this.firstChild);
@@ -100,6 +97,7 @@ describe('TaskListRenderer', () => {
       calculateCrossDayDuration: (start: Date, stop: Date) => stop.getTime() - start.getTime(),
       showStartTimePopup: jest.fn(),
       showStopTimePopup: jest.fn(),
+      showReminderSettingsModal: jest.fn(),
       isCollapsibleEnabled: () => false,
       updateTotalTasksCount: jest.fn(),
       showProjectModal: jest.fn(),

@@ -1300,7 +1300,10 @@ function getFrontmatter(context: TaskLoaderHost, file: TFile): TaskFrontmatterWi
   return cache?.frontmatter as TaskFrontmatterWithLegacy | undefined
 }
 
-export function isTaskFile(content: string, frontmatter: TaskFrontmatterWithLegacy | undefined): boolean {
+export function isTaskFile(
+  content: string,
+  frontmatter: Pick<TaskFrontmatterWithLegacy, 'tags' | 'estimatedMinutes'> | undefined,
+): boolean {
   // Check for #task tag in content (legacy support)
   if (content.includes('#task')) return true
   // Check for 'task' in frontmatter tags (new format)

@@ -58,7 +58,7 @@ describe('HeatmapService', () => {
 
     const vault = createVault(store)
 
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const monthlyPath = 'LOGS/2025-09-tasks.json'
@@ -86,7 +86,7 @@ describe('HeatmapService', () => {
     const store = new Map<string, string>()
     const pathManager = createPathManager()
     const vault = createVault(store)
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const legacyPath = 'LOGS/.heatmap/2024/yearly-heatmap.json'
@@ -112,7 +112,7 @@ describe('HeatmapService', () => {
     const store = new Map<string, string>()
     const pathManager = createPathManager()
     const vault = createVault(store)
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const legacyPath = 'LOGS/2023/yearly-heatmap.json'
@@ -141,7 +141,7 @@ describe('HeatmapService', () => {
 
     const vault = createVault(store)
 
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const monthPath = 'LOGS/2025-09-tasks.json'
@@ -252,7 +252,7 @@ describe('HeatmapService', () => {
 
     const vault = createVault(store)
 
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const monthPath = 'LOGS/2025-09-tasks.json'
@@ -332,7 +332,7 @@ describe('HeatmapService', () => {
       modify: jest.fn(),
     }
 
-    const plugin: HeatmapServicePluginLike = { app: { vault }, pathManager }
+    const plugin: HeatmapServicePluginLike = { app: { vault } as unknown as HeatmapServicePluginLike['app'], pathManager }
     const service = new HeatmapService(plugin)
 
     const result = await service.loadDayDetail('2099-01-01')
@@ -344,7 +344,7 @@ describe('HeatmapService', () => {
     const pathManager = createPathManager()
     const vault = createVault(store)
     const plugin: HeatmapServicePluginLike = {
-      app: { vault },
+      app: { vault } as unknown as HeatmapServicePluginLike['app'],
       pathManager,
       settings: { reviewFileNamePattern: ' Review - {{date}}.md ' },
     }

@@ -22,17 +22,17 @@ describe('TaskChuteSettings reminder fields', () => {
 
     it('should not have reminderCheckIntervalSec in defaults (internal value)', () => {
       // These are now internal fixed values, not exposed to users
-      expect((DEFAULT_SETTINGS as Record<string, unknown>).reminderCheckIntervalSec).toBeUndefined();
+      expect((DEFAULT_SETTINGS as unknown as Record<string, unknown>).reminderCheckIntervalSec).toBeUndefined();
     });
 
     it('should not have editDetectionSec in defaults (internal value)', () => {
       // These are now internal fixed values, not exposed to users
-      expect((DEFAULT_SETTINGS as Record<string, unknown>).editDetectionSec).toBeUndefined();
+      expect((DEFAULT_SETTINGS as unknown as Record<string, unknown>).editDetectionSec).toBeUndefined();
     });
 
     it('should not have reminderEnabled in defaults (always enabled)', () => {
       // Reminder is now always enabled, no user setting
-      expect((DEFAULT_SETTINGS as Record<string, unknown>).reminderEnabled).toBeUndefined();
+      expect((DEFAULT_SETTINGS as unknown as Record<string, unknown>).reminderEnabled).toBeUndefined();
     });
   });
 });

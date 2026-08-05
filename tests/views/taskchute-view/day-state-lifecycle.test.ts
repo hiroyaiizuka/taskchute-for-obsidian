@@ -55,12 +55,13 @@ type Mutable<T> = {
   -readonly [K in keyof T]: T[K];
 };
 
+/** Reaches private/internal members of the view without leaking `any` into tests. */
+function internals(view: TaskChuteView): Record<string, unknown> {
+  return view as unknown as Record<string, unknown>;
+}
+
 type MoveCalendarStub = {
   close: jest.Mock<void, []>;
-};
-
-type TimerServiceStub = {
-  dispose: jest.Mock<void, []>;
 };
 
 type TimeoutWindow = Window & {
@@ -93,7 +94,7 @@ function createDayState(overrides: Partial<DayState> = {}): DayState {
 function createPluginStub() {
   const dayStateService = {
     loadDay: jest.fn(async () => createDayState()),
-    saveDay: jest.fn(async () => undefined),
+    saveDay: jest.fn<Promise<undefined>, [Date, DayState]>(async () => undefined),
     consumeLocalStateWrite: jest.fn(() => false),
   };
 
@@ -214,7 +215,7 @@ type CreateElCapableElement = HTMLElement & {
 
 function attachRecursiveCreateEl(target: HTMLElement): void {
   const typed = target as CreateElCapableElement;
-  typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+  typed.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
     const el = document.createElement(tag);
     if (options.cls) {
       el.className = options.cls as string;
@@ -230,13 +231,13 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     attachRecursiveCreateEl(el);
     this.appendChild(el);
     return el;
-  };
-  typed.createSpan = function (options: Record<string, unknown> = {}) {
+  }) as unknown as CreateElCapableElement['createEl'];
+  typed.createSpan = (function (this: CreateElCapableElement, options: Record<string, unknown> = {}) {
     return this.createEl?.('span', options) ?? document.createElement('span');
-  };
+  }) as unknown as CreateElCapableElement['createSpan'];
   (typed as HTMLElement & {
     createSvg?: (tag: string, options?: { attr?: Record<string, string>; cls?: string }) => SVGElement;
-  }).createSvg = function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
+  }).createSvg = (function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', tag);
     if (options.cls) {
       svg.setAttribute('class', options.cls);
@@ -249,7 +250,7 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     attachRecursiveCreateEl(svg as unknown as HTMLElement);
     this.appendChild(svg as unknown as HTMLElement);
     return svg as unknown as SVGElement;
-  };
+  }) as unknown as HTMLElement['createSvg'];
   if (typeof (typed as { empty?: () => void }).empty !== 'function') {
     (typed as { empty: () => void }).empty = function () {
       while (this.firstChild) {
@@ -280,17 +281,17 @@ describe('TaskChuteView day-state lifecycle', () => {
   test('ensureDayStateForCurrentDate reloads when date changes', async () => {
     const { view, dayStateService } = createView();
 
-    dayStateService.loadDay.mockImplementationOnce(async () => createDayState({ hiddenRoutines: ['day-1'] }));
+    dayStateService.loadDay.mockImplementationOnce(async () => createDayState({ hiddenRoutines: [{ path: 'day-1' }] }));
     const first = await view.ensureDayStateForCurrentDate();
-    expect(first.hiddenRoutines).toContain('day-1');
+    expect(first.hiddenRoutines).toContainEqual({ path: 'day-1' });
 
-    dayStateService.loadDay.mockImplementationOnce(async () => createDayState({ hiddenRoutines: ['day-2'] }));
+    dayStateService.loadDay.mockImplementationOnce(async () => createDayState({ hiddenRoutines: [{ path: 'day-2' }] }));
     (view as Mutable<TaskChuteView>)['currentDate'] = new Date(2025, 0, 2);
 
     const second = await view.ensureDayStateForCurrentDate();
     expect(dayStateService.loadDay).toHaveBeenCalledTimes(2);
     expect(second).not.toBe(first);
-    expect(second.hiddenRoutines).toContain('day-2');
+    expect(second.hiddenRoutines).toContainEqual({ path: 'day-2' });
     expect(view['currentDayStateKey']).toBe('2025-01-02');
   });
 
@@ -298,7 +299,7 @@ describe('TaskChuteView day-state lifecycle', () => {
     const { view, dayStateService } = createView();
 
     const state = await view.ensureDayStateForCurrentDate();
-    state.hiddenRoutines.push('cached');
+    state.hiddenRoutines.push({ path: 'cached' });
 
     await (view as unknown as { persistDayState: (dateStr: string) => Promise<void> }).persistDayState('2025-01-01');
 
@@ -632,11 +633,11 @@ describe('TaskChuteView onOpen cache clearing', () => {
     jest
       .spyOn(view, 'reloadTasksAndRestore')
       .mockResolvedValue(undefined);
-    (view as Mutable<TaskChuteView>).setupUI = jest.fn();
-    (view as Mutable<TaskChuteView>).ensureTimerService = jest.fn();
-    (view as Mutable<TaskChuteView>).setupResizeObserver = jest.fn();
+    internals(view).setupUI = jest.fn();
+    internals(view).ensureTimerService = jest.fn();
+    internals(view).setupResizeObserver = jest.fn();
     view.navigationController.initializeNavigationEventListeners = jest.fn();
-    (view as Mutable<TaskChuteView>).setupEventListeners = jest.fn();
+    internals(view).setupEventListeners = jest.fn();
 
     await view.onOpen();
 
@@ -659,10 +660,10 @@ describe('TaskChuteView duplication and deletion', () => {
     view.renderTaskList = jest.fn();
 
     const persistSpy = jest
-      .spyOn(view as unknown as Record<string, unknown>, 'persistDayState')
+      .spyOn(view, 'persistDayState')
       .mockResolvedValue(undefined);
     const idSpy = jest
-      .spyOn(view as unknown as Record<string, unknown>, 'generateInstanceId')
+      .spyOn(view, 'generateInstanceId')
       .mockReturnValue('dup-123');
 
     const task = createTaskData();
@@ -758,7 +759,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
     plugin.reminderManager = {
       buildTodaySchedules: jest.fn(),
       onTaskReminderTimeChanged: jest.fn(),
@@ -835,7 +836,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
     const persistSpy = jest
       .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
       .mockResolvedValue(undefined);
@@ -896,7 +897,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
     plugin.reminderManager = {
       buildTodaySchedules: jest.fn(),
       onTaskReminderTimeChanged: jest.fn(),
@@ -1001,7 +1002,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
 
     const baseTask = createTaskData({
       file,
@@ -1086,7 +1087,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
     const persistSpy = jest
       .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
       .mockResolvedValue(undefined);
@@ -1144,7 +1145,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         processFrontMatter,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
     const persistSpy = jest
       .spyOn(view as unknown as { persistDayState: (date: string) => Promise<void> }, 'persistDayState')
       .mockResolvedValue(undefined);
@@ -1303,7 +1304,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         trashFile,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
 
     const file = new TFile();
     file.path = 'TASKS/base.md';
@@ -1338,7 +1339,7 @@ describe('TaskChuteView duplication and deletion', () => {
       fileManager: {
         trashFile,
       },
-    } as typeof view.app;
+    } as unknown as typeof view.app;
 
     const file = new TFile();
     file.path = 'TASKS/base.md';
@@ -1516,7 +1517,7 @@ describe('TaskChuteView duplication and deletion', () => {
   test('hideRoutineInstanceForDate records permanent deletion keyed by taskId/path', async () => {
     const { view } = createView();
     const targetDate = '2025-01-02';
-    await view.ensureDayStateForDate(targetDate);
+    await (internals(view).ensureDayStateForDate as (dateStr: string) => Promise<DayState>)(targetDate);
 
     const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md', taskId: 'routine-123' });
     const instance = createTaskInstance(task, { instanceId: 'routine-inst-1' });
@@ -1548,7 +1549,7 @@ describe('TaskChuteView duplication and deletion', () => {
   test('hideRoutineInstanceForDate allows re-hide after restored deletion', async () => {
     const { view } = createView();
     const targetDate = '2025-01-03';
-    await view.ensureDayStateForDate(targetDate);
+    await (internals(view).ensureDayStateForDate as (dateStr: string) => Promise<DayState>)(targetDate);
 
     const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md', taskId: 'routine-456' });
     const instance = createTaskInstance(task, { instanceId: 'routine-inst-1' });
@@ -2353,13 +2354,13 @@ describe('TaskChuteView navigation overlay', () => {
     view.navigationState.isOpen = true;
     view.navigationController.openNavigation();
 
-    expect(view.navigationOverlay.classList.contains('navigation-overlay-hidden')).toBe(false);
-    expect(view.navigationPanel.classList.contains('navigation-panel-hidden')).toBe(false);
+    expect(view.navigationOverlay?.classList.contains('navigation-overlay-hidden')).toBe(false);
+    expect(view.navigationPanel?.classList.contains('navigation-panel-hidden')).toBe(false);
 
     view.navigationController.closeNavigation();
 
-    expect(view.navigationOverlay.classList.contains('navigation-overlay-hidden')).toBe(true);
-    expect(view.navigationPanel.classList.contains('navigation-panel-hidden')).toBe(true);
+    expect(view.navigationOverlay?.classList.contains('navigation-overlay-hidden')).toBe(true);
+    expect(view.navigationPanel?.classList.contains('navigation-panel-hidden')).toBe(true);
   });
 });
 
@@ -2375,8 +2376,12 @@ describe('TaskChuteView navigation listeners', () => {
     (view as Mutable<TaskChuteView>).navigationOverlay = overlay;
     (view as Mutable<TaskChuteView>).navigationPanel = panel;
 
-    (view as Mutable<TaskChuteView>).registerDomEvent = (target, event, handler) => {
-      target.addEventListener(event as string, handler as EventListener);
+    internals(view).registerDomEvent = (
+      target: HTMLElement,
+      event: string,
+      handler: EventListener,
+    ) => {
+      target.addEventListener(event, handler);
     };
 
     const closeSpy = jest.spyOn(view.navigationController as { closeNavigation: () => void }, 'closeNavigation');
@@ -2440,8 +2445,9 @@ describe('TaskChuteView navigation commands', () => {
     const closeNavigation = jest
       .spyOn(view.navigationController as { closeNavigation: () => void }, 'closeNavigation')
       .mockImplementation(() => undefined);
-    const open = jest.spyOn(plugin.app.setting, 'open');
-    const openTabById = jest.spyOn(plugin.app.setting, 'openTabById');
+    const setting = plugin.app.setting as NonNullable<typeof plugin.app.setting>;
+    const open = jest.spyOn(setting, 'open');
+    const openTabById = jest.spyOn(setting, 'openTabById');
 
     await view.navigationController.handleNavigationItemClick('settings');
 
@@ -2633,7 +2639,7 @@ describe('TaskChuteView registerDomEvent harness', () => {
     const renameDetach = jest.fn();
     (view.app.vault.on as jest.Mock).mockReturnValue({ detach: renameDetach });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     expect(registerDomEvent).toHaveBeenCalledTimes(1);
     const calls = registerDomEvent.mock.calls.map(([target, event]) => ({ target, event }));
@@ -2642,7 +2648,7 @@ describe('TaskChuteView registerDomEvent harness', () => {
     expect(registerEvent).toHaveBeenCalledWith(expect.objectContaining({ detach: expect.any(Function) }));
     expect((view.app.vault.on as jest.Mock).mock.calls[0][0]).toBe('rename');
 
-    const managed = (view as Mutable<TaskChuteView>)['managedDisposers'];
+    const managed = internals(view)['managedDisposers'] as Array<() => void>;
     expect(managed.length).toBeGreaterThanOrEqual(2);
     managed.slice().forEach((dispose) => dispose());
 
@@ -2702,13 +2708,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     expect(modifyHandler).not.toBeNull();
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
     // Flush async vault.read and promise microtasks
     await Promise.resolve();
@@ -2764,13 +2770,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     expect(modifyHandler).not.toBeNull();
     const fileA = new TFile();
     fileA.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(fileA, TFile.prototype);
-    modifyHandler?.(fileA);
+    (modifyHandler as ((file: TFile) => void) | null)?.(fileA);
 
     // Flush async vault.read for first file
     await Promise.resolve();
@@ -2779,7 +2785,7 @@ describe('TaskChuteView state file modify listener', () => {
     const fileB = new TFile();
     fileB.path = 'LOGS/2024-12-state.json';
     Object.setPrototypeOf(fileB, TFile.prototype);
-    modifyHandler?.(fileB);
+    (modifyHandler as ((file: TFile) => void) | null)?.(fileB);
 
     // Flush async vault.read for second file
     await Promise.resolve();
@@ -2871,13 +2877,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     expect(modifyHandler).not.toBeNull();
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
     await Promise.resolve();
     await Promise.resolve();
@@ -2940,13 +2946,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(modifyHandler).not.toBeNull();
 
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
     await Promise.resolve();
     await Promise.resolve();
@@ -2987,13 +2993,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     expect(modifyHandler).not.toBeNull();
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
     // Flush async vault.read and promise microtasks
     await Promise.resolve();
@@ -3019,7 +3025,7 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(deleteHandler).not.toBeNull();
 
     view.dayStateManager.beginWriteBarrier();
@@ -3027,7 +3033,7 @@ describe('TaskChuteView state file modify listener', () => {
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    deleteHandler?.(file);
+    (deleteHandler as ((file: TFile) => void) | null)?.(file);
 
     expect(clearSpy).not.toHaveBeenCalled();
     expect(reloadSpy).not.toHaveBeenCalled();
@@ -3057,13 +3063,13 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(deleteHandler).not.toBeNull();
 
     const file = new TFile();
     file.path = 'LOGS-backup/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    deleteHandler?.(file);
+    (deleteHandler as ((file: TFile) => void) | null)?.(file);
 
     expect(clearSpy).not.toHaveBeenCalled();
     expect(reloadSpy).not.toHaveBeenCalled();
@@ -3086,7 +3092,7 @@ describe('TaskChuteView state file modify listener', () => {
       },
     );
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(renameHandlers.length).toBeGreaterThan(0);
 
     const file = new TFile();
@@ -3126,16 +3132,16 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(modifyHandler).not.toBeNull();
 
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
     await view.onClose();
-    resolveRead?.('{"days":{}}');
+    (resolveRead as ((content: string) => void) | null)?.('{"days":{}}');
     await Promise.resolve();
     await Promise.resolve();
     jest.advanceTimersByTime(500);
@@ -3181,15 +3187,15 @@ describe('TaskChuteView state file modify listener', () => {
       return { detach: jest.fn() };
     });
 
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
     expect(modifyHandler).not.toBeNull();
 
     const file = new TFile();
     file.path = 'LOGS/2025-01-state.json';
     Object.setPrototypeOf(file, TFile.prototype);
-    modifyHandler?.(file);
+    (modifyHandler as ((file: TFile) => void) | null)?.(file);
 
-    resolveRead?.('{"local":"new"}');
+    (resolveRead as ((content: string) => void) | null)?.('{"local":"new"}');
     await Promise.resolve();
     await Promise.resolve();
 
@@ -3339,15 +3345,15 @@ describe('TaskChuteView onClose cleanup', () => {
     const disposeMock = jest.fn();
     (view as Mutable<TaskChuteView>).timerService = {
       dispose: disposeMock,
-    } as unknown as TimerServiceStub;
+    } as unknown as TaskChuteView['timerService'];
     const recipePopoverClose = jest.fn();
-    (view as Mutable<TaskChuteView>).recipeRunPopover = {
+    internals(view).recipeRunPopover = {
       close: recipePopoverClose,
-    } as unknown as TaskChuteView['recipeRunPopover'];
+    };
 
-    const fakeInterval = {} as ReturnType<typeof setInterval>;
-    const fakeTimeout = {} as ReturnType<typeof setTimeout>;
-    const fakeDebounce = {} as ReturnType<typeof setTimeout>;
+    const fakeInterval = 101 as ReturnType<Window['setInterval']>;
+    const fakeTimeout = 102 as ReturnType<Window['setTimeout']>;
+    const fakeDebounce = 103 as ReturnType<Window['setTimeout']>;
     (view as Mutable<TaskChuteView>).globalTimerInterval = fakeInterval;
     (view as Mutable<TaskChuteView>).boundaryCheckTimeout = fakeTimeout;
     (view as Mutable<TaskChuteView>).renderDebounceTimer = fakeDebounce;
@@ -3358,7 +3364,7 @@ describe('TaskChuteView onClose cleanup', () => {
 
     const vaultDetach = jest.fn();
     (view.app.vault.on as jest.Mock).mockReturnValue({ detach: vaultDetach });
-    (view as unknown as { setupEventListeners: () => void }).setupEventListeners();
+    (internals(view).setupEventListeners as () => void)();
 
     (view as unknown as { registerManagedDisposer: (cleanup: () => void) => void }).registerManagedDisposer(
       () => {

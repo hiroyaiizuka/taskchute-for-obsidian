@@ -8,7 +8,8 @@ type ToggleStub = {
   trigger: (value: boolean) => Promise<void>
 }
 
-type MutableSettingTab = TaskChuteSettingTab & {
+/** Private members of TaskChuteSettingTab driven directly by these tests. */
+type MutableSettingTab = {
   app: typeof mockApp
   plugin: {
     settings: {
@@ -21,7 +22,7 @@ type MutableSettingTab = TaskChuteSettingTab & {
 }
 
 function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab
+  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab
   tab.app = mockApp
   tab.plugin = {
     settings: {
@@ -43,7 +44,7 @@ function createToggleStub(): ToggleStub {
     trigger: async (value: boolean) => {
       await changeHandler?.(value)
     },
-  } as ToggleStub
+  } as unknown as ToggleStub
   return toggle
 }
 
@@ -63,14 +64,15 @@ describe('TaskChute recipe feature setting', () => {
 
   test('renders recipe toggle above advanced section settings and notifies open views', async () => {
     const toggle = createToggleStub()
-    const createdSettings: Array<{
+    type SettingInstance = {
       setName: jest.Mock
       setDesc: jest.Mock
       addToggle: jest.Mock
       setHeading: jest.Mock
-    }> = []
+    }
+    const createdSettings: SettingInstance[] = []
     SettingMock.mockImplementation(() => {
-      const instance = {
+      const instance: SettingInstance = {
         setName: jest.fn().mockReturnThis(),
         setDesc: jest.fn().mockReturnThis(),
         setHeading: jest.fn().mockReturnThis(),

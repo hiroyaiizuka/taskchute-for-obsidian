@@ -5,7 +5,7 @@ import { DATE_FORMAT_DISPLAY } from '../../../constants'
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils'
 import { TaskValidator } from '../../core/services/TaskValidator'
 import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
-import type { RoutineWeek } from '../../../types/TaskFields'
+import type { RoutineMonthday, RoutineWeek } from '../../../types/TaskFields'
 import type { RoutineTaskShape } from '../../../types/routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
 import { attachCalendarButtonIcon, attachCloseButtonIcon } from '../../../ui/components/iconUtils'
@@ -1238,10 +1238,10 @@ export default class RoutineController {
       })
   }
 
-  private normalizeMonthdaySelection(values?: Array<number | 'last'>): Array<number | 'last'> {
+  private normalizeMonthdaySelection(values?: Array<number | 'last'>): RoutineMonthday[] {
     if (!Array.isArray(values)) return []
     const seen = new Set<string>()
-    const result: Array<number | 'last'> = []
+    const result: RoutineMonthday[] = []
     values.forEach((value) => {
       if (value === 'last') {
         if (!seen.has('last')) {
@@ -1255,7 +1255,7 @@ export default class RoutineController {
         const key = String(num)
         if (!seen.has(key)) {
           seen.add(key)
-          result.push(num)
+          result.push(num as RoutineMonthday)
         }
       }
     })

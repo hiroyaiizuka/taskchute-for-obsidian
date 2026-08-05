@@ -126,8 +126,8 @@ export function createPluginStub(): PluginStub {
   }
 
   const plugin: TaskChutePluginLike = {
-    app: { vault } as TaskChutePluginLike['app'],
-    pathManager,
+    app: { vault } as unknown as TaskChutePluginLike['app'],
+    pathManager: pathManager as unknown as TaskChutePluginLike['pathManager'],
     settings: {
       useOrderBasedSort: true,
       slotKeys: {},
@@ -142,7 +142,9 @@ export function createPluginStub(): PluginStub {
       mergeDayState: jest.fn(),
       clearCache: jest.fn(),
       getDateFromKey: jest.fn(),
+      renameTaskPath: jest.fn(),
     },
+    manifest: { id: 'taskchute-plus' } as TaskChutePluginLike['manifest'],
   }
 
   return { plugin, store, deltaStore, abstractStore, recordStore }

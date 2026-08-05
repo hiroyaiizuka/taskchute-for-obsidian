@@ -1,7 +1,13 @@
 import TaskItemActionController, {
   type TaskItemActionHost,
 } from '../../../src/ui/tasklist/TaskItemActionController'
-import type { TaskInstance } from '../../../src/types'
+import type { TaskData, TaskInstance } from '../../../src/types'
+
+/** Test overrides may supply a partial task; the runtime shape stays as written. */
+type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
+  task?: Partial<TaskData>
+}
+
 
 const ensureCreateEl = () => {
   const proto = HTMLElement.prototype as unknown as {
@@ -11,7 +17,11 @@ const ensureCreateEl = () => {
     ) => HTMLElement
   }
   if (!proto.createEl) {
-    proto.createEl = function (this: HTMLElement, tag: string, options = {}) {
+    const createEl = function (
+      this: HTMLElement,
+      tag: string,
+      options: { cls?: string; text?: string; attr?: Record<string, string> } = {},
+    ) {
       const element = document.createElement(tag)
       if (options.cls) {
         element.classList.add(...options.cls.split(' ').filter(Boolean))
@@ -26,14 +36,14 @@ const ensureCreateEl = () => {
           }
         })
       }
-      ;(element as HTMLElement & { createEl?: typeof proto.createEl }).createEl = proto.createEl
+      element.createEl = createEl as unknown as HTMLElement['createEl']
       this.appendChild(element)
       return element
     }
+    proto.createEl = createEl
   }
-  const svgProto = (HTMLElement.prototype as unknown as { createSvg?: typeof document.createElementNS }).createSvg
-  if (!svgProto) {
-    ;(HTMLElement.prototype as unknown as { createSvg?: typeof document.createElementNS }).createSvg = function (
+  if (!HTMLElement.prototype.createSvg) {
+    HTMLElement.prototype.createSvg = (function (
       this: HTMLElement,
       tag: string,
       options: { attr?: Record<string, string>; cls?: string } = {},
@@ -45,7 +55,7 @@ const ensureCreateEl = () => {
       }
       this.appendChild(svg as unknown as HTMLElement)
       return svg
-    }
+    }) as unknown as HTMLElement['createSvg']
   }
 }
 
@@ -81,7 +91,7 @@ const createHost = (overrides: Partial<TaskItemActionHost> = {}) => {
   return { host: base, registerManagedDomEvent }
 }
 
-const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => ({
+const createInstance = (overrides: InstanceOverrides = {}): TaskInstance => ({
   instanceId: 'instance-1',
   state: 'done',
   task: {
@@ -91,7 +101,7 @@ const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => 
     isRoutine: false,
   },
   ...overrides,
-}) as TaskInstance
+}) as unknown as TaskInstance
 
 describe('TaskItemActionController', () => {
   beforeAll(() => ensureCreateEl())
@@ -130,7 +140,7 @@ describe('TaskItemActionController', () => {
         name: 'orphan',
         isRoutine: false,
       },
-    } as TaskInstance)
+    } as unknown as TaskInstance)
 
     controller.renderProject(container, inst)
 

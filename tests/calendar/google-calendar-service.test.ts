@@ -1,7 +1,11 @@
 import { GoogleCalendarService } from "../../src/features/calendar/services/GoogleCalendarService"
-import type { TaskInstance } from "../../src/types"
+import type { TaskData, TaskInstance } from "../../src/types"
 
-const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => {
+type InstanceOverrides = Omit<Partial<TaskInstance>, "task"> & {
+  task?: Partial<TaskData>
+}
+
+const createInstance = (overrides: InstanceOverrides = {}): TaskInstance => {
   const baseTask = {
     path: "Tasks/sample.md",
     name: "Sample task",

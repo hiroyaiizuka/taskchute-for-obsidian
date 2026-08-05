@@ -4,8 +4,15 @@ import TaskSettingsTooltipController, {
 import TaskTimeController, {
   type TaskTimeControllerHost,
 } from '../../../src/ui/time/TaskTimeController'
-import type { TaskInstance } from '../../../src/types'
+import type { TaskData, TaskInstance } from '../../../src/types'
 import { Notice } from 'obsidian'
+import { SectionConfigService } from '../../../src/services/SectionConfigService'
+
+/** Test overrides may supply a partial task; the runtime shape stays as written. */
+type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
+  task?: Partial<TaskData>
+}
+
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -75,7 +82,7 @@ describe('TaskSettingsTooltipController', () => {
     ...overrides,
   })
 
-  const createInstance = (overrides: Partial<TaskInstance> = {}): TaskInstance => ({
+  const createInstance = (overrides: InstanceOverrides = {}): TaskInstance => ({
     instanceId: 'inst-1',
     state: 'running',
     task: {
@@ -85,7 +92,7 @@ describe('TaskSettingsTooltipController', () => {
       taskId: 'tc-task-sample',
     },
     ...overrides,
-  }) as TaskInstance
+  }) as unknown as TaskInstance
 
   const queryTooltipItem = (text: string): HTMLElement => {
     const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
@@ -118,7 +125,7 @@ const createTimeController = () => {
       fileManager: {
         processFrontMatter: jest.fn(async () => {}),
       },
-    },
+    } as unknown as TaskTimeControllerHost['app'],
     renderTaskList: jest.fn(),
     reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),
     getInstanceDisplayTitle: () => 'Sample task',
@@ -136,6 +143,7 @@ const createTimeController = () => {
     restartTimerService: jest.fn(),
     removeTaskLogForInstanceOnCurrentDate: removeTaskLog,
     getCurrentDate: () => new Date('2025-10-09T00:00:00Z'),
+    getSectionConfig: () => new SectionConfigService(),
   }
 
   const controller = new TaskTimeController(host)

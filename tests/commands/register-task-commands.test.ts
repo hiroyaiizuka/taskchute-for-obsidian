@@ -97,7 +97,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(true)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
     })
 
     test('checking=false: does not execute when view is not active', () => {
@@ -110,7 +110,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(false)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
     test('checking=false: does not execute when input element is focused', () => {
@@ -126,7 +126,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(false)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
     test('checking=false: does not execute when popout document input is focused', () => {
@@ -152,7 +152,7 @@ describe('registerTaskCommands checkCallback', () => {
 
         expect(popoutInput instanceof HTMLElement).toBe(false)
         expect(result).toBe(false)
-        expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+        expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
       } finally {
         setActiveDocument(originalActiveDocument)
         iframe.remove()
@@ -173,7 +173,7 @@ describe('registerTaskCommands checkCallback', () => {
         const result = check(false)
 
         expect(result).toBe(false)
-        expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+        expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
       } finally {
         activeElementSpy.mockRestore()
       }
@@ -192,7 +192,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(false)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
     test('checking=false: executes when only command palette modal is present', () => {
@@ -208,7 +208,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(true)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).toHaveBeenCalled()
     })
 
     test('checking=false: does not execute when command palette and another modal are present', () => {
@@ -228,7 +228,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(false)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
     test('checking=false: does not execute when task-modal-overlay is present', () => {
@@ -244,7 +244,7 @@ describe('registerTaskCommands checkCallback', () => {
       const result = check(false)
 
       expect(result).toBe(false)
-      expect((view as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
+      expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
   })
 

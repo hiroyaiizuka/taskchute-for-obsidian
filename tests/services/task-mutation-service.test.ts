@@ -54,6 +54,8 @@ type HostStub = TaskMutationHost & {
       createdMillis?: number
       scheduledTime?: string | null
       reminderTime?: string | null
+      timestamp?: number
+      originalTaskId?: string
     }>
     slotOverrides: Record<string, string>
     slotOverridesMeta?: Record<string, { slotKey: string; updatedAt: number }>
@@ -93,7 +95,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
       fileManager: {
         trashFile: jest.fn(async () => {}),
       },
-    },
+    } as unknown as TaskMutationHost['app'],
     plugin: {
       settings: { slotKeys: {} },
       saveSettings: jest.fn(async () => {}),
@@ -128,10 +130,7 @@ function createHost(overrides: Partial<HostStub> = {}): HostStub {
     } as unknown as DayStateStoreService,
     removeRunningTaskRecord: overrides.removeRunningTaskRecord ?? jest.fn(async () => {}),
     removeTaskLogForInstanceOnDate: overrides.removeTaskLogForInstanceOnDate ?? jest.fn(async () => {}),
-    persistSlotAssignment: jest.fn(),
     getSectionConfig: () => sectionConfig,
-    tasks,
-    taskInstances,
     dayState,
     logSnapshot,
     ...overrides,
@@ -241,7 +240,7 @@ describe('TaskMutationService', () => {
         reminder_time: '17:25',
       },
     })
-    const duplicateTask = {
+    const duplicateTask: TaskData = {
       ...baseTask,
       scheduledTime: '09:00',
       frontmatter: {
@@ -352,7 +351,7 @@ describe('TaskMutationService', () => {
         scheduled_time: '17:30',
       },
     })
-    const duplicateTask = {
+    const duplicateTask: TaskData = {
       ...baseTask,
       scheduledTime: '09:00',
       frontmatter: {

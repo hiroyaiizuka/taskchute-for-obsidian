@@ -168,11 +168,12 @@ export default class TaskTimeController {
 
           // Running state: use existing logic (buildStopTimeFromStart)
           if (inst.state === 'running') {
-            if (startStr) {
+            const instStartTime = inst.startTime
+            if (startStr && instStartTime) {
               const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate)
               if (!ok) return
 
-              const stopTime = this.buildStopTimeFromStart(inst.startTime, value)
+              const stopTime = this.buildStopTimeFromStart(instStartTime, value)
               if (stopTime.getTime() > Date.now()) {
                 new Notice(
                   this.host.tv(

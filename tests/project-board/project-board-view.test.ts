@@ -23,7 +23,8 @@ jest.mock('obsidian', () => {
 })
 
 describe('ProjectBoardView', () => {
-  type MutableView = ProjectBoardView & {
+  /** Private members of ProjectBoardView driven directly by these tests. */
+  type MutableView = {
     items: ProjectBoardItem[]
     statusDefs: Array<{ id: ProjectBoardStatus; label: string }>
     render: () => void
@@ -97,7 +98,7 @@ describe('ProjectBoardView', () => {
       addClass?: (cls: string) => void
       empty?: () => void
     }
-    typed.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
+    typed.createEl = (function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
       const node = document.createElement(tag)
       if (options.cls) node.className = options.cls as string
       if (options.text) node.textContent = options.text as string
@@ -109,7 +110,7 @@ describe('ProjectBoardView', () => {
       attachCreateEl(node)
       this.appendChild(node)
       return node
-    }
+    }) as unknown as HTMLElement['createEl']
     typed.addClass = function (this: HTMLElement, cls: string) {
       this.classList.add(cls)
     }
@@ -158,7 +159,7 @@ describe('ProjectBoardView', () => {
     ]
 
     const { view } = createView({ items })
-    const mutable = view as MutableView
+    const mutable = view as unknown as MutableView
     mutable.items = items
     mutable.statusDefs = [
       { id: 'todo', label: 'To Do' },
@@ -175,7 +176,7 @@ describe('ProjectBoardView', () => {
   test('always shows all status columns without menu button', () => {
     const items = [createItem('todo', 'Alpha'), createItem('in-progress', 'Beta')]
     const { view } = createView({ items })
-    const mutable = view as MutableView
+    const mutable = view as unknown as MutableView
     mutable.items = items
     mutable.statusDefs = [
       { id: 'todo', label: 'To Do' },
@@ -194,7 +195,7 @@ describe('ProjectBoardView', () => {
   test('limits cards per column until load more is clicked', () => {
     const items = Array.from({ length: 12 }, (_, index) => createItem('todo', `Project ${index + 1}`))
     const { view } = createView({ items })
-    const mutable = view as MutableView
+    const mutable = view as unknown as MutableView
     mutable.items = items
     mutable.statusDefs = [
       { id: 'todo', label: 'To Do' },
@@ -221,7 +222,7 @@ describe('ProjectBoardView', () => {
   test('reserves fixed-height body and scrollable card regions', () => {
     const items = Array.from({ length: 15 }, (_, index) => createItem('in-progress', `Project ${index + 1}`))
     const { view } = createView({ items })
-    const mutable = view as MutableView
+    const mutable = view as unknown as MutableView
     mutable.items = items
     mutable.statusDefs = [
       { id: 'todo', label: 'To Do' },
@@ -250,7 +251,7 @@ describe('ProjectBoardView', () => {
       createProjectResult: createdItem,
       loadProjectItems,
     })
-    const mutable = view as MutableView
+    const mutable = view as unknown as MutableView
     mutable.items = []
     mutable.statusDefs = [
       { id: 'todo', label: 'To Do' },
@@ -331,7 +332,7 @@ describe('ProjectBoardView', () => {
 
       cachedStatus = 'done'
       setActiveWindow(focusedWindow)
-      changedHandler?.(file)
+      ;(changedHandler as ((changedFile: TFile) => void) | null)?.(file)
       await waitPromise
 
       expect(metadataCache.offref).toHaveBeenCalledWith(eventRef)
@@ -343,7 +344,7 @@ describe('ProjectBoardView', () => {
   })
 
   describe('reloadItemsPreservingState', () => {
-    type ReloadableView = ProjectBoardView & {
+    type ReloadableView = {
       items: ProjectBoardItem[]
       optimisticItems: Map<string, { status: ProjectBoardStatus; order: number; updated: string; completed?: string }>
       reloadItemsPreservingState: () => boolean
@@ -415,7 +416,7 @@ describe('ProjectBoardView', () => {
       } as unknown as TaskChutePluginLike
 
       const leaf = { containerEl: document.createElement('div') } as unknown as WorkspaceLeaf
-      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as ReloadableView
+      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as unknown as ReloadableView
 
       // Set initial items
       view.items = initialItems
@@ -467,7 +468,7 @@ describe('ProjectBoardView', () => {
       } as unknown as TaskChutePluginLike
 
       const leaf = { containerEl: document.createElement('div') } as unknown as WorkspaceLeaf
-      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as ReloadableView
+      const view = new ProjectBoardView(leaf, plugin, { boardService: service }) as unknown as ReloadableView
 
       view.items = [itemE]
 

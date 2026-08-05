@@ -175,7 +175,7 @@ describe('DayStateStoreService Write Barrier', () => {
   it('falls back to saveDay when mergeAndSaveMonth is not available', async () => {
     const mockService = createMockDayStateService()
     // Remove mergeAndSaveMonth
-    delete (mockService as Record<string, unknown>).mergeAndSaveMonth
+    delete (mockService as unknown as Record<string, unknown>).mergeAndSaveMonth
 
     const store = new DayStateStoreService({
       dayStateService: mockService,

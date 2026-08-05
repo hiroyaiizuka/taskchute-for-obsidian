@@ -47,8 +47,8 @@ function createMutationHost(dayState: DayState, pluginOverrides: Partial<PluginS
       fileManager: {
         trashFile: jest.fn(async () => {}),
       },
-    },
-    plugin,
+    } as unknown as TaskMutationHost['app'],
+    plugin: plugin as unknown as TaskMutationHost['plugin'],
     taskInstances: [] as TaskInstance[],
     tasks: [] as TaskData[],
     renderTaskList: jest.fn(),

@@ -147,7 +147,7 @@ describe('ReviewService', () => {
       revealLeaf: jest.fn(),
       setActiveLeaf: jest.fn(),
     }
-    plugin.app.workspace = workspace
+    plugin.app.workspace = workspace as unknown as typeof plugin.app.workspace
 
     const service = new ReviewService(plugin)
     const reviewFile = createMockTFile('TaskChute/Review/Review - 2025-10-18.md')
@@ -167,7 +167,7 @@ describe('ReviewService', () => {
       getLeaf: jest.fn().mockReturnValue(rightLeaf),
       setActiveLeaf: jest.fn(),
     }
-    plugin.app.workspace = workspace
+    plugin.app.workspace = workspace as unknown as typeof plugin.app.workspace
 
     const service = new ReviewService(plugin)
     const reviewFile = createMockTFile('TaskChute/Review/Review - 2025-10-19.md')

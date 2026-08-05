@@ -116,6 +116,9 @@ export interface LogReconcilerDeps {
 
 type JsonSerializable = string | number | boolean | null | JsonSerializable[] | { [key: string]: JsonSerializable | undefined }
 
+/** Fields used to order entries; shared by TaskLogEntry and ExecutionLogDeltaRecord */
+type EntryOrderKey = Pick<TaskLogEntry, 'recordedAt' | 'deviceId' | 'entryId'>
+
 const MAX_RETRIES = 3
 
 export class LogReconciler {
@@ -1398,7 +1401,7 @@ export class LogReconciler {
     return false
   }
 
-  private compareEntryOrder(a: TaskLogEntry, b: TaskLogEntry): number {
+  private compareEntryOrder(a: EntryOrderKey, b: EntryOrderKey): number {
     const recordedA = a.recordedAt ?? ''
     const recordedB = b.recordedAt ?? ''
     if (recordedA !== recordedB) {

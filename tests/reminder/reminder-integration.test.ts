@@ -15,7 +15,7 @@ type IntervalTimerSource = {
 }
 
 const createIntervalTimerSource = (intervalId: number): IntervalTimerSource => ({
-  setInterval: jest.fn(() => intervalId),
+  setInterval: jest.fn<number, [() => void, number]>(() => intervalId),
   clearInterval: jest.fn(),
 })
 
@@ -288,8 +288,9 @@ describe('ReminderSystemManager', () => {
 
       // Simulate editor change event
       expect(editorChangeCallback).not.toBeNull();
-      if (editorChangeCallback) {
-        editorChangeCallback();
+      const changeCallback = editorChangeCallback as (() => void) | null;
+      if (changeCallback) {
+        changeCallback();
       }
 
       // Now should be editing

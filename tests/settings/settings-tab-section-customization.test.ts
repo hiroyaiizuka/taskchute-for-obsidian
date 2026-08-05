@@ -1,7 +1,8 @@
 import { Notice, mockApp, mockLeaf } from 'obsidian';
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab';
 
-type MutableSettingTab = TaskChuteSettingTab & {
+/** Private members of TaskChuteSettingTab driven directly by these tests. */
+type MutableSettingTab = {
   app: typeof mockApp;
   plugin: {
     settings: {
@@ -17,7 +18,7 @@ type MutableSettingTab = TaskChuteSettingTab & {
 };
 
 function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab;
+  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab;
   tab.app = mockApp;
   tab.plugin = {
     settings: {
@@ -37,13 +38,11 @@ describe('TaskChuteSettingTab section customization', () => {
 
   test('restores the latest draft value when input becomes invalid', () => {
     const tab = createTab();
-    const container = mockLeaf.containerEl.children[1] as HTMLElement & {
-      querySelector: (selector: string) => HTMLInputElement | null;
-    };
+    const container = mockLeaf.containerEl.children[1];
 
     tab.renderSectionCustomization(container);
 
-    const input = container.querySelector('.taskchute-boundary-input');
+    const input = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
     expect(input).not.toBeNull();
 
     if (!input) {
@@ -69,7 +68,7 @@ describe('TaskChuteSettingTab section customization', () => {
 
     tab.renderSectionCustomization(container);
 
-    const firstInput = container.querySelector('.taskchute-boundary-input');
+    const firstInput = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
     expect(firstInput).not.toBeNull();
 
     if (!firstInput) {
@@ -84,7 +83,7 @@ describe('TaskChuteSettingTab section customization', () => {
 
     applyButton?.dispatchEvent(new Event('click'));
 
-    const updatedFirstInput = container.querySelector('.taskchute-boundary-input');
+    const updatedFirstInput = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
     expect(updatedFirstInput?.value).toBe('08:00');
   });
 

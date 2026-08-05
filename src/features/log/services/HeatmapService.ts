@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, parseYaml } from 'obsidian'
+import { App, TAbstractFile, TFile, normalizePath, parseYaml } from 'obsidian'
 import { t } from '../../../i18n'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import {
@@ -518,7 +518,10 @@ export class HeatmapService {
     }
   }
 
-  private resolveReviewFile(primary: TFile | null, dateString: string): TFile | null {
+  private resolveReviewFile(
+    primary: TAbstractFile | null,
+    dateString: string,
+  ): TFile | null {
     if (primary && primary instanceof TFile) {
       return primary
     }

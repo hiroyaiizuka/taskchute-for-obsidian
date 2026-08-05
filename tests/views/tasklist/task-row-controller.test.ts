@@ -10,9 +10,8 @@ type CreateElFn = <K extends keyof HTMLElementTagNameMap>(
   },
 ) => HTMLElementTagNameMap[K]
 
-const addCreateEl = (element: HTMLElement): HTMLElement & { createEl: CreateElFn } => {
-  const augmentedElement = element as HTMLElement & { createEl: CreateElFn };
-  augmentedElement.createEl = (tag, options = {}) => {
+const addCreateEl = (element: HTMLElement): HTMLElement => {
+  const createEl: CreateElFn = (tag, options = {}) => {
     const child = document.createElement(tag)
     if (options.cls) {
       const classes = options.cls.split(' ').filter(c => c.length > 0)
@@ -28,9 +27,11 @@ const addCreateEl = (element: HTMLElement): HTMLElement & { createEl: CreateElFn
     }
     element.appendChild(child)
     // Recursively add createEl to child elements
-    return addCreateEl(child)
+    addCreateEl(child)
+    return child
   }
-  return augmentedElement
+  element.createEl = createEl as unknown as HTMLElement['createEl']
+  return element
 }
 
 const createTaskElement = () => {

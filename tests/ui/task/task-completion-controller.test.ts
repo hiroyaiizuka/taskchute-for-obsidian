@@ -104,7 +104,7 @@ describe('TaskCompletionController', () => {
         fileManager: {
           processFrontMatter: jest.fn().mockResolvedValue(undefined),
         },
-      },
+      } as unknown as TaskCompletionControllerHost['app'],
       plugin: {
         pathManager: {
           getLogDataPath: () => 'LOGS',

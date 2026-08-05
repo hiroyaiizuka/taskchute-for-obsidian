@@ -110,7 +110,7 @@ export class RecordsRebuilder {
         try {
           const expectedRevision = await this.resolveExpectedRevision(
             monthKey,
-            context.snapshot.meta.revision ?? 0,
+            context.snapshot.meta?.revision ?? 0,
           )
           await this.snapshotWriter.writeWithConflictDetection(
             monthKey,
