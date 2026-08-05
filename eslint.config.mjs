@@ -167,7 +167,6 @@ export default [
       "node_modules/**",
       ".obsidian/**",
       ".husky/**",
-      "taskchute-docs/**",
       "tmp/**",
     ],
   },
