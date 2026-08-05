@@ -28,11 +28,19 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     containerEl.empty()
     containerEl.classList.add("taskchute-settings-pane")
 
+    this.renderVersionSection(containerEl)
     this.renderStorageSection(containerEl)
     this.renderLogBackupSection(containerEl)
     this.renderReviewTemplateSection(containerEl)
     this.renderProjectCandidateSection(containerEl)
     this.renderAdvancedSection(containerEl)
+  }
+
+  /** インストール済みのバージョンを manifest.json からそのまま表示する */
+  private renderVersionSection(container: HTMLElement): void {
+    new Setting(container)
+      .setName(t("settings.version.name", "Version"))
+      .setDesc(this.plugin.manifest.version)
   }
 
   private setHeadingIfSupported(setting: Setting): void {

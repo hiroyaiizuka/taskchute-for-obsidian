@@ -13,6 +13,9 @@ export const ja = {
   },
   settings: {
     heading: "タスクシュートのファイルパス",
+    version: {
+      name: "バージョン",
+    },
     storage: {
       baseLocationName: "デフォルトの場所",
       baseLocationDesc: "選択したベース配下に Task/Log/Review を保存します。",

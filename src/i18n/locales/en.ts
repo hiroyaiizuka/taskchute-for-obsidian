@@ -15,6 +15,9 @@ export const en = {
   },
   settings: {
     heading: "TaskChute file paths",
+    version: {
+      name: "Version",
+    },
     storage: {
       baseLocationName: "Default storage location",
       baseLocationDesc: "Save task/log/review under the selected base.",
