@@ -1312,7 +1312,7 @@ describe('AiRunPaneController × + AiTaskManager persist ordering', () => {
     expect(adapters[0].disposed).toBe(false)
 
     // ...the child exits, the persist chain consumes the LIVE snapshot...
-    terminalDispatcher.exit({ status: 'stopped', exitCode: null })
+    terminalDispatcher.exit({ status: 'stopped', exitCode: null, signal: null })
     await flushPromises()
 
     expect(writeTerminalRunLog).toHaveBeenCalledTimes(1)

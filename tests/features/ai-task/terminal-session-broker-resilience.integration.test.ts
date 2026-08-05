@@ -13,6 +13,7 @@ import {
 import { execFileSync, spawn } from 'child_process'
 import { createConnection, createServer, type AddressInfo } from 'net'
 import { tmpdir } from 'os'
+import type { Writable } from 'stream'
 import { basename, dirname, join } from 'path'
 
 import {
@@ -1529,7 +1530,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     )
     try {
       await sleep(100)
-      guard.stdio[3]?.write('GRACEFUL_STOP\n')
+      ;(guard.stdio[3] as Writable | null | undefined)?.write('GRACEFUL_STOP\n')
       await withTimeout(new Promise<void>((resolve, reject) => {
         guard.once('exit', () => resolve())
         guard.once('error', reject)
@@ -1886,8 +1887,10 @@ describePosix('TerminalSessionBroker resilience', () => {
       watchdog.stdin?.end()
       await sleep(350)
 
+      const watchdogPid = watchdog.pid
+      expect(watchdogPid).toEqual(expect.any(Number))
       expect(() => process.kill(unrelatedPid ?? -1, 0)).not.toThrow()
-      expect(() => process.kill(watchdog.pid ?? -1, 0)).not.toThrow()
+      expect(() => process.kill(watchdogPid ?? -1, 0)).not.toThrow()
       expect(existsSync(ownerPath)).toBe(true)
     } finally {
       if (unrelated.pid !== undefined) {
@@ -1944,8 +1947,10 @@ describePosix('TerminalSessionBroker resilience', () => {
       watchdog.stdin?.end()
       await sleep(350)
 
+      const watchdogPid = watchdog.pid
+      expect(watchdogPid).toEqual(expect.any(Number))
       expect(() => process.kill(unrelatedPid ?? -1, 0)).not.toThrow()
-      expect(() => process.kill(watchdog.pid ?? -1, 0)).not.toThrow()
+      expect(() => process.kill(watchdogPid ?? -1, 0)).not.toThrow()
       expect(existsSync(ownerPath)).toBe(true)
     } finally {
       if (unrelated.pid !== undefined) {
@@ -3628,7 +3633,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       client.attach(`session-${identity}`, {
         onData: () => undefined,
         onExit: () => undefined,
-        onUnavailable: unavailable.resolve,
+        onUnavailable: () => unavailable.resolve(),
       })
       await withTimeout(unavailable.promise)
       await client.shutdown()

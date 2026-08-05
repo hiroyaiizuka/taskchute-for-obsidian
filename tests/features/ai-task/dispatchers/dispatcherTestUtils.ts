@@ -177,3 +177,15 @@ export async function runDispatcherToCompletion(
   const outcome = await run.waitForExit()
   return { events: run.events, outcome }
 }
+
+/**
+ * `resize` is optional on the handle contract (headless runs have no PTY), but
+ * TerminalDispatcher always wires it. Fail loudly instead of silently skipping.
+ */
+export function resizeOf(
+  handle: { resize?: (cols: number, rows: number) => void },
+): (cols: number, rows: number) => void {
+  const { resize } = handle
+  if (!resize) throw new Error('terminal run handle must expose resize')
+  return resize
+}

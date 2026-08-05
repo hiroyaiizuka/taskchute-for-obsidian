@@ -243,7 +243,7 @@ describe('AiTaskAmbientScheduler', () => {
       stateStore: {
         isExecuted: () => false,
         markExecuted: () => true,
-        prune: () => {},
+        prune: () => 0,
       },
     })
 
@@ -395,11 +395,11 @@ describe('AiTaskAmbientScheduler', () => {
     const originalActiveWindow = activeWindow
     const rootSetInterval = jest
       .spyOn(window, 'setInterval')
-      .mockReturnValue(901)
+      .mockReturnValue(901 as unknown as ReturnType<typeof window.setInterval>)
     const rootClearInterval = jest
       .spyOn(window, 'clearInterval')
       .mockImplementation(() => undefined)
-    const popoutSetInterval = jest.fn(() => 902)
+    const popoutSetInterval = jest.fn().mockReturnValue(902)
     const popoutClearInterval = jest.fn()
     const popout = {
       setInterval: popoutSetInterval,

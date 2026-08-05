@@ -256,7 +256,9 @@ describe('TaskChuteView board view state', () => {
       makeInstance('TASKS/ai-b.md', true),
       makeInstance('TASKS/human.md', false),
     ]
-    const updateDailySummaryTotals = jest.fn(async () => undefined)
+    const updateDailySummaryTotals = jest.fn<Promise<void>, [string, number]>(
+      async () => undefined,
+    )
     ;(view as unknown as {
       executionLogService: { updateDailySummaryTotals: jest.Mock }
     }).executionLogService = { updateDailySummaryTotals }

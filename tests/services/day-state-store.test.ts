@@ -19,7 +19,7 @@ describe('DayStateStoreService', () => {
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       return initialStates[key] ? createState(initialStates[key]) : createState();
     });
-    const saveDay = jest.fn(async () => undefined);
+    const saveDay = jest.fn<Promise<void>, [Date, DayState]>(async () => undefined);
     const updateDay = jest.fn(async (
       date: Date,
       mutator: (state: DayState) => DayState | void,
@@ -47,7 +47,7 @@ describe('DayStateStoreService', () => {
         return new Date(y, (m || 1) - 1, d || 1);
       },
       cache,
-    } as const;
+    };
 
     return { deps, loadDay, saveDay, updateDay, cache };
   }
@@ -173,7 +173,7 @@ describe('DayStateStoreService', () => {
     await Promise.all([mutation, persistence]);
 
     expect(saveDay).toHaveBeenCalledTimes(1);
-    const saved = saveDay.mock.calls[0]?.[1] as DayState;
+    const saved = saveDay.mock.calls[0]?.[1];
     expect(saved.duplicatedInstances).toEqual([]);
   });
 

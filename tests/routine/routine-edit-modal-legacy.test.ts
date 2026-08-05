@@ -387,6 +387,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
   it('shows and saves the Obsidian task link fields for AI routines', async () => {
     const frontmatter: RoutineFrontmatter = {
+      name: 'AI routine',
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,
@@ -441,6 +442,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
   it('does not show Obsidian task link fields for human routines', () => {
     const frontmatter: RoutineFrontmatter = {
+      name: 'Human routine',
       isRoutine: true,
       routine_type: 'daily',
       routine_interval: 1,

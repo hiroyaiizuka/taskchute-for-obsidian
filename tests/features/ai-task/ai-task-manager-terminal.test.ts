@@ -73,7 +73,7 @@ interface FakeTerminalRun {
 class FakeTerminalDispatcher implements AiTerminalDispatcher {
   runs: FakeTerminalRun[] = []
   failNextStart: Error | null = null
-  shutdown = jest.fn(async () => undefined)
+  shutdown = jest.fn<Promise<void>, []>(async () => undefined)
   isPersistent = false
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks) {

@@ -74,7 +74,7 @@ describe('TaskChuteViewController isViewActive', () => {
 describe('TaskChuteViewController background activation', () => {
   test('creates a non-active tab without revealing it for Ambient execution', async () => {
     const backgroundLeaf: MockLeaf = {
-      setViewState: jest.fn(async () => undefined),
+      setViewState: jest.fn().mockResolvedValue(undefined),
     }
     const getLeaf = jest.fn(() => backgroundLeaf)
     const revealLeaf = jest.fn(async () => undefined)
@@ -128,7 +128,7 @@ describe('TaskChuteViewController background activation', () => {
     }
     const backgroundLeaf: MockLeaf = {
       view,
-      setViewState: jest.fn(async () => undefined),
+      setViewState: jest.fn().mockResolvedValue(undefined),
       detach: jest.fn(),
     }
     const plugin = {
@@ -169,7 +169,7 @@ describe('TaskChuteViewController background activation', () => {
     let activeLeaf: MockLeaf | null = originalLeaf
     const backgroundLeaf: MockLeaf = {
       view: backgroundView,
-      setViewState: jest.fn(async () => {
+      setViewState: jest.fn().mockImplementation(async () => {
         activeLeaf = backgroundLeaf
       }),
       detach: jest.fn(),
@@ -220,7 +220,7 @@ describe('TaskChuteViewController background activation', () => {
     let activeLeaf: MockLeaf | null = originalLeaf
     const backgroundLeaf: MockLeaf = {
       view: backgroundView,
-      setViewState: jest.fn(async () => {
+      setViewState: jest.fn().mockImplementation(async () => {
         activeLeaf = backgroundLeaf
       }),
       detach: jest.fn(),
@@ -256,7 +256,7 @@ describe('TaskChuteViewController background activation', () => {
   test('closes an unusable background leaf', async () => {
     const backgroundLeaf: MockLeaf = {
       view: { getViewType: () => VIEW_TYPE_TASKCHUTE },
-      setViewState: jest.fn(async () => undefined),
+      setViewState: jest.fn().mockResolvedValue(undefined),
       detach: jest.fn(),
     }
     const plugin = {

@@ -1669,7 +1669,7 @@ describe('TaskChuteView duplication and deletion', () => {
   test('hideRoutineInstanceForDate propagates persistence failure to the move transaction', async () => {
     const { view } = createView();
     const targetDate = '2025-01-04';
-    await view.ensureDayStateForDate(targetDate);
+    await (internals(view).ensureDayStateForDate as (dateStr: string) => Promise<DayState>)(targetDate);
     const persistSpy = jest
       .spyOn(
         view as unknown as {

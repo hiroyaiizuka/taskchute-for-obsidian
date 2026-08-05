@@ -24,6 +24,7 @@ import {
   createRecordingGraceTimer,
   createSpyGateway,
   prepareFixture,
+  resizeOf,
 } from './dispatcherTestUtils'
 
 const FAKE_INTERACTIVE = path.join(FIXTURES_DIR, 'fake-interactive.js')
@@ -486,8 +487,8 @@ describe('TerminalDispatcher live PTY resize', () => {
     const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
     const run = dispatcher.start(BASE_REQUEST, noopCallbacks())
 
-    run.resize(120, 36)
-    run.resize(132, 41)
+    resizeOf(run)(120, 36)
+    resizeOf(run)(132, 41)
     stdoutCb('shell ready')
 
     expect(gateway.resizePtyMock.mock.calls).toEqual([
@@ -513,10 +514,10 @@ describe('TerminalDispatcher live PTY resize', () => {
     const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
     const run = dispatcher.start(BASE_REQUEST, noopCallbacks())
 
-    run.resize(0, 24)
-    run.resize(80, Number.NaN)
+    resizeOf(run)(0, 24)
+    resizeOf(run)(80, Number.NaN)
     exitCb(0, null)
-    run.resize(100, 30)
+    resizeOf(run)(100, 30)
 
     expect(gateway.resizePtyMock).not.toHaveBeenCalled()
   })

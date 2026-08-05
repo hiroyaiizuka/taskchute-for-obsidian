@@ -12,6 +12,17 @@ import {
 
 type CleanupHost = Parameters<typeof registerAiTaskAppShutdownCleanup>[0]
 
+type QuitListener = (tasks: { addPromise(promise: Promise<unknown>): void }) => void
+
+/**
+ * `onQuit` is captured inside the `workspace.on('quit')` callback, which TS's
+ * control flow cannot see — it still considers the variable null here.
+ */
+function quitListener(listener: QuitListener | null): QuitListener {
+  if (!listener) throw new Error('no quit listener was registered')
+  return listener
+}
+
 function quitRegistrationStub() {
   const eventRef = { unload: jest.fn() }
   return {
@@ -80,7 +91,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     expect(host.registerEvent).toHaveBeenCalledWith(eventRef)
 
     const tasks = { addPromise: jest.fn() }
-    ;(onQuit as ((value: typeof tasks) => void) | null)?.(tasks)
+    quitListener(onQuit)(tasks)
 
     expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tasks.addPromise).toHaveBeenCalledWith(completion)
@@ -129,7 +140,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
 
     registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
     const tasks = { addPromise: jest.fn() }
-    onQuit?.(tasks)
+    quitListener(onQuit)(tasks)
 
     expect(manager.persistSessionStateForRendererReload).toHaveBeenCalledTimes(1)
     expect(manager.scheduleTerminalShutdownAfterGrace).toHaveBeenCalledWith(
@@ -186,7 +197,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
 
     const tasks = { addPromise: jest.fn() }
-    expect(() => onQuit?.(tasks)).not.toThrow()
+    expect(() => quitListener(onQuit)(tasks)).not.toThrow()
 
     expect(manager.prepareForRendererReload).toHaveBeenCalledTimes(1)
     expect(manager.dispose).not.toHaveBeenCalled()
@@ -236,7 +247,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
 
     registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
     const tasks = { addPromise: jest.fn() }
-    ;(onQuit as ((value: typeof tasks) => void) | null)?.(tasks)
+    quitListener(onQuit)(tasks)
 
     expect(pendingManager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tasks.addPromise).toHaveBeenCalledWith(completion)
@@ -274,7 +285,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
 
     registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
     const emptyTasks = { addPromise: jest.fn() }
-    expect(() => onQuit?.(emptyTasks)).not.toThrow()
+    expect(() => quitListener(onQuit)(emptyTasks)).not.toThrow()
     expect(emptyTasks.addPromise).not.toHaveBeenCalled()
 
     const laterManager = {
@@ -284,7 +295,7 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     }
     host.aiTaskManager = laterManager
     const tasks = { addPromise: jest.fn() }
-    onQuit?.(tasks)
+    quitListener(onQuit)(tasks)
     expect(laterManager.disposeAndWait).toHaveBeenCalledTimes(1)
     expect(tasks.addPromise).toHaveBeenCalledWith(
       laterManager.disposeAndWait.mock.results[0]?.value,
@@ -362,7 +373,7 @@ describe('disposeAiTaskManagerTracked', () => {
     }
     registerAiTaskAppShutdownCleanup(host as unknown as CleanupHost)
     const tasks = { addPromise: jest.fn() }
-    onQuit?.(tasks)
+    quitListener(onQuit)(tasks)
     const retry = tasks.addPromise.mock.calls[0]?.[0] as Promise<void>
     await retry
     await Promise.resolve()

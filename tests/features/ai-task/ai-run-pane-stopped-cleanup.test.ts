@@ -497,7 +497,7 @@ describe('AiRunPaneController + AiTaskManager stopped-run integration', () => {
     await manager.startRun(file)
     expect(adapters).toHaveLength(1)
 
-    terminalDispatcher.exit({ status: 'stopped', exitCode: null })
+    terminalDispatcher.exit({ status: 'stopped', exitCode: null, signal: null })
     await flushPromises()
 
     // The persist consumed the LIVE adapter snapshot...

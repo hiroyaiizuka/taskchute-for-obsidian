@@ -363,7 +363,7 @@ describe('AiRunSessionStateStore', () => {
     const oversizedReplay = 'x'.repeat(AI_RUN_SESSION_REPLAY_LIMIT + 100)
     const tooManyEvents = Array.from(
       { length: AI_RUN_SESSION_EVENT_LIMIT + 100 },
-      (_, index) => ({ kind: 'raw', text: `event-${index}` }),
+      (_, index) => ({ kind: 'raw' as const, text: `event-${index}` }),
     )
     const state = {
       version: 1,

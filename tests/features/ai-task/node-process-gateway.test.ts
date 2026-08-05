@@ -402,7 +402,7 @@ describe('NodeProcessGateway', () => {
       const terminateWindowsTree = jest.fn(() => false)
       const terminateWindowsTreeSync = jest.fn(() => true)
       const readProcessBirthToken = jest
-        .fn<() => string | null>()
+        .fn<string | null, []>()
         .mockReturnValueOnce('original-start-time')
         .mockReturnValue('replacement-start-time')
       const gateway = new NodeProcessGateway(
@@ -740,7 +740,7 @@ describe('NodeProcessGateway', () => {
         { pid: reusedPid, birthToken: 'original-birth' },
       ])
       const readBirthToken = jest
-        .fn<(pid: number) => string | null>()
+        .fn<string | null, [number]>()
         .mockReturnValueOnce('original-birth')
         .mockReturnValue('replacement-birth')
       const gateway = new NodeProcessGateway(

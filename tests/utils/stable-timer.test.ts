@@ -117,12 +117,12 @@ describe('stableTimerSource', () => {
     const laterPopout = createTimerWindow({ timeoutId: 100 })
     let nativeCallback: (() => void) | null = null
     const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation(
-      (handler: TimerHandler) => {
+      ((handler: TimerHandler) => {
         if (typeof handler === 'function') {
-          nativeCallback = handler
+          nativeCallback = handler as () => void
         }
         return 42
-      },
+      }) as unknown as typeof window.setTimeout,
     )
     const stableClearTimeout = jest
       .spyOn(window, 'clearTimeout')
@@ -159,7 +159,9 @@ describe('stableTimerSource', () => {
   test('cancels an armed timeout through the same root window after activeWindow changes', async () => {
     const focusedPopout = createTimerWindow({ timeoutId: 99 })
     const laterPopout = createTimerWindow({ timeoutId: 100 })
-    const stableSetTimeout = jest.spyOn(window, 'setTimeout').mockImplementation(() => 42)
+    const stableSetTimeout = jest
+      .spyOn(window, 'setTimeout')
+      .mockImplementation((() => 42) as unknown as typeof window.setTimeout)
     const stableClearTimeout = jest
       .spyOn(window, 'clearTimeout')
       .mockImplementation(() => undefined)

@@ -17,6 +17,17 @@ import {
 } from '../../../src/features/ai-task/services/NodeProcessGateway'
 
 type ExecCaptureMock = jest.Mock<Promise<ExecCaptureResult>, [string, string[], number]>
+type IsFileMock = jest.Mock<Promise<boolean>, [string]>
+
+function execCaptureMock(
+  impl: (command: string, args: string[], timeoutMs: number) => Promise<ExecCaptureResult>,
+): ExecCaptureMock {
+  return jest.fn(impl)
+}
+
+function isFileMock(impl: (candidate: string) => Promise<boolean>): IsFileMock {
+  return jest.fn(impl)
+}
 
 function success(stdout: string): ExecCaptureResult {
   return { code: 0, stdout, stderr: '', timedOut: false }
@@ -57,7 +68,7 @@ function createLocator(options: {
   home?: string | undefined
   env?: Record<string, string | undefined>
   platform?: string
-  isFile?: jest.Mock<Promise<boolean>, [string]>
+  isFile?: IsFileMock
   primeLoginShellPath?: jest.Mock<Promise<void>, []>
 }): BinaryLocator {
   const gateway: BinaryLocatorGateway = {
@@ -74,11 +85,11 @@ function createLocator(options: {
 
 describe('BinaryLocator', () => {
   test('settings override wins without touching the gateway', async () => {
-    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
+    const execCapture = execCaptureMock(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '  /custom/claude  ' },
-      isFile: jest.fn(() => Promise.resolve(true)),
+      isFile: isFileMock(() => Promise.resolve(true)),
     })
 
     await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/custom/claude')
@@ -90,11 +101,11 @@ describe('BinaryLocator', () => {
   })
 
   test('codex override uses aiTaskCodexPath', async () => {
-    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
+    const execCapture = execCaptureMock(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '/custom/claude', aiTaskCodexPath: '/custom/codex' },
-      isFile: jest.fn(() => Promise.resolve(true)),
+      isFile: isFileMock(() => Promise.resolve(true)),
     })
 
     await expect(resolveExecutable(locator, 'codex')).resolves.toBe('/custom/codex')
@@ -128,7 +139,7 @@ describe('BinaryLocator', () => {
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '/deleted/claude' },
-      isFile: jest.fn(() => Promise.resolve(false)),
+      isFile: isFileMock(() => Promise.resolve(false)),
     })
 
     await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/opt/homebrew/bin/claude')
@@ -191,7 +202,7 @@ describe('BinaryLocator', () => {
   })
 
   test('falls back to known-path probes when shell lookup fails', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const execCapture = execCaptureMock((command, args) => {
       if (command === '/bin/test' && args[1] === '/opt/homebrew/bin/claude') {
         return Promise.resolve(success(''))
       }
@@ -297,7 +308,7 @@ describe('BinaryLocator', () => {
   test('finds a mise-managed CLI from the primed PATH without sourcing rc files again', async () => {
     const miseClaude =
       '/Users/tester/.local/share/mise/installs/npm-anthropic-ai-claude-code/2.1.205/bin/claude'
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const execCapture = execCaptureMock((command, args) => {
       if (command === '/bin/test' && args[0] === '-x' && args[1] === miseClaude) {
         return Promise.resolve(success(''))
       }
@@ -321,7 +332,7 @@ describe('BinaryLocator', () => {
   })
 
   test('falls back to a login-only shell when interactive flags are unsupported', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((_command, args) => {
+    const execCapture = execCaptureMock((_command, args) => {
       if (args[0] === POSIX_INTERACTIVE_LOGIN_SHELL_FLAG) {
         return Promise.resolve(failure(2))
       }
@@ -353,7 +364,7 @@ describe('BinaryLocator', () => {
       callOrder.push('prime')
       return Promise.resolve()
     })
-    const execCapture: ExecCaptureMock = jest.fn(() => {
+    const execCapture = execCaptureMock(() => {
       callOrder.push('exec')
       return Promise.resolve(posixSuccess('/opt/homebrew/bin/claude'))
     })
@@ -367,12 +378,12 @@ describe('BinaryLocator', () => {
 
   test('primes the login-shell PATH even when a settings override is set', async () => {
     const primeLoginShellPath = jest.fn(() => Promise.resolve())
-    const execCapture: ExecCaptureMock = jest.fn(() => Promise.resolve(success('')))
+    const execCapture = execCaptureMock(() => Promise.resolve(success('')))
     const locator = createLocator({
       execCapture,
       overrides: { aiTaskClaudePath: '/custom/claude' },
       primeLoginShellPath,
-      isFile: jest.fn(() => Promise.resolve(true)),
+      isFile: isFileMock(() => Promise.resolve(true)),
     })
 
     await expect(resolveExecutable(locator, 'claude')).resolves.toBe('/custom/claude')
@@ -390,7 +401,7 @@ describe('BinaryLocator', () => {
   })
 
   test('ignores shell output that has no marked absolute binary path', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((command) => {
+    const execCapture = execCaptureMock((command) => {
       if (command === '/bin/zsh') {
         return Promise.resolve(success('claude not found\n'))
       }
@@ -402,7 +413,7 @@ describe('BinaryLocator', () => {
   })
 
   test('win32 detects a native Claude executable with where.exe and never invokes a POSIX shell', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'claude') {
         return Promise.resolve(success('C:\\Users\\tester\\.local\\bin\\claude.exe\r\n'))
       }
@@ -423,7 +434,7 @@ describe('BinaryLocator', () => {
   })
 
   test('win32 ignores a synced POSIX override and uses the local executable', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'claude') {
         return Promise.resolve(success('C:\\Tools\\claude.exe\r\n'))
       }
@@ -440,13 +451,13 @@ describe('BinaryLocator', () => {
   })
 
   test('win32 ignores a stale local override and uses where.exe auto-detection', async () => {
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'claude') {
         return Promise.resolve(success('C:\\Tools\\claude.exe\r\n'))
       }
       return Promise.resolve(failure())
     })
-    const isFile = jest.fn(() => Promise.resolve(false))
+    const isFile = isFileMock(() => Promise.resolve(false))
     const locator = createLocator({
       execCapture,
       isFile,
@@ -463,8 +474,8 @@ describe('BinaryLocator', () => {
     const cliEntry =
       'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli-wrapper.cjs'
     const nodePath = 'C:\\Program Files\\nodejs\\node.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === cliEntry))
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === cliEntry))
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'claude') {
         return Promise.resolve(success('C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd\r\n'))
       }
@@ -486,8 +497,8 @@ describe('BinaryLocator', () => {
   test('win32 resolves a Codex npm cmd shim to its packaged native executable', async () => {
     const codexExe =
       'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === codexExe))
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === codexExe))
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'codex') {
         return Promise.resolve(
           success(
@@ -511,8 +522,8 @@ describe('BinaryLocator', () => {
   test('win32 arm64 prefers the matching packaged Codex native executable', async () => {
     const codexExe =
       'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-arm64\\vendor\\aarch64-pc-windows-msvc\\bin\\codex.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === codexExe))
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === codexExe))
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'codex') {
         return Promise.resolve(
           success('C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.cmd\r\n'),
@@ -534,8 +545,8 @@ describe('BinaryLocator', () => {
     const codexEntry =
       'C:\\Users\\tester\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js'
     const nodePath = 'C:\\Program Files\\nodejs\\node.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === codexEntry))
-    const execCapture: ExecCaptureMock = jest.fn((command, args) => {
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === codexEntry))
+    const execCapture = execCaptureMock((command, args) => {
       if (command === 'where.exe' && args[0] === 'codex') {
         return Promise.resolve(success('C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.cmd\r\n'))
       }
@@ -556,7 +567,7 @@ describe('BinaryLocator', () => {
 
   test('win32 probes the native Claude installer path when where.exe misses', async () => {
     const nativePath = 'C:\\Users\\tester\\AppData\\Local\\Claude\\claude.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === nativePath))
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === nativePath))
     const execCapture: ExecCaptureMock = jest.fn().mockResolvedValue(failure())
     const locator = createLocator({
       execCapture,
@@ -574,7 +585,7 @@ describe('BinaryLocator', () => {
 
   test('win32 probes a Volta native shim when Explorer PATH is stale', async () => {
     const voltaPath = 'C:\\Users\\tester\\.volta\\bin\\claude.exe'
-    const isFile = jest.fn((candidate: string) => Promise.resolve(candidate === voltaPath))
+    const isFile = isFileMock((candidate: string) => Promise.resolve(candidate === voltaPath))
     const execCapture: ExecCaptureMock = jest.fn().mockResolvedValue(failure())
     const locator = createLocator({
       execCapture,
@@ -587,7 +598,7 @@ describe('BinaryLocator', () => {
   })
 
   test('win32 never probes a relative path when user environment roots are missing', async () => {
-    const isFile = jest.fn(() => Promise.resolve(false))
+    const isFile = isFileMock(() => Promise.resolve(false))
     const execCapture: ExecCaptureMock = jest.fn().mockResolvedValue(failure())
     const locator = createLocator({
       execCapture,

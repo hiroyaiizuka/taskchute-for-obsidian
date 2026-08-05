@@ -1080,7 +1080,7 @@ describe('TaskMutationService', () => {
       return reloadedDayState
     })
     ;(
-      host.dayStateManager as DayStateStoreService & {
+      host.dayStateManager as unknown as {
         mutateSnapshot: typeof mutateSnapshot
       }
     ).mutateSnapshot = mutateSnapshot
@@ -1121,7 +1121,7 @@ describe('TaskMutationService', () => {
       return host.dayState
     })
     ;(
-      host.dayStateManager as DayStateStoreService & {
+      host.dayStateManager as unknown as {
         mutateSnapshot: typeof mutateSnapshot
       }
     ).mutateSnapshot = mutateSnapshot
@@ -1188,7 +1188,7 @@ describe('TaskMutationService', () => {
       return originalDayState
     })
     ;(
-      host.dayStateManager as DayStateStoreService & {
+      host.dayStateManager as unknown as {
         mutateSnapshot: typeof mutateSnapshot
       }
     ).mutateSnapshot = mutateSnapshot

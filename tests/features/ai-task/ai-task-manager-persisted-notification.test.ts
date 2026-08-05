@@ -107,7 +107,9 @@ function createHarness(options: HarnessOptions = {}) {
   const headless = new FakeHeadlessDispatcher()
   const terminal = new FakeTerminalDispatcher()
   let resolveTerminalWrite: (() => void) | null = null
-  const writeRunLog = jest.fn(async () => 'headless-log.md')
+  const writeRunLog = jest.fn<Promise<string>, [AiRunRecord]>(
+    async () => 'headless-log.md',
+  )
   const writeTerminalRunLog = jest.fn<Promise<string>, [AiRunRecord, string]>(
     () => {
       if (!options.deferTerminalWrite) return Promise.resolve('terminal-log.md')
@@ -167,7 +169,7 @@ describe("AiTaskManager 'persisted' notifications", () => {
     })
 
     await harness.manager.startRun(makeTaskFile())
-    harness.terminal.last.exit({ status: 'stopped', exitCode: null })
+    harness.terminal.last.exit({ status: 'stopped', exitCode: null, signal: null })
     await flushPromises()
 
     // The final status notification is a plain update; the snapshot is
@@ -188,7 +190,7 @@ describe("AiTaskManager 'persisted' notifications", () => {
     })
 
     await harness.manager.startRun(makeTaskFile())
-    harness.terminal.last.exit({ status: 'stopped', exitCode: null })
+    harness.terminal.last.exit({ status: 'stopped', exitCode: null, signal: null })
     await flushPromises()
 
     expect(changeTypes).not.toContain('persisted')
@@ -208,7 +210,7 @@ describe("AiTaskManager 'persisted' notifications", () => {
     })
 
     await harness.manager.startRun(makeTaskFile())
-    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0 })
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
     await flushPromises()
 
     expect(notifications).toContainEqual({
@@ -229,7 +231,7 @@ describe("AiTaskManager 'persisted' notifications", () => {
     })
 
     await harness.manager.startRun(makeTaskFile())
-    harness.headless.runs[0].exit({ status: 'stopped', exitCode: null })
+    harness.headless.runs[0].exit({ status: 'stopped', exitCode: null, signal: null })
     await flushPromises()
 
     expect(order).toContain('persisted:stopped')
@@ -308,7 +310,7 @@ describe("dispatch failures also end with 'persisted'", () => {
       kind: 'init',
       sessionId: 'sess-1',
     })
-    harness.headless.runs[0].exit({ status: 'succeeded', exitCode: 0 })
+    harness.headless.runs[0].exit({ status: 'succeeded', exitCode: 0, signal: null })
     await flushPromises()
     expect(persistedStatuses).toEqual(['succeeded'])
 

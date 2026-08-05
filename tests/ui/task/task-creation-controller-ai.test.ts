@@ -160,7 +160,7 @@ function createHost(
       metadataCache: {
         getFileCache: jest.fn(() => ({ frontmatter: {} })),
       },
-    },
+    } as unknown as TaskCreationControllerHost['app'],
     plugin: pluginStub,
     getAiTaskDefaultWorkingDirectory: () =>
       options.defaultWorkingDirectory ?? '',

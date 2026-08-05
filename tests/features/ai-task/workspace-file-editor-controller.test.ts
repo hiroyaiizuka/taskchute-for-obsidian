@@ -104,7 +104,7 @@ describe('WorkspaceFileEditorController', () => {
     document.body.replaceChildren()
     container = document.body.createDiv()
     editor = new FakeFileEditorAdapter()
-    confirmDiscard = jest.fn(() => true)
+    confirmDiscard = jest.fn<boolean | Promise<boolean>, [string]>(() => true)
     host = {
       readWorkspaceFile: jest.fn(async (_rootPath, filePath) =>
         documentResult(filePath, 'plain text'),

@@ -127,7 +127,7 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
 function setUp(): {
   paneListener: ChangeListener
   renderTaskList: jest.Mock
-  reconcileInterruptedAiRunTasks: jest.Mock<Promise<void>, []>
+  reconcileInterruptedAiRunTasks: jest.SpyInstance<Promise<void>, []>
 } {
   const plugin = createPluginStub()
   const { manager, listeners } = createManagerStub()

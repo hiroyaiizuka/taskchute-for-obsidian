@@ -100,16 +100,16 @@ function createManagerStub(): ManagerStub {
     getRuns: jest.fn(() => []),
     getRun: jest.fn(() => undefined),
     getActiveRunForTask: jest.fn(() => undefined),
-    hasTaskRunLifecycle: jest.fn(() => false),
-    claimOrphanedTaskStateReconciliation: jest.fn(() => true),
+    hasTaskRunLifecycle: jest.fn().mockReturnValue(false),
+    claimOrphanedTaskStateReconciliation: jest.fn().mockReturnValue(true),
     releaseOrphanedTaskStateReconciliation: jest.fn(),
-    claimInterruptedTaskStateReconciliation: jest.fn(() => false),
+    claimInterruptedTaskStateReconciliation: jest.fn().mockReturnValue(false),
     completeInterruptedTaskStateReconciliation: jest.fn(),
     retryInterruptedTaskStateReconciliation: jest.fn(),
     coordinateInterruptedTaskStateReconciliation: jest.fn(),
     coordinateOrphanedTaskStateReconciliation: jest.fn(),
     requestStopForTask: jest.fn(),
-    onChange: jest.fn(() => jest.fn()),
+    onChange: jest.fn().mockImplementation(() => jest.fn()),
     invalidateBinaryCache: jest.fn(),
     dispose: jest.fn(),
   }
@@ -269,10 +269,10 @@ function createView(plugin: TaskChutePluginLike): {
   ;(view as unknown as { taskExecutionService: ExecutionStub }).taskExecutionService =
     execution
   const mutation: MutationStub = {
-    deleteTask: jest.fn(async () => true),
-    deleteInstance: jest.fn(async () => true),
-    rollbackDuplicateInstance: jest.fn(async () => undefined),
-    duplicateInstance: jest.fn(async () => undefined),
+    deleteTask: jest.fn().mockResolvedValue(true),
+    deleteInstance: jest.fn().mockResolvedValue(true),
+    rollbackDuplicateInstance: jest.fn().mockResolvedValue(undefined),
+    duplicateInstance: jest.fn().mockResolvedValue(undefined),
   }
   ;(view as unknown as { taskMutationService: MutationStub }).taskMutationService =
     mutation
@@ -451,7 +451,7 @@ describe('TaskChuteView play button coupling', () => {
     }
     let reserved = false
     manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
-    manager.reserveTaskStart = jest.fn(() => {
+    manager.reserveTaskStart = jest.fn().mockImplementation(() => {
       reserved = true
       return reservation
     })
@@ -517,7 +517,7 @@ describe('TaskChuteView play button coupling', () => {
       reservationId: Symbol('cross-day-failure'),
     }
     manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
-    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.reserveTaskStart = jest.fn().mockReturnValue(reservation)
     manager.releaseTaskStartReservation = jest.fn()
     manager.startPreparedRun = jest.fn().mockRejectedValueOnce(
       new Error('spawn failed after reload'),
@@ -567,7 +567,7 @@ describe('TaskChuteView play button coupling', () => {
       reservationId: Symbol('cross-day-stop'),
     }
     manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
-    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.reserveTaskStart = jest.fn().mockReturnValue(reservation)
     manager.releaseTaskStartReservation = jest.fn()
     manager.startPreparedRun = jest.fn()
     let rematerialized!: TaskInstance
@@ -622,7 +622,7 @@ describe('TaskChuteView play button coupling', () => {
   test('a stop during preflight invalidates the pending start before its timer begins', async () => {
     const { manager, view, execution } = setUp()
     let resolvePreflight!: (prepared: PreparedAiRun) => void
-    manager.prepareRun = jest.fn(() => new Promise((resolve) => {
+    manager.prepareRun = jest.fn().mockImplementation(() => new Promise((resolve) => {
       resolvePreflight = resolve
     }))
     manager.startPreparedRun = jest.fn()
@@ -643,7 +643,7 @@ describe('TaskChuteView play button coupling', () => {
     const { manager, view } = setUp()
     let resolveDispatch!: (record: AiRunRecord) => void
     manager.prepareRun = jest.fn().mockResolvedValueOnce(makePreparedRun())
-    manager.startPreparedRun = jest.fn(() => new Promise((resolve) => {
+    manager.startPreparedRun = jest.fn().mockImplementation(() => new Promise((resolve) => {
       resolveDispatch = resolve
     }))
     const inst = makeInstance()
@@ -823,7 +823,7 @@ describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
     manager.prepareRun = jest.fn().mockResolvedValueOnce(
       makePreparedRun(target.task.path),
     )
-    manager.reserveTaskStart = jest.fn(() => {
+    manager.reserveTaskStart = jest.fn().mockImplementation(() => {
       reserved = true
       return reservation
     })
@@ -898,7 +898,7 @@ describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
     manager.prepareRun = jest.fn().mockResolvedValueOnce(
       makePreparedRun(target.task.path),
     )
-    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.reserveTaskStart = jest.fn().mockReturnValue(reservation)
     manager.releaseTaskStartReservation = jest.fn()
     manager.startPreparedRun = jest.fn().mockRejectedValueOnce(
       new Error('linked spawn failed after reload'),
@@ -959,7 +959,7 @@ describe('TaskChuteView Obsidian-linked AI routine coupling', () => {
     manager.prepareRun = jest.fn().mockResolvedValueOnce(
       makePreparedRun(target.task.path),
     )
-    manager.reserveTaskStart = jest.fn(() => reservation)
+    manager.reserveTaskStart = jest.fn().mockReturnValue(reservation)
     manager.releaseTaskStartReservation = jest.fn()
     manager.startPreparedRun = jest.fn()
     let rematerialized!: TaskInstance

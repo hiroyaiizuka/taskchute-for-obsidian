@@ -37,7 +37,7 @@ function createManagerStub(): { manager: ManagerStub; unsubscribe: jest.Mock } {
     getRuns: jest.fn(() => []),
     getRun: jest.fn(() => undefined),
     getActiveRunForTask: jest.fn(() => undefined),
-    onChange: jest.fn(() => unsubscribe),
+    onChange: jest.fn().mockReturnValue(unsubscribe),
     invalidateBinaryCache: jest.fn(),
     dispose: jest.fn(),
   }

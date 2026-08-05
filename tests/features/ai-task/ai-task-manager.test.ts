@@ -1489,7 +1489,7 @@ describe('AiTaskManager.followUp', () => {
   })
 
   test('rejects when the run is released during binary resolution, without dispatching', async () => {
-    let resolveBinary: ((path: string) => void) | null = null
+    let resolveBinary: (path: string) => void = () => undefined
     let calls = 0
     const harness = createHarness({
       resolveBinary: () => {
@@ -1507,7 +1507,7 @@ describe('AiTaskManager.followUp', () => {
     // Let followUp pass the (settled) persist queue and park on the binary.
     await flushPromises()
     harness.manager.releaseRun(record.id)
-    resolveBinary?.('/bin/claude')
+    resolveBinary('/bin/claude')
     await rejection
 
     expect(harness.claude.runs).toHaveLength(1)

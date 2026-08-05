@@ -20,8 +20,8 @@ type FakeManager = Pick<
   | 'isDisposed'
   | 'persistSessionStateForRendererReload'
   | 'prepareForRendererReload'
-  | 'rebindRuntimeDependencies'
 > & {
+  rebindRuntimeDependencies: jest.Mock<void, [AiTaskManagerDeps]>
   cancelTerminalShutdownAfterGrace?: jest.Mock
   scheduleTerminalShutdownAfterGrace?: jest.Mock
   stopNonPersistentRunsForRendererTransitionAndWait?: jest.Mock
@@ -45,7 +45,7 @@ function makeManager(): FakeManager {
 }
 
 function manager(value: FakeManager): AiTaskManager {
-  return value as AiTaskManager
+  return value as unknown as AiTaskManager
 }
 
 function deps(): AiTaskManagerDeps {

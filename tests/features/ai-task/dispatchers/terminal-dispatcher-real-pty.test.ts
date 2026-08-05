@@ -21,7 +21,7 @@ import type {
   TerminalRunHandle,
 } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type { AiRunExitOutcome } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import { FIXTURES_DIR, prepareFixture } from './dispatcherTestUtils'
+import { FIXTURES_DIR, prepareFixture, resizeOf } from './dispatcherTestUtils'
 
 const FAKE_INTERACTIVE = path.join(FIXTURES_DIR, 'fake-interactive.js')
 
@@ -293,7 +293,7 @@ describeDarwin('TerminalDispatcher through the real PTY wrapper (darwin)', () =>
     const run = startRealPtyRun()
 
     await run.waitForData('INTERACTIVE_READY')
-    run.handle.resize(132, 41)
+    resizeOf(run.handle)(132, 41)
     run.handle.write('size\r')
     await run.waitForData('SIZE:41x132')
 
