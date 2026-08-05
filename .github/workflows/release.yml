@@ -1,14 +1,12 @@
-name: Auto Release (manual)
+name: Release (manual)
+
+# このリポジトリは配布専用です。ビルドは非公開のソースリポジトリで行い、
+# その成果物 (main.js / styles.css / manifest.json / versions.json) が
+# main にコミットされた状態でこのワークフローを手動実行します。
+# ここではビルドを行わず、コミット済みのファイルをそのまま Release に添付します。
 
 on:
   workflow_dispatch:
-    inputs:
-      version_type:
-        description: "Version bump type"
-        required: true
-        default: "patch"
-        type: choice
-        options: [patch, minor, major]
 
 permissions:
   contents: write
@@ -16,7 +14,7 @@ permissions:
   attestations: write
 
 jobs:
-  auto-release:
+  release:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,97 +23,61 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install deps
-        run: npm ci || npm install
-
-      - name: Configure git user
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
-
-      # package.json をバンプし、manifest.json を Node で同期
-      - name: Bump version & sync manifest.json
-        id: bump
-        run: |
-          npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-          node -e "const fs=require('fs');let m=JSON.parse(fs.readFileSync('manifest.json','utf8'));const v=require('./package.json').version;m.version=v;fs.writeFileSync('manifest.json',JSON.stringify(m,null,2)+'\n');"
-
-          git add package.json manifest.json || true
-          [ -f versions.json ] && git add versions.json || true
-          [ -f README.md ] && git add README.md || true
-          git commit -m "chore: release ${NEW_VERSION}" || echo "No changes"
-
-      - name: Push changes
-        run: git push origin HEAD
-
-      # v なしタグ（例: 1.0.1）。v を付けたい場合は "v${{ steps.bump.outputs.new_version }}" に変更
-      - name: Create & push tag
-        run: |
-          TAG="${{ steps.bump.outputs.new_version }}"
-          git tag "$TAG"
-          git push origin "$TAG"
-
-      - name: Build plugin
-        env:
-          NODE_ENV: production
-        run: npm run build
-
-      - name: Prepare release assets
-        id: prep
+      - name: Verify release artifacts
+        id: verify
         run: |
           set -e
-          TAG="${{ steps.bump.outputs.new_version }}"
-          PKG_DIR="release-${TAG}"
-          mkdir -p "$PKG_DIR"
 
-          # main.js の検出（優先順）
-          if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
-          elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
-          elif [ -f main.js ]; then SRC_MAIN=main.js
-          else
-            echo "ERROR: main.js が見つかりません。"; exit 1
+          for f in main.js manifest.json styles.css versions.json; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: $f が見つかりません。非公開リポジトリから成果物を push してください。"
+              exit 1
+            fi
+          done
+
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+          # versions.json に該当バージョンの minAppVersion があること
+          node -e "
+            const versions = require('./versions.json');
+            const v = require('./manifest.json').version;
+            if (!versions[v]) {
+              console.error('ERROR: versions.json に ' + v + ' のエントリがありません。');
+              process.exit(1);
+            }
+          "
+
+          # v なしタグ（例: 1.7.11）
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "ERROR: タグ $VERSION は既に存在します。manifest.json のバージョンを上げてください。"
+            exit 1
           fi
-          cp "$SRC_MAIN" "$PKG_DIR/main.js"
 
-          # manifest.json（root）
-          if [ ! -f manifest.json ]; then
-            echo "ERROR: manifest.json が見つかりません。"; exit 1
-          fi
-          cp manifest.json "$PKG_DIR/manifest.json"
-
-          # styles.css（必須）
-          if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
-          elif [ -f styles.css ]; then SRC_CSS=styles.css
-          else
-            echo "ERROR: styles.css が見つかりません。"; exit 1
-          fi
-          cp "$SRC_CSS" "$PKG_DIR/styles.css"
-
-          echo "dir=${PKG_DIR}" >> $GITHUB_OUTPUT
+      - name: Create & push tag
+        run: |
+          TAG="${{ steps.verify.outputs.version }}"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Generate artifact attestations
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            ${{ steps.prep.outputs.dir }}/main.js
-            ${{ steps.prep.outputs.dir }}/manifest.json
-            ${{ steps.prep.outputs.dir }}/styles.css
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create GitHub Release (published)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.bump.outputs.new_version }}
-          name: ${{ steps.bump.outputs.new_version }}
+          tag_name: ${{ steps.verify.outputs.version }}
+          name: ${{ steps.verify.outputs.version }}
           generate_release_notes: true
           files: |
-            ${{ steps.prep.outputs.dir }}/main.js
-            ${{ steps.prep.outputs.dir }}/manifest.json
-            ${{ steps.prep.outputs.dir }}/styles.css
+            main.js
+            manifest.json
+            styles.css
