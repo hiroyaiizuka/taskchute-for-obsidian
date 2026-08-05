@@ -82,6 +82,9 @@ var en = {
   },
   settings: {
     heading: "TaskChute file paths",
+    version: {
+      name: "Version"
+    },
     storage: {
       baseLocationName: "Default storage location",
       baseLocationDesc: "Save task/log/review under the selected base.",
@@ -988,6 +991,9 @@ var ja = {
   },
   settings: {
     heading: "\u30BF\u30B9\u30AF\u30B7\u30E5\u30FC\u30C8\u306E\u30D5\u30A1\u30A4\u30EB\u30D1\u30B9",
+    version: {
+      name: "\u30D0\u30FC\u30B8\u30E7\u30F3"
+    },
     storage: {
       baseLocationName: "\u30C7\u30D5\u30A9\u30EB\u30C8\u306E\u5834\u6240",
       baseLocationDesc: "\u9078\u629E\u3057\u305F\u30D9\u30FC\u30B9\u914D\u4E0B\u306B Task/Log/Review \u3092\u4FDD\u5B58\u3057\u307E\u3059\u3002",
@@ -3959,7 +3965,7 @@ var RecordsRebuilder = class {
     let rebuiltDays = 0;
     for (const [monthKey, context] of monthContexts.entries()) {
       await MonthSyncCoordinator.withMonthLock(monthKey, async () => {
-        var _a2;
+        var _a2, _b2;
         if (!context.snapshot.meta) {
           context.snapshot.meta = createEmptyTaskLogSnapshot().meta;
         } else if (!context.snapshot.meta.processedCursor) {
@@ -3968,7 +3974,7 @@ var RecordsRebuilder = class {
         try {
           const expectedRevision = await this.resolveExpectedRevision(
             monthKey,
-            (_a2 = context.snapshot.meta.revision) != null ? _a2 : 0
+            (_b2 = (_a2 = context.snapshot.meta) == null ? void 0 : _a2.revision) != null ? _b2 : 0
           );
           await this.snapshotWriter.writeWithConflictDetection(
             monthKey,
@@ -18578,10 +18584,11 @@ var TaskTimeController = class {
             return;
           }
           if (inst.state === "running") {
-            if (startStr) {
+            const instStartTime = inst.startTime;
+            if (startStr && instStartTime) {
               const ok = await this.validateStartStopTimes(inst, startStr, value, viewDate);
               if (!ok) return;
-              const stopTime = this.buildStopTimeFromStart(inst.startTime, value);
+              const stopTime = this.buildStopTimeFromStart(instStartTime, value);
               if (stopTime.getTime() > Date.now()) {
                 new import_obsidian45.Notice(
                   this.host.tv(
@@ -26268,11 +26275,16 @@ var TaskChuteSettingTab = class extends import_obsidian61.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.classList.add("taskchute-settings-pane");
+    this.renderVersionSection(containerEl);
     this.renderStorageSection(containerEl);
     this.renderLogBackupSection(containerEl);
     this.renderReviewTemplateSection(containerEl);
     this.renderProjectCandidateSection(containerEl);
     this.renderAdvancedSection(containerEl);
+  }
+  /** インストール済みのバージョンを manifest.json からそのまま表示する */
+  renderVersionSection(container) {
+    new import_obsidian61.Setting(container).setName(t("settings.version.name", "Version")).setDesc(this.plugin.manifest.version);
   }
   setHeadingIfSupported(setting) {
     const maybeHeading = setting;
