@@ -76,6 +76,29 @@ jobs:
             manifest.json
             styles.css
 
+      # リリースノートは、この commit に紐づく PR の本文を使う。
+      # 直接 push などで PR が見つからない場合は自動生成にフォールバックする。
+      - name: Resolve release notes
+        id: notes
+        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          BODY=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq 'map(select(.merged_at != null)) | sort_by(.merged_at) | last | .body // empty' \
+            2>/dev/null || true)
+
+          if [ -n "${BODY:-}" ]; then
+            printf '%s\n' "$BODY" > RELEASE_NOTES.md
+            echo "source=pr" >> "$GITHUB_OUTPUT"
+            echo "PR 本文をリリースノートに使用します。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "source=auto" >> "$GITHUB_OUTPUT"
+            echo "紐づく PR が見つからないため、リリースノートを自動生成します。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Create GitHub Release (published)
         if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
         env:
@@ -83,8 +106,15 @@ jobs:
           TAG: ${{ steps.verify.outputs.version }}
         run: |
           set -euo pipefail
+
+          if [ "${{ steps.notes.outputs.source }}" = "pr" ]; then
+            NOTES_ARG=(--notes-file RELEASE_NOTES.md)
+          else
+            NOTES_ARG=(--generate-notes)
+          fi
+
           gh release create "$TAG" \
             --title "$TAG" \
             --target "$GITHUB_SHA" \
-            --generate-notes \
+            "${NOTES_ARG[@]}" \
             main.js manifest.json styles.css
