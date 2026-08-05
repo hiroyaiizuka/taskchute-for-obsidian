@@ -742,16 +742,23 @@ export function scheduleAiTaskManagerHotReloadHandoff(
   expectedGeneration?: number,
 ): void {
   const targetWindow = resolveRuntimeWindow(manager, win)
-  let slot = targetWindow[AI_TASK_RUNTIME_SLOT_KEY]
-  if (!slot || slot.manager !== manager || manager.isDisposed()) {
+  const storedSlot = targetWindow[AI_TASK_RUNTIME_SLOT_KEY]
+  if (
+    !storedSlot ||
+    storedSlot.manager !== manager ||
+    manager.isDisposed()
+  ) {
     manager.dispose()
     return
   }
-  if (!isCurrentSlot(slot)) {
-    // A caller from the new bundle can race acquisition during a hot update.
-    // Migrate in place before consulting generation/pagehide state.
-    slot = moveSlotToCurrentSchema(targetWindow, targetWindow, slot)
-  }
+  // A caller from the new bundle can race acquisition during a hot update.
+  // Migrate in place before consulting generation/pagehide state. Bind the
+  // result to its own const: reassigning the union-typed variable would widen
+  // it back (every legacy shape is a structural subset of the current one),
+  // and a `let` also loses its narrowing inside the timer callback below.
+  const slot: AiTaskRuntimeSlot = isCurrentSlot(storedSlot)
+    ? storedSlot
+    : moveSlotToCurrentSchema(targetWindow, targetWindow, storedSlot)
   // Obsidian normally unloads the old plugin before loading the new one, but
   // keep the lease correct even if those callbacks are interleaved: an old
   // instance must never arm a disposal timer after a newer instance adopted

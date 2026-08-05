@@ -64,21 +64,34 @@ function isFolderStub(value: unknown): value is FolderStub {
   return !!value && typeof value === 'object' && Array.isArray((value as FolderStub).children)
 }
 
-function createSettingTab(app: ReturnType<typeof createApp>): TaskChuteSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as TaskChuteSettingTab & {
-    app: ReturnType<typeof createApp>
-    plugin: {
-      settings: {
-        locationMode: 'specifiedFolder'
-        specifiedFolder?: string
-      }
-      pathManager: {
-        validatePath(path: string): { valid: boolean }
-      }
-      saveSettings(): Promise<void>
+// Intersecting the class itself would collapse to `never`: `renderStorageSection`
+// is private on TaskChuteSettingTab, so it exists in both constituents with
+// incompatible declarations. Omit strips the private members and keeps the
+// public surface the test actually touches.
+type MutableSettingTab = Omit<
+  TaskChuteSettingTab,
+  'app' | 'plugin' | 'renderStorageSection'
+> & {
+  app: ReturnType<typeof createApp>
+  plugin: {
+    settings: {
+      locationMode: 'specifiedFolder'
+      specifiedFolder?: string
     }
-    renderStorageSection(container: HTMLElement): void
+    pathManager: {
+      validatePath(path: string): { valid: boolean }
+    }
+    saveSettings(): Promise<void>
   }
+  renderStorageSection(container: HTMLElement): void
+}
+
+function createSettingTab(
+  app: ReturnType<typeof createApp>,
+): MutableSettingTab {
+  const tab = Object.create(
+    TaskChuteSettingTab.prototype,
+  ) as MutableSettingTab
 
   tab.app = app
   tab.plugin = {

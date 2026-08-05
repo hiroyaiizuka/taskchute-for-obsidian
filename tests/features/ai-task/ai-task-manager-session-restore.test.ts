@@ -82,12 +82,12 @@ function makeTaskFile(): TFile {
 
 describe('AiTaskManager persisted session restore', () => {
   test('reattaches a broker session with the same run id and restores input only from broker-confirmed metadata', () => {
-    let callbacks: TerminalRunCallbacks | null = null
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
     const write = jest.fn()
     const detach = jest.fn()
     const attach = jest.fn(
       (sessionId: string, nextCallbacks: TerminalRunCallbacks): TerminalRunHandle => {
-        callbacks = nextCallbacks
+        captured.callbacks = nextCallbacks
         return {
           sessionId,
           write,
@@ -134,8 +134,8 @@ describe('AiTaskManager persisted session restore', () => {
       manager.claimInterruptedTaskStateReconciliation('restored-run'),
     ).toBe(false)
 
-    callbacks?.onAttached?.(4242, '/tmp/broker-confirmed-transcript')
-    callbacks?.onData('broker replay\r\n')
+    captured.callbacks?.onAttached?.(4242, '/tmp/broker-confirmed-transcript')
+    captured.callbacks?.onData('broker replay\r\n')
     manager.sendTerminalInput('restored-run', 'after reload\r')
 
     expect(manager.getRun('restored-run')).toMatchObject({
@@ -165,7 +165,7 @@ describe('AiTaskManager persisted session restore', () => {
   })
 
   test('falls back to interrupted replay when the persisted broker session is missing', () => {
-    let callbacks: TerminalRunCallbacks | null = null
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
     const snapshot = restoredSnapshot({
       record: {
         ...restoredSnapshot().record,
@@ -180,7 +180,7 @@ describe('AiTaskManager persisted session restore', () => {
         isPersistent: true,
         start: jest.fn(),
         attach: jest.fn((_sessionId, nextCallbacks) => {
-          callbacks = nextCallbacks
+          captured.callbacks = nextCallbacks
           return {
             sessionId: 'restored-run',
             write: jest.fn(),
@@ -194,7 +194,7 @@ describe('AiTaskManager persisted session restore', () => {
     }
     const manager = new AiTaskManager(deps)
 
-    callbacks?.onUnavailable?.()
+    captured.callbacks?.onUnavailable?.()
 
     expect(manager.getRun('restored-run')).toMatchObject({
       status: 'interrupted',
@@ -212,7 +212,7 @@ describe('AiTaskManager persisted session restore', () => {
   })
 
   test('persists the bounded fallback replay when a missing broker has no trusted transcript path', async () => {
-    let callbacks: TerminalRunCallbacks | null = null
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
     const snapshot = restoredSnapshot({
       terminalReplay: '\u001b[32mRESTORED FALLBACK\u001b[0m\r\n',
       record: {
@@ -228,7 +228,7 @@ describe('AiTaskManager persisted session restore', () => {
         isPersistent: true,
         start: jest.fn(),
         attach: jest.fn((_sessionId, nextCallbacks) => {
-          callbacks = nextCallbacks
+          captured.callbacks = nextCallbacks
           return {
             sessionId: 'restored-run',
             write: jest.fn(),
@@ -242,7 +242,7 @@ describe('AiTaskManager persisted session restore', () => {
     }
     new AiTaskManager(deps)
 
-    callbacks?.onUnavailable?.()
+    captured.callbacks?.onUnavailable?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(writeTerminalRunLog).toHaveBeenCalledWith(
@@ -255,7 +255,7 @@ describe('AiTaskManager persisted session restore', () => {
   })
 
   test('never overwrites post-attach live data with an older persisted fallback replay', async () => {
-    let callbacks: TerminalRunCallbacks | null = null
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
     const snapshot = restoredSnapshot({
       terminalReplay: 'OLD LOCALSTORAGE REPLAY\r\n',
       record: {
@@ -270,7 +270,7 @@ describe('AiTaskManager persisted session restore', () => {
         isPersistent: true,
         start: jest.fn(),
         attach: jest.fn((_sessionId, nextCallbacks) => {
-          callbacks = nextCallbacks
+          captured.callbacks = nextCallbacks
           return {
             sessionId: 'restored-run',
             write: jest.fn(),
@@ -284,10 +284,10 @@ describe('AiTaskManager persisted session restore', () => {
     }
     const manager = new AiTaskManager(deps)
 
-    callbacks?.onData('NEW BROKER DATA\r\n')
+    captured.callbacks?.onData('NEW BROKER DATA\r\n')
     // The abnormal-termination acknowledgement can be the first usable
     // broker frame when the original attached replay itself was oversized.
-    callbacks?.onUnavailable?.('/tmp/broker-confirmed-transcript')
+    captured.callbacks?.onUnavailable?.('/tmp/broker-confirmed-transcript')
 
     const chunks: string[] = []
     manager.onTerminalData('restored-run', (chunk) => chunks.push(chunk))

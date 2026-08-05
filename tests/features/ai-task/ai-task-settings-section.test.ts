@@ -45,7 +45,14 @@ type FakeManager = {
   invalidateBinaryCache: jest.Mock
 }
 
-type MutableSettingTab = TaskChuteSettingTab & {
+// Intersecting the class itself would collapse to `never`: `renderAiTaskSection`
+// is private on TaskChuteSettingTab, so it exists in both constituents with
+// incompatible declarations. Omit strips the private members and keeps the
+// public surface the test actually touches.
+type MutableSettingTab = Omit<
+  TaskChuteSettingTab,
+  'app' | 'plugin' | 'renderAiTaskSection'
+> & {
   app: typeof mockApp
   plugin: {
     manifest: { id: string }
