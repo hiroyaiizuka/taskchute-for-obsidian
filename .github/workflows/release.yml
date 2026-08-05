@@ -1,11 +1,21 @@
-name: Release (manual)
+name: Release
 
 # このリポジトリは配布専用です。ビルドは非公開のソースリポジトリで行い、
-# その成果物 (main.js / styles.css / manifest.json / versions.json) が
-# main にコミットされた状態でこのワークフローを手動実行します。
+# その成果物 (main.js / styles.css / manifest.json / versions.json) を
+# main に push した時点でこのワークフローが走り、Release を作ります。
 # ここではビルドを行わず、コミット済みのファイルをそのまま Release に添付します。
+#
+# リリース判定は manifest.json の version です。
+# その version のタグが既にあれば何もせず終了します（成果物だけの修正 push は無害）。
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - manifest.json
+      - versions.json
+      - main.js
+      - styles.css
   workflow_dispatch:
     inputs:
       dry_run:
@@ -21,12 +31,6 @@ permissions:
 concurrency:
   group: release
   cancel-in-progress: false
-
-env:
-  ARTIFACTS: |
-    main.js
-    manifest.json
-    styles.css
 
 jobs:
   release:
@@ -49,25 +53,31 @@ jobs:
 
           # versions.json に該当バージョンのエントリがあること
           jq -e --arg v "$VERSION" 'has($v)' versions.json >/dev/null \
-            || { echo "::error::versions.json に $VERSION のエントリがありません。"; exit 1; }
+            || { echo "::error::versions.json に $VERSION のエントリがありません。manifest.json と同時に更新してください。"; exit 1; }
 
-          # v なしタグ（例: 1.7.11）
+          # v なしタグ（例: 1.7.11）。既にあればリリース済みなのでスキップする
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "::error::タグ $VERSION は既に存在します。manifest.json のバージョンを上げてください。"
-            exit 1
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::タグ $VERSION は既に存在するため、Release の作成をスキップしました。"
+            echo "### Skipped: \`$VERSION\` は既にリリース済みです" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "### Release \`$VERSION\` (minAppVersion: $MIN_APP)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "### Release \`$VERSION\` (minAppVersion: $MIN_APP)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate artifact attestations
-        if: ${{ !inputs.dry_run }}
+        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: ${{ env.ARTIFACTS }}
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create GitHub Release (published)
-        if: ${{ !inputs.dry_run }}
+        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.verify.outputs.version }}
