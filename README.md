@@ -121,7 +121,8 @@ Obsidian loads these files from the plugin root:
 
 ## License
 
-MIT
+The license for TaskChute Plus is maintained in the distribution repository:
+<https://github.com/hiroyaiizuka/taskchute-for-obsidian/blob/main/LICENSE>
 
 ## Author
 

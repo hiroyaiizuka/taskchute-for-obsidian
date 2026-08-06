@@ -121,7 +121,8 @@ Obsidian はプラグインルートの以下を読み込みます。
 
 ## ライセンス
 
-MIT
+TaskChute Plus のライセンスは配布リポジトリで管理しています。
+<https://github.com/hiroyaiizuka/taskchute-for-obsidian/blob/main/LICENSE>
 
 ## 作者
 
