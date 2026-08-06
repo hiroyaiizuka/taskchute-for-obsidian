@@ -73,20 +73,40 @@ jobs:
         if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.verify.outputs.version }}
         run: |
           set -euo pipefail
 
+          # 1. CHANGELOG.md の該当バージョンの見出し（例: `## 2.0.0 - 2026-08-06`）から
+          #    次のバージョン見出しまでを本文として使う
+          if [ -f CHANGELOG.md ]; then
+            awk -v ver="$VERSION" '
+              $1 == "##" && $2 == ver { found = 1; next }
+              found && $1 == "##" { exit }
+              found { print }
+            ' CHANGELOG.md > RELEASE_NOTES.md
+          fi
+
+          if [ -s RELEASE_NOTES.md ]; then
+            echo "source=file" >> "$GITHUB_OUTPUT"
+            echo "CHANGELOG.md の \`$VERSION\` セクションをリリースノートに使用します。" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # 2. CHANGELOG.md に記載が無ければマージ済み PR の本文
           BODY=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
             --jq 'map(select(.merged_at != null)) | sort_by(.merged_at) | last | .body // empty' \
             2>/dev/null || true)
 
           if [ -n "${BODY:-}" ]; then
             printf '%s\n' "$BODY" > RELEASE_NOTES.md
-            echo "source=pr" >> "$GITHUB_OUTPUT"
-            echo "PR 本文をリリースノートに使用します。" >> "$GITHUB_STEP_SUMMARY"
+            echo "source=file" >> "$GITHUB_OUTPUT"
+            echo "::warning::CHANGELOG.md に $VERSION のセクションがありません。PR 本文をリリースノートに使用します。"
+            echo "CHANGELOG.md に \`$VERSION\` のセクションが無いため、PR 本文を使用しました。" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "source=auto" >> "$GITHUB_OUTPUT"
-            echo "紐づく PR が見つからないため、リリースノートを自動生成します。" >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::CHANGELOG.md にも PR にもリリースノートがありません。自動生成します。"
+            echo "リリースノートを自動生成しました。" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Create GitHub Release (published)
@@ -97,7 +117,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ steps.notes.outputs.source }}" = "pr" ]; then
+          if [ "${{ steps.notes.outputs.source }}" = "file" ]; then
             NOTES_ARG=(--notes-file RELEASE_NOTES.md)
           else
             NOTES_ARG=(--generate-notes)
