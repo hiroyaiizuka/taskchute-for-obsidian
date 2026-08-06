@@ -88,26 +88,3 @@ DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
 OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE. THIS INCLUDES, WITHOUT LIMITATION, ANY LOSS
 OR CORRUPTION OF DATA IN YOUR VAULT.
-
-
----
-
-参考訳（日本語）
-
-本ライセンスは TaskChute Plus バージョン 2.0.0 以降に適用されます。2.0.0 以降は
-ビルド成果物（main.js / manifest.json / styles.css）のみで配布され、オープンソース
-ソフトウェアではありません。1.7.10 以前は MIT License で公開されており、引き続き
-その条件で利用できます（該当のソースコードは本リポジトリの "v1" ブランチ /
-"v1-oss-final" タグ）。
-
-  - 個人利用・商用利用を問わず、台数・vault 数の制限なく無償で利用できます。
-  - バックアップ目的の複製、および自分の環境にインストールした本体を私的に改変する
-    ことは認められます。
-  - 改変の有無を問わず、本ソフトウェアの再配布・公開・再ライセンス・貸与・販売は
-    できません。著作権表示等の削除・改変もできません。
-  - 本ソフトウェアが作成するデータはすべて利用者自身の vault 内に保存され、作者や
-    第三者に送信されることはありません。
-  - 本ソフトウェアは現状有姿で提供され、いかなる保証もありません。利用に起因する
-    損害（vault 内データの消失・破損を含む）について、作者は責任を負いません。
-
-本訳文は便宜のためのものであり、法的な効力を持つのは上記英語版の条文です。
