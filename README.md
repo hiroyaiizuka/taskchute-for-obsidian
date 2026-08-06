@@ -9,6 +9,21 @@
 TaskChute Plus is an Obsidian plugin focused on execution-first task management:
 you decide what to do now, run it, and keep a reliable log of what actually happened.
 
+> [!warning]
+> **From version 2.0.0, TaskChute Plus is no longer open-source.** The plugin remains
+> free to use. Its source code is maintained in a separate private repository, and only
+> the build artifacts (`main.js`, `manifest.json`, `styles.css`) are published here as
+> GitHub Releases.
+>
+> The v1 source code is still open-source under the MIT license:
+> [v1 source code](https://github.com/hiroyaiizuka/taskchute-for-obsidian/tree/v1)
+> (tag `v1-oss-final`).
+
+> [!note]
+> **Your data stays in your vault.** All task, log, review, and heatmap data is stored as
+> plain Markdown and JSON inside your own vault. As of today, the plugin has no feature
+> that sends this data anywhere.
+
 ## What You Can Do
 
 - Manage daily tasks in one TaskChute view with date navigation.
@@ -38,9 +53,7 @@ Available from Obsidian Command Palette:
 
 ### Install in Obsidian
 
-1. Open `Settings -> Community plugins`.
-2. Install/enable `TaskChute Plus`.
-3. Run the command `Open TaskChute`.
+See [How to Install](#how-to-install) below, then run the command `Open TaskChute`.
 
 ### First Task
 
@@ -91,29 +104,37 @@ With default `vaultRoot` mode, TaskChute-managed folders are:
 
 `projectsFolder` is intentionally unset by default and can be configured separately.
 
+## CHANGELOG
+
+You can read the changelog from [here](./CHANGELOG.md).
+
+## How to Install
+
+| Source | Description |
+|---|---|
+| [Obsidian Plugin Market](https://obsidian.md/plugins?id=taskchute-plus) | Install from Obsidian's `Settings -> Community plugins`. |
+| [GitHub](https://github.com/hiroyaiizuka/taskchute-for-obsidian/releases/latest) | Download the latest release. Put the three files (`main.js`, `manifest.json`, `styles.css`) into `{{obsidian_vault}}/.obsidian/plugins/taskchute-plus/`. |
+| BRAT | Add `hiroyaiizuka/taskchute-for-obsidian` to BRAT. |
+
 ## Source Code
 
-This repository is now distribution-only. The plugin source code is maintained in a
+This repository is distribution-only. The plugin source code is maintained in a
 separate private repository, and builds are published here as GitHub Releases.
 
-The last MIT-licensed open-source snapshot (v1) is still available:
-
-- Branch: <https://github.com/hiroyaiizuka/taskchute-for-obsidian/tree/v1>
-- Tag: `v1-oss-final`
-
-### Release Artifacts
-
-Obsidian loads these files from the plugin root:
+Obsidian loads these files from the plugin root, and they are attached to every release:
 
 - `main.js`
 - `manifest.json`
 - `styles.css`
 
-They are attached to each GitHub Release.
-
 ## License
 
-MIT
+- **Version 2.0.0 and later** — proprietary, see [LICENSE](./LICENSE). Free to use for any
+  purpose, personal or commercial. Private modification of your own copy is allowed;
+  redistribution is not.
+- **Version 1.7.10 and earlier** — MIT License, see the
+  [LICENSE on the `v1` branch](https://github.com/hiroyaiizuka/taskchute-for-obsidian/blob/v1/LICENSE)
+  (tag `v1-oss-final`).
 
 ## Author
 
