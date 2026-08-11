@@ -1,90 +1,21 @@
-TaskChute Plus License
+MIT License
 
-Copyright (c) 2025-2026 Hiroya Iizuka. All rights reserved.
+Copyright (c) 2025-2026 Hiroya Iizuka
 
-This license applies to TaskChute Plus version 2.0.0 and later, which is
-distributed in binary form only (main.js, manifest.json, styles.css) and is not
-open-source software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Version 1.7.10 and earlier were released under the MIT License and remain
-available under it. That source code is on the "v1" branch of this repository
-(tag "v1-oss-final").
-
-
-1. GRANT OF LICENSE
-
-Subject to the terms below, the copyright holder grants you a free of charge,
-non-exclusive, worldwide, non-transferable license to install and use TaskChute
-Plus (the "Software") for any purpose, personal or commercial, on any number of
-devices and Obsidian vaults, for as long as these terms are observed.
-
-
-2. PERMITTED USE
-
-You may:
-
-  (a) install and use the Software as an Obsidian plugin;
-  (b) make copies of the Software for backup purposes;
-  (c) inspect and modify your own installed copy of the Software for your own
-      private use.
-
-
-3. RESTRICTIONS
-
-You may not:
-
-  (a) redistribute, publish, sublicense, rent, lease, or sell the Software or
-      any copy of it, whether modified or unmodified, alone or as part of
-      another product;
-  (b) host the Software for download or distribute it through any plugin
-      directory, marketplace, or package registry other than those operated by
-      the copyright holder;
-  (c) remove, alter, or obscure any copyright, license, or attribution notice
-      contained in the Software;
-  (d) represent a modified copy of the Software as the official TaskChute Plus.
-
-Nothing in this section limits any right you have that cannot be excluded under
-applicable law.
-
-
-4. OWNERSHIP
-
-The Software is licensed, not sold. The copyright holder retains all right,
-title, and interest in and to the Software, including all intellectual property
-rights. No rights are granted except those expressly stated in this license.
-
-
-5. DATA
-
-The Software stores all of the data it creates inside your own Obsidian vault
-and transmits nothing to the author or to any third party.
-
-
-6. THIRD-PARTY COMPONENTS
-
-The distributed build may include third-party components that are governed by
-their own license terms. Those terms continue to apply to those components and
-take precedence over this license with respect to them.
-
-
-7. TERMINATION
-
-This license terminates automatically if you breach any of its terms. On
-termination you must stop using the Software and delete all copies of it in
-your possession.
-
-
-8. NO WARRANTY
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
-
-
-9. LIMITATION OF LIABILITY
-
-IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
-DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
-OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE
-OR OTHER DEALINGS IN THE SOFTWARE. THIS INCLUDES, WITHOUT LIMITATION, ANY LOSS
-OR CORRUPTION OF DATA IN YOUR VAULT.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

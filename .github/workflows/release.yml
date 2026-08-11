@@ -1,130 +1,121 @@
-name: Release
+name: Auto Release (manual)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - manifest.json
-      - versions.json
-      - main.js
-      - styles.css
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "検証のみ実行し、タグ作成と Release 公開は行わない"
-        type: boolean
-        default: false
+      version_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options: [patch, minor, major]
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
-  release:
+  auto-release:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Verify release artifacts
-        id: verify
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: npm ci || npm install
+
+      - name: Configure git user
         run: |
-          set -euo pipefail
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
 
-          for f in main.js manifest.json styles.css versions.json; do
-            [ -s "$f" ] || { echo "::error::$f が無いか空です。非公開リポジトリから成果物を push してください。"; exit 1; }
-          done
+      # package.json をバンプし、manifest.json を Node で同期
+      - name: Bump version & sync manifest.json
+        id: bump
+        run: |
+          npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-          VERSION=$(jq -er '.version' manifest.json)
-          MIN_APP=$(jq -er '.minAppVersion' manifest.json)
+          node -e "const fs=require('fs');let m=JSON.parse(fs.readFileSync('manifest.json','utf8'));const v=require('./package.json').version;m.version=v;fs.writeFileSync('manifest.json',JSON.stringify(m,null,2)+'\n');"
 
-          # versions.json に該当バージョンのエントリがあること
-          jq -e --arg v "$VERSION" 'has($v)' versions.json >/dev/null \
-            || { echo "::error::versions.json に $VERSION のエントリがありません。manifest.json と同時に更新してください。"; exit 1; }
+          git add package.json manifest.json || true
+          [ -f versions.json ] && git add versions.json || true
+          [ -f README.md ] && git add README.md || true
+          git commit -m "chore: release ${NEW_VERSION}" || echo "No changes"
 
-          # v なしタグ（例: 1.7.11）。既にあればリリース済みなのでスキップする
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::タグ $VERSION は既に存在するため、Release の作成をスキップしました。"
-            echo "### Skipped: \`$VERSION\` は既にリリース済みです" >> "$GITHUB_STEP_SUMMARY"
+      - name: Push changes
+        run: git push origin HEAD
+
+      # v なしタグ（例: 1.0.1）。v を付けたい場合は "v${{ steps.bump.outputs.new_version }}" に変更
+      - name: Create & push tag
+        run: |
+          TAG="${{ steps.bump.outputs.new_version }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Build plugin
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Prepare release assets
+        id: prep
+        run: |
+          set -e
+          TAG="${{ steps.bump.outputs.new_version }}"
+          PKG_DIR="release-${TAG}"
+          mkdir -p "$PKG_DIR"
+
+          # main.js の検出（優先順）
+          if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
+          elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
+          elif [ -f main.js ]; then SRC_MAIN=main.js
           else
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "### Release \`$VERSION\` (minAppVersion: $MIN_APP)" >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: main.js が見つかりません。"; exit 1
           fi
+          cp "$SRC_MAIN" "$PKG_DIR/main.js"
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # manifest.json（root）
+          if [ ! -f manifest.json ]; then
+            echo "ERROR: manifest.json が見つかりません。"; exit 1
+          fi
+          cp manifest.json "$PKG_DIR/manifest.json"
+
+          # styles.css（必須）
+          if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
+          elif [ -f styles.css ]; then SRC_CSS=styles.css
+          else
+            echo "ERROR: styles.css が見つかりません。"; exit 1
+          fi
+          cp "$SRC_CSS" "$PKG_DIR/styles.css"
+
+          echo "dir=${PKG_DIR}" >> $GITHUB_OUTPUT
 
       - name: Generate artifact attestations
-        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            main.js
-            manifest.json
-            styles.css
-
-      - name: Resolve release notes
-        id: notes
-        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.verify.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          # 1. CHANGELOG.md の該当バージョンの見出し（例: `## 2.0.0 - 2026-08-06`）から
-          #    次のバージョン見出しまでを本文として使う
-          if [ -f CHANGELOG.md ]; then
-            awk -v ver="$VERSION" '
-              $1 == "##" && $2 == ver { found = 1; next }
-              found && $1 == "##" { exit }
-              found { print }
-            ' CHANGELOG.md > RELEASE_NOTES.md
-          fi
-
-          if [ -s RELEASE_NOTES.md ]; then
-            echo "source=file" >> "$GITHUB_OUTPUT"
-            echo "CHANGELOG.md の \`$VERSION\` セクションをリリースノートに使用します。" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          # 2. CHANGELOG.md に記載が無ければマージ済み PR の本文
-          BODY=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
-            --jq 'map(select(.merged_at != null)) | sort_by(.merged_at) | last | .body // empty' \
-            2>/dev/null || true)
-
-          if [ -n "${BODY:-}" ]; then
-            printf '%s\n' "$BODY" > RELEASE_NOTES.md
-            echo "source=file" >> "$GITHUB_OUTPUT"
-            echo "::warning::CHANGELOG.md に $VERSION のセクションがありません。PR 本文をリリースノートに使用します。"
-            echo "CHANGELOG.md に \`$VERSION\` のセクションが無いため、PR 本文を使用しました。" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "source=auto" >> "$GITHUB_OUTPUT"
-            echo "::warning::CHANGELOG.md にも PR にもリリースノートがありません。自動生成します。"
-            echo "リリースノートを自動生成しました。" >> "$GITHUB_STEP_SUMMARY"
-          fi
+            ${{ steps.prep.outputs.dir }}/main.js
+            ${{ steps.prep.outputs.dir }}/manifest.json
+            ${{ steps.prep.outputs.dir }}/styles.css
 
       - name: Create GitHub Release (published)
-        if: ${{ steps.verify.outputs.release == 'true' && !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.verify.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          if [ "${{ steps.notes.outputs.source }}" = "file" ]; then
-            NOTES_ARG=(--notes-file RELEASE_NOTES.md)
-          else
-            NOTES_ARG=(--generate-notes)
-          fi
-
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --target "$GITHUB_SHA" \
-            "${NOTES_ARG[@]}" \
-            main.js manifest.json styles.css
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.new_version }}
+          name: ${{ steps.bump.outputs.new_version }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.prep.outputs.dir }}/main.js
+            ${{ steps.prep.outputs.dir }}/manifest.json
+            ${{ steps.prep.outputs.dir }}/styles.css

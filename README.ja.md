@@ -4,24 +4,8 @@
 
 **タスクを整理するだけでなく、実行するためのプラグイン。**
 
-![TaskChute Plus - Execute tasks, don't just organize them](assets/taskchute-social-card.png)
-
 TaskChute Plus は、実行重視のタスク管理を Obsidian 上で行うためのプラグインです。  
 「今やること」を決めて実行し、実績ログを蓄積して改善につなげます。
-
-> [!warning]
-> **バージョン 2.0.0 以降、TaskChute Plus はオープンソースではありません。** プラグイン自体は
-> 引き続き無料で利用できます。ソースコードは非公開リポジトリで管理しており、本リポジトリでは
-> ビルド成果物（`main.js` / `manifest.json` / `styles.css`）のみを GitHub Releases として配布します。
->
-> v1 時点のソースコードは MIT ライセンスのまま公開しています:
-> [v1 source code](https://github.com/hiroyaiizuka/taskchute-for-obsidian/tree/v1)
-> （タグ `v1-oss-final`）
-
-> [!note]
-> **データはあなたの vault の中に置かれます。** タスク・実行ログ・レビュー・ヒートマップの
-> データはすべて、あなたの vault 内に Markdown と JSON として保存されます。現時点では、
-> これらのデータを外部へ送信する機能はありません。
 
 ## できること
 
@@ -52,7 +36,9 @@ Obsidian のコマンドパレットから利用できます。
 
 ### Obsidian へのインストール
 
-後述の[インストール方法](#インストール方法)を参照し、`Open TaskChute` コマンドを実行してください。
+1. `Settings -> Community plugins` を開く
+2. `TaskChute Plus` をインストールして有効化
+3. `Open TaskChute` コマンドを実行
 
 ### 最初のタスク
 
@@ -103,24 +89,31 @@ scheduled_time: "09:00"
 
 `projectsFolder` はデフォルトで未設定です（必要時に個別指定）。
 
-## CHANGELOG
+## 開発
 
-変更履歴は[こちら](./CHANGELOG.md)を参照してください。
+### 要件
 
-## インストール方法
+- Node.js 18+
+- npm
 
-| 入手元 | 説明 |
-|---|---|
-| [Obsidian Plugin Market](https://obsidian.md/plugins?id=taskchute-plus) | Obsidian の `Settings -> Community plugins` からインストール |
-| [GitHub](https://github.com/hiroyaiizuka/taskchute-for-obsidian/releases/latest) | 最新リリースをダウンロードし、3ファイル（`main.js` / `manifest.json` / `styles.css`）を `{{obsidian_vault}}/.obsidian/plugins/taskchute-plus/` に配置 |
-| BRAT | BRAT に `hiroyaiizuka/taskchute-for-obsidian` を追加 |
+### セットアップ
 
-## ソースコード
+```bash
+npm install
+```
 
-本リポジトリは配布専用です。プラグイン本体のソースコードは非公開リポジトリで管理しており、
-ビルド成果物を GitHub Releases としてここで配布します。
+### スクリプト
 
-Obsidian はプラグインルートの以下を読み込みます。これらは各リリースに添付されます。
+```bash
+npm run dev       # esbuild watch
+npm run build     # production bundle
+npm run lint      # eslint for src/tests
+npm test          # jest
+```
+
+### リリース成果物
+
+Obsidian はプラグインルートの以下を読み込みます。
 
 - `main.js`
 - `manifest.json`
@@ -128,11 +121,7 @@ Obsidian はプラグインルートの以下を読み込みます。これら�
 
 ## ライセンス
 
-- **バージョン 2.0.0 以降** — プロプライエタリ。[LICENSE](./LICENSE) を参照。個人利用・商用利用を
-  問わず無償で利用できます。自分の環境での私的な改変は可、再配布は不可です。
-- **バージョン 1.7.10 以前** — MIT License。
-  [`v1` ブランチの LICENSE](https://github.com/hiroyaiizuka/taskchute-for-obsidian/blob/v1/LICENSE)
-  を参照（タグ `v1-oss-final`）。
+MIT
 
 ## 作者
 
