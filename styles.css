@@ -1,8 +1,12 @@
 /* TaskChute Plus Plugin Styles */
 
 :root {
-  --taskchute-mobile-top-obstruction: calc(64px + env(safe-area-inset-top, 0px));
-  --taskchute-mobile-bottom-obstruction: calc(136px + env(safe-area-inset-bottom, 0px));
+  --taskchute-mobile-top-obstruction: calc(
+    64px + env(safe-area-inset-top, 0px)
+  );
+  --taskchute-mobile-bottom-obstruction: calc(
+    136px + env(safe-area-inset-bottom, 0px)
+  );
 }
 
 /* ===== Time Edit Popup ===== */
@@ -79,8 +83,6 @@
   color: var(--text-on-accent);
 }
 
-
-
 .task-time-start.editable,
 .task-time-stop.editable {
   cursor: pointer;
@@ -150,7 +152,11 @@
   word-break: break-word;
 }
 
-.is-mobile .task-modal-overlay .task-modal-content .modal-header .modal-close-button {
+.is-mobile
+  .task-modal-overlay
+  .task-modal-content
+  .modal-header
+  .modal-close-button {
   position: absolute;
   top: 6px;
   right: 10px;
@@ -182,7 +188,9 @@
   padding-top: 12px;
   padding-bottom: 12px;
 }
-.taskchute-calendar-export-modal .setting-item:not(.is-hidden) + .setting-item:not(.is-hidden) {
+.taskchute-calendar-export-modal
+  .setting-item:not(.is-hidden)
+  + .setting-item:not(.is-hidden) {
   border-top: 1px solid var(--background-modifier-border);
 }
 .taskchute-calendar-export-modal .setting-item-heading {
@@ -212,18 +220,19 @@
   font-size: 1rem;
   font-weight: 600;
 }
-.taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-name {
+.taskchute-settings-pane
+  .taskchute-subheading.setting-item-heading
+  .setting-item-name {
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.2;
 }
-.taskchute-settings-pane .taskchute-subheading.setting-item-heading .setting-item-info {
+.taskchute-settings-pane
+  .taskchute-subheading.setting-item-heading
+  .setting-item-info {
   margin-top: 4px;
 }
-:where(
-    .project-settings-modal-content
-  )
-  .modal-header {
+:where(.project-settings-modal-content) .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -632,9 +641,12 @@
   min-width: 36px; /* a bit wider */
   cursor: pointer;
   font-size: 17px; /* ~1.2x larger + icon */
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25),
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
   margin-left: 0;
   margin-right: 15px;
 }
@@ -1035,7 +1047,8 @@
   background: var(--background-modifier-hover);
 }
 
-.ai-working-directory-select__menu .ai-working-directory-select__option.is-selected {
+.ai-working-directory-select__menu
+  .ai-working-directory-select__option.is-selected {
   color: var(--text-accent);
 }
 
@@ -1212,7 +1225,9 @@
   color: var(--text-muted);
 }
 
-.ai-model-select__menu .ai-model-select__option.is-selected .ai-model-select__selection-marker {
+.ai-model-select__menu
+  .ai-model-select__option.is-selected
+  .ai-model-select__selection-marker {
   color: var(--text-accent);
 }
 
@@ -1775,7 +1790,9 @@
 .taskchute-rating-star {
   font-size: 24px;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
 }
 
 .star-rating .star.taskchute-star-filled {
@@ -2535,7 +2552,7 @@
   grid-auto-columns: var(--heatmap-cell-size);
   grid-auto-flow: column;
   gap: var(--heatmap-week-gap);
-    width: var(--heatmap-grid-width);
+  width: var(--heatmap-grid-width);
 }
 
 .heatmap-cell {
@@ -2706,7 +2723,9 @@
   cursor: pointer;
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-  transition: transform 0.1s ease, filter 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    filter 0.1s ease;
 }
 
 .heatmap-detail-open-button:hover {
@@ -3113,9 +3132,7 @@
    and add action stay together on a second row while the drawer returns to
    its original top-left position. */
 @container taskchute-view (max-width: 680px) {
-  .top-bar-container:has(
-    > .header-action-section > .ai-board-view-switch
-  ) {
+  .top-bar-container:has(> .header-action-section > .ai-board-view-switch) {
     grid-template-rows: repeat(2, 30px);
     height: 66px;
     row-gap: 6px;
@@ -3131,8 +3148,7 @@
     justify-self: start;
   }
 
-  .top-bar-container
-    > .header-action-section:has(> .ai-board-view-switch) {
+  .top-bar-container > .header-action-section:has(> .ai-board-view-switch) {
     grid-column: 1 / -1;
     grid-row: 2;
     justify-self: end;
@@ -3389,7 +3405,9 @@
   cursor: pointer;
   color: var(--text-muted);
   opacity: 0;
-  transition: opacity 0.2s ease, background-color 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    background-color 0.2s ease;
   border-radius: 4px;
 }
 
@@ -5138,7 +5156,10 @@ textarea.form-textarea {
   background: var(--background-primary);
   font-size: 0.9rem;
   color: var(--text-normal);
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .routine-chip input:checked + .routine-chip__text {
@@ -5161,7 +5182,9 @@ textarea.form-textarea {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .routine-editor__button:hover {
@@ -5322,7 +5345,9 @@ textarea.form-textarea {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .routine-table__action-button:hover {
@@ -5365,7 +5390,9 @@ textarea.form-textarea {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .routine-confirm__button:hover {
@@ -5532,7 +5559,9 @@ textarea.form-textarea {
   position: relative;
   padding: 4px;
   border-radius: 12px;
-  transition: background 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease;
   box-shadow: inset 0 0 0 1px transparent;
   flex: 1 1 auto;
   min-height: 0;
@@ -5583,7 +5612,9 @@ textarea.form-textarea {
   color: var(--text-normal);
   cursor: grab;
   position: relative;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 .project-board-card:hover {
@@ -5659,7 +5690,9 @@ textarea.form-textarea {
   gap: 6px;
   font-size: 13px;
   font-weight: 500;
-  transition: color 0.12s ease, text-decoration-color 0.12s ease;
+  transition:
+    color 0.12s ease,
+    text-decoration-color 0.12s ease;
 }
 
 .project-board-column__load-more:hover {
@@ -5688,7 +5721,10 @@ textarea.form-textarea {
   justify-content: center;
   gap: 6px;
   font-weight: 600;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease,
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
     box-shadow 0.12s ease;
 }
 
@@ -6081,7 +6117,9 @@ textarea.form-textarea {
   color: #f5c842;
   cursor: default;
   opacity: 0.9;
-  transition: opacity 0.2s ease, transform 0.15s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.15s ease;
 }
 
 .reminder-icon:hover {
@@ -6119,7 +6157,10 @@ textarea.form-textarea {
   line-height: 1;
   transform: translateY(0);
   transform-origin: center;
-  transition: opacity 0.2s ease, transform 0.15s ease, color 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.15s ease,
+    color 0.2s ease;
 }
 
 .recipe-task-badge:hover {
@@ -6339,7 +6380,10 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .recipe-step-row:hover .recipe-list-drag-handle,
@@ -6774,7 +6818,9 @@ textarea.form-textarea {
   padding: 10px 20px;
   cursor: pointer;
   border-left: 3px solid transparent;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .backup-entry:hover {
@@ -6893,7 +6939,9 @@ textarea.form-textarea {
   cursor: pointer;
   font-size: 14px;
   padding: 4px 10px;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .backup-preview-nav-button:hover {
@@ -7234,7 +7282,9 @@ textarea.form-textarea {
   font-size: 24px;
   color: var(--text-muted);
   scroll-snap-align: center;
-  transition: color 0.15s ease, font-size 0.15s ease;
+  transition:
+    color 0.15s ease,
+    font-size 0.15s ease;
 }
 
 /* Highlight bar (selection indicator) */
@@ -7267,7 +7317,9 @@ textarea.form-textarea {
   cursor: pointer;
   font-size: 16px;
   font-weight: 500;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .taskchute-mobile-time-picker-btn:active {
@@ -7336,7 +7388,7 @@ textarea.form-textarea {
 }
 
 .taskchute-advanced-summary::before {
-  content: '▶';
+  content: "▶";
   display: inline-block;
   margin-right: 8px;
   font-size: 0.7em;
@@ -7665,7 +7717,7 @@ textarea.form-textarea {
 
 .ai-run-pane__sidebar-toggle:hover,
 .ai-run-pane__sidebar-files:hover,
-.ai-run-pane__sidebar-files[aria-pressed='true'] {
+.ai-run-pane__sidebar-files[aria-pressed="true"] {
   color: var(--text-normal);
 }
 
@@ -7913,7 +7965,7 @@ textarea.form-textarea {
   bottom: 0;
   width: 1px;
   background: #374151;
-  content: '';
+  content: "";
 }
 
 .ai-run-pane__work-tab:hover {
@@ -8458,11 +8510,7 @@ textarea.form-textarea {
   padding: 0;
   border: 1px solid var(--ai-board-view-border);
   border-radius: 7px;
-  background: color-mix(
-    in srgb,
-    var(--background-secondary) 78%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
   box-sizing: border-box;
 }
 
@@ -8502,11 +8550,7 @@ textarea.form-textarea {
 }
 
 .ai-board-view-switch__segment:hover {
-  background: color-mix(
-    in srgb,
-    var(--text-normal) 6%,
-    transparent
-  );
+  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
   color: var(--text-normal);
 }
 
@@ -8522,8 +8566,7 @@ textarea.form-textarea {
   color: var(--text-normal);
 }
 
-.ai-board-view-switch__segment.is-active
-  + .ai-board-view-switch__segment {
+.ai-board-view-switch__segment.is-active + .ai-board-view-switch__segment {
   border-left-color: transparent;
 }
 
