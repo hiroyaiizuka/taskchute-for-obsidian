@@ -745,6 +745,97 @@ describe('TaskChuteView duplication and deletion', () => {
     persistSpy.mockRestore();
   });
 
+  test('moveDuplicateInstanceToDate preserves a running duplicate identity', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    const persistSpy = jest
+      .spyOn(
+        view as unknown as {
+          persistDayState: (date: string) => Promise<void>;
+        },
+        'persistDayState',
+      )
+      .mockResolvedValue(undefined);
+    const idSpy = jest
+      .spyOn(
+        view as unknown as {
+          generateInstanceId: (task: TaskData, date: string) => string;
+        },
+        'generateInstanceId',
+      )
+      .mockReturnValue('must-not-replace-live-id');
+    const duplicate = createTaskInstance(
+      createTaskData({ path: 'TASKS/running-duplicate.md' }),
+      {
+        instanceId: 'live-run-instance',
+        state: 'running',
+        startTime: new Date('2025-01-01T23:50:00.000Z'),
+      },
+    );
+
+    await (
+      view as unknown as {
+        moveDuplicateInstanceToDate: (
+          inst: TaskInstance,
+          dateStr: string,
+        ) => Promise<void>;
+      }
+    ).moveDuplicateInstanceToDate(duplicate, '2025-01-02');
+
+    expect(
+      view.dayStateManager.getStateFor('2025-01-02').duplicatedInstances,
+    ).toEqual([
+      expect.objectContaining({ instanceId: 'live-run-instance' }),
+    ]);
+    expect(idSpy).not.toHaveBeenCalled();
+    idSpy.mockRestore();
+    persistSpy.mockRestore();
+  });
+
+  test('moveDuplicateInstanceToDate is a no-op for a running duplicate on the current date', async () => {
+    const { view } = createView();
+    await view.ensureDayStateForCurrentDate();
+    const persistSpy = jest
+      .spyOn(
+        view as unknown as {
+          persistDayState: (date: string) => Promise<void>;
+        },
+        'persistDayState',
+      )
+      .mockResolvedValue(undefined);
+    const duplicate = createTaskInstance(
+      createTaskData({ path: 'TASKS/running-duplicate.md' }),
+      {
+        instanceId: 'live-run-instance',
+        state: 'running',
+        startTime: new Date('2025-01-01T09:00:00.000Z'),
+      },
+    );
+    const currentState = view.dayStateManager.getStateFor('2025-01-01');
+    currentState.duplicatedInstances = [{
+      instanceId: 'live-run-instance',
+      originalPath: duplicate.task.path,
+      slotKey: '8:00-12:00',
+      originalSlotKey: '8:00-12:00',
+      timestamp: 1,
+      createdMillis: 1,
+    }];
+
+    await (
+      view as unknown as {
+        moveDuplicateInstanceToDate: (
+          inst: TaskInstance,
+          dateStr: string,
+        ) => Promise<void>;
+      }
+    ).moveDuplicateInstanceToDate(duplicate, '2025-01-01');
+
+    expect(currentState.duplicatedInstances).toHaveLength(1);
+    expect(currentState.duplicatedInstances[0]?.instanceId).toBe('live-run-instance');
+    expect(persistSpy).not.toHaveBeenCalled();
+    persistSpy.mockRestore();
+  });
+
   test('updateTaskReminderTime stores duplicate reminder edits in dayState only', async () => {
     const { view, plugin } = createView();
     await view.ensureDayStateForCurrentDate();
@@ -1451,7 +1542,7 @@ describe('TaskChuteView duplication and deletion', () => {
       .mockResolvedValue(undefined);
     const deleteInstanceSpy = jest
       .spyOn(view.taskMutationService, 'deleteInstance')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue(true);
     const deleteLogsSpy = jest
       .spyOn(view.taskMutationService, 'deleteTaskLogsByInstanceId')
       .mockResolvedValue(1);
@@ -1486,7 +1577,7 @@ describe('TaskChuteView duplication and deletion', () => {
       .mockResolvedValue(undefined);
     const deleteInstanceSpy = jest
       .spyOn(view.taskMutationService, 'deleteInstance')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue(true);
 
     const task = createTaskData({ isRoutine: true, path: 'ROUTINE/base.md' });
     const duplicate = createTaskInstance(task, { instanceId: 'dup-1' });
@@ -1573,6 +1664,43 @@ describe('TaskChuteView duplication and deletion', () => {
       dateKey: targetDate,
     });
     expect(isDeleted).toBe(true);
+  });
+
+  test('hideRoutineInstanceForDate propagates persistence failure to the move transaction', async () => {
+    const { view } = createView();
+    const targetDate = '2025-01-04';
+    await (internals(view).ensureDayStateForDate as (dateStr: string) => Promise<DayState>)(targetDate);
+    const persistSpy = jest
+      .spyOn(
+        view as unknown as {
+          persistDayState: (date: string) => Promise<void>;
+        },
+        'persistDayState',
+      )
+      .mockRejectedValueOnce(new Error('day-state write failed'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const instance = createTaskInstance(
+      createTaskData({
+        isRoutine: true,
+        path: 'ROUTINE/persist-failure.md',
+        taskId: 'routine-persist-failure',
+      }),
+      { instanceId: 'routine-persist-failure-inst' },
+    );
+
+    await expect(
+      (
+        view as unknown as {
+          hideRoutineInstanceForDate: (
+            inst: TaskInstance,
+            dateKey: string,
+          ) => Promise<void>;
+        }
+      ).hideRoutineInstanceForDate(instance, targetDate),
+    ).rejects.toThrow('day-state write failed');
+
+    warnSpy.mockRestore();
+    persistSpy.mockRestore();
   });
 });
 

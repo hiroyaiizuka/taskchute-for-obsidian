@@ -1,4 +1,6 @@
 import { AbstractInputSuggest, App, TFile } from 'obsidian'
+import { listFilesInFolder } from '../utils/vaultFiles'
+import { getPathSuggestParentFolder } from './pathSuggestUtils'
 
 type ChooseHandler = (path: string) => void
 
@@ -18,8 +20,8 @@ export class FilePathSuggest extends AbstractInputSuggest<TFile> {
 
   protected getSuggestions(query: string): TFile[] {
     const lower = query.toLowerCase()
-    return this.app.vault
-      .getMarkdownFiles()
+    const parentFolder = getPathSuggestParentFolder(query)
+    return listFilesInFolder(this.app, parentFolder, { markdownOnly: true, recursive: false })
       .filter((file) => file.path.toLowerCase().includes(lower))
   }
 

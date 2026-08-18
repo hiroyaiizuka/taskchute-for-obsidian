@@ -2,21 +2,37 @@ import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, Abstrac
 import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
 import { t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
+import { createAiTaskManager } from "../features/ai-task"
+import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
+import { disposeAiTaskManagerTracked } from "../features/ai-task/registerProcessCleanup"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
+import { getPathSuggestParentFolder } from "./pathSuggestUtils"
 import { SectionConfigService } from "../services/SectionConfigService"
 import { showConfirmModal } from "../ui/modals/ConfirmModal"
+import { listFoldersInFolder, type VaultFolderEntry } from "../utils/vaultFiles"
+
+function isUnsupportedWindowsCliShim(path: string): boolean {
+  return /\.(?:bat|cmd|ps1)$/iu.test(path)
+}
 
 interface PluginWithSettings extends Plugin {
   app: App
   settings: TaskChuteSettings
   pathManager: PathManagerLike
+  aiTaskManager?: AiTaskManager
+  aiTaskManagersPendingDisposal?: Set<AiTaskManager>
+  aiTaskLifecycleActive?: boolean
+  aiTaskLifecycleGeneration?: number
+  aiTaskRuntimeLeaseGeneration?: number
   saveSettings(): Promise<void>
 }
 
 export class TaskChuteSettingTab extends PluginSettingTab {
   plugin: PluginWithSettings
+  /** Rejects an older async toggle completion after a newer operation wins. */
+  private aiTaskToggleOperation = 0
 
   constructor(app: App, plugin: PluginWithSettings) {
     super(app, plugin)
@@ -544,6 +560,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     const content = details.createDiv( { cls: 'taskchute-advanced-content' })
     this.renderTaskCreationSection(content)
     this.renderRecipeFeatureSection(content)
+    this.renderAiTaskSection(content)
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
@@ -587,6 +604,280 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       } | undefined
       if (typeof view?.onRecipeFeatureSettingsChanged === "function") {
         view.onRecipeFeatureSettingsChanged()
+        return
+      }
+      view?.renderTaskList?.()
+    })
+  }
+
+  private renderAiTaskSection(container: HTMLElement): void {
+    const heading = new Setting(container)
+      .setName(t("settings.aiTask.heading", "AI task"))
+    this.setHeadingIfSupported(heading)
+
+    new Setting(container)
+      .setName(t("settings.aiTask.enable", "Enable AI tasks"))
+      .setDesc(
+        t(
+          "settings.aiTask.enableDesc",
+          "Run tasks with the claude or codex CLI inside the AI run pane (desktop only).",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.aiTaskEnabled ?? false)
+          .onChange(async (value) => {
+            const operation = (this.aiTaskToggleOperation ?? 0) + 1
+            const lifecycleGeneration = this.plugin.aiTaskLifecycleGeneration
+            this.aiTaskToggleOperation = operation
+            this.plugin.settings.aiTaskEnabled = value
+            await this.plugin.saveSettings()
+            // Settings tabs belong to one Plugin instance. A hot reload can
+            // replace that instance while saveSettings is pending; the old
+            // callback must never dispose or re-adopt the new owner's manager.
+            if (!this.isAiTaskToggleRequestCurrent(
+              operation,
+              lifecycleGeneration,
+              value,
+            )) return
+            const applied = await this.applyAiTaskEnabledChange(
+              value,
+              operation,
+              lifecycleGeneration,
+            )
+            if (
+              !applied ||
+              !this.isAiTaskToggleRequestCurrent(
+                operation,
+                lifecycleGeneration,
+                value,
+              )
+            ) return
+            this.notifyAiTaskSettingsChanged()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.runModeName", "Run mode"))
+      .setDesc(
+        t(
+          "settings.aiTask.runModeDesc",
+          "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
+        ),
+      )
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption(
+            "terminal",
+            t("settings.aiTask.runModeTerminal", "Terminal (interactive)"),
+          )
+          .addOption(
+            "headless",
+            t("settings.aiTask.runModeHeadless", "Conversation (cross-platform)"),
+          )
+          .setValue(
+            this.plugin.settings.aiTaskRunMode === "headless"
+              ? "headless"
+              : "terminal",
+          )
+          .onChange(async (value) => {
+            this.plugin.settings.aiTaskRunMode =
+              value === "headless" ? "headless" : "terminal"
+            await this.plugin.saveSettings()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.claudePathName", "Claude CLI path (advanced fallback)"))
+      .setDesc(
+        t(
+          "settings.aiTask.claudePathDesc",
+          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+        ),
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
+          .setValue(this.plugin.settings.aiTaskClaudePath ?? "")
+          .onChange(async (value) => {
+            const normalized = value.trim()
+            if (isUnsupportedWindowsCliShim(normalized)) {
+              text.setValue("")
+              new Notice(
+                t(
+                  "settings.aiTask.pathShimUnsupported",
+                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
+                ),
+              )
+            }
+            this.plugin.settings.aiTaskClaudePath = isUnsupportedWindowsCliShim(normalized)
+              ? ""
+              : normalized
+            await this.plugin.saveSettings()
+            this.plugin.aiTaskManager?.invalidateBinaryCache()
+          })
+      })
+
+    new Setting(container)
+      .setName(t("settings.aiTask.codexPathName", "Codex CLI path (advanced fallback)"))
+      .setDesc(
+        t(
+          "settings.aiTask.codexPathDesc",
+          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+        ),
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
+          .setValue(this.plugin.settings.aiTaskCodexPath ?? "")
+          .onChange(async (value) => {
+            const normalized = value.trim()
+            if (isUnsupportedWindowsCliShim(normalized)) {
+              text.setValue("")
+              new Notice(
+                t(
+                  "settings.aiTask.pathShimUnsupported",
+                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
+                ),
+              )
+            }
+            this.plugin.settings.aiTaskCodexPath = isUnsupportedWindowsCliShim(normalized)
+              ? ""
+              : normalized
+            await this.plugin.saveSettings()
+            this.plugin.aiTaskManager?.invalidateBinaryCache()
+          })
+      })
+
+    const retentionSetting = new Setting(container)
+      .setName(t("settings.aiTask.retentionName", "Run log retention (days)"))
+      .setDesc(
+        t(
+          "settings.aiTask.retentionDesc",
+          "Run log notes older than this many days are deleted automatically.",
+        ),
+      )
+      .addText((text) => {
+        text.inputEl.type = "number"
+        text.inputEl.min = "1"
+        text.inputEl.step = "1"
+        const current = this.plugin.settings.aiTaskLogRetentionDays ?? 30
+        text
+          .setPlaceholder("30")
+          .setValue(String(current))
+          .onChange(async (raw) => {
+            const parsed = Number(raw)
+            const normalized = Number.isFinite(parsed)
+              ? Math.max(1, Math.round(parsed))
+              : 30
+            this.plugin.settings.aiTaskLogRetentionDays = normalized
+            await this.plugin.saveSettings()
+          })
+      })
+
+    retentionSetting.controlEl?.addClass("taskchute-number-input")
+  }
+
+  /** Create or dispose the AiTaskManager to match the toggle state. */
+  private async applyAiTaskEnabledChange(
+    enabled: boolean,
+    operation: number,
+    lifecycleGeneration: number | undefined,
+  ): Promise<boolean> {
+    if (enabled) {
+      const pending = this.plugin.aiTaskManagersPendingDisposal
+      const disposingManagers = Array.from(pending ?? [])
+      if (disposingManagers.length > 0) {
+        const results = await Promise.allSettled(
+          disposingManagers.map(async (manager) => {
+            await manager.disposeAndWait()
+            pending?.delete(manager)
+          }),
+        )
+        if (!this.isAiTaskToggleRequestCurrent(
+          operation,
+          lifecycleGeneration,
+          true,
+        )) return false
+        if (results.some((result) => result.status === 'rejected')) {
+          // A new manager uses the same vault-scoped broker identity. Starting
+          // it while the previous manager still owns an in-flight shutdown
+          // lets that old shutdown kill the new run. Fail closed and persist
+          // the actual disabled runtime state instead.
+          this.plugin.settings.aiTaskEnabled = false
+          await this.plugin.saveSettings()
+          new Notice(
+            t(
+              'settings.aiTask.previousRuntimeShutdownFailed',
+              'The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.',
+            ),
+          )
+          return false
+        }
+      }
+      if (!this.plugin.aiTaskManager) {
+        // Returns undefined off-desktop; the factory owns the platform gate.
+        this.plugin.aiTaskManager = createAiTaskManager(this.plugin)
+      }
+      return true
+    }
+    const manager = this.plugin.aiTaskManager
+    if (manager) disposeAiTaskManagerTracked(this.plugin, manager)
+    this.plugin.aiTaskManager = undefined
+    this.plugin.aiTaskRuntimeLeaseGeneration = undefined
+    return true
+  }
+
+  private isAiTaskToggleRequestCurrent(
+    operation: number,
+    lifecycleGeneration: number | undefined,
+    enabled: boolean,
+  ): boolean {
+    return (
+      this.aiTaskToggleOperation === operation &&
+      this.plugin.settings.aiTaskEnabled === enabled &&
+      this.isCurrentPluginInstance(lifecycleGeneration)
+    )
+  }
+
+  /**
+   * Obsidian keeps the current Plugin instance in its internal registry.
+   * Use it only as a stale-callback guard; lightweight test hosts without the
+   * registry retain the normal behavior.
+   */
+  private isCurrentPluginInstance(
+    expectedLifecycleGeneration: number | undefined,
+  ): boolean {
+    if (this.plugin.aiTaskLifecycleActive === false) return false
+    if (
+      expectedLifecycleGeneration !== undefined &&
+      this.plugin.aiTaskLifecycleGeneration !== expectedLifecycleGeneration
+    ) {
+      return false
+    }
+    const appWithPlugins = this.app as App & {
+      plugins?: { plugins?: Record<string, unknown> }
+    }
+    const registry = appWithPlugins.plugins?.plugins
+    if (!registry) return true
+    const pluginId = this.plugin.manifest?.id
+    return typeof pluginId === "string" && registry[pluginId] === this.plugin
+  }
+
+  private notifyAiTaskSettingsChanged(): void {
+    const workspace = this.app.workspace as {
+      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
+    }
+    const leaves = typeof workspace.getLeavesOfType === "function"
+      ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
+      : []
+    leaves.forEach((leaf) => {
+      const view = leaf.view as {
+        onAiTaskSettingsChanged?: () => void
+        renderTaskList?: () => void
+      } | undefined
+      if (typeof view?.onAiTaskSettingsChanged === "function") {
+        view.onAiTaskSettingsChanged()
         return
       }
       view?.renderTaskList?.()
@@ -828,7 +1119,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 }
 
-class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
+class FolderPathSuggest extends AbstractInputSuggest<VaultFolderEntry> {
   private readonly onChoose: (folderPath: string) => void
   private readonly textInputEl: HTMLInputElement
 
@@ -846,19 +1137,18 @@ class FolderPathSuggest extends AbstractInputSuggest<TFolder> {
     this.textInputEl.value = value
   }
 
-  protected getSuggestions(query: string): TFolder[] {
+  protected getSuggestions(query: string): VaultFolderEntry[] {
     const lower = query.toLowerCase()
-    return this.app.vault
-      .getAllLoadedFiles()
-      .filter((file): file is TFolder => file instanceof TFolder)
+    const parentFolder = getPathSuggestParentFolder(query)
+    return listFoldersInFolder(this.app, parentFolder, { recursive: false })
       .filter((folder) => folder.path.toLowerCase().includes(lower))
   }
 
-  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+  renderSuggestion(folder: VaultFolderEntry, el: HTMLElement): void {
     el.setText(folder.path)
   }
 
-  selectSuggestion(folder: TFolder): void {
+  selectSuggestion(folder: VaultFolderEntry): void {
     void this.onChoose(folder.path)
     this.close()
   }

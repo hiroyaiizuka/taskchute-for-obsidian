@@ -103,6 +103,15 @@ describe('NavigationRoutineController', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => files),
+          getAbstractFileByPath: jest.fn((path: string) => {
+            if (path === 'TASKS') {
+              return {
+                path,
+                children: files.filter((file) => file.path.startsWith(`${path}/`)),
+              }
+            }
+            return files.find((file) => file.path === path) ?? null
+          }),
         },
         metadataCache: {
           getFileCache: jest.fn((file: TFile) => {

@@ -15,6 +15,12 @@ import {
   deriveMonthlySelection,
   deriveMonthlyDateSelection,
 } from '../modals/RoutineModal'
+import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
+import {
+  createObsidianTaskLinkFields,
+  type ObsidianTaskLinkFieldsController,
+} from '../../ai-task/ui/ObsidianTaskLinkFields'
+import type { ObsidianTaskLinkConfig } from '../../../types/TaskFields'
 
 type CreateOptions = {
   cls?: string
@@ -38,6 +44,7 @@ interface RoutineDetailsInput {
   enabled?: boolean
   start?: string
   end?: string
+  obsidianSync?: ObsidianTaskLinkConfig | null
 }
 
 export interface RoutineControllerHost {
@@ -373,6 +380,20 @@ export default class RoutineController {
     syncVisibility()
     typeSelect.addEventListener('change', syncVisibility)
 
+    let obsidianTaskLinkFields: ObsidianTaskLinkFieldsController | null = null
+    if (readAiTaskConfig(task.frontmatter ?? null)) {
+      obsidianTaskLinkFields = createObsidianTaskLinkFields({
+        parent: form,
+        doc: modalDocument,
+        app: this.host.app,
+        initialValue: task.frontmatter?.obsidian_sync,
+        excludePath: task.path,
+        taskFolderPath: this.host.plugin.pathManager.getTaskFolderPath(),
+        translate: (key, fallback) =>
+          this.tv(`obsidianLink.${key}`, fallback),
+      })
+    }
+
     const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
       type: 'button',
@@ -395,6 +416,7 @@ export default class RoutineController {
 
     const closeModal = () => {
       modalDocument.removeEventListener('click', handleMonthdayOutsideClick)
+      obsidianTaskLinkFields?.destroy()
       modal.remove()
     }
     closeButton.addEventListener('click', closeModal)
@@ -414,6 +436,11 @@ export default class RoutineController {
     form.addEventListener('submit', (event) => {
       void (async () => {
       event.preventDefault()
+      const obsidianTaskLinkError = obsidianTaskLinkFields?.validate()
+      if (obsidianTaskLinkError) {
+        new Notice(obsidianTaskLinkError)
+        return
+      }
       const scheduledTime = timeInput.value
       const routineType = this.normalizeRoutineType(typeSelect.value)
       const interval = Math.max(1, Number.parseInt(intervalInput.value || '1', 10) || 1)
@@ -485,6 +512,9 @@ export default class RoutineController {
         start,
         end,
       }
+      if (obsidianTaskLinkFields) {
+        detailPayload.obsidianSync = obsidianTaskLinkFields.getValue()
+      }
 
       if (routineType === 'weekly') {
         const picked = weekdayCheckboxes
@@ -538,6 +568,7 @@ export default class RoutineController {
           const today = this.formatCurrentDate()
           frontmatter.routine_end = today
           frontmatter.isRoutine = false
+          delete frontmatter.obsidian_sync
           setScheduledTime(frontmatter, undefined)
           return frontmatter
         })
@@ -621,6 +652,12 @@ export default class RoutineController {
         delete cleaned.routine_monthday
         delete cleaned.routine_monthdays
         applyRoutineFrontmatterMerge(routineFrontmatter, cleaned)
+
+        if (details.obsidianSync === null) {
+          delete routineFrontmatter.obsidian_sync
+        } else if (details.obsidianSync) {
+          routineFrontmatter.obsidian_sync = details.obsidianSync
+        }
 
         const mergedStart = routineFrontmatter.routine_start
         const mergedEnd = routineFrontmatter.routine_end

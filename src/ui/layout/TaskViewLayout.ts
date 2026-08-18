@@ -10,12 +10,17 @@ export interface TaskViewLayoutRenderResult {
   contentContainer: HTMLElement
   taskListContainer: HTMLElement
   taskListElement: HTMLElement
+  aiPaneContainer: HTMLElement
 }
 
 export default class TaskViewLayout {
   constructor(private readonly host: TaskViewLayoutHost) {}
 
   render(root: HTMLElement): TaskViewLayoutRenderResult {
+    // Container-query boundary for the whole TaskChute leaf. Obsidian can
+    // split a desktop leaf without changing the browser viewport, so header
+    // responsiveness must follow this element's width rather than @media.
+    root.classList.add('taskchute-view-root')
     const topBarContainer = root.createDiv( { cls: 'top-bar-container' })
     this.host.renderHeader(topBarContainer)
 
@@ -39,12 +44,19 @@ export default class TaskViewLayout {
 
     this.host.registerTaskListElement(taskListElement)
 
+    // Always present; stays empty (and invisible) while the AI Task feature
+    // is disabled. AiRunPaneController mounts into it when enabled.
+    const aiPaneContainer = contentContainer.createDiv( {
+      cls: 'ai-pane-container',
+    })
+
     return {
       topBarContainer,
       mainContainer,
       contentContainer,
       taskListContainer,
       taskListElement,
+      aiPaneContainer,
     }
   }
 }

@@ -6,6 +6,7 @@ function createFile(path: string): TFile {
   const file = new TFile()
   file.path = path
   file.basename = path.replace(/^.*\//, '').replace(/\.md$/, '')
+  file.extension = 'md'
   Object.setPrototypeOf(file, TFile.prototype)
   return file
 }
@@ -19,7 +20,12 @@ function createController(files: string[], options: Partial<TaskChuteSettings> =
     app: {
       vault: {
         getMarkdownFiles: jest.fn(() => markdownFiles),
-        getAbstractFileByPath: jest.fn(),
+        getAbstractFileByPath: jest.fn((path: string) => {
+          if (path === projectFolder) {
+            return { path: projectFolder, children: markdownFiles }
+          }
+          return markdownFiles.find((file) => file.path === path) ?? null
+        }),
       },
       metadataCache: {
         getFileCache: jest.fn((file: TFile) => ({

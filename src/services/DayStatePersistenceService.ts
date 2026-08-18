@@ -4,6 +4,7 @@ import type { TaskChutePluginLike } from '../types';
 import { DayState, MonthlyDayStateFile, HiddenRoutine } from '../types';
 import { renamePathsInMonthlyState } from './dayState/pathRename';
 import { SectionConfigService } from './SectionConfigService';
+import { listFilesInFolder } from '../utils/vaultFiles';
 import {
   mergeDeletedInstances,
   mergeDuplicatedInstances,
@@ -123,20 +124,10 @@ export class DayStatePersistenceService {
 
   private collectStateFiles(): TFile[] {
     const base = this.plugin.pathManager.getLogDataPath();
-    const vault = this.plugin.app.vault as { getFiles?: () => TFile[] };
     const suffix = '-state.json';
-    const files: TFile[] = [];
-
-    if (typeof vault.getFiles === 'function') {
-      const candidates = vault.getFiles();
-      candidates.forEach((candidate) => {
-        if (candidate instanceof TFile && candidate.path.startsWith(`${base}/`) && candidate.path.endsWith(suffix)) {
-          files.push(candidate);
-        }
-      });
-      if (files.length > 0) {
-        return files;
-      }
+    const files = listFilesInFolder(this.plugin.app, base, { suffix });
+    if (files.length > 0) {
+      return files;
     }
 
     const seen = new Set<string>();
@@ -313,6 +304,10 @@ export class DayStatePersistenceService {
                 checkedStepIds: Array.isArray(progress.checkedStepIds)
                   ? progress.checkedStepIds.filter((item): item is string => typeof item === 'string')
                   : [],
+                stepsUpdatedAt: typeof progress.stepsUpdatedAt === 'number'
+                  && Number.isFinite(progress.stepsUpdatedAt)
+                  ? progress.stepsUpdatedAt
+                  : undefined,
                 stepOrder: Array.isArray(progress.stepOrder)
                   ? progress.stepOrder.filter((item): item is string => typeof item === 'string')
                   : undefined,
@@ -321,6 +316,26 @@ export class DayStatePersistenceService {
                     ? Object.fromEntries(
                         Object.entries(progress.completedAtByStepId).filter(
                           ([stepId, completedAt]) => typeof stepId === 'string' && typeof completedAt === 'string',
+                        ),
+                      )
+                    : undefined,
+                checkedQualityCheckIds: Array.isArray(progress.checkedQualityCheckIds)
+                  ? progress.checkedQualityCheckIds.filter((item): item is string => typeof item === 'string')
+                  : undefined,
+                qualityChecksUpdatedAt: typeof progress.qualityChecksUpdatedAt === 'number'
+                  && Number.isFinite(progress.qualityChecksUpdatedAt)
+                  ? progress.qualityChecksUpdatedAt
+                  : undefined,
+                qualityCheckOrder: Array.isArray(progress.qualityCheckOrder)
+                  ? progress.qualityCheckOrder.filter((item): item is string => typeof item === 'string')
+                  : undefined,
+                completedAtByQualityCheckId:
+                  progress.completedAtByQualityCheckId && typeof progress.completedAtByQualityCheckId === 'object'
+                    ? Object.fromEntries(
+                        Object.entries(progress.completedAtByQualityCheckId).filter(
+                          ([qualityCheckId, completedAt]) => (
+                            typeof qualityCheckId === 'string' && typeof completedAt === 'string'
+                          ),
                         ),
                       )
                     : undefined,

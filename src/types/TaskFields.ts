@@ -76,6 +76,21 @@ export type RoutineType = 'daily' | 'weekly' | 'monthly' | 'monthly_date';
 export type RoutineWeek = 1 | 2 | 3 | 4 | 5 | 'last';
 export type RoutineMonthday = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 'last';
 
+/** How a started Obsidian task title is matched against a linked AI routine. */
+export type ObsidianTaskMatchType = 'exact' | 'contains';
+
+/** Obsidian task-click linkage stored on an AI routine task note. */
+export interface ObsidianTaskLinkConfig {
+  /** Whether task-click linkage is active for this routine. */
+  enabled: boolean;
+
+  /** Human task title to match. */
+  taskTitle: string;
+
+  /** Exact title equality or one-way source-title containment. */
+  matchType: ObsidianTaskMatchType;
+}
+
 export interface RoutineTaskFields {
   /** Whether this is a routine task */
   isRoutine: boolean;
@@ -115,6 +130,9 @@ export interface RoutineTaskFields {
 
   /** Multiple days of month for monthly date routines */
   routine_monthdays?: RoutineMonthday[];
+
+  /** Start this AI routine when a matching Obsidian task is started. */
+  obsidian_sync?: ObsidianTaskLinkConfig;
 }
 
 // ============================================================================
@@ -145,13 +163,32 @@ export interface TaskMetadataFields {
 }
 
 // ============================================================================
+// AI Task Fields
+// ============================================================================
+
+export interface AiTaskFields {
+  /** Whether this task can be executed by a headless AI CLI */
+  ai_task?: boolean;
+
+  /** CLI host to run ('claude' | 'codex'); defaults to 'claude' */
+  ai_task_host?: string;
+
+  /** Working directory override for the AI child process */
+  ai_task_cwd?: string;
+
+  /** Extra CLI arguments (shell-like string or pre-tokenized array) */
+  ai_task_args?: string | string[];
+}
+
+// ============================================================================
 // Complete Task Frontmatter
 // ============================================================================
 
 export interface TaskFrontmatter extends
   TaskSchedulingFields,
   RoutineTaskFields,
-  TaskMetadataFields {
+  TaskMetadataFields,
+  AiTaskFields {
   // Allow additional fields for extensibility
   [key: string]: unknown;
 }

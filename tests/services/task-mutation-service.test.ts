@@ -166,6 +166,83 @@ describe('TaskMutationService', () => {
     expect(record?.createdMillis).toBe(result.createdMillis)
   })
 
+  test('duplicateInstance can silently materialize an event-triggered instance', async () => {
+    const task = createTask('TASKS/linked-ai.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-only',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost()
+    const service = new TaskMutationService(host)
+
+    const result = await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })
+
+    expect(result).toBeDefined()
+    expect(host.taskInstances).toHaveLength(1)
+    expect(NoticeMock).not.toHaveBeenCalled()
+  })
+
+  test('duplicateInstance rolls back a silent materialization when day-state persistence fails', async () => {
+    const task = createTask('TASKS/linked-ai.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-only',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost()
+    const persistError = new Error('persist failed')
+    host.persistDayState = jest.fn(async () => Promise.reject(persistError))
+    const service = new TaskMutationService(host)
+
+    const result = await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })
+
+    expect(result).toBeUndefined()
+    expect(host.taskInstances).toEqual([])
+    expect(host.tasks).toEqual([])
+    expect(host.dayState.duplicatedInstances).toEqual([])
+    expect(host.removeRunningTaskRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ taskPath: task.path }),
+    )
+    expect(host.renderTaskList).toHaveBeenCalled()
+  })
+
+  test('rollbackDuplicateInstance removes a ghost from instances, tasks, orders, and persisted metadata', async () => {
+    const task = createTask('TASKS/linked-ai.md', { isRoutine: true })
+    const duplicate: TaskInstance = {
+      task,
+      instanceId: 'linked-ai-duplicate',
+      state: 'idle',
+      slotKey: 'none',
+      isDuplicate: true,
+    } as TaskInstance
+    const host = createHost({ taskInstances: [duplicate], tasks: [task] })
+    host.dayState.duplicatedInstances.push({
+      instanceId: duplicate.instanceId,
+      originalPath: task.path,
+      slotKey: duplicate.slotKey,
+    })
+    host.dayState.orders[`${duplicate.instanceId}::none`] = 100
+    const service = new TaskMutationService(host)
+
+    await service.rollbackDuplicateInstance(duplicate)
+
+    expect(host.taskInstances).toEqual([])
+    expect(host.tasks).toEqual([])
+    expect(host.dayState.duplicatedInstances).toEqual([])
+    expect(host.dayState.orders).toEqual({})
+    expect(host.persistDayState).toHaveBeenCalledWith('2025-10-09')
+    expect(host.renderTaskList).toHaveBeenCalled()
+  })
+
   test('duplicateInstance allows overriding slot key', async () => {
     const task = createTask('TASKS/base.md')
     const instance: TaskInstance = {
@@ -577,6 +654,42 @@ describe('TaskMutationService', () => {
     ).toBeUndefined()
   })
 
+  test('deleteInstance keeps sibling duplicate metadata for the same original path', async () => {
+    const task = createTask('TASKS/repeated-ai.md')
+    const first: TaskInstance = {
+      task,
+      instanceId: 'dup-first',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const second: TaskInstance = {
+      task,
+      instanceId: 'dup-second',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [first, second], tasks: [task] })
+    host.dayState.duplicatedInstances.push(
+      {
+        instanceId: first.instanceId,
+        originalPath: task.path,
+        slotKey: 'none',
+      },
+      {
+        instanceId: second.instanceId,
+        originalPath: task.path,
+        slotKey: 'none',
+      },
+    )
+    const service = new TaskMutationService(host)
+
+    await service.deleteInstance(first)
+
+    expect(host.dayState.duplicatedInstances).toEqual([
+      expect.objectContaining({ instanceId: second.instanceId }),
+    ])
+  })
+
   test('duplicateInstance surfaces failure notice when ensureDayState throws', async () => {
     const task = createTask('TASKS/dup-failure.md')
     const instance: TaskInstance = {
@@ -800,6 +913,30 @@ describe('TaskMutationService', () => {
     expect(host.taskInstances).toHaveLength(0)
   })
 
+  test('deleteTask restores routine visibility when the initial hidden-state persist fails', async () => {
+    const routineTask = createTask('TASKS/routine-persist-failure.md', {
+      isRoutine: true,
+    })
+    const instance: TaskInstance = {
+      task: routineTask,
+      instanceId: 'routine-persist-failure-1',
+      state: 'running',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [instance], tasks: [routineTask] })
+    host.persistDayState = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('persist failed'))
+      .mockResolvedValue(undefined)
+    const service = new TaskMutationService(host)
+
+    const deleted = await service.deleteTask(instance)
+
+    expect(deleted).toBe(false)
+    expect(host.dayState.hiddenRoutines).toEqual([])
+    expect(host.taskInstances).toContain(instance)
+  })
+
   test('handleTaskFileDeletion fallback adds notice when trashFile fails', async () => {
     const file = createMockTFile('TASKS/error.md')
     const task = createTask('TASKS/error.md', { file })
@@ -840,9 +977,226 @@ describe('TaskMutationService', () => {
     })
     const service = new TaskMutationService(host)
 
-    await service.deleteTask(instance)
+    const deleted = await service.deleteTask(instance)
 
+    expect(deleted).toBe(false)
     expect(host.taskInstances).toContain(instance)
     expect(NoticeMock).toHaveBeenCalledWith(host.tv('notices.taskDeleteFailed', 'Failed to delete task'))
+  })
+
+  test('deleteInstance restores the running source when deletion persistence fails', async () => {
+    const task = createTask('TASKS/persist-failure.md')
+    const instance: TaskInstance = {
+      task,
+      instanceId: 'persist-failure-1',
+      state: 'running',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost({ taskInstances: [instance], tasks: [task] })
+    const originalDeleted = [...host.dayStateManager.getDeleted('2026-07-13')]
+    host.persistDayState = jest.fn(async () => {
+      throw new Error('persist failed')
+    })
+    const service = new TaskMutationService(host)
+
+    const deleted = await service.deleteInstance(instance)
+
+    expect(deleted).toBe(false)
+    expect(host.taskInstances).toContain(instance)
+    expect(instance.state).toBe('running')
+    expect(host.dayStateManager.getDeleted('2026-07-13')).toEqual(
+      originalDeleted,
+    )
+  })
+
+  test('rollbackDuplicateInstance cleans the materialization day after the view date changes', async () => {
+    const task = createTask('TASKS/non-due-linked-ai.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-original',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost()
+    let currentDate = '2025-10-09'
+    const originalDayState = host.dayState
+    const otherDayState = {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [
+        { instanceId: 'other-day', originalPath: 'TASKS/other.md' },
+      ],
+      slotOverrides: {},
+      orders: {},
+    }
+    host.getCurrentDateString = () => currentDate
+    host.getCurrentDayState = () =>
+      currentDate === '2025-10-09' ? originalDayState : otherDayState
+    const service = new TaskMutationService(host)
+
+    const duplicate = (await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })) as TaskInstance
+    expect(originalDayState.duplicatedInstances).toHaveLength(1)
+
+    currentDate = '2025-10-10'
+    await service.rollbackDuplicateInstance(duplicate)
+
+    expect(originalDayState.duplicatedInstances).toEqual([])
+    expect(otherDayState.duplicatedInstances).toEqual([
+      expect.objectContaining({ instanceId: 'other-day' }),
+    ])
+    expect(host.persistDayState).toHaveBeenLastCalledWith('2025-10-09')
+  })
+
+  test('rollbackDuplicateInstance cleans the live reloaded day-state object instead of a stale captured object', async () => {
+    const task = createTask('TASKS/reloaded-linked-ai.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-reload',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost()
+    const service = new TaskMutationService(host)
+
+    const duplicate = (await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })) as TaskInstance
+    const reloadedDayState = {
+      ...host.dayState,
+      duplicatedInstances: host.dayState.duplicatedInstances.map((entry) => ({
+        ...entry,
+      })),
+      orders: { ...(host.dayState.orders ?? {}) },
+    }
+    const mutateSnapshot = jest.fn(async (
+      _key: string,
+      mutator: (state: typeof reloadedDayState) => void,
+    ) => {
+      mutator(reloadedDayState)
+      return reloadedDayState
+    })
+    ;(
+      host.dayStateManager as unknown as {
+        mutateSnapshot: typeof mutateSnapshot
+      }
+    ).mutateSnapshot = mutateSnapshot
+    ;(host.persistDayState as jest.Mock).mockClear()
+
+    await service.rollbackDuplicateInstance(duplicate)
+
+    expect(reloadedDayState.duplicatedInstances).toEqual([])
+    expect(mutateSnapshot).toHaveBeenCalledWith('2025-10-09', expect.any(Function))
+    expect(host.persistDayState).not.toHaveBeenCalled()
+  })
+
+  test('rollbackDuplicateInstance removes a duplicate rematerialized while running-state cleanup is pending', async () => {
+    const task = createTask('TASKS/reloaded-during-cleanup.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-cleanup-reload',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    let releaseCleanup!: () => void
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve
+    })
+    const host = createHost({
+      removeRunningTaskRecord: jest.fn(async () => await cleanupGate),
+    })
+    const service = new TaskMutationService(host)
+    const duplicate = (await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })) as TaskInstance
+    const mutateSnapshot = jest.fn(async (
+      _key: string,
+      mutator: (state: typeof host.dayState) => void,
+    ) => {
+      mutator(host.dayState)
+      return host.dayState
+    })
+    ;(
+      host.dayStateManager as unknown as {
+        mutateSnapshot: typeof mutateSnapshot
+      }
+    ).mutateSnapshot = mutateSnapshot
+
+    const rollback = service.rollbackDuplicateInstance(duplicate)
+    await Promise.resolve()
+    await Promise.resolve()
+    host.tasks.push(task)
+    host.taskInstances.push({
+      ...duplicate,
+      task,
+    })
+    releaseCleanup()
+    await rollback
+
+    expect(host.taskInstances).not.toEqual([
+      expect.objectContaining({ instanceId: duplicate.instanceId }),
+    ])
+    expect(host.taskInstances.some(
+      (item) => item.instanceId === duplicate.instanceId,
+    )).toBe(false)
+    expect(host.tasks.some((item) => item.path === task.path)).toBe(false)
+    expect(host.dayState.duplicatedInstances).toEqual([])
+  })
+
+  test('rollbackDuplicateInstance loads an uncached materialization day without changing the shared store current date', async () => {
+    const task = createTask('TASKS/uncached-linked-ai.md', { isRoutine: true })
+    const candidate: TaskInstance = {
+      task,
+      instanceId: 'candidate-uncached',
+      state: 'idle',
+      slotKey: 'none',
+    } as TaskInstance
+    const host = createHost()
+    let currentDate = '2025-10-09'
+    const originalDayState = host.dayState
+    const nextDayState = {
+      hiddenRoutines: [],
+      deletedInstances: [],
+      duplicatedInstances: [],
+      slotOverrides: {},
+      orders: {},
+    }
+    host.getCurrentDateString = () => currentDate
+    host.getCurrentDayState = () =>
+      currentDate === '2025-10-09' ? originalDayState : nextDayState
+    const service = new TaskMutationService(host)
+    const duplicate = (await service.duplicateInstance(candidate, {
+      returnInstance: true,
+      suppressNotice: true,
+    })) as TaskInstance
+
+    currentDate = '2025-10-10'
+    const mutateSnapshot = jest.fn(async (
+      key: string,
+      mutator: (state: typeof originalDayState) => void,
+    ) => {
+      if (key === '2025-10-09') {
+        // Simulate another navigation while loading the materialization day;
+        // the date-scoped atomic API must not need to restore a captured date.
+        currentDate = '2025-10-11'
+      }
+      mutator(originalDayState)
+      return originalDayState
+    })
+    ;(
+      host.dayStateManager as unknown as {
+        mutateSnapshot: typeof mutateSnapshot
+      }
+    ).mutateSnapshot = mutateSnapshot
+
+    await service.rollbackDuplicateInstance(duplicate)
+
+    expect(mutateSnapshot).toHaveBeenCalledWith('2025-10-09', expect.any(Function))
+    expect(currentDate).toBe('2025-10-11')
+    expect(originalDayState.duplicatedInstances).toEqual([])
   })
 })

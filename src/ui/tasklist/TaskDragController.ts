@@ -10,6 +10,18 @@ export interface TaskDragControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
 }
 
+/**
+ * Parsed dragstart payload: `slot::idx[::instanceId]`. The instanceId (added
+ * for board-view filtering, where idx counts FILTERED rows) is the preferred
+ * way to resolve the dragged instance; slot+idx remain as the positional
+ * fallback for id-less payloads.
+ */
+interface DragPayload {
+  sourceSlot: string
+  sourceIndex: number
+  instanceId?: string
+}
+
 export default class TaskDragController {
   constructor(private readonly host: TaskDragControllerHost) {}
 
@@ -35,16 +47,15 @@ export default class TaskDragController {
       return
     }
 
-    const [sourceSlot, sourceIdxRaw] = data.split('::')
-    const sourceIndex = Number.parseInt(sourceIdxRaw ?? '', 10)
-    if (Number.isNaN(sourceIndex)) {
+    const payload = this.parseDragPayload(data)
+    if (!payload) {
       this.clearDragoverClasses(taskItem)
       return
     }
 
     const taskInstances = this.host.getTaskInstances()
     const targetSlot = targetInst.slotKey || 'none'
-    const sourceInst = this.findSourceInstance(taskInstances, sourceSlot || 'none', sourceIndex)
+    const sourceInst = this.findSourceInstance(taskInstances, payload)
     if (!sourceInst || sourceInst.state === 'done') {
       this.clearDragoverClasses(taskItem)
       return
@@ -89,7 +100,7 @@ export default class TaskDragController {
       newPosition = boundaryAfter
     }
 
-    if ((sourceSlot || 'none') === targetSlot) {
+    if (payload.sourceSlot === targetSlot) {
       const inTargetIndex = sortedTargetTasks.indexOf(sourceInst)
       if (inTargetIndex < newPosition) {
         newPosition -= 1
@@ -121,13 +132,12 @@ export default class TaskDragController {
     const data = e.dataTransfer?.getData('text/plain')
     if (!data) return
 
-    const [sourceSlot, sourceIdxRaw] = data.split('::')
-    const sourceIndex = Number.parseInt(sourceIdxRaw ?? '', 10)
-    if (Number.isNaN(sourceIndex)) return
+    const payload = this.parseDragPayload(data)
+    if (!payload) return
 
     const normalizedSlot = slot || 'none'
     const taskInstances = this.host.getTaskInstances()
-    const sourceInst = this.findSourceInstance(taskInstances, sourceSlot || 'none', sourceIndex)
+    const sourceInst = this.findSourceInstance(taskInstances, payload)
     if (!sourceInst || sourceInst.state === 'done') return
 
     const normalizedState = this.host.normalizeState(sourceInst.state)
@@ -155,13 +165,33 @@ export default class TaskDragController {
     )
   }
 
+  private parseDragPayload(data: string): DragPayload | null {
+    const [slotRaw, sourceIdxRaw, ...idParts] = data.split('::')
+    const sourceIndex = Number.parseInt(sourceIdxRaw ?? '', 10)
+    if (Number.isNaN(sourceIndex)) return null
+    const instanceId = idParts.length > 0 ? idParts.join('::') : undefined
+    return {
+      sourceSlot: slotRaw || 'none',
+      sourceIndex,
+      instanceId: instanceId !== undefined && instanceId.length > 0 ? instanceId : undefined,
+    }
+  }
+
   private findSourceInstance(
     taskInstances: TaskInstance[],
-    sourceSlot: string,
-    targetIndex: number,
+    payload: DragPayload,
   ): TaskInstance | undefined {
-    const slotInstances = taskInstances.filter((inst) => (inst.slotKey || 'none') === sourceSlot)
+    if (payload.instanceId !== undefined) {
+      // Identity beats position: the payload index counts FILTERED rows
+      // (board view), so it can point at a different task in the unfiltered
+      // list. An id that no longer exists (stale drag across a reload)
+      // resolves to nothing rather than to the wrong task.
+      return taskInstances.find((inst) => inst.instanceId === payload.instanceId)
+    }
+    const slotInstances = taskInstances.filter(
+      (inst) => (inst.slotKey || 'none') === payload.sourceSlot,
+    )
     const sorted = this.host.sortByOrder(slotInstances)
-    return sorted[targetIndex]
+    return sorted[payload.sourceIndex]
   }
 }

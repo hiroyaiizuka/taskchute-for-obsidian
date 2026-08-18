@@ -553,16 +553,61 @@ export function mergeRecipeProgress(
 
     const localUpdatedAt = Number.isFinite(localEntry.updatedAt) ? localEntry.updatedAt : 0
     const remoteUpdatedAt = Number.isFinite(remoteEntry.updatedAt) ? remoteEntry.updatedAt : 0
+    const localStepsUpdatedAt = Number.isFinite(localEntry.stepsUpdatedAt)
+      ? localEntry.stepsUpdatedAt as number
+      : localUpdatedAt
+    const remoteStepsUpdatedAt = Number.isFinite(remoteEntry.stepsUpdatedAt)
+      ? remoteEntry.stepsUpdatedAt as number
+      : remoteUpdatedAt
+    const localQualityUpdatedAt = Number.isFinite(localEntry.qualityChecksUpdatedAt)
+      ? localEntry.qualityChecksUpdatedAt as number
+      : localUpdatedAt
+    const remoteQualityUpdatedAt = Number.isFinite(remoteEntry.qualityChecksUpdatedAt)
+      ? remoteEntry.qualityChecksUpdatedAt as number
+      : remoteUpdatedAt
     if (
       localUpdatedAt !== remoteUpdatedAt ||
+      localStepsUpdatedAt !== remoteStepsUpdatedAt ||
+      localQualityUpdatedAt !== remoteQualityUpdatedAt ||
       JSON.stringify(localEntry.checkedStepIds ?? []) !== JSON.stringify(remoteEntry.checkedStepIds ?? []) ||
-      JSON.stringify(localEntry.stepOrder ?? []) !== JSON.stringify(remoteEntry.stepOrder ?? [])
+      JSON.stringify(localEntry.stepOrder ?? []) !== JSON.stringify(remoteEntry.stepOrder ?? []) ||
+      JSON.stringify(localEntry.completedAtByStepId ?? {}) !== JSON.stringify(remoteEntry.completedAtByStepId ?? {}) ||
+      JSON.stringify(localEntry.checkedQualityCheckIds ?? []) !== JSON.stringify(remoteEntry.checkedQualityCheckIds ?? []) ||
+      JSON.stringify(localEntry.qualityCheckOrder ?? []) !== JSON.stringify(remoteEntry.qualityCheckOrder ?? []) ||
+      JSON.stringify(localEntry.completedAtByQualityCheckId ?? {}) !==
+        JSON.stringify(remoteEntry.completedAtByQualityCheckId ?? {})
     ) {
       conflictCount++
     }
-    merged[key] = localUpdatedAt >= remoteUpdatedAt
-      ? { ...localEntry }
-      : { ...remoteEntry }
+    const latestEntry = localUpdatedAt >= remoteUpdatedAt ? localEntry : remoteEntry
+    const stepsEntry = localStepsUpdatedAt >= remoteStepsUpdatedAt ? localEntry : remoteEntry
+    const qualityEntry = localQualityUpdatedAt >= remoteQualityUpdatedAt ? localEntry : remoteEntry
+    const mergedEntry: RecipeProgressEntry = {
+      ...latestEntry,
+      recipePath: latestEntry.recipePath,
+      checkedStepIds: [...(stepsEntry.checkedStepIds ?? [])],
+      stepsUpdatedAt: Math.max(localStepsUpdatedAt, remoteStepsUpdatedAt),
+      checkedQualityCheckIds: [...(qualityEntry.checkedQualityCheckIds ?? [])],
+      qualityChecksUpdatedAt: Math.max(localQualityUpdatedAt, remoteQualityUpdatedAt),
+      updatedAt: Math.max(localUpdatedAt, remoteUpdatedAt),
+    }
+
+    if (stepsEntry.stepOrder) mergedEntry.stepOrder = [...stepsEntry.stepOrder]
+    else delete mergedEntry.stepOrder
+    if (stepsEntry.completedAtByStepId) {
+      mergedEntry.completedAtByStepId = { ...stepsEntry.completedAtByStepId }
+    } else delete mergedEntry.completedAtByStepId
+
+    if (qualityEntry.qualityCheckOrder) {
+      mergedEntry.qualityCheckOrder = [...qualityEntry.qualityCheckOrder]
+    } else delete mergedEntry.qualityCheckOrder
+    if (qualityEntry.completedAtByQualityCheckId) {
+      mergedEntry.completedAtByQualityCheckId = {
+        ...qualityEntry.completedAtByQualityCheckId,
+      }
+    } else delete mergedEntry.completedAtByQualityCheckId
+
+    merged[key] = mergedEntry
   }
 
   return {

@@ -7,6 +7,7 @@ import {
   ProjectFolderUnsetError,
 } from '../../types'
 import { ensureFrontmatterObject } from '../../utils/frontmatter'
+import { listFilesInFolder } from '../../utils/vaultFiles'
 
 const DEFAULT_STATUS: ProjectBoardStatus = 'todo'
 
@@ -87,9 +88,7 @@ export class ProjectBoardService {
 
   listProjectFiles(): TFile[] {
     const folder = this.getProjectFolderOrThrow()
-    const files = this.plugin.app.vault.getMarkdownFiles()
-    const prefix = folder.endsWith('/') ? folder : `${folder}/`
-    return files.filter((file) => file.path === folder || file.path.startsWith(prefix))
+    return listFilesInFolder(this.plugin.app, folder, { markdownOnly: true })
   }
 
   loadProjectItems(): ProjectBoardItem[] {

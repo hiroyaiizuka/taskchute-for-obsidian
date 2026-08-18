@@ -30,7 +30,12 @@ function createPlugin(options: {
     app: {
       vault: {
         getMarkdownFiles: jest.fn(() => files),
-        getAbstractFileByPath: jest.fn((path: string) => files.find((f) => f.path === path) ?? null),
+        getAbstractFileByPath: jest.fn((path: string) => {
+          if (path === options.folder) {
+            return { path, children: files.filter((file) => file.path.startsWith(`${path}/`)) }
+          }
+          return files.find((f) => f.path === path) ?? null
+        }),
         cachedRead: jest.fn(async (file: TFile) => fileContents[file.path] ?? ''),
         adapter: {
           exists: jest.fn(async (path: string) => {

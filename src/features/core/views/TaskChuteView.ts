@@ -61,9 +61,61 @@ import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeleted
 import { SectionConfigService } from "../../../services/SectionConfigService"
 import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
 import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/services/RecipeService"
+import { TaskRecipeAssignmentService } from "../../recipe/services/TaskRecipeAssignmentService"
 import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
 import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
 import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
+import { AiRunPaneController } from "../../ai-task/ui/AiRunPaneController"
+import { createTerminalViewAdapter } from "../../ai-task/ui/TerminalViewAdapter"
+import {
+  AiPromptNotFoundError,
+  AiRunAlreadyActiveError,
+} from "../../ai-task/services/AiTaskManager"
+import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
+import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
+import { AiTaskEditService } from "../../ai-task/services/AiTaskEditService"
+import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsidianLinkCoordinator"
+import { readObsidianTaskLinkConfig } from "../../ai-task/services/ObsidianTaskLinkConfig"
+import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
+import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
+import type {
+  AiTaskStartReservation,
+  AiTaskManager,
+  PreparedAiRun,
+} from "../../ai-task/services/AiTaskManager"
+import RoutineService from "../../routine/services/RoutineService"
+import { getScheduledTime } from "../../../utils/fieldMigration"
+import { extractTaskIdFromFrontmatter } from "../../../services/TaskIdManager"
+import type {
+  AiRunMode,
+  AiRunRecord,
+  AiTaskBoardView,
+} from "../../ai-task/types"
+
+/**
+ * Per-device persistence key of the AI board view (App#saveLocalStorage /
+ * App#loadLocalStorage — device-local by design, never synced with the vault).
+ */
+export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view'
+
+const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
+
+export interface AmbientAiTaskRunResult {
+  satisfiedPaths: string[]
+  startedRuns: AmbientAiTaskStartedRun[]
+}
+
+/** Authoritative timer state produced by the background Ambient view. */
+export interface AmbientAiTaskStartedRun {
+  /** Exact manager record to reveal in every already-open AI Runs pane. */
+  runId: string
+  path: string
+  instanceId: string
+  /** Epoch milliseconds copied from the TaskExecutionService start transition. */
+  startTime: number
+  slotKey: string
+  originalSlotKey: string | undefined
+}
 
 class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
@@ -78,6 +130,8 @@ export class TaskChuteView
   public readonly plugin: TaskChutePluginLike
   public tasks: TaskData[] = []
   public taskInstances: TaskInstance[] = []
+  /** Non-due linked AI routines available only for event materialization. */
+  public linkedAiTaskCandidates: TaskInstance[] = []
   public currentInstance: TaskInstance | null = null
   public globalTimerInterval: ReturnType<Window['setInterval']> | null = null
   public timerService: TimerService | null = null
@@ -106,6 +160,7 @@ export class TaskChuteView
   public readonly routineController: RoutineController
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
+  private readonly aiTaskObsidianLinkCoordinator: AiTaskObsidianLinkCoordinator
   public readonly recipeService: RecipeService
   private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
@@ -118,6 +173,17 @@ export class TaskChuteView
   public navigationPanel?: HTMLElement
   public navigationOverlay?: HTMLElement
   public navigationContent?: HTMLElement
+
+  // AI Task pane (mounted only while plugin.aiTaskManager exists)
+  private aiPaneContainer: HTMLElement | null = null
+  private aiRunPaneController: AiRunPaneController | null = null
+  /** Selected board view (render-only filter); restored in the constructor */
+  private aiTaskBoardView: AiTaskBoardView = 'mixed'
+  /**
+   * Per-instance generation used to invalidate an async AI preflight/start
+   * when stop (or a newer start) wins the race before dispatch completes.
+   */
+  private readonly aiStartGenerations = new WeakMap<TaskInstance, number>()
 
   // State Management
   public useOrderBasedSort: boolean
@@ -213,6 +279,9 @@ export class TaskChuteView
     super(leaf)
     this.plugin = plugin
     this.app = plugin.app
+
+    // Restore the per-device board view (invalid/missing values → 'mixed')
+    this.aiTaskBoardView = this.loadAiTaskBoardView()
 
     // Initialize current date
     const today = new Date()
@@ -335,11 +404,35 @@ export class TaskChuteView
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
       saveScheduledTime: (inst, scheduledTime) =>
         this.updateTaskScheduledTime(inst, scheduledTime),
+      onInstanceResetToIdle: async (inst, { wasRunning }) => {
+        // Resetting a running instance bypasses stopInstance, so stop the
+        // coupled AI run here to keep play/stop coupling symmetric.
+        if (wasRunning) {
+          this.maybeStopAiRunForInstance(inst)
+          await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+        }
+      },
+      onInstanceStopped: async (inst) => {
+        this.maybeStopAiRunForInstance(inst)
+        await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+      },
+      onInstanceStarted: async (inst) => {
+        this.maybeStartAiRunForInstance(inst)
+        await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
+      },
     })
     this.taskCreationController = new TaskCreationController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       getTaskNameValidator: () => this.getTaskNameValidator(),
       taskCreationService: this.taskCreationService,
+      aiTaskEditService: new AiTaskEditService(
+        this.app,
+        new TaskRecipeAssignmentService({
+          app: this.app,
+          getRecipeFolderPath: () => this.recipeService.getRecipeFolderPath(),
+        }),
+      ),
+      recipeService: this.recipeService,
       taskReuseService: this.taskReuseService,
       hasInstanceForPathToday: (path) => this.hasInstanceForPathToday(path),
       duplicateInstanceForPath: (path, options) =>
@@ -351,6 +444,22 @@ export class TaskChuteView
       getCurrentDateString: () => this.getCurrentDateString(),
       app: this.app,
       plugin: this.plugin,
+      getAiTaskDefaultWorkingDirectory: () => {
+        const adapter = this.app.vault.adapter as unknown as {
+          getBasePath?: () => unknown
+        }
+        try {
+          const basePath = adapter.getBasePath?.()
+          return typeof basePath === 'string' ? basePath : ''
+        } catch {
+          return ''
+        }
+      },
+      getAiTaskWorkingDirectoryCandidates: () =>
+        collectAiTaskWorkingDirectoryCandidates(
+          this.app,
+          this.plugin.pathManager.getTaskFolderPath(),
+        ),
       getDocumentContext: () => {
         const doc = this.containerEl?.ownerDocument ?? document
         const defaultView = (doc.defaultView) ?? null
@@ -380,6 +489,14 @@ export class TaskChuteView
         this.moveDuplicateInstanceToDate(inst, dateStr),
       moveNonRoutineSlotOverrideToDate: (inst, dateStr) =>
         this.moveNonRoutineSlotOverrideToDate(inst, dateStr),
+      moveRunningTaskToDate: async (inst, dateStr) => {
+        return await this.runningTasksService.moveRunningTaskToDateStrict({
+          targetDate: dateStr,
+          instanceId: inst.instanceId,
+          taskId: inst.task?.taskId,
+          taskPath: inst.task?.path,
+        })
+      },
       hideRoutineInstanceForDate: (inst, dateStr) =>
         this.hideRoutineInstanceForDate(inst, dateStr),
     })
@@ -438,6 +555,9 @@ export class TaskChuteView
         this.registerManagedDomEvent(target, event, handler),
       toggleNavigation: () => this.navigationController.toggleNavigation(),
       registerDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      isAiTaskFeatureEnabled: () => this.isAiTaskFeatureEnabled(),
+      getAiTaskBoardView: () => this.getAiTaskBoardView(),
+      setAiTaskBoardView: (boardView) => this.setAiTaskBoardView(boardView),
     })
     this.routineController = new RoutineController({
       app: this.app,
@@ -448,6 +568,22 @@ export class TaskChuteView
       getCurrentDate: () => new Date(this.currentDate),
     })
     this.taskExecutionService = new TaskExecutionService(this)
+    this.aiTaskObsidianLinkCoordinator = new AiTaskObsidianLinkCoordinator({
+      getTaskInstances: () => [
+        ...this.taskInstances,
+        ...this.linkedAiTaskCandidates,
+      ],
+      startLinkedAiTask: (target) => this.startLinkedAiTask(target),
+      stopLinkedAiTask: async (target) => {
+        this.invalidateAiStartAttempt(target)
+        const stopped = await this.taskExecutionService.stopInstance(
+          target,
+          undefined,
+        )
+        if (stopped) this.maybeStopAiRunForInstance(target)
+        return stopped
+      },
+    })
     this.taskViewLayout = new TaskViewLayout({
       renderHeader: (container) => this.taskHeaderController.render(container),
       createNavigation: (contentContainer) =>
@@ -544,6 +680,11 @@ export class TaskChuteView
         view.projectController.showUnifiedProjectModal(inst),
       openProjectInSplit: (projectPath) =>
         view.projectController.openProjectInSplit(projectPath),
+      isAiTaskFeatureEnabled: () => view.isAiTaskFeatureEnabled(),
+      editAiTask: (inst) => {
+        void view.taskCreationController.showEditAiTaskModal(inst)
+      },
+      getAiTaskBoardView: () => view.getAiTaskBoardView(),
     }
   }
 
@@ -649,6 +790,7 @@ export class TaskChuteView
   async onClose(): Promise<void> {
     this.isClosingOrClosed = true
     this.recipeRunPopover.close()
+    this.unmountAiRunPane()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -663,8 +805,1200 @@ export class TaskChuteView
   // ===========================================
 
   private setupUI(container: HTMLElement): void {
-    const { taskListElement } = this.taskViewLayout.render(container)
+    const { taskListElement, aiPaneContainer } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
+    this.aiPaneContainer = aiPaneContainer
+    this.mountAiRunPane()
+  }
+
+  // ===========================================
+  // AI Task Integration
+  // ===========================================
+
+  private isAiTaskFeatureEnabled(): boolean {
+    return this.plugin.aiTaskManager !== undefined
+  }
+
+  /**
+   * Effective board view for rendering: while the AI Task feature is
+   * disabled (toggle OFF or mobile) the board ALWAYS behaves as 'mixed',
+   * regardless of what an earlier session stored.
+   */
+  public getAiTaskBoardView(): AiTaskBoardView {
+    return this.isAiTaskFeatureEnabled() ? this.aiTaskBoardView : 'mixed'
+  }
+
+  /** Select a board view, persist it per device, and re-render immediately */
+  public setAiTaskBoardView(view: AiTaskBoardView): void {
+    this.aiTaskBoardView = view
+    // A keyboard selection hidden by the new filter must not stay
+    // hotkey-actionable (duplicate/delete/reset would hit an invisible row);
+    // a selection that stays visible survives the switch.
+    const selected = this.taskSelectionController.getSelectedInstance()
+    if (selected && !matchesAiTaskBoardView(selected, this.getAiTaskBoardView())) {
+      this.taskSelectionController.clear()
+    }
+    // Duck-typed: App#saveLocalStorage exists at runtime, but test doubles
+    // (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+    }
+    if (typeof app.saveLocalStorage === 'function') {
+      app.saveLocalStorage(AI_TASK_BOARD_VIEW_STORAGE_KEY, view)
+    }
+    this.renderTaskList()
+  }
+
+  /** Read the stored board view; anything unexpected falls back to 'mixed' */
+  private loadAiTaskBoardView(): AiTaskBoardView {
+    const app = this.app as unknown as {
+      loadLocalStorage?: (key: string) => unknown
+    }
+    const stored: unknown =
+      typeof app.loadLocalStorage === 'function'
+        ? app.loadLocalStorage(AI_TASK_BOARD_VIEW_STORAGE_KEY)
+        : null
+    const match = AI_TASK_BOARD_VIEWS.find((view) => view === stored)
+    return match ?? 'mixed'
+  }
+
+  private async startAiRun(
+    inst: TaskInstance,
+    options: { suppressAlreadyActive?: boolean } = {},
+  ): Promise<boolean> {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return false
+    return Boolean(await this.startAiRunWithManager(inst, manager, options))
+  }
+
+  private async startAiRunWithManager(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+    options: { suppressAlreadyActive?: boolean } = {},
+    prepared?: PreparedAiRun,
+    reservation?: AiTaskStartReservation,
+  ): Promise<AiRunRecord | null> {
+    const file = inst.task.file
+    if (!file) {
+      this.notifyAiRunError(new Error(inst.task.path))
+      return null
+    }
+    try {
+      // Derive the initial PTY grid from the pane before the run starts
+      // (120x30 fallback when no pane is mounted or measurable). Subsequent
+      // pane resizes update the PTY. instanceId retains the originating task
+      // instance for timer/run ownership; mode follows the settings dropdown.
+      const size = this.aiRunPaneController?.computeTerminalSize() ?? {
+        cols: 120,
+        rows: 30,
+      }
+      const mode: AiRunMode =
+        this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
+      const record = prepared
+        ? await manager.startPreparedRun(prepared, {
+            instanceId: inst.instanceId,
+            cols: size.cols,
+            rows: size.rows,
+          }, reservation)
+        : await manager.startRun(file, {
+            mode,
+            instanceId: inst.instanceId,
+            cols: size.cols,
+            rows: size.rows,
+          })
+      this.aiRunPaneController?.openRun(record.id)
+      this.renderTaskList()
+      return record
+    } catch (error) {
+      if (options.suppressAlreadyActive && error instanceof AiRunAlreadyActiveError) {
+        return manager.getActiveRunForTask(inst.task.path) ?? null
+      }
+      this.notifyAiRunError(error)
+      return null
+    }
+  }
+
+  private async prepareAiRunForInstance(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+  ): Promise<
+    | { kind: 'not-needed' }
+    | { kind: 'ready'; prepared: PreparedAiRun }
+    | { kind: 'failed' }
+  > {
+    if (!readAiTaskConfig(inst.task.frontmatter)) return { kind: 'not-needed' }
+    if (!inst.task.file || !inst.task.path) return { kind: 'not-needed' }
+    if (manager.getActiveRunForTask(inst.task.path)) return { kind: 'not-needed' }
+
+    // Older injected test doubles intentionally implement only startRun.
+    // Production managers always expose prepareRun; keep the legacy fallback
+    // so unrelated host tests do not gain a new mock requirement.
+    if (typeof manager.prepareRun !== 'function') return { kind: 'not-needed' }
+    try {
+      const mode: AiRunMode =
+        this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
+      const prepared = await manager.prepareRun(inst.task.file, { mode })
+      return { kind: 'ready', prepared }
+    } catch (error) {
+      this.notifyAiRunError(error)
+      return { kind: 'failed' }
+    }
+  }
+
+  private reservePreparedAiRun(
+    manager: AiTaskManager,
+    prepared: PreparedAiRun,
+  ): AiTaskStartReservation | undefined {
+    // A few isolated host tests inject the pre-reservation manager contract.
+    // The production manager always exposes this method.
+    if (typeof manager.reserveTaskStart !== 'function') return undefined
+    return manager.reserveTaskStart(prepared.taskPath)
+  }
+
+  private releasePreparedAiRunReservation(
+    manager: AiTaskManager,
+    reservation: AiTaskStartReservation | undefined,
+  ): void {
+    if (!reservation) return
+    manager.releaseTaskStartReservation(reservation)
+  }
+
+  /**
+   * Resolve the authoritative row after TaskExecutionService may have
+   * switched dates and reloaded the task list. restoreForDate preserves the
+   * running record's instanceId, so prefer that stable identity; use path
+   * only when there is a single unambiguous running generation.
+   */
+  private resolveCurrentAiStartInstance(
+    original: TaskInstance,
+    originalWasKnownToView: boolean,
+  ): TaskInstance | undefined {
+    const candidates = [
+      ...this.taskInstances,
+      ...this.linkedAiTaskCandidates,
+    ].filter(
+      (candidate, index, all) => all.indexOf(candidate) === index,
+    )
+    const exact = original.instanceId
+      ? candidates.find(
+          (candidate) => candidate.instanceId === original.instanceId,
+        )
+      : undefined
+    if (exact) return exact.state === 'running' ? exact : undefined
+
+    const samePath = candidates.filter(
+      (candidate) =>
+        candidate.task?.path.length > 0 &&
+        candidate.task.path === original.task?.path,
+    )
+    if (samePath.length > 0) {
+      const running = samePath.filter(
+        (candidate) => candidate.state === 'running',
+      )
+      if (running.length === 1) return running[0]
+      const originalStart = original.startTime?.getTime()
+      if (originalStart !== undefined) {
+        return running.find(
+          (candidate) => candidate.startTime?.getTime() === originalStart,
+        )
+      }
+      return undefined
+    }
+
+    // Lightweight unit hosts do not mount their instance collection. Only
+    // those callers may keep using the original object; a real mounted row
+    // disappearing during reload is cancellation, not permission to launch.
+    return !originalWasKnownToView && original.state === 'running'
+      ? original
+      : undefined
+  }
+
+  private beginAiStartAttempt(inst: TaskInstance): number {
+    const generation = (this.aiStartGenerations.get(inst) ?? 0) + 1
+    this.aiStartGenerations.set(inst, generation)
+    return generation
+  }
+
+  private invalidateAiStartAttempt(inst: TaskInstance): void {
+    this.aiStartGenerations.set(
+      inst,
+      (this.aiStartGenerations.get(inst) ?? 0) + 1,
+    )
+  }
+
+  private isCurrentAiStartAttempt(
+    inst: TaskInstance,
+    generation: number,
+  ): boolean {
+    return this.aiStartGenerations.get(inst) === generation
+  }
+
+  /**
+   * Play/stop coupling: a successful human start of an ai_task instance also
+   * fires the AI run (same path as the row 🤖 button, pane tab included).
+   * An already-active run is skipped silently. Prepared-run failures roll the
+   * just-started timer back so the UI cannot claim Running without a process;
+   * the legacy non-preflight fallback remains additive for injected mocks.
+   */
+  private maybeStartAiRunForInstance(inst: TaskInstance): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    // Defense in depth: the caller gates on the service's success flag, and
+    // a successful start always leaves the instance running.
+    if (inst.state !== 'running') return
+    if (!readAiTaskConfig(inst.task.frontmatter)) return
+    const taskPath = inst.task.path
+    if (!taskPath) return
+    if (manager.getActiveRunForTask(taskPath)) return
+    void this.startAiRun(inst, { suppressAlreadyActive: true })
+  }
+
+  private async rollbackAiTimerStart(
+    inst: TaskInstance,
+    snapshot: {
+      state: TaskInstance['state']
+      startTime?: Date
+      stopTime?: Date
+      slotKey?: string
+      originalSlotKey?: string
+      currentInstance: TaskInstance | null
+    },
+  ): Promise<void> {
+    inst.state = snapshot.state
+    inst.startTime = snapshot.startTime
+    inst.stopTime = snapshot.stopTime
+    inst.slotKey = snapshot.slotKey ?? 'none'
+    inst.originalSlotKey = snapshot.originalSlotKey
+
+    if (this.currentInstance === inst) {
+      this.currentInstance =
+        snapshot.currentInstance?.state === 'running'
+          ? snapshot.currentInstance
+          : null
+    }
+
+    try {
+      await this.removeRunningTaskRecord({
+        instanceId: inst.instanceId,
+        taskPath: inst.task?.path,
+        taskId: inst.task?.taskId,
+      })
+    } catch (error) {
+      console.warn(
+        '[TaskChuteView] AI timer rollback running-state cleanup failed',
+        error,
+      )
+    }
+    try {
+      await this.saveRunningTasksState()
+    } catch (error) {
+      console.warn(
+        '[TaskChuteView] AI timer rollback persist failed',
+        error,
+      )
+    }
+    this.renderTaskList()
+  }
+
+  /**
+   * Execute due Ambient AI routines through the same timer/process path as a
+   * play-button start. The plugin-owned scheduler passes paths discovered from
+   * vault metadata; a dedicated background view reloads today's persisted task
+   * state before it decides whether each candidate still needs a launch.
+   *
+   * Returned satisfied paths are safe for the scheduler to persist for the day
+   * (newly launched, already running/completed, or intentionally hidden).
+   * Newly launched runs also carry the exact timer snapshot for visible-view
+   * mirroring. Transient failures and candidates that became linked/ineligible
+   * are omitted so a later tick may retry or re-evaluate them.
+   */
+  public async runDueAmbientAiTasks(
+    candidatePaths: readonly string[],
+    now: Date = new Date(),
+  ): Promise<AmbientAiTaskRunResult> {
+    const emptyResult = (): AmbientAiTaskRunResult => ({
+      satisfiedPaths: [],
+      startedRuns: [],
+    })
+    if (this.isClosingOrClosed || !this.plugin.aiTaskManager) {
+      return emptyResult()
+    }
+
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayKey = this.formatDateKey(today)
+    // Runtime composition always supplies a transient view initialized to
+    // today. Refuse a borrowed/user-visible view instead of changing its date.
+    if (this.getCurrentDateString() !== todayKey) return emptyResult()
+    const uniquePaths = [
+      ...new Set(candidatePaths.filter((path) => path.trim().length > 0)),
+    ]
+
+    this.currentDayState = null
+    this.currentDayStateKey = null
+    await this.reloadTasksAndRestore({
+      runBoundaryCheck: false,
+      clearDayStateCache: 'current',
+      queueIfInProgress: true,
+    })
+    if (this.getCurrentDateString() !== todayKey) return emptyResult()
+
+    const satisfied: string[] = []
+    const startedRuns: AmbientAiTaskStartedRun[] = []
+    for (const path of uniquePaths) {
+      const pathInstances = this.taskInstances.filter(
+        (instance) => instance.task?.path === path,
+      )
+
+      if (pathInstances.length === 0) {
+        // Empty results also occur when vault/day-state loading fails. Only an
+        // explicit day-state tombstone is safe to persist as satisfied.
+        if (this.isAmbientAiPathSuppressed(path, todayKey)) {
+          satisfied.push(path)
+        }
+        continue
+      }
+
+      const representative = pathInstances[0]
+      if (!this.isDueAmbientAiInstance(representative, now, todayKey)) {
+        continue
+      }
+
+      const manager = this.plugin.aiTaskManager
+      if (!manager) break
+
+      const alreadySatisfied = pathInstances.some(
+        (instance) => instance.state !== 'idle',
+      ) || Boolean(manager.getActiveRunForTask(path))
+      if (alreadySatisfied) {
+        satisfied.push(path)
+        continue
+      }
+
+      const target = pathInstances.find(
+        (instance) =>
+          instance.state === 'idle' && instance.isDuplicate !== true,
+      )
+      if (!target) {
+        satisfied.push(path)
+        continue
+      }
+
+      const startedRun = await this.startAmbientAiInstance(target, manager)
+      if (startedRun) {
+        satisfied.push(path)
+        startedRuns.push(startedRun)
+      }
+    }
+    return { satisfiedPaths: satisfied, startedRuns }
+  }
+
+  /** Mirror newly auto-started timers into an already-open visible view. */
+  public syncAmbientAiTaskRuns(
+    startedRuns: readonly AmbientAiTaskStartedRun[],
+    dateKey: string,
+  ): void {
+    if (
+      this.isClosingOrClosed ||
+      this.getCurrentDateString() !== dateKey ||
+      !this.plugin.aiTaskManager
+    ) {
+      return
+    }
+
+    let changed = false
+    const uniqueRuns = new Map<string, AmbientAiTaskStartedRun>()
+    for (const run of startedRuns) {
+      uniqueRuns.set(`${run.instanceId}\u0000${run.path}`, run)
+    }
+    for (const run of uniqueRuns.values()) {
+      if (!Number.isFinite(run.startTime)) continue
+      const matchingInstance = this.taskInstances.find(
+        (candidate) => candidate.instanceId === run.instanceId,
+      )
+      const instance = matchingInstance ?? this.taskInstances.find(
+        (candidate) =>
+          candidate.task?.path === run.path &&
+          candidate.state === 'idle' &&
+          candidate.isDuplicate !== true,
+      )
+      if (!instance || instance.state !== 'idle') continue
+
+      instance.state = 'running'
+      instance.startTime = new Date(run.startTime)
+      instance.slotKey = run.slotKey
+      instance.originalSlotKey = run.originalSlotKey
+      this.currentInstance = instance
+      changed = true
+    }
+
+    // Manager change events create the run view in every mounted pane, but
+    // only the background source calls openRun during dispatch. Mirror the
+    // manual-start contract here as well: uncollapse the visible AI Runs pane
+    // and select the exact newly-started terminal. Calling in start order
+    // intentionally leaves the final run selected when one tick starts many.
+    for (const run of uniqueRuns.values()) {
+      this.aiRunPaneController?.openRun(run.runId)
+    }
+
+    if (!changed) return
+    this.startGlobalTimer()
+    this.restartTimerService()
+    this.renderTaskList()
+  }
+
+  private isAmbientAiPathSuppressed(path: string, dateKey: string): boolean {
+    try {
+      if (this.dayStateManager.isHidden({ path, dateKey })) return true
+
+      const file = this.app.vault.getAbstractFileByPath(path)
+      const frontmatter =
+        file instanceof TFile
+          ? this.app.metadataCache.getFileCache(file)?.frontmatter
+          : undefined
+      const taskId = extractTaskIdFromFrontmatter(frontmatter)
+      return this.dayStateManager.isDeleted({
+        path,
+        dateKey,
+        ...(taskId ? { taskId } : {}),
+      })
+    } catch {
+      // A state/cache read failure must retry on the next scheduler tick.
+      return false
+    }
+  }
+
+  private isDueAmbientAiInstance(
+    inst: TaskInstance,
+    now: Date,
+    dateKey: string,
+  ): boolean {
+    const frontmatter = inst.task?.frontmatter
+    if (!frontmatter || readAiTaskConfig(frontmatter) === null) return false
+    if (readObsidianTaskLinkConfig(frontmatter) !== null) return false
+    if (inst.task.isRoutine !== true && frontmatter['isRoutine'] !== true) {
+      return false
+    }
+
+    const rule = RoutineService.parseFrontmatter(frontmatter)
+    const targetDate =
+      typeof frontmatter['target_date'] === 'string' &&
+      frontmatter['target_date'] !== frontmatter['routine_start']
+        ? frontmatter['target_date']
+        : undefined
+    if (!RoutineService.isDue(dateKey, rule, targetDate)) return false
+
+    const scheduledTime = normalizeReminderTime(
+      getScheduledTime(frontmatter) ?? inst.task.scheduledTime,
+    )
+    if (!scheduledTime) return false
+    const [hours, minutes] = scheduledTime.split(':').map(Number)
+    const scheduledAt = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      hours,
+      minutes,
+      0,
+      0,
+    )
+    return now.getTime() >= scheduledAt.getTime()
+  }
+
+  private async startLinkedAiTask(
+    target: TaskInstance,
+  ): Promise<TaskInstance | null> {
+    // The link must never mutate timer state when the AI subsystem is not
+    // available. maybeStartAiRunForInstance is intentionally a no-op in that
+    // case, so gate before TaskExecutionService changes the target.
+    const managerAtDispatch = this.plugin.aiTaskManager
+    if (!managerAtDispatch) return null
+
+    const targetGeneration = this.beginAiStartAttempt(target)
+    const preflight = await this.prepareAiRunForInstance(
+      target,
+      managerAtDispatch,
+    )
+    if (preflight.kind === 'failed') return null
+
+    let reservation: AiTaskStartReservation | undefined
+    if (preflight.kind === 'ready') {
+      try {
+        reservation = this.reservePreparedAiRun(
+          managerAtDispatch,
+          preflight.prepared,
+        )
+      } catch (error) {
+        this.notifyAiRunError(error)
+        return null
+      }
+    }
+
+    let materializedTarget: TaskInstance | null = null
+    const rollbackMaterializedTarget = async (): Promise<void> => {
+      if (!materializedTarget) return
+      await this.taskMutationService.rollbackDuplicateInstance(
+        materializedTarget,
+      )
+    }
+
+    try {
+      if (!this.isCurrentAiStartAttempt(target, targetGeneration)) return null
+
+      let startedTarget = target
+      const mustMaterialize =
+        target.state === 'done' ||
+        this.linkedAiTaskCandidates.includes(target)
+      if (mustMaterialize) {
+        const duplicate = await this.duplicateInstance(
+          target,
+          true,
+          undefined,
+          { suppressNotice: true },
+        )
+        if (!duplicate) return null
+        startedTarget = duplicate
+        materializedTarget = duplicate
+      }
+
+      if (!this.isCurrentAiStartAttempt(target, targetGeneration)) {
+        await rollbackMaterializedTarget()
+        return null
+      }
+      const startedTargetGeneration = startedTarget === target
+        ? targetGeneration
+        : this.beginAiStartAttempt(startedTarget)
+      const startedTargetWasKnownToView =
+        this.taskInstances.includes(startedTarget) ||
+        this.linkedAiTaskCandidates.includes(startedTarget)
+
+      if (this.plugin.aiTaskManager !== managerAtDispatch) {
+        await rollbackMaterializedTarget()
+        return null
+      }
+
+      const preStartSnapshot = {
+        state: startedTarget.state,
+        startTime: startedTarget.startTime,
+        stopTime: startedTarget.stopTime,
+        slotKey: startedTarget.slotKey,
+        originalSlotKey: startedTarget.originalSlotKey,
+        currentInstance: this.currentInstance,
+      }
+
+      let started = false
+      try {
+        started = await this.taskExecutionService.startInstance(
+          startedTarget,
+        )
+      } catch (error) {
+        // TaskExecutionService normally reports failure with false, but an
+        // injected/alternate implementation must not leave a materialized
+        // linked routine behind either.
+        console.error('[TaskChuteView] linked AI task start failed', error)
+      }
+      if (!started) {
+        await rollbackMaterializedTarget()
+        return null
+      }
+
+      let currentTarget = this.resolveCurrentAiStartInstance(
+        startedTarget,
+        startedTargetWasKnownToView,
+      )
+      if (
+        this.plugin.aiTaskManager !== managerAtDispatch ||
+        !this.isCurrentAiStartAttempt(
+          startedTarget,
+          startedTargetGeneration,
+        ) ||
+        !currentTarget
+      ) {
+        const rollbackTarget =
+          currentTarget ??
+          (startedTarget.state === 'running' ? startedTarget : undefined)
+        if (rollbackTarget?.state === 'running') {
+          await this.rollbackAiTimerStart(
+            rollbackTarget,
+            preStartSnapshot,
+          )
+        }
+        await rollbackMaterializedTarget()
+        return null
+      }
+
+      if (preflight.kind === 'ready') {
+        const record = await this.startAiRunWithManager(
+          currentTarget,
+          managerAtDispatch,
+          {},
+          preflight.prepared,
+          reservation,
+        )
+        if (!record) {
+          await this.rollbackAiTimerStart(currentTarget, preStartSnapshot)
+          await rollbackMaterializedTarget()
+          return null
+        }
+
+        const currentTargetWasKnownToView =
+          this.taskInstances.includes(currentTarget) ||
+          this.linkedAiTaskCandidates.includes(currentTarget)
+        currentTarget = this.resolveCurrentAiStartInstance(
+          currentTarget,
+          currentTargetWasKnownToView,
+        )
+        if (
+          this.plugin.aiTaskManager !== managerAtDispatch ||
+          !this.isCurrentAiStartAttempt(
+            startedTarget,
+            startedTargetGeneration,
+          ) ||
+          !currentTarget
+        ) {
+          managerAtDispatch.requestStopForTask(startedTarget.task.path)
+          const rollbackTarget =
+            currentTarget ??
+            (startedTarget.state === 'running' ? startedTarget : undefined)
+          if (rollbackTarget?.state === 'running') {
+            await this.rollbackAiTimerStart(
+              rollbackTarget,
+              preStartSnapshot,
+            )
+          }
+          await rollbackMaterializedTarget()
+          return null
+        }
+      } else {
+        this.maybeStartAiRunForInstance(currentTarget)
+      }
+      return currentTarget
+    } finally {
+      this.releasePreparedAiRunReservation(
+        managerAtDispatch,
+        reservation,
+      )
+    }
+  }
+
+  private async startAmbientAiInstance(
+    inst: TaskInstance,
+    manager: AiTaskManager,
+  ): Promise<AmbientAiTaskStartedRun | null> {
+    const startGeneration = this.beginAiStartAttempt(inst)
+    const preflight = await this.prepareAiRunForInstance(inst, manager)
+    if (preflight.kind === 'failed') return null
+    let reservation: AiTaskStartReservation | undefined
+    if (preflight.kind === 'ready') {
+      try {
+        reservation = this.reservePreparedAiRun(manager, preflight.prepared)
+      } catch (error) {
+        this.notifyAiRunError(error)
+        return null
+      }
+    }
+    const originalWasKnownToView =
+      this.taskInstances.includes(inst) ||
+      this.linkedAiTaskCandidates.includes(inst)
+
+    try {
+      if (!this.isCurrentAiStartAttempt(inst, startGeneration)) return null
+      const snapshot = {
+        state: inst.state,
+        startTime: inst.startTime,
+        stopTime: inst.stopTime,
+        slotKey: inst.slotKey,
+        originalSlotKey: inst.originalSlotKey,
+        currentInstance: this.currentInstance,
+      }
+      const started = await this.taskExecutionService.startInstance(inst)
+      if (!started) return null
+
+      let startedInstance = this.resolveCurrentAiStartInstance(
+        inst,
+        originalWasKnownToView,
+      )
+      if (
+        !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+        !startedInstance
+      ) {
+        const rollbackTarget =
+          startedInstance ?? (inst.state === 'running' ? inst : undefined)
+        if (rollbackTarget?.state === 'running') {
+          await this.rollbackAiTimerStart(rollbackTarget, snapshot)
+        }
+        return null
+      }
+
+      if (this.plugin.aiTaskManager !== manager) {
+        await this.rollbackAiTimerStart(startedInstance, snapshot)
+        return null
+      }
+
+      const record = await this.startAiRunWithManager(
+        startedInstance,
+        manager,
+        {},
+        preflight.kind === 'ready' ? preflight.prepared : undefined,
+        reservation,
+      )
+      if (!record) {
+        await this.rollbackAiTimerStart(startedInstance, snapshot)
+        return null
+      }
+
+      const startedInstanceWasKnownToView =
+        this.taskInstances.includes(startedInstance) ||
+        this.linkedAiTaskCandidates.includes(startedInstance)
+      startedInstance = this.resolveCurrentAiStartInstance(
+        startedInstance,
+        startedInstanceWasKnownToView,
+      )
+      if (
+        this.plugin.aiTaskManager !== manager ||
+        !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+        !startedInstance
+      ) {
+        manager.requestStopForTask(inst.task.path)
+        const rollbackTarget =
+          startedInstance ?? (inst.state === 'running' ? inst : undefined)
+        if (rollbackTarget?.state === 'running') {
+          await this.rollbackAiTimerStart(rollbackTarget, snapshot)
+        }
+        return null
+      }
+      const startTime = startedInstance.startTime?.getTime()
+      if (startTime === undefined || !Number.isFinite(startTime)) {
+        manager.requestStopForTask(inst.task.path)
+        await this.rollbackAiTimerStart(startedInstance, snapshot)
+        return null
+      }
+      return {
+        runId: record.id,
+        path: startedInstance.task.path,
+        instanceId: startedInstance.instanceId,
+        startTime,
+        slotKey: startedInstance.slotKey,
+        originalSlotKey: startedInstance.originalSlotKey,
+      }
+    } finally {
+      this.releasePreparedAiRunReservation(manager, reservation)
+    }
+  }
+
+  private formatDateKey(date: Date): string {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  /** Play/stop coupling: a human stop also stops the task's active AI run */
+  private maybeStopAiRunForInstance(inst: TaskInstance): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const taskPath = inst.task.path
+    if (!taskPath) return
+    // Duplicated instances share one task note and therefore one AI run.
+    // Keep the run alive while any sibling instance is still running.
+    const siblingStillRunning = this.taskInstances.some(
+      (other) =>
+        other !== inst &&
+        other.instanceId !== inst.instanceId &&
+        other.task?.path === taskPath &&
+        other.state === 'running',
+    )
+    if (siblingStillRunning) return
+    // requestStopForTask also queues the stop when the coupled AI start is
+    // still in its async window (before the run record registers), so a
+    // stop/reset/delete during that window is never silently lost.
+    manager.requestStopForTask(taskPath)
+  }
+
+  /**
+   * Reverse coupling for the AI Runs × control. Prefer the originating
+   * instance id (duplicate-safe), then fall back to the task path for runs
+   * restored with a stale/missing id. The pane stops the process itself;
+   * this method owns only the normal TaskChute running -> done transition.
+   */
+  private handleAiRunStopAndClose(record: AiRunRecord): void {
+    void this.stopTaskForAiRunClose(record).catch((error: unknown) => {
+      console.error('[TaskChuteView] Failed to stop task from AI run close', error)
+    })
+  }
+
+  private async stopTaskForAiRunClose(record: AiRunRecord): Promise<void> {
+    const visibleTarget = this.findRunningInstanceForAiRun(record)
+    if (visibleTarget) {
+      await this.stopInstance(visibleTarget)
+      return
+    }
+
+    // AI Runs is global to the TaskChute view, but its originating timer may
+    // belong to yesterday (or another manually selected date). Resolve that
+    // durable timer instead of stopping only the CLI and leaving TaskChute
+    // with no completion entry.
+    const persisted = await this.runningTasksService.findByInstanceOrPathStrict({
+      instanceId: record.instanceId,
+      taskPath: record.taskPath,
+    })
+    if (!persisted) return
+    await this.stopInstance(this.createRunningInstanceFromRecord(persisted))
+  }
+
+  private findRunningInstanceForAiRun(record: AiRunRecord): TaskInstance | undefined {
+    if (record.host === 'shell') return undefined
+    const byInstanceId = record.instanceId
+      ? this.taskInstances.find(
+          (instance) =>
+            instance.instanceId === record.instanceId &&
+            instance.state === 'running',
+        )
+      : undefined
+    return (
+      byInstanceId ??
+      this.taskInstances.find(
+        (instance) =>
+          instance.state === 'running' &&
+          record.taskPath.length > 0 &&
+          instance.task?.path === record.taskPath,
+      )
+    )
+  }
+
+  /** One AI process is shared by duplicate instances of the same task note. */
+  private findRunningInstancesForAiRunRecovery(record: AiRunRecord): TaskInstance[] {
+    if (record.host === 'shell') return []
+    const belongsToRestoredGeneration = (instance: TaskInstance): boolean => {
+      if (instance.state !== 'running') return false
+      const startedAt = instance.startTime?.getTime()
+      if (startedAt === undefined || !Number.isFinite(startedAt)) {
+        return (
+          record.instanceId !== undefined &&
+          instance.instanceId === record.instanceId
+        )
+      }
+      // restoreSessionState stamps endedAt when the former live process is
+      // normalized to interrupted. A timer started after that cutoff is a new
+      // generation and must never be cleared by the settled old repair.
+      return record.endedAt === undefined || startedAt <= record.endedAt
+    }
+    if (record.taskPath.length > 0) {
+      return this.taskInstances.filter(
+        (instance) =>
+          instance.task?.path === record.taskPath &&
+          belongsToRestoredGeneration(instance),
+      )
+    }
+    const exact = record.instanceId
+      ? this.taskInstances.find(
+          (instance) =>
+            instance.instanceId === record.instanceId &&
+            belongsToRestoredGeneration(instance),
+        )
+      : undefined
+    return exact ? [exact] : []
+  }
+
+  private getAiRunRecoveryGeneration(
+    record: AiRunRecord,
+    instances: readonly TaskInstance[],
+  ): { instanceId?: string; timerStartedAt?: number } {
+    const exact = record.instanceId
+      ? instances.find((instance) => instance.instanceId === record.instanceId)
+      : undefined
+    const owner = exact ?? instances.reduce<TaskInstance | undefined>(
+      (earliest, instance) => {
+        if (!earliest) return instance
+        const earliestStartedAt =
+          earliest.startTime?.getTime() ?? Number.POSITIVE_INFINITY
+        const startedAt =
+          instance.startTime?.getTime() ?? Number.POSITIVE_INFINITY
+        return startedAt < earliestStartedAt ? instance : earliest
+      },
+      undefined,
+    )
+    return {
+      instanceId: owner?.instanceId,
+      timerStartedAt: owner?.startTime?.getTime(),
+    }
+  }
+
+  /**
+   * A renderer crash is not task completion. Return the restored timer to an
+   * executable idle state without calling TaskExecutionService.stopInstance
+   * (which would write a normal completion log and inflate completed counts).
+   */
+  private async resetInterruptedAiRunTimers(
+    instances: readonly TaskInstance[],
+    taskPath: string,
+  ): Promise<void> {
+    const uniqueInstances = [...new Set(instances)]
+    if (uniqueInstances.length === 0) return
+    const snapshots = uniqueInstances.map((instance) => ({
+      instance,
+      state: instance.state,
+      startTime: instance.startTime,
+      stopTime: instance.stopTime,
+    }))
+    const currentInstance = this.currentInstance
+    for (const instance of uniqueInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'idle'
+      instance.startTime = undefined
+      instance.stopTime = undefined
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+
+    try {
+      // Delete only this AI task's persisted records. Partial execution logs
+      // are removed inside the same running-task mutation boundary and only
+      // when a durable running record still exists. If another view already
+      // completed the task and removed that record, this stale view is merely
+      // idled and can never erase the legitimate completion log.
+      await this.runningTasksService.deleteByInstanceOrPathStrict(
+        { taskPath },
+        async () => {
+          for (const { instance, startTime } of snapshots) {
+            const startedAt =
+              startTime instanceof Date && Number.isFinite(startTime.getTime())
+                ? this.formatDateKey(startTime)
+                : this.getCurrentDateString()
+            await this.removeTaskLogForInstanceOnDate(
+              instance.instanceId,
+              startedAt,
+              instance.task?.taskId,
+              instance.task?.path,
+            )
+          }
+        },
+      )
+    } catch (error) {
+      for (const snapshot of snapshots) {
+        snapshot.instance.state = snapshot.state
+        snapshot.instance.startTime = snapshot.startTime
+        snapshot.instance.stopTime = snapshot.stopTime
+      }
+      this.currentInstance = currentInstance
+      this.renderTaskList()
+      throw error
+    }
+    this.renderTaskList()
+  }
+
+  /**
+   * Each mounted TaskChute leaf owns different TaskInstance objects. After
+   * the manager-wide durable repair settles, every leaf re-reads its current
+   * list and applies the same idle transition locally.
+   */
+  private idleReconciledAiRunInstances(
+    instances: readonly TaskInstance[],
+  ): void {
+    const runningInstances = [...new Set(instances)].filter(
+      (instance) => instance.state === 'running',
+    )
+    if (runningInstances.length === 0) return
+    for (const instance of runningInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'idle'
+      instance.startTime = undefined
+      instance.stopTime = undefined
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+    this.renderTaskList()
+  }
+
+  /**
+   * Reconcile timers only after task loading has restored DayState. The
+   * manager coordinates the durable mutation across all mounted views. Every
+   * waiter then re-evaluates and clears its own independently restored
+   * TaskInstance objects. A failed repair leaves the marker available for a
+   * later reload.
+   */
+  private async reconcileInterruptedAiRunTasks(): Promise<void> {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const recoveries: Promise<void>[] = []
+    for (const record of manager.getRuns()) {
+      if (
+        record.status !== 'interrupted' ||
+        record.host === 'shell'
+      ) {
+        continue
+      }
+      const targets = this.findRunningInstancesForAiRunRecovery(record)
+      // Do not consume the durable marker from a leaf that cannot see the
+      // timer (for example, a leaf displaying another date).
+      if (targets.length === 0) continue
+      recoveries.push(manager
+        .coordinateInterruptedTaskStateReconciliation(
+          record.id,
+          this.getAiRunRecoveryGeneration(record, targets),
+          () => this.resetInterruptedAiRunTimers(targets, record.taskPath),
+        )
+        .then((reconciled) => {
+          if (!reconciled || this.plugin.aiTaskManager !== manager) return
+          this.idleReconciledAiRunInstances(
+            this.findRunningInstancesForAiRunRecovery(record),
+          )
+        })
+        .catch((error: unknown) => {
+          console.error(
+            '[TaskChuteView] Failed to reconcile interrupted AI run task',
+            error,
+          )
+        }))
+    }
+    await Promise.all(recoveries)
+    if (this.plugin.aiTaskManager === manager) {
+      await this.reconcileOrphanedAiRunTasks(manager)
+    }
+  }
+
+  /**
+   * localStorage and running-task.json are separate persistence boundaries.
+   * If the AI workspace snapshot is unavailable after a crash, an AI timer
+   * can otherwise be restored without any process/run capable of owning it.
+   * Reset only strict ai_task instances with no active, pending, or recoverable
+   * manager lifecycle; ordinary human tasks are never touched.
+   */
+  private async reconcileOrphanedAiRunTasks(manager: AiTaskManager): Promise<void> {
+    const instancesByPath = new Map<string, TaskInstance[]>()
+    for (const instance of this.taskInstances) {
+      if (
+        instance.state !== 'running' ||
+        readAiTaskConfig(instance.task?.frontmatter) === null
+      ) {
+        continue
+      }
+      const taskPath = instance.task?.path
+      if (!taskPath) continue
+      const group = instancesByPath.get(taskPath) ?? []
+      group.push(instance)
+      instancesByPath.set(taskPath, group)
+    }
+
+    const recoveries: Promise<void>[] = []
+    for (const [taskPath, instances] of instancesByPath) {
+      const representative = instances[0]
+      if (!representative) continue
+      const owner = {
+        instanceId: representative.instanceId,
+        timerStartedAt: representative.startTime?.getTime(),
+      }
+      recoveries.push(manager
+        .coordinateOrphanedTaskStateReconciliation(
+          taskPath,
+          owner,
+          () => this.resetInterruptedAiRunTimers(instances, taskPath),
+        )
+        .then((reconciled) => {
+          if (!reconciled || this.plugin.aiTaskManager !== manager) return
+          this.idleReconciledAiRunInstances(
+            this.taskInstances.filter(
+              (instance) =>
+                instance.state === 'running' &&
+                instance.task?.path === taskPath &&
+                readAiTaskConfig(instance.task?.frontmatter) !== null,
+            ),
+          )
+        })
+        .catch((error: unknown) => {
+          console.error(
+            '[TaskChuteView] Failed to reconcile orphaned AI task timer',
+            error,
+          )
+        }))
+    }
+    await Promise.all(recoveries)
+  }
+
+  private notifyAiRunError(error: unknown): void {
+    if (error instanceof AiBinaryNotFoundError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.binaryNotFound",
+          "AI CLI was not found: {host}. Install it or check PATH; use the advanced path fallback only for a custom location.",
+          { host: error.host },
+        ),
+      )
+      return
+    }
+    if (error instanceof AiPromptNotFoundError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.noPrompt",
+          'No prompt section found. Add a "## prompt" heading to the task note.',
+        ),
+      )
+      return
+    }
+    if (error instanceof AiRunAlreadyActiveError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.alreadyRunning",
+          "An AI run is already in progress for this task.",
+        ),
+      )
+      return
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    new Notice(
+      this.tv("aiTask.notices.startFailed", "Failed to start AI run: {message}", {
+        message,
+      }),
+    )
+  }
+
+  private mountAiRunPane(): void {
+    const manager = this.plugin.aiTaskManager
+    if (!manager || !this.aiPaneContainer || this.aiRunPaneController) return
+
+    // Duck-typed like the board view persistence above: App#saveLocalStorage
+    // exists at runtime, but test doubles (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+      loadLocalStorage?: (key: string) => unknown
+    }
+    this.aiRunPaneController = new AiRunPaneController({
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+      manager,
+      createTerminalAdapter: () => createTerminalViewAdapter(),
+      registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
+      onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
+      onInterruptedTaskRun: () => {
+        // Attach can fail after the mount-time recovery pass. Re-run it on
+        // that transition so the TaskChute row/timer cannot remain Running.
+        void this.reconcileInterruptedAiRunTasks()
+      },
+      saveLocalStorage: (key, value) => {
+        if (typeof app.saveLocalStorage === 'function') {
+          app.saveLocalStorage(key, value)
+        }
+      },
+      loadLocalStorage: (key) =>
+        typeof app.loadLocalStorage === 'function'
+          ? app.loadLocalStorage(key)
+          : null,
+    })
+    this.aiRunPaneController.mount(this.aiPaneContainer)
+  }
+
+  private unmountAiRunPane(): void {
+    this.aiRunPaneController?.unmount()
+    this.aiRunPaneController = null
+  }
+
+  /** Mirror of onRecipeFeatureSettingsChanged for the AI Task feature toggle */
+  public onAiTaskSettingsChanged(): void {
+    if (this.plugin.aiTaskManager) {
+      this.mountAiRunPane()
+      void this.reconcileInterruptedAiRunTasks()
+    } else {
+      this.unmountAiRunPane()
+    }
+    // The board view switch renders only while the feature is enabled.
+    this.taskHeaderController.refreshAiTaskBoardSwitch()
+    this.renderTaskList()
   }
 
   // Utility: reload tasks and immediately restore running-state from persistence
@@ -672,6 +2006,7 @@ export class TaskChuteView
     options: { runBoundaryCheck?: boolean; clearDayStateCache?: DayStateCacheClearMode; queueIfInProgress?: boolean } = {},
   ): Promise<void> {
     await this.taskReloadCoordinator.reloadTasksAndRestore(options)
+    await this.reconcileInterruptedAiRunTasks()
   }
 
   // ===========================================
@@ -1350,6 +2685,7 @@ export class TaskChuteView
       }
     } catch (error) {
       console.warn('[TaskChuteView] Failed to remove duplicate entry for moved task', error)
+      throw error
     }
   }
 
@@ -1396,6 +2732,7 @@ export class TaskChuteView
       await this.persistDayState(dateKey)
     } catch (error) {
       console.warn('[TaskChuteView] Failed to hide routine instance for current date', error)
+      throw error
     }
   }
 
@@ -1408,6 +2745,12 @@ export class TaskChuteView
     dateStr: string,
   ): Promise<void> {
     try {
+      if (
+        inst.state === 'running' &&
+        dateStr === this.getCurrentDateString()
+      ) {
+        return
+      }
       // Ensure dayState for target date exists
       await this.ensureDayStateForDate(dateStr)
       const targetDayState = this.dayStateManager.getStateFor(dateStr)
@@ -1416,7 +2759,14 @@ export class TaskChuteView
 
       // Create a new duplicate entry for the target date
       const newEntry: DayState['duplicatedInstances'][number] = {
-        instanceId: this.generateInstanceId(inst.task, dateStr),
+        // A live AI run and running-task.json own the current instanceId.
+        // Preserve it while the duplicate moves so the target row restores
+        // to the same timer/run generation; idle duplicates may keep using a
+        // freshly generated date-scoped identity.
+        instanceId:
+          inst.state === 'running' && inst.instanceId
+            ? inst.instanceId
+            : this.generateInstanceId(inst.task, dateStr),
         originalPath: inst.task.path,
         slotKey: inst.slotKey ?? 'none',
         originalSlotKey: inst.originalSlotKey ?? inst.slotKey ?? 'none',
@@ -1436,6 +2786,7 @@ export class TaskChuteView
       await this.persistDayState(dateStr)
     } catch (error) {
       console.warn('[TaskChuteView] Failed to move duplicate instance to date', error)
+      throw error
     }
   }
 
@@ -1544,6 +2895,7 @@ export class TaskChuteView
       await this.persistDayState(dateStr)
     } catch (error) {
       console.warn('[TaskChuteView] Failed to move non-routine slot override to date', error)
+      throw error
     }
   }
 
@@ -1727,11 +3079,121 @@ export class TaskChuteView
   // ===========================================
 
   async startInstance(inst: TaskInstance): Promise<void> {
-    await this.taskExecutionService.startInstance(inst)
+    const startGeneration = this.beginAiStartAttempt(inst)
+    const manager = this.plugin.aiTaskManager
+    const preflight = manager
+      ? await this.prepareAiRunForInstance(inst, manager)
+      : { kind: 'not-needed' as const }
+    // A broken/missing recipe must fail closed before timer persistence.
+    if (preflight.kind === 'failed') return
+    let reservation: AiTaskStartReservation | undefined
+    if (preflight.kind === 'ready' && manager) {
+      try {
+        reservation = this.reservePreparedAiRun(manager, preflight.prepared)
+      } catch (error) {
+        this.notifyAiRunError(error)
+        return
+      }
+    }
+    const originalWasKnownToView =
+      this.taskInstances.includes(inst) ||
+      this.linkedAiTaskCandidates.includes(inst)
+
+    try {
+      // A stop or a newer play action that happened during preflight wins.
+      if (!this.isCurrentAiStartAttempt(inst, startGeneration)) return
+
+      const snapshot = {
+        state: inst.state,
+        startTime: inst.startTime,
+        stopTime: inst.stopTime,
+        slotKey: inst.slotKey,
+        originalSlotKey: inst.originalSlotKey,
+        currentInstance: this.currentInstance,
+      }
+      const started = await this.taskExecutionService.startInstance(inst)
+      // Fire the coupled AI run only when the human start actually happened
+      // (the service resolves false on refusals like the future-date guard).
+      if (!started) return
+
+      let startedInstance = this.resolveCurrentAiStartInstance(
+        inst,
+        originalWasKnownToView,
+      )
+      if (
+        !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+        !startedInstance
+      ) {
+        const rollbackTarget =
+          startedInstance ?? (inst.state === 'running' ? inst : undefined)
+        if (rollbackTarget?.state === 'running') {
+          await this.rollbackAiTimerStart(rollbackTarget, snapshot)
+        }
+        return
+      }
+
+      if (preflight.kind === 'ready' && manager) {
+        if (this.plugin.aiTaskManager !== manager) {
+          await this.rollbackAiTimerStart(startedInstance, snapshot)
+          return
+        }
+        const record = await this.startAiRunWithManager(
+          startedInstance,
+          manager,
+          {},
+          preflight.prepared,
+          reservation,
+        )
+        if (!record) {
+          await this.rollbackAiTimerStart(startedInstance, snapshot)
+          return
+        }
+        const startedInstanceWasKnownToView =
+          this.taskInstances.includes(startedInstance) ||
+          this.linkedAiTaskCandidates.includes(startedInstance)
+        startedInstance = this.resolveCurrentAiStartInstance(
+          startedInstance,
+          startedInstanceWasKnownToView,
+        )
+        if (
+          this.plugin.aiTaskManager !== manager ||
+          !this.isCurrentAiStartAttempt(inst, startGeneration) ||
+          !startedInstance
+        ) {
+          // The old manager may already have spawned while settings reload
+          // replaced it, or stop may have won startPreparedRun's async edge.
+          manager.requestStopForTask(inst.task.path)
+          const rollbackTarget =
+            startedInstance ?? (inst.state === 'running' ? inst : undefined)
+          if (rollbackTarget?.state === 'running') {
+            await this.rollbackAiTimerStart(rollbackTarget, snapshot)
+          }
+          return
+        }
+      } else {
+        this.maybeStartAiRunForInstance(startedInstance)
+      }
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(
+        startedInstance,
+      )
+    } finally {
+      if (manager) {
+        this.releasePreparedAiRunReservation(manager, reservation)
+      }
+    }
   }
 
   async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
-    await this.taskExecutionService.stopInstance(inst, stopTime)
+    // Invalidate even when TaskExecutionService later reports a no-op: an
+    // idle instance can still have an asynchronous AI preflight in progress.
+    this.invalidateAiStartAttempt(inst)
+    const stopped = await this.taskExecutionService.stopInstance(inst, stopTime)
+    // Kill the coupled AI run only when the instance actually transitioned
+    // running -> done (a no-op stop must not touch the AI run).
+    if (stopped) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
     const viewDate = this.getViewDate()
     const today = new Date()
     const isTodayView =
@@ -1893,6 +3355,7 @@ export class TaskChuteView
       name: record.taskTitle,
       displayTitle: record.taskTitle,
       isRoutine: record.isRoutine === true,
+      taskId: record.taskId,
     }
     if (record.taskDescription) {
       ;(task as TaskData & { description?: string }).description =
@@ -1931,7 +3394,10 @@ export class TaskChuteView
         date: todayKey,
       }
 
-      await this.runningTasksService.save([...preserved, instanceForSave])
+      await this.runningTasksService.save(
+        [...preserved, instanceForSave],
+        todayKey,
+      )
     } catch (error) {
       console.error(
         "[TaskChuteView] Failed to persist cross-day running task",
@@ -2416,8 +3882,20 @@ export class TaskChuteView
     }
   }
 
-  public registerManagedDisposer(cleanup: () => void): void {
-    this.managedDisposers.push(cleanup)
+  public registerManagedDisposer(cleanup: () => void): () => void {
+    let active = true
+    const managedCleanup = (): void => {
+      if (!active) return
+      active = false
+      cleanup()
+    }
+    this.managedDisposers.push(managedCleanup)
+    return () => {
+      if (!active) return
+      active = false
+      const index = this.managedDisposers.indexOf(managedCleanup)
+      if (index >= 0) this.managedDisposers.splice(index, 1)
+    }
   }
 
   private disposeManagedEvents(): void {
@@ -2544,7 +4022,14 @@ export class TaskChuteView
   // Styles are provided by styles.css; dynamic CSS injection removed
 
   private async deleteTask(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteTask(inst)
+    const wasRunning = inst.state === 'running'
+    const deleted = await this.taskMutationService.deleteTask(inst)
+    // Deleting a running instance never goes through stopInstance, so stop
+    // the coupled AI run here (otherwise it would keep running orphaned).
+    if (wasRunning && deleted) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
   }
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
@@ -2561,11 +4046,11 @@ export class TaskChuteView
   }
 
   private async deleteNonRoutineTask(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteTask(inst)
+    await this.deleteTask(inst)
   }
 
   private async deleteRoutineTask(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteTask(inst)
+    await this.deleteTask(inst)
   }
 
   private showTaskContextMenu(event: MouseEvent, inst: TaskInstance): void {
@@ -2625,10 +4110,20 @@ export class TaskChuteView
   }
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
-    await this.taskMutationService.deleteInstance(inst)
+    const wasRunning = inst.state === 'running'
+    const deleted = await this.taskMutationService.deleteInstance(inst)
+    // Same reasoning as deleteTask: a deleted running instance must not
+    // leave its coupled AI run orphaned.
+    if (wasRunning && deleted) {
+      this.maybeStopAiRunForInstance(inst)
+      await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+    }
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {
+    // AI stop coupling happens via the TaskTimeController host callback
+    // (onInstanceResetToIdle), which also covers the controller-internal
+    // reset paths (start-time popup clear, TimeEditModal).
     await this.taskTimeController.resetTaskToIdle(inst)
   }
 

@@ -19,6 +19,65 @@ describe('TaskLoaderService', () => {
     expect(context.renderTaskList).toHaveBeenCalled();
   });
 
+  test('normalizes the canonical frontmatter title used for runtime matching', async () => {
+    const { context } = createNonRoutineLoadContext({
+      metadataOverrides: {
+        title: '  CEO review  ',
+        name: 'Alias that suggestions must ignore',
+      },
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks[0]?.displayTitle).toBe('CEO review');
+    expect(context.taskInstances[0]?.task.displayTitle).toBe('CEO review');
+  });
+
+  test('falls back to basename instead of treating generic frontmatter name as title', async () => {
+    const { context } = createNonRoutineLoadContext({
+      metadataOverrides: {
+        name: 'Alias that suggestions must ignore',
+      },
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks[0]?.displayTitle).toBe('non-routine');
+    expect(context.taskInstances[0]?.task.displayTitle).toBe('non-routine');
+  });
+
+  test('keeps a non-due Obsidian-linked AI routine as a trigger candidate without displaying it', async () => {
+    const { context } = createRoutineLoadContext({
+      metadataOverrides: {
+        routine_start: '2025-10-01',
+        ai_task: true,
+        ai_task_host: 'claude',
+        obsidian_sync: {
+          enabled: true,
+          taskTitle: 'CEO review',
+          matchType: 'exact',
+        },
+      },
+    });
+    const loader = new TaskLoaderService();
+
+    await loader.load(context as unknown as TaskChuteView);
+
+    expect(context.tasks).toHaveLength(0);
+    expect(context.taskInstances).toHaveLength(0);
+    const linkedCandidates = (
+      context as typeof context & { linkedAiTaskCandidates: typeof context.taskInstances }
+    ).linkedAiTaskCandidates
+    expect(linkedCandidates).toHaveLength(1)
+    expect(linkedCandidates[0]?.task.frontmatter?.obsidian_sync).toMatchObject({
+      enabled: true,
+      taskTitle: 'CEO review',
+      matchType: 'exact',
+    });
+  });
+
   test('loads recipe path from task frontmatter', async () => {
     const { context } = createNonRoutineLoadContext({
       metadataOverrides: {

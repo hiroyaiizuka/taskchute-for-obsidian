@@ -49,7 +49,20 @@ export const calculateCrossDayDuration = (startTime?: Date, stopTime?: Date): nu
 export class TaskExecutionService {
   constructor(private readonly host: TaskExecutionHost) {}
 
-  async startInstance(inst: TaskInstance): Promise<void> {
+  /**
+   * Start the instance timer. Never rejects. Resolves true when the start
+   * flow completed; false when it was refused (future-date guard) or failed
+   * midway — in the failure case the optimistic mutations (state, startTime,
+   * slot) are rolled back so the instance is not left visibly running with a
+   * ticking timer. Callers coupling side effects to a human start (e.g. AI
+   * runs) must gate on this flag.
+   */
+  async startInstance(inst: TaskInstance): Promise<boolean> {
+    const previousState = inst.state
+    const previousStartTime = inst.startTime
+    const previousSlotKey = inst.slotKey
+    const previousOriginalSlotKey = inst.originalSlotKey
+    const previousCurrentInstance = this.host.getCurrentInstance()
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
@@ -63,7 +76,7 @@ export class TaskExecutionService {
           ),
           2000,
         )
-        return
+        return false
       }
 
       try {
@@ -132,18 +145,41 @@ export class TaskExecutionService {
           name: inst.task.name,
         }),
       )
+      return true
     } catch (error) {
       console.error('[TaskExecutionService] startInstance failed', error)
+      // Roll the optimistic mutations back so the instance does not stay
+      // visibly running with a ticking timer after a failed start. inst.date
+      // is intentionally kept: the cross-day frontmatter update may already
+      // have been persisted, and the in-memory date must match it.
+      inst.state = previousState
+      inst.startTime = previousStartTime
+      inst.slotKey = previousSlotKey
+      inst.originalSlotKey = previousOriginalSlotKey
+      if (this.host.getCurrentInstance() === inst) {
+        this.host.setCurrentInstance(previousCurrentInstance)
+      }
+      try {
+        this.host.renderTaskList()
+      } catch {
+        /* rollback re-render is best effort */
+      }
       new Notice(this.host.tv('notices.taskStartFailed', 'Failed to start task'))
+      return false
     }
   }
 
-  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<void> {
+  /**
+   * Stop the instance timer. Never rejects. Resolves true when the instance
+   * actually transitioned running -> done (even if a later persistence step
+   * failed); false when the call was a no-op because the instance was not
+   * running. Callers coupling side effects to a human stop must gate on this.
+   */
+  async stopInstance(inst: TaskInstance, stopTime?: Date): Promise<boolean> {
+    if (inst.state !== 'running') {
+      return false
+    }
     try {
-      if (inst.state !== 'running') {
-        return
-      }
-
       inst.state = 'done'
       inst.stopTime = stopTime ?? new Date()
 
@@ -230,9 +266,12 @@ export class TaskExecutionService {
           minutes: inst.actualMinutes ?? 0,
         }),
       )
+      return true
     } catch (error) {
       console.error('[TaskExecutionService] stopInstance failed', error)
       new Notice(this.host.tv('notices.taskStopFailed', 'Failed to stop task'))
+      // The running -> done transition happened before anything could throw.
+      return true
     }
   }
 }

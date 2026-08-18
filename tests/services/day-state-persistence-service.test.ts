@@ -87,6 +87,7 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
                 'task:TASKS/old.md::RECIPES/a.md': {
                   recipePath: 'RECIPES/a.md',
                   checkedStepIds: ['step-a'],
+                  stepsUpdatedAt: 90,
                   updatedAt: 789,
                 },
               },
@@ -143,8 +144,13 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
                 'task:task-1::RECIPES/old.md': {
                   recipePath: 'RECIPES/old.md',
                   checkedStepIds: ['step-a'],
+                  stepsUpdatedAt: 90,
                   stepOrder: ['step-a'],
                   completedAtByStepId: { 'step-a': '2025-09-14T10:00:00.000Z' },
+                  checkedQualityCheckIds: ['quality-a'],
+                  qualityChecksUpdatedAt: 95,
+                  qualityCheckOrder: ['quality-a'],
+                  completedAtByQualityCheckId: { 'quality-a': '2025-09-14T10:05:00.000Z' },
                   updatedAt: 100,
                 },
               },
@@ -169,8 +175,13 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
     expect(progress['task:task-1::RECIPES/new.md']).toEqual({
       recipePath: 'RECIPES/new.md',
       checkedStepIds: ['step-a'],
+      stepsUpdatedAt: 90,
       stepOrder: ['step-a'],
       completedAtByStepId: { 'step-a': '2025-09-14T10:00:00.000Z' },
+      checkedQualityCheckIds: ['quality-a'],
+      qualityChecksUpdatedAt: 95,
+      qualityCheckOrder: ['quality-a'],
+      completedAtByQualityCheckId: { 'quality-a': '2025-09-14T10:05:00.000Z' },
       updatedAt: 100,
     })
     expect(progress['task:task-1::RECIPES/old.md']).toBeUndefined()

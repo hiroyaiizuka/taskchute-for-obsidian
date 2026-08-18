@@ -18,12 +18,20 @@ function createEmptyState(): DayState {
 
 function createMockDayStateService(): DayStateServiceAPI & {
   saveDay: jest.Mock
+  updateDay: jest.Mock
   mergeAndSaveMonth: jest.Mock
   loadDay: jest.Mock
 } {
   return {
     loadDay: jest.fn(async () => createEmptyState()),
     saveDay: jest.fn(async () => undefined),
+    updateDay: jest.fn(async (
+      _date: Date,
+      mutator: (state: DayState) => DayState | void,
+    ) => {
+      const state = createEmptyState()
+      return mutator(state) ?? state
+    }),
     mergeDayState: jest.fn(async () => undefined),
     clearCache: jest.fn(async () => undefined),
     clearCacheForDate: jest.fn(),
@@ -170,6 +178,37 @@ describe('DayStateStoreService Write Barrier', () => {
     expect(deleted[0].path).toBe('TASKS/foo.md')
 
     await store.endWriteBarrier()
+  })
+
+  it('applies an atomic mutation to a pending barrier snapshot before flush', async () => {
+    const mockService = createMockDayStateService()
+    const store = new DayStateStoreService({
+      dayStateService: mockService,
+      getCurrentDateString: () => '2026-02-19',
+      parseDateString: (key) => {
+        const [y, m, d] = key.split('-').map(Number)
+        return new Date(y, m - 1, d)
+      },
+    })
+
+    await store.ensure('2026-02-19')
+    const state = store.getStateFor('2026-02-19')
+    state.duplicatedInstances.push({
+      instanceId: 'dup-barrier-race',
+      originalPath: 'TASKS/ghost.md',
+    })
+    store.beginWriteBarrier()
+    await store.persist('2026-02-19')
+
+    await store.mutateSnapshot('2026-02-19', (snapshot) => {
+      snapshot.duplicatedInstances = snapshot.duplicatedInstances.filter(
+        (entry) => entry.instanceId !== 'dup-barrier-race',
+      )
+    })
+    await store.endWriteBarrier()
+
+    const flushed = mockService.mergeAndSaveMonth.mock.calls[0]?.[1] as Map<string, DayState>
+    expect(flushed.get('2026-02-19')?.duplicatedInstances).toEqual([])
   })
 
   it('falls back to saveDay when mergeAndSaveMonth is not available', async () => {

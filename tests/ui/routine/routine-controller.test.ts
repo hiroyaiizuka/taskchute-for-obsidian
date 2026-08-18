@@ -208,6 +208,63 @@ describe('RoutineController', () => {
     expect(task.routine_weekdays).toEqual([1, 4])
   })
 
+  it('persists and clears Obsidian linkage for an AI routine', async () => {
+    const { host, frontmatterStore } = createHost()
+    const controller = new RoutineController(host)
+    const task = createTask({
+      isRoutine: true,
+      frontmatter: { ai_task: true },
+    })
+    const button = createButton()
+
+    await controller.setRoutineTaskWithDetails(
+      task,
+      button,
+      '07:30',
+      'daily',
+      {
+        interval: 1,
+        enabled: true,
+        obsidianSync: {
+          enabled: true,
+          taskTitle: 'CEO review',
+          matchType: 'contains',
+        },
+      },
+    )
+
+    expect(frontmatterStore.get(task.path)?.obsidian_sync).toEqual({
+      enabled: true,
+      taskTitle: 'CEO review',
+      matchType: 'contains',
+    })
+
+    await controller.setRoutineTaskWithDetails(
+      task,
+      button,
+      '07:30',
+      'daily',
+      { interval: 1, enabled: true, obsidianSync: null },
+    )
+    expect(frontmatterStore.get(task.path)?.obsidian_sync).toBeUndefined()
+  })
+
+  it('shows Obsidian linkage fields only for AI tasks', () => {
+    const { host } = createHost()
+    const controller = new RoutineController(host)
+    const aiTask = createTask({
+      isRoutine: true,
+      frontmatter: { ai_task: true },
+    })
+
+    controller.showRoutineEditModal(aiTask)
+    expect(document.body.querySelector('.obsidian-task-link-fields')).not.toBeNull()
+
+    document.body.innerHTML = ''
+    controller.showRoutineEditModal(createTask({ frontmatter: {} }))
+    expect(document.body.querySelector('.obsidian-task-link-fields')).toBeNull()
+  })
+
   it('prefills routine start date using the task target date', () => {
     const { host } = createHost()
     const controller = new RoutineController(host)

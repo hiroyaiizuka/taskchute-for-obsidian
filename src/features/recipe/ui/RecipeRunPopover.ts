@@ -1,7 +1,15 @@
 import { Notice, Platform } from 'obsidian'
 import type { RecipeProgressEntry, TaskInstance } from '../../../types'
-import { Recipe, RecipeService, RecipeStep, createRecipeProgressKeyForInstance } from '../services/RecipeService'
+import {
+  Recipe,
+  RecipeQualityCheck,
+  RecipeService,
+  RecipeStep,
+  createRecipeProgressKeyForInstance,
+} from '../services/RecipeService'
 import { t } from '../../../i18n'
+
+let recipeRunPopoverId = 0
 
 export interface RecipeRunPopoverHost {
   service: RecipeService
@@ -16,12 +24,16 @@ export class RecipeRunPopover {
   private popover: HTMLElement | null = null
   private outsideHandler: ((event: MouseEvent | TouchEvent) => void) | null = null
   private outsideHandlerDocument: Document | null = null
-  private draggedStepIndex: number | null = null
+  private draggedItem: { kind: 'steps' | 'quality'; index: number } | null = null
   private showToken = 0
+  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
+  private escapeKeyDocument: Document | null = null
+  private anchor: HTMLElement | null = null
+  private popoverId: string | null = null
 
   constructor(private readonly host: RecipeRunPopoverHost) {}
 
-  close(): void {
+  close(restoreAnchorFocus = false): void {
     this.showToken += 1
     this.popover?.remove()
     this.popover = null
@@ -32,12 +44,32 @@ export class RecipeRunPopover {
       this.outsideHandler = null
       this.outsideHandlerDocument = null
     }
+    if (this.escapeKeyHandler) {
+      const listenerDocument = this.escapeKeyDocument ?? activeDocument
+      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
+      this.escapeKeyHandler = null
+      this.escapeKeyDocument = null
+    }
+    const anchor = this.anchor
+    if (anchor) {
+      anchor.setAttribute('aria-expanded', 'false')
+      if (this.popoverId && anchor.getAttribute('aria-controls') === this.popoverId) {
+        anchor.removeAttribute('aria-controls')
+      }
+      if (restoreAnchorFocus && anchor.isConnected) {
+        anchor.focus()
+      }
+    }
+    this.anchor = null
+    this.popoverId = null
   }
 
   async show(instance: TaskInstance, anchor: HTMLElement): Promise<void> {
     this.close()
     const token = this.showToken
     const ownerDocument = anchor.ownerDocument ?? activeDocument
+    anchor.setAttribute('aria-haspopup', 'dialog')
+    anchor.setAttribute('aria-expanded', 'false')
     const recipePath = instance.task.recipePath
     if (!recipePath) return
     const dateKey = this.host.getDateKey()
@@ -57,19 +89,41 @@ export class RecipeRunPopover {
     const current = this.host.getProgress(progressKey, dateKey)
     const checked = new Set(current?.checkedStepIds ?? [])
     const completedAtByStepId = { ...(current?.completedAtByStepId ?? {}) }
+    let stepsUpdatedAt = current?.stepsUpdatedAt
     let stepOrder = this.normalizeStepOrder(recipe.steps, current?.stepOrder)
+    const checkedQuality = new Set(current?.checkedQualityCheckIds ?? [])
+    const completedAtByQualityCheckId = { ...(current?.completedAtByQualityCheckId ?? {}) }
+    let qualityChecksUpdatedAt = current?.qualityChecksUpdatedAt
+    let qualityCheckOrder = this.normalizeStepOrder(
+      recipe.qualityChecks ?? [],
+      current?.qualityCheckOrder,
+    )
 
     const popover = createDiv()
+    recipeRunPopoverId += 1
+    const popoverId = `taskchute-recipe-run-popover-${recipeRunPopoverId}`
+    const titleId = `${popoverId}-title`
+    popover.id = popoverId
+    popover.setAttribute('role', 'dialog')
+    popover.setAttribute('aria-modal', 'false')
+    popover.setAttribute('aria-labelledby', titleId)
+    popover.setAttribute('tabindex', '-1')
     popover.className = Platform?.isMobile
       ? 'recipe-run-popover recipe-run-popover--mobile'
       : 'recipe-run-popover taskchute-tooltip'
     this.popover = popover
+    this.anchor = anchor
+    this.popoverId = popoverId
 
     const renderBody = () => {
       popover.empty()
       const header = popover.createDiv( { cls: 'recipe-run-header' })
       const titleRow = header.createDiv( { cls: 'recipe-run-title-row' })
-      titleRow.createDiv( { cls: 'recipe-run-title', text: recipe.title })
+      titleRow.createDiv( {
+        cls: 'recipe-run-title',
+        text: recipe.title,
+        attr: { id: titleId },
+      })
       const editButton = header.createEl('button', {
         cls: 'recipe-run-edit-button',
         attr: {
@@ -86,15 +140,57 @@ export class RecipeRunPopover {
         this.host.openRecipeEditor(recipe.path)
       })
 
-      const list = popover.createDiv( { cls: 'recipe-run-steps' })
-      const displaySteps = this.applyStepOrder(recipe.steps, stepOrder)
-      if (displaySteps.length === 0) {
-        list.createDiv( { cls: 'recipe-empty-state', text: t('recipes.run.emptySteps', '手順がありません') })
+      if (recipe.goal?.trim()) {
+        const goalSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-goal' })
+        goalSection.createDiv({
+          cls: 'recipe-run-context-title',
+          text: t('recipes.run.goalLabel', '完了基準'),
+        })
+        goalSection.createDiv({ cls: 'recipe-run-context-text', text: recipe.goal.trim() })
       }
-      displaySteps.forEach((step, index) => {
-        const row = list.createDiv( { cls: 'recipe-run-step', attr: { 'data-step-index': String(index) } })
+
+      const renderChecklist = (
+        kind: 'steps' | 'quality',
+        items: Array<RecipeStep | RecipeQualityCheck>,
+        checkedIds: Set<string>,
+        order: string[],
+        completedAt: Record<string, string>,
+      ) => {
+        const section = popover.createDiv({ cls: `recipe-run-section recipe-run-section--${kind}` })
+        const sectionHeader = section.createDiv({ cls: 'recipe-run-section-header' })
+        sectionHeader.createDiv({
+          cls: 'recipe-run-section-title',
+          text: kind === 'steps'
+            ? t('recipes.run.stepsLabel', '手順')
+            : t('recipes.run.qualityChecksLabel', '品質基準'),
+        })
+        sectionHeader.createSpan({
+          cls: 'recipe-run-section-summary',
+          text: t('recipes.run.progress', '{checked}/{total}', {
+            checked: items.filter((item) => checkedIds.has(item.id)).length,
+            total: items.length,
+          }),
+        })
+
+        const list = section.createDiv({
+          cls: kind === 'steps' ? 'recipe-run-steps' : 'recipe-run-quality-checks',
+        })
+        const displayItems = this.applyStepOrder(items, order)
+        if (displayItems.length === 0) {
+          list.createDiv({
+            cls: 'recipe-empty-state',
+            text: kind === 'steps'
+              ? t('recipes.run.emptySteps', '手順がありません')
+              : t('recipes.run.emptyQualityChecks', '品質基準がありません'),
+          })
+        }
+        displayItems.forEach((item, index) => {
+          const row = list.createDiv({
+            cls: kind === 'steps' ? 'recipe-run-step' : 'recipe-run-step recipe-run-quality-check',
+            attr: { 'data-step-index': String(index), 'data-recipe-list-kind': kind },
+          })
         row.addEventListener('dragover', (event) => {
-          if (this.draggedStepIndex === null || this.draggedStepIndex === index) return
+          if (!this.draggedItem || this.draggedItem.kind !== kind || this.draggedItem.index === index) return
           event.preventDefault()
           row.classList.add('recipe-run-step--drop-target')
         })
@@ -104,11 +200,32 @@ export class RecipeRunPopover {
         row.addEventListener('drop', (event) => {
           event.preventDefault()
           row.classList.remove('recipe-run-step--drop-target')
-          if (this.draggedStepIndex === null) return
-          const fromIndex = this.draggedStepIndex
-          this.draggedStepIndex = null
-          stepOrder = this.reorderStepOrder(displaySteps, fromIndex, index)
-          this.saveProgress(recipe, progressKey, dateKey, checked, stepOrder, completedAtByStepId)
+          if (!this.draggedItem || this.draggedItem.kind !== kind) return
+          const fromIndex = this.draggedItem.index
+          this.draggedItem = null
+          const nextOrder = this.reorderStepOrder(displayItems, fromIndex, index)
+          const now = Date.now()
+          if (kind === 'steps') {
+            stepOrder = nextOrder
+            stepsUpdatedAt = now
+          } else {
+            qualityCheckOrder = nextOrder
+            qualityChecksUpdatedAt = now
+          }
+          this.saveProgress(
+            recipe,
+            progressKey,
+            dateKey,
+            checked,
+            stepOrder,
+            completedAtByStepId,
+            checkedQuality,
+            qualityCheckOrder,
+            completedAtByQualityCheckId,
+            stepsUpdatedAt,
+            qualityChecksUpdatedAt,
+            now,
+          )
           this.host.onProgressChanged()
           renderBody()
         })
@@ -119,6 +236,7 @@ export class RecipeRunPopover {
             draggable: 'true',
             title: t('recipes.run.reorderStep', 'ドラッグして並び替え'),
             'aria-label': t('recipes.run.reorderStep', 'ドラッグして並び替え'),
+            'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
           },
         })
         this.appendDragHandleIcon(handle)
@@ -126,8 +244,42 @@ export class RecipeRunPopover {
           event.preventDefault()
           event.stopPropagation()
         })
+        handle.addEventListener('keydown', (event) => {
+          if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+          event.preventDefault()
+          const targetIndex = event.key === 'ArrowUp' ? index - 1 : index + 1
+          if (targetIndex < 0 || targetIndex >= displayItems.length) return
+          const nextOrder = this.reorderStepOrder(displayItems, index, targetIndex)
+          const now = Date.now()
+          if (kind === 'steps') {
+            stepOrder = nextOrder
+            stepsUpdatedAt = now
+          } else {
+            qualityCheckOrder = nextOrder
+            qualityChecksUpdatedAt = now
+          }
+          this.saveProgress(
+            recipe,
+            progressKey,
+            dateKey,
+            checked,
+            stepOrder,
+            completedAtByStepId,
+            checkedQuality,
+            qualityCheckOrder,
+            completedAtByQualityCheckId,
+            stepsUpdatedAt,
+            qualityChecksUpdatedAt,
+            now,
+          )
+          this.host.onProgressChanged()
+          renderBody()
+          popover.querySelectorAll<HTMLButtonElement>(
+            `.recipe-run-section--${kind} .recipe-step-drag-handle`,
+          )[targetIndex]?.focus()
+        })
         handle.addEventListener('dragstart', (event) => {
-          this.draggedStepIndex = index
+          this.draggedItem = { kind, index }
           row.classList.add('recipe-run-step--dragging')
           event.dataTransfer?.setData('text/plain', String(index))
           if (event.dataTransfer) {
@@ -135,35 +287,87 @@ export class RecipeRunPopover {
           }
         })
         handle.addEventListener('dragend', () => {
-          this.draggedStepIndex = null
+          this.draggedItem = null
           row.classList.remove('recipe-run-step--dragging')
           list.querySelectorAll('.recipe-run-step--drop-target')
             .forEach((element) => element.classList.remove('recipe-run-step--drop-target'))
         })
         const label = row.createEl('label', { cls: 'recipe-run-step-check' })
         const checkbox = label.createEl('input', { attr: { type: 'checkbox' } })
-        checkbox.checked = checked.has(step.id)
-        label.createSpan( { cls: 'recipe-run-step-text', text: step.text })
+        checkbox.checked = checkedIds.has(item.id)
+        label.createSpan({ cls: 'recipe-run-step-text', text: item.text })
         checkbox.addEventListener('change', () => {
           const now = Date.now()
+          if (kind === 'steps') {
+            stepsUpdatedAt = now
+          } else {
+            qualityChecksUpdatedAt = now
+          }
           if (checkbox.checked) {
-            checked.add(step.id)
-            if (!completedAtByStepId[step.id]) {
-              completedAtByStepId[step.id] = new Date(now).toISOString()
+            checkedIds.add(item.id)
+            if (!completedAt[item.id]) {
+              completedAt[item.id] = new Date(now).toISOString()
             }
           } else {
-            checked.delete(step.id)
-            delete completedAtByStepId[step.id]
+            checkedIds.delete(item.id)
+            delete completedAt[item.id]
           }
-          this.saveProgress(recipe, progressKey, dateKey, checked, stepOrder, completedAtByStepId, now)
+          this.saveProgress(
+            recipe,
+            progressKey,
+            dateKey,
+            checked,
+            stepOrder,
+            completedAtByStepId,
+            checkedQuality,
+            qualityCheckOrder,
+            completedAtByQualityCheckId,
+            stepsUpdatedAt,
+            qualityChecksUpdatedAt,
+            now,
+          )
           this.host.onProgressChanged()
           renderBody()
         })
       })
+      }
+
+      if (recipe.steps.length > 0) {
+        renderChecklist('steps', recipe.steps, checked, stepOrder, completedAtByStepId)
+      }
+      if ((recipe.qualityChecks?.length ?? 0) > 0) {
+        renderChecklist(
+          'quality',
+          recipe.qualityChecks,
+          checkedQuality,
+          qualityCheckOrder,
+          completedAtByQualityCheckId,
+        )
+      }
+      if (recipe.steps.length === 0 && (recipe.qualityChecks?.length ?? 0) === 0) {
+        popover.createDiv({
+          cls: 'recipe-empty-state',
+          text: t('recipes.run.emptyChecklists', 'チェックリストがありません'),
+        })
+      }
+
+      if ((recipe.constraints?.length ?? 0) > 0) {
+        const constraintsSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-constraints' })
+        constraintsSection.createDiv({
+          cls: 'recipe-run-context-title',
+          text: t('recipes.run.constraintsLabel', '制約・ルール'),
+        })
+        const constraintsList = constraintsSection.createEl('ul', { cls: 'recipe-run-constraints-list' })
+        recipe.constraints.forEach((constraint) => {
+          constraintsList.createEl('li', { text: constraint.text })
+        })
+      }
     }
 
     renderBody()
     ownerDocument.body.appendChild(popover)
+    anchor.setAttribute('aria-controls', popoverId)
+    anchor.setAttribute('aria-expanded', 'true')
     this.position(anchor, popover, ownerDocument.defaultView ?? window)
 
     const openTime = Date.now()
@@ -176,6 +380,14 @@ export class RecipeRunPopover {
     this.outsideHandlerDocument = ownerDocument
     ownerDocument.addEventListener('click', this.outsideHandler)
     ownerDocument.addEventListener('touchend', this.outsideHandler)
+    this.escapeKeyHandler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      this.close(true)
+    }
+    this.escapeKeyDocument = ownerDocument
+    ownerDocument.addEventListener('keydown', this.escapeKeyHandler)
   }
 
   private appendDragHandleIcon(container: HTMLElement): void {
@@ -258,6 +470,11 @@ export class RecipeRunPopover {
     checked: Set<string>,
     stepOrder: string[],
     completedAtByStepId: Record<string, string>,
+    checkedQuality: Set<string>,
+    qualityCheckOrder: string[],
+    completedAtByQualityCheckId: Record<string, string>,
+    stepsUpdatedAt: number | undefined,
+    qualityChecksUpdatedAt: number | undefined,
     updatedAt: number = Date.now(),
   ): void {
     const checkedStepIds = Array.from(checked)
@@ -266,11 +483,22 @@ export class RecipeRunPopover {
         .map((stepId) => [stepId, completedAtByStepId[stepId]] as const)
         .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string'),
     )
+    const checkedQualityCheckIds = Array.from(checkedQuality)
+    const checkedCompletedAtByQualityCheckId = Object.fromEntries(
+      checkedQualityCheckIds
+        .map((checkId) => [checkId, completedAtByQualityCheckId[checkId]] as const)
+        .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string'),
+    )
     this.host.setProgress(progressKey, {
       recipePath: recipe.path,
       checkedStepIds,
+      stepsUpdatedAt,
       stepOrder: this.normalizeStepOrder(recipe.steps, stepOrder),
       completedAtByStepId: checkedCompletedAtByStepId,
+      checkedQualityCheckIds,
+      qualityChecksUpdatedAt,
+      qualityCheckOrder: this.normalizeStepOrder(recipe.qualityChecks ?? [], qualityCheckOrder),
+      completedAtByQualityCheckId: checkedCompletedAtByQualityCheckId,
       updatedAt,
     }, dateKey)
   }

@@ -1,0 +1,409 @@
+/**
+ * AI Task - run log writer
+ *
+ * Persists one markdown note per AI run under
+ * `<base>/TaskChute/AI/Logs/YYYY-MM/YYYYMMDD-HHmmss-<sanitized name>.md`,
+ * and prunes notes older than the retention window. Folders are created
+ * lazily on the first write (never in ensureRequiredFolders). The note is
+ * created with vault.create at the first run end; follow-up run ends go
+ * through upsertRunLog, which refreshes the frontmatter and APPENDS the
+ * continuation events to the existing note (the already-persisted transcript
+ * is never rebuilt from the bounded in-memory buffer, which may have elided
+ * it). Pruning always goes through fileManager.trashFile (never
+ * vault.delete).
+ */
+
+import { TFile } from 'obsidian'
+import { listFilesInFolder } from '../../../utils/vaultFiles'
+import type { AiResultEvent, AiRunRecord, AiStreamEvent } from '../types'
+
+/** Maximum stderr lines preserved at the end of a run log note */
+export const STDERR_TAIL_LIMIT = 50
+
+/**
+ * Maximum transcript characters embedded in a terminal run log note. The
+ * note lives in the vault (Obsidian indexes it), so an unbounded PTY
+ * transcript is capped to its trailing portion with a notice line.
+ */
+export const TERMINAL_LOG_BODY_LIMIT = 512 * 1024
+
+const DAY_MS = 24 * 60 * 60 * 1000
+const MAX_NAME_LENGTH = 60
+
+export interface AiTaskLogWriterDeps {
+  app: {
+    vault: {
+      create(path: string, content: string): Promise<unknown>
+      modify(file: TFile, content: string): Promise<unknown>
+      read(file: TFile): Promise<string>
+      getAbstractFileByPath(path: string): unknown
+      getRoot?(): unknown
+    }
+    fileManager: {
+      trashFile(file: TFile): Promise<void>
+    }
+  }
+  pathManager: {
+    getAiLogsPath(): string
+    getAiLogsMonthPath(yearMonth: string): string
+    ensureFolderExists(path: string): Promise<void>
+  }
+  /** Retention window in days; values <= 0 disable pruning */
+  getRetentionDays(): number
+  /** Clock override for tests */
+  now?(): number
+  log?(level: 'warn' | 'error' | 'debug', ...args: unknown[]): void
+}
+
+function pad(value: number, width: number): string {
+  return String(value).padStart(width, '0')
+}
+
+function formatYearMonth(epochMs: number): string {
+  const date = new Date(epochMs)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1, 2)}`
+}
+
+function formatFileTimestamp(epochMs: number): string {
+  const date = new Date(epochMs)
+  const ymd = `${date.getFullYear()}${pad(date.getMonth() + 1, 2)}${pad(date.getDate(), 2)}`
+  const hms = `${pad(date.getHours(), 2)}${pad(date.getMinutes(), 2)}${pad(date.getSeconds(), 2)}`
+  return `${ymd}-${hms}`
+}
+
+/** Replace vault-hostile characters and whitespace with single dashes */
+function sanitizeTaskName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/:*?"<>|#^[\]]/g, '-')
+    .replace(/\p{C}/gu, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, MAX_NAME_LENGTH)
+    .replace(/^[-.]+/, '')
+    .replace(/[-.]+$/, '')
+  return cleaned.length > 0 ? cleaned : 'task'
+}
+
+function findLastResultEvent(events: AiStreamEvent[]): AiResultEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event.kind === 'result') return event
+  }
+  return undefined
+}
+
+function composeFrontmatter(record: AiRunRecord): string[] {
+  const lines: string[] = ['---']
+  lines.push(`task_path: ${JSON.stringify(record.taskPath)}`)
+  lines.push(`task_name: ${JSON.stringify(record.taskName)}`)
+  lines.push(`host: ${record.host}`)
+  lines.push(`status: ${record.status}`)
+  if (record.mode === 'terminal') {
+    // Only stamped for terminal sessions so pre-existing headless notes keep
+    // their exact shape.
+    lines.push('mode: terminal')
+  }
+  if (record.recipePath) {
+    lines.push(`recipe_path: ${JSON.stringify(record.recipePath)}`)
+  }
+  if (record.recipeVersion !== undefined) {
+    lines.push(`recipe_version: ${record.recipeVersion}`)
+  }
+  if (record.recipeContentHash) {
+    lines.push(`recipe_content_hash: ${JSON.stringify(record.recipeContentHash)}`)
+  }
+  lines.push(`started_at: ${JSON.stringify(new Date(record.startedAt).toISOString())}`)
+  if (record.endedAt !== undefined) {
+    lines.push(`ended_at: ${JSON.stringify(new Date(record.endedAt).toISOString())}`)
+  }
+  if (typeof record.exitCode === 'number') {
+    lines.push(`exit_code: ${record.exitCode}`)
+  }
+  const result = findLastResultEvent(record.events)
+  if (result?.totalCostUsd !== undefined) {
+    lines.push(`cost_usd: ${result.totalCostUsd}`)
+  }
+  if (result?.numTurns !== undefined) {
+    lines.push(`num_turns: ${result.numTurns}`)
+  }
+  if (record.errorMessage !== undefined && record.errorMessage.length > 0) {
+    lines.push(`error: ${JSON.stringify(record.errorMessage)}`)
+  }
+  lines.push('---')
+  return lines
+}
+
+function composeInitLine(event: Extract<AiStreamEvent, { kind: 'init' }>): string {
+  const parts = ['- [init]']
+  if (event.model !== undefined) parts.push(`model ${event.model}`)
+  if (event.sessionId !== undefined) parts.push(`session ${event.sessionId}`)
+  return parts.join(' ')
+}
+
+function composeResultLine(event: AiResultEvent): string {
+  const label = event.subtype ?? (event.isError ? 'error' : 'success')
+  const details: string[] = []
+  if (event.totalCostUsd !== undefined) details.push(`cost $${event.totalCostUsd}`)
+  if (event.numTurns !== undefined) details.push(`${event.numTurns} turns`)
+  const suffix = details.length > 0 ? ` (${details.join(', ')})` : ''
+  return `- [result] ${label}${suffix}`
+}
+
+function composeTranscript(events: AiStreamEvent[]): string[] {
+  return ['## Transcript', '', ...composeTranscriptLines(events)]
+}
+
+/** Transcript body lines without the heading (also used for continuations) */
+function composeTranscriptLines(events: AiStreamEvent[]): string[] {
+  const lines: string[] = []
+  for (const event of events) {
+    switch (event.kind) {
+      case 'assistant-text':
+        lines.push(event.text, '')
+        break
+      case 'tool-use':
+        lines.push(`- [tool] ${event.toolName}`)
+        break
+      case 'tool-result':
+        lines.push(`- [tool result]${event.isError === true ? ' (error)' : ''}`)
+        break
+      case 'user-text':
+        lines.push(`> user: ${event.text}`, '')
+        break
+      case 'init':
+        lines.push(composeInitLine(event))
+        break
+      case 'result':
+        lines.push(composeResultLine(event))
+        break
+      case 'elision':
+        lines.push(`- [${event.omittedCount} events omitted]`)
+        break
+      case 'raw':
+        lines.push(`- [raw] ${event.text}`)
+        break
+      case 'stderr':
+        // Rendered separately in the stderr tail section
+        break
+    }
+  }
+  return lines
+}
+
+function composeStderrSection(events: AiStreamEvent[]): string[] {
+  const stderrLines: string[] = []
+  for (const event of events) {
+    if (event.kind === 'stderr') stderrLines.push(event.text)
+  }
+  if (stderrLines.length === 0) return []
+
+  const tail = stderrLines.slice(-STDERR_TAIL_LIMIT)
+  const lines: string[] = ['', '## Stderr', '']
+  if (stderrLines.length > tail.length) {
+    lines.push(`Showing the last ${tail.length} of ${stderrLines.length} lines.`, '')
+  }
+  lines.push('```text', ...tail, '```')
+  return lines
+}
+
+function composeRunLogContent(record: AiRunRecord): string {
+  const lines = [
+    ...composeFrontmatter(record),
+    '',
+    ...composeTranscript(record.events),
+    ...composeStderrSection(record.events),
+  ]
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
+/** A backtick fence longer than any backtick run inside the content */
+function pickFence(content: string): string {
+  let longestRun = 0
+  for (const match of content.matchAll(/`+/g)) {
+    if (match[0].length > longestRun) longestRun = match[0].length
+  }
+  return '`'.repeat(Math.max(3, longestRun + 1))
+}
+
+function composeTerminalRunLogContent(record: AiRunRecord, transcript: string): string {
+  const trimmed = transcript.replace(/\n+$/, '')
+  const truncated = trimmed.length > TERMINAL_LOG_BODY_LIMIT
+  let body = truncated ? trimmed.slice(trimmed.length - TERMINAL_LOG_BODY_LIMIT) : trimmed
+  if (truncated && body.charCodeAt(0) >= 0xdc00 && body.charCodeAt(0) <= 0xdfff) {
+    // The cut landed inside a surrogate pair; drop the torn low surrogate.
+    body = body.slice(1)
+  }
+  // The fence (and its matchAll scan) is derived from the capped body only.
+  const fence = pickFence(body)
+  const lines = [
+    ...composeFrontmatter(record),
+    '',
+    '## Transcript',
+    '',
+  ]
+  if (truncated) {
+    lines.push(
+      `Transcript truncated: showing the last ${TERMINAL_LOG_BODY_LIMIT} characters.`,
+      '',
+    )
+  }
+  lines.push(`${fence}text`)
+  if (body.length > 0) {
+    lines.push(body)
+  }
+  lines.push(fence)
+  return `${lines.join('\n')}\n`
+}
+
+/**
+ * Split a persisted note into its frontmatter block and body. Returns the
+ * body only; the frontmatter is always regenerated from the record.
+ */
+function extractNoteBody(content: string): string {
+  if (content.startsWith('---\n')) {
+    const end = content.indexOf('\n---\n', 3)
+    if (end !== -1) {
+      return content.slice(end + 5)
+    }
+    if (content.endsWith('\n---')) {
+      return ''
+    }
+  }
+  return content
+}
+
+/**
+ * Refreshed frontmatter + preserved body + appended continuation transcript
+ * (and its stderr tail, if any).
+ */
+function composeAppendedContent(
+  existingContent: string,
+  record: AiRunRecord,
+  continuationEvents: AiStreamEvent[],
+): string {
+  const body = extractNoteBody(existingContent).replace(/^\n+/, '').replace(/\n+$/, '')
+  const lines = [...composeFrontmatter(record), '', body]
+  if (continuationEvents.length > 0) {
+    lines.push('', ...composeTranscriptLines(continuationEvents))
+    lines.push(...composeStderrSection(continuationEvents))
+  }
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`
+}
+
+function statTimeOf(file: TFile): number | null {
+  const stat = (file as { stat?: { mtime?: unknown; ctime?: unknown } }).stat
+  if (typeof stat?.mtime === 'number') return stat.mtime
+  if (typeof stat?.ctime === 'number') return stat.ctime
+  return null
+}
+
+export class AiTaskLogWriter {
+  constructor(private readonly deps: AiTaskLogWriterDeps) {}
+
+  /**
+   * Append to the run's existing log note (refreshing its frontmatter from
+   * the record), or create it when the run has none yet (or the recorded
+   * note has been deleted). Follow-ups call this at every run end so one
+   * note carries the whole conversation; only `continuationEvents` (the
+   * events streamed since the last persist) are appended — the persisted
+   * transcript body is preserved verbatim, never rebuilt from the bounded
+   * in-memory buffer. Returns the vault path of the note.
+   */
+  async upsertRunLog(
+    record: AiRunRecord,
+    continuationEvents?: AiStreamEvent[],
+  ): Promise<string> {
+    const existingPath = record.logNotePath
+    if (existingPath !== undefined && existingPath.length > 0) {
+      const existing = this.deps.app.vault.getAbstractFileByPath(existingPath)
+      if (existing instanceof TFile) {
+        const currentContent = await this.deps.app.vault.read(existing)
+        await this.deps.app.vault.modify(
+          existing,
+          composeAppendedContent(currentContent, record, continuationEvents ?? []),
+        )
+        return existingPath
+      }
+    }
+    return this.writeRunLog(record)
+  }
+
+  /**
+   * Compose and create the run log note from the full in-memory record.
+   * Called at the first run end (and as the upsert fallback when the
+   * recorded note has been deleted). Returns the vault path of the note.
+   */
+  async writeRunLog(record: AiRunRecord): Promise<string> {
+    const monthPath = this.deps.pathManager.getAiLogsMonthPath(
+      formatYearMonth(record.startedAt),
+    )
+    await this.ensureLogFolders(monthPath)
+
+    const baseName = `${formatFileTimestamp(record.startedAt)}-${sanitizeTaskName(record.taskName)}`
+    const path = this.resolveCollisionFreePath(monthPath, baseName)
+    await this.deps.app.vault.create(path, composeRunLogContent(record))
+    return path
+  }
+
+  /**
+   * Compose and create the run log note for a terminal (PTY) session. The
+   * transcript is expected to be ANSI-stripped already and is embedded in a
+   * fenced block; paths, lazy folder creation, collision handling, and
+   * retention pruning are shared with the headless notes. Returns the vault
+   * path of the note.
+   */
+  async writeTerminalRunLog(record: AiRunRecord, transcript: string): Promise<string> {
+    const monthPath = this.deps.pathManager.getAiLogsMonthPath(
+      formatYearMonth(record.startedAt),
+    )
+    await this.ensureLogFolders(monthPath)
+
+    const baseName = `${formatFileTimestamp(record.startedAt)}-${sanitizeTaskName(record.taskName)}`
+    const path = this.resolveCollisionFreePath(monthPath, baseName)
+    await this.deps.app.vault.create(path, composeTerminalRunLogContent(record, transcript))
+    return path
+  }
+
+  /** Trash run log notes older than the retention window (never vault.delete) */
+  async pruneOldLogs(): Promise<void> {
+    const retentionDays = this.deps.getRetentionDays()
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return
+
+    const now = this.deps.now?.() ?? Date.now()
+    const cutoff = now - retentionDays * DAY_MS
+    const files = listFilesInFolder(this.deps.app, this.deps.pathManager.getAiLogsPath(), {
+      markdownOnly: true,
+      recursive: true,
+    })
+
+    for (const file of files) {
+      const statTime = statTimeOf(file)
+      if (statTime === null || statTime >= cutoff) continue
+      try {
+        await this.deps.app.fileManager.trashFile(file)
+      } catch (error) {
+        this.deps.log?.('warn', '[AiTaskLogWriter] Failed to trash old run log', file.path, error)
+      }
+    }
+  }
+
+  /** Lazily create AI, AI/Logs, and the month folder (in that order) */
+  private async ensureLogFolders(monthPath: string): Promise<void> {
+    const logsPath = this.deps.pathManager.getAiLogsPath()
+    const aiParentPath = logsPath.split('/').slice(0, -1).join('/')
+    if (aiParentPath.length > 0) {
+      await this.deps.pathManager.ensureFolderExists(aiParentPath)
+    }
+    await this.deps.pathManager.ensureFolderExists(logsPath)
+    await this.deps.pathManager.ensureFolderExists(monthPath)
+  }
+
+  private resolveCollisionFreePath(monthPath: string, baseName: string): string {
+    const basePath = `${monthPath}/${baseName}.md`
+    if (!this.deps.app.vault.getAbstractFileByPath(basePath)) return basePath
+    for (let suffix = 2; ; suffix += 1) {
+      const candidate = `${monthPath}/${baseName}-${suffix}.md`
+      if (!this.deps.app.vault.getAbstractFileByPath(candidate)) return candidate
+    }
+  }
+}

@@ -35,6 +35,12 @@ const context = await esbuild.context({
     ...nodeBuiltinModules
 	],
 	format: "cjs",
+	// .css imports resolve to the file content as a string (the xterm css is
+	// injected at runtime via a created <style> element, keeping styles.css
+	// free of vendored rules).
+	loader: {
+		".css": "text",
+	},
 	target: "es2018",
 	logLevel: "info",
 	sourcemap: prod ? false : "inline",

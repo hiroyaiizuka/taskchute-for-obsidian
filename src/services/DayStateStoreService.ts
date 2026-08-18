@@ -13,6 +13,9 @@ export class DayStateStoreService {
   private cache: Map<string, DayState>;
   private currentKey: string | null = null;
   private currentState: DayState | null = null;
+  private cacheGeneration = 0;
+  /** Serializes every write targeting the same monthly persistence file. */
+  private monthOperationQueues = new Map<string, Promise<void>>();
 
   /** Reference-counted write barrier depth. persist/persistAsync are suppressed while > 0. */
   private barrierDepth = 0;
@@ -27,6 +30,29 @@ export class DayStateStoreService {
     this.cache = options.cache ?? new Map<string, DayState>();
   }
 
+  private async enqueueMonthOperation<T>(
+    monthKey: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.monthOperationQueues.get(monthKey) ?? Promise.resolve();
+    const current = previous
+      .catch(() => undefined)
+      .then(operation);
+    const queueTail = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.monthOperationQueues.set(monthKey, queueTail);
+
+    try {
+      return await current;
+    } finally {
+      if (this.monthOperationQueues.get(monthKey) === queueTail) {
+        this.monthOperationQueues.delete(monthKey);
+      }
+    }
+  }
+
   async ensure(dateKey?: string): Promise<DayState> {
     const key = dateKey ?? this.options.getCurrentDateString();
     const cached = this.cache.get(key);
@@ -34,10 +60,82 @@ export class DayStateStoreService {
       return this.setCurrent(key, cached);
     }
 
+    const generation = this.cacheGeneration;
     const loaded = await this.options.dayStateService.loadDay(this.options.parseDateString(key));
+    if (generation !== this.cacheGeneration) {
+      return this.ensure(key);
+    }
     const normalized = this.normalizeState(loaded);
-    this.cache.set(key, normalized);
-    return this.setCurrent(key, normalized);
+    const liveState = this.cache.get(key) ?? normalized;
+    if (!this.cache.has(key)) {
+      this.cache.set(key, liveState);
+    }
+    return this.setCurrent(key, liveState);
+  }
+
+  /**
+   * Atomically update one date without changing the store's shared current
+   * date. The persistence layer performs the read-modify-write; afterward the
+   * same idempotent mutation is applied to whichever live cache object won any
+   * concurrent view load, preserving its object identity.
+   */
+  async mutateSnapshot(
+    dateKey: string,
+    mutator: (state: DayState) => DayState | void,
+  ): Promise<DayState> {
+    const generation = this.cacheGeneration;
+    // Day states are persisted in one file per month, so different dates in
+    // the same month must share a queue as well.
+    const monthKey = dateKey.slice(0, 7);
+    return await this.enqueueMonthOperation(
+      monthKey,
+      () => this.performSnapshotMutation(dateKey, generation, mutator),
+    );
+  }
+
+  private async performSnapshotMutation(
+    dateKey: string,
+    generation: number,
+    mutator: (state: DayState) => DayState | void,
+  ): Promise<DayState> {
+    const date = this.options.parseDateString(dateKey);
+    let persisted: DayState;
+    if (typeof this.options.dayStateService.updateDay === 'function') {
+      persisted = await this.options.dayStateService.updateDay(date, mutator);
+    } else {
+      const loaded = await this.options.dayStateService.loadDay(date);
+      const working = this.cloneState(this.normalizeState(loaded));
+      persisted = this.normalizeState(mutator(working) ?? working);
+      await this.options.dayStateService.saveDay(date, persisted);
+    }
+
+    const liveState = this.cache.get(dateKey);
+    const pendingSnapshot = this.pendingWriteSnapshots.get(dateKey);
+    if (pendingSnapshot) {
+      const pendingResult = mutator(pendingSnapshot);
+      if (pendingResult && pendingResult !== pendingSnapshot) {
+        this.pendingWriteSnapshots.set(dateKey, pendingResult);
+      }
+    }
+    if (liveState) {
+      const result = mutator(liveState);
+      if (result && result !== liveState) {
+        this.cache.set(dateKey, result);
+        if (this.currentKey === dateKey) this.currentState = result;
+        return result;
+      }
+      return liveState;
+    }
+
+    const normalized = this.cloneState(this.normalizeState(persisted));
+    // A clear() during persistence deliberately invalidates all live objects.
+    // Keep the persisted result on disk, but do not resurrect a cleared cache.
+    if (generation !== this.cacheGeneration) {
+      return normalized;
+    }
+    this.cache.set(dateKey, normalized);
+    if (this.currentKey === dateKey) this.currentState = normalized;
+    return normalized;
   }
 
   snapshot(dateKey: string): DayState | null {
@@ -59,6 +157,7 @@ export class DayStateStoreService {
   }
 
   clear(dateKey?: string): void {
+    this.cacheGeneration += 1;
     if (dateKey) {
       this.cache.delete(dateKey);
       if (this.currentKey === dateKey) {
@@ -85,23 +184,27 @@ export class DayStateStoreService {
 
   async persist(dateKey?: string): Promise<void> {
     const key = dateKey ?? this.options.getCurrentDateString();
-    const state = this.cache.get(key);
-    if (!state) return;
+    const requestedState = this.cache.get(key);
+    if (!requestedState) return;
 
     // When barrier is active, defer the write
     if (this.barrierDepth > 0) {
       const monthKey = key.substring(0, 7); // "2026-02-19" → "2026-02"
       this.pendingWriteMonthKeys.add(monthKey);
       this.pendingWriteDateKeys.add(key);
-      this.pendingWriteSnapshots.set(key, this.cloneState(state));
+      this.pendingWriteSnapshots.set(key, this.cloneState(requestedState));
       return;
     }
 
-    await this.options.dayStateService.saveDay(
-      this.options.parseDateString(key),
-      state,
-    );
-    this.clearPendingForDateKey(key);
+    const monthKey = key.substring(0, 7);
+    await this.enqueueMonthOperation(monthKey, async () => {
+      const state = this.cache.get(key) ?? requestedState;
+      await this.options.dayStateService.saveDay(
+        this.options.parseDateString(key),
+        state,
+      );
+      this.clearPendingForDateKey(key);
+    });
   }
 
   async renameTaskPath(oldPath: string, newPath: string): Promise<void> {
@@ -394,12 +497,11 @@ export class DayStateStoreService {
     const failedDateKeys = new Set<string>();
 
     const svc = this.options.dayStateService;
-    if (typeof svc.mergeAndSaveMonth === 'function') {
-      const doMergeAndSave = (mk: string, ds: Map<string, DayState>) => svc.mergeAndSaveMonth!(mk, ds);
-      for (const monthKey of monthKeys) {
-        const monthDateKeys = dateKeysByMonth.get(monthKey) ?? [];
-        if (monthDateKeys.length === 0) continue;
+    for (const monthKey of monthKeys) {
+      const monthDateKeys = dateKeysByMonth.get(monthKey) ?? [];
+      if (monthDateKeys.length === 0) continue;
 
+      await this.enqueueMonthOperation(monthKey, async () => {
         const localDayStates = new Map<string, DayState>();
         for (const dateKey of monthDateKeys) {
           const state = this.pendingWriteSnapshots.get(dateKey) ?? this.cache.get(dateKey);
@@ -409,9 +511,12 @@ export class DayStateStoreService {
             failedDateKeys.add(dateKey);
           }
         }
-        if (localDayStates.size > 0) {
+
+        if (localDayStates.size === 0) return;
+
+        if (typeof svc.mergeAndSaveMonth === 'function') {
           try {
-            await doMergeAndSave(monthKey, localDayStates);
+            await svc.mergeAndSaveMonth(monthKey, localDayStates);
             await this.syncCacheFromService(Array.from(localDayStates.keys()));
             for (const dateKey of localDayStates.keys()) {
               succeededDateKeys.add(dateKey);
@@ -429,27 +534,23 @@ export class DayStateStoreService {
               }
             }
           }
+          return;
         }
-      }
-    } else {
-      // Fallback: no mergeAndSaveMonth available, write individually
-      for (const dateKey of pendingDateKeys) {
-        const state = this.pendingWriteSnapshots.get(dateKey) ?? this.cache.get(dateKey);
-        if (state) {
+
+        // Fallback: no mergeAndSaveMonth available, write individually.
+        for (const [dateKey, state] of localDayStates) {
           try {
             await this.options.dayStateService.saveDay(
               this.options.parseDateString(dateKey),
-              this.cloneState(state),
+              state,
             );
             succeededDateKeys.add(dateKey);
           } catch (error) {
             failedDateKeys.add(dateKey);
             console.error('[DayStateStoreService] saveDay fallback failed:', dateKey, error);
           }
-        } else {
-          failedDateKeys.add(dateKey);
         }
-      }
+      });
     }
 
     for (const dateKey of succeededDateKeys) {

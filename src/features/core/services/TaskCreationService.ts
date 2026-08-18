@@ -1,26 +1,100 @@
 import { App, Notice, TFile } from 'obsidian'
 import { t } from '../../../i18n'
 import { generateTaskId } from '../../../services/TaskIdManager'
+import type { AiTaskHost } from '../../ai-task/types'
+import {
+  EXACT_PROMPT_END_MARKER,
+  EXACT_PROMPT_START_MARKER,
+} from '../../ai-task/services/PromptExtractor'
+import {
+  TaskRecipeAssignmentService,
+  createRecipeReferenceLink,
+} from '../../recipe/services/TaskRecipeAssignmentService'
 
 interface PluginLike {
   app: App
   pathManager: {
     getTaskFolderPath(): string
+    getRecipeFolderPath?: () => string
     ensureFolderExists?: (path: string) => Promise<void>
   }
+}
+
+/**
+ * AI-task payload of the add-task modal's AI mode (U3). The written note
+ * must round-trip through readAiTaskConfig + extractPromptSection exactly as
+ * entered: `ai_task: true` (strict boolean), the host verbatim, args as a
+ * YAML block list of literal argv tokens, cwd only when non-empty, and the
+ * prompt as the body of a "## Prompt" section after the H1 heading (an empty
+ * prompt still writes the empty section — terminal runs open a plain REPL).
+ * Hash-leading prompt lines (`# Overview`, `#tag`, `\#x`, and the same
+ * behind 1-3 spaces of indentation — still headings under CommonMark) are
+ * written with one extra backslash before the hash so they can never
+ * terminate the Prompt section (in the extractor or in Obsidian's heading
+ * cache); the extractor strips exactly one backslash from such lines,
+ * restoring the entered text.
+ */
+export interface CreateTaskFileAiTaskOptions {
+  host: AiTaskHost
+  /** Flattened argv tokens (execution mode, model, and reasoning controls) */
+  args?: string[]
+  cwd?: string
+  prompt: string
+  /** undefined: leave absent/unchanged, null: explicitly unassign. */
+  recipePath?: string | null
 }
 
 export interface CreateTaskFileOptions {
   taskId?: string
   basename?: string
   reminderTime?: string
+  /** Present only when the add-task modal submitted in AI mode */
+  aiTask?: CreateTaskFileAiTaskOptions
+}
+
+/** Escape a value for a YAML double-quoted scalar */
+function toYamlQuoted(value: string): string {
+  return JSON.stringify(value).replace(
+    /[\u007F-\u009F\u2028\u2029]/gu,
+    (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  )
+}
+
+/**
+ * Lines that PromptExtractor's read-time unescaping would touch: up to
+ * three leading spaces (CommonMark still parses ATX headings behind 1-3
+ * spaces of indentation; four spaces make an indented code block), then
+ * zero or more backslashes immediately followed by a hash.
+ */
+const HASH_LEADING_PROMPT_LINE = /^ {0,3}\\*#/
+
+/**
+ * Insert one backslash right before the first backslash-or-hash of a
+ * hash-leading prompt line, keeping any 1-3 space indentation in place.
+ * Escaping EVERY such line (headings, indented `  # h1`, `### h3`, `#tag`,
+ * already-escaped `\#x`) keeps the pair with
+ * PromptExtractor.unescapePromptLine (strip one backslash) exactly inverse,
+ * so any prompt round-trips byte-identically; renders as the literal hash
+ * text in Markdown either way.
+ */
+function escapePromptLine(line: string): string {
+  return HASH_LEADING_PROMPT_LINE.test(line)
+    ? line.replace(/^( {0,3})/, '$1\\')
+    : line
 }
 
 export class TaskCreationService {
   private plugin: PluginLike
+  private readonly recipeAssignments: TaskRecipeAssignmentService
 
   constructor(plugin: PluginLike) {
     this.plugin = plugin
+    this.recipeAssignments = new TaskRecipeAssignmentService({
+      app: plugin.app,
+      getRecipeFolderPath: () =>
+        plugin.pathManager.getRecipeFolderPath?.() ?? 'TaskChute/Recipes',
+    })
   }
 
   /**
@@ -79,14 +153,43 @@ export class TaskCreationService {
       frontmatterLines.push(`reminder_time: "${options.reminderTime}"`)
     }
 
+    const aiTask = options?.aiTask
+    const resolvedRecipePath = aiTask
+      ? this.recipeAssignments.resolve({ recipePath: aiTask.recipePath })
+      : undefined
+    if (aiTask) {
+      frontmatterLines.push('ai_task: true')
+      frontmatterLines.push(`ai_task_host: ${aiTask.host}`)
+      if (aiTask.args && aiTask.args.length > 0) {
+        frontmatterLines.push('ai_task_args:')
+        for (const arg of aiTask.args) {
+          frontmatterLines.push(`  - ${toYamlQuoted(arg)}`)
+        }
+      }
+      const cwd = aiTask.cwd?.trim()
+      if (cwd) {
+        frontmatterLines.push(`ai_task_cwd: ${toYamlQuoted(cwd)}`)
+      }
+      if (typeof resolvedRecipePath === 'string') {
+        frontmatterLines.push(
+          `recipe: ${toYamlQuoted(createRecipeReferenceLink(resolvedRecipePath))}`,
+        )
+      }
+    }
+
     frontmatterLines.push('---')
 
-    const content = [
-      ...frontmatterLines,
-      '',
-      `# ${taskName}`,
-      '',
-    ].join('\n')
+    const bodyLines = ['', `# ${taskName}`, '']
+    if (aiTask) {
+      const prompt = aiTask.prompt.trim().length > 0 ? aiTask.prompt : ''
+      bodyLines.push('## Prompt', '', EXACT_PROMPT_START_MARKER)
+      if (prompt.length > 0) {
+        bodyLines.push(...prompt.split(/\r?\n/).map(escapePromptLine))
+      }
+      bodyLines.push(EXACT_PROMPT_END_MARKER, '')
+    }
+
+    const content = [...frontmatterLines, ...bodyLines].join('\n')
 
     const file = await this.plugin.app.vault.create(filePath, content)
     new Notice(
