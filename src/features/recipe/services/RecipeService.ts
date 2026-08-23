@@ -1,24 +1,34 @@
 import { Notice, TFile, normalizePath } from 'obsidian'
 import type { TaskChutePluginLike, TaskInstance } from '../../../types'
 import { t } from '../../../i18n'
+import { listFilesInFolder } from '../../../utils/vaultFiles'
+import { RecipeDocumentCodec } from './RecipeDocumentCodec'
+import {
+  createRecipeReferenceLink,
+  normalizeRecipeReference,
+  resolveExistingRecipeReference,
+  resolveRecipeReferenceInFolder,
+} from './RecipeReferencePolicy'
+import type {
+  Recipe,
+  RecipeQualityCheck,
+  RecipeQualityCheckInput,
+  RecipeSaveInput,
+  RecipeStep,
+  RecipeStepInput,
+} from '../types'
 
-export interface RecipeStep {
-  id: string
-  text: string
-}
-
-export interface Recipe {
-  path: string
-  title: string
-  steps: RecipeStep[]
-  file: TFile
-}
-
-export interface RecipeSaveInput {
-  path?: string
-  title: string
-  steps: string[]
-}
+export type {
+  Recipe,
+  RecipeConstraint,
+  RecipeQualityCheck,
+  RecipeQualityCheckInput,
+  RecipeSaveInput,
+  RecipeSchemaVersion,
+  RecipeStep,
+  RecipeStepInput,
+} from '../types'
+export { normalizeRecipeReference } from './RecipeReferencePolicy'
 
 function hashText(input: string): string {
   let hash = 5381
@@ -37,51 +47,8 @@ function sanitizeFileName(title: string): string {
   return sanitized.length > 0 ? sanitized : 'Untitled recipe'
 }
 
-function quoteYamlString(value: string): string {
-  return JSON.stringify(value)
-}
-
-function extractTitleFromRawFrontmatter(markdown: string): string | undefined {
-  const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u)
-  if (!frontmatterMatch) return undefined
-  const frontmatter = frontmatterMatch[1]
-  for (const line of frontmatter.split(/\r?\n/u)) {
-    const titleMatch = line.match(/^\s*title\s*:\s*(.*?)\s*$/u)
-    if (!titleMatch) continue
-    const rawTitle = titleMatch[1].trim()
-    if (!rawTitle) return undefined
-    if (rawTitle.startsWith('"')) {
-      try {
-        const parsed = JSON.parse(rawTitle) as unknown
-        return typeof parsed === 'string' && parsed.trim().length > 0 ? parsed.trim() : undefined
-      } catch {
-        return rawTitle.replace(/^"|"$/gu, '').trim() || undefined
-      }
-    }
-    if (rawTitle.startsWith("'") && rawTitle.endsWith("'")) {
-      return rawTitle.slice(1, -1).replace(/''/gu, "'").trim() || undefined
-    }
-    return rawTitle.trim()
-  }
-  return undefined
-}
-
-export function normalizeRecipeReference(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const raw = value.trim()
-  if (!raw) return undefined
-  const wikilink = raw.match(/^\[\[([^\]|]+)(?:\|[^\]]+)?\]\]$/u)
-  const path = wikilink ? wikilink[1].trim() : raw
-  if (!path) return undefined
-  return normalizePath(path.endsWith('.md') ? path : `${path}.md`)
-}
-
 export function createRecipeProgressKey(instanceId: string, recipePath: string): string {
   return `${instanceId}::${recipePath}`
-}
-
-function createRecipeReferenceLink(recipePath: string): string {
-  return `[[${recipePath}]]`
 }
 
 export function createRecipeProgressKeyForInstance(instance: TaskInstance, recipePath: string): string {
@@ -98,9 +65,36 @@ export function createRecipeStepId(index: number, text: string): string {
   return `step-${hashText(text.trim())}`
 }
 
-function createRecipeStepIdForOccurrence(text: string, occurrenceIndex: number): string {
-  const baseId = createRecipeStepId(0, text)
-  return occurrenceIndex === 0 ? baseId : `${baseId}-${occurrenceIndex + 1}`
+function createPersistentItemId(prefix: 'step' | 'quality'): string {
+  const randomUuid = activeWindow.crypto?.randomUUID?.()
+  if (randomUuid) return `${prefix}-${randomUuid}`
+  const randomPart = Math.random().toString(36).slice(2)
+  return `${prefix}-${Date.now().toString(36)}-${randomPart}`
+}
+
+function normalizeItemInputs<TInput extends RecipeStepInput | RecipeQualityCheckInput>(
+  inputs: Array<string | TInput>,
+  existing: Array<{ id: string; text: string }>,
+  prefix: 'step' | 'quality',
+): Array<{ id: string; text: string }> {
+  const normalized: Array<{ id?: string; text: string }> = inputs
+    .map((item) => typeof item === 'string' ? { id: undefined, text: item.trim() } : { id: item.id, text: item.text.trim() })
+    .filter((item) => item.text.length > 0)
+  const result = normalized.map((item) => ({ id: item.id, text: item.text }))
+  const usedIds = new Set(result.map((item) => item.id).filter((id): id is string => Boolean(id)))
+
+  for (const item of result) {
+    if (item.id) continue
+    const matching = existing.find((candidate) => candidate.text === item.text && !usedIds.has(candidate.id))
+    if (!matching) continue
+    item.id = matching.id
+    usedIds.add(matching.id)
+  }
+
+  return result.map((item) => ({
+    id: item.id ?? createPersistentItemId(prefix),
+    text: item.text,
+  }))
 }
 
 function escapeRegExp(value: string): string {
@@ -108,6 +102,8 @@ function escapeRegExp(value: string): string {
 }
 
 export class RecipeService {
+  private readonly documentCodec = new RecipeDocumentCodec()
+
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
   getRecipeFolderPath(): string {
@@ -116,8 +112,7 @@ export class RecipeService {
 
   async loadRecipes(): Promise<Recipe[]> {
     const folderPath = this.getRecipeFolderPath()
-    const files = this.plugin.app.vault.getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${folderPath}/`))
+    const files = listFilesInFolder(this.plugin.app, folderPath, { markdownOnly: true })
       .sort((a, b) => a.basename.localeCompare(b.basename))
 
     const recipes: Recipe[] = []
@@ -132,16 +127,17 @@ export class RecipeService {
   }
 
   async loadRecipe(path: string): Promise<Recipe> {
-    const normalizedPath = normalizeRecipeReference(path) ?? normalizePath(path)
-    const file = this.plugin.app.vault.getAbstractFileByPath(normalizedPath)
-    if (!(file instanceof TFile)) {
-      throw new Error(`Recipe not found: ${normalizedPath}`)
-    }
+    const resolved = resolveExistingRecipeReference(
+      path,
+      this.getRecipeFolderPath(),
+      this.plugin.app.vault,
+    )
+    const { file } = resolved
 
     const raw = await this.plugin.app.vault.read(file)
+    const parsedRecipe = this.documentCodec.parse(raw)
     const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined
-    const rawTitle = extractTitleFromRawFrontmatter(raw)
-    const title = rawTitle
+    const title = parsedRecipe.title
       ?? (typeof frontmatter?.title === 'string' && frontmatter.title.trim().length > 0
       ? frontmatter.title.trim()
       : file.basename)
@@ -149,28 +145,17 @@ export class RecipeService {
     return {
       path: file.path,
       title,
-      steps: this.parseSteps(raw),
+      schemaVersion: parsedRecipe.schemaVersion,
+      goal: parsedRecipe.goal,
+      steps: parsedRecipe.steps,
+      qualityChecks: parsedRecipe.qualityChecks,
+      constraints: parsedRecipe.constraints,
       file,
     }
   }
 
   parseSteps(markdown: string): RecipeStep[] {
-    const steps: RecipeStep[] = []
-    const occurrenceByText = new Map<string, number>()
-    const lines = markdown.split(/\r?\n/u)
-    for (const line of lines) {
-      const match = line.match(/^\s*[-*]\s+\[[ xX]\]\s+(.+?)\s*$/u)
-      if (!match) continue
-      const text = match[1].trim()
-      if (!text) continue
-      const occurrenceIndex = occurrenceByText.get(text) ?? 0
-      occurrenceByText.set(text, occurrenceIndex + 1)
-      steps.push({
-        id: createRecipeStepIdForOccurrence(text, occurrenceIndex),
-        text,
-      })
-    }
-    return steps
+    return this.documentCodec.parse(markdown).steps
   }
 
   async saveRecipe(input: RecipeSaveInput): Promise<Recipe> {
@@ -178,24 +163,34 @@ export class RecipeService {
     if (!title) {
       throw new Error('Recipe title is required')
     }
-    const steps = input.steps.map((step) => step.trim()).filter((step) => step.length > 0)
-    if (steps.length === 0) {
-      throw new Error('Recipe requires at least one step')
+    const goal = input.goal?.trim() ?? ''
+    const constraints = (input.constraints ?? []).map((constraint) => constraint.trim()).filter(Boolean)
+
+    const resolvedExisting = input.path
+      ? resolveExistingRecipeReference(input.path, this.getRecipeFolderPath(), this.plugin.app.vault)
+      : undefined
+    const path = resolvedExisting?.path ?? this.createUniqueRecipePath(title)
+    await this.plugin.pathManager.ensureFolderExists(this.getRecipeFolderPath())
+    const existing = resolvedExisting?.file ?? this.plugin.app.vault.getAbstractFileByPath(path)
+    const existingContent = existing instanceof TFile ? await this.plugin.app.vault.read(existing) : undefined
+    const existingDocument = existingContent === undefined ? undefined : this.documentCodec.parse(existingContent)
+    const steps = normalizeItemInputs(input.steps, existingDocument?.steps ?? [], 'step') as RecipeStep[]
+    const qualityChecks = normalizeItemInputs(
+      input.qualityChecks ?? [],
+      existingDocument?.qualityChecks ?? [],
+      'quality',
+    ) as RecipeQualityCheck[]
+    if (goal.length === 0 && steps.length === 0 && qualityChecks.length === 0 && constraints.length === 0) {
+      throw new Error('Recipe requires at least one content field')
     }
 
-    await this.plugin.pathManager.ensureFolderExists(this.getRecipeFolderPath())
-    const path = input.path ? normalizePath(input.path) : this.createUniqueRecipePath(title)
-    const content = [
-      '---',
-      'taskchute_recipe: true',
-      `title: ${quoteYamlString(title)}`,
-      '---',
-      '',
-      ...steps.map((step) => `- [ ] ${step}`),
-      '',
-    ].join('\n')
-
-    const existing = this.plugin.app.vault.getAbstractFileByPath(path)
+    const content = this.documentCodec.write(existingContent, {
+      title,
+      goal,
+      steps,
+      qualityChecks,
+      constraints,
+    })
     if (existing instanceof TFile) {
       await this.plugin.app.vault.modify(existing, content)
     } else {
@@ -205,27 +200,34 @@ export class RecipeService {
   }
 
   async deleteRecipe(path: string): Promise<void> {
-    const normalizedPath = normalizeRecipeReference(path) ?? normalizePath(path)
-    const file = this.plugin.app.vault.getAbstractFileByPath(normalizedPath)
-    if (!(file instanceof TFile)) {
-      throw new Error(`Recipe not found: ${normalizedPath}`)
-    }
+    const { path: normalizedPath, file } = resolveExistingRecipeReference(
+      path,
+      this.getRecipeFolderPath(),
+      this.plugin.app.vault,
+    )
     await this.plugin.app.fileManager.trashFile(file)
     await this.unlinkRecipeFromTasks(normalizedPath)
   }
 
   hasRecipe(path: string | undefined): boolean {
     if (!path) return false
-    const normalizedPath = normalizeRecipeReference(path) ?? normalizePath(path)
-    return this.plugin.app.vault.getAbstractFileByPath(normalizedPath) instanceof TFile
+    try {
+      resolveExistingRecipeReference(path, this.getRecipeFolderPath(), this.plugin.app.vault)
+      return true
+    } catch {
+      return false
+    }
   }
 
   findUsages(recipePath: string): Array<{ path: string; title: string }> {
-    const normalizedRecipePath = normalizeRecipeReference(recipePath)
-    if (!normalizedRecipePath) return []
+    let normalizedRecipePath: string
+    try {
+      normalizedRecipePath = resolveRecipeReferenceInFolder(recipePath, this.getRecipeFolderPath())
+    } catch {
+      return []
+    }
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
-    return this.plugin.app.vault.getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
+    return listFilesInFolder(this.plugin.app, taskFolderPath, { markdownOnly: true })
       .reduce<Array<{ path: string; title: string }>>((usages, file) => {
         const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined
         const taskRecipePath = normalizeRecipeReference(frontmatter?.recipe)
@@ -243,10 +245,11 @@ export class RecipeService {
     if (!(file instanceof TFile)) {
       throw new Error(`Task not found: ${taskPath}`)
     }
-    const normalizedRecipePath = normalizeRecipeReference(recipePath)
-    if (!normalizedRecipePath) {
-      throw new Error('Recipe path is required')
-    }
+    const { path: normalizedRecipePath } = resolveExistingRecipeReference(
+      recipePath,
+      this.getRecipeFolderPath(),
+      this.plugin.app.vault,
+    )
     await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       frontmatter.recipe = createRecipeReferenceLink(normalizedRecipePath)
       return frontmatter
@@ -254,9 +257,24 @@ export class RecipeService {
     new Notice(t('recipes.select.notices.assigned', 'レシピを設定しました'))
   }
 
+  async unassignRecipeFromTask(taskPath: string): Promise<void> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(taskPath)
+    if (!(file instanceof TFile)) {
+      throw new Error(`Task not found: ${taskPath}`)
+    }
+    await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+      delete frontmatter.recipe
+    })
+    new Notice(t('recipes.select.notices.unassigned', 'レシピを解除しました'))
+  }
+
   private async unlinkRecipeFromTasks(recipePath: string): Promise<void> {
-    const normalizedRecipePath = normalizeRecipeReference(recipePath)
-    if (!normalizedRecipePath) return
+    let normalizedRecipePath: string
+    try {
+      normalizedRecipePath = resolveRecipeReferenceInFolder(recipePath, this.getRecipeFolderPath())
+    } catch {
+      return
+    }
     const usages = this.findUsages(normalizedRecipePath)
     for (const usage of usages) {
       const file = this.plugin.app.vault.getAbstractFileByPath(usage.path)

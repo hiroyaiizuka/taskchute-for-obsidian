@@ -94,8 +94,9 @@ describe('TaskExecutionService', () => {
       slotKey: 'none',
     }
 
-    await service.startInstance(instance)
+    const started = await service.startInstance(instance)
 
+    expect(started).toBe(true)
     expect(instance.state).toBe('running')
     expect(instance.startTime).toBeInstanceOf(Date)
     expect(host.handleCrossDayStart).not.toHaveBeenCalled()
@@ -129,8 +130,9 @@ describe('TaskExecutionService', () => {
       startTime: new Date('2025-01-01T08:00:00.000Z'),
     }
 
-    await service.stopInstance(instance)
+    const stopped = await service.stopInstance(instance)
 
+    expect(stopped).toBe(true)
     expect(instance.state).toBe('done')
     expect(instance.stopTime).toBeInstanceOf(Date)
     expect(instance.actualMinutes).toBe(60)
@@ -468,6 +470,111 @@ describe('TaskExecutionService', () => {
       .spyOn(HeatmapService.prototype, 'updateDailyStats')
       .mockRejectedValueOnce(new Error('network'))
 
-    await expect(service.stopInstance(instance)).resolves.toBeUndefined()
+    await expect(service.stopInstance(instance)).resolves.toBe(true)
+  })
+
+  describe('start/stop success flags (AI coupling contract)', () => {
+    const makeIdleInstance = (path = 'TASKS/sample.md'): TaskInstance => ({
+      task: {
+        file: null,
+        frontmatter: {},
+        path,
+        name: 'Sample',
+      },
+      instanceId: 'inst-flag',
+      state: 'idle',
+      slotKey: 'none',
+    })
+
+    it('startInstance refuses a future view date: returns false and leaves the instance idle', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-01-02T09:00:00.000Z'))
+      const host = createHost({
+        getViewDate: () => new Date('2025-01-05T00:00:00.000Z'),
+      })
+      const service = new TaskExecutionService(host)
+      const instance = makeIdleInstance()
+
+      const started = await service.startInstance(instance)
+
+      expect(started).toBe(false)
+      expect(instance.state).toBe('idle')
+      expect(host.setCurrentInstance).not.toHaveBeenCalled()
+      expect(host.startGlobalTimer).not.toHaveBeenCalled()
+    })
+
+    it('startInstance returns false when the start flow throws midway', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-01-02T09:00:00.000Z'))
+      const host = createHost({
+        saveRunningTasksState: jest.fn().mockRejectedValue(new Error('disk full')),
+      })
+      const service = new TaskExecutionService(host)
+      const instance = makeIdleInstance()
+
+      const started = await service.startInstance(instance)
+
+      expect(started).toBe(false)
+    })
+
+    it('startInstance rolls the optimistic mutations back when the flow throws midway', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-01-02T09:00:00.000Z'))
+      const previousCurrent = makeIdleInstance('TASKS/previous.md')
+      let currentInstance: TaskInstance | null = previousCurrent
+      const host = createHost({
+        saveRunningTasksState: jest.fn().mockRejectedValue(new Error('disk full')),
+        getCurrentInstance: jest.fn(() => currentInstance),
+        setCurrentInstance: jest.fn((next) => {
+          currentInstance = next
+        }),
+        getSectionConfig: () =>
+          ({ getCurrentTimeSlot: () => '8:00-12:00' }) as unknown as ReturnType<
+            TaskExecutionHost['getSectionConfig']
+          >,
+      })
+      const service = new TaskExecutionService(host)
+      const instance = makeIdleInstance()
+      instance.slotKey = '12:00-16:00'
+
+      const started = await service.startInstance(instance)
+
+      expect(started).toBe(false)
+      // The instance must not be left visibly running with a ticking timer.
+      expect(instance.state).toBe('idle')
+      expect(instance.startTime).toBeUndefined()
+      expect(instance.slotKey).toBe('12:00-16:00')
+      expect(instance.originalSlotKey).toBeUndefined()
+      expect(currentInstance).toBe(previousCurrent)
+      expect(host.setCurrentInstance).toHaveBeenLastCalledWith(previousCurrent)
+      // The rollback re-renders so the row reflects the restored state.
+      expect(host.renderTaskList).toHaveBeenCalled()
+    })
+
+    it('stopInstance no-ops on a non-running instance and returns false', async () => {
+      const host = createHost()
+      const service = new TaskExecutionService(host)
+      const instance = makeIdleInstance()
+
+      const stopped = await service.stopInstance(instance)
+
+      expect(stopped).toBe(false)
+      expect(instance.state).toBe('idle')
+      expect(host.executionLogService.saveTaskLog).not.toHaveBeenCalled()
+    })
+
+    it('stopInstance returns true when the transition to done happened even if a later step fails', async () => {
+      const host = createHost({
+        saveTaskOrders: jest.fn().mockRejectedValue(new Error('save broke')),
+      })
+      const service = new TaskExecutionService(host)
+      const instance: TaskInstance = {
+        ...makeIdleInstance(),
+        state: 'running',
+        startTime: new Date('2025-01-01T08:00:00.000Z'),
+      }
+
+      const stopped = await service.stopInstance(instance)
+
+      expect(stopped).toBe(true)
+      expect(instance.state).toBe('done')
+    })
   })
 })

@@ -175,7 +175,7 @@ export default class TaskSettingsTooltipController {
       ? this.host.hasRecipeAssigned(inst)
       : Boolean(inst.task.recipePath)
     const label = hasRecipe
-      ? this.host.tv('buttons.changeRecipe', '🍽 レシピを変更')
+      ? this.host.tv('buttons.manageRecipe', '🍽 レシピを変更・解除')
       : this.host.tv('buttons.setRecipe', '🍽 レシピを設定')
     const item = tooltip.createDiv( {
       cls: 'tooltip-item',

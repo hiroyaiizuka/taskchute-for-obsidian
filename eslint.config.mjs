@@ -45,6 +45,13 @@ const sharedGlobals = {
   createSvg: "readonly",
   Option: "readonly",
   confirm: "readonly",
+  // Web platform APIs used by license token verification. Always present in
+  // Obsidian's Chromium runtime; polyfilled from Node in jsdom tests.
+  atob: "readonly",
+  btoa: "readonly",
+  crypto: "readonly",
+  TextDecoder: "readonly",
+  TextEncoder: "readonly",
 };
 
 const jestGlobals = {
@@ -168,6 +175,13 @@ export default [
       ".obsidian/**",
       ".husky/**",
       "tmp/**",
+      // Plain Node scripts spawned as fake CLIs by dispatcher tests; they are
+      // not part of the typed lint project (tsconfig.test.json has allowJs: false).
+      "tests/features/ai-task/fixtures/**",
+      // Plain CJS module stubs wired through jest.config.js moduleNameMapper;
+      // also outside the typed lint project.
+      "tests/setup/css-text-stub.js",
+      "tests/setup/xterm-stub.js",
     ],
   },
   // Base JS recommended config

@@ -3,6 +3,7 @@ import { App, Notice, TFile } from 'obsidian'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
 import { getToday } from '../../utils/date'
 import { resolveTargetDateOnDisable } from '../../features/routine/utils/RoutineFrontmatterUtils'
+import { listFilesInFolder } from '../../utils/vaultFiles'
 import type { RoutineTaskShape } from '../../types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
 
@@ -63,9 +64,7 @@ export default class NavigationRoutineController {
 
     const list = container.createDiv( { cls: 'routine-list' })
     const taskFolderPath = this.host.plugin.pathManager.getTaskFolderPath()
-    const files = this.host.app.vault
-      .getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${taskFolderPath}/`))
+    const files = listFilesInFolder(this.host.app, taskFolderPath, { markdownOnly: true })
       .map((file) => ({ file, task: this.normalizeRoutineTask(file) }))
       .filter((entry): entry is { file: TFile; task: RoutineTaskShape } => entry.task !== null)
       .sort((a, b) => a.file.basename.localeCompare(b.file.basename, 'ja'))

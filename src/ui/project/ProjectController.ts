@@ -1,6 +1,7 @@
 import { Notice, TFile } from 'obsidian'
 import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '../../types'
 import ProjectSettingsModal from '../modals/ProjectSettingsModal'
+import { listFilesInFolder } from '../../utils/vaultFiles'
 
 export interface ProjectControllerHost {
   app: TaskChutePluginLike['app']
@@ -127,12 +128,7 @@ export default class ProjectController {
     const projectFolderPath = this.host.plugin.pathManager.getProjectFolderPath()
     if (!projectFolderPath) return []
 
-    const prefix = projectFolderPath.endsWith('/')
-      ? projectFolderPath
-      : `${projectFolderPath}/`
-
-    const files = this.host.app.vault.getMarkdownFiles()
-    const inScope = files.filter((file) => file.path.startsWith(prefix))
+    const inScope = listFilesInFolder(this.host.app, projectFolderPath, { markdownOnly: true })
 
     const filtered = inScope.filter((file) => {
       const cache = this.host.app.metadataCache.getFileCache(file)

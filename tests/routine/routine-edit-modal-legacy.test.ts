@@ -71,7 +71,12 @@ const createFile = (path: string): TFile => {
 
 const createApp = (
   frontmatter: RoutineFrontmatter,
-  options?: { currentDate?: Date; viewDates?: Date[]; activeLeafIndex?: number },
+  options?: {
+    currentDate?: Date
+    viewDates?: Date[]
+    activeLeafIndex?: number
+    taskTitles?: string[]
+  },
 ): App =>
   (() => {
     const viewDates = options?.viewDates ?? [options?.currentDate ?? new Date(2025, 10, 30)]
@@ -84,6 +89,11 @@ const createApp = (
     const activeLeaf = leaves[options?.activeLeafIndex ?? 0] ?? leaves[0]
 
     return {
+    vault: {
+      getMarkdownFiles: jest.fn(() =>
+        (options?.taskTitles ?? []).map((title) => createFile(`TASKS/${title}.md`)),
+      ),
+    },
     metadataCache: {
       getFileCache: jest.fn(() => ({ frontmatter })),
     },
@@ -373,5 +383,79 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     expect(frontmatter.routine_enabled).toBe(false)
     expect((frontmatter as Record<string, unknown>).target_date).toBe('2025-12-01')
+  })
+
+  it('shows and saves the Obsidian task link fields for AI routines', async () => {
+    const frontmatter: RoutineFrontmatter = {
+      name: 'AI routine',
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: true,
+      ai_task: true,
+      obsidian_sync: {
+        enabled: true,
+        taskTitle: 'CEO review',
+        matchType: 'exact',
+      },
+    }
+    const app = createApp(frontmatter, {
+      taskTitles: ['CEO review', 'Weekly review'],
+    })
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/AI CEO.md'))
+
+    modal.open()
+
+    const overlay = document.body.querySelector('.task-modal-overlay')
+    const section = overlay?.querySelector('.obsidian-task-link-fields')
+    const enabled = section?.querySelector<HTMLInputElement>(
+      '.obsidian-task-link-enabled',
+    )
+    const title = section?.querySelector<HTMLInputElement>(
+      '.obsidian-task-link-title',
+    )
+    const contains = section?.querySelector<HTMLInputElement>(
+      '.obsidian-task-link-match-option input[value="contains"]',
+    )
+    expect(section).not.toBeNull()
+    expect(enabled?.checked).toBe(true)
+    expect(title?.value).toBe('CEO review')
+
+    if (!enabled || !title || !contains) throw new Error('link fields missing')
+    title.value = 'Weekly review'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    contains.checked = true
+    contains.dispatchEvent(new Event('change', { bubbles: true }))
+
+    const saveButton = overlay?.querySelector(
+      '.routine-editor__button--primary',
+    ) as HTMLButtonElement
+    saveButton.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(frontmatter.obsidian_sync).toEqual({
+      enabled: true,
+      taskTitle: 'Weekly review',
+      matchType: 'contains',
+    })
+  })
+
+  it('does not show Obsidian task link fields for human routines', () => {
+    const frontmatter: RoutineFrontmatter = {
+      name: 'Human routine',
+      isRoutine: true,
+      routine_type: 'daily',
+      routine_interval: 1,
+      routine_enabled: true,
+    }
+    const app = createApp(frontmatter)
+    const modal = new RoutineEditModal(app, createPlugin(), createFile('TASKS/Human.md'))
+
+    modal.open()
+
+    expect(
+      document.body.querySelector('.obsidian-task-link-fields'),
+    ).toBeNull()
+    modal.close()
   })
 })

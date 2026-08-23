@@ -25,7 +25,7 @@ describe('TaskIdManager', () => {
 
     const vault = {
       getMarkdownFiles: jest.fn().mockReturnValue([]),
-      getAbstractFileByPath: jest.fn(),
+      getAbstractFileByPath: jest.fn().mockReturnValue(null),
       read: jest.fn(),
       modify: jest.fn(),
       create: jest.fn(),
@@ -92,7 +92,12 @@ describe('TaskIdManager', () => {
     const { plugin, fileManager, metadataCache, vault } = createPlugin()
     const included = createFile('TaskChute/Task/included.md')
     const excluded = createFile('Other/folder.md')
-    vault.getMarkdownFiles = jest.fn().mockReturnValue([included, excluded])
+    vault.getAbstractFileByPath = jest.fn((path: string) => {
+      if (path === 'TaskChute/Task') {
+        return { path: 'TaskChute/Task', children: [included] }
+      }
+      return null
+    })
     metadataCache.getFileCache = jest.fn().mockReturnValue({ frontmatter: {} })
     const updates: string[] = []
     fileManager.processFrontMatter = jest.fn(async (file: TFile, updater: (fm: Record<string, unknown>) => void) => {
@@ -104,5 +109,6 @@ describe('TaskIdManager', () => {
     await manager.ensureAllTaskIds()
 
     expect(updates).toEqual(['TaskChute/Task/included.md'])
+    expect(updates).not.toContain(excluded.path)
   })
 })

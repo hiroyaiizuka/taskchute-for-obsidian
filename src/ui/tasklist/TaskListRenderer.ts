@@ -3,6 +3,9 @@ import { TaskInstance } from '../../types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
 import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
+import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
+import { matchesAiTaskBoardView } from '../../features/ai-task/services/BoardViewFilter'
+import type { AiTaskBoardView } from '../../features/ai-task/types'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -44,11 +47,21 @@ export type TaskListRendererHost = {
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
   openProjectInSplit?: (projectPath: string) => Promise<void> | void
+  isAiTaskFeatureEnabled?: () => boolean
+  editAiTask?: (inst: TaskInstance) => void
+  /**
+   * Board view filter (human / ai / mixed). RENDER-ONLY: it decides which
+   * rows are drawn but never mutates taskInstances, so counts, execution
+   * logs, and reminders keep seeing the full list. Absent callback (or the
+   * AI Task feature disabled) means 'mixed' — everything renders.
+   */
+  getAiTaskBoardView?: () => AiTaskBoardView
 }
 
 export default class TaskListRenderer {
   private readonly actions: TaskItemActionController
   private readonly rowController: TaskRowController
+  private readonly aiTaskRowRenderer?: AiTaskRowRenderer
   private collapsedByDate = new Map<string, Set<string>>()
   private isDragging = false
 
@@ -96,6 +109,13 @@ export default class TaskListRenderer {
       calculateCrossDayDuration: (start, stop) => this.host.calculateCrossDayDuration(start, stop),
       app: this.host.app,
     })
+    if (this.host.isAiTaskFeatureEnabled && this.host.editAiTask) {
+      this.aiTaskRowRenderer = new AiTaskRowRenderer({
+        tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+        isAiTaskFeatureEnabled: () => this.host.isAiTaskFeatureEnabled!(),
+        editAiTask: (inst) => this.host.editAiTask!(inst),
+      })
+    }
   }
 
   private get collapsedSlots(): Set<string> {
@@ -139,7 +159,7 @@ export default class TaskListRenderer {
 
     const noTimeInstances: TaskInstance[] = []
     const validSlotKeys = new Set(this.host.getTimeSlotKeys())
-    taskInstances.forEach((inst) => {
+    this.filterByBoardView(taskInstances).forEach((inst) => {
       const slot = inst.slotKey && inst.slotKey !== 'none' ? inst.slotKey : null
       if (slot && validSlotKeys.has(slot)) {
         timeSlots[slot].push(inst)
@@ -168,6 +188,18 @@ export default class TaskListRenderer {
 
   updateTimerDisplay(timerEl: HTMLElement, inst: TaskInstance): void {
     this.rowController.updateTimerDisplay(timerEl, inst)
+  }
+
+  /**
+   * Apply the board view filter to the rows about to be drawn. Returns the
+   * original array untouched for 'mixed' (and when the host has no filter);
+   * otherwise a NEW filtered array — host.taskInstances is never mutated
+   * (updateTotalTasksCount and every persistence path read the full list).
+   */
+  private filterByBoardView(instances: TaskInstance[]): TaskInstance[] {
+    const boardView = this.host.getAiTaskBoardView?.() ?? 'mixed'
+    if (boardView === 'mixed') return instances
+    return instances.filter((inst) => matchesAiTaskBoardView(inst, boardView))
   }
 
   private renderNoTimeGroup(instances: TaskInstance[]): void {
@@ -257,7 +289,8 @@ export default class TaskListRenderer {
 
     this.createDragHandle(taskItem, inst, slot, idx)
     this.rowController.renderPlayStopButton(taskItem, inst, isFutureTask)
-    this.rowController.renderTaskName(taskItem, inst)
+    const taskNameContainer = this.rowController.renderTaskName(taskItem, inst)
+    this.aiTaskRowRenderer?.render(taskNameContainer, inst)
     this.actions.renderProject(taskItem, inst)
     this.rowController.renderTimeRangeDisplay(taskItem, inst)
     this.rowController.renderDurationDisplay(taskItem, inst)
@@ -296,7 +329,7 @@ export default class TaskListRenderer {
       svg.createSvg('circle', { attr: { cx, cy, r: '1.5' } })
     })
 
-    this.setupDragEvents(dragHandle, taskItem, slot, idx)
+    this.setupDragEvents(dragHandle, taskItem, inst, slot, idx)
     this.registerTapEvent(dragHandle, (e) => {
       e.stopPropagation()
       this.host.selectTaskForKeyboard(inst, taskItem)
@@ -370,6 +403,7 @@ export default class TaskListRenderer {
     })
     this.host.registerManagedDomEvent(taskItem, 'dragleave', () => {
       taskItem.classList.remove('dragover', 'dragover-top', 'dragover-bottom', 'dragover-invalid')
+      delete taskItem.dataset.dragInvalidMessage
     })
     this.host.registerManagedDomEvent(taskItem, 'drop', (event) => {
       if (!(event instanceof DragEvent)) return
@@ -378,10 +412,24 @@ export default class TaskListRenderer {
     })
   }
 
-  private setupDragEvents(dragHandle: HTMLElement, taskItem: HTMLElement, slot: string, idx: number): void {
+  private setupDragEvents(
+    dragHandle: HTMLElement,
+    taskItem: HTMLElement,
+    inst: TaskInstance,
+    slot: string,
+    idx: number,
+  ): void {
     this.host.registerManagedDomEvent(dragHandle, 'dragstart', (event) => {
       if (!(event instanceof DragEvent)) return
-      event.dataTransfer?.setData('text/plain', `${slot ?? 'none'}::${idx}`)
+      // The index counts rows in the RENDERED (board-view filtered) list, so
+      // the drop side resolves the source by the instanceId — a positional
+      // lookup against the unfiltered slot list would hit the wrong task
+      // under a 'human'/'ai' board view. The slot::idx prefix stays for
+      // legacy payload compatibility.
+      event.dataTransfer?.setData(
+        'text/plain',
+        `${slot ?? 'none'}::${idx}::${inst.instanceId}`,
+      )
       taskItem.classList.add('dragging')
     })
     this.host.registerManagedDomEvent(dragHandle, 'dragend', () => {

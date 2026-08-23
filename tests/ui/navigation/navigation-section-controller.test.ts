@@ -121,6 +121,15 @@ describe('NavigationSectionController', () => {
       vaultFiles.push(file)
       return file
     }
+    const getVaultItem = jest.fn((path: string) => {
+      if (path === 'TASKS' || path === 'PROJECTS') {
+        return {
+          path,
+          children: vaultFiles.filter((file) => file.path.startsWith(`${path}/`)),
+        }
+      }
+      return vaultFiles.find((file) => file.path === path) ?? null
+    })
 
     const host: NavigationSectionHost & {
       closeNavigation: jest.Mock
@@ -137,7 +146,7 @@ describe('NavigationSectionController', () => {
         },
         vault: {
           getMarkdownFiles: jest.fn(() => vaultFiles),
-          getAbstractFileByPath: jest.fn(() => null),
+          getAbstractFileByPath: getVaultItem,
         },
         metadataCache,
         fileManager: {
@@ -161,7 +170,7 @@ describe('NavigationSectionController', () => {
         },
         app: {
           vault: {
-            getAbstractFileByPath: jest.fn(() => null),
+            getAbstractFileByPath: getVaultItem,
           },
           fileManager: {
             trashFile: jest.fn(),

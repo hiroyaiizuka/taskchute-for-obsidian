@@ -30,6 +30,8 @@ export interface DuplicateInstanceOptions {
   slotKey?: string
   scheduledTime?: string | null
   reminderTime?: string | null
+  /** Internal event materialization should not announce a user duplication. */
+  suppressNotice?: boolean
 }
 
 interface MutationDayState {
@@ -39,6 +41,7 @@ interface MutationDayState {
   slotOverrides: Record<string, string>
   slotOverridesMeta?: Record<string, SlotOverrideEntry>
   orders?: Record<string, number>
+  ordersMeta?: Record<string, unknown>
 }
 
 export interface TaskMutationHost {
@@ -78,12 +81,24 @@ export interface TaskMutationHost {
 }
 
 export default class TaskMutationService {
+  private readonly duplicateRollbackContext = new WeakMap<
+    TaskInstance,
+    { dateKey: string; dayState: MutationDayState }
+  >()
+
   constructor(private readonly host: TaskMutationHost) {}
 
   async duplicateInstance(
     inst: TaskInstance,
     options: DuplicateInstanceOptions = {},
   ): Promise<TaskInstance | void> {
+    let materialized:
+      | {
+          instance: TaskInstance
+          dateKey: string
+          dayState: MutationDayState
+        }
+      | undefined
     try {
       await this.host.ensureDayStateForCurrentDate()
       const dateKey = this.host.getCurrentDateString()
@@ -97,6 +112,7 @@ export default class TaskMutationService {
       const newInstance: TaskInstance = {
         task,
         instanceId: this.host.generateInstanceId(task, dateKey),
+        date: dateKey,
         state: 'idle',
         slotKey,
         originalSlotKey,
@@ -106,6 +122,8 @@ export default class TaskMutationService {
 
       this.assignDuplicateOrder(newInstance, inst)
       this.host.taskInstances.push(newInstance)
+      materialized = { instance: newInstance, dateKey, dayState }
+      this.duplicateRollbackContext.set(newInstance, { dateKey, dayState })
 
       if (!dayState.duplicatedInstances.some((dup) => dup.instanceId === newInstance.instanceId)) {
         dayState.duplicatedInstances.push({
@@ -123,20 +141,163 @@ export default class TaskMutationService {
       }
 
       this.safeRenderTaskList()
-      new Notice(
-        this.host.tv('notices.taskDuplicated', 'Duplicated "{title}"', {
-          title: this.host.getInstanceDisplayTitle(inst),
-        }),
-      )
+      if (!options.suppressNotice) {
+        new Notice(
+          this.host.tv('notices.taskDuplicated', 'Duplicated "{title}"', {
+            title: this.host.getInstanceDisplayTitle(inst),
+          }),
+        )
+      }
 
       if (options.returnInstance) {
         return newInstance
       }
     } catch (error) {
+      if (materialized) {
+        await this.rollbackDuplicateMaterialization(
+          materialized.instance,
+          materialized.dateKey,
+          materialized.dayState,
+        )
+      }
       console.error('[TaskMutationService] duplicateInstance failed', error)
       new Notice(this.host.tv('notices.taskDuplicateFailed', 'Failed to duplicate task'))
     }
     return undefined
+  }
+
+  /**
+   * Remove an internal duplicate that was created only to execute an event.
+   *
+   * Linked non-due routines are materialized before their timer starts. When
+   * that later start is refused/failed, keeping the duplicate would expose a
+   * task that the user never actually started. Roll back every in-memory
+   * collection first, then best-effort persist the corrected day state.
+   */
+  async rollbackDuplicateInstance(inst: TaskInstance): Promise<void> {
+    const context = this.duplicateRollbackContext.get(inst)
+    const dateKey =
+      context?.dateKey ??
+      inst.date ??
+      this.extractDateKeyFromInstanceId(inst.instanceId) ??
+      this.host.getCurrentDateString()
+    const store = this.host.dayStateManager as DayStateStoreService & {
+      mutateSnapshot?: (
+        key: string,
+        mutator: (state: MutationDayState) => void,
+      ) => Promise<unknown>
+    }
+    try {
+      if (typeof store.mutateSnapshot === 'function') {
+        this.removeDuplicateFromMemory(inst, undefined)
+        await this.cleanupDuplicateRunningRecord(inst)
+        await store.mutateSnapshot(dateKey, (dayState) => {
+          this.removeDuplicateMetadataFromDayState(inst, dayState)
+        })
+        // A view reload can rematerialize the duplicate while the running
+        // record or persisted snapshot is being cleaned. Sweep the live arrays
+        // again after the final await so the just-removed metadata cannot
+        // leave a visible ghost until the next reload.
+        this.removeDuplicateFromMemory(inst, undefined)
+        this.safeRenderTaskList()
+        return
+      }
+
+      // Compatibility fallback for lightweight hosts/tests. Production uses
+      // mutateSnapshot so navigation/cache replacement cannot race cleanup.
+      const dayState =
+        context?.dayState ??
+        (dateKey === this.host.getCurrentDateString()
+          ? this.host.getCurrentDayState()
+          : undefined)
+      if (!dayState) throw new Error(`Missing day state for duplicate rollback: ${dateKey}`)
+      await this.rollbackDuplicateMaterialization(inst, dateKey, dayState)
+    } catch (error) {
+      this.removeDuplicateFromMemory(inst, context?.dayState)
+      this.safeRenderTaskList()
+      console.warn('[TaskMutationService] rollbackDuplicateInstance failed', error)
+    } finally {
+      this.duplicateRollbackContext.delete(inst)
+    }
+  }
+
+  private async rollbackDuplicateMaterialization(
+    inst: TaskInstance,
+    dateKey: string,
+    dayState: MutationDayState,
+  ): Promise<void> {
+    this.removeDuplicateFromMemory(inst, dayState)
+    await this.cleanupDuplicateRunningRecord(inst)
+
+    try {
+      await this.host.persistDayState(dateKey)
+    } catch (error) {
+      // A failed materialization persist may have written partially. Retry the
+      // corrected snapshot, but keep the in-memory rollback even if storage is
+      // still unavailable.
+      console.warn('[TaskMutationService] duplicate rollback persist failed', error)
+    } finally {
+      this.duplicateRollbackContext.delete(inst)
+      this.safeRenderTaskList()
+    }
+  }
+
+  private async cleanupDuplicateRunningRecord(inst: TaskInstance): Promise<void> {
+    if (typeof this.host.removeRunningTaskRecord !== 'function') return
+    try {
+      await this.host.removeRunningTaskRecord({
+        instanceId: inst.instanceId,
+        taskPath: inst.task?.path,
+        taskId: inst.task?.taskId,
+      })
+    } catch (error) {
+      console.warn(
+        '[TaskMutationService] duplicate rollback running-state cleanup failed',
+        error,
+      )
+    }
+  }
+
+  private removeDuplicateFromMemory(
+    inst: TaskInstance,
+    dayState: MutationDayState | undefined,
+  ): void {
+    const instanceId = inst.instanceId
+    this.host.taskInstances = this.host.taskInstances.filter(
+      (candidate) =>
+        candidate !== inst &&
+        (!instanceId || candidate.instanceId !== instanceId),
+    )
+
+    const hasRemainingTaskInstance = this.host.taskInstances.some(
+      (candidate) =>
+        candidate.task === inst.task ||
+        (Boolean(inst.task?.path) && candidate.task?.path === inst.task.path),
+    )
+    if (!hasRemainingTaskInstance) {
+      this.host.tasks = this.host.tasks.filter(
+        (task) =>
+          task !== inst.task &&
+          (!inst.task?.path || task.path !== inst.task.path),
+      )
+    }
+
+    if (!dayState || !instanceId) return
+    this.removeDuplicateMetadataFromDayState(inst, dayState)
+  }
+
+  private removeDuplicateMetadataFromDayState(
+    inst: TaskInstance,
+    dayState: MutationDayState,
+  ): void {
+    const instanceId = inst.instanceId
+    if (!instanceId) return
+    dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
+      (entry) => entry.instanceId !== instanceId,
+    )
+    const duplicateOrderKey = `${instanceId}::${inst.slotKey ?? 'none'}`
+    if (dayState.orders) delete dayState.orders[duplicateOrderKey]
+    if (dayState.ordersMeta) delete dayState.ordersMeta[duplicateOrderKey]
   }
 
   private resolveDuplicateSlotKey(
@@ -226,16 +387,25 @@ export default class TaskMutationService {
     return cloned
   }
 
-  async deleteTask(inst: TaskInstance): Promise<void> {
-    if (!inst) return
-    if (inst.task.isRoutine) {
-      await this.deleteRoutineTask(inst)
-    } else {
-      await this.deleteNonRoutineTask(inst)
+  async deleteTask(inst: TaskInstance): Promise<boolean> {
+    if (!inst) return false
+    try {
+      return inst.task.isRoutine
+        ? await this.deleteRoutineTask(inst)
+        : await this.deleteNonRoutineTask(inst)
+    } catch (error) {
+      console.error('[TaskMutationService] deleteTask failed', error)
+      new Notice(this.host.tv('notices.taskDeleteFailed', 'Failed to delete task'))
+      return false
     }
   }
 
-  async deleteInstance(inst: TaskInstance): Promise<void> {
+  async deleteInstance(inst: TaskInstance): Promise<boolean> {
+    let removedIndex = -1
+    let rollbackDateKey: string | undefined
+    let rollbackDayState: MutationDayState | undefined
+    let previousDeletedEntries: DeletedInstance[] | undefined
+    let previousDuplicatedInstances: DuplicatedEntry[] | undefined
     try {
       await this.host.ensureDayStateForCurrentDate()
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
@@ -243,14 +413,18 @@ export default class TaskMutationService {
       const hadSiblingWithSamePath = this.host.taskInstances.some(
         (candidate) => candidate !== inst && candidate.task?.path === inst.task.path,
       )
-      const index = this.host.taskInstances.indexOf(inst)
-      if (index > -1) {
-        this.host.taskInstances.splice(index, 1)
+      removedIndex = this.host.taskInstances.indexOf(inst)
+      if (removedIndex > -1) {
+        this.host.taskInstances.splice(removedIndex, 1)
       }
 
       const dateKey = this.host.getCurrentDateString()
       const dayState = this.host.getCurrentDayState()
       const deletedEntries = [...this.host.dayStateManager.getDeleted(dateKey)]
+      rollbackDateKey = dateKey
+      rollbackDayState = dayState
+      previousDeletedEntries = [...deletedEntries]
+      previousDuplicatedInstances = [...dayState.duplicatedInstances]
       let isDuplicate = this.isDuplicatedTask(inst)
       const inferredDuplicate =
         !isDuplicate && !inst.task.isRoutine && hadSiblingWithSamePath
@@ -278,9 +452,14 @@ export default class TaskMutationService {
           deletedAt: timestamp,
           taskId,
         })
+        const hasExactDuplicateRecord = dayState.duplicatedInstances.some(
+          (entry) => entry.instanceId === inst.instanceId,
+        )
         dayState.duplicatedInstances = dayState.duplicatedInstances.filter(
           (entry) =>
-            entry.instanceId !== inst.instanceId && entry.originalPath !== inst.task.path,
+            hasExactDuplicateRecord
+              ? entry.instanceId !== inst.instanceId
+              : entry.originalPath !== inst.task.path,
         )
       } else if (!inst.task.isRoutine) {
         const hasValidPath = typeof inst.task.path === 'string' && inst.task.path.length > 0
@@ -317,9 +496,13 @@ export default class TaskMutationService {
       await this.host.persistDayState(dateKey)
 
       if (typeof this.host.removeRunningTaskRecord === 'function') {
-        await this.host.removeRunningTaskRecord({
-          instanceId: inst.instanceId,
-        })
+        try {
+          await this.host.removeRunningTaskRecord({
+            instanceId: inst.instanceId,
+          })
+        } catch (error) {
+          console.warn('[TaskMutationService] delete running-state cleanup failed', error)
+        }
       }
 
       if (!inst.task.isRoutine) {
@@ -341,9 +524,42 @@ export default class TaskMutationService {
       }
 
       this.safeRenderTaskList()
+      return true
     } catch (error) {
+      if (
+        removedIndex >= 0 &&
+        !this.host.taskInstances.includes(inst)
+      ) {
+        this.host.taskInstances.splice(
+          Math.min(removedIndex, this.host.taskInstances.length),
+          0,
+          inst,
+        )
+      }
+      if (
+        rollbackDateKey &&
+        rollbackDayState &&
+        previousDeletedEntries &&
+        previousDuplicatedInstances
+      ) {
+        rollbackDayState.duplicatedInstances = previousDuplicatedInstances
+        this.host.dayStateManager.setDeleted(
+          previousDeletedEntries,
+          rollbackDateKey,
+        )
+        try {
+          await this.host.persistDayState(rollbackDateKey)
+        } catch (rollbackError) {
+          console.warn(
+            '[TaskMutationService] delete rollback persist failed',
+            rollbackError,
+          )
+        }
+      }
+      this.safeRenderTaskList()
       console.error('[TaskMutationService] deleteInstance failed', error)
       new Notice(this.host.tv('notices.taskDeleteFailed', 'Failed to delete task'))
+      return false
     }
   }
 
@@ -516,17 +732,19 @@ export default class TaskMutationService {
     }
   }
 
-  private async deleteNonRoutineTask(inst: TaskInstance): Promise<void> {
-    if (inst.instanceId) {
+  private async deleteNonRoutineTask(inst: TaskInstance): Promise<boolean> {
+    const deleted = await this.deleteInstance(inst)
+    if (deleted && inst.instanceId) {
       await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId)
     }
-    await this.deleteInstance(inst)
+    return deleted
   }
 
-  private async deleteRoutineTask(inst: TaskInstance): Promise<void> {
+  private async deleteRoutineTask(inst: TaskInstance): Promise<boolean> {
     const dateKey = this.host.getCurrentDateString()
     await this.host.ensureDayStateForCurrentDate()
     const dayState = this.host.getCurrentDayState()
+    const previousHiddenRoutines = [...dayState.hiddenRoutines]
     const isDuplicated = this.isDuplicatedTask(inst)
 
     const matchesEntry = (entry: HiddenRoutineEntry): boolean => {
@@ -546,43 +764,67 @@ export default class TaskMutationService {
       }
       return isHiddenEntry(entry)
     }
-    const alreadyHidden = dayState.hiddenRoutines.some(
-      (entry) => matchesEntry(entry) && isActiveHidden(entry),
-    )
-
-    if (!alreadyHidden) {
-      const now = Date.now()
-      const existingIndex = dayState.hiddenRoutines.findIndex((entry) => matchesEntry(entry))
-      if (existingIndex >= 0) {
-        const existing = dayState.hiddenRoutines[existingIndex]
-        if (typeof existing === 'string') {
-          dayState.hiddenRoutines[existingIndex] = {
-            path: existing,
-            instanceId: null,
-            hiddenAt: now,
-          }
-        } else if (existing) {
-          dayState.hiddenRoutines[existingIndex] = {
-            ...existing,
-            hiddenAt: now,
-            restoredAt: undefined,
-          }
-        }
-      } else {
-        dayState.hiddenRoutines.push({
-          path: inst.task.path,
-          instanceId: isDuplicated ? inst.instanceId : null,
-          hiddenAt: now,
-        })
+    const restoreHiddenRoutines = async (): Promise<void> => {
+      dayState.hiddenRoutines = previousHiddenRoutines
+      try {
+        await this.host.persistDayState(dateKey)
+      } catch (error) {
+        console.warn(
+          '[TaskMutationService] routine delete rollback persist failed',
+          error,
+        )
       }
-      await this.host.persistDayState(dateKey)
     }
 
-    if (inst.instanceId) {
-      await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId)
-    }
+    try {
+      const alreadyHidden = dayState.hiddenRoutines.some(
+        (entry) => matchesEntry(entry) && isActiveHidden(entry),
+      )
 
-    await this.deleteInstance(inst)
+      if (!alreadyHidden) {
+        const now = Date.now()
+        const existingIndex = dayState.hiddenRoutines.findIndex((entry) =>
+          matchesEntry(entry),
+        )
+        if (existingIndex >= 0) {
+          const existing = dayState.hiddenRoutines[existingIndex]
+          if (typeof existing === 'string') {
+            dayState.hiddenRoutines[existingIndex] = {
+              path: existing,
+              instanceId: null,
+              hiddenAt: now,
+            }
+          } else if (existing) {
+            dayState.hiddenRoutines[existingIndex] = {
+              ...existing,
+              hiddenAt: now,
+              restoredAt: undefined,
+            }
+          }
+        } else {
+          dayState.hiddenRoutines.push({
+            path: inst.task.path,
+            instanceId: isDuplicated ? inst.instanceId : null,
+            hiddenAt: now,
+          })
+        }
+        await this.host.persistDayState(dateKey)
+      }
+
+      const deleted = await this.deleteInstance(inst)
+      if (!deleted) {
+        await restoreHiddenRoutines()
+        return false
+      }
+
+      if (inst.instanceId) {
+        await this.deleteTaskLogsByInstanceId(inst.task.path, inst.instanceId)
+      }
+      return true
+    } catch (error) {
+      await restoreHiddenRoutines()
+      throw error
+    }
   }
 
   private assignDuplicateOrder(newInst: TaskInstance, originalInst: TaskInstance): void {

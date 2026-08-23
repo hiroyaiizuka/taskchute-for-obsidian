@@ -3,8 +3,10 @@ import { RecipeIconRenderer } from '../../src/features/recipe/ui/RecipeIconRende
 import { RecipeRunPopover } from '../../src/features/recipe/ui/RecipeRunPopover'
 import RecipeManagerModal from '../../src/features/recipe/modals/RecipeManagerModal'
 import { RecipeSelectModal } from '../../src/features/recipe/modals/RecipeSelectModal'
+import { RecipeEditorForm } from '../../src/features/recipe/ui/RecipeEditorForm'
 import { setLocaleOverride } from '../../src/i18n'
 import { Notice, TFile } from 'obsidian'
+import * as confirmModalModule from '../../src/ui/modals/ConfirmModal'
 
 type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
@@ -40,6 +42,26 @@ function ensureCreateEl(): void {
       this.innerHTML = ''
     }
   }
+}
+
+type RecipeFileEntry = {
+  file: TFile
+  content: string
+  frontmatter: Record<string, unknown>
+}
+
+function createRecipeFolderLookup(files: Map<string, RecipeFileEntry>) {
+  return jest.fn((path: string) => {
+    if (path === 'TaskChute/Recipes' || path === 'TaskChute/Task') {
+      return {
+        path,
+        children: Array.from(files.values())
+          .map((entry) => entry.file)
+          .filter((file) => file.path.startsWith(`${path}/`)),
+      }
+    }
+    return files.get(path)?.file ?? null
+  })
 }
 
 describe('recipe UI helpers', () => {
@@ -79,6 +101,40 @@ describe('recipe UI helpers', () => {
     expect(container.textContent).toContain('No recipes yet.')
     expect(container.textContent).toContain('Create one in this modal?')
     expect(container.querySelector<HTMLButtonElement>('.recipe-empty-create-button')?.textContent).toBe('Create recipe')
+  })
+
+  test('shared recipe editor keeps existing checklist ids through edits and reordering', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const editor = new RecipeEditorForm(container, {
+      title: '公開準備',
+      goal: '公開できる',
+      steps: [
+        { id: 'step-a', text: '下書き' },
+        { id: 'step-b', text: '公開' },
+      ],
+      qualityChecks: [{ id: 'quality-a', text: 'リンク確認' }],
+      constraints: ['個人情報を含めない'],
+    })
+
+    const inputs = container.querySelectorAll<HTMLInputElement>('.recipe-step-input')
+    inputs[0].value = '下書きを作る'
+    inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+    const handles = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')
+    const rows = container.querySelectorAll<HTMLElement>('.recipe-steps-list .recipe-step-row')
+    handles[0].dispatchEvent(new Event('dragstart', { bubbles: true }))
+    rows[1].dispatchEvent(new Event('drop', { bubbles: true }))
+
+    expect(editor.getValue()).toEqual({
+      title: '公開準備',
+      goal: '公開できる',
+      steps: [
+        { id: 'step-b', text: '公開' },
+        { id: 'step-a', text: '下書きを作る' },
+      ],
+      qualityChecks: [{ id: 'quality-a', text: 'リンク確認' }],
+      constraints: ['個人情報を含めない'],
+    })
   })
 
   test('recipe select modal can be closed when no recipes exist', async () => {
@@ -364,6 +420,89 @@ describe('recipe UI helpers', () => {
     }
   })
 
+  test('assigned recipe can be removed from the task settings flow', async () => {
+    const unassignRecipeFromTask = jest.fn()
+    const onAssigned = jest.fn()
+    const modal = new RecipeSelectModal({} as never, {
+      service: {
+        loadRecipes: jest.fn(async () => [{
+          path: 'TaskChute/Recipes/Bath.md',
+          title: 'お風呂に入る',
+          steps: [{ id: 'step-1', text: '歯磨きする' }],
+          file: {},
+        }]),
+        unassignRecipeFromTask,
+      } as never,
+      instance: {
+        task: {
+          path: 'TaskChute/Task/Workout.md',
+          name: '運動',
+          recipePath: 'TaskChute/Recipes/Bath.md',
+        },
+      } as never,
+      onAssigned,
+    })
+
+    modal.open()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    document.querySelector<HTMLButtonElement>('.recipe-select-clear-button')?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(unassignRecipeFromTask).toHaveBeenCalledWith('TaskChute/Task/Workout.md')
+    expect(onAssigned).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.recipe-modal-content')).toBeNull()
+  })
+
+  test('create pre-fills task title and retries assignment without creating a duplicate recipe', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const savedRecipe = {
+      path: 'TaskChute/Recipes/運動.md',
+      title: '運動',
+      steps: [{ id: 'step-1', text: '着替える' }],
+      file: {},
+    }
+    const saveRecipe = jest.fn(async () => savedRecipe)
+    const assignRecipeToTask = jest.fn()
+      .mockRejectedValueOnce(new Error('assign failed'))
+      .mockResolvedValueOnce(undefined)
+    const modal = new RecipeSelectModal({} as never, {
+      service: {
+        loadRecipes: jest.fn(async () => []),
+        saveRecipe,
+        assignRecipeToTask,
+      } as never,
+      instance: {
+        task: { path: 'TaskChute/Task/Workout.md', name: '運動' },
+      } as never,
+      onAssigned: jest.fn(),
+    })
+
+    try {
+      modal.open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      document.querySelector<HTMLButtonElement>('.recipe-empty-create-button')?.click()
+      expect(document.querySelector<HTMLInputElement>('.recipe-title-input')?.value).toBe('運動')
+      const stepInput = document.querySelector<HTMLInputElement>('.recipe-step-input')!
+      stepInput.value = '着替える'
+      stepInput.dispatchEvent(new Event('input', { bubbles: true }))
+      document.querySelector<HTMLFormElement>('.recipe-edit-form')?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(saveRecipe).toHaveBeenCalledTimes(1)
+      expect(document.querySelector<HTMLInputElement>('.recipe-search-input')?.value).toBe('運動')
+      document.querySelector<HTMLButtonElement>('.recipe-select-save-button')?.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(saveRecipe).toHaveBeenCalledTimes(1)
+      expect(assignRecipeToTask).toHaveBeenCalledTimes(2)
+    } finally {
+      consoleErrorSpy.mockRestore()
+      modal.close()
+    }
+  })
+
   test('recipe select modal creates an unmatched recipe from inline step fields', async () => {
     const savedRecipe = {
       path: 'TaskChute/Recipes/ジム基本.md',
@@ -406,7 +545,10 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.taskchute-autocomplete-suggestions')).toBeNull()
     expect(document.body.textContent).not.toContain('一致するレシピがありません')
     expect(document.body.textContent).not.toContain('新規作成')
-    expect(document.body.textContent).toContain('手順:')
+    expect(document.body.textContent).toContain('完了基準')
+    expect(document.body.textContent).toContain('手順')
+    expect(document.body.textContent).toContain('品質基準')
+    expect(document.body.textContent).toContain('制約・ルール')
     expect(document.querySelector<HTMLInputElement>('.recipe-step-input')).not.toBeNull()
 
     const saveButton = document.querySelector<HTMLButtonElement>('.recipe-select-save-button')
@@ -441,7 +583,10 @@ describe('recipe UI helpers', () => {
 
     expect(saveRecipe).toHaveBeenCalledWith({
       title: 'ジム基本',
+      goal: '',
       steps: ['散歩する', '筋トレをする'],
+      qualityChecks: [],
+      constraints: [],
     })
     expect(assignRecipeToTask).toHaveBeenCalledWith('TaskChute/Task/Workout.md', 'TaskChute/Recipes/ジム基本.md')
     expect(onAssigned).toHaveBeenCalledTimes(1)
@@ -525,7 +670,7 @@ describe('recipe UI helpers', () => {
     expect(document.body.textContent).toContain('aaa')
     expect(document.body.textContent).not.toContain('リセット')
     expect(document.body.textContent).not.toContain('Markdownを開く')
-    expect(document.body.textContent).not.toContain('0/2')
+    expect(document.body.textContent).toContain('0/2')
     expect(document.body.textContent).not.toContain('完了')
     expect(document.querySelector('.recipe-run-summary')).toBeNull()
     expect(document.querySelector('.recipe-run-edit-button')).not.toBeNull()
@@ -556,6 +701,55 @@ describe('recipe UI helpers', () => {
     document.querySelector<HTMLButtonElement>('.recipe-run-edit-button')?.click()
     expect(openRecipeEditor).toHaveBeenCalledWith('TaskChute/Recipes/A.md')
     expect(document.querySelector('.recipe-run-popover')).toBeNull()
+  })
+
+  test('run popover tracks procedure and quality progress independently', async () => {
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    const setProgress = jest.fn()
+    const popover = new RecipeRunPopover({
+      service: {
+        loadRecipe: jest.fn(async () => ({
+          path: 'TaskChute/Recipes/Publish.md',
+          title: '公開',
+          goal: 'URLを共有できている',
+          steps: [{ id: 'step-a', text: '公開する' }],
+          qualityChecks: [{ id: 'quality-a', text: 'リンク切れがない' }],
+          constraints: [{ id: 'constraint-a', text: '個人情報を含めない' }],
+          file: {},
+        })),
+      } as never,
+      getDateKey: () => '2026-07-17',
+      getProgress: () => undefined,
+      setProgress,
+      openRecipeEditor: jest.fn(),
+      onProgressChanged: jest.fn(),
+    })
+
+    await popover.show({
+      instanceId: 'publish-instance',
+      task: { path: 'TaskChute/Task/Publish.md', recipePath: 'TaskChute/Recipes/Publish.md' },
+    } as never, anchor)
+
+    expect(document.querySelector('.recipe-run-goal')?.textContent).toContain('URLを共有できている')
+    expect(document.querySelector('.recipe-run-section--steps')?.textContent).toContain('0/1')
+    expect(document.querySelector('.recipe-run-section--quality')?.textContent).toContain('0/1')
+    expect(document.querySelector('.recipe-run-constraints')?.textContent).toContain('個人情報を含めない')
+
+    const qualityCheckbox = document.querySelector<HTMLInputElement>(
+      '.recipe-run-section--quality input[type="checkbox"]',
+    )!
+    qualityCheckbox.checked = true
+    qualityCheckbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    expect(setProgress).toHaveBeenCalledWith(
+      'publish-instance::TaskChute/Recipes/Publish.md',
+      expect.objectContaining({
+        checkedStepIds: [],
+        checkedQualityCheckIds: ['quality-a'],
+      }),
+      '2026-07-17',
+    )
   })
 
   test('run popover applies saved step order per task/date progress entry only', async () => {
@@ -926,7 +1120,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(async (target: TFile, content: string) => {
             const entry = files.get(target.path)
@@ -970,7 +1164,9 @@ describe('recipe UI helpers', () => {
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(files.get(file.path)?.content).toContain('- [ ] b\n- [ ] a')
+    expect(files.get(file.path)?.content).toMatch(
+      /- \[ \] b <!-- taskchute-step-id: [^ ]+ -->\n- \[ \] a <!-- taskchute-step-id: [^ ]+ -->/u,
+    )
     modal.close()
   })
 
@@ -991,7 +1187,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1035,7 +1231,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1083,7 +1279,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1134,7 +1330,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1195,7 +1391,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1241,7 +1437,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => Array.from(files.values()).map((entry) => entry.file)),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1289,7 +1485,7 @@ describe('recipe UI helpers', () => {
       app: {
         vault: {
           getMarkdownFiles: jest.fn(() => [file]),
-          getAbstractFileByPath: jest.fn((path: string) => files.get(path)?.file ?? null),
+          getAbstractFileByPath: createRecipeFolderLookup(files),
           read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
           modify: jest.fn(),
           create: jest.fn(),
@@ -1316,5 +1512,244 @@ describe('recipe UI helpers', () => {
     document.querySelector<HTMLElement>('.task-modal-overlay')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
+  })
+})
+
+describe('recipe v2 accessibility and guarded editing', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    setLocaleOverride('ja')
+    ensureCreateEl()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    setLocaleOverride('en')
+  })
+
+  test('editor exposes validation errors and focuses the first invalid field', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const editor = new RecipeEditorForm(container)
+    const title = container.querySelector<HTMLInputElement>('.recipe-title-input')!
+    const goal = container.querySelector<HTMLTextAreaElement>('.recipe-goal-input')!
+    const error = container.querySelector<HTMLElement>('.recipe-form-error')!
+
+    expect(editor.validate()).toBe(false)
+    expect(title.getAttribute('aria-invalid')).toBe('true')
+    expect(title.getAttribute('aria-describedby')).toBe(error.id)
+    expect(document.activeElement).toBe(title)
+
+    title.value = '公開準備'
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(editor.validate()).toBe(false)
+    expect(title.hasAttribute('aria-invalid')).toBe(false)
+    expect(goal.getAttribute('aria-invalid')).toBe('true')
+    expect(goal.getAttribute('aria-describedby')).toBe(error.id)
+    expect(document.activeElement).toBe(goal)
+  })
+
+  test('editor reorders a checklist with Alt+Arrow and preserves item ids', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const editor = new RecipeEditorForm(container, {
+      title: '公開準備',
+      steps: [
+        { id: 'step-a', text: '下書き' },
+        { id: 'step-b', text: '公開' },
+      ],
+    })
+    const firstHandle = container.querySelector<HTMLButtonElement>('.recipe-step-drag-handle')!
+
+    firstHandle.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      altKey: true,
+      bubbles: true,
+    }))
+
+    expect(editor.getValue().steps).toEqual([
+      { id: 'step-b', text: '公開' },
+      { id: 'step-a', text: '下書き' },
+    ])
+    expect(document.activeElement).toBe(container.querySelectorAll('.recipe-step-drag-handle')[1])
+  })
+
+  test('select modal is an accessible dialog with keyboard combobox and explicit create flow', async () => {
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    const modal = new RecipeSelectModal({} as never, {
+      service: {
+        loadRecipes: jest.fn(async () => [{
+          path: 'TaskChute/Recipes/Publish.md',
+          title: '公開準備',
+          steps: [{ id: 'step-a', text: '公開する' }],
+          file: {},
+        }]),
+      } as never,
+      instance: {
+        task: { path: 'TaskChute/Task/Publish.md', name: '記事を公開する' },
+      } as never,
+      onAssigned: jest.fn(),
+    })
+
+    modal.open()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const dialog = document.querySelector<HTMLElement>('.recipe-modal-content')!
+    const search = dialog.querySelector<HTMLInputElement>('.recipe-search-input')!
+    expect(dialog.getAttribute('role')).toBe('dialog')
+    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)).not.toBeNull()
+    expect(search.getAttribute('role')).toBe('combobox')
+
+    search.value = '公'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    expect(search.getAttribute('aria-expanded')).toBe('true')
+    expect(document.getElementById(search.getAttribute('aria-controls')!)?.getAttribute('role')).toBe('listbox')
+    expect(search.getAttribute('aria-activedescendant')).toBeTruthy()
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(search.value).toBe('公開準備')
+    expect(search.getAttribute('aria-expanded')).toBe('false')
+
+    dialog.querySelector<HTMLButtonElement>('.recipe-select-create-new-button')?.click()
+    expect(document.querySelector<HTMLInputElement>('.recipe-title-input')?.value).toBe('記事を公開する')
+
+    modal.close()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  test('select modal asks before discarding a dirty create form', async () => {
+    const confirm = jest.spyOn(confirmModalModule, 'showConfirmModal').mockResolvedValue(false)
+    const modal = new RecipeSelectModal({} as never, {
+      service: { loadRecipes: jest.fn(async () => []) } as never,
+      instance: { task: { path: 'TaskChute/Task/A.md', name: 'A' } } as never,
+      onAssigned: jest.fn(),
+    })
+    modal.open()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    document.querySelector<HTMLButtonElement>('.recipe-empty-create-button')?.click()
+    const goal = document.querySelector<HTMLTextAreaElement>('.recipe-goal-input')!
+    goal.value = '完了できる'
+    goal.dispatchEvent(new Event('input', { bubbles: true }))
+
+    document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')?.click()
+    await Promise.resolve()
+    expect(confirm).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ destructive: true }))
+    expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
+
+    confirm.mockResolvedValue(true)
+    document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')?.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.querySelector('.recipe-modal-content')).toBeNull()
+  })
+
+  test('manager modal guards backdrop dismissal while its editor is dirty', async () => {
+    const confirm = jest.spyOn(confirmModalModule, 'showConfirmModal').mockResolvedValue(false)
+    const plugin = {
+      app: {
+        vault: {
+          getMarkdownFiles: jest.fn(() => []),
+          getAbstractFileByPath: jest.fn(),
+          read: jest.fn(),
+          modify: jest.fn(),
+          create: jest.fn(),
+        },
+        metadataCache: { getFileCache: jest.fn() },
+        fileManager: { trashFile: jest.fn(), processFrontMatter: jest.fn() },
+        workspace: { openLinkText: jest.fn() },
+      },
+      pathManager: {
+        getRecipeFolderPath: () => 'TaskChute/Recipes',
+        getTaskFolderPath: () => 'TaskChute/Task',
+        ensureFolderExists: jest.fn(),
+      },
+    }
+    const modal = new RecipeManagerModal(plugin.app as never, plugin as never)
+    modal.open()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    document.querySelector<HTMLButtonElement>('.recipe-empty-create-button')?.click()
+    const goal = document.querySelector<HTMLTextAreaElement>('.recipe-goal-input')!
+    goal.value = '公開済み'
+    goal.dispatchEvent(new Event('input', { bubbles: true }))
+
+    const overlay = document.querySelector<HTMLElement>('.task-modal-overlay')!
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    expect(confirm).toHaveBeenCalled()
+    expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
+
+    confirm.mockResolvedValue(true)
+    overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.querySelector('.recipe-modal-content')).toBeNull()
+  })
+
+  test('run popover links its anchor, supports keyboard reorder, and restores focus on Escape', async () => {
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    anchor.focus()
+    const setProgress = jest.fn()
+    const popover = new RecipeRunPopover({
+      service: {
+        loadRecipe: jest.fn(async () => ({
+          path: 'TaskChute/Recipes/A.md',
+          title: '公開準備',
+          file: {},
+          steps: [
+            { id: 'step-a', text: '下書き' },
+            { id: 'step-b', text: '公開' },
+          ],
+          qualityChecks: [{ id: 'quality-a', text: 'リンク確認' }],
+        })),
+      } as never,
+      getDateKey: () => '2026-07-17',
+      getProgress: () => ({
+        recipePath: 'TaskChute/Recipes/A.md',
+        checkedStepIds: [],
+        checkedQualityCheckIds: [],
+        qualityChecksUpdatedAt: 17,
+        updatedAt: 17,
+      }),
+      setProgress,
+      openRecipeEditor: jest.fn(),
+      onProgressChanged: jest.fn(),
+    })
+
+    await popover.show({
+      instanceId: 'instance-a',
+      task: { path: 'TaskChute/Task/A.md', recipePath: 'TaskChute/Recipes/A.md' },
+    } as never, anchor)
+
+    const dialog = document.querySelector<HTMLElement>('.recipe-run-popover')!
+    expect(dialog.getAttribute('role')).toBe('dialog')
+    expect(anchor.getAttribute('aria-expanded')).toBe('true')
+    expect(anchor.getAttribute('aria-controls')).toBe(dialog.id)
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)).not.toBeNull()
+
+    dialog.querySelector<HTMLButtonElement>('.recipe-run-section--steps .recipe-step-drag-handle')
+      ?.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        altKey: true,
+        bubbles: true,
+      }))
+    expect(setProgress).toHaveBeenCalledWith(
+      'instance-a::TaskChute/Recipes/A.md',
+      expect.objectContaining({
+        stepOrder: ['step-b', 'step-a'],
+        stepsUpdatedAt: expect.any(Number),
+        qualityChecksUpdatedAt: 17,
+      }),
+      '2026-07-17',
+    )
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(document.querySelector('.recipe-run-popover')).toBeNull()
+    expect(anchor.getAttribute('aria-expanded')).toBe('false')
+    expect(anchor.hasAttribute('aria-controls')).toBe(false)
+    expect(document.activeElement).toBe(anchor)
   })
 })

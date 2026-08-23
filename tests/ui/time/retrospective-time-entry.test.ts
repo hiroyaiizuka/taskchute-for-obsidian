@@ -129,7 +129,8 @@ describe('Retrospective time entry', () => {
   })
 
   test('transitionToRunningWithStart accepts idle state', async () => {
-    const host = createHost()
+    const onInstanceStarted = jest.fn(async () => Promise.resolve())
+    const host = { ...createHost(), onInstanceStarted }
     const controller = new TaskTimeController(host)
     const inst = createIdleInstance()
 
@@ -144,6 +145,7 @@ describe('Retrospective time entry', () => {
     expect(inst.startTime).toBeDefined()
     expect(inst.startTime!.getHours()).toBe(10)
     expect(inst.startTime!.getMinutes()).toBe(0)
+    expect(onInstanceStarted).toHaveBeenCalledWith(inst)
   })
 
   test('transitionToRunningWithStart skips log removal for idle', async () => {

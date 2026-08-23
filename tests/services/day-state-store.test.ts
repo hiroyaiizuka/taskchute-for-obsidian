@@ -19,11 +19,22 @@ describe('DayStateStoreService', () => {
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       return initialStates[key] ? createState(initialStates[key]) : createState();
     });
-    const saveDay = jest.fn(async () => undefined);
+    const saveDay = jest.fn<Promise<void>, [Date, DayState]>(async () => undefined);
+    const updateDay = jest.fn(async (
+      date: Date,
+      mutator: (state: DayState) => DayState | void,
+    ) => {
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const working = createState(initialStates[key]);
+      const result = mutator(working) ?? working;
+      initialStates[key] = createState(result);
+      return createState(result);
+    });
     const deps = {
       dayStateService: {
         loadDay,
         saveDay,
+        updateDay,
         mergeDayState: jest.fn(),
         clearCache: jest.fn(),
         clearCacheForDate: jest.fn(),
@@ -36,9 +47,9 @@ describe('DayStateStoreService', () => {
         return new Date(y, (m || 1) - 1, d || 1);
       },
       cache,
-    } as const;
+    };
 
-    return { deps, loadDay, saveDay, cache };
+    return { deps, loadDay, saveDay, updateDay, cache };
   }
 
   test('ensure loads missing day state and caches result', async () => {
@@ -51,6 +62,183 @@ describe('DayStateStoreService', () => {
     expect(loadDay).toHaveBeenCalledTimes(1);
     expect(state.hiddenRoutines).toHaveLength(1);
     expect(manager.snapshot('2025-10-09')).toEqual(state);
+  });
+
+  test('mutateSnapshot updates another day without changing the shared current date', async () => {
+    const other = createState({
+      hiddenRoutines: [{ path: 'TASKS/other.md', instanceId: null }],
+    });
+    const { deps } = createDeps({ '2025-10-10': other });
+    const manager = new DayStateStoreService(deps);
+    await manager.ensure('2025-10-09');
+
+    const snapshot = await manager.mutateSnapshot('2025-10-10', (state) => {
+      state.duplicatedInstances.push({
+        instanceId: 'dup-1',
+        originalPath: 'TASKS/ai.md',
+      });
+    });
+
+    expect(snapshot.hiddenRoutines).toHaveLength(1);
+    expect(snapshot.duplicatedInstances).toHaveLength(1);
+    expect(manager.snapshot('2025-10-10')).toBe(snapshot);
+    expect(manager.getCurrentKey()).toBe('2025-10-09');
+    expect(manager.getCurrent()).toBe(manager.snapshot('2025-10-09'));
+  });
+
+  test('mutateSnapshot serializes concurrent updates for different dates in the same month', async () => {
+    const { deps } = createDeps({
+      '2025-10-10': createState(),
+      '2025-10-11': createState(),
+    });
+    const baseUpdateDay = deps.dayStateService.updateDay;
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let callCount = 0;
+    const updateDay = jest.fn(async (
+      date: Date,
+      mutator: (state: DayState) => DayState | void,
+    ) => {
+      callCount += 1;
+      if (callCount === 1) await firstGate;
+      return await baseUpdateDay(date, mutator);
+    });
+    deps.dayStateService.updateDay = updateDay;
+    const manager = new DayStateStoreService(deps);
+
+    const first = manager.mutateSnapshot('2025-10-10', (state) => {
+      state.duplicatedInstances.push({
+        instanceId: 'dup-1',
+        originalPath: 'TASKS/first.md',
+      });
+    });
+    const second = manager.mutateSnapshot('2025-10-11', (state) => {
+      state.duplicatedInstances.push({
+        instanceId: 'dup-2',
+        originalPath: 'TASKS/second.md',
+      });
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(updateDay).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(updateDay).toHaveBeenCalledTimes(2);
+    expect(manager.snapshot('2025-10-10')?.duplicatedInstances).toEqual([
+      expect.objectContaining({ instanceId: 'dup-1' }),
+    ]);
+    expect(manager.snapshot('2025-10-11')?.duplicatedInstances).toEqual([
+      expect.objectContaining({ instanceId: 'dup-2' }),
+    ]);
+  });
+
+  test('persist waits for an in-flight monthly mutation and saves the cleaned cache', async () => {
+    const ghost = {
+      instanceId: 'dup-persist-race',
+      originalPath: 'TASKS/ghost.md',
+    };
+    const { deps, saveDay } = createDeps({
+      '2025-10-10': createState({ duplicatedInstances: [ghost] }),
+    });
+    const baseUpdateDay = deps.dayStateService.updateDay;
+    let releaseMutation!: () => void;
+    const mutationGate = new Promise<void>((resolve) => {
+      releaseMutation = resolve;
+    });
+    deps.dayStateService.updateDay = jest.fn(async (
+      date: Date,
+      mutator: (state: DayState) => DayState | void,
+    ) => {
+      await mutationGate;
+      return await baseUpdateDay(date, mutator);
+    });
+    const manager = new DayStateStoreService(deps);
+    await manager.ensure('2025-10-10');
+
+    const mutation = manager.mutateSnapshot('2025-10-10', (state) => {
+      state.duplicatedInstances = state.duplicatedInstances.filter(
+        (entry) => entry.instanceId !== ghost.instanceId,
+      );
+    });
+    const persistence = manager.persist('2025-10-10');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(saveDay).not.toHaveBeenCalled();
+    releaseMutation();
+    await Promise.all([mutation, persistence]);
+
+    expect(saveDay).toHaveBeenCalledTimes(1);
+    const saved = saveDay.mock.calls[0]?.[1];
+    expect(saved.duplicatedInstances).toEqual([]);
+  });
+
+  test('mutateSnapshot does not resurrect a cache cleared while persistence is pending', async () => {
+    let resolveUpdate!: (state: DayState) => void;
+    const updateResult = new Promise<DayState>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    const { deps } = createDeps();
+    deps.dayStateService.updateDay = jest.fn(async (
+      _date: Date,
+      mutator: (state: DayState) => DayState | void,
+    ) => {
+      const state = createState();
+      mutator(state);
+      return await updateResult;
+    });
+    const manager = new DayStateStoreService(deps);
+
+    const pending = manager.mutateSnapshot('2025-10-10', (state) => {
+      state.duplicatedInstances.push({
+        instanceId: 'dup-clear',
+        originalPath: 'TASKS/clear.md',
+      });
+    });
+    await Promise.resolve();
+    manager.clear('2025-10-10');
+    resolveUpdate(createState({
+      duplicatedInstances: [{
+        instanceId: 'dup-clear',
+        originalPath: 'TASKS/clear.md',
+      }],
+    }));
+    await pending;
+
+    expect(manager.snapshot('2025-10-10')).toBeNull();
+  });
+
+  test('ensure retries instead of caching a load invalidated by clear', async () => {
+    let resolveFirstLoad: ((state: DayState) => void) | undefined;
+    const firstState = createState({
+      hiddenRoutines: [{ path: 'TASKS/stale.md', instanceId: null }],
+    });
+    const freshState = createState({
+      hiddenRoutines: [{ path: 'TASKS/fresh.md', instanceId: null }],
+    });
+    const { deps, loadDay } = createDeps();
+    loadDay
+      .mockImplementationOnce(async () => await new Promise<DayState>((resolve) => {
+        resolveFirstLoad = resolve;
+      }))
+      .mockResolvedValueOnce(freshState);
+    const manager = new DayStateStoreService(deps);
+
+    const pending = manager.ensure('2025-10-10');
+    await Promise.resolve();
+    manager.clear('2025-10-10');
+    resolveFirstLoad?.(firstState);
+    const loaded = await pending;
+
+    expect(loadDay).toHaveBeenCalledTimes(2);
+    expect(loaded.hiddenRoutines).toEqual([
+      expect.objectContaining({ path: 'TASKS/fresh.md' }),
+    ]);
+    expect(manager.snapshot('2025-10-10')).toBe(loaded);
   });
 
   test('setHidden replaces entries and persists', async () => {

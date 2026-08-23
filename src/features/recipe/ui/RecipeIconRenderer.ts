@@ -24,6 +24,8 @@ export class RecipeIconRenderer {
         role: 'button',
         tabindex: '0',
         'aria-label': this.options.tv('recipes.openRecipe', 'Open recipe'),
+        'aria-haspopup': 'dialog',
+        'aria-expanded': 'false',
       },
     })
     appendRecipeFileIcon(iconContainer)

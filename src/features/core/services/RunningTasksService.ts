@@ -25,6 +25,40 @@ export interface RunningTaskRecord {
   taskId?: string;
 }
 
+/**
+ * Every mounted TaskChute view owns a RunningTasksService instance, but they
+ * share one vault file. Serialize read-modify-write mutations by adapter/path
+ * so recovery in two leaves cannot overwrite each other's result.
+ */
+const runningTaskMutationTails = new WeakMap<
+  object,
+  Map<string, Promise<void>>
+>()
+
+async function serializeRunningTaskMutation<T>(
+  adapter: object,
+  dataPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let byPath = runningTaskMutationTails.get(adapter)
+  if (!byPath) {
+    byPath = new Map()
+    runningTaskMutationTails.set(adapter, byPath)
+  }
+  const previous = byPath.get(dataPath) ?? Promise.resolve()
+  const run = previous.then(operation, operation)
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  byPath.set(dataPath, tail)
+  try {
+    return await run
+  } finally {
+    if (byPath.get(dataPath) === tail) byPath.delete(dataPath)
+  }
+}
+
 export class RunningTasksService {
   private sectionConfig: SectionConfigService | null = null
 
@@ -57,7 +91,11 @@ export class RunningTasksService {
       const y = base.getFullYear();
       const m = String(base.getMonth() + 1).padStart(2, '0');
       const d = String(base.getDate()).padStart(2, '0');
-      const dateString = `${y}-${m}-${d}`;
+      // A task can keep yesterday's startTime after it is explicitly moved to
+      // today's board. The board date is authoritative when the caller
+      // supplies it; otherwise a later save would silently move the persisted
+      // record back to the start date.
+      const dateString = viewDateString ?? `${y}-${m}-${d}`;
       const descriptionField = inst.task?.description;
       const taskDescription =
         typeof descriptionField === 'string' ? descriptionField : undefined;
@@ -81,31 +119,30 @@ export class RunningTasksService {
     const logDataPath = this.plugin.pathManager.getLogDataPath();
     const dataPath = `${logDataPath}/running-task.json`;
 
-    // Read existing records
-    let existing: RunningTaskRecord[] = [];
-    try {
-      const adapter = this.plugin.app.vault.adapter;
-      if (await adapter.exists(dataPath)) {
-        const raw = await adapter.read(dataPath);
-        const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          existing = parsed.filter(
-            (entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry),
-          );
+    const adapter = this.plugin.app.vault.adapter;
+    await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      // Read existing records
+      let existing: RunningTaskRecord[] = [];
+      try {
+        if (await adapter.exists(dataPath)) {
+          const raw = await adapter.read(dataPath);
+          const parsed: unknown = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            existing = parsed.filter(
+              (entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry),
+            );
+          }
         }
+      } catch {
+        // If read fails, start fresh
       }
-    } catch {
-      // If read fails, start fresh
-    }
 
-    // Preserve records for other dates
-    const preserved = existing.filter((r) => !datesToReplace.has(r.date));
-    const merged = [...preserved, ...records];
+      // Preserve records for other dates
+      const preserved = existing.filter((r) => !datesToReplace.has(r.date));
+      const merged = [...preserved, ...records];
 
-    await this.plugin.app.vault.adapter.write(
-      dataPath,
-      JSON.stringify(merged, null, 2)
-    );
+      await adapter.write(dataPath, JSON.stringify(merged, null, 2));
+    })
   }
 
   async deleteByInstanceOrPath(options: {
@@ -113,44 +150,165 @@ export class RunningTasksService {
     taskPath?: string
     taskId?: string
   }): Promise<number> {
-    const { instanceId, taskPath, taskId } = options
-    if (!instanceId && !taskPath && !taskId) return 0
-
     try {
-      const logDataPath = this.plugin.pathManager.getLogDataPath();
-      const dataPath = `${logDataPath}/running-task.json`;
-      const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
-      if (!file || !(file instanceof TFile)) return 0;
-
-      const raw = await this.plugin.app.vault.read(file);
-      if (!raw) return 0;
-
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return 0;
-
-      const records = parsed as RunningTaskRecord[];
-      let filtered: RunningTaskRecord[] = records;
-      if (instanceId) {
-        filtered = records.filter((record) => record?.instanceId !== instanceId);
-      } else if (taskId) {
-        filtered = records.filter((record) => record?.taskId !== taskId);
-      } else if (taskPath) {
-        filtered = records.filter((record) => record?.taskPath !== taskPath);
-      }
-
-      if (filtered.length === records.length) {
-        return 0;
-      }
-
-      await this.plugin.app.vault.modify(
-        file,
-        JSON.stringify(filtered, null, 2),
-      );
-      return records.length - filtered.length;
+      return await this.deleteByInstanceOrPathStrict(options)
     } catch (error) {
       console.warn('[RunningTasksService] Failed to delete running task record', error);
       return 0;
     }
+  }
+
+  /**
+   * Resolve a persisted timer even when its originating board date is not
+   * mounted in the current TaskChute view.
+   *
+   * instanceId is the primary identity. A stale/missing id may fall back to
+   * taskId/path only when that selector has exactly one persisted match, so
+   * one duplicated task can never complete a sibling by accident.
+   */
+  async findByInstanceOrPathStrict(options: {
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }): Promise<RunningTaskRecord | undefined> {
+    const { instanceId, taskPath, taskId } = options
+    if (!instanceId && !taskPath && !taskId) return undefined
+
+    const logDataPath = this.plugin.pathManager.getLogDataPath()
+    const dataPath = `${logDataPath}/running-task.json`
+    const adapter = this.plugin.app.vault.adapter
+
+    return await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      if (!(await adapter.exists(dataPath))) return undefined
+      const raw = await adapter.read(dataPath)
+      if (!raw) return undefined
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) {
+        throw new TypeError('running-task.json must contain an array')
+      }
+      const records = parsed.filter(
+        (entry): entry is RunningTaskRecord =>
+          this.isRunningTaskRecord(entry),
+      )
+      if (instanceId) {
+        const exact = records.find(
+          (record) => record.instanceId === instanceId,
+        )
+        if (exact) return { ...exact }
+      }
+      const fallback = taskId
+        ? records.filter((record) => record.taskId === taskId)
+        : records.filter((record) => record.taskPath === taskPath)
+      return fallback.length === 1 ? { ...fallback[0] } : undefined
+    })
+  }
+
+  /**
+   * Move persisted running-task records to another board date.
+   *
+   * This is a strict storage boundary:
+   * - a missing file or unmatched selector returns 0;
+   * - malformed JSON / an invalid top-level value rejects;
+   * - write failures reject.
+   *
+   * An instanceId, when supplied, is always the selector. This deliberately
+   * avoids falling back to taskId/path and moving a sibling duplicate.
+   */
+  async moveRunningTaskToDateStrict(options: {
+    targetDate: string
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }): Promise<number> {
+    const { targetDate, instanceId, taskPath, taskId } = options
+    if (!this.isValidDateKey(targetDate)) {
+      throw new TypeError(`Invalid running-task target date: ${targetDate}`)
+    }
+    if (!instanceId && !taskPath && !taskId) return 0
+
+    const logDataPath = this.plugin.pathManager.getLogDataPath()
+    const dataPath = `${logDataPath}/running-task.json`
+    const adapter = this.plugin.app.vault.adapter
+
+    return await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      if (!(await adapter.exists(dataPath))) return 0
+      const raw = await adapter.read(dataPath)
+      if (!raw) return 0
+
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) {
+        throw new TypeError('running-task.json must contain an array')
+      }
+
+      const matches = (record: RunningTaskRecord): boolean => {
+        if (instanceId) return record.instanceId === instanceId
+        if (taskId) return record.taskId === taskId
+        return record.taskPath === taskPath
+      }
+
+      let moved = 0
+      const entries: unknown[] = parsed
+      const updated = entries.map((entry): unknown => {
+        if (
+          !this.isRunningTaskRecord(entry) ||
+          !matches(entry) ||
+          entry.date === targetDate
+        ) {
+          return entry
+        }
+        moved += 1
+        return { ...entry, date: targetDate }
+      })
+
+      if (moved === 0) return 0
+      await adapter.write(dataPath, JSON.stringify(updated, null, 2))
+      return moved
+    })
+  }
+
+  /**
+   * Strict recovery boundary: unlike the public best-effort wrapper, storage
+   * failures reject so the caller can roll back in-memory state and retry.
+   */
+  async deleteByInstanceOrPathStrict(options: {
+    instanceId?: string
+    taskPath?: string
+    taskId?: string
+  }, beforeDelete?: () => Promise<void>): Promise<number> {
+    const { instanceId, taskPath, taskId } = options
+    if (!instanceId && !taskPath && !taskId) return 0
+
+    const logDataPath = this.plugin.pathManager.getLogDataPath();
+    const dataPath = `${logDataPath}/running-task.json`;
+    const adapter = this.plugin.app.vault.adapter;
+    return await serializeRunningTaskMutation(adapter, dataPath, async () => {
+      if (!(await adapter.exists(dataPath))) return 0
+      const raw = await adapter.read(dataPath)
+      if (!raw) return 0
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return 0
+
+      const records = parsed.filter(
+        (entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry),
+      )
+      let filtered = records
+      if (instanceId) {
+        filtered = records.filter((record) => record.instanceId !== instanceId)
+      } else if (taskId) {
+        filtered = records.filter((record) => record.taskId !== taskId)
+      } else if (taskPath) {
+        filtered = records.filter((record) => record.taskPath !== taskPath)
+      }
+      if (filtered.length === records.length) return 0
+
+      // Keep cleanup and deletion under the same adapter/path mutation lock.
+      // A deliberate completion can therefore remove the running record
+      // first; a later stale-view orphan repair then sees zero matches and
+      // cannot delete the newly written completion log.
+      await beforeDelete?.()
+      await adapter.write(dataPath, JSON.stringify(filtered, null, 2))
+      return records.length - filtered.length
+    })
   }
 
   async loadForDate(dateString: string): Promise<RunningTaskRecord[]> {
@@ -180,40 +338,42 @@ export class RunningTasksService {
     try {
       const logDataPath = this.plugin.pathManager.getLogDataPath();
       const dataPath = `${logDataPath}/running-task.json`;
-      const file = this.plugin.app.vault.getAbstractFileByPath(dataPath);
-      if (!file || !(file instanceof TFile)) {
-        return;
-      }
-
-      const raw = await this.plugin.app.vault.read(file);
-      if (!raw) {
-        return;
-      }
-
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        return;
-      }
-
-      let mutated = false;
-      const updated = (parsed as RunningTaskRecord[]).map((record) => {
-        if (!record || typeof record !== 'object') {
-          return record;
+      const adapter = this.plugin.app.vault.adapter;
+      await serializeRunningTaskMutation(adapter, dataPath, async () => {
+        if (!(await adapter.exists(dataPath))) {
+          return;
         }
-        if (record.taskPath === normalizedOld) {
-          mutated = true;
-          const next: RunningTaskRecord = { ...record, taskPath: normalizedNew };
-          if (options.newTitle && typeof options.newTitle === 'string' && options.newTitle.trim().length > 0) {
-            next.taskTitle = options.newTitle.trim();
+
+        const raw = await adapter.read(dataPath);
+        if (!raw) {
+          return;
+        }
+
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return;
+        }
+
+        let mutated = false;
+        const updated = (parsed as unknown[]).map((entry) => {
+          if (!this.isRunningTaskRecord(entry)) {
+            return entry;
           }
-          return next;
-        }
-        return record;
-      });
+          if (entry.taskPath === normalizedOld) {
+            mutated = true;
+            const next: RunningTaskRecord = { ...entry, taskPath: normalizedNew };
+            if (options.newTitle && typeof options.newTitle === 'string' && options.newTitle.trim().length > 0) {
+              next.taskTitle = options.newTitle.trim();
+            }
+            return next;
+          }
+          return entry;
+        });
 
-      if (mutated) {
-        await this.plugin.app.vault.modify(file, JSON.stringify(updated, null, 2));
-      }
+        if (mutated) {
+          await adapter.write(dataPath, JSON.stringify(updated, null, 2));
+        }
+      });
     } catch (error) {
       console.warn('[RunningTasksService] Failed to rename task path', error);
     }
@@ -398,13 +558,13 @@ export class RunningTasksService {
     }
 
     if (didMigrateSlotKeys) {
-      await this.persistRecordsForDate(dateString, records)
+      await this.persistRecordsForDate(dateString)
     }
 
     return restoredInstances
   }
 
-  private async persistRecordsForDate(dateString: string, dateRecords: RunningTaskRecord[]): Promise<void> {
+  private async persistRecordsForDate(dateString: string): Promise<void> {
     try {
       const logDataPath = this.plugin.pathManager?.getLogDataPath?.()
       const adapter = this.plugin.app?.vault?.adapter
@@ -413,19 +573,52 @@ export class RunningTasksService {
       }
       const dataPath = `${logDataPath}/running-task.json`
 
-      let existing: RunningTaskRecord[] = []
-      if (await adapter.exists(dataPath)) {
+      await serializeRunningTaskMutation(adapter, dataPath, async () => {
+        if (!(await adapter.exists(dataPath))) {
+          return
+        }
+
         const raw = await adapter.read(dataPath)
         const parsed: unknown = JSON.parse(raw)
-        if (Array.isArray(parsed)) {
-          existing = parsed.filter((entry): entry is RunningTaskRecord => this.isRunningTaskRecord(entry))
+        if (!Array.isArray(parsed)) {
+          return
         }
-      }
 
-      const preserved = existing.filter((record) => record.date !== dateString)
-      const merged = [...preserved, ...dateRecords]
+        let mutated = false
+        const updated = (parsed as unknown[]).map((entry) => {
+          if (
+            !this.isRunningTaskRecord(entry) ||
+            entry.date !== dateString ||
+            !this.sectionConfig
+          ) {
+            return entry
+          }
 
-      await adapter.write(dataPath, JSON.stringify(merged, null, 2))
+          let next = entry
+          if (entry.slotKey && !this.sectionConfig.isValidSlotKey(entry.slotKey)) {
+            const startDate = new Date(entry.startTime)
+            next = {
+              ...next,
+              slotKey: !isNaN(startDate.getTime())
+                ? this.sectionConfig.getCurrentTimeSlot(startDate)
+                : 'none',
+            }
+            mutated = true
+          }
+          if (
+            entry.originalSlotKey &&
+            !this.sectionConfig.isValidSlotKey(entry.originalSlotKey)
+          ) {
+            next = { ...next, originalSlotKey: undefined }
+            mutated = true
+          }
+          return next
+        })
+
+        if (mutated) {
+          await adapter.write(dataPath, JSON.stringify(updated, null, 2))
+        }
+      })
     } catch (error) {
       console.warn('[RunningTasksService] Failed to persist migrated running-task records', error)
     }
@@ -458,5 +651,20 @@ export class RunningTasksService {
       taskId: extractTaskIdFromFrontmatter(frontmatter),
       reminder_time: normalizeReminderTime(frontmatter.reminder_time),
     }
+  }
+
+  private isValidDateKey(value: string): boolean {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+    if (!match) return false
+    const [, yearText, monthText, dayText] = match
+    const year = Number(yearText)
+    const month = Number(monthText)
+    const day = Number(dayText)
+    const date = new Date(year, month - 1, day)
+    return (
+      date.getFullYear() === year &&
+      date.getMonth() === month - 1 &&
+      date.getDate() === day
+    )
   }
 }

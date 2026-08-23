@@ -4,6 +4,10 @@ import { Recipe, RecipeService } from '../services/RecipeService'
 import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
 import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import { t } from '../../../i18n'
+import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
+import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
+
+let recipeSelectModalId = 0
 
 export interface RecipeSelectModalOptions {
   service: RecipeService
@@ -12,47 +16,66 @@ export interface RecipeSelectModalOptions {
 }
 
 type Mode = 'select' | 'create'
-type StepRowCallbacks = {
-  onChange: () => void
-  onRemove: () => void
-  onReorder: (fromIndex: number, toIndex: number) => void
-}
-
 export class RecipeSelectModal {
   private recipes: Recipe[] = []
   private mode: Mode = 'select'
-  private draggedStepIndex: number | null = null
   private createInitialTitle = ''
   private selectedRecipePath: string | null = null
   private listEl: HTMLElement | null = null
   private searchInput: HTMLInputElement | null = null
-  private selectStepsList: HTMLElement | null = null
-  private selectStepsGroup: HTMLElement | null = null
+  private inlineEditor: RecipeEditorForm | null = null
+  private createEditor: RecipeEditorForm | null = null
   private saveButton: HTMLButtonElement | null = null
   private suggestionsEl: HTMLElement | null = null
   private modalEl: HTMLDivElement | null = null
   private contentEl: HTMLDivElement | null = null
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
   private escapeKeyDocument: Document | null = null
+  private previouslyFocusedElement: HTMLElement | null = null
+  private discardConfirmationPending = false
+  private activeSuggestionIndex = -1
+  private suggestionRecipes: Recipe[] = []
+  private readonly dialogTitleId: string
+  private readonly searchInputId: string
+  private readonly suggestionsId: string
 
-  constructor(private readonly app: App, private readonly options: RecipeSelectModalOptions) {}
+  constructor(private readonly app: App, private readonly options: RecipeSelectModalOptions) {
+    recipeSelectModalId += 1
+    this.dialogTitleId = `taskchute-recipe-select-title-${recipeSelectModalId}`
+    this.searchInputId = `taskchute-recipe-select-search-${recipeSelectModalId}`
+    this.suggestionsId = `taskchute-recipe-select-suggestions-${recipeSelectModalId}`
+    this.createInitialTitle = this.getTaskTitle()
+  }
 
   open(): void {
     const modalDocument = activeDocument
+    this.previouslyFocusedElement = this.toFocusableElement(modalDocument.activeElement)
     this.modalEl = createDiv()
     this.modalEl.className = 'task-modal-overlay'
     this.contentEl = this.modalEl.createDiv( {
       cls: 'task-modal-content routine-edit-modal recipe-modal-content',
+      attr: {
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-labelledby': this.dialogTitleId,
+        tabindex: '-1',
+      },
     })
     this.modalEl.addEventListener('click', (event) => {
       if (event.target === this.modalEl) {
-        this.close()
+        void this.requestClose()
       }
     })
     modalDocument.body.appendChild(this.modalEl)
     this.escapeKeyHandler = (event: KeyboardEvent) => {
+      if (this.discardConfirmationPending) return
+      if (event.key === 'Tab') {
+        this.trapFocus(event)
+        return
+      }
       if (event.key === 'Escape') {
-        this.close()
+        event.preventDefault()
+        void this.requestClose()
       }
     }
     this.escapeKeyDocument = modalDocument
@@ -71,16 +94,31 @@ export class RecipeSelectModal {
     this.hideSuggestions()
     this.modalEl = null
     this.contentEl = null
+    this.inlineEditor = null
+    this.createEditor = null
+    const focusTarget = this.previouslyFocusedElement
+    this.previouslyFocusedElement = null
+    if (focusTarget?.isConnected) {
+      focusTarget.focus()
+    }
   }
 
   private render(): void {
     if (!this.contentEl) return
+    this.inlineEditor = null
+    this.createEditor = null
+    this.saveButton = null
+    this.searchInput = null
+    this.listEl = null
+    this.hideSuggestions()
     this.contentEl.empty()
     if (this.mode === 'create') {
       this.renderCreate()
-      return
+    } else {
+      this.renderSelect()
     }
-    this.renderSelect()
+    const ownerWindow = this.contentEl.ownerDocument.defaultView ?? activeWindow
+    ownerWindow.setTimeout(() => this.focusInitialElement(), 0)
   }
 
   private renderSelect(): void {
@@ -89,23 +127,47 @@ export class RecipeSelectModal {
 
     if (this.recipes.length > 0) {
       const titleGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-name-group' })
-      titleGroup.createEl('label', { cls: 'form-label', text: t('recipes.select.nameLabel', 'レシピ名:') })
+      titleGroup.createEl('label', {
+        cls: 'form-label',
+        text: t('recipes.select.nameLabel', 'レシピ名:'),
+        attr: { for: this.searchInputId },
+      })
       this.searchInput = this.contentEl.createEl('input', {
         cls: 'form-input recipe-search-input',
-        attr: { type: 'search', placeholder: t('recipes.manager.searchPlaceholder', 'レシピを検索') },
+        attr: {
+          type: 'search',
+          id: this.searchInputId,
+          role: 'combobox',
+          autocomplete: 'off',
+          'aria-autocomplete': 'list',
+          'aria-expanded': 'false',
+          'aria-controls': this.suggestionsId,
+          placeholder: t('recipes.manager.searchPlaceholder', 'レシピを検索'),
+        },
       })
       titleGroup.appendChild(this.searchInput)
+      const selectedRecipe = this.recipes.find((recipe) => recipe.path === this.selectedRecipePath)
+      if (selectedRecipe) {
+        this.searchInput.value = selectedRecipe.title
+      }
       this.searchInput.addEventListener('input', () => {
         this.selectedRecipePath = null
+        this.activeSuggestionIndex = -1
         this.updateSaveButton()
-        this.updateSelectStepState()
+        this.updateInlineEditorState()
         this.renderSuggestions()
       })
-      this.renderInlineCreateSteps()
+      this.searchInput.addEventListener('keydown', (event) => this.handleSearchKeydown(event))
+      this.renderInlineCreateFields()
+      const createButton = this.contentEl.createEl('button', {
+        cls: 'form-button cancel recipe-select-create-new-button',
+        text: t('recipes.select.createNew', '新しいレシピを作る'),
+        attr: { type: 'button' },
+      })
+      createButton.addEventListener('click', () => this.enterCreateMode())
     } else {
       this.searchInput = null
-      this.selectStepsList = null
-      this.selectStepsGroup = null
+      this.inlineEditor = null
     }
     this.listEl = this.contentEl.createDiv( { cls: 'recipe-select-list recipe-select-list--empty' })
     if (this.recipes.length > 0) {
@@ -113,62 +175,20 @@ export class RecipeSelectModal {
     } else {
       renderRecipeEmptyState(this.listEl, {
         onCreate: () => {
-          this.mode = 'create'
-          this.render()
+          this.enterCreateMode()
         },
       })
     }
   }
 
-  private renderInlineCreateSteps(): void {
+  private renderInlineCreateFields(): void {
     if (!this.contentEl) return
-    this.selectStepsGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-create-steps-group' })
-    this.selectStepsGroup.createEl('label', { cls: 'form-label', text: `${t('recipes.manager.stepsLabel', '手順')}:` })
-    this.selectStepsList = this.selectStepsGroup.createDiv( { cls: 'recipe-steps-list' })
-    let stepValues = ['']
-    const renderSteps = () => {
-      if (!this.selectStepsList) return
-      this.selectStepsList.empty()
-      if (stepValues.length === 0) {
-        stepValues = ['']
-      }
-      stepValues.forEach((value, index) => {
-        this.appendStepRow(this.selectStepsList!, value, index, {
-          onChange: () => {
-            stepValues = this.collectStepValuesIncludingBlank(this.selectStepsList)
-            this.updateSaveButton()
-          },
-          onRemove: () => {
-            stepValues = this.collectStepValuesIncludingBlank(this.selectStepsList)
-            if (stepValues.length === 0) {
-              stepValues = ['']
-            }
-            renderSteps()
-            this.updateSaveButton()
-          },
-          onReorder: (fromIndex, toIndex) => {
-            stepValues = this.reorderValues(this.collectStepValuesIncludingBlank(this.selectStepsList), fromIndex, toIndex)
-            renderSteps()
-            this.updateSaveButton()
-          },
-        })
-      })
-    }
-    renderSteps()
-
-    const addStep = this.selectStepsGroup.createEl('button', {
-      cls: 'form-button cancel recipe-add-step-button',
-      text: t('recipes.manager.addStep', '+ 手順を追加'),
-      attr: { type: 'button' },
+    const editorContainer = this.contentEl.createDiv({ cls: 'recipe-select-create-fields' })
+    this.inlineEditor = new RecipeEditorForm(editorContainer, {}, {
+      showTitle: false,
+      onChange: () => this.updateSaveButton(),
     })
-    addStep.addEventListener('click', () => {
-      if (!this.selectStepsList) return
-      stepValues = this.collectStepValuesIncludingBlank(this.selectStepsList)
-      stepValues.push('')
-      renderSteps()
-      this.updateSaveButton()
-    })
-    this.updateSelectStepState()
+    this.updateInlineEditorState()
   }
 
   private renderSuggestions(): void {
@@ -179,13 +199,19 @@ export class RecipeSelectModal {
       if (!query) return false
       return recipe.title.toLowerCase().includes(query) || recipe.path.toLowerCase().includes(query)
     })
-    if (recipes.length === 0) return
+    this.suggestionRecipes = recipes.slice(0, 15)
+    if (this.suggestionRecipes.length === 0) return
 
     const suggestions = createDiv()
     suggestions.className = 'taskchute-autocomplete-suggestions recipe-autocomplete-suggestions'
-    recipes.slice(0, 15).forEach((recipe) => {
+    suggestions.id = this.suggestionsId
+    suggestions.setAttribute('role', 'listbox')
+    this.suggestionRecipes.forEach((recipe, index) => {
       const item = createDiv()
       item.className = 'suggestion-item'
+      item.id = `${this.suggestionsId}-option-${index}`
+      item.setAttribute('role', 'option')
+      item.setAttribute('aria-selected', String(index === this.activeSuggestionIndex))
       const title = createDiv()
       title.className = 'suggestion-title'
       const label = createSpan()
@@ -206,6 +232,8 @@ export class RecipeSelectModal {
     suggestions.style.width = `${rect.width}px`
     activeDocument.body.appendChild(suggestions)
     this.suggestionsEl = suggestions
+    this.searchInput.setAttribute('aria-expanded', 'true')
+    this.updateActiveSuggestion()
   }
 
   private renderCreate(): void {
@@ -213,54 +241,7 @@ export class RecipeSelectModal {
     this.renderHeader(t('recipes.manager.createTitle', 'レシピ新規作成'), true)
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
-    const titleGroup = form.createDiv( { cls: 'form-group' })
-    titleGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.nameLabel', 'レシピ名') })
-    const titleInput = titleGroup.createEl('input', {
-      cls: 'form-input recipe-title-input',
-      attr: { type: 'text' },
-    })
-    titleInput.value = this.createInitialTitle
-
-    const stepsGroup = form.createDiv( { cls: 'form-group' })
-    stepsGroup.createEl('label', { cls: 'form-label', text: t('recipes.manager.stepsLabel', '手順') })
-    const stepsList = stepsGroup.createDiv( { cls: 'recipe-steps-list' })
-    let stepValues = ['']
-    const renderSteps = () => {
-      stepsList.empty()
-      if (stepValues.length === 0) {
-        stepValues = ['']
-      }
-      stepValues.forEach((value, index) => {
-        this.appendStepRow(stepsList, value, index, {
-          onChange: () => {
-            stepValues = this.collectStepValuesIncludingBlank(stepsList)
-          },
-          onRemove: () => {
-            stepValues = this.collectStepValuesIncludingBlank(stepsList)
-            if (stepValues.length === 0) {
-              stepValues = ['']
-            }
-            renderSteps()
-          },
-          onReorder: (fromIndex, toIndex) => {
-            stepValues = this.reorderValues(this.collectStepValuesIncludingBlank(stepsList), fromIndex, toIndex)
-            renderSteps()
-          },
-        })
-      })
-    }
-    renderSteps()
-
-    const addStep = stepsGroup.createEl('button', {
-      cls: 'form-button cancel recipe-add-step-button',
-      text: t('recipes.manager.addStep', '+ 手順を追加'),
-      attr: { type: 'button' },
-    })
-    addStep.addEventListener('click', () => {
-      stepValues = this.collectStepValuesIncludingBlank(stepsList)
-      stepValues.push('')
-      renderSteps()
-    })
+    this.createEditor = new RecipeEditorForm(form, { title: this.createInitialTitle })
 
     const buttonGroup = form.createDiv( { cls: 'form-button-group' })
     const cancelButton = buttonGroup.createEl('button', {
@@ -274,19 +255,14 @@ export class RecipeSelectModal {
       attr: { type: 'submit' },
     })
     cancelButton.addEventListener('click', () => {
-      if (this.recipes.length > 0) {
-        this.mode = 'select'
-        this.createInitialTitle = ''
-        this.render()
-      } else {
-        this.close()
-      }
+      void this.requestLeaveCreate()
     })
 
     form.addEventListener('submit', (event) => {
       event.preventDefault()
+      if (!this.createEditor?.validate()) return
       saveButton.disabled = true
-      void this.createAndAssign(titleInput.value, this.collectStepValues(stepsList))
+      void this.createAndAssign(this.createEditor.getValue())
         .finally(() => {
           saveButton.disabled = false
         })
@@ -301,20 +277,34 @@ export class RecipeSelectModal {
       text: t('common.cancel', 'キャンセル'),
       attr: { type: 'button' },
     })
+    if (this.options.instance.task.recipePath) {
+      const clearButton = buttonGroup.createEl('button', {
+        cls: 'form-button cancel recipe-select-clear-button',
+        text: t('recipes.select.clear', 'レシピを解除'),
+        attr: { type: 'button' },
+      })
+      clearButton.addEventListener('click', () => {
+        clearButton.disabled = true
+        void this.unassign().finally(() => {
+          clearButton.disabled = false
+        })
+      })
+    }
     this.saveButton = buttonGroup.createEl('button', {
       cls: 'form-button create recipe-select-save-button',
       text: t('recipes.manager.saveButton', '保存'),
       attr: { type: 'button' },
     })
-    cancelButton.addEventListener('click', () => this.close())
+    cancelButton.addEventListener('click', () => void this.requestClose())
     this.saveButton.addEventListener('click', () => {
       const recipe = this.resolveRecipeForSave()
       const title = this.searchInput?.value.trim() ?? ''
       if (!recipe && !title) return
       if (!recipe) {
+        if (!this.inlineEditor?.validate(title)) return
         this.hideSuggestions()
         this.saveButton!.disabled = true
-        void this.createAndAssign(title, this.collectStepValues(this.selectStepsList)).finally(() => {
+        void this.createAndAssign(this.inlineEditor.getValue(title)).finally(() => {
           if (this.saveButton) {
             this.saveButton.disabled = false
           }
@@ -335,8 +325,14 @@ export class RecipeSelectModal {
     if (!this.saveButton) return
     const title = this.searchInput?.value.trim() ?? ''
     const recipe = this.resolveRecipeForSave()
-    const hasSteps = this.collectStepValues(this.selectStepsList).length > 0
-    this.saveButton.disabled = recipe ? false : title.length === 0 || !hasSteps
+    const value = this.inlineEditor?.getValue(title)
+    const hasContent = Boolean(
+      value?.goal
+      || value?.steps.length
+      || value?.qualityChecks.length
+      || value?.constraints.length,
+    )
+    this.saveButton.disabled = recipe ? false : title.length === 0 || !hasContent
   }
 
   private selectExistingRecipe(recipe: Recipe): void {
@@ -345,19 +341,24 @@ export class RecipeSelectModal {
       this.searchInput.value = recipe.title
     }
     this.hideSuggestions()
-    this.updateSelectStepState()
+    this.updateInlineEditorState()
     this.updateSaveButton()
   }
 
-  private updateSelectStepState(): void {
-    if (!this.selectStepsGroup) return
+  private updateInlineEditorState(): void {
+    const group = this.contentEl?.querySelector<HTMLElement>('.recipe-select-create-fields')
+    if (!group) return
     const recipe = this.resolveRecipeForSave()
-    this.selectStepsGroup.style.display = recipe ? 'none' : ''
+    group.style.display = recipe ? 'none' : ''
   }
 
   private hideSuggestions(): void {
     this.suggestionsEl?.remove()
     this.suggestionsEl = null
+    this.suggestionRecipes = []
+    this.activeSuggestionIndex = -1
+    this.searchInput?.setAttribute('aria-expanded', 'false')
+    this.searchInput?.removeAttribute('aria-activedescendant')
   }
 
   private resolveRecipeForSave(): Recipe | undefined {
@@ -371,7 +372,7 @@ export class RecipeSelectModal {
   private renderHeader(title: string, showClose: boolean): void {
     const header = this.contentEl?.createDiv( { cls: 'modal-header recipe-modal-header' })
     if (!header) return
-    header.createEl('h3', { text: title })
+    header.createEl('h3', { text: title, attr: { id: this.dialogTitleId } })
     if (!showClose) return
     const closeButton = header.createEl('button', {
       cls: 'modal-close-button',
@@ -382,121 +383,162 @@ export class RecipeSelectModal {
       },
     })
     attachCloseButtonIcon(closeButton)
-    closeButton.addEventListener('click', () => this.close())
+    closeButton.addEventListener('click', () => void this.requestClose())
   }
 
-  private appendStepRow(container: HTMLElement, value: string, index: number, callbacks: StepRowCallbacks): void {
-    const row = container.createDiv( { cls: 'recipe-step-row' })
-    row.addEventListener('dragover', (event) => {
-      if (this.draggedStepIndex === null || this.draggedStepIndex === index) return
-      event.preventDefault()
-      row.classList.add('recipe-run-step--drop-target')
-    })
-    row.addEventListener('dragleave', () => {
-      row.classList.remove('recipe-run-step--drop-target')
-    })
-    row.addEventListener('drop', (event) => {
-      event.preventDefault()
-      row.classList.remove('recipe-run-step--drop-target')
-      if (this.draggedStepIndex === null) return
-      const fromIndex = this.draggedStepIndex
-      this.draggedStepIndex = null
-      callbacks.onReorder(fromIndex, index)
-    })
-    const handle = row.createEl('button', {
-      cls: 'recipe-step-drag-handle',
-      attr: {
-        type: 'button',
-        draggable: 'true',
-        title: t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
-        'aria-label': t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
-      },
-    })
-    this.appendDragHandleIcon(handle)
-    handle.addEventListener('click', (event) => {
+  private handleSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.suggestionsEl) {
       event.preventDefault()
       event.stopPropagation()
-    })
-    handle.addEventListener('dragstart', (event) => {
-      this.draggedStepIndex = index
-      row.classList.add('recipe-run-step--dragging')
-      event.dataTransfer?.setData('text/plain', String(index))
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move'
-      }
-    })
-    handle.addEventListener('dragend', () => {
-      this.draggedStepIndex = null
-      row.classList.remove('recipe-run-step--dragging')
-      container.querySelectorAll('.recipe-run-step--drop-target')
-        .forEach((element) => element.classList.remove('recipe-run-step--drop-target'))
-    })
-    const input = row.createEl('input', {
-      cls: 'form-input recipe-step-input',
-      attr: { type: 'text', placeholder: t('recipes.manager.stepPlaceholder', '手順') },
-    })
-    input.value = value
-    input.addEventListener('input', callbacks.onChange)
-    const remove = row.createEl('button', {
-      cls: 'form-button cancel recipe-step-remove-button',
-      text: '×',
-      attr: { type: 'button', title: t('recipes.manager.removeStep', '手順を削除') },
-    })
-    remove.addEventListener('click', () => {
-      row.remove()
-      callbacks.onRemove()
-    })
+      this.hideSuggestions()
+      return
+    }
+    if (event.key === 'Enter' && this.activeSuggestionIndex >= 0) {
+      const recipe = this.suggestionRecipes[this.activeSuggestionIndex]
+      if (!recipe) return
+      event.preventDefault()
+      this.selectExistingRecipe(recipe)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    if (!this.suggestionsEl) {
+      this.renderSuggestions()
+    }
+    if (this.suggestionRecipes.length === 0) return
+    if (event.key === 'ArrowDown') {
+      this.activeSuggestionIndex = this.activeSuggestionIndex < this.suggestionRecipes.length - 1
+        ? this.activeSuggestionIndex + 1
+        : 0
+    } else {
+      this.activeSuggestionIndex = this.activeSuggestionIndex > 0
+        ? this.activeSuggestionIndex - 1
+        : this.suggestionRecipes.length - 1
+    }
+    this.updateActiveSuggestion()
   }
 
-  private collectStepValues(container: HTMLElement | null): string[] {
-    if (!container) return []
-    const inputs = Array.from(container.querySelectorAll<HTMLInputElement>('.recipe-step-input'))
-    return inputs.map((input) => input.value.trim()).filter((value) => value.length > 0)
-  }
-
-  private collectStepValuesIncludingBlank(container: HTMLElement | null): string[] {
-    if (!container) return []
-    return Array.from(container.querySelectorAll<HTMLInputElement>('.recipe-step-input'))
-      .map((input) => input.value)
-  }
-
-  private reorderValues(values: string[], fromIndex: number, toIndex: number): string[] {
-    if (toIndex < 0 || toIndex >= values.length || fromIndex === toIndex) return values
-    const nextValues = [...values]
-    const [moved] = nextValues.splice(fromIndex, 1)
-    if (moved === undefined) return values
-    nextValues.splice(toIndex, 0, moved)
-    return nextValues
-  }
-
-  private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = createSvg('svg')
-    svg.setAttribute('viewBox', '0 0 12 16')
-    svg.setAttribute('width', '12')
-    svg.setAttribute('height', '16')
-    svg.setAttribute('aria-hidden', 'true')
-    svg.classList.add('recipe-step-drag-handle-icon')
-    const dots = [
-      { cx: '2', cy: '2' },
-      { cx: '8', cy: '2' },
-      { cx: '2', cy: '8' },
-      { cx: '8', cy: '8' },
-      { cx: '2', cy: '14' },
-      { cx: '8', cy: '14' },
-    ]
-    dots.forEach(({ cx, cy }) => {
-      const circle = createSvg('circle')
-      circle.setAttribute('cx', cx)
-      circle.setAttribute('cy', cy)
-      circle.setAttribute('r', '1.5')
-      svg.appendChild(circle)
+  private updateActiveSuggestion(): void {
+    const options = Array.from(this.suggestionsEl?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])
+    options.forEach((option, index) => {
+      const isActive = index === this.activeSuggestionIndex
+      option.classList.toggle('is-selected', isActive)
+      option.setAttribute('aria-selected', String(isActive))
     })
-    container.appendChild(svg)
+    const activeOption = options[this.activeSuggestionIndex]
+    if (activeOption) {
+      this.searchInput?.setAttribute('aria-activedescendant', activeOption.id)
+      activeOption.scrollIntoView?.({ block: 'nearest' })
+    } else {
+      this.searchInput?.removeAttribute('aria-activedescendant')
+    }
+  }
+
+  private enterCreateMode(): void {
+    this.createInitialTitle = this.getTaskTitle()
+    this.mode = 'create'
+    this.render()
+  }
+
+  private async requestLeaveCreate(): Promise<void> {
+    if (this.createEditor?.isDirty()) {
+      const confirmed = await this.confirmDiscardChanges()
+      if (!confirmed) return
+    }
+    if (this.recipes.length > 0) {
+      this.mode = 'select'
+      this.render()
+      return
+    }
+    this.close()
+  }
+
+  private async requestClose(): Promise<void> {
+    if (!this.hasUnsavedChanges()) {
+      this.close()
+      return
+    }
+    const confirmed = await this.confirmDiscardChanges()
+    if (confirmed) this.close()
+  }
+
+  private hasUnsavedChanges(): boolean {
+    if (this.mode === 'create') {
+      return this.createEditor?.isDirty() ?? false
+    }
+    if (this.resolveRecipeForSave()) return false
+    return this.inlineEditor?.isDirty(this.searchInput?.value ?? '') ?? false
+  }
+
+  private async confirmDiscardChanges(): Promise<boolean> {
+    if (this.discardConfirmationPending) return false
+    this.discardConfirmationPending = true
+    try {
+      return await showConfirmModal(this.app, {
+        title: t('recipes.manager.discardTitle', '未保存の変更'),
+        message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
+        confirmText: t('recipes.manager.discardButton', '破棄'),
+        cancelText: t('common.cancel', 'キャンセル'),
+        destructive: true,
+      })
+    } finally {
+      this.discardConfirmationPending = false
+    }
+  }
+
+  private trapFocus(event: KeyboardEvent): void {
+    if (!this.contentEl) return
+    const focusable = this.getFocusableElements()
+    if (focusable.length === 0) {
+      event.preventDefault()
+      this.contentEl.focus()
+      return
+    }
+    const active = this.contentEl.ownerDocument.activeElement
+    const currentIndex = focusable.indexOf(active as HTMLElement)
+    const atBoundary = currentIndex < 0
+      || (event.shiftKey && currentIndex === 0)
+      || (!event.shiftKey && currentIndex === focusable.length - 1)
+    if (!atBoundary) return
+    event.preventDefault()
+    const next = event.shiftKey ? focusable[focusable.length - 1] : focusable[0]
+    next?.focus()
+  }
+
+  private getFocusableElements(): HTMLElement[] {
+    if (!this.contentEl) return []
+    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
+  }
+
+  private focusInitialElement(): void {
+    if (!this.contentEl?.isConnected) return
+    if (this.mode === 'create' && this.createEditor) {
+      this.createEditor.focus()
+      return
+    }
+    const preferred = this.contentEl.querySelector<HTMLElement>('.recipe-search-input')
+    ;(preferred ?? this.getFocusableElements()[0])?.focus()
+  }
+
+  private getTaskTitle(): string {
+    return this.options.instance.task.displayTitle ?? this.options.instance.task.name ?? ''
+  }
+
+  private toFocusableElement(element: Element | null): HTMLElement | null {
+    return element && typeof (element as HTMLElement).focus === 'function'
+      ? element as HTMLElement
+      : null
   }
 
   private async loadRecipes(): Promise<void> {
     try {
       this.recipes = await this.options.service.loadRecipes()
+      const assignedPath = this.options.instance.task.recipePath
+      this.selectedRecipePath = assignedPath && this.recipes.some((recipe) => recipe.path === assignedPath)
+        ? assignedPath
+        : null
       this.render()
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to load recipes', error)
@@ -505,13 +547,13 @@ export class RecipeSelectModal {
     }
   }
 
-  private async assign(recipe: Recipe): Promise<void> {
+  private async assign(recipe: Recipe): Promise<boolean> {
     try {
       await this.options.service.assignRecipeToTask(this.options.instance.task.path, recipe.path)
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to assign recipe', error)
       new Notice(t('recipes.select.notices.assignFailed', 'レシピの設定に失敗しました'))
-      return
+      return false
     }
 
     this.close()
@@ -520,12 +562,37 @@ export class RecipeSelectModal {
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to refresh after assigning recipe', error)
     }
+    return true
   }
 
-  private async createAndAssign(title: string, steps: string[]): Promise<void> {
+  private async unassign(): Promise<void> {
     try {
-      const recipe = await this.options.service.saveRecipe({ title, steps })
-      await this.assign(recipe)
+      await this.options.service.unassignRecipeFromTask(this.options.instance.task.path)
+    } catch (error) {
+      console.error('[RecipeSelectModal] Failed to unassign recipe', error)
+      new Notice(t('recipes.select.notices.unassignFailed', 'レシピの解除に失敗しました'))
+      return
+    }
+
+    this.close()
+    try {
+      await this.options.onAssigned()
+    } catch (error) {
+      console.error('[RecipeSelectModal] Failed to refresh after unassigning recipe', error)
+    }
+  }
+
+  private async createAndAssign(value: RecipeEditorValue): Promise<void> {
+    try {
+      const recipe = await this.options.service.saveRecipe(value)
+      const assigned = await this.assign(recipe)
+      if (assigned) return
+      if (!this.recipes.some((item) => item.path === recipe.path)) {
+        this.recipes.push(recipe)
+      }
+      this.selectedRecipePath = recipe.path
+      this.mode = 'select'
+      this.render()
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to create recipe', error)
       new Notice(error instanceof Error ? error.message : t('recipes.select.notices.createFailed', 'レシピの作成に失敗しました'))

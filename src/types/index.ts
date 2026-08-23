@@ -1,6 +1,8 @@
 import type { Command, Plugin } from "obsidian"
 import { TFile } from "obsidian"
 import type { PathService } from "../services/PathService"
+import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
+import type { LicenseManager } from "../features/license/services/LicenseManager"
 
 // Re-export new typed fields
 export * from "./TaskFields"
@@ -60,6 +62,17 @@ export interface TaskChuteSettings {
 
   // Collapsible time slots (click header to collapse/expand)
   collapsibleTimeSlots?: boolean
+
+  // AI Task (manual CLI runs; desktop only)
+  aiTaskEnabled?: boolean // default false; enables the AI Task feature
+  aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless
+  aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
+  aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
+  aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
+
+  // License. The activation code lives here so a synced vault carries the
+  // entitlement; the device-bound token stays in device-local storage.
+  licenseCode?: string
 }
 
 export interface GoogleCalendarSettings {
@@ -78,6 +91,16 @@ type TaskChutePluginAugment = {
   pathManager: PathManagerLike
   routineAliasService: RoutineAliasServiceLike
   dayStateService: DayStateServiceAPI
+  /** Present only when the AI task feature is enabled on desktop */
+  aiTaskManager?: AiTaskManager
+  /** Entitlement state. Always created; gates the AI task feature. */
+  licenseManager?: LicenseManager
+  /** False as soon as plugin unload begins; fences async settings callbacks. */
+  aiTaskLifecycleActive?: boolean
+  /** Changes on every load/unload transition to reject stale callbacks. */
+  aiTaskLifecycleGeneration?: number
+  /** Ownership token for the renderer-local AI runtime lease. */
+  aiTaskRuntimeLeaseGeneration?: number
   saveSettings(): Promise<void>
   showSettingsModal(): void
   addRibbonIcon(
@@ -97,6 +120,8 @@ export type TaskChutePluginLike = Pick<
   | "pathManager"
   | "routineAliasService"
   | "dayStateService"
+  | "aiTaskManager"
+  | "licenseManager"
   | "saveSettings"
   | "_log"
   | "_notify"
@@ -219,9 +244,18 @@ export interface SlotOverrideEntry {
 export interface RecipeProgressEntry {
   recipePath: string
   checkedStepIds: string[]
+  /** Last write affecting procedure checks or their display order. */
+  stepsUpdatedAt?: number
   /** Per-day, per-task display order for recipe steps. Source recipe order is unchanged. */
   stepOrder?: string[]
   completedAtByStepId?: Record<string, string>
+  /** Checked quality criteria are tracked separately from procedure steps. */
+  checkedQualityCheckIds?: string[]
+  /** Last write affecting quality checks or their display order. */
+  qualityChecksUpdatedAt?: number
+  /** Per-day, per-task display order for quality criteria. */
+  qualityCheckOrder?: string[]
+  completedAtByQualityCheckId?: Record<string, string>
   updatedAt: number
 }
 
@@ -264,11 +298,19 @@ export type PathManagerLike = Pick<
   | "validatePath"
 > & {
   getRecipeFolderPath?: () => string
+  // Optional so lightweight test stubs keep compiling; the real PathService
+  // implements both and createAiTaskManager checks for them at runtime.
+  getAiLogsPath?: () => string
+  getAiLogsMonthPath?: (yearMonth: string) => string
 }
 
 export interface DayStateServiceAPI {
   loadDay(date: Date): Promise<DayState>
   saveDay(date: Date, state: DayState): Promise<void>
+  updateDay?(
+    date: Date,
+    mutator: (state: DayState) => DayState | void,
+  ): Promise<DayState>
   mergeDayState(date: Date, partial: Partial<DayState>): Promise<void>
   clearCache(): void | Promise<void>
   clearCacheForDate?(dateKey: string): void | Promise<void>

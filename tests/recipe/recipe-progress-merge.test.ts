@@ -35,4 +35,83 @@ describe('mergeRecipeProgress', () => {
     expect(today.merged['routine::recipe'].checkedStepIds).toEqual(['step-1'])
     expect(tomorrow.merged['routine::recipe']).toBeUndefined()
   })
+
+  test('treats quality checklist changes as progress conflicts', () => {
+    const result = mergeRecipeProgress(
+      {
+        'inst::recipe': {
+          recipePath: 'Recipes/A.md',
+          checkedStepIds: [],
+          checkedQualityCheckIds: ['quality-a'],
+          qualityCheckOrder: ['quality-a', 'quality-b'],
+          completedAtByQualityCheckId: { 'quality-a': '2026-07-17T00:00:00.000Z' },
+          updatedAt: 10,
+        },
+      },
+      {
+        'inst::recipe': {
+          recipePath: 'Recipes/A.md',
+          checkedStepIds: [],
+          checkedQualityCheckIds: ['quality-b'],
+          qualityCheckOrder: ['quality-b', 'quality-a'],
+          completedAtByQualityCheckId: { 'quality-b': '2026-07-17T00:01:00.000Z' },
+          updatedAt: 20,
+        },
+      },
+    )
+
+    expect(result.hasConflicts).toBe(true)
+    expect(result.merged['inst::recipe'].checkedQualityCheckIds).toEqual(['quality-b'])
+    expect(result.merged['inst::recipe'].completedAtByQualityCheckId).toEqual({
+      'quality-b': '2026-07-17T00:01:00.000Z',
+    })
+  })
+
+  test('merges independently updated procedure and quality channels', () => {
+    const result = mergeRecipeProgress(
+      {
+        'inst::recipe': {
+          recipePath: 'Recipes/A.md',
+          checkedStepIds: ['step-new'],
+          stepOrder: ['step-new', 'step-old'],
+          completedAtByStepId: { 'step-new': '2026-07-17T01:00:00.000Z' },
+          stepsUpdatedAt: 30,
+          checkedQualityCheckIds: [],
+          qualityCheckOrder: ['quality-old'],
+          qualityChecksUpdatedAt: 10,
+          updatedAt: 30,
+        },
+      },
+      {
+        'inst::recipe': {
+          recipePath: 'Recipes/A.md',
+          checkedStepIds: [],
+          stepOrder: ['step-old', 'step-new'],
+          stepsUpdatedAt: 20,
+          checkedQualityCheckIds: ['quality-new'],
+          qualityCheckOrder: ['quality-new', 'quality-old'],
+          completedAtByQualityCheckId: {
+            'quality-new': '2026-07-17T02:00:00.000Z',
+          },
+          qualityChecksUpdatedAt: 40,
+          updatedAt: 40,
+        },
+      },
+    )
+
+    expect(result.merged['inst::recipe']).toEqual({
+      recipePath: 'Recipes/A.md',
+      checkedStepIds: ['step-new'],
+      stepOrder: ['step-new', 'step-old'],
+      completedAtByStepId: { 'step-new': '2026-07-17T01:00:00.000Z' },
+      stepsUpdatedAt: 30,
+      checkedQualityCheckIds: ['quality-new'],
+      qualityCheckOrder: ['quality-new', 'quality-old'],
+      completedAtByQualityCheckId: {
+        'quality-new': '2026-07-17T02:00:00.000Z',
+      },
+      qualityChecksUpdatedAt: 40,
+      updatedAt: 40,
+    })
+  })
 })

@@ -126,7 +126,12 @@ export default class TaskRowController {
     })
   }
 
-  renderTaskName(taskItem: HTMLElement, inst: TaskInstance): void {
+  /**
+   * Renders the task name column and returns its container so callers can
+   * append inline companions (reminder/recipe/AI controls) without adding
+   * extra direct children to the fixed-column .task-item grid.
+   */
+  renderTaskName(taskItem: HTMLElement, inst: TaskInstance): HTMLElement {
     const displayName = (() => {
       const executed = typeof inst.executedTitle === 'string' ? inst.executedTitle.trim() : ''
       if (inst.state === 'done' && executed.length > 0) {
@@ -185,6 +190,8 @@ export default class TaskRowController {
       })
       recipeIconRenderer.render(taskNameContainer, inst)
     }
+
+    return taskNameContainer
   }
 
   renderTimeRangeDisplay(taskItem: HTMLElement, inst: TaskInstance): void {

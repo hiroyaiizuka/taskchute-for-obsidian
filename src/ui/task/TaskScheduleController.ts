@@ -19,6 +19,12 @@ export interface TaskScheduleControllerHost {
   hideRoutineInstanceForDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
   /** Keep non-routine slot assignment when moving task across dates */
   moveNonRoutineSlotOverrideToDate?: (inst: TaskInstance, dateStr: string) => Promise<void>
+  /**
+   * Keep a live timer record on the same date as a running task after a move.
+   * Returns the number of persisted records moved so the controller can
+   * compensate if the structural task move fails.
+   */
+  moveRunningTaskToDate?: (inst: TaskInstance, dateStr: string) => Promise<number>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -107,9 +113,25 @@ export default class TaskScheduleController {
   }
 
   async moveTaskToDate(inst: TaskInstance, dateStr: string): Promise<void> {
+    const sourceDateKey = this.formatDateKey(this.host.getCurrentDate())
+    let runningRecordMoved = false
+    let structuralMoveCompleted = false
+
     try {
       // Check if this is a duplicate instance
       const isDuplicate = this.host.isDuplicateInstance?.(inst) ?? false
+
+      // Moving a running duplicate onto the date that already owns it would
+      // first append the same instanceId and then remove both entries from
+      // that same DayState. Treat that operation as an idempotent no-op.
+      if (
+        isDuplicate &&
+        inst.state === 'running' &&
+        dateStr === sourceDateKey
+      ) {
+        return
+      }
+
       const isPastDate = this.isPastDateString(dateStr, this.host.getCurrentDate())
       const shouldHideRoutineToday = inst.task?.isRoutine === true && isPastDate
       const previousTargetDate = this.parseTargetDateString(
@@ -119,6 +141,24 @@ export default class TaskScheduleController {
         inst.task?.isRoutine === true &&
         !!previousTargetDate &&
         previousTargetDate !== dateStr
+
+      // Persisted timer ownership moves first. If this strict storage boundary
+      // fails, no frontmatter or DayState mutation has happened yet. When a
+      // later structural mutation fails, the catch block restores the timer
+      // record to the source board date.
+      if (
+        inst.state === 'running' &&
+        dateStr !== sourceDateKey &&
+        this.host.moveRunningTaskToDate
+      ) {
+        const movedCount = await this.host.moveRunningTaskToDate(inst, dateStr)
+        if (movedCount <= 0) {
+          throw new Error(
+            'Running task record was not found; task move was aborted',
+          )
+        }
+        runningRecordMoved = true
+      }
 
       if (isDuplicate && this.host.moveDuplicateInstanceToDate) {
         // For duplicate instances, move via dayState without modifying the original file
@@ -150,6 +190,8 @@ export default class TaskScheduleController {
         }
       }
 
+      structuralMoveCompleted = true
+
       new Notice(
         this.host.tv('notices.taskMoveSuccess', 'Moved task to {date}', {
           date: dateStr,
@@ -157,6 +199,25 @@ export default class TaskScheduleController {
       )
       await this.host.reloadTasksAndRestore()
     } catch (error) {
+      if (
+        runningRecordMoved &&
+        !structuralMoveCompleted &&
+        this.host.moveRunningTaskToDate
+      ) {
+        try {
+          const restored = await this.host.moveRunningTaskToDate(inst, sourceDateKey)
+          if (restored === 0) {
+            console.error(
+              '[TaskScheduleController] Running-task move compensation matched no record',
+            )
+          }
+        } catch (compensationError) {
+          console.error(
+            '[TaskScheduleController] Failed to compensate running-task move',
+            compensationError,
+          )
+        }
+      }
       console.error('[TaskScheduleController] Failed to move task', error)
       new Notice(this.host.tv('notices.taskMoveFailed', 'Failed to move task'))
     }

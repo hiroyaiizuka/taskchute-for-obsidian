@@ -135,8 +135,13 @@ class AbstractInputSuggest {
 
 const Setting = jest.fn().mockImplementation(() => {
   const settingInstance = {
+    settingEl: createMockElement('div'),
+    nameEl: createMockElement('div'),
+    descEl: createMockElement('div'),
+    controlEl: createMockElement('div'),
     setName: jest.fn().mockReturnThis(),
     setDesc: jest.fn().mockReturnThis(),
+    setClass: jest.fn().mockReturnThis(),
     addToggle: jest.fn().mockReturnThis(),
     addText: jest.fn().mockImplementation(function (callback) {
       if (!this.__textComponents) {
@@ -396,6 +401,9 @@ const createSvg = (tag, options = {}) => {
 const activeDocument = document
 const activeWindow = window
 const getLanguage = jest.fn(() => 'en')
+const setIcon = jest.fn((element, iconId) => {
+  element?.setAttribute?.('data-icon', iconId)
+})
 
 if (typeof globalThis.createDiv === 'undefined') {
   Object.assign(globalThis, {
@@ -435,6 +443,7 @@ module.exports = {
   createSpan,
   createSvg,
   getLanguage,
+  setIcon,
   normalizePath,
   mockApp,
   mockLeaf,

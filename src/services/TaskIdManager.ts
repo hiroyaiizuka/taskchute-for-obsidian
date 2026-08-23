@@ -1,5 +1,6 @@
 import { TFile } from 'obsidian'
 import type { TaskChutePluginLike } from '../types'
+import { listFilesInFolder } from '../utils/vaultFiles'
 
 export const TASK_ID_FRONTMATTER_KEY = 'taskId'
 const LEGACY_TASK_ID_KEYS = ['taskchuteId'] as const
@@ -55,10 +56,8 @@ export class TaskIdManager {
     try {
       const folderPath = this.plugin.pathManager.getTaskFolderPath?.()
       if (!folderPath) return
-      const prefix = folderPath.endsWith('/') ? folderPath : `${folderPath}/`
-      const files = this.plugin.app.vault.getMarkdownFiles?.() ?? []
+      const files = listFilesInFolder(this.plugin.app, folderPath, { markdownOnly: true })
       for (const file of files) {
-        if (!file.path.startsWith(prefix)) continue
         try {
           await this.ensureTaskIdForFile(file)
         } catch (error) {

@@ -132,6 +132,10 @@ describe('TaskCreationController', () => {
         instanceId: 'reuse-instance-1',
       }),
     }
+    const aiTaskEditService = {
+      load: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockResolvedValue(undefined),
+    }
 
     const host: TaskCreationControllerHost = {
       tv: (_key, fallback, vars) => {
@@ -145,6 +149,7 @@ describe('TaskCreationController', () => {
       },
       getTaskNameValidator: () => validator,
       taskCreationService: taskCreationService as unknown as TaskCreationControllerHost['taskCreationService'],
+      aiTaskEditService: aiTaskEditService as unknown as TaskCreationControllerHost['aiTaskEditService'],
       taskReuseService: taskReuseService as unknown as TaskCreationControllerHost['taskReuseService'],
       registerAutocompleteCleanup: jest.fn(),
       reloadTasksAndRestore: jest.fn().mockResolvedValue(undefined),

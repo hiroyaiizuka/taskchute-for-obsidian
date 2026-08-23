@@ -25,6 +25,14 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   // Collapsible time slots
   collapsibleTimeSlots: false,
 
+  // AI Task defaults
+  aiTaskEnabled: false,
+  aiTaskRunMode: 'terminal',
+  aiTaskLogRetentionDays: 30,
+
+  // License (empty until the user activates)
+  licenseCode: undefined,
+
   // Google Calendar export (URL scheme push-only)
   googleCalendar: {
     enabled: false,

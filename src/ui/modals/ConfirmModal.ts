@@ -7,6 +7,8 @@ export interface ConfirmModalOptions {
   cancelText?: string
   destructive?: boolean
   description?: string
+  /** Info-only dialog: drop the cancel button so OK is the single way out. */
+  hideCancel?: boolean
 }
 
 type CreateElOptions = {
@@ -55,6 +57,7 @@ class ConfirmModal extends Modal {
   private readonly cancelText: string
   private readonly destructive: boolean
   private readonly description?: string
+  private readonly hideCancel: boolean
 
   constructor(app: App, options: ConfirmModalOptions, resolve: (value: boolean) => void) {
     super(app)
@@ -65,6 +68,7 @@ class ConfirmModal extends Modal {
     this.cancelText = options.cancelText ?? 'Cancel'
     this.destructive = options.destructive ?? false
     this.description = options.description
+    this.hideCancel = options.hideCancel ?? false
   }
 
   onOpen(): void {
@@ -105,12 +109,14 @@ class ConfirmModal extends Modal {
     const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' })
     buttonGroup.classList.add('confirm-button-group')
 
-    const cancelButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'cancel'],
-      text: this.cancelText,
-    })
-    cancelButton.addEventListener('click', () => {
+    const cancelButton = this.hideCancel
+      ? undefined
+      : createElCompat(buttonGroup, 'button', {
+          type: 'button',
+          cls: ['form-button', 'cancel'],
+          text: this.cancelText,
+        })
+    cancelButton?.addEventListener('click', () => {
       this.closeWith(false)
     })
 
@@ -123,7 +129,7 @@ class ConfirmModal extends Modal {
       this.closeWith(true)
     })
 
-    const defaultButton = this.destructive ? cancelButton : confirmButton
+    const defaultButton = this.destructive ? (cancelButton ?? confirmButton) : confirmButton
     defaultButton.focus()
   }
 
@@ -149,4 +155,15 @@ export function showConfirmModal(app: App, options: ConfirmModalOptions): Promis
     const modal = new ConfirmModal(app, options, resolve)
     modal.open()
   })
+}
+
+/**
+ * A dialog that only tells the user something. Reuses the confirm modal so the
+ * chrome stays identical, minus the cancel button there is nothing to cancel.
+ */
+export function showInfoModal(
+  app: App,
+  options: Omit<ConfirmModalOptions, 'hideCancel' | 'cancelText' | 'destructive'>,
+): Promise<void> {
+  return showConfirmModal(app, { ...options, hideCancel: true }).then(() => undefined)
 }
