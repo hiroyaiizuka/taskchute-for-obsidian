@@ -20,6 +20,7 @@ import { TaskIdManager } from "../services/TaskIdManager"
 import { ReminderSystemManager } from "../features/reminder/services/ReminderSystemManager"
 import { createAiTaskManager } from "../features/ai-task"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
+import { createLicenseManager } from "../features/license"
 
 export async function prepareSettings(
   plugin: TaskChutePlugin,
@@ -59,6 +60,14 @@ export async function prepareSettings(
       1,
       Math.round(settings.aiTaskLogRetentionDays ?? 30),
     )
+  }
+  // Stored raw so the server can apply its own normalization; an empty string
+  // must become undefined, or every request would fail with malformed_code.
+  if (typeof settings.licenseCode === "string") {
+    const trimmed = settings.licenseCode.trim()
+    settings.licenseCode = trimmed.length > 0 ? trimmed : undefined
+  } else if (settings.licenseCode !== undefined) {
+    settings.licenseCode = undefined
   }
 
   // Lightweight migration from legacy individual paths -> new base model
@@ -195,7 +204,15 @@ export async function bootstrapPlugin(
     plugin._log?.("warn", "[TaskChute] Failed to initialize reminder system:", error)
   }
 
-  // Initialize the AI task manager (inert unless enabled AND on desktop)
+  // The license manager must exist before the AI task manager: it is the third
+  // gate in createAiTaskManager, and the settings tab needs it either way.
+  try {
+    plugin.licenseManager = createLicenseManager(plugin)
+  } catch (error) {
+    plugin._log?.("warn", "[TaskChute] Failed to initialize license manager:", error)
+  }
+
+  // Initialize the AI task manager (inert unless enabled AND on desktop AND licensed)
   let aiTaskManager: AiTaskManager | undefined
   try {
     aiTaskManager = createAiTaskManager(plugin)

@@ -16,6 +16,7 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
   },
   setupFilesAfterEnv: [
+    '<rootDir>/tests/setup/web-platform-globals.ts',
     '<rootDir>/tests/setup/obsidian-dom-globals.ts',
     '<rootDir>/tests/setup/console-silence.ts',
   ],

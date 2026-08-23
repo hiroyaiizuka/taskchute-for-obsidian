@@ -2,10 +2,19 @@ import { Notice, Setting, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
 import { createAiTaskManager } from '../../../src/features/ai-task'
+import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 jest.mock('../../../src/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
 }))
+
+const selectFileMock = jest.fn<Promise<string | null>, [unknown?]>()
+jest.mock(
+  '../../../src/features/ai-task/services/ElectronDirectoryPicker',
+  () => ({
+    ElectronDirectoryPicker: jest.fn(() => ({ selectFile: selectFileMock })),
+  }),
+)
 
 type ToggleStub = {
   setValue: jest.Mock
@@ -19,6 +28,13 @@ type TextStub = {
   setValue: jest.Mock
   onChange: jest.Mock
   trigger: (value: string) => Promise<void>
+}
+
+type ButtonStub = {
+  label: string
+  setButtonText: jest.Mock
+  onClick: jest.Mock
+  trigger: () => Promise<void>
 }
 
 type DropdownStub = {
@@ -35,8 +51,10 @@ type SettingStub = {
   setHeading: jest.Mock
   addToggle: jest.Mock
   addText: jest.Mock
+  addButton: jest.Mock
   addDropdown: jest.Mock
   controlEl: HTMLElement
+  settingEl: HTMLElement
 }
 
 type FakeManager = {
@@ -62,6 +80,7 @@ type MutableSettingTab = Omit<
     aiTaskManagersPendingDisposal?: Set<FakeManager>
     aiTaskLifecycleActive?: boolean
     aiTaskLifecycleGeneration?: number
+    licenseManager?: { isActive: () => boolean }
   }
   renderAiTaskSection: (container: HTMLElement) => void
 }
@@ -96,6 +115,25 @@ function createTextStub(): TextStub {
     },
   }
   return text
+}
+
+function createButtonStub(): ButtonStub {
+  let handler: (() => Promise<void> | void) | null = null
+  const button: ButtonStub = {
+    label: '',
+    setButtonText: jest.fn((label: string) => {
+      button.label = label
+      return button
+    }),
+    onClick: jest.fn((cb: () => Promise<void> | void) => {
+      handler = cb
+      return button
+    }),
+    trigger: async () => {
+      await handler?.()
+    },
+  }
+  return button
 }
 
 function createDropdownStub(): DropdownStub {
@@ -142,6 +180,8 @@ function createTab(): MutableSettingTab {
     aiTaskManagersPendingDisposal: new Set(),
     aiTaskLifecycleActive: true,
     aiTaskLifecycleGeneration: 1,
+    // The AI section renders its controls only for an active license.
+    licenseManager: createFakeLicenseManager(),
   }
   ;(tab.app as unknown as {
     plugins: { plugins: Record<string, unknown> }
@@ -157,12 +197,14 @@ describe('TaskChute AI task settings section', () => {
   let settings: SettingStub[]
   let toggles: ToggleStub[]
   let texts: TextStub[]
+  let buttons: ButtonStub[]
   let dropdowns: DropdownStub[]
 
   beforeEach(() => {
     settings = []
     toggles = []
     texts = []
+    buttons = []
     dropdowns = []
     SettingMock.mockImplementation(() => {
       const instance: SettingStub = {
@@ -181,6 +223,12 @@ describe('TaskChute AI task settings section', () => {
           cb(text)
           return instance
         }),
+        addButton: jest.fn((cb: (button: ButtonStub) => void) => {
+          const button = createButtonStub()
+          buttons.push(button)
+          cb(button)
+          return instance
+        }),
         addDropdown: jest.fn((cb: (dropdown: DropdownStub) => void) => {
           const dropdown = createDropdownStub()
           dropdowns.push(dropdown)
@@ -188,6 +236,7 @@ describe('TaskChute AI task settings section', () => {
           return instance
         }),
         controlEl: document.createElement('div'),
+        settingEl: document.createElement('div'),
       }
       settings.push(instance)
       return instance
@@ -486,6 +535,33 @@ describe('TaskChute AI task settings section', () => {
     expect(texts[1]?.setValue).toHaveBeenLastCalledWith('')
     expect(Notice).toHaveBeenCalledTimes(2)
     expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
+  })
+
+  test('browsing for a CLI path writes the picked file into the field', async () => {
+    const manager = createFakeManager()
+    const tab = createTab()
+    tab.plugin.aiTaskManager = manager
+    selectFileMock.mockResolvedValue('/opt/homebrew/bin/claude')
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    // buttons[0] = claude browse, buttons[1] = codex browse
+    await buttons[0]?.trigger()
+
+    expect(texts[0]?.setValue).toHaveBeenLastCalledWith('/opt/homebrew/bin/claude')
+    expect(tab.plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
+    expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(1)
+  })
+
+  test('cancelling the CLI path picker leaves the stored path untouched', async () => {
+    const tab = createTab()
+    tab.plugin.settings.aiTaskClaudePath = '/existing/claude'
+    selectFileMock.mockResolvedValue(null)
+
+    tab.renderAiTaskSection(document.createElement('div'))
+    await buttons[0]?.trigger()
+
+    expect(tab.plugin.settings.aiTaskClaudePath).toBe('/existing/claude')
+    expect(tab.plugin.saveSettings).not.toHaveBeenCalled()
   })
 
   test('retention days input normalizes invalid values', async () => {

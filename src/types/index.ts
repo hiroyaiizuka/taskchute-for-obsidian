@@ -2,6 +2,7 @@ import type { Command, Plugin } from "obsidian"
 import { TFile } from "obsidian"
 import type { PathService } from "../services/PathService"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
+import type { LicenseManager } from "../features/license/services/LicenseManager"
 
 // Re-export new typed fields
 export * from "./TaskFields"
@@ -68,6 +69,10 @@ export interface TaskChuteSettings {
   aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
+
+  // License. The activation code lives here so a synced vault carries the
+  // entitlement; the device-bound token stays in device-local storage.
+  licenseCode?: string
 }
 
 export interface GoogleCalendarSettings {
@@ -88,6 +93,8 @@ type TaskChutePluginAugment = {
   dayStateService: DayStateServiceAPI
   /** Present only when the AI task feature is enabled on desktop */
   aiTaskManager?: AiTaskManager
+  /** Entitlement state. Always created; gates the AI task feature. */
+  licenseManager?: LicenseManager
   /** False as soon as plugin unload begins; fences async settings callbacks. */
   aiTaskLifecycleActive?: boolean
   /** Changes on every load/unload transition to reject stale callbacks. */
@@ -114,6 +121,7 @@ export type TaskChutePluginLike = Pick<
   | "routineAliasService"
   | "dayStateService"
   | "aiTaskManager"
+  | "licenseManager"
   | "saveSettings"
   | "_log"
   | "_notify"

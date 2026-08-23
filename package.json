@@ -20,6 +20,8 @@
     "@codemirror/view": "^6.38.2",
     "@eslint/js": "^9.36.0",
     "@lezer/highlight": "^1.2.3",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.3.1",
     "@xterm/addon-fit": "^0.11.0",

@@ -1,5 +1,6 @@
 import { createAiTaskManager, type AiTaskPluginLike } from '../../../src/features/ai-task'
 import type { TaskChuteSettings } from '../../../src/types'
+import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 type FactoryModule = typeof import('../../../src/features/ai-task')
 
@@ -27,6 +28,7 @@ function makePlugin(settings: Partial<TaskChuteSettings> = {}): AiTaskPluginLike
       getAiLogsPath: () => 'TaskChute/AI/Logs',
       getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
     },
+    licenseManager: createFakeLicenseManager(),
     _log: jest.fn(),
   } as unknown as AiTaskPluginLike
 }
@@ -53,6 +55,35 @@ describe('createAiTaskManager gating', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       expect(mod.createAiTaskManager(makePlugin())).toBeUndefined()
+    })
+  })
+
+  test('returns undefined without an active license, even when enabled on desktop', () => {
+    jest.isolateModules(() => {
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: { isDesktop: true, isMobile: false },
+      }))
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const plugin = makePlugin()
+      ;(plugin as { licenseManager?: unknown }).licenseManager = createFakeLicenseManager(false)
+      expect(mod.createAiTaskManager(plugin)).toBeUndefined()
+    })
+  })
+
+  test('returns undefined when no license manager exists at all', () => {
+    jest.isolateModules(() => {
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: { isDesktop: true, isMobile: false },
+      }))
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const plugin = makePlugin()
+      delete (plugin as { licenseManager?: unknown }).licenseManager
+      // Fails closed: a bootstrap failure must not hand out the paid feature.
+      expect(mod.createAiTaskManager(plugin)).toBeUndefined()
     })
   })
 

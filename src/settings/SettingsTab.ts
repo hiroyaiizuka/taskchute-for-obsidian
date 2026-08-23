@@ -5,6 +5,15 @@ import { TERMINAL_NAME } from "../constants"
 import { createAiTaskManager } from "../features/ai-task"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 import { disposeAiTaskManagerTracked } from "../features/ai-task/registerProcessCleanup"
+import { syncAiTaskManagerToLicense } from "../features/ai-task/licenseGate"
+import { ElectronDirectoryPicker } from "../features/ai-task/services/ElectronDirectoryPicker"
+import type { LicenseManager } from "../features/license/services/LicenseManager"
+import { formatLicenseId } from "../features/license/token/primitives"
+import { DeviceListView } from "../features/license/ui/DeviceListView"
+import {
+  describeActivationFailure,
+  describeApiFailure,
+} from "../features/license/ui/licenseMessages"
 import { FolderPathFieldController } from "./folderPathFieldController"
 import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
@@ -26,13 +35,32 @@ interface PluginWithSettings extends Plugin {
   aiTaskLifecycleActive?: boolean
   aiTaskLifecycleGeneration?: number
   aiTaskRuntimeLeaseGeneration?: number
+  licenseManager?: LicenseManager
   saveSettings(): Promise<void>
+  _log?(level?: string, ...args: unknown[]): void
 }
+
+/**
+ * AI tasks are still in preparation, so the Pro section — the license form and
+ * the AI settings it unlocks — stays hidden until the version card is clicked
+ * this many times. Only for vaults without a license; an active one shows the
+ * section outright.
+ */
+const PRO_SECTION_UNLOCK_CLICKS = 10
 
 export class TaskChuteSettingTab extends PluginSettingTab {
   plugin: PluginWithSettings
   /** Rejects an older async toggle completion after a newer operation wins. */
   private aiTaskToggleOperation = 0
+  /** Disposed on every redraw so an in-flight request cannot write into a stale tree. */
+  private deviceListView?: DeviceListView
+  /**
+   * The click unlock, kept on the tab instance so it lapses after a reload.
+   * Only ever matters without a license: an active one shows the section on
+   * its own, and losing it hides the section again.
+   */
+  private proSectionUnlocked = false
+  private versionClickCount = 0
 
   constructor(app: App, plugin: PluginWithSettings) {
     super(app, plugin)
@@ -44,19 +72,76 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     containerEl.empty()
     containerEl.classList.add("taskchute-settings-pane")
 
-    this.renderVersionSection(containerEl)
     this.renderStorageSection(containerEl)
     this.renderLogBackupSection(containerEl)
     this.renderReviewTemplateSection(containerEl)
     this.renderProjectCandidateSection(containerEl)
     this.renderAdvancedSection(containerEl)
+    // Last, and collapsed: the license and everything it unlocks are set once
+    // and then left alone, so they stay out of the way of the daily settings.
+    if (this.isProSectionVisible()) {
+      this.renderProSection(containerEl)
+    }
+    this.renderVersionSection(containerEl)
+  }
+
+  /**
+   * Whether to draw the Pro section.
+   *
+   * The hidden click unlock is for people who do not have a license yet, so it
+   * must not be the only way in: once a license is active the section is the
+   * only place to manage seats and AI settings, and re-discovering the unlock
+   * after every reload would strand a paying user.
+   */
+  private isProSectionVisible(): boolean {
+    if (this.proSectionUnlocked) return true
+
+    // Deliberately not latched: releasing this device drops the state back to
+    // unlicensed, and the section has to disappear with it rather than leave
+    // an activation form behind for a feature that is hidden again.
+    return this.plugin.licenseManager?.getState().status === "active"
+  }
+
+  /**
+   * A collapsed `details` block whose summary doubles as the section heading.
+   * Shared by the advanced and Pro sections so both fold the same way.
+   */
+  private createCollapsibleSection(
+    container: HTMLElement,
+    heading: string,
+  ): HTMLElement {
+    const details = container.createEl('details', { cls: 'taskchute-collapsible-section' })
+    const summary = details.createEl('summary', { cls: 'taskchute-collapsible-summary' })
+    summary.createSpan({ cls: 'taskchute-collapsible-heading', text: heading })
+
+    return details.createDiv({ cls: 'taskchute-collapsible-content' })
   }
 
   /** インストール済みのバージョンを manifest.json からそのまま表示する */
   private renderVersionSection(container: HTMLElement): void {
-    new Setting(container)
+    const setting = new Setting(container)
+      .setClass('taskchute-version-setting')
       .setName(t("settings.version.name", "Version"))
       .setDesc(this.plugin.manifest.version)
+
+    setting.settingEl?.addEventListener('click', () => {
+      this.handleVersionClick()
+    })
+  }
+
+  /** 準備中の Pro セクションを、規定回数のクリックで解禁する隠し操作 */
+  private handleVersionClick(): void {
+    if (this.isProSectionVisible()) return
+
+    this.versionClickCount += 1
+    if (this.versionClickCount < PRO_SECTION_UNLOCK_CLICKS) return
+
+    this.proSectionUnlocked = true
+    this.versionClickCount = 0
+    new Notice(
+      t("settings.version.proUnlocked", "Pro settings are now visible."),
+    )
+    this.display()
   }
 
   private setHeadingIfSupported(setting: Setting): void {
@@ -550,17 +635,13 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private renderAdvancedSection(container: HTMLElement): void {
-    const details = container.createEl('details', { cls: 'taskchute-advanced-settings' })
-    const summary = details.createEl('summary', { cls: 'taskchute-advanced-summary' })
-    summary.createSpan( {
-      cls: 'taskchute-advanced-heading',
-      text: t('settings.advanced.heading', 'Advanced settings'),
-    })
-
-    const content = details.createDiv( { cls: 'taskchute-advanced-content' })
+    const content = this.createCollapsibleSection(
+      container,
+      t('settings.advanced.heading', 'Advanced settings'),
+    )
     this.renderTaskCreationSection(content)
     this.renderRecipeFeatureSection(content)
-    this.renderAiTaskSection(content)
+    // The license and AI task settings live in the Pro section below.
     this.renderSectionCustomization(content)
     this.renderCollapsibleTimeSlotsToggle(content)
     this.renderFeaturesSection(content)
@@ -610,6 +691,162 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     })
   }
 
+  /**
+   * Pro settings: everything the license unlocks, plus the license itself.
+   *
+   * Two shapes, chosen by entitlement. Activated, it shows the license, the
+   * device seats and the AI task settings. Otherwise it shows only the
+   * activation form — rendered rather than hidden, because someone who just
+   * bought the plugin needs somewhere to enter their code.
+   */
+  private renderProSection(container: HTMLElement): void {
+    // A previous render may still have a device request in flight; it must not
+    // write into the container display() is about to replace.
+    this.deviceListView?.dispose()
+    this.deviceListView = undefined
+
+    const content = this.createCollapsibleSection(
+      container,
+      t("settings.pro.heading", "Pro settings"),
+    )
+
+    const manager = this.plugin.licenseManager
+    if (!manager) {
+      // The manager is created during bootstrap; its absence means that failed.
+      new Setting(content).setDesc(
+        t(
+          "license.errors.internal",
+          "The license service returned an unexpected error. Try again later.",
+        ),
+      )
+      return
+    }
+
+    if (manager.getState().status === "active") {
+      this.renderActiveLicense(content, manager)
+      this.renderAiTaskSection(content)
+      return
+    }
+
+    this.renderLicenseActivation(content, manager)
+  }
+
+  private renderActiveLicense(container: HTMLElement, manager: LicenseManager): void {
+    const summary = manager.getLicenseSummary()
+
+    new Setting(container)
+      .setName(t("settings.license.statusName", "Status"))
+      .setDesc(t("settings.license.statusActive", "Active"))
+
+    if (summary) {
+      new Setting(container)
+        .setName(t("settings.license.licenseIdName", "License ID"))
+        .setDesc(formatLicenseId(summary.license_id))
+
+      new Setting(container)
+        .setName(t("settings.license.expiresName", "Expires"))
+        .setDesc(
+          summary.expires_at === null
+            ? t("settings.license.expiresNever", "No expiry")
+            : new Date(summary.expires_at * 1000).toLocaleDateString(),
+        )
+    }
+
+    const devicesHeading = new Setting(container).setName(
+      t("settings.license.devicesName", "Devices"),
+    )
+    this.setHeadingIfSupported(devicesHeading)
+    // Releasing this very device is done from the list like any other seat, so
+    // there is no separate sign-out control. Seat counts come from the server,
+    // so a release has to re-read the license summary; a full redraw is the
+    // cheapest way to stay consistent.
+    this.deviceListView = new DeviceListView(container, manager, {
+      onChanged: () => {
+        void manager
+          .refreshIfNeeded(true)
+          .then(() => this.applyLicenseChange())
+          .then(() => this.display())
+      },
+    })
+  }
+
+  private renderLicenseActivation(container: HTMLElement, manager: LicenseManager): void {
+    const state = manager.getState()
+    if (state.status === "blocked") {
+      new Setting(container).setDesc(
+        describeApiFailure({ ok: false, kind: "api", code: state.reason, status: 403 }),
+      )
+    }
+
+    new Setting(container).setDesc(
+      t(
+        "settings.license.description",
+        "AI tasks require a TaskChute Plus Pro license. Enter the activation code from your purchase email.",
+      ),
+    )
+
+    let code = this.plugin.settings.licenseCode ?? ""
+    // Holds the seat list after a 409, below the form the user just used.
+    const seatLimitEl = container.createDiv()
+
+    const setting = new Setting(container)
+      .setName(t("settings.license.codeName", "Activation code"))
+      .addText((text) => {
+        text
+          .setPlaceholder(t("settings.license.codePlaceholder", "TCP-XXXX-XXXX-XXXX-XXXX"))
+          .setValue(code)
+          .onChange((value) => {
+            code = value
+          })
+      })
+      .addButton((button) => {
+        button.setCta().setButtonText(t("settings.license.activate", "Activate"))
+        button.onClick(async () => {
+          button.setDisabled(true)
+          button.setButtonText(t("settings.license.activating", "Activating…"))
+          this.deviceListView?.dispose()
+          this.deviceListView = undefined
+          seatLimitEl.empty()
+
+          const result = await manager.activate(code)
+
+          if (result.ok) {
+            new Notice(t("settings.license.activated", "License activated."))
+            await this.applyLicenseChange()
+            this.display()
+            return
+          }
+
+          button.setDisabled(false)
+          button.setButtonText(t("settings.license.activate", "Activate"))
+          setting.setDesc(describeActivationFailure(result.failure))
+
+          // The seat limit is the one failure the user can fix right here, and
+          // the 409 already carried the list, so no second request is needed.
+          if (result.failure.kind === "device-limit") {
+            this.deviceListView = new DeviceListView(seatLimitEl, manager, {
+              initialDevices: result.failure.devices,
+              // Freeing a seat makes the "limit reached" message stale.
+              onChanged: () => {
+                setting.setDesc("")
+              },
+            })
+          }
+        })
+      })
+  }
+
+  /** Create or dispose the AI runtime to match the new license state. */
+  private async applyLicenseChange(): Promise<void> {
+    try {
+      await syncAiTaskManagerToLicense(this.plugin)
+    } catch (error) {
+      this.plugin._log?.("warn", "[License] Failed to apply license change", error)
+    }
+    this.notifyAiTaskSettingsChanged()
+  }
+
+  /** Only reached from the Pro section, which has already checked the license. */
   private renderAiTaskSection(container: HTMLElement): void {
     const heading = new Setting(container)
       .setName(t("settings.aiTask.heading", "AI task"))
@@ -687,67 +924,29 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           })
       })
 
-    new Setting(container)
-      .setName(t("settings.aiTask.claudePathName", "Claude CLI path (advanced fallback)"))
-      .setDesc(
-        t(
-          "settings.aiTask.claudePathDesc",
-          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-        ),
-      )
-      .addText((text) => {
-        text
-          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
-          .setValue(this.plugin.settings.aiTaskClaudePath ?? "")
-          .onChange(async (value) => {
-            const normalized = value.trim()
-            if (isUnsupportedWindowsCliShim(normalized)) {
-              text.setValue("")
-              new Notice(
-                t(
-                  "settings.aiTask.pathShimUnsupported",
-                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
-                ),
-              )
-            }
-            this.plugin.settings.aiTaskClaudePath = isUnsupportedWindowsCliShim(normalized)
-              ? ""
-              : normalized
-            await this.plugin.saveSettings()
-            this.plugin.aiTaskManager?.invalidateBinaryCache()
-          })
-      })
+    this.renderAiTaskCliPathSetting(container, {
+      name: t("settings.aiTask.claudePathName", "Claude CLI path (advanced fallback)"),
+      desc: t(
+        "settings.aiTask.claudePathDesc",
+        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+      ),
+      getValue: () => this.plugin.settings.aiTaskClaudePath ?? "",
+      setValue: (value) => {
+        this.plugin.settings.aiTaskClaudePath = value
+      },
+    })
 
-    new Setting(container)
-      .setName(t("settings.aiTask.codexPathName", "Codex CLI path (advanced fallback)"))
-      .setDesc(
-        t(
-          "settings.aiTask.codexPathDesc",
-          "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-        ),
-      )
-      .addText((text) => {
-        text
-          .setPlaceholder(t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"))
-          .setValue(this.plugin.settings.aiTaskCodexPath ?? "")
-          .onChange(async (value) => {
-            const normalized = value.trim()
-            if (isUnsupportedWindowsCliShim(normalized)) {
-              text.setValue("")
-              new Notice(
-                t(
-                  "settings.aiTask.pathShimUnsupported",
-                  "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
-                ),
-              )
-            }
-            this.plugin.settings.aiTaskCodexPath = isUnsupportedWindowsCliShim(normalized)
-              ? ""
-              : normalized
-            await this.plugin.saveSettings()
-            this.plugin.aiTaskManager?.invalidateBinaryCache()
-          })
-      })
+    this.renderAiTaskCliPathSetting(container, {
+      name: t("settings.aiTask.codexPathName", "Codex CLI path (advanced fallback)"),
+      desc: t(
+        "settings.aiTask.codexPathDesc",
+        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+      ),
+      getValue: () => this.plugin.settings.aiTaskCodexPath ?? "",
+      setValue: (value) => {
+        this.plugin.settings.aiTaskCodexPath = value
+      },
+    })
 
     const retentionSetting = new Setting(container)
       .setName(t("settings.aiTask.retentionName", "Run log retention (days)"))
@@ -776,6 +975,70 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       })
 
     retentionSetting.controlEl?.addClass("taskchute-number-input")
+  }
+
+  /**
+   * CLI path row: name/description stacked above a full-width text field with a
+   * native "Browse" picker, so long absolute paths stay readable.
+   */
+  private renderAiTaskCliPathSetting(
+    container: HTMLElement,
+    options: {
+      name: string
+      desc: string
+      getValue: () => string
+      setValue: (value: string) => void
+    },
+  ): void {
+    const setting = new Setting(container)
+      .setName(options.name)
+      .setDesc(options.desc)
+    setting.settingEl?.addClass("taskchute-cli-path-setting")
+
+    let textComponent: { setValue(value: string): unknown } | undefined
+
+    const commit = async (raw: string): Promise<void> => {
+      const normalized = raw.trim()
+      const rejected = isUnsupportedWindowsCliShim(normalized)
+      if (rejected) {
+        textComponent?.setValue("")
+        new Notice(
+          t(
+            "settings.aiTask.pathShimUnsupported",
+            "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
+          ),
+        )
+      }
+      options.setValue(rejected ? "" : normalized)
+      await this.plugin.saveSettings()
+      this.plugin.aiTaskManager?.invalidateBinaryCache()
+    }
+
+    setting.addText((text) => {
+      textComponent = text
+      text
+        .setPlaceholder(
+          t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"),
+        )
+        .setValue(options.getValue())
+        .onChange(async (value) => {
+          await commit(value)
+        })
+    })
+
+    setting.addButton((button) => {
+      button
+        .setButtonText(t("settings.aiTask.pathBrowse", "Browse"))
+        .onClick(async () => {
+          const selected = await new ElectronDirectoryPicker().selectFile({
+            defaultPath: options.getValue(),
+            title: options.name,
+          })
+          if (!selected) return
+          textComponent?.setValue(selected)
+          await commit(selected)
+        })
+    })
   }
 
   /** Create or dispose the AiTaskManager to match the toggle state. */

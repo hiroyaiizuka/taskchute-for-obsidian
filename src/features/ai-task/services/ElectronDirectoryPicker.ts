@@ -51,6 +51,29 @@ export class ElectronDirectoryPicker {
   ) {}
 
   async selectDirectory(defaultPath?: string): Promise<string | null> {
+    return this.open(
+      ['openDirectory', 'createDirectory'],
+      'ワーキングディレクトリを選択',
+      defaultPath,
+    )
+  }
+
+  async selectFile(options?: {
+    defaultPath?: string
+    title?: string
+  }): Promise<string | null> {
+    return this.open(
+      ['openFile'],
+      options?.title ?? 'ファイルを選択',
+      options?.defaultPath,
+    )
+  }
+
+  private async open(
+    properties: string[],
+    title: string,
+    defaultPath?: string,
+  ): Promise<string | null> {
     const remote = this.resolveRemote()
     if (!remote?.dialog?.showOpenDialog) return null
 
@@ -67,11 +90,11 @@ export class ElectronDirectoryPicker {
 
     try {
       const result = (await remote.dialog.showOpenDialog({
-        properties: ['openDirectory', 'createDirectory'],
+        properties,
         ...(requestedPath || homePath
           ? { defaultPath: requestedPath || homePath }
           : {}),
-        title: 'ワーキングディレクトリを選択',
+        title,
       })) as OpenDialogResultLike | null
 
       if (!result || result.canceled === true || !Array.isArray(result.filePaths)) {

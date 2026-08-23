@@ -7,6 +7,18 @@
   --taskchute-mobile-bottom-obstruction: calc(
     136px + env(safe-area-inset-bottom, 0px)
   );
+
+  /* Design tokens. Only values repeated across the sheet live here; one-off
+     values stay inline so the token list does not become noise. */
+  --tc-radius-sm: 4px;
+  --tc-radius-md: 6px;
+  --tc-radius-lg: 8px;
+  --tc-radius-pill: 999px;
+
+  --tc-transition: 0.2s ease;
+  --tc-shadow-popup: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --tc-shadow-modal: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --tc-focus-ring: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
 /* ===== Time Edit Popup ===== */
@@ -16,7 +28,7 @@
   left: var(--time-popup-left, 0);
   top: var(--time-popup-top, 0);
   background: var(--background-primary);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   padding: 8px 10px;
   display: flex;
@@ -28,7 +40,7 @@
   font-size: 14px;
   padding: 4px 6px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   color: var(--text-normal);
 }
@@ -39,7 +51,7 @@
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   cursor: pointer;
   font-size: 16px;
   align-items: center;
@@ -107,7 +119,7 @@
 
 /* ===== Restored original CSS (from full-css.ts) ===== */
 /* Modal overlay/content (used by time edit, settings, etc.) */
-:is(.task-modal-overlay) {
+.task-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -118,16 +130,6 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-}
-
-.task-modal-overlay .task-modal-content {
-  background: var(--background-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  width: 90%;
-  max-width: 500px;
-  max-height: 80vh;
-  overflow-y: auto;
 }
 
 .is-mobile .task-modal-overlay {
@@ -273,8 +275,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
 }
 :where(
     .taskchute-confirm-modal,
@@ -332,20 +334,8 @@
   )
   .modal-close-button
   svg
-  line,
-:where(
-    .task-modal-content,
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-close-button
-  svg
-  path,
-.taskchute-tooltip .tooltip-close-button svg line,
-.taskchute-tooltip .tooltip-close-button svg path {
+  :is(line, path),
+.taskchute-tooltip .tooltip-close-button svg :is(line, path) {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -368,7 +358,7 @@
   gap: 8px;
   width: 100%;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   padding: 8px 12px;
   box-sizing: border-box;
@@ -376,7 +366,7 @@
 
 .form-input-icon-wrapper:focus-within {
   border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+  box-shadow: var(--tc-focus-ring);
 }
 
 .form-input-icon-wrapper .form-input--bare {
@@ -494,13 +484,27 @@
   background-color: transparent;
 }
 
-.scheduled-time-modal .modal-header {
+/* Borderless header shared by the small single-purpose modals. The confirm
+   modal uses the same chrome but no gap below the header, and is kept as a
+   separate rule so each selector stays declared exactly once. */
+.scheduled-time-modal .modal-header,
+.time-edit-modal .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
   border-bottom: none;
   padding: 20px 20px 12px;
   margin-bottom: 4px;
+  position: relative;
+}
+
+.taskchute-confirm-modal .modal-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  border-bottom: none;
+  padding: 20px 20px 12px;
+  margin-bottom: 0;
   position: relative;
 }
 
@@ -524,32 +528,12 @@
   border-top: none;
 }
 
-.time-edit-modal .modal-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  border-bottom: none;
-  padding: 20px 20px 12px;
-  margin-bottom: 4px;
-  position: relative;
-}
-
 .time-edit-modal .form-group {
   margin-bottom: 16px;
 }
 
 .time-edit-modal .form-button.secondary {
   margin-top: 8px;
-}
-
-.taskchute-confirm-modal .modal-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  border-bottom: none;
-  padding: 20px 20px 12px;
-  margin-bottom: 0;
-  position: relative;
 }
 
 .project-create-modal {
@@ -636,7 +620,7 @@
   background: var(--background-primary);
   color: var(--text-normal);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 6px 12px 8px; /* larger touch target */
   min-width: 36px; /* a bit wider */
   cursor: pointer;
@@ -657,7 +641,7 @@
 .robot-terminal-button {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 4px 8px;
   cursor: pointer;
   font-size: 16px;
@@ -670,8 +654,8 @@
   position: absolute;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-radius: var(--tc-radius-sm);
+  box-shadow: var(--tc-shadow-popup);
   max-height: min(320px, 60vh);
   overflow-y: auto;
   z-index: 1000;
@@ -706,7 +690,7 @@
 .taskchute-autocomplete-suggestions .suggestion-badge {
   background-color: var(--interactive-accent-hover);
   color: var(--background-primary);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
   padding: 1px 8px;
   font-size: 12px;
   text-transform: uppercase;
@@ -717,7 +701,7 @@
   margin-top: 16px;
   padding: 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background-color: var(--background-secondary);
 }
 
@@ -843,14 +827,14 @@
   gap: 4px;
   padding: 3px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background-color: var(--background-secondary);
 }
 
 .task-type-option {
   padding: 4px 12px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background-color: transparent;
   color: var(--text-muted);
   font-size: 13px;
@@ -907,7 +891,7 @@
 .ai-task-recipe-preview {
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-secondary);
 }
 
@@ -1010,7 +994,7 @@
   overscroll-behavior: contain;
   padding: 5px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   background: var(--background-primary);
   box-shadow: var(--shadow-s);
 }
@@ -1034,7 +1018,7 @@
   min-height: 48px;
   padding: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: transparent;
   color: var(--text-normal);
   line-height: 1.25;
@@ -1176,7 +1160,7 @@
   overscroll-behavior: contain;
   padding: 5px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   background: var(--background-primary);
   box-shadow: var(--shadow-s);
 }
@@ -1208,7 +1192,7 @@
   min-width: 0;
   padding: 7px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: transparent;
   color: var(--text-normal);
   text-align: left;
@@ -1279,7 +1263,7 @@
   height: 25px;
   padding: 4px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1419,7 +1403,7 @@
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-primary-alt);
   color: var(--text-normal);
 }
@@ -1444,7 +1428,7 @@
   gap: 8px;
   margin-top: 6px;
   padding: 9px 10px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-secondary);
 }
 
@@ -1491,7 +1475,7 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   background-color: var(--background-secondary);
   color: var(--text-muted);
   cursor: pointer;
@@ -1523,7 +1507,7 @@
   resize: vertical;
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background-color: var(--background-primary);
   color: var(--text-normal);
   font-size: 13px;
@@ -1566,7 +1550,7 @@
 .task-restore-banner {
   margin-top: 12px;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background-color: var(--background-secondary-alt);
   display: flex;
@@ -1594,15 +1578,16 @@
   z-index: 10000;
 }
 
-/* 右クリックメニュー */
-.taskchute-context-menu {
+/* 右クリックメニュー / 時間帯メニュー共通の枠 */
+.taskchute-context-menu,
+.taskchute-slot-menu {
   position: fixed;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 4px 0;
   z-index: 10000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--tc-shadow-popup);
   min-width: 150px;
 }
 
@@ -1632,7 +1617,7 @@
 
 .taskchute-comment-content {
   background-color: var(--background-primary);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   padding: 20px;
   width: 500px;
   max-width: 90%;
@@ -1652,7 +1637,7 @@
 
 .taskchute-time-info {
   background-color: var(--background-secondary);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 12px;
   margin-bottom: 20px;
   font-size: 14px;
@@ -1714,7 +1699,7 @@
   background-color: var(--interactive-accent);
   color: var(--text-on-accent);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   font-size: 14px;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -1729,7 +1714,7 @@
   background-color: var(--background-modifier-border);
   color: var(--text-normal);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   font-size: 14px;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -1757,7 +1742,7 @@
   min-height: 100px;
   padding: 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background-color: var(--background-secondary);
   color: var(--text-normal);
   caret-color: var(--text-normal);
@@ -1822,7 +1807,7 @@
 
 .taskchute-button {
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   font-size: 14px;
   cursor: pointer;
   border: none;
@@ -1880,7 +1865,7 @@
 .taskchute-project-select {
   padding: 4px 8px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background-color: var(--background-secondary);
   color: var(--text-normal);
   font-size: 12px;
@@ -1939,7 +1924,7 @@
 .taskchute-nav-button {
   padding: 4px 8px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background-color: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
@@ -1960,7 +1945,7 @@
   padding: 8px 12px;
   background-color: var(--background-modifier-error);
   color: var(--text-error);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   margin: 8px 0;
 }
 
@@ -1969,7 +1954,7 @@
   padding: 8px 12px;
   background-color: var(--background-modifier-message);
   color: var(--text-normal);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   margin: 8px 0;
 }
 
@@ -1995,7 +1980,7 @@
   z-index: 10020;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   padding: 12px;
   width: 260px;
@@ -2021,7 +2006,7 @@
   cursor: pointer;
   font-size: 18px;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
 }
 
 .taskchute-move-calendar__nav:hover {
@@ -2059,7 +2044,7 @@
 
 .taskchute-move-calendar__day {
   border: none;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 6px;
   cursor: pointer;
   background: none;
@@ -2104,7 +2089,7 @@
   cursor: pointer;
   font-size: 12px;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
 }
 
 .taskchute-move-calendar__action:hover {
@@ -2136,11 +2121,11 @@
   z-index: 10000;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 4px 8px;
   font-size: 12px;
   color: var(--text-normal);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--tc-shadow-popup);
   max-width: 200px;
   word-wrap: break-word;
   min-width: 180px;
@@ -2164,7 +2149,7 @@
   z-index: 1000;
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 4px 8px;
   font-size: 12px;
 }
@@ -2210,17 +2195,6 @@
 .taskchute-input-absolute {
   position: absolute;
   z-index: 10000;
-}
-
-.taskchute-slot-menu {
-  position: fixed;
-  background-color: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  padding: 4px 0;
-  z-index: 10000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  min-width: 150px;
 }
 
 .taskchute-menu-option {
@@ -2275,7 +2249,7 @@
 
 .taskchute-log-modal-content {
   background: var(--background-primary);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   width: 90%;
   max-width: 1200px;
   height: 80%;
@@ -2300,7 +2274,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
 }
 
 .log-modal-close:hover {
@@ -2382,7 +2356,7 @@
 .taskchute-confirm-actions .mod-cta {
   min-width: 110px;
   padding: 8px 18px;
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   font-weight: 500;
   font-size: 0.95rem;
 }
@@ -2433,7 +2407,7 @@
 
 .year-selector {
   padding: 5px 10px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
@@ -2442,13 +2416,13 @@
 
 .refresh-button {
   padding: 5px 12px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
 }
 
 .refresh-button:hover {
@@ -2659,7 +2633,7 @@
   color: var(--text-error);
   font-size: 14px;
   background: var(--background-modifier-error);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   margin-bottom: 20px;
 }
 
@@ -2682,7 +2656,7 @@
 .heatmap-detail-section {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   padding: 18px 20px;
   max-height: 420px;
   overflow-y: auto;
@@ -2716,7 +2690,7 @@
 
 .heatmap-detail-open-button {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -2745,7 +2719,7 @@
 
 .heatmap-summary-item {
   background: var(--background-modifier-hover);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 8px 12px;
   min-width: 120px;
   display: flex;
@@ -2813,7 +2787,7 @@
   font-size: 12px;
   color: var(--text-muted);
   background: var(--background-modifier-hover);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 2px 6px;
   align-self: flex-start;
 }
@@ -2852,7 +2826,7 @@
   padding: 24px;
   text-align: center;
   background: var(--background-modifier-error);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
 }
 
 .heatmap-cell:focus-visible {
@@ -2867,12 +2841,12 @@
 }
 
 @media (max-width: 900px) {
-  :is(.heatmap-modal-body) {
+  .heatmap-modal-body {
     max-width: 100%;
     padding-bottom: 20px;
   }
 
-  :is(.heatmap-detail-section) {
+  .heatmap-detail-section {
     max-height: none;
   }
 
@@ -2898,7 +2872,7 @@
   }
 
   /* Heatmap section: bordered box with horizontal scroll inside */
-  :is(.heatmap-grid-section) {
+  .heatmap-grid-section {
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
@@ -2906,7 +2880,7 @@
     box-sizing: border-box;
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
+    border-radius: var(--tc-radius-lg);
     padding: 12px;
     align-items: flex-start;
   }
@@ -2927,19 +2901,19 @@
   }
 
   /* Compact summary stats for mobile */
-  :is(.heatmap-detail-summary) {
+  .heatmap-detail-summary {
     flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-start;
   }
 
-  :is(.heatmap-detail-summary) > * {
+  .heatmap-detail-summary > * {
     font-size: 12px;
     min-width: auto;
   }
 
   /* Compact table for mobile - prevent horizontal scroll */
-  :is(.heatmap-detail-table) {
+  .heatmap-detail-table {
     table-layout: fixed;
     width: 100%;
   }
@@ -2958,31 +2932,31 @@
   }
 
   /* Task name column: 35% */
-  :is(.heatmap-detail-name) {
+  .heatmap-detail-name {
     word-break: break-word;
     width: 35%;
   }
 
-  :is(.heatmap-detail-title) {
+  .heatmap-detail-title {
     font-size: 11px;
   }
 
   /* Time column: 25% */
-  :is(.heatmap-detail-time) {
+  .heatmap-detail-time {
     font-size: 10px;
     white-space: nowrap;
     width: 25%;
   }
 
   /* Comment column: 40% */
-  :is(.heatmap-detail-comment) {
+  .heatmap-detail-comment {
     font-size: 10px;
     word-break: break-word;
     width: 40%;
   }
 
   /* Header adjustments - row layout with inline action */
-  :is(.heatmap-detail-header) {
+  .heatmap-detail-header {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -2990,7 +2964,7 @@
     gap: 8px;
   }
 
-  :is(.heatmap-detail-heading) {
+  .heatmap-detail-heading {
     font-size: 14px;
     display: flex;
     align-items: center;
@@ -3000,12 +2974,12 @@
     flex-wrap: wrap;
   }
 
-  :is(.heatmap-detail-date) {
+  .heatmap-detail-date {
     font-size: 11px;
     white-space: nowrap;
   }
 
-  :is(.heatmap-detail-open-button) {
+  .heatmap-detail-open-button {
     font-size: 10px;
     padding: 4px 8px;
   }
@@ -3037,11 +3011,11 @@
   z-index: 1000;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 8px;
   font-size: 12px;
   white-space: pre-line;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--tc-shadow-popup);
   pointer-events: none;
   left: var(--heatmap-tooltip-left, 0);
   top: var(--heatmap-tooltip-top, 0);
@@ -3111,7 +3085,7 @@
 .drawer-toggle {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 0 10px;
   cursor: pointer;
   font-size: 16px;
@@ -3254,11 +3228,11 @@
 .task-button {
   padding: 8px 16px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   min-width: 70px;
 }
 
@@ -3277,7 +3251,7 @@
 }
 
 .task-button.stop {
-  background: #e74c3c;
+  background: var(--color-red, #e74c3c);
   color: white;
 }
 
@@ -3337,7 +3311,7 @@
   height: 100%;
   min-height: 0;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   padding-bottom: 50px;
   display: flex;
@@ -3408,13 +3382,15 @@
   transition:
     opacity 0.2s ease,
     background-color 0.2s ease;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
 }
 
 .task-item:hover .drag-handle {
   opacity: 0.6;
 }
 
+/* Needed on top of `.drag-handle:hover`: the row-hover rule above is more
+   specific, so direct hover must be restated at row-hover specificity. */
 .task-item:hover .drag-handle:hover {
   opacity: 1;
   color: var(--text-normal);
@@ -3450,7 +3426,7 @@
   cursor: move;
   background: var(--background-modifier-hover);
   transform: scale(0.98);
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
 }
 
 .task-item.dragover {
@@ -3468,7 +3444,7 @@
 }
 
 .task-item.dragover-invalid::after {
-  content: "❌ ここには配置できません";
+  content: "❌ " attr(data-drag-invalid-message);
   position: absolute;
   top: -25px;
   left: 50%;
@@ -3476,7 +3452,7 @@
   background-color: var(--text-error);
   color: white;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   font-size: 12px;
   white-space: nowrap;
   z-index: 1000;
@@ -3556,7 +3532,7 @@
   font-weight: 600;
   padding: 6px 12px;
   margin: 8px 0 4px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border-left: 3px solid var(--interactive-accent);
   display: flex;
   align-items: center;
@@ -3571,7 +3547,7 @@
   background: var(--background-modifier-hover);
   border: 1px dashed var(--interactive-accent);
   border-left-width: 5px;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
 }
 
 .routine-button {
@@ -3581,8 +3557,8 @@
   cursor: pointer;
   padding: 2px;
   padding-top: 4px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
   opacity: 0.4;
   width: 100%;
   display: flex;
@@ -3610,8 +3586,8 @@
   color: var(--text-muted);
   padding: 2px;
   padding-top: 4px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
   opacity: 0;
   width: 100%;
   display: flex;
@@ -3625,6 +3601,7 @@
   opacity: 0.6;
 }
 
+/* Restated at row-hover specificity for the same reason as the drag handle. */
 .task-item:hover .comment-button:not(.disabled):hover {
   opacity: 1;
   background: var(--background-modifier-border);
@@ -3685,9 +3662,9 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   color: var(--text-normal);
@@ -3724,8 +3701,8 @@
   font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
   color: var(--text-muted);
 }
 
@@ -3739,9 +3716,9 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   opacity: 0;
   border: 1px dashed var(--background-modifier-border);
   color: var(--text-muted);
@@ -3811,8 +3788,8 @@
 /* モーダルスタイル */
 .task-modal-content {
   background: var(--background-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-shadow-modal);
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
@@ -3844,8 +3821,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
 }
 
 .modal-close-button:hover {
@@ -3869,11 +3846,12 @@
 }
 
 .form-input,
-:is(.form-textarea) {
+.form-textarea,
+.energy-select {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   color: var(--text-normal);
   font-family: inherit;
@@ -3888,11 +3866,16 @@ select.form-input {
   padding: 8px 12px;
 }
 
+/* Shared focus ring. Must stay ahead of `.form-input.error`, which has equal
+   specificity and is meant to keep its red border while focused. */
 .form-input:focus,
-.form-textarea:focus {
+.form-textarea:focus,
+.energy-select:focus,
+.completion-comment:focus,
+.reminder-input-container input[type="time"]:focus {
   outline: none;
   border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+  box-shadow: var(--tc-focus-ring);
 }
 
 textarea.form-textarea {
@@ -3947,7 +3930,7 @@ textarea.form-textarea {
   color: #3498db;
   padding: 2px;
   padding-top: 4px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   width: 100%;
   display: flex;
   align-items: center;
@@ -3955,7 +3938,7 @@ textarea.form-textarea {
   line-height: 1;
 }
 .play-stop-button.stop {
-  color: #e74c3c;
+  color: var(--text-error);
   font-weight: bold;
   background: var(--background-modifier-border);
 }
@@ -3972,9 +3955,9 @@ textarea.form-textarea {
   border: none;
   background: none;
   cursor: pointer;
-  color: #e74c3c;
+  color: var(--text-error);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   transition: background 0.2s;
 }
 .delete-task-button:hover {
@@ -3990,8 +3973,8 @@ textarea.form-textarea {
   color: var(--text-muted);
   padding: 2px;
   margin-right: 10px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
   opacity: 0.6;
   width: 100%;
   text-align: center;
@@ -4007,7 +3990,7 @@ textarea.form-textarea {
 .task-settings-tooltip {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   padding: 4px 0 11px;
   min-width: 140px;
@@ -4030,6 +4013,23 @@ textarea.form-textarea {
   font-size: 0.75em;
 }
 
+/* CLI path rows stack the label above a full-width input + browse button. */
+.setting-item.taskchute-cli-path-setting {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+}
+
+.taskchute-cli-path-setting .setting-item-control {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.taskchute-cli-path-setting .setting-item-control input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .tooltip-header {
   display: flex;
   justify-content: flex-end;
@@ -4050,7 +4050,7 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   border-radius: 3px;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
 }
 
 .tooltip-close-button:hover {
@@ -4176,7 +4176,7 @@ textarea.form-textarea {
   justify-content: center;
   height: 24px;
   width: 24px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   transition: background 0.2s;
 }
 .calendar-btn:hover {
@@ -4193,32 +4193,6 @@ textarea.form-textarea {
 }
 
 /* 完了演出スタイル */
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes bounceIn {
-  0% {
-    transform: scale(0.3);
-    opacity: 0;
-  }
-  50% {
-    transform: scale(1.05);
-  }
-  70% {
-    transform: scale(0.9);
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
 
 .fireworks-container {
   position: absolute;
@@ -4310,18 +4284,6 @@ textarea.form-textarea {
   }
 }
 
-/* 追加の演出効果 */
-
-@keyframes glowPulse {
-  0%,
-  100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 0.8;
-  }
-}
-
 /* 統計表示スタイル */
 
 .stat-item {
@@ -4375,17 +4337,6 @@ textarea.form-textarea {
   }
 }
 
-/* 追加の演出効果 */
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
 /* チェックボックススタイル */
 .form-checkbox {
   margin-left: 10px;
@@ -4419,27 +4370,6 @@ textarea.form-textarea {
   color: var(--text-normal);
 }
 
-/* セレクトボックススタイル */
-.form-input[type="time"],
-.form-input[type="select"] {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.form-input[type="time"]:focus,
-.form-input[type="select"]:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
 /* タスク完了コメントモーダルのスタイル */
 .completion-modal {
   max-width: 500px;
@@ -4456,7 +4386,7 @@ textarea.form-textarea {
 .completion-time-info {
   background: var(--background-secondary);
   padding: 12px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
 }
 
@@ -4469,7 +4399,7 @@ textarea.form-textarea {
 .completion-rating-section {
   background: var(--background-secondary);
   padding: 16px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
 }
 
@@ -4500,7 +4430,7 @@ textarea.form-textarea {
 .star-rating .star {
   font-size: 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   display: inline-block;
   user-select: none;
   opacity: 0.3;
@@ -4510,30 +4440,12 @@ textarea.form-textarea {
   transform: scale(1.2);
 }
 
-.energy-select {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.energy-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-}
-
 .completion-comment {
   width: 100%;
   min-height: 100px;
   padding: 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-primary);
   color: var(--text-normal);
   font-family: inherit;
@@ -4545,12 +4457,6 @@ textarea.form-textarea {
 /* 入力時のテキスト色を明るくする */
 .completion-comment:not(:placeholder-shown) {
   color: rgba(255, 255, 255, 0.9);
-}
-
-.completion-comment:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
 .completion-comment::placeholder {
@@ -4573,7 +4479,7 @@ textarea.form-textarea {
   border-radius: 16px;
   cursor: pointer;
   font-size: 12px;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   user-select: none;
 }
 
@@ -4597,11 +4503,11 @@ textarea.form-textarea {
 .form-button {
   padding: 10px 20px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
   min-width: 80px;
 }
 
@@ -4750,8 +4656,8 @@ textarea.form-textarea {
   user-select: none;
   padding: 5px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
 }
 
 .weekday-checkbox-label:hover {
@@ -4768,35 +4674,19 @@ textarea.form-textarea {
   color: var(--text-accent);
 }
 
-/* 曜日選択グループ全体のスタイル */
-#edit-weekday-group {
-  transition: all 0.3s ease;
-  overflow: hidden;
-}
-
-#edit-weekday-group[style*="display: none"] {
-  max-height: 0;
-  opacity: 0;
-}
-
-#edit-weekday-group[style*="display: block"] {
-  max-height: 200px;
-  opacity: 1;
-}
-
 /* タスク名検証スタイル */
 .form-input.error {
-  border-color: #e74c3c;
-  background-color: #ffeeee;
+  border-color: var(--text-error);
+  background-color: var(--background-modifier-error);
 }
 
 .task-name-warning {
-  color: #e74c3c;
+  color: var(--text-error);
   font-size: 12px;
   margin-top: 4px;
   padding: 4px 8px;
-  background-color: #ffeeee;
-  border-radius: 4px;
+  background-color: var(--background-modifier-error);
+  border-radius: var(--tc-radius-sm);
 }
 
 .task-name-warning.hidden {
@@ -4818,7 +4708,7 @@ textarea.form-textarea {
 }
 
 .form-button.disabled {
-  background-color: #cccccc;
+  background-color: var(--background-modifier-border);
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -4832,7 +4722,7 @@ textarea.form-textarea {
 }
 
 @container taskchute-list (max-width: 900px) {
-  :is(.task-item) {
+  .task-item {
     grid-template-columns:
       18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
       50px 30px 30px;
@@ -4848,7 +4738,7 @@ textarea.form-textarea {
 
 @container taskchute-list (max-width: 640px) {
   /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-  :is(.task-item) {
+  .task-item {
     grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
     gap: 6px;
     padding-left: 6px;
@@ -4861,13 +4751,13 @@ textarea.form-textarea {
     display: none;
   }
 
-  :is(.task-item .task-time-range) {
+  .task-item .task-time-range {
     justify-content: flex-start;
     text-align: left;
     padding-left: 4px;
   }
 
-  :is(.task-item .settings-task-button) {
+  .task-item .settings-task-button {
     width: auto;
     min-width: 26px;
   }
@@ -4875,21 +4765,21 @@ textarea.form-textarea {
 
 @container taskchute-list (max-width: 520px) {
   /* 520px以下: さらにコンパクト */
-  :is(.task-item) {
+  .task-item {
     grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
     gap: 4px;
     padding-left: 4px;
     padding-right: 12px;
   }
 
-  :is(.task-item .task-time-range) {
+  .task-item .task-time-range {
     font-size: 11px;
     justify-content: flex-start;
     text-align: left;
     padding-left: 4px;
   }
 
-  :is(.task-item .settings-task-button) {
+  .task-item .settings-task-button {
     justify-self: flex-end;
     width: auto;
     min-width: 24px;
@@ -4922,8 +4812,11 @@ textarea.form-textarea {
   display: none;
 }
 
-/* Header with title and close button - applies to all custom modals */
-:is(.task-modal-content .modal-header) {
+/* Header with title and close button - applies to all custom modals.
+   `.reminder-settings-header` is a standalone header outside `.task-modal-content`
+   but renders identically, so it shares these rules. */
+.task-modal-content .modal-header,
+.reminder-settings-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -4934,7 +4827,8 @@ textarea.form-textarea {
 }
 
 .task-modal-content .modal-header h3,
-.task-modal-content .modal-header h4 {
+.task-modal-content .modal-header h4,
+.reminder-settings-header h3 {
   margin: 0;
   color: var(--text-normal);
   padding-right: 40px;
@@ -4945,7 +4839,8 @@ textarea.form-textarea {
 }
 
 /* Close button positioned in header row - applies to all custom modals */
-.task-modal-content .modal-header .modal-close-button {
+.task-modal-content .modal-header .modal-close-button,
+.reminder-settings-header .modal-close-button {
   position: absolute;
   top: 10px;
   right: 12px;
@@ -4961,16 +4856,18 @@ textarea.form-textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  border-radius: var(--tc-radius-sm);
+  transition: all var(--tc-transition);
 }
 
-.task-modal-content .modal-header .modal-close-button:hover {
+.task-modal-content .modal-header .modal-close-button:hover,
+.reminder-settings-header .modal-close-button:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
 
-.task-modal-content .modal-header .modal-close-button svg {
+.task-modal-content .modal-header .modal-close-button svg,
+.reminder-settings-header .modal-close-button svg {
   width: 14px;
   height: 14px;
   stroke: currentColor;
@@ -5066,7 +4963,7 @@ textarea.form-textarea {
   z-index: 1000;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   padding: 6px;
 }
@@ -5088,7 +4985,7 @@ textarea.form-textarea {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   cursor: pointer;
 }
 
@@ -5151,7 +5048,7 @@ textarea.form-textarea {
 .routine-chip__text {
   display: inline-block;
   padding: 4px 14px;
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
   font-size: 0.9rem;
@@ -5177,7 +5074,7 @@ textarea.form-textarea {
 
 .routine-editor__button {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
@@ -5232,7 +5129,7 @@ textarea.form-textarea {
 .routine-manager__controls input[type="search"] {
   padding: 6px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   min-width: 240px;
   background: var(--background-primary);
   color: var(--text-normal);
@@ -5246,7 +5143,7 @@ textarea.form-textarea {
 .routine-table__wrapper {
   height: 100%;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   overflow: auto;
   background: var(--background-primary);
 }
@@ -5327,7 +5224,7 @@ textarea.form-textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background: transparent;
   cursor: pointer;
@@ -5340,7 +5237,7 @@ textarea.form-textarea {
 
 .routine-table__action-button {
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
@@ -5385,7 +5282,7 @@ textarea.form-textarea {
 
 .routine-confirm__button {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   color: var(--text-normal);
@@ -5435,13 +5332,13 @@ textarea.form-textarea {
 .task-warning-tooltip {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-normal);
   white-space: pre-wrap;
   max-width: 300px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--tc-shadow-popup);
   pointer-events: none;
 }
 
@@ -5536,7 +5433,7 @@ textarea.form-textarea {
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
   color: var(--text-muted);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -5584,7 +5481,7 @@ textarea.form-textarea {
   color: var(--interactive-accent);
   pointer-events: none;
   background: var(--background-primary);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
   padding: 0 4px;
 }
 
@@ -5597,7 +5494,7 @@ textarea.form-textarea {
   transform: translateY(-50%);
   height: 2px;
   background: var(--interactive-accent);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
   color: var(--interactive-accent);
   pointer-events: none;
 }
@@ -5649,7 +5546,7 @@ textarea.form-textarea {
   bottom: var(--project-board-drop-line-bottom, auto);
   height: 2px;
   background: var(--interactive-accent);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
 }
 
 :is(.project-board-card--drop-before, .project-board-card--drop-after)::after {
@@ -5664,7 +5561,7 @@ textarea.form-textarea {
   bottom: var(--project-board-drop-plus-bottom, auto);
   padding: 0 4px;
   background: var(--background-primary);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
 }
 
 .project-board-card:active {
@@ -5679,7 +5576,7 @@ textarea.form-textarea {
 .project-board-column__load-more {
   width: 100%;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   padding: 6px 8px 4px;
   background: transparent;
   color: var(--text-muted);
@@ -5736,7 +5633,7 @@ textarea.form-textarea {
 }
 
 @supports (background: color-mix(in srgb, red 10%, transparent)) {
-  :is(.project-board-column__new) {
+  .project-board-column__new {
     background: color-mix(
       in srgb,
       var(--interactive-accent) 16%,
@@ -5744,7 +5641,7 @@ textarea.form-textarea {
     );
   }
 
-  :is(.project-board-column__new:hover) {
+  .project-board-column__new:hover {
     background: color-mix(
       in srgb,
       var(--interactive-accent) 80%,
@@ -5796,16 +5693,16 @@ textarea.form-textarea {
 }
 
 @media (max-width: 1200px) {
-  :is(.project-board-modal) {
+  .project-board-modal {
     min-width: auto;
     width: min(95vw, 860px);
   }
 
-  :is(.project-board-view) {
+  .project-board-view {
     max-width: none;
   }
 
-  :is(.project-board-columns) {
+  .project-board-columns {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 }
@@ -5900,11 +5797,11 @@ textarea.form-textarea {
 
 .reminder-button-group .form-button {
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   cursor: pointer;
   border: none;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: all var(--tc-transition);
 }
 
 .reminder-button-group .form-button.create {
@@ -5931,61 +5828,8 @@ textarea.form-textarea {
   max-width: 500px;
   padding: 0;
   background: var(--background-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-}
-
-.reminder-settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 56px 10px 20px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 16px;
-  position: relative;
-}
-
-.reminder-settings-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  padding-right: 40px;
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.reminder-settings-header .modal-close-button {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.reminder-settings-header .modal-close-button:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.reminder-settings-header .modal-close-button svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.75;
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-shadow-modal);
 }
 
 .reminder-settings-task {
@@ -6022,7 +5866,7 @@ textarea.form-textarea {
   width: 80px;
   padding: 8px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   color: var(--text-normal);
   font-size: 14px;
@@ -6037,17 +5881,11 @@ textarea.form-textarea {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: var(--background-primary);
   color: var(--text-normal);
   font-size: 14px;
   box-sizing: border-box;
-}
-
-.reminder-input-container input[type="time"]:focus {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
-  outline: none;
 }
 
 .reminder-input-suffix {
@@ -6069,35 +5907,8 @@ textarea.form-textarea {
   padding: 0 20px 20px;
 }
 
-.reminder-settings-buttons .form-button {
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  border: none;
-  font-size: 14px;
-  font-weight: 500;
-  min-width: 80px;
-  transition: all 0.2s ease;
-}
-
-.reminder-settings-buttons .form-button.create {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.reminder-settings-buttons .form-button.create:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.reminder-settings-buttons .form-button.cancel {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.reminder-settings-buttons .form-button.cancel:hover {
-  background: var(--background-modifier-border-hover);
-}
-
+/* Base/create/cancel styling comes from the generic `.form-button` rules;
+   only `danger` differs here (muted background instead of the accent). */
 .reminder-settings-buttons .form-button.danger {
   background: var(--background-modifier-border);
   color: var(--text-error);
@@ -6187,7 +5998,7 @@ textarea.form-textarea {
   width: min(360px, calc(100vw - 20px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 12px;
   max-height: min(76vh, 720px);
@@ -6237,12 +6048,14 @@ textarea.form-textarea {
   flex: 1 1 auto;
 }
 
-.recipe-run-edit-button {
+/* 22px の枠なしアイコンボタン（レシピの編集 / ソースを開く） */
+.recipe-run-edit-button,
+.recipe-source-open-button {
   width: 22px;
   height: 22px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -6252,14 +6065,15 @@ textarea.form-textarea {
   flex: 0 0 auto;
 }
 
-.recipe-run-edit-button:hover {
+.recipe-run-edit-button:hover,
+.recipe-source-open-button:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
 
 .recipe-run-summary {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
+  border-radius: var(--tc-radius-pill);
   padding: 2px 8px;
   font-size: 12px;
   color: var(--text-muted);
@@ -6270,7 +6084,7 @@ textarea.form-textarea {
   border-color: var(--color-green, #2e7d32);
 }
 
-:is(.recipe-steps-list) {
+.recipe-steps-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -6312,7 +6126,7 @@ textarea.form-textarea {
 .recipe-run-context {
   margin-top: 12px;
   padding: 9px 10px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-secondary);
 }
 
@@ -6338,7 +6152,7 @@ textarea.form-textarea {
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 2px 4px;
 }
 
@@ -6372,7 +6186,7 @@ textarea.form-textarea {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: grab;
@@ -6392,6 +6206,7 @@ textarea.form-textarea {
   opacity: 0.6;
 }
 
+/* Restated at row-hover specificity for the same reason as the task drag handle. */
 .recipe-step-row:hover .recipe-list-drag-handle:hover,
 .recipe-step-row:hover .recipe-step-drag-handle:hover,
 .recipe-run-step:hover .recipe-step-drag-handle:hover {
@@ -6538,7 +6353,7 @@ textarea.form-textarea {
 .recipe-card {
   width: 100%;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   background: var(--background-primary);
   color: var(--text-normal);
   padding: 10px 12px;
@@ -6552,7 +6367,7 @@ textarea.form-textarea {
 .recipe-select-item {
   width: 100%;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: transparent;
   color: var(--text-normal);
   padding: 7px 8px;
@@ -6603,32 +6418,12 @@ textarea.form-textarea {
   max-width: 100%;
 }
 
-.recipe-source-open-button {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-}
-
-.recipe-source-open-button:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
-}
-
 .recipe-card-delete-button {
   width: 34px;
   height: 34px;
   padding: 0;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   background: var(--background-secondary);
   color: var(--text-muted);
   cursor: pointer;
@@ -6769,7 +6564,7 @@ textarea.form-textarea {
 
 .backup-cancel-button {
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border: 1px solid var(--background-modifier-border);
   background: transparent;
   color: var(--text-normal);
@@ -6783,7 +6578,7 @@ textarea.form-textarea {
 
 .backup-restore-button {
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border: none;
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -6934,7 +6729,7 @@ textarea.form-textarea {
 .backup-preview-nav-button {
   background: transparent;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   font-size: 14px;
@@ -6971,7 +6766,7 @@ textarea.form-textarea {
   max-height: 200px;
   overflow-y: auto;
   background: var(--background-secondary);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   padding: 8px 12px;
 }
 
@@ -7013,7 +6808,7 @@ textarea.form-textarea {
 
 .backup-confirm-button {
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   border: none;
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -7071,7 +6866,7 @@ textarea.form-textarea {
 /* This prevents unwanted hover effects when tapping settings button */
 @media (hover: none) {
   /* Disable task-item hover background change on mobile */
-  :is(.task-item:hover) {
+  .task-item:hover {
     background: inherit;
   }
 
@@ -7080,7 +6875,7 @@ textarea.form-textarea {
     opacity: 0.6;
   }
 
-  :is(.routine-button.active) {
+  .routine-button.active {
     opacity: 1;
   }
 
@@ -7093,7 +6888,7 @@ textarea.form-textarea {
 
   /* Comment button: transparent by default, visible on tap */
   /* Has comments (done state with active class): always visible */
-  :is(.comment-button.active) {
+  .comment-button.active {
     opacity: 1;
     visibility: visible;
   }
@@ -7126,14 +6921,14 @@ textarea.form-textarea {
     opacity: 0.6;
   }
 
-  :is(.drag-handle.disabled) {
+  .drag-handle.disabled {
     opacity: 0;
     pointer-events: none;
   }
 
   /* Time range (start time): invisible by default, visible on tap/hover */
   /* On iOS, tapping triggers :hover state which persists until tapping elsewhere */
-  :is(.task-time-range.time-hidden) {
+  .task-time-range.time-hidden {
     opacity: 0;
     visibility: visible;
   }
@@ -7295,7 +7090,7 @@ textarea.form-textarea {
   top: 44px;
   height: 44px;
   background: var(--background-modifier-hover);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   pointer-events: none;
   z-index: -1;
 }
@@ -7313,7 +7108,7 @@ textarea.form-textarea {
 /* Button base */
 .taskchute-mobile-time-picker-btn {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   cursor: pointer;
   font-size: 16px;
   font-weight: 500;
@@ -7367,13 +7162,13 @@ textarea.form-textarea {
   background: var(--interactive-accent-hover);
 }
 
-/* ── Advanced Settings (details/summary) ── */
+/* ── Collapsible settings sections (details/summary) ── */
 
-.taskchute-advanced-settings {
+.taskchute-collapsible-section {
   margin-top: 24px;
 }
 
-.taskchute-advanced-summary {
+.taskchute-collapsible-summary {
   display: flex;
   align-items: center;
   padding: 0;
@@ -7382,12 +7177,12 @@ textarea.form-textarea {
   user-select: none;
 }
 
-.taskchute-advanced-summary::-webkit-details-marker,
-.taskchute-advanced-summary::marker {
+.taskchute-collapsible-summary::-webkit-details-marker,
+.taskchute-collapsible-summary::marker {
   display: none;
 }
 
-.taskchute-advanced-summary::before {
+.taskchute-collapsible-summary::before {
   content: "▶";
   display: inline-block;
   margin-right: 8px;
@@ -7395,25 +7190,30 @@ textarea.form-textarea {
   transition: transform 120ms ease;
 }
 
-.taskchute-advanced-settings[open] > .taskchute-advanced-summary::before {
+.taskchute-collapsible-section[open] > .taskchute-collapsible-summary::before {
   transform: rotate(90deg);
 }
 
-.taskchute-advanced-heading {
+.taskchute-collapsible-heading {
   font-size: var(--h3-size, 1.15em);
   font-weight: var(--h3-weight, 600);
   color: var(--text-normal);
 }
 
-.taskchute-advanced-content {
+.taskchute-collapsible-content {
   padding-top: 12px;
+}
+
+/* Trails the collapsible sections, so it needs their same breathing room. */
+.taskchute-settings-pane .setting-item.taskchute-version-setting {
+  margin-top: 24px;
 }
 
 /* ── Section boundary list ── */
 
 .taskchute-section-boundaries {
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  border-radius: var(--tc-radius-md);
   overflow: hidden;
   margin: 12px 0;
 }
@@ -7493,7 +7293,7 @@ textarea.form-textarea {
   cursor: pointer;
   font-size: 14px;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   line-height: 1;
   color: var(--text-muted);
 }
@@ -7564,7 +7364,7 @@ textarea.form-textarea {
   overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: var(--tc-radius-lg);
   background: var(--background-primary);
   box-shadow: var(--shadow-s);
 }
@@ -7616,6 +7416,19 @@ textarea.form-textarea {
 }
 
 .ai-run-pane {
+  /* The pane chrome follows the Obsidian theme, but the file/terminal surface
+     below keeps a fixed editor-dark palette in both light and dark themes —
+     the same convention Obsidian's own code blocks and terminals use.
+     Centralised here so the surface can be re-themed in one place. */
+  --tc-code-surface: #1e1e1e;
+  --tc-code-tabbar-bg: #1a2332;
+  --tc-code-tab-hover-bg: #1f2937;
+  --tc-code-tab-active-bg: #111827;
+  --tc-code-border: #374151;
+  --tc-code-text-dim: #6b7280;
+  --tc-code-text: #d1d5db;
+  --tc-code-text-strong: #e5e7eb;
+
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -7892,7 +7705,7 @@ textarea.form-textarea {
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--background-modifier-border);
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
 }
 
 .ai-run-pane__file-panel-container.is-hidden {
@@ -7916,8 +7729,8 @@ textarea.form-textarea {
   padding: 0;
   flex-shrink: 0;
   overflow: hidden;
-  border-bottom: 1px solid #374151;
-  background: #1a2332;
+  border-bottom: 1px solid var(--tc-code-border);
+  background: var(--tc-code-tabbar-bg);
   font-family: var(--font-monospace);
 }
 
@@ -7949,7 +7762,7 @@ textarea.form-textarea {
   padding: 2px 8px;
   border-radius: 0;
   background: transparent;
-  color: #6b7280;
+  color: var(--tc-code-text-dim);
   cursor: pointer;
   font-family: var(--font-monospace);
   font-size: 12px;
@@ -7964,18 +7777,18 @@ textarea.form-textarea {
   right: 0;
   bottom: 0;
   width: 1px;
-  background: #374151;
+  background: var(--tc-code-border);
   content: "";
 }
 
 .ai-run-pane__work-tab:hover {
-  background: #1f2937;
-  color: #d1d5db;
+  background: var(--tc-code-tab-hover-bg);
+  color: var(--tc-code-text);
 }
 
 .ai-run-pane__work-tab.is-active {
-  background: #111827;
-  color: #e5e7eb;
+  background: var(--tc-code-tab-active-bg);
+  color: var(--tc-code-text-strong);
 }
 
 .ai-run-pane__file-tab-icon {
@@ -8020,7 +7833,7 @@ textarea.form-textarea {
   margin: 0 0 0 4px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--tc-radius-sm);
   background-color: transparent;
   box-shadow: none;
   color: inherit;
@@ -8041,8 +7854,8 @@ textarea.form-textarea {
 
 .ai-run-pane__work-tab-close:is(:hover, :focus-visible),
 .ai-run-pane button.ai-run-pane__work-tab-close:is(:hover, :focus-visible) {
-  background-color: #374151;
-  color: #e5e7eb;
+  background-color: var(--tc-code-border);
+  color: var(--tc-code-text-strong);
   opacity: 1;
   pointer-events: auto;
 }
@@ -8080,8 +7893,8 @@ textarea.form-textarea {
 }
 
 .ai-run-pane .ai-run-pane__file-actions button:hover {
-  background-color: #1f2937;
-  color: #d1d5db;
+  background-color: var(--tc-code-tab-hover-bg);
+  color: var(--tc-code-text);
 }
 
 .ai-run-pane__file-actions button:disabled {
@@ -8108,7 +7921,7 @@ textarea.form-textarea {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
 }
 
 .ai-run-pane__file-editor {
@@ -8133,7 +7946,7 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
 }
 
 .ai-run-pane__file-editor-status.is-hidden {
@@ -8219,7 +8032,7 @@ textarea.form-textarea {
   border-radius: 0;
   background-color: transparent;
   box-shadow: none;
-  color: #6b7280;
+  color: var(--tc-code-text-dim);
   font-family: var(--font-monospace);
   line-height: var(--ai-run-control-line-height, 16px);
 }
@@ -8253,9 +8066,9 @@ textarea.form-textarea {
 .ai-run-pane button.ai-run-pane__add:hover,
 .ai-run-pane button.ai-run-pane__add:focus-visible {
   border: none;
-  background-color: #1f2937;
+  background-color: var(--tc-code-tab-hover-bg);
   box-shadow: none;
-  color: #d1d5db;
+  color: var(--tc-code-text);
 }
 
 /* Status dots (sidebar rows and content tab alike): amber pulse while a run
@@ -8461,7 +8274,7 @@ textarea.form-textarea {
 /* Terminal body: xterm renders its own scrollback and padding, so the body
    itself must not scroll or pad. */
 .ai-run-pane__body--terminal {
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
   padding: 0;
   overflow: hidden;
 }
@@ -8477,12 +8290,12 @@ textarea.form-textarea {
   min-height: 0;
   padding: 4px 6px;
   box-sizing: border-box;
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
 }
 
 .ai-run-pane__body--terminal .xterm .xterm-viewport,
 .ai-run-pane__body--terminal .xterm .xterm-screen {
-  background: #1e1e1e;
+  background: var(--tc-code-surface);
 }
 
 /* The follow-up composer only applies to headless runs; terminal runs take
@@ -8610,4 +8423,74 @@ textarea.form-textarea {
   width: 16px;
   height: 16px;
   stroke-width: 1.8;
+}
+
+/* ── License device seats (rendered inline in the Pro settings section) ─── */
+
+.taskchute-license-devices {
+  margin-bottom: var(--size-4-4);
+}
+
+.taskchute-license-devices__description {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.taskchute-license-devices__status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: var(--size-4-1) 0 var(--size-4-2);
+  min-height: 1.2em;
+}
+
+.taskchute-license-devices__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.taskchute-license-devices__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.taskchute-license-devices__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+  min-width: 0;
+}
+
+.taskchute-license-devices__name {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  font-weight: var(--font-medium);
+}
+
+.taskchute-license-devices__badge {
+  background-color: var(--background-modifier-hover);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  padding: 0 var(--size-2-2);
+}
+
+/* Device ids are long and shown in full so a seat can be identified. */
+.taskchute-license-devices__meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.taskchute-license-devices__empty {
+  color: var(--text-muted);
+  padding: var(--size-4-3) 0;
+  text-align: center;
 }

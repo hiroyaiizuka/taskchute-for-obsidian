@@ -15,6 +15,7 @@ export const ja = {
     heading: "タスクシュートのファイルパス",
     version: {
       name: "バージョン",
+      proUnlocked: "Pro 設定を表示しました。",
     },
     storage: {
       baseLocationName: "デフォルトの場所",
@@ -62,6 +63,28 @@ export const ja = {
       enableDesc:
         "タスク設定メニューと左上メニューに、レシピの設定・管理項目を表示します。",
     },
+    pro: {
+      heading: "Pro 設定",
+    },
+    license: {
+      heading: "ライセンス",
+      description:
+        "AIタスクの利用にはTaskChute Plus Proのライセンスが必要です。購入時のメールに記載されたアクティベーションコードを入力してください。",
+      codeName: "アクティベーションコード",
+      codePlaceholder: "TCP-XXXX-XXXX-XXXX-XXXX",
+      activate: "有効化",
+      activating: "有効化しています…",
+      statusName: "状態",
+      statusActive: "有効",
+      statusUnlicensed: "未有効化",
+      licenseIdName: "ライセンスID",
+      devicesName: "端末",
+      devicesValue: "{max}台中{used}台を使用中",
+      expiresName: "有効期限",
+      expiresNever: "無期限",
+      activated: "ライセンスを有効化しました。",
+      requiredNotice: "ライセンスが必要です。",
+    },
     aiTask: {
       heading: "AIタスク",
       enable: "AIタスクを有効化",
@@ -79,6 +102,7 @@ export const ja = {
       codexPathDesc:
         "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではcodex.cmdではなくcodex.exeまたはbin/codex.jsを指定してください。",
       pathPlaceholder: "自動検出（推奨）",
+      pathBrowse: "参照",
       pathShimUnsupported:
         "Windowsの.cmd/.bat/.ps1 shimは手動CLIパスに使用できません。空欄で自動検出するか、実体の実行ファイル／パッケージentrypointを指定してください。",
       retentionName: "実行ログの保持期間（日）",
@@ -408,6 +432,7 @@ export const ja = {
       taskOrderSaveFailed: "タスクの並び順を保存できませんでした",
       taskNotSelected: "タスクが選択されていません",
       cannotPlaceAboveCompleted: "完了済み・実行中タスクより上には配置できません",
+      dropNotAllowedHere: "ここには配置できません",
       taskMoveSuccess: "タスクを{date}に移動しました",
       taskDuplicated: "「{title}」を複製しました",
       routineSetSuccess: "「{title}」をルーチンタスクに設定しました（{time}開始予定）",
@@ -986,6 +1011,42 @@ export const ja = {
       cannotOpen: "プレビューを作成できません。開始時刻と所要時間を確認してください。",
       tooltip: "Googleカレンダーをブラウザで開きます",
       toGoogle: "📅 Googleカレンダーに登録",
+    },
+  },
+  license: {
+    errors: {
+      malformed_code: "アクティベーションコードの形式が正しくありません。入力を確認してください。",
+      invalid_code: "このアクティベーションコードは見つかりませんでした。入力を確認してください。",
+      license_revoked: "このライセンスは無効化されています。サポートにお問い合わせください。",
+      license_expired: "このライセンスは有効期限が切れています。更新してください。",
+      license_suspended: "このライセンスは一時停止中です。サポートにお問い合わせください。",
+      device_limit_reached:
+        "使用中の端末が上限に達しています。いずれかの端末を解除してから、この端末を有効化してください。",
+      device_not_found: "その端末は登録されていません。",
+      deactivation_limit_reached:
+        "短期間に端末を解除しすぎています。{retryAt}以降に再度お試しください。",
+      rate_limited: "試行回数が多すぎます。しばらく待ってから再度お試しください。",
+      upstream_unavailable:
+        "ライセンスサービスが一時的に利用できません。時間をおいて再度お試しください。",
+      internal:
+        "ライセンスサービスで想定外のエラーが発生しました。時間をおいて再度お試しください。",
+      network: "ライセンスサービスに接続できませんでした。通信環境を確認してください。",
+      malformed: "ライセンスのリクエストが拒否されました。不具合として報告してください。",
+      untrustedToken:
+        "このバージョンでは検証できないトークンが返されました。プラグインを更新してください。",
+    },
+    devices: {
+      description:
+        "このライセンスで使える端末には台数の上限があります。使わなくなった端末を解除すると、その分を別の端末で使えます。",
+      loading: "端末を読み込んでいます…",
+      empty: "登録されている端末はありません。",
+      thisDevice: "この端末",
+      unknownLabel: "名前のない端末",
+      lastSeen: "最終利用: {when}",
+      seats: "{max}台中{used}台を使用中",
+      release: "解除",
+      releasing: "解除しています…",
+      released: "端末を解除しました。",
     },
   },
   recipes: {

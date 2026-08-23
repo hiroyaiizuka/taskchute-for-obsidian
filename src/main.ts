@@ -8,6 +8,9 @@ import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
+import type { LicenseManager } from "./features/license/services/LicenseManager"
+import { LICENSE_REFRESH_INTERVAL_MS } from "./features/license/config"
+import { syncAiTaskManagerToLicense } from "./features/ai-task/licenseGate"
 import {
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
@@ -33,8 +36,10 @@ export default class TaskChutePlusPlugin extends Plugin {
   private localeCoordinator?: LocaleCoordinatorHandle
   /** Reminder manager for notification scheduling (exposed for TaskChuteView) */
   reminderManager?: ReminderSystemManager
-  /** AI task run manager (present only when enabled on desktop) */
+  /** AI task run manager (present only when enabled on desktop and licensed) */
   aiTaskManager?: AiTaskManager
+  /** Entitlement state. Always created; gates the AI task feature. */
+  licenseManager?: LicenseManager
   /**
    * Lifecycle fence for AI settings callbacks that can outlive saveSettings().
    * The generation also rejects callbacks if this same instance is reloaded.
@@ -96,6 +101,37 @@ export default class TaskChutePlusPlugin extends Plugin {
         this._log('warn', '[AiTaskAmbientScheduler] Startup failed', error)
       })
     })
+
+    this.startLicenseRefresh()
+  }
+
+  /**
+   * Keep the auth token fresh in the background.
+   *
+   * Deliberately not awaited during onload: entitlement was already decided
+   * offline from the stored token, so a slow or unreachable server must not
+   * delay startup, and a failed refresh leaves the current state untouched.
+   */
+  private startLicenseRefresh(): void {
+    const manager = this.licenseManager
+    if (!manager) return
+
+    this.register(
+      manager.onChange(() => {
+        void syncAiTaskManagerToLicense(this).catch((error) => {
+          this._log('warn', '[License] Failed to apply license change', error)
+        })
+      }),
+    )
+
+    const refresh = () => {
+      void manager.refreshIfNeeded().catch((error) => {
+        this._log('warn', '[License] Refresh failed', error)
+      })
+    }
+
+    this.app.workspace.onLayoutReady(refresh)
+    this.registerInterval(activeWindow.setInterval(refresh, LICENSE_REFRESH_INTERVAL_MS))
   }
 
   onunload(): void {

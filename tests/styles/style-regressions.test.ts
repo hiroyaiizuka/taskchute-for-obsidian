@@ -37,6 +37,19 @@ const readRuleAtOrAfter = (css: string, selectorStart: string, afterIndex: numbe
   return css.slice(start, end + 1)
 }
 
+/**
+ * The AI pane's terminal/editor surface keeps a fixed dark palette in both
+ * themes, declared as `--tc-code-*` custom properties on `.ai-run-pane`.
+ * Resolve a token back to its literal so the assertions below still pin the
+ * concrete reference colour rather than just the token name.
+ */
+const codeToken = (css: string, token: string): string => {
+  const match = new RegExp(`^\\s*${token}:\\s*([^;]+);`, 'm').exec(css)
+  expect(match).not.toBeNull()
+
+  return (match as RegExpExecArray)[1].trim()
+}
+
 describe('style regressions', () => {
   test('AI runs participates in vertical layout so the task list remains scrollable', () => {
     const css = styles()
@@ -169,7 +182,8 @@ describe('style regressions', () => {
     expect(expanded).toMatch(/height:\s*100%;/)
     expect(expanded).toMatch(/max-height:\s*100%;/)
     const terminalBody = readRule(css, '.ai-run-pane__body--terminal {')
-    expect(terminalBody).toMatch(/background:\s*#1e1e1e;/)
+    expect(terminalBody).toMatch(/background:\s*var\(--tc-code-surface\);/)
+    expect(codeToken(css, '--tc-code-surface')).toBe('#1e1e1e')
     const xterm = readRule(css, '.ai-run-pane__body--terminal .xterm {')
     expect(xterm).toMatch(/box-sizing:\s*border-box;/)
   })
@@ -202,19 +216,23 @@ describe('style regressions', () => {
     expect(bar).toMatch(/min-height:\s*25px;/)
     expect(bar).not.toMatch(/(?:^|\n)\s*height:\s*25px;/)
     expect(bar).toMatch(/padding:\s*0;/)
-    expect(bar).toMatch(/background:\s*#1a2332;/)
-    expect(bar).toMatch(/border-bottom:\s*1px solid #374151;/)
+    expect(bar).toMatch(/background:\s*var\(--tc-code-tabbar-bg\);/)
+    expect(codeToken(css, '--tc-code-tabbar-bg')).toBe('#1a2332')
+    expect(bar).toMatch(/border-bottom:\s*1px solid var\(--tc-code-border\);/)
+    expect(codeToken(css, '--tc-code-border')).toBe('#374151')
     expect(tab).toMatch(/gap:\s*4px;/)
     expect(tab).toMatch(/padding:\s*2px 8px;/)
     expect(tab).toMatch(/border-radius:\s*0;/)
     expect(tab).toMatch(/font-family:\s*var\(--font-monospace\);/)
     expect(tab).toMatch(/font-size:\s*12px;/)
     expect(tab).toMatch(/line-height:\s*16px;/)
-    expect(active).toMatch(/background:\s*#111827;/)
-    expect(active).toMatch(/color:\s*#e5e7eb;/)
+    expect(active).toMatch(/background:\s*var\(--tc-code-tab-active-bg\);/)
+    expect(codeToken(css, '--tc-code-tab-active-bg')).toBe('#111827')
+    expect(active).toMatch(/color:\s*var\(--tc-code-text-strong\);/)
+    expect(codeToken(css, '--tc-code-text-strong')).toBe('#e5e7eb')
     const separator = readRule(css, '.ai-run-pane__work-tab::after {')
     expect(separator).toMatch(/width:\s*1px;/)
-    expect(separator).toMatch(/background:\s*#374151;/)
+    expect(separator).toMatch(/background:\s*var\(--tc-code-border\);/)
     const terminalDot = readRule(
       css,
       '.ai-run-pane__work-tab .ai-run-pane__tab-dot {',

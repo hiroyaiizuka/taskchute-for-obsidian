@@ -46,6 +46,11 @@ export interface AiTaskPluginLike {
   pathManager: PathManagerLike
   /** Ownership token used to reject stale old-plugin unload callbacks. */
   aiTaskRuntimeLeaseGeneration?: number
+  /**
+   * Entitlement gate. Structural on purpose: the AI task feature only needs to
+   * ask whether the license is active, and tests fake it with a single method.
+   */
+  licenseManager?: { isActive: () => boolean }
   _log?: (level?: string, ...args: unknown[]) => void
 }
 
@@ -64,12 +69,18 @@ function getVaultBrokerIdentity(app: App): string | undefined {
 
 /**
  * Create the AiTaskManager for this plugin instance, or undefined when the
- * feature is disabled or the platform is not desktop.
+ * feature is disabled, the platform is not desktop, or the license is not
+ * active. Returning undefined keeps unlicensed vaults completely inert rather
+ * than building a runtime that would then have to refuse every run.
  */
 export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | undefined {
   plugin.aiTaskRuntimeLeaseGeneration = undefined
   if (plugin.settings.aiTaskEnabled !== true) return undefined
   if (!Platform?.isDesktop) return undefined
+  if (plugin.licenseManager?.isActive() !== true) {
+    plugin._log?.('debug', '[AiTask] No active license; feature disabled')
+    return undefined
+  }
 
   const pathManager = plugin.pathManager
   if (

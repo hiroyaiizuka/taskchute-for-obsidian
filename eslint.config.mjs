@@ -45,6 +45,13 @@ const sharedGlobals = {
   createSvg: "readonly",
   Option: "readonly",
   confirm: "readonly",
+  // Web platform APIs used by license token verification. Always present in
+  // Obsidian's Chromium runtime; polyfilled from Node in jsdom tests.
+  atob: "readonly",
+  btoa: "readonly",
+  crypto: "readonly",
+  TextDecoder: "readonly",
+  TextEncoder: "readonly",
 };
 
 const jestGlobals = {

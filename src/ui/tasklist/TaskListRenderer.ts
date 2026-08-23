@@ -403,6 +403,7 @@ export default class TaskListRenderer {
     })
     this.host.registerManagedDomEvent(taskItem, 'dragleave', () => {
       taskItem.classList.remove('dragover', 'dragover-top', 'dragover-bottom', 'dragover-invalid')
+      delete taskItem.dataset.dragInvalidMessage
     })
     this.host.registerManagedDomEvent(taskItem, 'drop', (event) => {
       if (!(event instanceof DragEvent)) return

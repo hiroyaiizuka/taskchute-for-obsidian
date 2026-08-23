@@ -30,6 +30,10 @@ export default class TaskDragController {
     this.clearDragoverClasses(taskItem)
 
     if (inst.state === 'done') {
+      taskItem.dataset.dragInvalidMessage = this.host.tv(
+        'notices.dropNotAllowedHere',
+        'Cannot drop here',
+      )
       taskItem.classList.add('dragover-invalid')
       return
     }
@@ -163,6 +167,7 @@ export default class TaskDragController {
       'dragover-bottom',
       'dragover-invalid',
     )
+    delete taskItem.dataset.dragInvalidMessage
   }
 
   private parseDragPayload(data: string): DragPayload | null {

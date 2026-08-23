@@ -17,6 +17,7 @@ export const en = {
     heading: "TaskChute file paths",
     version: {
       name: "Version",
+      proUnlocked: "Pro settings are now visible.",
     },
     storage: {
       baseLocationName: "Default storage location",
@@ -64,6 +65,32 @@ export const en = {
       enableDesc:
         "Show recipe setup and management entry points in the task menu and side navigation.",
     },
+    pro: {
+      heading: "Pro settings",
+    },
+    license: {
+      heading: "License",
+      // "TaskChute Plus Pro" is the product name and keeps its capitalization.
+      description:
+        // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+        "AI tasks require a TaskChute Plus Pro license. Enter the activation code from your purchase email.",
+      codeName: "Activation code",
+      // The literal code format, not prose.
+      // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+      codePlaceholder: "TCP-XXXX-XXXX-XXXX-XXXX",
+      activate: "Activate",
+      activating: "Activating…",
+      statusName: "Status",
+      statusActive: "Active",
+      statusUnlicensed: "Not activated",
+      licenseIdName: "License ID",
+      devicesName: "Devices",
+      devicesValue: "{used} of {max} in use",
+      expiresName: "Expires",
+      expiresNever: "No expiry",
+      activated: "License activated.",
+      requiredNotice: "A license is required.",
+    },
     aiTask: {
       heading: "AI task",
       enable: "Enable AI tasks",
@@ -81,6 +108,7 @@ export const en = {
       codexPathDesc:
         "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
       pathPlaceholder: "Auto-detect (recommended)",
+      pathBrowse: "Browse",
       pathShimUnsupported:
         "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
       retentionName: "Run log retention (days)",
@@ -409,6 +437,7 @@ export const en = {
       taskOrderSaveFailed: "Failed to save task order",
       taskNotSelected: "No task selected",
       cannotPlaceAboveCompleted: "Cannot place above running or completed tasks",
+      dropNotAllowedHere: "Cannot drop here",
       taskMoveSuccess: "Moved task to {date}",
       taskDuplicated: 'Duplicated "{title}"',
       routineSetSuccess: 'Set "{title}" as a routine task (starts at {time})',
@@ -985,6 +1014,42 @@ export const en = {
       cannotOpen: "Cannot create preview. Check start time and duration.",
       tooltip: "Open google calendar in browser",
       toGoogle: "🗓️ register calender",
+    },
+  },
+  license: {
+    // Keyed by the API's stable error codes. Never branch on the server's
+    // `message`, which is Japanese prose; it is only a last-resort fallback.
+    errors: {
+      malformed_code: "That does not look like an activation code. Check it and try again.",
+      invalid_code: "This activation code was not found. Check it and try again.",
+      license_revoked: "This license has been revoked. Please contact support.",
+      license_expired: "This license has expired. Please renew it to keep using AI tasks.",
+      license_suspended: "This license is suspended. Please contact support.",
+      device_limit_reached:
+        "You have reached the maximum number of devices. Release one to activate this device.",
+      device_not_found: "That device is no longer registered.",
+      deactivation_limit_reached:
+        "You have released too many devices recently. Try again after {retryAt}.",
+      rate_limited: "Too many attempts. Please wait a moment and try again.",
+      upstream_unavailable: "The license service is temporarily unavailable. Try again later.",
+      internal: "The license service returned an unexpected error. Try again later.",
+      network: "Could not reach the license service. Check your connection and try again.",
+      malformed: "The license request was rejected. Please report this as a bug.",
+      untrustedToken:
+        "The license service returned a token this version cannot verify. Please update the plugin.",
+    },
+    devices: {
+      description:
+        "This license can be used on a limited number of devices. Release a device you no longer use to make room for another one.",
+      loading: "Loading devices…",
+      empty: "No devices are registered yet.",
+      thisDevice: "This device",
+      unknownLabel: "Unnamed device",
+      lastSeen: "Last used {when}",
+      seats: "{used} of {max} devices in use",
+      release: "Release",
+      releasing: "Releasing…",
+      released: "Device released.",
     },
   },
   recipes: {
