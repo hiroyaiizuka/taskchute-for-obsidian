@@ -7,6 +7,7 @@
 import { Setting, mockApp } from 'obsidian'
 
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
+import { setLocaleOverride } from '../../../src/i18n'
 import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
 
 jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
@@ -30,6 +31,7 @@ interface SettingStub {
   addButton: jest.Mock
   addDropdown: jest.Mock
   controlEl: HTMLElement
+  nameEl: HTMLElement
 }
 
 const SettingMock = Setting as unknown as jest.Mock
@@ -58,6 +60,7 @@ function installSettingStub(): void {
       addButton: jest.fn(() => instance),
       addDropdown: jest.fn(() => instance),
       controlEl: document.createElement('div'),
+      nameEl: document.createElement('div'),
     }
     settings.push(instance)
     return instance
@@ -163,7 +166,41 @@ describe('Pro settings section', () => {
     test('offers the activation code field', () => {
       renderPro(fakeManager())
 
-      expect(names()).toContain('Activation code')
+      expect(names()).toContain('License code')
+    })
+
+    test('links to the purchase page for someone without a code', () => {
+      const container = renderPro(fakeManager())
+
+      const link = container.querySelector('a')
+      expect(link?.getAttribute('href')).toBe('https://obsidian.levers.co.jp/')
+      expect(link?.textContent).toBe('here')
+      // The link belongs inside the sentence, with text on both sides of it.
+      expect(link?.parentElement?.textContent).toBe('You can buy an activation code here.')
+    })
+
+    test('explains where the code comes from behind an info button', () => {
+      renderPro(fakeManager())
+
+      const field = settings.find((setting) => setting.name === 'License code')
+      const help = field?.nameEl.querySelector('button')
+      expect(help?.getAttribute('aria-label')).toBe('About the license code')
+      // The explanation must not also occupy the form as a standing paragraph.
+      const descriptions = settings.map((setting) => setting.desc).filter(Boolean)
+      expect(descriptions.some((desc) => desc?.includes('purchase email'))).toBe(false)
+    })
+
+    test('sends Japanese users to the Japanese purchase page', () => {
+      setLocaleOverride('ja')
+      try {
+        const container = renderPro(fakeManager())
+
+        expect(container.querySelector('a')?.getAttribute('href')).toBe(
+          'https://obsidian.levers.co.jp/ja/',
+        )
+      } finally {
+        setLocaleOverride('en')
+      }
     })
 
     test('does not render the device list or the AI settings', () => {
@@ -184,7 +221,7 @@ describe('Pro settings section', () => {
       const descriptions = settings.map((setting) => setting.desc).filter(Boolean)
       expect(descriptions.some((desc) => desc?.includes('revoked'))).toBe(true)
       // Still activatable: a replacement code has to be enterable.
-      expect(names()).toContain('Activation code')
+      expect(names()).toContain('License code')
       expect(container).toBeDefined()
     })
   })

@@ -68,11 +68,14 @@ export const ja = {
     },
     license: {
       heading: "ライセンス",
-      description:
-        "AIタスクの利用にはTaskChute Plus Proのライセンスが必要です。購入時のメールに記載されたアクティベーションコードを入力してください。",
-      codeName: "アクティベーションコード",
+      codeName: "ライセンスコード",
+      codeHelpLabel: "ライセンスコードについて",
+      codeHelpTitle: "ライセンスコードについて",
+      codeHelpBody:
+        "AIタスクの利用にはTaskChute Plus Proのライセンスが必要です。\nライセンスコードは、ご購入時にお送りしたメールに記載されています。メールが見つからない場合は、迷惑メールフォルダもご確認ください。",
+      codeHelpClose: "OK",
       codePlaceholder: "TCP-XXXX-XXXX-XXXX-XXXX",
-      activate: "有効化",
+      activate: "有効化する",
       activating: "有効化しています…",
       statusName: "状態",
       statusActive: "有効",
@@ -84,6 +87,9 @@ export const ja = {
       expiresNever: "無期限",
       activated: "ライセンスを有効化しました。",
       requiredNotice: "ライセンスが必要です。",
+      purchaseBefore: "アクティベーションコードは",
+      purchaseLink: "こちら",
+      purchaseAfter: "から購入することができます",
     },
     aiTask: {
       heading: "AIタスク",

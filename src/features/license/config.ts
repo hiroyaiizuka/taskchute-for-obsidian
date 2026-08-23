@@ -1,3 +1,5 @@
+import type { LocaleKey } from '../../i18n'
+
 /**
  * Build-time constants for the license feature.
  *
@@ -39,3 +41,16 @@ export const LICENSE_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
  * trusts the device clock, so winding it back would otherwise defeat expiry.
  */
 export const LICENSE_CLOCK_ROLLBACK_TOLERANCE_SEC = 24 * 60 * 60
+
+/**
+ * Landing page where a license can be bought, shown next to the activation
+ * form so someone without a code has somewhere to go. The site serves its
+ * Japanese pages under `/ja/`, so Japanese users are sent straight there
+ * rather than to the English root.
+ */
+const LICENSE_PURCHASE_URL = 'https://obsidian.levers.co.jp/'
+const LICENSE_PURCHASE_URL_JA = 'https://obsidian.levers.co.jp/ja/'
+
+export function licensePurchaseUrl(locale: LocaleKey): string {
+  return locale === 'ja' ? LICENSE_PURCHASE_URL_JA : LICENSE_PURCHASE_URL
+}

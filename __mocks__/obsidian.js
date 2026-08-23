@@ -136,6 +136,9 @@ class AbstractInputSuggest {
 const Setting = jest.fn().mockImplementation(() => {
   const settingInstance = {
     settingEl: createMockElement('div'),
+    nameEl: createMockElement('div'),
+    descEl: createMockElement('div'),
+    controlEl: createMockElement('div'),
     setName: jest.fn().mockReturnThis(),
     setDesc: jest.fn().mockReturnThis(),
     setClass: jest.fn().mockReturnThis(),

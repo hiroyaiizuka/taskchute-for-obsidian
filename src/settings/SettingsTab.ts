@@ -1,6 +1,6 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest } from "obsidian"
+import { App, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, AbstractInputSuggest, setIcon } from "obsidian"
 import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUTE } from "../types"
-import { t } from "../i18n"
+import { getCurrentLocale, t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
 import { createAiTaskManager } from "../features/ai-task"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
@@ -8,6 +8,7 @@ import { disposeAiTaskManagerTracked } from "../features/ai-task/registerProcess
 import { syncAiTaskManagerToLicense } from "../features/ai-task/licenseGate"
 import { ElectronDirectoryPicker } from "../features/ai-task/services/ElectronDirectoryPicker"
 import type { LicenseManager } from "../features/license/services/LicenseManager"
+import { licensePurchaseUrl } from "../features/license/config"
 import { formatLicenseId } from "../features/license/token/primitives"
 import { DeviceListView } from "../features/license/ui/DeviceListView"
 import {
@@ -19,7 +20,7 @@ import { FilePathFieldController } from "./filePathFieldController"
 import { FilePathSuggest } from "./filePathSuggest"
 import { getPathSuggestParentFolder } from "./pathSuggestUtils"
 import { SectionConfigService } from "../services/SectionConfigService"
-import { showConfirmModal } from "../ui/modals/ConfirmModal"
+import { showConfirmModal, showInfoModal } from "../ui/modals/ConfirmModal"
 import { listFoldersInFolder, type VaultFolderEntry } from "../utils/vaultFiles"
 
 function isUnsupportedWindowsCliShim(path: string): boolean {
@@ -778,19 +779,12 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       )
     }
 
-    new Setting(container).setDesc(
-      t(
-        "settings.license.description",
-        "AI tasks require a TaskChute Plus Pro license. Enter the activation code from your purchase email.",
-      ),
-    )
-
     let code = this.plugin.settings.licenseCode ?? ""
     // Holds the seat list after a 409, below the form the user just used.
     const seatLimitEl = container.createDiv()
 
     const setting = new Setting(container)
-      .setName(t("settings.license.codeName", "Activation code"))
+      .setName(t("settings.license.codeName", "License code"))
       .addText((text) => {
         text
           .setPlaceholder(t("settings.license.codePlaceholder", "TCP-XXXX-XXXX-XXXX-XXXX"))
@@ -834,6 +828,51 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           }
         })
       })
+
+    this.addLicenseCodeHelp(setting)
+    this.renderLicensePurchaseLink(container)
+  }
+
+  /**
+   * Where the code comes from is a one-time question, so it sits behind an
+   * info icon rather than taking a permanent paragraph above the field.
+   */
+  private addLicenseCodeHelp(setting: Setting): void {
+    const help = setting.nameEl.createEl("button", {
+      cls: "taskchute-license-help",
+      attr: {
+        type: "button",
+        "aria-label": t("settings.license.codeHelpLabel", "About the license code"),
+      },
+    })
+    setIcon(help, "info")
+    help.addEventListener("click", () => {
+      void showInfoModal(this.app, {
+        title: t("settings.license.codeHelpTitle", "About the license code"),
+        message: t(
+          "settings.license.codeHelpBody",
+          "AI tasks require a TaskChute Plus Pro license.\nYour license code is in the email you received when you bought it. If you cannot find that email, check your spam folder.",
+        ),
+        confirmText: t("settings.license.codeHelpClose", "OK"),
+      })
+    })
+  }
+
+  /** Someone reading this screen without a code needs a way to buy one. */
+  private renderLicensePurchaseLink(container: HTMLElement): void {
+    const purchase = container.createEl("p", {
+      cls: "setting-item-description taskchute-license-purchase",
+      text: t("settings.license.purchaseBefore", "You can buy an activation code "),
+    })
+    purchase.createEl("a", {
+      text: t("settings.license.purchaseLink", "here"),
+      attr: {
+        href: licensePurchaseUrl(getCurrentLocale()),
+        target: "_blank",
+        rel: "noopener",
+      },
+    })
+    purchase.createSpan({ text: t("settings.license.purchaseAfter", ".") })
   }
 
   /** Create or dispose the AI runtime to match the new license state. */

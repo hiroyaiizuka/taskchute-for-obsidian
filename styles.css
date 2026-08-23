@@ -5756,6 +5756,39 @@ textarea.form-textarea {
   overflow: visible;
 }
 
+/* License code field: the info icon sits inline after the label, and the
+   purchase line follows the field rather than pushing it down. */
+.taskchute-license-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: var(--tc-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  vertical-align: text-bottom;
+}
+
+.taskchute-license-help:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.taskchute-license-help svg {
+  width: 15px;
+  height: 15px;
+}
+
+.taskchute-license-purchase {
+  margin: 4px 0 0;
+}
+
 /* ===== Reminder Notification Modal ===== */
 .taskchute-reminder-modal .modal-content {
   padding: 20px;
