@@ -466,7 +466,10 @@ describe('AiTaskRuntimeLease', () => {
 
     expect(newLease).not.toBe(oldLease)
     expect(newOwner).toBe(oldOwner)
-    expect(newLeaseGeneration).toBe(oldLeaseGeneration + 1)
+    // Generations come from Date.now() * 1024 + sequence, so consecutive
+    // reservations differ by 1 only while both land in the same millisecond.
+    // Rotation is what matters here, not the size of the step.
+    expect(newLeaseGeneration).toBeGreaterThan(oldLeaseGeneration)
     expect(oldLease).toEqual(expect.any(String))
   })
 
