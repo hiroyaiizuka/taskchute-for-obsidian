@@ -43,6 +43,10 @@ const context = await esbuild.context({
 	},
 	target: "es2018",
 	logLevel: "info",
+	// Minify production builds. The unminified bundle exceeds the size/AST
+	// limits of several static-analysis and malware scanners, which then skip
+	// the file instead of reporting a result.
+	minify: prod,
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outfile: "main.js",
