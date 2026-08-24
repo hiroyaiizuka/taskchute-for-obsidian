@@ -9,12 +9,19 @@ on:
         default: "patch"
         type: choice
         options: [patch, minor, major]
+      skip_tests:
+        description: "Skip the test suite (use only when a known-flaky suite blocks a release)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
+# Obsidian reads the version from manifest.json at the default branch HEAD, so the job
+# must never proceed past a bump that did not land on main. Every step fails loudly.
 jobs:
   auto-release:
     runs-on: ubuntu-latest
@@ -25,6 +32,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify branch is the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            echo "::error::release must run on the default branch ($DEFAULT_BRANCH), got $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -33,32 +50,76 @@ jobs:
       - name: Install deps
         run: npm ci || npm install
 
+      # Run the quality gates as their own steps instead of relying on the pre-commit hook.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        if: ${{ !inputs.skip_tests }}
+        run: npm test
+
       - name: Configure git user
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name  "github-actions[bot]"
 
-      # package.json をバンプし、manifest.json を Node で同期
+      # Bump package.json, then sync manifest.json and versions.json with Node
       - name: Bump version & sync manifest.json
         id: bump
+        env:
+          HUSKY: 0
         run: |
-          npm version "${{ github.event.inputs.version_type }}" --no-git-tag-version
+          set -euo pipefail
+          npm version "${{ inputs.version_type }}" --no-git-tag-version
           NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
-          node -e "const fs=require('fs');let m=JSON.parse(fs.readFileSync('manifest.json','utf8'));const v=require('./package.json').version;m.version=v;fs.writeFileSync('manifest.json',JSON.stringify(m,null,2)+'\n');"
+          if git rev-parse -q --verify "refs/tags/${NEW_VERSION}" >/dev/null ||
+             git ls-remote --exit-code --tags origin "refs/tags/${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "::error::tag ${NEW_VERSION} already exists"
+            exit 1
+          fi
 
-          git add package.json manifest.json || true
-          [ -f versions.json ] && git add versions.json || true
-          [ -f README.md ] && git add README.md || true
-          git commit -m "chore: release ${NEW_VERSION}" || echo "No changes"
+          node -e '
+            const fs = require("fs")
+            const version = require("./package.json").version
+            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"))
+            manifest.version = version
+            fs.writeFileSync("manifest.json", JSON.stringify(manifest, null, 2) + "\n")
+            const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"))
+            versions[version] = manifest.minAppVersion
+            fs.writeFileSync("versions.json", JSON.stringify(versions, null, 2) + "\n")
+          '
+
+          git add package.json package-lock.json manifest.json versions.json
+          if git diff --cached --quiet; then
+            echo "::error::version bump produced no staged changes"
+            exit 1
+          fi
+          git commit -m "chore: release ${NEW_VERSION}"
 
       - name: Push changes
-        run: git push origin HEAD
+        run: git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      # v なしタグ（例: 1.0.1）。v を付けたい場合は "v${{ steps.bump.outputs.new_version }}" に変更
+      # The backstop for the 2.1.0/2.0.2 incident: an uncommitted bump reaching tag and release.
+      - name: Verify pushed manifest
+        run: |
+          set -euo pipefail
+          git fetch origin "$GITHUB_REF_NAME"
+          PUSHED=$(git show "origin/${GITHUB_REF_NAME}:manifest.json" | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+          EXPECTED="${{ steps.bump.outputs.new_version }}"
+          if [ "$PUSHED" != "$EXPECTED" ]; then
+            echo "::error::origin/${GITHUB_REF_NAME} manifest.json is $PUSHED, expected $EXPECTED"
+            exit 1
+          fi
+
+      # Tags carry no v prefix (e.g. 1.0.1). For a v prefix use "v${{ steps.bump.outputs.new_version }}"
       - name: Create & push tag
         run: |
+          set -euo pipefail
           TAG="${{ steps.bump.outputs.new_version }}"
           git tag "$TAG"
           git push origin "$TAG"
@@ -71,35 +132,41 @@ jobs:
       - name: Prepare release assets
         id: prep
         run: |
-          set -e
+          set -euo pipefail
           TAG="${{ steps.bump.outputs.new_version }}"
           PKG_DIR="release-${TAG}"
           mkdir -p "$PKG_DIR"
 
-          # main.js の検出（優先順）
+          # Locate main.js, in order of preference
           if   [ -f packages/obsidian-plugin/main.js ]; then SRC_MAIN=packages/obsidian-plugin/main.js
           elif [ -f dist/main.js ]; then SRC_MAIN=dist/main.js
           elif [ -f main.js ]; then SRC_MAIN=main.js
           else
-            echo "ERROR: main.js が見つかりません。"; exit 1
+            echo "::error::main.js not found"; exit 1
           fi
           cp "$SRC_MAIN" "$PKG_DIR/main.js"
 
-          # manifest.json（root）
+          # manifest.json (repository root)
           if [ ! -f manifest.json ]; then
-            echo "ERROR: manifest.json が見つかりません。"; exit 1
+            echo "::error::manifest.json not found"; exit 1
           fi
           cp manifest.json "$PKG_DIR/manifest.json"
 
-          # styles.css（必須）
+          # styles.css (required)
           if   [ -f packages/obsidian-plugin/styles.css ]; then SRC_CSS=packages/obsidian-plugin/styles.css
           elif [ -f styles.css ]; then SRC_CSS=styles.css
           else
-            echo "ERROR: styles.css が見つかりません。"; exit 1
+            echo "::error::styles.css not found"; exit 1
           fi
           cp "$SRC_CSS" "$PKG_DIR/styles.css"
 
-          echo "dir=${PKG_DIR}" >> $GITHUB_OUTPUT
+          # Last check: the manifest we attach must match the tag
+          ASSET_VERSION=$(node -pe 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$PKG_DIR/manifest.json")
+          if [ "$ASSET_VERSION" != "$TAG" ]; then
+            echo "::error::release asset manifest.json is $ASSET_VERSION, expected $TAG"; exit 1
+          fi
+
+          echo "dir=${PKG_DIR}" >> "$GITHUB_OUTPUT"
 
       - name: Generate artifact attestations
         uses: actions/attest-build-provenance@v2

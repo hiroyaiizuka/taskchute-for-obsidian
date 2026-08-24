@@ -8,6 +8,8 @@
     "build": "node esbuild.config.mjs production",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "test": "jest",
+    "test:unit": "jest --testPathIgnorePatterns \"/node_modules/\" \"\\.integration\\.test\\.\"",
+    "test:integration": "jest --testPathPatterns \"\\.integration\\.test\\.\"",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "husky",

@@ -7,4 +7,7 @@ npm run lint
 # nothing else in this hook catches type errors.
 npm run typecheck
 
-npm test
+# The two *.integration.test.ts suites drive real processes, PTYs and sockets,
+# and take ~50s locally against ~15s for everything else. Run them yourself with
+# npm run test:integration; the commit-time gate stays on the fast suite.
+npm run test:unit
