@@ -749,7 +749,7 @@ export class ProjectBoardView extends ItemView {
         this.render()
         if (this.optimisticItems.has(path)) {
           // Metadata still not updated; attempt again with slight delay
-          activeWindow.setTimeout(() => {
+          window.setTimeout(() => {
             this.metadataSyncWaits.delete(path)
             this.scheduleMetadataRefresh(path, status)
           }, 150)

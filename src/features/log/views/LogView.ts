@@ -423,11 +423,11 @@ export class LogView {
         cell.dataset.tooltip = this.createTooltipText(dateKey, stats);
       }
       if (index < entries.length) {
-        requestAnimationFrame(processBatch);
+        window.requestAnimationFrame(processBatch);
       }
     };
 
-    requestAnimationFrame(processBatch);
+    window.requestAnimationFrame(processBatch);
   }
 
   private async initializeDefaultSelection(): Promise<void> {
@@ -916,7 +916,7 @@ export class LogView {
         leaf = workspace.getRightLeaf(false)
         if (!leaf) return
         await leaf.setViewState({ type: 'taskchute-view', active: true })
-        await new Promise((resolve) => activeWindow.setTimeout(resolve, 300))
+        await new Promise((resolve) => window.setTimeout(resolve, 300))
         leaf = workspace.getLeavesOfType('taskchute-view')[0] ?? leaf
       }
 

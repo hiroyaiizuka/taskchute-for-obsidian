@@ -37,7 +37,7 @@ function appendEl<T extends HTMLElement>(
   attr?: Record<string, string>
 } = {},
 ): T {
-  const element = doc.createElement(tag) as T
+  const element = doc.win.createEl(tag as keyof HTMLElementTagNameMap) as T
   if (options.cls) {
     element.classList.add(...options.cls.split(' ').filter(Boolean))
   }
@@ -57,7 +57,7 @@ function appendEl<T extends HTMLElement>(
 
 export function createNameModal(options: NameModalOptions): NameModalHandle {
   const doc = options.context?.doc ?? document
-  const overlay = doc.createElement('div')
+  const overlay = doc.win.createDiv()
   overlay.className = 'task-modal-overlay'
 
   const content = appendEl<HTMLDivElement>(doc, overlay, 'div', {

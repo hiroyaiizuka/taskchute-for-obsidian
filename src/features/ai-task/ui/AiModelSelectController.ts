@@ -78,7 +78,7 @@ export class AiModelSelectController {
     this.labels = { ...DEFAULT_LABELS, ...options.labels }
     this.host = options.host
     this.menuId = `ai-model-select-menu-${selectSequence += 1}`
-    this.root = this.doc.createElement('div')
+    this.root = this.doc.win.createDiv()
     this.root.className = 'ai-model-select'
     this.container.appendChild(this.root)
     this.assignSelection(options.modelId ?? null, options.isCustom)
@@ -130,26 +130,26 @@ export class AiModelSelectController {
   private render(): void {
     this.root.replaceChildren()
 
-    const trigger = this.doc.createElement('button')
+    const trigger = this.doc.win.createEl('button')
     trigger.type = 'button'
     trigger.className = 'ai-model-select__trigger ai-task-model-select'
     trigger.setAttribute('aria-label', this.labels.openMenu)
     trigger.setAttribute('aria-haspopup', 'listbox')
     trigger.setAttribute('aria-controls', this.menuId)
     trigger.setAttribute('aria-expanded', 'false')
-    const modelIcon = this.doc.createElement('span')
+    const modelIcon = this.doc.win.createSpan()
     modelIcon.className = 'ai-model-select__trigger-icon'
     setIcon(modelIcon, 'cpu')
-    const label = this.doc.createElement('span')
+    const label = this.doc.win.createSpan()
     label.className = 'ai-model-select__trigger-label'
     label.textContent = this.getSelectedLabel()
-    const chevron = this.doc.createElement('span')
+    const chevron = this.doc.win.createSpan()
     chevron.className = 'ai-model-select__chevron'
     setIcon(chevron, 'chevron-down')
     trigger.append(modelIcon, label, chevron)
     trigger.addEventListener('click', () => this.toggleMenu())
 
-    const menu = this.doc.createElement('div')
+    const menu = this.doc.win.createDiv()
     menu.id = this.menuId
     menu.className = 'ai-model-select__menu is-hidden'
     menu.setAttribute('role', 'listbox')
@@ -182,13 +182,13 @@ export class AiModelSelectController {
       }
     }
 
-    const add = this.doc.createElement('button')
+    const add = this.doc.win.createEl('button')
     add.type = 'button'
     add.className = 'ai-model-select__add'
-    const addIcon = this.doc.createElement('span')
+    const addIcon = this.doc.win.createSpan()
     addIcon.className = 'ai-model-select__add-icon'
     setIcon(addIcon, 'plus')
-    const addLabel = this.doc.createElement('span')
+    const addLabel = this.doc.win.createSpan()
     addLabel.textContent = this.labels.addCustomModel
     add.append(addIcon, addLabel)
     add.addEventListener('click', () => this.openAddModal())
@@ -200,7 +200,7 @@ export class AiModelSelectController {
   }
 
   private createSectionHeading(text: string): HTMLElement {
-    const heading = this.doc.createElement('div')
+    const heading = this.doc.win.createDiv()
     heading.className = 'ai-model-select__section-heading'
     heading.textContent = text
     heading.setAttribute('role', 'presentation')
@@ -216,7 +216,7 @@ export class AiModelSelectController {
     const selected =
       this.selectedModelId === option.modelId &&
       this.selectedIsCustom === option.isCustom
-    const button = this.doc.createElement('button')
+    const button = this.doc.win.createEl('button')
     button.type = 'button'
     button.className = 'ai-model-select__option'
     button.classList.toggle('is-selected', selected)
@@ -224,17 +224,17 @@ export class AiModelSelectController {
     button.setAttribute('role', 'option')
     button.setAttribute('aria-selected', selected ? 'true' : 'false')
 
-    const marker = this.doc.createElement('span')
+    const marker = this.doc.win.createSpan()
     marker.className = 'ai-model-select__selection-marker'
     setIcon(marker, selected ? 'circle-check' : 'circle')
-    const text = this.doc.createElement('span')
+    const text = this.doc.win.createSpan()
     text.className = 'ai-model-select__option-text'
-    const title = this.doc.createElement('span')
+    const title = this.doc.win.createSpan()
     title.className = 'ai-model-select__option-title'
     title.textContent = option.label
     text.appendChild(title)
     if (option.description) {
-      const description = this.doc.createElement('span')
+      const description = this.doc.win.createSpan()
       description.className = 'ai-model-select__option-description'
       description.textContent = option.description
       text.appendChild(description)
@@ -247,7 +247,7 @@ export class AiModelSelectController {
   }
 
   private createCustomRow(model: AiCustomModel): HTMLElement {
-    const row = this.doc.createElement('div')
+    const row = this.doc.win.createDiv()
     row.className = 'ai-model-select__custom-row'
     row.dataset.modelId = model.id
     row.appendChild(
@@ -259,7 +259,7 @@ export class AiModelSelectController {
       }),
     )
 
-    const actions = this.doc.createElement('div')
+    const actions = this.doc.win.createDiv()
     actions.className = 'ai-model-select__custom-actions'
     const edit = this.iconButton(
       'ai-model-select__edit',
@@ -283,7 +283,7 @@ export class AiModelSelectController {
     label: string,
     iconId: string,
   ): HTMLButtonElement {
-    const button = this.doc.createElement('button')
+    const button = this.doc.win.createEl('button')
     button.type = 'button'
     button.className = className
     button.setAttribute('aria-label', label)

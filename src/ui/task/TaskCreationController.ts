@@ -232,15 +232,15 @@ export default class TaskCreationController {
       nameInput.classList.add("task-name-input--readonly")
     }
 
-    const modeGroup = doc.createElement("div")
+    const modeGroup = doc.win.createDiv()
     modeGroup.className = "task-mode-group hidden"
 
-    const modeLabel = doc.createElement("div")
+    const modeLabel = doc.win.createDiv()
     modeLabel.className = "task-mode-label"
     modeLabel.textContent = this.host.tv("addTask.modeLabel", "Mode")
     modeGroup.appendChild(modeLabel)
 
-    const modeOptions = doc.createElement("div")
+    const modeOptions = doc.win.createDiv()
     modeOptions.className = "task-mode-options"
 
     const buildModeOption = (
@@ -248,14 +248,14 @@ export default class TaskCreationController {
       labelText: string,
       checked: boolean,
     ) => {
-      const wrapper = doc.createElement("label")
+      const wrapper = doc.win.createEl("label")
       wrapper.className = "task-mode-option"
-      const radio = doc.createElement("input")
+      const radio = doc.win.createEl("input")
       radio.type = "radio"
       radio.name = "taskCreationMode"
       radio.value = value
       radio.checked = checked
-      const span = doc.createElement("span")
+      const span = doc.win.createSpan()
       span.textContent = labelText
       wrapper.appendChild(radio)
       wrapper.appendChild(span)
@@ -277,11 +277,11 @@ export default class TaskCreationController {
     modeOptions.appendChild(copyOption.wrapper)
     modeGroup.appendChild(modeOptions)
 
-    const restoreBanner = doc.createElement("div")
+    const restoreBanner = doc.win.createDiv()
     restoreBanner.className = "task-restore-banner hidden"
-    const restoreMessage = doc.createElement("div")
+    const restoreMessage = doc.win.createDiv()
     restoreMessage.className = "task-restore-message"
-    const restoreButton = doc.createElement("button")
+    const restoreButton = doc.win.createEl("button")
     restoreButton.type = "button"
     restoreButton.className = "task-restore-button"
     restoreButton.textContent = this.host.tv("addTask.restoreButton", "Restore")
@@ -606,25 +606,25 @@ export default class TaskCreationController {
       return null
     }
 
-    const root = doc.createElement("details")
+    const root = doc.win.createEl("details")
     root.className = "task-creation-advanced"
 
-    const summary = doc.createElement("summary")
+    const summary = doc.win.createEl("summary")
     summary.textContent = this.host.tv("addTask.advancedSummary", "Advanced settings")
     root.appendChild(summary)
 
-    const body = doc.createElement("div")
+    const body = doc.win.createDiv()
     body.className = "task-creation-advanced-body"
     root.appendChild(body)
 
-    const scheduledGroup = doc.createElement("div")
+    const scheduledGroup = doc.win.createDiv()
     scheduledGroup.className = "task-creation-advanced-field"
-    const scheduledLabel = doc.createElement("label")
+    const scheduledLabel = doc.win.createEl("label")
     scheduledLabel.className = "form-label"
     scheduledLabel.textContent = this.withTrailingColon(
       this.host.tv("addTask.scheduledTimeLabel", "Start time"),
     )
-    const scheduledInput = doc.createElement("input")
+    const scheduledInput = doc.win.createEl("input")
     scheduledInput.type = "time"
     scheduledInput.className = "form-input task-creation-scheduled-time"
     scheduledGroup.appendChild(scheduledLabel)
@@ -632,13 +632,13 @@ export default class TaskCreationController {
     body.appendChild(scheduledGroup)
 
     const defaultReminderMinutes = this.getDefaultReminderMinutes()
-    const reminderRow = doc.createElement("label")
+    const reminderRow = doc.win.createEl("label")
     reminderRow.className = "task-creation-toggle-row task-creation-reminder-row hidden"
-    const reminderText = doc.createElement("span")
+    const reminderText = doc.win.createSpan()
     reminderText.textContent = this.withTrailingColon(
       this.host.tv("addTask.reminderToggle", "Set reminder"),
     )
-    const reminderToggle = doc.createElement("input")
+    const reminderToggle = doc.win.createEl("input")
     reminderToggle.type = "checkbox"
     reminderToggle.className = "task-creation-reminder-toggle"
     reminderRow.appendChild(reminderText)
@@ -646,13 +646,13 @@ export default class TaskCreationController {
     body.appendChild(reminderRow)
 
     const calendarEnabled = this.host.plugin.settings.googleCalendar?.enabled === true
-    const calendarRow = doc.createElement("label")
+    const calendarRow = doc.win.createEl("label")
     calendarRow.className = "task-creation-toggle-row task-creation-calendar-row hidden"
-    const calendarText = doc.createElement("span")
+    const calendarText = doc.win.createSpan()
     calendarText.textContent = this.withTrailingColon(
       this.host.tv("addTask.calendarToggle", "Register to calendar"),
     )
-    const calendarToggle = doc.createElement("input")
+    const calendarToggle = doc.win.createEl("input")
     calendarToggle.type = "checkbox"
     calendarToggle.className = "task-creation-calendar-toggle"
     calendarRow.appendChild(calendarText)
@@ -758,18 +758,18 @@ export default class TaskCreationController {
     )
 
     // --- Task-type selector -------------------------------------------------
-    const typeGroup = doc.createElement("div")
+    const typeGroup = doc.win.createDiv()
     typeGroup.className = "task-type-group"
-    const typeLabel = doc.createElement("div")
+    const typeLabel = doc.win.createDiv()
     typeLabel.className = "task-type-label"
     typeLabel.textContent = this.host.tv("addTask.typeLabel", "Task type")
     typeGroup.appendChild(typeLabel)
-    const typeOptions = doc.createElement("div")
+    const typeOptions = doc.win.createDiv()
     typeOptions.className = "task-type-options"
     typeGroup.appendChild(typeOptions)
 
     const buildTypeButton = (value: TaskType, labelText: string) => {
-      const button = doc.createElement("button")
+      const button = doc.win.createEl("button")
       button.type = "button"
       button.className = "task-type-option"
       button.dataset.taskType = value
@@ -784,13 +784,13 @@ export default class TaskCreationController {
     const aiButton = buildTypeButton("ai", this.host.tv("addTask.typeAi", "AI task"))
 
     // --- AI section ---------------------------------------------------------
-    const section = doc.createElement("div")
+    const section = doc.win.createDiv()
     section.className = "ai-task-section hidden"
 
     const buildField = (labelText: string): HTMLElement => {
-      const field = doc.createElement("div")
+      const field = doc.win.createDiv()
       field.className = "ai-task-field"
-      const label = doc.createElement("div")
+      const label = doc.win.createDiv()
       label.className = "form-label"
       label.textContent = labelText
       field.appendChild(label)
@@ -804,19 +804,19 @@ export default class TaskCreationController {
     const agentField = buildField(
       this.host.tv("addTask.aiAgentLabel", "👑 main agent"),
     )
-    const agentGrid = doc.createElement("div")
+    const agentGrid = doc.win.createDiv()
     agentGrid.className = "ai-task-agent-grid"
     agentField.appendChild(agentGrid)
     const agentCards = new Map<AiTaskHost, HTMLButtonElement>()
     for (const cardDef of AI_AGENT_CARDS) {
-      const card = doc.createElement("button")
+      const card = doc.win.createEl("button")
       card.type = "button"
       card.className = "ai-task-agent-card"
       card.dataset.aiHost = cardDef.host
-      const icon = doc.createElement("span")
+      const icon = doc.win.createSpan()
       icon.className = "ai-task-agent-icon"
       icon.textContent = cardDef.icon
-      const name = doc.createElement("span")
+      const name = doc.win.createSpan()
       name.className = "ai-task-agent-name"
       name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)
       card.appendChild(icon)
@@ -829,7 +829,7 @@ export default class TaskCreationController {
     const promptField = buildField(
       this.host.tv("addTask.aiPromptLabel", "Prompt (optional)"),
     )
-    const promptInput = doc.createElement("textarea")
+    const promptInput = doc.win.createEl("textarea")
     promptInput.className = "ai-task-prompt-input"
     promptInput.rows = 4
     promptInput.placeholder = this.host.tv(
@@ -838,14 +838,14 @@ export default class TaskCreationController {
     )
     promptInput.value = initialValue?.prompt ?? ""
     promptField.appendChild(promptInput)
-    const preview = doc.createElement("div")
+    const preview = doc.win.createDiv()
     preview.className = "ai-task-command-preview"
-    const previewLabel = doc.createElement("span")
+    const previewLabel = doc.win.createSpan()
     previewLabel.textContent = this.host.tv(
       "addTask.aiCommandPreviewLabel",
       "Command:",
     )
-    const previewCode = doc.createElement("code")
+    const previewCode = doc.win.createEl("code")
     preview.appendChild(previewLabel)
     preview.appendChild(previewCode)
     promptField.appendChild(preview)
@@ -864,9 +864,9 @@ export default class TaskCreationController {
       const recipeField = buildField(
         this.host.tv("addTask.aiRecipeLabel", "レシピ（任意）"),
       )
-      recipeSelect = doc.createElement("select")
+      recipeSelect = doc.win.createEl("select")
       recipeSelect.className = "form-input ai-task-recipe-select"
-      const noneOption = doc.createElement("option")
+      const noneOption = doc.win.createEl("option")
       noneOption.value = ""
       noneOption.textContent = this.host.tv(
         "addTask.aiRecipeNone",
@@ -875,7 +875,7 @@ export default class TaskCreationController {
       recipeSelect.appendChild(noneOption)
       let pendingInitialOption: HTMLOptionElement | null = null
       if (initialRecipePath) {
-        pendingInitialOption = doc.createElement("option")
+        pendingInitialOption = doc.win.createEl("option")
         pendingInitialOption.value = initialRecipePath
         pendingInitialOption.textContent = initialRecipePath
         recipeSelect.appendChild(pendingInitialOption)
@@ -883,7 +883,7 @@ export default class TaskCreationController {
       }
       recipeField.appendChild(recipeSelect)
 
-      const disclosure = doc.createElement("div")
+      const disclosure = doc.win.createDiv()
       disclosure.className = "ai-task-field-description"
       disclosure.textContent = this.host.tv(
         "addTask.aiRecipeDisclosure",
@@ -891,15 +891,15 @@ export default class TaskCreationController {
       )
       recipeField.appendChild(disclosure)
 
-      recipeDetails = doc.createElement("details")
+      recipeDetails = doc.win.createEl("details")
       recipeDetails.className = "ai-task-recipe-preview"
-      const detailsSummary = doc.createElement("summary")
+      const detailsSummary = doc.win.createEl("summary")
       detailsSummary.textContent = this.host.tv(
         "addTask.aiRecipePreview",
         "内容を確認",
       )
       recipeDetails.appendChild(detailsSummary)
-      const detailsBody = doc.createElement("pre")
+      const detailsBody = doc.win.createEl("pre")
       recipeDetails.appendChild(detailsBody)
       recipeDetails.classList.add("hidden")
       recipeField.appendChild(recipeDetails)
@@ -933,7 +933,7 @@ export default class TaskCreationController {
         pendingInitialOption = null
         for (const recipe of recipes) {
           recipesByPath.set(recipe.path, recipe)
-          const option = doc.createElement("option")
+          const option = doc.win.createEl("option")
           option.value = recipe.path
           const summaryParts = [
             recipe.goal.trim().length > 0
@@ -950,7 +950,7 @@ export default class TaskCreationController {
           initialRecipePath &&
           !recipesByPath.has(initialRecipePath)
         ) {
-          const broken = doc.createElement("option")
+          const broken = doc.win.createEl("option")
           broken.value = initialRecipePath
           broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "見つかりません")})`
           recipeSelect.appendChild(broken)
@@ -966,30 +966,30 @@ export default class TaskCreationController {
     const scheduledField = buildField(
       this.withTrailingColon(this.host.tv("addTask.scheduledTimeLabel", "Start time")),
     )
-    const scheduledInput = doc.createElement("input")
+    const scheduledInput = doc.win.createEl("input")
     scheduledInput.type = "time"
     scheduledInput.className = "form-input ai-task-scheduled-time"
     scheduledInput.value = initialValue?.scheduledTime ?? ""
     scheduledField.appendChild(scheduledInput)
 
     // Advanced block: execution mode / model / reasoning / working directory.
-    const advanced = doc.createElement("details")
+    const advanced = doc.win.createEl("details")
     advanced.className = "ai-task-advanced"
-    const advancedSummary = doc.createElement("summary")
+    const advancedSummary = doc.win.createEl("summary")
     advancedSummary.textContent = this.host.tv(
       "addTask.advancedSummary",
       "Advanced settings",
     )
     advanced.appendChild(advancedSummary)
-    const advancedBody = doc.createElement("div")
+    const advancedBody = doc.win.createDiv()
     advancedBody.className = "ai-task-advanced-body"
     advanced.appendChild(advancedBody)
     section.appendChild(advanced)
 
     const buildAdvancedField = (labelText: string): HTMLElement => {
-      const field = doc.createElement("div")
+      const field = doc.win.createDiv()
       field.className = "ai-task-field"
-      const label = doc.createElement("div")
+      const label = doc.win.createDiv()
       label.className = "form-label"
       label.textContent = labelText
       field.appendChild(label)
@@ -1000,7 +1000,7 @@ export default class TaskCreationController {
     const execModeField = buildAdvancedField(
       this.withTrailingColon(this.host.tv("addTask.aiExecModeLabel", "Execution mode")),
     )
-    const execModeSelect = doc.createElement("select")
+    const execModeSelect = doc.win.createEl("select")
     execModeSelect.className = "form-input ai-task-exec-mode"
     execModeField.appendChild(execModeSelect)
 
@@ -1058,7 +1058,7 @@ export default class TaskCreationController {
         this.host.tv("addTask.aiReasoningModeLabel", "Reasoning mode"),
       ),
     )
-    const reasoningModeSelect = doc.createElement("select")
+    const reasoningModeSelect = doc.win.createEl("select")
     reasoningModeSelect.className = "form-input ai-task-reasoning-mode"
     reasoningModeField.appendChild(reasoningModeSelect)
 
@@ -1071,10 +1071,10 @@ export default class TaskCreationController {
       ),
     )
     reasoningBudgetField.classList.add("ai-task-reasoning-budget-field", "hidden")
-    const reasoningBudgetSelect = doc.createElement("select")
+    const reasoningBudgetSelect = doc.win.createEl("select")
     reasoningBudgetSelect.className = "form-input ai-task-reasoning-budget"
     reasoningBudgetField.appendChild(reasoningBudgetSelect)
-    const reasoningHint = doc.createElement("div")
+    const reasoningHint = doc.win.createDiv()
     reasoningHint.className = "ai-task-field-description"
     reasoningHint.textContent = this.host.tv(
       "addTask.aiReasoningBudgetHint",
@@ -1181,7 +1181,7 @@ export default class TaskCreationController {
         execModeSelect.removeChild(execModeSelect.firstChild)
       }
       for (const variant of AI_EXEC_MODE_VARIANTS[selectedHost]) {
-        const option = doc.createElement("option")
+        const option = doc.win.createEl("option")
         option.value = variant.id
         option.textContent = this.host.tv(variant.labelKey, variant.labelFallback)
         execModeSelect.appendChild(option)
@@ -1224,7 +1224,7 @@ export default class TaskCreationController {
     })
 
     const appendReasoningModeOption = (mode: AiReasoningMode) => {
-      const option = doc.createElement("option")
+      const option = doc.win.createEl("option")
       option.value = mode
       option.textContent = reasoningModeLabels()[mode]
       reasoningModeSelect.appendChild(option)
@@ -1251,7 +1251,7 @@ export default class TaskCreationController {
     const rebuildReasoningBudgetOptions = () => {
       reasoningBudgetSelect.replaceChildren()
       for (const budget of AI_REASONING_BUDGETS[selectedHost]) {
-        const option = doc.createElement("option")
+        const option = doc.win.createEl("option")
         option.value = budget
         option.textContent = reasoningBudgetLabel(budget)
         reasoningBudgetSelect.appendChild(option)
@@ -1695,7 +1695,7 @@ export default class TaskCreationController {
 
   private highlightWarning(warningElement: HTMLElement): void {
     warningElement.classList.add("highlight")
-    activeWindow.setTimeout(() => warningElement.classList.remove("highlight"), 300)
+    window.setTimeout(() => warningElement.classList.remove("highlight"), 300)
   }
 
   private validateTaskNameBeforeSubmit(nameInput: HTMLInputElement): boolean {
@@ -1720,7 +1720,7 @@ export default class TaskCreationController {
     }
 
     while (Date.now() - start < timeoutMs) {
-      await new Promise((resolve) => activeWindow.setTimeout(resolve, 120))
+      await new Promise((resolve) => window.setTimeout(resolve, 120))
       if (hasFrontmatter()) {
         return
       }

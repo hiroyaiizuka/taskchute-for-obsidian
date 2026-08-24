@@ -178,7 +178,7 @@ export class TaskItemActionController {
       if (inst.task.isRoutine) {
         // Delay modal opening to ensure touch events are fully processed
         // This prevents touch events from propagating to modal content
-        activeWindow.setTimeout(() => {
+        window.setTimeout(() => {
           this.host.showRoutineEditModal(inst.task, button)
         }, 50)
       } else {

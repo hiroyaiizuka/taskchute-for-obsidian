@@ -79,7 +79,7 @@ export class TaskChuteViewController {
     }
 
     await this.activateView(options);
-    await new Promise((resolve) => activeWindow.setTimeout(resolve, 50));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
 
     view = this.getView();
     if (hasAll(view)) return view;
@@ -147,7 +147,7 @@ export class TaskChuteViewController {
       // user's visible TaskChute pane receives and displays the new run while
       // the isolated view performs its background reload.
       restoreOriginalIfBackgroundActive()
-      await new Promise((resolve) => activeWindow.setTimeout(resolve, 50))
+      await new Promise((resolve) => window.setTimeout(resolve, 50))
 
       const candidate = leaf.view as TaskChuteView | undefined
       const usable = Boolean(

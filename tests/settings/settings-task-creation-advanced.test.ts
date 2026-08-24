@@ -143,7 +143,7 @@ describe('TaskChute task creation advanced setting', () => {
     expect(createdSettings[0]?.setName).toHaveBeenCalledWith('Task creation')
     expect(createdSettings[1]?.setName).toHaveBeenCalledWith('Show advanced settings in the task creation modal')
     expect(createdSettings[2]?.setName).toHaveBeenCalledWith('Default reminder time (minutes)')
-    expect(createdSettings[3]?.setName).toHaveBeenCalledWith('Enable google calendar registration')
+    expect(createdSettings[3]?.setName).toHaveBeenCalledWith('Enable Google Calendar registration')
     expect(advancedToggle.setValue).toHaveBeenCalledWith(false)
     expect(calendarToggle.setValue).toHaveBeenCalledWith(false)
     expect(text.setValue).toHaveBeenCalledWith('5')

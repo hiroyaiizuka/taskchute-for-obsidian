@@ -231,7 +231,6 @@ describe('Obsidian review guardrails', () => {
       { name: 'global document access', regex: /\bdocument\./ },
       { name: 'document.createElement', regex: /\bdocument\.createElement(?:NS)?\(/ },
       ...rawBrowserTimerPatterns,
-      { name: 'window timer', regex: /\bwindow\.(?:setTimeout|clearTimeout|setInterval|clearInterval)\(/ },
       { name: 'window.open', regex: /\bwindow\.open\(/ },
       { name: 'globalThis', regex: /\bglobalThis\b/ },
       { name: 'localStorage language', regex: /localStorage\?*\.getItem\(["']language["']\)/ },

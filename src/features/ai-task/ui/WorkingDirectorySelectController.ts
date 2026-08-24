@@ -114,19 +114,19 @@ export class WorkingDirectorySelectController {
     )
     this.defaultDirectory = choices.defaultDirectory
 
-    this.root = doc.createElement('div')
+    this.root = doc.win.createDiv()
     this.root.className = 'ai-working-directory-select'
     container.appendChild(this.root)
 
-    const inputRow = doc.createElement('div')
+    const inputRow = doc.win.createDiv()
     inputRow.className = 'ai-working-directory-select__input-row'
     this.root.appendChild(inputRow)
 
-    this.inputWrapper = doc.createElement('div')
+    this.inputWrapper = doc.win.createDiv()
     this.inputWrapper.className = 'ai-working-directory-select__input-wrapper'
     inputRow.appendChild(this.inputWrapper)
 
-    this.input = doc.createElement('input')
+    this.input = doc.win.createEl('input')
     this.input.type = 'text'
     this.input.className =
       'form-input ai-working-directory-select__input ai-task-cwd-input'
@@ -137,7 +137,7 @@ export class WorkingDirectorySelectController {
     this.inputWrapper.appendChild(this.input)
 
     if (choices.recentDirectories.length > 0) {
-      this.toggleButton = doc.createElement('button')
+      this.toggleButton = doc.win.createEl('button')
       this.toggleButton.type = 'button'
       this.toggleButton.className = 'ai-working-directory-select__toggle'
       this.toggleButton.setAttribute('aria-label', this.labels.recentHeader)
@@ -149,7 +149,7 @@ export class WorkingDirectorySelectController {
       this.toggleButton = null
     }
 
-    const browseButton = doc.createElement('button')
+    const browseButton = doc.win.createEl('button')
     browseButton.type = 'button'
     browseButton.className = 'ai-working-directory-select__browse'
     browseButton.setAttribute('aria-label', this.labels.browse)
@@ -160,7 +160,7 @@ export class WorkingDirectorySelectController {
       void this.browse()
     })
 
-    this.menu = doc.createElement('div')
+    this.menu = doc.win.createDiv()
     this.menu.className = 'ai-working-directory-select__menu is-hidden'
     this.menu.setAttribute('role', 'listbox')
     this.inputWrapper.appendChild(this.menu)
@@ -173,7 +173,7 @@ export class WorkingDirectorySelectController {
     }
 
     if (this.defaultDirectory) {
-      this.resetButton = doc.createElement('button')
+      this.resetButton = doc.win.createEl('button')
       this.resetButton.type = 'button'
       this.resetButton.className = 'ai-working-directory-select__reset'
       this.resetButton.textContent = this.labels.resetDefault
@@ -239,34 +239,34 @@ export class WorkingDirectorySelectController {
       this.defaultDirectory,
       'ai-working-directory-select__option--default',
     )
-    const icon = doc.createElement('span')
+    const icon = doc.win.createSpan()
     icon.className = 'ai-working-directory-select__option-icon'
     setIcon(icon, 'home')
     row.appendChild(icon)
 
-    const content = doc.createElement('span')
+    const content = doc.win.createSpan()
     content.className = 'ai-working-directory-select__option-content'
     this.appendOptionText(doc, content, parts.folder, this.defaultDirectory)
     row.appendChild(content)
 
-    const badge = doc.createElement('span')
+    const badge = doc.win.createSpan()
     badge.className = 'ai-working-directory-select__default-badge'
     badge.textContent = this.labels.defaultBadge
     row.appendChild(badge)
   }
 
   private renderRecentOptions(doc: Document, directories: readonly string[]): void {
-    const separator = doc.createElement('div')
+    const separator = doc.win.createDiv()
     separator.className = 'ai-working-directory-select__separator'
     this.menu.appendChild(separator)
 
-    const heading = doc.createElement('div')
+    const heading = doc.win.createDiv()
     heading.className = 'ai-working-directory-select__recent-header'
-    const clock = doc.createElement('span')
+    const clock = doc.win.createSpan()
     clock.className = 'ai-working-directory-select__recent-icon'
     setIcon(clock, 'clock')
     heading.appendChild(clock)
-    const headingText = doc.createElement('span')
+    const headingText = doc.win.createSpan()
     headingText.textContent = this.labels.recentHeader
     heading.appendChild(headingText)
     this.menu.appendChild(heading)
@@ -274,11 +274,11 @@ export class WorkingDirectorySelectController {
     for (const directory of directories) {
       const parts = getDirectoryDisplayParts(directory)
       const row = this.createOptionRow(doc, directory)
-      const icon = doc.createElement('span')
+      const icon = doc.win.createSpan()
       icon.className = 'ai-working-directory-select__option-icon'
       setIcon(icon, 'folder')
       row.appendChild(icon)
-      const content = doc.createElement('span')
+      const content = doc.win.createSpan()
       content.className = 'ai-working-directory-select__option-content'
       this.appendOptionText(doc, content, parts.folder, parts.parent)
       row.appendChild(content)
@@ -290,7 +290,7 @@ export class WorkingDirectorySelectController {
     path: string,
     extraClass = '',
   ): HTMLButtonElement {
-    const row = doc.createElement('button')
+    const row = doc.win.createEl('button')
     row.type = 'button'
     row.className = `ai-working-directory-select__option ${extraClass}`.trim()
     row.dataset.path = path
@@ -312,11 +312,11 @@ export class WorkingDirectorySelectController {
     folder: string,
     parent: string,
   ): void {
-    const title = doc.createElement('span')
+    const title = doc.win.createSpan()
     title.className = 'ai-working-directory-select__option-title'
     title.textContent = folder
     content.appendChild(title)
-    const parentText = doc.createElement('span')
+    const parentText = doc.win.createSpan()
     parentText.className = 'ai-working-directory-select__option-parent'
     parentText.textContent = parent
     content.appendChild(parentText)

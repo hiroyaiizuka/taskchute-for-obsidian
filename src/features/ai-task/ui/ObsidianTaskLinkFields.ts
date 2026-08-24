@@ -38,43 +38,43 @@ export function createObsidianTaskLinkFields(
 ): ObsidianTaskLinkFieldsController {
   const { parent, doc, app, translate } = options
   const initial = normalizeInitialValue(options.initialValue)
-  const root = doc.createElement('section')
+  const root = doc.win.createEl('section')
   root.className = 'form-group obsidian-task-link-fields'
   parent.appendChild(root)
 
-  const heading = doc.createElement('div')
+  const heading = doc.win.createDiv()
   heading.className = 'obsidian-task-link-heading'
-  const headingIcon = doc.createElement('span')
+  const headingIcon = doc.win.createSpan()
   headingIcon.className = 'obsidian-task-link-heading-icon'
   setIcon(headingIcon, 'link-2')
-  const headingText = doc.createElement('span')
+  const headingText = doc.win.createSpan()
   headingText.textContent = translate('heading', 'Obsidian integration')
   heading.append(headingIcon, headingText)
   root.appendChild(heading)
 
-  const enabledLabel = doc.createElement('label')
+  const enabledLabel = doc.win.createEl('label')
   enabledLabel.className = 'obsidian-task-link-toggle'
-  const enabled = doc.createElement('input')
+  const enabled = doc.win.createEl('input')
   enabled.type = 'checkbox'
   enabled.className = 'obsidian-task-link-enabled'
   enabled.checked = initial.enabled
-  const enabledText = doc.createElement('span')
+  const enabledText = doc.win.createSpan()
   enabledText.textContent = translate('enabled', 'Link with Obsidian')
   enabledLabel.append(enabled, enabledText)
   root.appendChild(enabledLabel)
 
-  const details = doc.createElement('div')
+  const details = doc.win.createDiv()
   details.className = 'obsidian-task-link-details'
   root.appendChild(details)
 
-  const titleLabel = doc.createElement('label')
+  const titleLabel = doc.win.createEl('label')
   titleLabel.className = 'form-label'
   titleLabel.textContent = translate('taskTitle', 'Matching task name')
   details.appendChild(titleLabel)
 
-  const autocomplete = doc.createElement('div')
+  const autocomplete = doc.win.createDiv()
   autocomplete.className = 'obsidian-task-link-autocomplete'
-  const titleInput = doc.createElement('input')
+  const titleInput = doc.win.createEl('input')
   titleInput.type = 'text'
   titleInput.className = 'form-input obsidian-task-link-title'
   titleInput.autocomplete = 'off'
@@ -83,25 +83,25 @@ export function createObsidianTaskLinkFields(
     'Enter or select a task name',
   )
   titleInput.value = initial.taskTitle
-  const suggestions = doc.createElement('div')
+  const suggestions = doc.win.createDiv()
   suggestions.className = 'obsidian-task-link-suggestions is-hidden'
   suggestions.setAttribute('role', 'listbox')
   autocomplete.append(titleInput, suggestions)
   details.appendChild(autocomplete)
 
-  const matchLabel = doc.createElement('div')
+  const matchLabel = doc.win.createDiv()
   matchLabel.className = 'form-label obsidian-task-link-match-label'
   matchLabel.textContent = translate('matchType', 'Match type')
   details.appendChild(matchLabel)
 
-  const matchOptions = doc.createElement('div')
+  const matchOptions = doc.win.createDiv()
   matchOptions.className = 'obsidian-task-link-match-options'
   const radioName = `obsidian-task-link-match-${fieldSequence += 1}`
   const radios = new Map<ObsidianTaskMatchType, HTMLInputElement>()
   const addRadio = (value: ObsidianTaskMatchType, labelText: string) => {
-    const label = doc.createElement('label')
+    const label = doc.win.createEl('label')
     label.className = 'obsidian-task-link-match-option'
-    const radio = doc.createElement('input')
+    const radio = doc.win.createEl('input')
     radio.type = 'radio'
     radio.name = radioName
     radio.value = value
@@ -161,7 +161,7 @@ export function createObsidianTaskLinkFields(
       return
     }
     visibleTitles.forEach((title, index) => {
-      const row = doc.createElement('button')
+      const row = doc.win.createEl('button')
       row.type = 'button'
       row.id = `${radioName}-suggestion-${index}`
       row.className = 'obsidian-task-link-suggestion'

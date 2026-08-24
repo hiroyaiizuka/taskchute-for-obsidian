@@ -25,19 +25,19 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   const doc = options.context?.doc ?? document
   const tv = options.tv
 
-  const overlay = doc.createElement('div')
+  const overlay = doc.win.createDiv()
   overlay.className = 'task-modal-overlay'
 
-  const content = doc.createElement('div')
+  const content = doc.win.createDiv()
   content.className = 'task-modal-content project-settings-modal-content'
   overlay.appendChild(content)
 
   // Header
-  const header = doc.createElement('div')
+  const header = doc.win.createDiv()
   header.className = 'modal-header'
   content.appendChild(header)
 
-  const title = doc.createElement('h3')
+  const title = doc.win.createEl('h3')
   title.textContent = tv(
     'project.settingsTitle',
     `Project settings for "${options.displayTitle}"`,
@@ -45,7 +45,7 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   )
   header.appendChild(title)
 
-  const closeButton = doc.createElement('button')
+  const closeButton = doc.win.createEl('button')
   closeButton.className = 'modal-close-button'
   closeButton.setAttribute('aria-label', t('common.close', 'Close'))
   closeButton.setAttribute('title', t('common.close', 'Close'))
@@ -54,7 +54,7 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   header.appendChild(closeButton)
 
   // Body
-  const body = doc.createElement('div')
+  const body = doc.win.createDiv()
   body.className = 'project-settings-body'
   content.appendChild(body)
 
@@ -71,16 +71,16 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
 
   // Empty state
   if (options.projectFiles.length === 0) {
-    const emptyMessage = doc.createElement('p')
+    const emptyMessage = doc.win.createEl('p')
     emptyMessage.className = 'form-description'
     emptyMessage.textContent = tv('project.noFiles', 'No project files found in the configured folder.')
     body.appendChild(emptyMessage)
 
-    const footer = doc.createElement('div')
+    const footer = doc.win.createDiv()
     footer.className = 'form-button-group project-settings-actions'
     body.appendChild(footer)
 
-    const cancelButton = doc.createElement('button')
+    const cancelButton = doc.win.createEl('button')
     cancelButton.type = 'button'
     cancelButton.className = 'form-button cancel'
     cancelButton.textContent = t('common.close', 'Close')
@@ -92,27 +92,27 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   }
 
   // Form
-  const form = doc.createElement('form')
+  const form = doc.win.createEl('form')
   form.className = 'task-form project-settings-form'
   body.appendChild(form)
 
-  const selectGroup = doc.createElement('div')
+  const selectGroup = doc.win.createDiv()
   selectGroup.className = 'form-group project-select-group'
   form.appendChild(selectGroup)
 
-  const projectSelect = doc.createElement('select')
+  const projectSelect = doc.win.createEl('select')
   projectSelect.className = 'form-input'
   projectSelect.setAttribute('aria-label', tv('project.selectLabel', 'Select project:'))
   selectGroup.appendChild(projectSelect)
 
   // Options
   if (options.currentProjectPath) {
-    const removeOption = doc.createElement('option')
+    const removeOption = doc.win.createEl('option')
     removeOption.value = ''
     removeOption.textContent = tv('buttons.removeProject', '➖ Remove project')
     projectSelect.appendChild(removeOption)
   } else {
-    const noneOption = doc.createElement('option')
+    const noneOption = doc.win.createEl('option')
     noneOption.value = ''
     noneOption.textContent = tv('project.none', 'No project')
     noneOption.selected = true
@@ -128,7 +128,7 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   }
 
   options.projectFiles.forEach((file) => {
-    const option = doc.createElement('option')
+    const option = doc.win.createEl('option')
     option.value = file.path
     option.textContent = getDisplayName(file.basename)
     if (file.path === options.currentProjectPath) {
@@ -138,18 +138,18 @@ export function createProjectSettingsModal(options: ProjectSettingsModalOptions)
   })
 
   // Buttons
-  const footer = doc.createElement('div')
+  const footer = doc.win.createDiv()
   footer.className = 'form-button-group project-settings-actions'
   form.appendChild(footer)
 
-  const cancelButton = doc.createElement('button')
+  const cancelButton = doc.win.createEl('button')
   cancelButton.type = 'button'
   cancelButton.className = 'form-button cancel'
   cancelButton.textContent = t('common.cancel', 'Cancel')
   cancelButton.addEventListener('click', close)
   footer.appendChild(cancelButton)
 
-  const submitButton = doc.createElement('button')
+  const submitButton = doc.win.createEl('button')
   submitButton.type = 'submit'
   submitButton.className = 'form-button create'
   submitButton.textContent = tv('buttons.save', 'Save')

@@ -3987,7 +3987,7 @@ export class TaskChuteView
   private cleanupTimers(): void {
     // Legacy interval cleanup (no-op after TimerService)
     if (this.globalTimerInterval) {
-      activeWindow.clearInterval(this.globalTimerInterval)
+      window.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
 
@@ -4000,7 +4000,7 @@ export class TaskChuteView
     }
 
     if (this.renderDebounceTimer) {
-      activeWindow.clearTimeout(this.renderDebounceTimer)
+      window.clearTimeout(this.renderDebounceTimer)
       this.renderDebounceTimer = null
     }
 

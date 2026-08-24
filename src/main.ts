@@ -131,7 +131,7 @@ export default class TaskChutePlusPlugin extends Plugin {
     }
 
     this.app.workspace.onLayoutReady(refresh)
-    this.registerInterval(activeWindow.setInterval(refresh, LICENSE_REFRESH_INTERVAL_MS))
+    this.registerInterval(window.setInterval(refresh, LICENSE_REFRESH_INTERVAL_MS))
   }
 
   onunload(): void {
@@ -141,7 +141,7 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     // Clear timer intervals
     if (this.globalTimerInterval) {
-      activeWindow.clearInterval(this.globalTimerInterval)
+      window.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
 

@@ -140,7 +140,7 @@ export default class RoutineController {
     // Prevent touch events from immediately triggering the native time picker
     // when the modal opens (mobile touch event propagation issue)
     timeInput.disabled = true
-    activeWindow.setTimeout(() => {
+    window.setTimeout(() => {
       timeInput.disabled = false
     }, 500)
 
