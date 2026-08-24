@@ -114,7 +114,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
     this.outsideClickDocument = ownerDocument
 
     // Defer registration to avoid immediately closing due to same click
-    activeWindow.setTimeout(() => {
+    window.setTimeout(() => {
       if (this.outsideClickHandler) {
         ownerDocument.addEventListener("mousedown", this.outsideClickHandler, true)
       }

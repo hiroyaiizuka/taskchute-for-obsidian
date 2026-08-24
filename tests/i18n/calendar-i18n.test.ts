@@ -16,7 +16,7 @@ describe("calendar export i18n", () => {
   it("returns English strings for calendar export", () => {
     setLocaleOverride("en")
     expect(t("taskChuteView.calendar.export.title")).toBe(
-      "Register to google calendar",
+      "Register to Google Calendar",
     )
     expect(t("taskChuteView.calendar.export.toGoogle")).toContain(
       "register calender",
@@ -36,8 +36,8 @@ describe("calendar export i18n", () => {
   it("returns English strings for task view recipe actions", () => {
     setLocaleOverride("en")
 
-    expect(t("taskChuteView.buttons.setRecipe", "fallback")).toBe("🍽 set recipe")
-    expect(t("taskChuteView.buttons.changeRecipe", "fallback")).toBe("🍽 change recipe")
+    expect(t("taskChuteView.buttons.setRecipe", "fallback")).toBe("🍽 Set recipe")
+    expect(t("taskChuteView.buttons.changeRecipe", "fallback")).toBe("🍽 Change recipe")
     expect(t("taskChuteView.forms.recipeDescription", "fallback")).toBe(
       "Assign a reusable recipe to this task",
     )

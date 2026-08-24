@@ -337,22 +337,22 @@ export class TaskNameAutocomplete {
     if (this.suggestionsElement) {
       this.suggestionsElement.remove();
     }
-    this.suggestionsElement = this.doc.createElement('div');
+    this.suggestionsElement = this.doc.win.createDiv();
     this.suggestionsElement.className = 'taskchute-autocomplete-suggestions';
 
     matches.forEach((match, index) => {
-      const item = this.doc.createElement('div');
+      const item = this.doc.win.createDiv();
       item.className = 'suggestion-item';
 
-      const title = this.doc.createElement('div');
+      const title = this.doc.win.createDiv();
       title.className = 'suggestion-title';
 
-      const titleLabel = this.doc.createElement('span');
+      const titleLabel = this.doc.win.createSpan();
       titleLabel.textContent = match.displayText;
       title.appendChild(titleLabel);
 
       if (match.suggestion.type === 'project') {
-        const badge = this.doc.createElement('span');
+        const badge = this.doc.win.createSpan();
         badge.className = 'suggestion-badge';
         badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
         title.appendChild(badge);

@@ -237,7 +237,7 @@ export default class RoutineEditModal {
     // when the modal opens (mobile touch event propagation issue)
     // Use disabled attribute which is more reliable than pointer-events
     timeInput.disabled = true
-    activeWindow.setTimeout(() => {
+    window.setTimeout(() => {
       timeInput.disabled = false
     }, 500)
 

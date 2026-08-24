@@ -153,20 +153,20 @@ export class MobileTimePicker implements TimePicker {
     activeDocument.body.appendChild(this.containerEl)
 
     // Trigger animation
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.overlayEl?.classList.add('taskchute-mobile-time-picker-overlay-visible')
       this.containerEl?.classList.add('taskchute-mobile-time-picker-visible')
     })
 
     // Scroll to initial values after render
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scrollToValue(this.hourWheel, this.selectedHour)
       this.scrollToValue(this.minuteWheel, this.selectedMinute)
     })
 
     // Mark as ready and add overlay click listener after a delay
     // This prevents the same tap that opened the picker from closing it
-    activeWindow.setTimeout(() => {
+    window.setTimeout(() => {
       this.isReady = true
       this.overlayEl?.addEventListener('click', this.handleOverlayClick)
       this.overlayEl?.addEventListener('touchend', this.handleOverlayClick)
@@ -194,7 +194,7 @@ export class MobileTimePicker implements TimePicker {
     this.options = null
     this.isReady = false
 
-    activeWindow.setTimeout(() => {
+    window.setTimeout(() => {
       overlayToRemove?.remove()
       containerToRemove?.remove()
     }, 300)
@@ -228,8 +228,8 @@ export class MobileTimePicker implements TimePicker {
     // Handle scroll end to snap to nearest value
     let scrollTimeout: ReturnType<Window['setTimeout']> | null = null
     wheel.addEventListener('scroll', () => {
-      if (scrollTimeout) activeWindow.clearTimeout(scrollTimeout)
-      scrollTimeout = activeWindow.setTimeout(() => {
+      if (scrollTimeout) window.clearTimeout(scrollTimeout)
+      scrollTimeout = window.setTimeout(() => {
         const value = this.getSelectedValue(wheel)
         if (value !== null) {
           onChange(value)

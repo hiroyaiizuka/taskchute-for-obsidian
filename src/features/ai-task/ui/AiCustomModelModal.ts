@@ -94,25 +94,25 @@ export class AiCustomModelModal {
     const sequence = modalSequence += 1
     const titleId = `ai-custom-model-modal-title-${sequence}`
 
-    const overlay = this.doc.createElement('div')
+    const overlay = this.doc.win.createDiv()
     overlay.className = 'ai-custom-model-modal'
     overlay.addEventListener('mousedown', this.handleBackdropMouseDown)
 
-    const content = this.doc.createElement('section')
+    const content = this.doc.win.createEl('section')
     content.className = 'ai-custom-model-modal__content'
     content.setAttribute('role', 'dialog')
     content.setAttribute('aria-modal', 'true')
     content.setAttribute('aria-labelledby', titleId)
     overlay.appendChild(content)
 
-    const header = this.doc.createElement('header')
+    const header = this.doc.win.createEl('header')
     header.className = 'ai-custom-model-modal__header'
-    const titleWrap = this.doc.createElement('div')
+    const titleWrap = this.doc.win.createDiv()
     titleWrap.className = 'ai-custom-model-modal__title-wrap'
-    const titleIcon = this.doc.createElement('span')
+    const titleIcon = this.doc.win.createSpan()
     titleIcon.className = 'ai-custom-model-modal__title-icon'
     setIcon(titleIcon, editing ? 'pencil' : 'plus')
-    const title = this.doc.createElement('h2')
+    const title = this.doc.win.createEl('h2')
     title.id = titleId
     title.className = 'ai-custom-model-modal__title'
     title.textContent = editing ? this.labels.editTitle : this.labels.addTitle
@@ -126,12 +126,12 @@ export class AiCustomModelModal {
     header.append(titleWrap, closeButton)
     content.appendChild(header)
 
-    const agent = this.doc.createElement('div')
+    const agent = this.doc.win.createDiv()
     agent.className = 'ai-custom-model-modal__agent'
-    const agentIcon = this.doc.createElement('span')
+    const agentIcon = this.doc.win.createSpan()
     agentIcon.className = 'ai-custom-model-modal__agent-icon'
     setIcon(agentIcon, 'bot')
-    const agentText = this.doc.createElement('span')
+    const agentText = this.doc.win.createSpan()
     agentText.textContent =
       this.options.host === 'claude'
         ? this.labels.claudeAgent
@@ -139,7 +139,7 @@ export class AiCustomModelModal {
     agent.append(agentIcon, agentText)
     content.appendChild(agent)
 
-    const form = this.doc.createElement('form')
+    const form = this.doc.win.createEl('form')
     form.className = 'ai-custom-model-modal__form'
     form.noValidate = true
     form.addEventListener('submit', this.handleSubmit)
@@ -148,7 +148,7 @@ export class AiCustomModelModal {
       `${titleId}-model-id`,
       this.labels.modelId,
     )
-    const idInput = this.doc.createElement('input')
+    const idInput = this.doc.win.createEl('input')
     idInput.id = `${titleId}-model-id`
     idInput.type = 'text'
     idInput.className = 'ai-custom-model-modal__model-id'
@@ -158,7 +158,7 @@ export class AiCustomModelModal {
     idInput.value = this.options.editModel?.id ?? ''
     idInput.disabled = editing
     idInput.addEventListener('input', this.handleIdInput)
-    const idHelp = this.doc.createElement('div')
+    const idHelp = this.doc.win.createDiv()
     idHelp.className = 'ai-custom-model-modal__help'
     idHelp.textContent = this.labels.modelIdHelp
     form.append(idField, idInput, idHelp)
@@ -167,7 +167,7 @@ export class AiCustomModelModal {
       `${titleId}-display-name`,
       this.labels.displayName,
     )
-    const nameInput = this.doc.createElement('input')
+    const nameInput = this.doc.win.createEl('input')
     nameInput.id = `${titleId}-display-name`
     nameInput.type = 'text'
     nameInput.className = 'ai-custom-model-modal__display-name'
@@ -184,7 +184,7 @@ export class AiCustomModelModal {
       `${titleId}-description`,
       this.labels.description,
     )
-    const descriptionInput = this.doc.createElement('textarea')
+    const descriptionInput = this.doc.win.createEl('textarea')
     descriptionInput.id = `${titleId}-description`
     descriptionInput.className = 'ai-custom-model-modal__description'
     descriptionInput.placeholder = this.labels.descriptionPlaceholder
@@ -192,30 +192,30 @@ export class AiCustomModelModal {
     descriptionInput.addEventListener('input', () => this.clearError())
     form.append(descriptionField, descriptionInput)
 
-    const preview = this.doc.createElement('div')
+    const preview = this.doc.win.createDiv()
     preview.className = 'ai-custom-model-modal__preview-wrap'
-    const previewLabel = this.doc.createElement('span')
+    const previewLabel = this.doc.win.createSpan()
     previewLabel.className = 'ai-custom-model-modal__preview-label'
     previewLabel.textContent = this.labels.commandPreview
-    const previewValue = this.doc.createElement('code')
+    const previewValue = this.doc.win.createEl('code')
     previewValue.className = 'ai-custom-model-modal__preview'
     preview.append(previewLabel, previewValue)
     form.appendChild(preview)
 
-    const error = this.doc.createElement('div')
+    const error = this.doc.win.createDiv()
     error.className = 'ai-custom-model-modal__error is-hidden'
     error.setAttribute('role', 'alert')
     error.setAttribute('aria-live', 'polite')
     form.appendChild(error)
 
-    const actions = this.doc.createElement('footer')
+    const actions = this.doc.win.createEl('footer')
     actions.className = 'ai-custom-model-modal__actions'
-    const cancel = this.doc.createElement('button')
+    const cancel = this.doc.win.createEl('button')
     cancel.type = 'button'
     cancel.className = 'ai-custom-model-modal__cancel'
     cancel.textContent = this.labels.cancel
     cancel.addEventListener('click', () => this.close())
-    const submit = this.doc.createElement('button')
+    const submit = this.doc.win.createEl('button')
     submit.type = 'submit'
     submit.className = 'ai-custom-model-modal__submit mod-cta'
     submit.textContent = editing ? this.labels.save : this.labels.add
@@ -320,7 +320,7 @@ export class AiCustomModelModal {
   }
 
   private createFieldHeader(id: string, text: string): HTMLLabelElement {
-    const label = this.doc.createElement('label')
+    const label = this.doc.win.createEl('label')
     label.className = 'ai-custom-model-modal__label'
     label.htmlFor = id
     label.textContent = text
@@ -332,7 +332,7 @@ export class AiCustomModelModal {
     label: string,
     iconId: string,
   ): HTMLButtonElement {
-    const button = this.doc.createElement('button')
+    const button = this.doc.win.createEl('button')
     button.type = 'button'
     button.className = className
     button.setAttribute('aria-label', label)

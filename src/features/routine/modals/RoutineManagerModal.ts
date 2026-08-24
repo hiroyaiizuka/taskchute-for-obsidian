@@ -294,7 +294,7 @@ export class RoutineManagerModal extends Modal {
         this.updateCachedEnabledState(file.path, newValue);
         this.renderTable();
         await this.updateRoutineEnabled(file, newValue);
-        activeWindow.setTimeout(() => void this.refreshRow(file, newValue), 200);
+        window.setTimeout(() => void this.refreshRow(file, newValue), 200);
         this.refreshActiveView();
       })()
     });
@@ -346,7 +346,7 @@ export class RoutineManagerModal extends Modal {
           this.pendingRemovalPaths.add(file.path);
           this.removeRowFromCaches(file.path);
           this.renderTable();
-          activeWindow.setTimeout(() => void this.reloadAll(), 250);
+          window.setTimeout(() => void this.reloadAll(), 250);
         }
       })()
     });

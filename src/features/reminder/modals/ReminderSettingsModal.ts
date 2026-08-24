@@ -43,7 +43,7 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   if (typeof maybeCreateEl === 'function') {
     return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K];
   }
-  const element = parent.ownerDocument.createElement(tag);
+  const element = parent.ownerDocument.win.createEl(tag);
   if (options?.cls) {
     const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
     element.classList.add(...classes);
@@ -121,9 +121,9 @@ export class ReminderSettingsModal {
   constructor(app: App, options: ReminderSettingsModalOptions) {
     void app;
     const modalDocument = getModalDocument();
-    this.containerEl = modalDocument.createElement('div');
+    this.containerEl = modalDocument.win.createDiv();
     this.containerEl.className = 'task-modal-overlay';
-    this.modalEl = modalDocument.createElement('div');
+    this.modalEl = modalDocument.win.createDiv();
     this.modalEl.className = 'task-modal-content taskchute-reminder-settings-modal';
     this.contentEl = this.modalEl;
     this.containerEl.appendChild(this.modalEl);

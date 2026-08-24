@@ -83,7 +83,29 @@ Object.assign(globalThis, {
   createSvg: createSvgElement,
 })
 
+// Obsidian exposes the same DOM helpers on every window object (so that
+// `node.win.createEl(...)` works inside popout windows) and exposes `win`/`doc`
+// on every node. jsdom has neither, so mirror them onto the single test window.
+Object.assign(window, {
+  createEl: createHtmlElement,
+  createDiv: (options?: DomOptions | string) => createHtmlElement('div', options),
+  createSpan: (options?: DomOptions | string) => createHtmlElement('span', options),
+  createSvg: createSvgElement,
+})
+
 Object.defineProperties(Node.prototype, {
+  win: {
+    configurable: true,
+    get(this: Node) {
+      return (this.ownerDocument ?? (this as unknown as Document)).defaultView ?? window
+    },
+  },
+  doc: {
+    configurable: true,
+    get(this: Node) {
+      return this.ownerDocument ?? (this as unknown as Document)
+    },
+  },
   createEl: {
     configurable: true,
     writable: true,

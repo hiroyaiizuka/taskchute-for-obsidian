@@ -84,6 +84,14 @@ const obsidianmdRecommendedRules = {
   "obsidianmd/no-tfile-tfolder-cast": "error",
   "obsidianmd/no-view-references-in-plugin": "error",
   "obsidianmd/no-static-styles-assignment": "error",
+  "obsidianmd/prefer-create-el": "error",
+  "obsidianmd/prefer-window-timers": "error",
+  "obsidianmd/prefer-instanceof": "error",
+  "obsidianmd/no-global-this": "error",
+  // Obsidian 1.13's declarative settings API. Adopting it means rewriting the
+  // whole settings tab against typings we do not ship yet (obsidian@1.8.7),
+  // so keep the reminder visible without failing lint.
+  "obsidianmd/settings-tab/prefer-setting-definitions": "warn",
   "obsidianmd/object-assign": "error",
   "obsidianmd/platform": "error",
   "obsidianmd/prefer-file-manager-trash-file": "warn",
@@ -240,7 +248,26 @@ export default [
       obsidianmd,
     },
     rules: {
-      "obsidianmd/ui/sentence-case-locale-module": ["error", { enforceCamelCaseLower: false }],
+      "obsidianmd/ui/sentence-case-locale-module": [
+        "error",
+        {
+          enforceCamelCaseLower: false,
+          brands: [
+            "Claude",
+            "Codex",
+            "Google Calendar",
+            "Linux",
+            "Markdown",
+            "Obsidian",
+            "TaskChute",
+            "Windows",
+            "macOS",
+          ],
+          // Markdown headings written into log notes and bare ordinals
+          // ("1st" … "5th") are not UI sentences.
+          ignoreRegex: ["^#+ ", "^\\d", "^e\\.g\\. "],
+        },
+      ],
     },
   },
   // Test files config
