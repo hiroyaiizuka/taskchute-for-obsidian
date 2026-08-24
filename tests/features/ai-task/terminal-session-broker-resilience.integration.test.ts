@@ -2244,14 +2244,15 @@ describePosix('TerminalSessionBroker resilience', () => {
       )
       await sleep(200)
 
-      const startedAt = Date.now()
       client.write(sessionId, 'go\n')
       await withTimeout(done.promise)
 
-      // Full delivery requires the broker to pause the PTY stream, wait out
-      // the stuck-client timer, destroy that client, and resume: it cannot
-      // finish before the timer.
-      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900)
+      // The broker drops a stuck client two ways: markPressured's
+      // stuck-client timer, and sendRaw destroying it the moment its buffered
+      // bytes pass clientBufferLimit. Which one fires depends on how much the
+      // kernel absorbs first - macOS loopback buffers up to 8MB, so the timer
+      // wins there, while Linux passes the 4MB limit almost immediately.
+      // Asserting a floor here would only pin down which path ran.
       // Exact length proves the paused stream resumed without losing or
       // duplicating output once the stuck client was dropped.
       expect(received).toBe(expectedTotal)
