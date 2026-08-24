@@ -265,7 +265,7 @@ function readPosixSnapshot() {
   if (forcePsFailure) return null;
   try {
     const args = process.platform === 'linux'
-      ? ['eww', '-axo', 'pid=,ppid=,pgid=,lstart=,command=']
+      ? ['axeww', '-o', 'pid=,ppid=,pgid=,lstart=,command=']
       : ['-axo', 'pid=,ppid=,pgid=,lstart=,command='];
     return parsePosixSnapshot(cp.execFileSync(
       '/bin/ps',

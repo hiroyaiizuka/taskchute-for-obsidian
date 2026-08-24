@@ -596,7 +596,7 @@ function readOwnerPidRecords(session) {
 // larger. Keep the environment-bearing form only on Linux, where it can
 // recover an already reparented cooperative descendant by its owner marker.
 const posixPsArgs = process.platform === 'linux'
-  ? ['eww', '-axo', 'pid=,ppid=,pgid=,lstart=,command=']
+  ? ['axeww', '-o', 'pid=,ppid=,pgid=,lstart=,command=']
   : ['-axo', 'pid=,ppid=,pgid=,lstart=,command='];
 const posixPsOptions = {
   encoding: 'utf8',
