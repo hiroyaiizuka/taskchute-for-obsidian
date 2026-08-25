@@ -5,7 +5,7 @@ import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
 } from '../../../../src/features/ai-task/services/broker-source/EmbeddedProgramSource'
-import { TERMINAL_BROKER_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
+import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 
@@ -41,7 +41,7 @@ const PROGRAM_BUDGET = 120_000
 
 describe('broker program size budget', () => {
   test.each([
-    ['broker', TERMINAL_BROKER_SOURCE],
+    ['broker', buildTerminalBrokerSource()],
     ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
     ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
   ])('the %s program fits in one Linux execve argument', (_name, source) => {
@@ -78,21 +78,21 @@ describe('compressed program transport', () => {
     ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
     ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
   ])('the broker carries the %s program compressed, not inline', (_name, source) => {
-    expect(TERMINAL_BROKER_SOURCE).toContain(gzipBase64(source))
-    expect(TERMINAL_BROKER_SOURCE).not.toContain(JSON.stringify(source))
+    expect(buildTerminalBrokerSource()).toContain(gzipBase64(source))
+    expect(buildTerminalBrokerSource()).not.toContain(JSON.stringify(source))
   })
 
   test('the broker defines the inflater before it is called', () => {
-    expect(TERMINAL_BROKER_SOURCE).toContain(INFLATE_PROGRAM_SOURCE)
-    expect(TERMINAL_BROKER_SOURCE.indexOf(INFLATE_PROGRAM_SOURCE)).toBeLessThan(
-      TERMINAL_BROKER_SOURCE.indexOf('inflateProgram('.concat('"')),
+    expect(buildTerminalBrokerSource()).toContain(INFLATE_PROGRAM_SOURCE)
+    expect(buildTerminalBrokerSource().indexOf(INFLATE_PROGRAM_SOURCE)).toBeLessThan(
+      buildTerminalBrokerSource().indexOf('inflateProgram('.concat('"')),
     )
   })
 })
 
 describe('program syntax', () => {
   test.each([
-    ['broker', TERMINAL_BROKER_SOURCE],
+    ['broker', buildTerminalBrokerSource()],
     ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
     ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
   ])('the composed %s program parses', (_name, source) => {

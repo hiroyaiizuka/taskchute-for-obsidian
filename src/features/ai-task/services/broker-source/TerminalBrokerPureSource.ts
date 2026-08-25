@@ -10,7 +10,7 @@ import {
  *
  * The broker runs as `node -e <one string>`, so it cannot require sibling files
  * at runtime. This module is therefore not a runtime boundary — it is spliced
- * into TERMINAL_BROKER_SOURCE verbatim and the composed string is what actually
+ * into the composed broker source verbatim, and that string is what actually
  * executes. What the split buys is a *testing* boundary: tests can evaluate this
  * fragment on its own, because nothing in here touches fs, child_process, net,
  * process, or broker globals. A composition test asserts that the broker source

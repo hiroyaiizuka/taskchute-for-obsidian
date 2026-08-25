@@ -1,13 +1,13 @@
 import { createContext, runInContext } from 'vm'
 
 import { TERMINAL_BROKER_PURE_SOURCE } from '../../../../src/features/ai-task/services/broker-source/TerminalBrokerPureSource'
-import { TERMINAL_BROKER_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
+import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
 import { buildTerminalShellLaunch } from '../../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
 import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
 
 /**
  * The broker ships as `node -e <one string>`, so these functions cannot be
- * imported at runtime — they are spliced into TERMINAL_BROKER_SOURCE. The
+ * imported at runtime — they are spliced into buildTerminalBrokerSource(). The
  * fragment is free of fs, child_process, net and process, which is what lets it
  * be exercised here instead of through a spawned broker: the cases below used
  * to require real pipes, and their outcome then depended on how much a single
@@ -70,7 +70,7 @@ function feed(
 
 describe('broker pure fragment composition', () => {
   test('the shipped broker program embeds the fragment verbatim', () => {
-    expect(TERMINAL_BROKER_SOURCE).toContain(TERMINAL_BROKER_PURE_SOURCE)
+    expect(buildTerminalBrokerSource()).toContain(TERMINAL_BROKER_PURE_SOURCE)
   })
 
   test('the fragment reaches no host facility, so it can run detached', () => {
