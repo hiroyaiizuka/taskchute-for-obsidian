@@ -445,9 +445,9 @@ describePosix('TerminalSessionBroker resilience', () => {
         outcome: { status: 'stopped' },
       })
       // The source emits the acknowledgement from finish(), which only runs
-      // after the wrapper child close event. PID liveness is checked as an
-      // independent process-level assertion.
-      expect(() => process.kill(childPid, 0)).toThrow()
+      // after the wrapper child close event. PID liveness is a separate
+      // process-level fact that can land just after it.
+      await waitUntilAllGone([childPid])
       control.end()
       control.destroy()
     } finally {
@@ -518,16 +518,7 @@ describePosix('TerminalSessionBroker resilience', () => {
         rendererLeaseGeneration,
       })}\n`)
 
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        try {
-          process.kill(childPid, 0)
-          await sleep(25)
-        } catch {
-          break
-        }
-      }
-      expect(() => process.kill(childPid, 0)).toThrow()
+      await waitUntilAllGone([childPid])
     } finally {
       await client.shutdown()
     }
@@ -576,25 +567,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       // Do not let this renderer reconnect while the broker's signal handler
       // is completing its process-tree shutdown.
       client.detach()
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        let childAlive = true
-        let brokerAlive = true
-        try {
-          process.kill(childPid, 0)
-        } catch {
-          childAlive = false
-        }
-        try {
-          process.kill(descriptor.pid, 0)
-        } catch {
-          brokerAlive = false
-        }
-        if (!childAlive && !brokerAlive) break
-        await sleep(25)
-      }
-      expect(() => process.kill(childPid, 0)).toThrow()
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
+      await waitUntilAllGone([childPid, descriptor.pid])
     } finally {
       await client.shutdown()
     }
@@ -655,25 +628,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       process.kill(descriptor.pid, 'SIGKILL')
       await withTimeout(unavailable.promise, 8_000)
 
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        let childAlive = true
-        let brokerAlive = true
-        try {
-          process.kill(confirmedChildPid, 0)
-        } catch {
-          childAlive = false
-        }
-        try {
-          process.kill(descriptor.pid, 0)
-        } catch {
-          brokerAlive = false
-        }
-        if (!childAlive && !brokerAlive) break
-        await sleep(25)
-      }
-      expect(() => process.kill(confirmedChildPid, 0)).toThrow()
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
+      await waitUntilAllGone([confirmedChildPid, descriptor.pid])
     } finally {
       client.detach()
       if (childPid !== undefined) {
@@ -744,18 +699,8 @@ describePosix('TerminalSessionBroker resilience', () => {
       brokerPid = descriptor.pid
 
       client.detach()
-      const deadline = Date.now() + 9_000
-      while (Date.now() < deadline) {
-        let brokerAlive = true
-        let guardAlive = true
-        try { process.kill(descriptor.pid, 0) } catch { brokerAlive = false }
-        try { process.kill(guardPid, 0) } catch { guardAlive = false }
-        if (!brokerAlive && !guardAlive) break
-        await sleep(50)
-      }
+      await waitUntilAllGone([descriptor.pid, guardPid])
 
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
-      expect(() => process.kill(guardPid ?? -1, 0)).toThrow()
       expect(existsSync(descriptorPath)).toBe(false)
       expect(ownerArtifactPaths(descriptorPath)).toEqual([])
     } finally {
@@ -1097,25 +1042,12 @@ describePosix('TerminalSessionBroker resilience', () => {
       client.detach()
       process.kill(descriptor.pid, 'SIGKILL')
 
-      const processDeadline = Date.now() + 6_000
-      while (Date.now() < processDeadline) {
-        try {
-          process.kill(confirmedDetachedPid, 0)
-          await sleep(25)
-        } catch {
-          break
-        }
-      }
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      await waitUntilAllGone([confirmedDetachedPid])
 
-      const artifactDeadline = Date.now() + 3_000
-      while (
-        Date.now() < artifactDeadline &&
-        ownerArtifactPaths(descriptorPath).length > 0
-      ) {
-        await sleep(25)
-      }
-      expect(ownerArtifactPaths(descriptorPath)).toEqual([])
+      await waitUntil(
+        () => ownerArtifactPaths(descriptorPath).length === 0,
+        'the guard has removed its owner artifacts',
+      )
     } finally {
       client.detach()
       if (detachedPid !== undefined) {
@@ -1235,7 +1167,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       expect(existsSync(markerPath)).toBe(true)
       detachedPid = Number(readFileSync(markerPath, 'utf8'))
       await withTimeout(exited.promise)
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      await waitUntilAllGone([detachedPid])
     } finally {
       await client.shutdown().catch(() => undefined)
       if (detachedPid !== undefined) {
@@ -1257,6 +1189,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const exited = deferred<void>()
     const client = new TerminalSessionBrokerClient({ identity })
     let childPid: number | undefined
+    let nativeOutput = ''
     try {
       client.start(
         sessionId,
@@ -1270,7 +1203,12 @@ describePosix('TerminalSessionBroker resilience', () => {
         undefined,
         {
           onData: (data) => {
-            const match = /NATIVE_CHILD:(\d+)/u.exec(data)
+            // Accumulated, not matched per chunk: through a PTY the marker can
+            // arrive split across two reads, and where the boundary lands is a
+            // platform property. Matching one chunk passed on macOS and hung
+            // on Linux.
+            nativeOutput += data
+            const match = /NATIVE_CHILD:(\d+)/u.exec(nativeOutput)
             if (match) childReady.resolve(Number(match[1]))
           },
           onExit: () => exited.resolve(),
@@ -1280,7 +1218,9 @@ describePosix('TerminalSessionBroker resilience', () => {
       )
       childPid = await withTimeout(childReady.promise)
       await withTimeout(exited.promise)
-      expect(() => process.kill(childPid ?? -1, 0)).toThrow()
+      // The reaper runs after the guard observes the target's exit, so the
+      // exit frame can reach this client first.
+      await waitUntilAllGone([childPid])
     } finally {
       await client.shutdown().catch(() => undefined)
       if (childPid !== undefined) {
