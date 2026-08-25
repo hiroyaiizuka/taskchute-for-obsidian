@@ -19,6 +19,7 @@ import {
   WorkspaceFileGateway,
 } from './WorkspaceFileService'
 import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -399,36 +400,7 @@ function collectDescendantPids(rootPid: number): ProcessIdentitySnapshot[] {
       ['-axo', 'pid=,ppid=,lstart='],
       { encoding: 'utf8' },
     )
-    const childrenByParent = new Map<number, ProcessIdentitySnapshot[]>()
-    for (const line of output.split('\n')) {
-      const match = line
-        .trim()
-        .match(/^(\d+)\s+(\d+)\s+(.+)$/u)
-      if (!match) continue
-      const pid = Number(match[1])
-      const parentPid = Number(match[2])
-      const children = childrenByParent.get(parentPid) ?? []
-      children.push({ pid, birthToken: match[3].trim() })
-      childrenByParent.set(parentPid, children)
-    }
-
-    const descendants: ProcessIdentitySnapshot[] = []
-    const pending = [...(childrenByParent.get(rootPid) ?? [])]
-    const seen = new Set<number>()
-    while (pending.length > 0) {
-      const identity = pending.pop()
-      if (
-        identity === undefined ||
-        identity.pid < 1 ||
-        seen.has(identity.pid)
-      ) {
-        continue
-      }
-      seen.add(identity.pid)
-      descendants.push(identity)
-      pending.push(...(childrenByParent.get(identity.pid) ?? []))
-    }
-    return descendants
+    return parseDescendantSnapshot(output, rootPid)
   } catch {
     // Best effort: the inner PTY supervisor still covers the normal group.
     return []
