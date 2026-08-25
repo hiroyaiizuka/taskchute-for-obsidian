@@ -154,12 +154,28 @@ describe('python ownership-hook detection', () => {
     expect(disables('/usr/bin/python3', ['script.py'])).toBe(false)
   })
 
-  test.each([['-S'], ['-E'], ['-I']])(
-    'rejects python launched with %s',
-    (flag) => {
-      expect(disables('/usr/bin/python3', [flag, 'script.py'])).toBe(true)
-    },
-  )
+  // The launch shapes below used to be verified by spawning a real interpreter,
+  // behind `if (!existsSync('/usr/bin/python3')) return` — which reported a
+  // pass, not a skip, on any machine without it. What they actually assert is
+  // this decision function, so they belong here where nothing has to be
+  // installed. One spawned case still guards that the rejection happens before
+  // the process starts; see the integration suite.
+  test.each([
+    ['direct', '/usr/bin/python3', ['-S']],
+    ['ignore environment', '/usr/bin/python3', ['-E']],
+    ['isolated mode', '/usr/bin/python3', ['-I']],
+    ['combined flags', '/usr/bin/python3', ['-ES']],
+    ['env launcher', '/usr/bin/env', ['python3', '-B', '-S']],
+    ['env clear', '/usr/bin/env', ['-i', '/usr/bin/python3']],
+    ['env unset Python path', '/usr/bin/env', ['-u', 'PYTHONPATH', '/usr/bin/python3']],
+    ['env replace Python path', '/usr/bin/env', ['PYTHONPATH=', '/usr/bin/python3']],
+  ])('rejects a %s hook-disabling launch', (_label, command, args) => {
+    expect(disables(command, args)).toBe(true)
+  })
+
+  test('rejects a hook-disabling launch behind the shell `command` builtin', () => {
+    expect(disables('/bin/sh', ['-c', 'command /usr/bin/python3 -S'])).toBe(true)
+  })
 
   test('sees through an env(1) prefix but not through its assignments', () => {
     expect(disables('/usr/bin/env', ['python3', '-S'])).toBe(true)
@@ -223,4 +239,28 @@ describe('python ownership-hook detection', () => {
       )
     },
   )
+
+  // buildPtyCommand is a pure function of the platform, so the wrapper shape
+  // the broker actually receives in production can be checked for every flag
+  // without a python on disk — and for the dialect this host does not run.
+  test.each([
+    ['darwin', '-S'],
+    ['darwin', '-E'],
+    ['darwin', '-I'],
+    ['darwin', '-ES'],
+    ['linux', '-S'],
+    ['linux', '-E'],
+    ['linux', '-I'],
+    ['linux', '-ES'],
+  ])('rejects python %s through the %s production PTY wrapper', (platform, pythonFlag) => {
+    const ptyCommand = new NodeProcessGateway(undefined, platform).buildPtyCommand({
+      binaryPath: '/usr/bin/python3',
+      args: [pythonFlag, '-c', 'print("SHOULD_NOT_RUN")'],
+      rows: 24,
+      cols: 80,
+      transcriptPath: '/tmp/taskchute-broker-test.log',
+    })
+
+    expect(disables(...toRequest(ptyCommand))).toBe(true)
+  })
 })
