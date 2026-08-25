@@ -55,17 +55,17 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     timeout-minutes: 15
-    # Reports without blocking. One case still fails on Linux; the rest were
-    # three defects that only a Linux kernel can produce, now fixed and measured
-    # in a Debian 12 container running the same suites:
+    # Reports without blocking, until a run here is green. Four defects that
+    # only a Linux kernel can produce have been fixed and measured in a Debian
+    # 12 container running the same suites:
     #
-    #   resilience suite   before: 5 failed   after: 1 failed
+    #   resilience suite   before: 5 failed   after: 0 failed
     #   broker suite       before: 1 failed   after: 0 failed
     #
     # An earlier version of this comment blamed cross-test interference. That was
     # wrong, and so was every explanation reached by reading the surviving
-    # processes instead of the watchdog's own decisions. What the three turned
-    # out to be:
+    # processes instead of what the broker and watchdog actually decided. What
+    # the four turned out to be:
     #
     #   1. Linux has no wall-clock process start time. It derives one, as boot
     #      time plus the start in jiffies, both truncated, so `ps` reports the
@@ -82,11 +82,14 @@ jobs:
     #      broker's death, so waiting meant losing the only record naming the
     #      process, and exiting to report the session clean.
     #
-    # Still failing, on this branch and on the commit before it:
-    # `target exit captures and reaps an unhooked native background group
-    # member`. It times out waiting for the session's exit frame, not for a
-    # reap — `sleep 30 &` holds the PTY open and node-pty reports the exit
-    # differently here than on macOS. Unrelated to ownership; not yet fixed.
+    #   4. The same truncation as (1), in a second spelling the shared fix did
+    #      not reach: the guard skipped any process in the target's group whose
+    #      reported start was below `posixBirthFloor(sessionStart)`. A
+    #      background process reported one second early was never captured and
+    #      never signalled, so it held the PTY open and the session's exit was
+    #      never emitted — the run looked hung rather than finished. Both
+    #      comparisons now go through the shared helpers, and a composition test
+    #      rejects a third spelling.
     #
     # Reproducing this locally needs `docker run --init`. Without a real init as
     # PID 1, nothing reaps orphaned zombies, so SIGKILLed processes stay visible
@@ -95,8 +98,8 @@ jobs:
     #
     # If something fails here again: TASKCHUTE_OWNER_WATCH_TRACE=<path> makes the
     # watchdog write one line per round naming each pid, the verdict, the
-    # evidence behind it, and what it signalled. Every one of the three above was
-    # found by reading that file and none was found without it.
+    # evidence behind it, and what it signalled. Every one of the four above was
+    # found by tracing a decision; none was found by reading survivors.
     #
     # Flip this to a blocking check once a run is green.
     continue-on-error: true
