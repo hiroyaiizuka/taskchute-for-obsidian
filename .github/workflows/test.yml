@@ -1,0 +1,44 @@
+name: Test
+
+# The merge gate. Runs on PRs targeting main, plus on main itself so a merge
+# that lands without a green PR still gets checked.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      # ts-jest transpiles without diagnostics and esbuild skips type checking,
+      # so nothing else in this workflow catches type errors.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The *.integration.test.ts suites are excluded here: they drive real
+      # processes, PTYs and sockets, and currently fail on Linux runners. They
+      # get their own job once they pass on ubuntu.
+      - name: Test
+        run: npm run test:unit
