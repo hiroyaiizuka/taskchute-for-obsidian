@@ -55,15 +55,48 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     timeout-minutes: 15
-    # Reports without blocking, because these suites are not green on Linux yet
-    # and never have been — this job is the first time they have run there.
+    # Reports without blocking. One case still fails on Linux; the rest were
+    # three defects that only a Linux kernel can produce, now fixed and measured
+    # in a Debian 12 container running the same suites:
     #
-    # The remaining failures are cross-test interference, not a Linux defect in
-    # the broker: the failing set changes between runs of the same commit on the
-    # same machine (observed 1, 3 and 5 failures), and every one of them passes
-    # when run alone. A test that fails to reap its detached children leaves them
-    # behind for whatever runs next. Fixing that means giving each case its own
-    # isolation, which is a change to the suites, not to the broker.
+    #   resilience suite   before: 5 failed   after: 1 failed
+    #   broker suite       before: 1 failed   after: 0 failed
+    #
+    # An earlier version of this comment blamed cross-test interference. That was
+    # wrong, and so was every explanation reached by reading the surviving
+    # processes instead of the watchdog's own decisions. What the three turned
+    # out to be:
+    #
+    #   1. Linux has no wall-clock process start time. It derives one, as boot
+    #      time plus the start in jiffies, both truncated, so `ps` reports the
+    #      second BEFORE the clock reading that bracketed spawn() — 7 times in 40
+    #      at HZ=100, against 40 of 40 exact on macOS. Every ownership check
+    #      failed for those, so nothing was ever signalled. This is the 1-in-6
+    #      that made the failing set look random.
+    #   2. `readlink /proc/<pid>/fd/<n>` returns EACCES for a sibling's
+    #      descriptor, so the sentinel that authenticates an owned process could
+    #      not be read at all. macOS answers the same question through lsof and
+    #      never hit it.
+    #   3. The first fix for (2) waited before falling back to weaker evidence.
+    #      The session guard removes the owner records within ~100ms of the
+    #      broker's death, so waiting meant losing the only record naming the
+    #      process, and exiting to report the session clean.
+    #
+    # Still failing, on this branch and on the commit before it:
+    # `target exit captures and reaps an unhooked native background group
+    # member`. It times out waiting for the session's exit frame, not for a
+    # reap — `sleep 30 &` holds the PTY open and node-pty reports the exit
+    # differently here than on macOS. Unrelated to ownership; not yet fixed.
+    #
+    # Reproducing this locally needs `docker run --init`. Without a real init as
+    # PID 1, nothing reaps orphaned zombies, so SIGKILLed processes stay visible
+    # to kill(pid, 0) forever and every reap assertion fails for a reason that
+    # does not exist on a runner. That artifact cost more time than the bugs did.
+    #
+    # If something fails here again: TASKCHUTE_OWNER_WATCH_TRACE=<path> makes the
+    # watchdog write one line per round naming each pid, the verdict, the
+    # evidence behind it, and what it signalled. Every one of the three above was
+    # found by reading that file and none was found without it.
     #
     # Flip this to a blocking check once a run is green.
     continue-on-error: true

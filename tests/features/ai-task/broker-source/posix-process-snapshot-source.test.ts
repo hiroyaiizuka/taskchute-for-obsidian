@@ -44,6 +44,7 @@ runInContext(POSIX_PROCESS_SNAPSHOT_SOURCE, context)
 const posix = context as unknown as {
   parsePosixProcessSnapshot: (output: string) => Map<number, SnapshotEntry>
   posixBirthFloor: (ms: number) => number
+  posixBirthSlackMs: () => number
   posixBirthWindowMatches: (
     actualStart: number,
     lower: number,
@@ -268,9 +269,33 @@ describe('birth windows', () => {
     expect(posix.posixBirthWindowMatches(second, second + 120, second + 880)).toBe(true)
   })
 
-  test('rejects the neighbouring seconds', () => {
-    expect(posix.posixBirthWindowMatches(second - 1000, second, second + 500)).toBe(false)
+  /**
+   * The failure that took four integration tests down on Linux and nowhere
+   * else, and that no amount of test isolation would have touched.
+   *
+   * Linux has no wall-clock start time to report: it derives one, as boot time
+   * plus the process' start in jiffies, and both are truncated. The second it
+   * reports is therefore sometimes the second BEFORE the clock reading that
+   * bracketed spawn(). Measured in a container at HZ=100, 7 of 40 spawns came
+   * back one second early — while macOS, which keeps a real timeval, was exact
+   * 40 times out of 40. A process reported early failed every ownership check,
+   * so it was never signalled, which is what left orphans behind on CI runs
+   * that passed locally.
+   */
+  test('accepts the second below, which Linux reports for a process born in this one', () => {
+    expect(posix.posixBirthWindowMatches(second - 1000, second, second + 500)).toBe(true)
+  })
+
+  test('rejects the second above, which truncation cannot produce', () => {
     expect(posix.posixBirthWindowMatches(second + 1000, second, second + 500)).toBe(false)
+  })
+
+  test('rejects a birth further below than truncation can explain', () => {
+    expect(posix.posixBirthWindowMatches(second - 2000, second, second + 500)).toBe(false)
+  })
+
+  test('spends exactly the one second the truncation can lose', () => {
+    expect(posix.posixBirthSlackMs()).toBe(1_000)
   })
 
   test('accepts a zero-width window', () => {

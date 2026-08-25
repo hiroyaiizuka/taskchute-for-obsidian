@@ -87,12 +87,28 @@ function posixSnapshotIdentity(entry) {
 function posixBirthFloor(ms) {
   return Math.floor(ms / 1000) * 1000;
 }
+// Linux does not store a process' start time as a wall clock: it derives one,
+// as boot time plus the process' start in jiffies, and BOTH of those are
+// truncated. The second it reports can therefore be the second BEFORE the one
+// the clock showed when spawn() returned. Measured at HZ=100: 7 of 40 spawns
+// came back one second early. macOS keeps a real timeval and was 40 of 40 exact,
+// which is why nothing here ever failed on a developer machine while CI lost
+// roughly one process in six.
+//
+// The error only ever runs backwards — truncation cannot invent time — so only
+// the lower bound is widened.
+function posixBirthSlackMs() {
+  return 1000;
+}
 // The owner record stores the interval surrounding spawn(), so both ends are
 // floored: a paused or slow syscall stays a match without widening the
-// PID-reuse window to several seconds.
+// PID-reuse window to several seconds. The slack below makes that window ~2s on
+// a host that reports an early start; a PID reused inside it is still caught by
+// the identity checks the callers layer on top (the inherited sentinel
+// descriptor, the guard token, the command hint).
 function posixBirthWindowMatches(actualStart, lower, upper) {
   return (
-    actualStart >= posixBirthFloor(lower) &&
+    actualStart >= posixBirthFloor(lower) - posixBirthSlackMs() &&
     actualStart <= posixBirthFloor(upper)
   );
 }

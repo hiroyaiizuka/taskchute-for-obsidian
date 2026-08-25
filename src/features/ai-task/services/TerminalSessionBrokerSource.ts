@@ -1,6 +1,7 @@
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
 import { TERMINAL_BROKER_PURE_SOURCE } from './broker-source/TerminalBrokerPureSource'
+import { OWNER_SENTINEL_PROBE_SOURCE } from './broker-source/OwnerSentinelProbeSource'
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
 import {
   gzipBase64,
@@ -615,54 +616,7 @@ function readPosixProcessSnapshotAsync(callback) {
     });
   } catch (_) { callback(null); }
 }
-function canonicalSentinelPath(value) {
-  const clean = String(value || '').replace(/ \(deleted\)$/, '');
-  try { return fs.realpathSync(clean); } catch (_) { return clean; }
-}
-function sentinelState(pid, identity) {
-  if (
-    !identity ||
-    !Number.isInteger(identity.sentinelFd) ||
-    !identity.sentinelPath
-  ) return 'unknown';
-  try {
-    let actualPath;
-    if (process.platform === 'linux') {
-      actualPath = fs.readlinkSync(
-        '/proc/' + String(pid) + '/fd/' + String(identity.sentinelFd),
-      );
-    } else if (process.platform === 'darwin') {
-      const output = cp.execFileSync(
-        '/usr/sbin/lsof',
-        [
-          '-a',
-          '-p',
-          String(pid),
-          '-d',
-          String(identity.sentinelFd),
-          '-Fn',
-        ],
-        { encoding: 'utf8', maxBuffer: 16 * 1024, windowsHide: true },
-      );
-      const nameLine = String(output).split('\n')
-        .find(line => line.startsWith('n'));
-      if (!nameLine) return 'mismatch';
-      actualPath = nameLine.slice(1);
-    } else {
-      return 'unknown';
-    }
-    return canonicalSentinelPath(actualPath) ===
-      canonicalSentinelPath(identity.sentinelPath)
-      ? 'match'
-      : 'mismatch';
-  } catch (error) {
-    if (
-      error &&
-      (error.code === 'ENOENT' || error.status === 1)
-    ) return 'mismatch';
-    return 'unknown';
-  }
-}
+${OWNER_SENTINEL_PROBE_SOURCE}
 function pidOwnershipState(pid, identity, snapshot) {
   const liveness = pidLivenessState(pid);
   if (liveness === 'dead') return 'dead';
@@ -729,9 +683,17 @@ function pidOwnershipState(pid, identity, snapshot) {
     ) {
       // The inherited sentinel FD remains stable across reparenting and exec,
       // unlike ppid/argv, and uniquely identifies this session even when a
-      // numeric PID/PGID is reused within the same lstart second.
-      const sentinel = sentinelState(pid, identity);
-      if (sentinel !== 'match') return sentinel;
+      // numeric PID/PGID is reused within the same lstart second. When it
+      // cannot be read at all, ownership falls back to the evidence that is
+      // available rather than staying unproven forever — an unproven owner is
+      // never signalled and never written off, which is how a detached child
+      // outlived the session that started it.
+      const sentinel = probeSentinelState(pid, identity);
+      if (sentinel === 'unreadable' || sentinel === 'unknown') {
+        if (resolveUnprovenSentinel(identity, entry) !== 'match') {
+          return 'mismatch';
+        }
+      } else if (sentinel !== 'match') return sentinel;
     }
     if (
       process.platform !== 'win32' &&

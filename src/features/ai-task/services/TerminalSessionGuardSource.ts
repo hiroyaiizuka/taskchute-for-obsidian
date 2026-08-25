@@ -1,3 +1,4 @@
+import { OWNER_SENTINEL_PROBE_SOURCE } from './broker-source/OwnerSentinelProbeSource'
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
 
 /**
@@ -317,55 +318,7 @@ function windowsStartedAt(pid) {
   }
 }
 
-function canonicalSentinelPath(value) {
-  const clean = String(value || '').replace(/ \(deleted\)$/, '');
-  try { return fs.realpathSync(clean); } catch (_) { return clean; }
-}
-
-function sentinelState(pid, identity) {
-  if (
-    !identity ||
-    !Number.isInteger(identity.sentinelFd) ||
-    !identity.sentinelPath
-  ) return 'unknown';
-  try {
-    let actualPath;
-    if (process.platform === 'linux') {
-      actualPath = fs.readlinkSync(
-        '/proc/' + String(pid) + '/fd/' + String(identity.sentinelFd),
-      );
-    } else if (process.platform === 'darwin') {
-      const output = cp.execFileSync(
-        '/usr/sbin/lsof',
-        [
-          '-a',
-          '-p',
-          String(pid),
-          '-d',
-          String(identity.sentinelFd),
-          '-Fn',
-        ],
-        { encoding: 'utf8', maxBuffer: 16 * 1024, windowsHide: true },
-      );
-      const nameLine = String(output).split('\n')
-        .find(line => line.startsWith('n'));
-      if (!nameLine) return 'mismatch';
-      actualPath = nameLine.slice(1);
-    } else {
-      return 'unknown';
-    }
-    return canonicalSentinelPath(actualPath) ===
-      canonicalSentinelPath(identity.sentinelPath)
-      ? 'match'
-      : 'mismatch';
-  } catch (error) {
-    if (
-      error &&
-      (error.code === 'ENOENT' || error.status === 1)
-    ) return 'mismatch';
-    return 'unknown';
-  }
-}
+${OWNER_SENTINEL_PROBE_SOURCE}
 
 function ownershipState(pid, identity, snapshot) {
   try { process.kill(pid, 0); }
@@ -398,8 +351,15 @@ function ownershipState(pid, identity, snapshot) {
     posixBirthWindowMatches(actualStart, identity.lower, identity.upper);
   if (!birthMatches) return 'mismatch';
   if (identity.kind === 'process') {
-    const sentinel = sentinelState(pid, identity);
-    if (sentinel !== 'match') return sentinel;
+    // An unreadable descriptor is not a closed one: fall back to the available
+    // evidence instead of leaving the process forever unproven, and therefore
+    // forever neither signalled nor written off.
+    const sentinel = probeSentinelState(pid, identity);
+    if (sentinel === 'unreadable' || sentinel === 'unknown') {
+      if (resolveUnprovenSentinel(identity, posixEntry) !== 'match') {
+        return 'mismatch';
+      }
+    } else if (sentinel !== 'match') return sentinel;
   }
   if (identity.kind === 'snapshot') {
     if (

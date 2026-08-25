@@ -1,3 +1,4 @@
+import { Script } from 'vm'
 import { gunzipSync } from 'zlib'
 
 import {
@@ -26,10 +27,15 @@ const MAX_ARG_STRLEN = 32 * 4096
  * hundred bytes is already broken for the next person who adds a feature, so
  * the budget has to fail while there is still room to land a fix.
  *
- * ~11KB of cushion. Because the guard and watchdog reach the broker compressed,
- * roughly 3KB of growth in either of them costs the broker 1KB, so this covers
- * a substantial feature in any of the three before anyone has to think about
- * the transport again.
+ * Because the guard and watchdog reach the broker compressed, roughly 3KB of
+ * growth in either of them costs the broker 1KB.
+ *
+ * The broker sits ~7KB under this budget and ~18KB under the kernel limit. It
+ * had ~13KB of cushion before the owner-reap logic was split into testable
+ * fragments, which cost ~6KB across the three programs — the shared code is
+ * spliced into each of them, so deduplicating it saves less than it reads like.
+ * Anything approaching this budget again should move text out of the templates
+ * rather than raise it: comments inside them ship inside argv.
  */
 const PROGRAM_BUDGET = 120_000
 
@@ -81,5 +87,19 @@ describe('compressed program transport', () => {
     expect(TERMINAL_BROKER_SOURCE.indexOf(INFLATE_PROGRAM_SOURCE)).toBeLessThan(
       TERMINAL_BROKER_SOURCE.indexOf('inflateProgram('.concat('"')),
     )
+  })
+})
+
+describe('program syntax', () => {
+  test.each([
+    ['broker', TERMINAL_BROKER_SOURCE],
+    ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
+    ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
+  ])('the composed %s program parses', (_name, source) => {
+    // These programs are assembled from spliced fragments, so a name declared
+    // twice or a fragment landing inside a template literal is a SyntaxError
+    // that node reports only at spawn time — with the terminal simply never
+    // appearing and nothing written to any log.
+    expect(() => new Script(source)).not.toThrow()
   })
 })
