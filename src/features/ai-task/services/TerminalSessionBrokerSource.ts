@@ -1,6 +1,10 @@
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
 import { TERMINAL_BROKER_PURE_SOURCE } from './broker-source/TerminalBrokerPureSource'
+import {
+  gzipBase64,
+  INFLATE_PROGRAM_SOURCE,
+} from './broker-source/EmbeddedProgramSource'
 
 /**
  * Renderer-independent Node broker program.
@@ -16,8 +20,11 @@ const cp = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
 ${TERMINAL_BROKER_PURE_SOURCE}
-const ownerWatchdogProgram = ${JSON.stringify(TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE)};
-const sessionGuardProgram = ${JSON.stringify(TERMINAL_SESSION_GUARD_SOURCE)};
+${INFLATE_PROGRAM_SOURCE}
+// Carried compressed: as plain string literals these two cost ~46KB of the
+// 131_072-byte Linux limit on a single argv string. See EmbeddedProgramSource.
+const ownerWatchdogProgram = inflateProgram(${JSON.stringify(gzipBase64(TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE))});
+const sessionGuardProgram = inflateProgram(${JSON.stringify(gzipBase64(TERMINAL_SESSION_GUARD_SOURCE))});
 const descriptorPath = process.env.TASKCHUTE_BROKER_DESCRIPTOR;
 const token = process.env.TASKCHUTE_BROKER_TOKEN;
 const idleTtlMs = Number(process.env.TASKCHUTE_BROKER_TTL_MS || 1800000);

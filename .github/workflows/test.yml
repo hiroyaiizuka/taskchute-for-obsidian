@@ -38,7 +38,14 @@ jobs:
         run: npm run typecheck
 
       # The *.integration.test.ts suites are excluded here: they drive real
-      # processes, PTYs and sockets, and currently fail on Linux runners. They
-      # get their own job once they pass on ubuntu.
+      # processes, PTYs and sockets, and a handful of their cases are still
+      # timing-dependent on Linux runners. They get their own job once those are
+      # fixed.
+      #
+      # Note the unit suite now also guards a Linux-only spawn limit the
+      # integration suites cannot reach from macOS: the broker ships as the
+      # single `-e` argument of a spawned node, and Linux rejects an execve
+      # whose individual argv string exceeds MAX_ARG_STRLEN (32 * PAGE_SIZE =
+      # 131_072 bytes) with E2BIG. See broker-source-budget.test.ts.
       - name: Test
         run: npm run test:unit
