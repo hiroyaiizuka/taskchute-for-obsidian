@@ -1,3 +1,5 @@
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
+
 /**
  * Broker-independent process owner watchdog.
  *
@@ -12,6 +14,7 @@ export const TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE = String.raw`
 const fs = require('fs');
 const cp = require('child_process');
 const path = require('path');
+${POSIX_PROCESS_SNAPSHOT_SOURCE}
 const ownerPrefix = process.env.TASKCHUTE_OWNER_WATCH_PREFIX || '';
 const descriptorPath = process.env.TASKCHUTE_OWNER_WATCH_DESCRIPTOR || '';
 const descriptorToken = process.env.TASKCHUTE_OWNER_WATCH_TOKEN || '';
@@ -225,56 +228,16 @@ function readOwnedRecords() {
   return { active, files, trustworthy };
 }
 
-function parsePosixSnapshot(output) {
-  const snapshot = new Map();
-  for (const line of String(output).split('\n')) {
-    const match = line.match(
-      /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\d\d:\d\d:\d\d\s+\d{4})\s+(.*)$/,
-    );
-    if (!match) continue;
-    const startedAt = Date.parse(match[4]);
-    snapshot.set(Number(match[1]), {
-      ppid: Number(match[2]),
-      pgid: Number(match[3]),
-      startedAt: Number.isFinite(startedAt) ? startedAt : null,
-      command: match[5],
-    });
-  }
-  return snapshot;
-}
-
-function snapshotIdentity(entry) {
-  if (!entry || !Number.isFinite(entry.startedAt)) return null;
-  return {
-    lower: entry.startedAt,
-    upper: entry.startedAt,
-    kind: 'snapshot',
-    parentPid: entry.ppid,
-    processGroup: entry.pgid,
-    commandHint:
-      typeof entry.command === 'string'
-        ? entry.command.slice(0, 512)
-        : '',
-  };
-}
-
 function readPosixSnapshot() {
   if (process.platform !== 'darwin' && process.platform !== 'linux') {
     return null;
   }
   if (forcePsFailure) return null;
   try {
-    const args = process.platform === 'linux'
-      ? ['axeww', '-o', 'pid=,ppid=,pgid=,lstart=,command=']
-      : ['-axo', 'pid=,ppid=,pgid=,lstart=,command='];
-    return parsePosixSnapshot(cp.execFileSync(
+    return parsePosixProcessSnapshot(cp.execFileSync(
       '/bin/ps',
-      args,
-      {
-        encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024,
-        env: Object.assign({}, process.env, { LC_ALL: 'C', LANG: 'C' }),
-      },
+      posixSnapshotPsArgs(process.platform),
+      posixSnapshotPsOptions(process.env),
     ));
   } catch (_) {
     return null;
@@ -283,19 +246,13 @@ function readPosixSnapshot() {
 
 function windowsStartedAt(pid) {
   try {
-    const root = process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows';
-    const powershell =
-      root.replace(/[\\/]+$/, '') +
-      '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const reader = windowsBirthReaderArgv(
+      pid,
+      process.env.SystemRoot || process.env.SYSTEMROOT,
+    );
     const value = cp.execFileSync(
-      powershell,
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "(Get-Process -Id " + String(pid) +
-          " -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')",
-      ],
+      reader.command,
+      reader.args,
       {
         encoding: 'utf8',
         maxBuffer: 4096,
@@ -393,15 +350,12 @@ function ownershipState(pid, identity, snapshot) {
     !Number.isFinite(actualStart)
   ) return 'unknown';
   if (process.platform === 'win32') {
-    return (
-      actualStart >= identity.lower &&
-      actualStart <= identity.upper
-    ) ? 'match' : 'mismatch';
+    return windowsBirthWindowMatches(actualStart, identity.lower, identity.upper)
+      ? 'match'
+      : 'mismatch';
   }
-  const birthMatches = (
-    actualStart >= Math.floor(identity.lower / 1000) * 1000 &&
-    actualStart <= Math.floor(identity.upper / 1000) * 1000
-  );
+  const birthMatches =
+    posixBirthWindowMatches(actualStart, identity.lower, identity.upper);
   if (!birthMatches) return 'mismatch';
   if (identity.kind === 'process') {
     const sentinel = sentinelState(pid, identity);
@@ -422,26 +376,13 @@ function ownershipState(pid, identity, snapshot) {
 function expandOwned(active, snapshot) {
   const expanded = new Map(active);
   if (!snapshot) return expanded;
-  const children = new Map();
-  for (const [pid, entry] of snapshot.entries()) {
-    const nested = children.get(entry.ppid) || [];
-    nested.push(pid);
-    children.set(entry.ppid, nested);
-  }
-  const pending = Array.from(active.keys());
-  const seen = new Set();
-  while (pending.length > 0) {
-    const parentPid = pending.pop();
-    if (!parentPid || seen.has(parentPid)) continue;
-    seen.add(parentPid);
-    const nested = children.get(parentPid) || [];
-    for (const pid of nested) {
-      const entry = snapshot.get(pid);
-      if (!expanded.has(pid)) {
-        expanded.set(pid, snapshotIdentity(entry));
-      }
-      pending.push(pid);
-    }
+  const descendants = posixSnapshotDescendantPids(
+    snapshot,
+    Array.from(active.keys()),
+  );
+  for (const pid of descendants) {
+    if (expanded.has(pid)) continue;
+    expanded.set(pid, posixSnapshotIdentity(snapshot.get(pid)));
   }
   return expanded;
 }

@@ -37,8 +37,64 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # The *.integration.test.ts suites are excluded here: they drive real
-      # processes, PTYs and sockets, and currently fail on Linux runners. They
-      # get their own job once they pass on ubuntu.
+      # The *.integration.test.ts suites run in their own job below; this one
+      # stays fast and is the merge gate.
+      #
+      # It also guards a Linux-only spawn limit that no macOS run can reach:
+      # the broker ships as the single `-e` argument of a spawned node, and
+      # Linux rejects an execve whose individual argv string exceeds
+      # MAX_ARG_STRLEN (32 * PAGE_SIZE = 131_072 bytes) with E2BIG. See
+      # broker-source-budget.test.ts.
       - name: Test
         run: npm run test:unit
+
+  # Separate from the unit job on purpose: these suites spawn real processes,
+  # PTYs and sockets, so they need their own timeout and can be made
+  # non-required while their pass rate on ubuntu is still being established.
+  integration:
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 15
+    # Reports without blocking, because these suites are not green on Linux yet
+    # and never have been — this job is the first time they have run there.
+    #
+    # The remaining failures are cross-test interference, not a Linux defect in
+    # the broker: the failing set changes between runs of the same commit on the
+    # same machine (observed 1, 3 and 5 failures), and every one of them passes
+    # when run alone. A test that fails to reap its detached children leaves them
+    # behind for whatever runs next. Fixing that means giving each case its own
+    # isolation, which is a change to the suites, not to the broker.
+    #
+    # Flip this to a blocking check once a run is green.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      # Turns "17 cases were mysteriously skipped" into one named error before
+      # any test runs. Everything here ships in the ubuntu-latest image; if this
+      # step ever fails, install exactly what it names rather than guessing.
+      - name: Verify the binaries these suites drive
+        run: |
+          set -euo pipefail
+          for binary in /bin/ps /bin/sh /bin/stty /usr/bin/script \
+                        /usr/bin/env /usr/bin/python3 /usr/bin/yes /usr/bin/tail; do
+            test -x "$binary" || { echo "::error::missing $binary"; exit 1; }
+          done
+
+      - name: Integration tests
+        env:
+          # A missing binary must fail rather than skip: a green run that
+          # skipped everything is the defect these suites just stopped having.
+          TASKCHUTE_TEST_REQUIRE_BINARIES: "1"
+        run: npm run test:integration

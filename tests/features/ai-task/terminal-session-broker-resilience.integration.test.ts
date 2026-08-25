@@ -25,6 +25,8 @@ import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeP
 import { TERMINAL_BROKER_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { describePosix, testWithBinaries } from '../../support/platform'
+import { waitUntil, waitUntilAllGone } from './brokerTestUtils'
 
 function writeFileSync(
   path: Parameters<typeof fsWriteFileSync>[0],
@@ -240,7 +242,7 @@ async function runMockWindowsGuardIdentityScenario(
 
 const OVERSIZED_FRAME = 'x'.repeat(1024 * 1024 + 64 * 1024)
 
-const describePosix = process.platform === 'win32' ? describe.skip : describe
+const { test: overloadTest, paths: overloadPaths } = testWithBinaries(['yes', 'tail'])
 
 describePosix('TerminalSessionBroker resilience', () => {
   jest.setTimeout(30_000)
@@ -443,9 +445,9 @@ describePosix('TerminalSessionBroker resilience', () => {
         outcome: { status: 'stopped' },
       })
       // The source emits the acknowledgement from finish(), which only runs
-      // after the wrapper child close event. PID liveness is checked as an
-      // independent process-level assertion.
-      expect(() => process.kill(childPid, 0)).toThrow()
+      // after the wrapper child close event. PID liveness is a separate
+      // process-level fact that can land just after it.
+      await waitUntilAllGone([childPid])
       control.end()
       control.destroy()
     } finally {
@@ -516,16 +518,7 @@ describePosix('TerminalSessionBroker resilience', () => {
         rendererLeaseGeneration,
       })}\n`)
 
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        try {
-          process.kill(childPid, 0)
-          await sleep(25)
-        } catch {
-          break
-        }
-      }
-      expect(() => process.kill(childPid, 0)).toThrow()
+      await waitUntilAllGone([childPid])
     } finally {
       await client.shutdown()
     }
@@ -574,25 +567,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       // Do not let this renderer reconnect while the broker's signal handler
       // is completing its process-tree shutdown.
       client.detach()
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        let childAlive = true
-        let brokerAlive = true
-        try {
-          process.kill(childPid, 0)
-        } catch {
-          childAlive = false
-        }
-        try {
-          process.kill(descriptor.pid, 0)
-        } catch {
-          brokerAlive = false
-        }
-        if (!childAlive && !brokerAlive) break
-        await sleep(25)
-      }
-      expect(() => process.kill(childPid, 0)).toThrow()
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
+      await waitUntilAllGone([childPid, descriptor.pid])
     } finally {
       await client.shutdown()
     }
@@ -653,25 +628,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       process.kill(descriptor.pid, 'SIGKILL')
       await withTimeout(unavailable.promise, 8_000)
 
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        let childAlive = true
-        let brokerAlive = true
-        try {
-          process.kill(confirmedChildPid, 0)
-        } catch {
-          childAlive = false
-        }
-        try {
-          process.kill(descriptor.pid, 0)
-        } catch {
-          brokerAlive = false
-        }
-        if (!childAlive && !brokerAlive) break
-        await sleep(25)
-      }
-      expect(() => process.kill(confirmedChildPid, 0)).toThrow()
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
+      await waitUntilAllGone([confirmedChildPid, descriptor.pid])
     } finally {
       client.detach()
       if (childPid !== undefined) {
@@ -742,18 +699,8 @@ describePosix('TerminalSessionBroker resilience', () => {
       brokerPid = descriptor.pid
 
       client.detach()
-      const deadline = Date.now() + 9_000
-      while (Date.now() < deadline) {
-        let brokerAlive = true
-        let guardAlive = true
-        try { process.kill(descriptor.pid, 0) } catch { brokerAlive = false }
-        try { process.kill(guardPid, 0) } catch { guardAlive = false }
-        if (!brokerAlive && !guardAlive) break
-        await sleep(50)
-      }
+      await waitUntilAllGone([descriptor.pid, guardPid])
 
-      expect(() => process.kill(descriptor.pid, 0)).toThrow()
-      expect(() => process.kill(guardPid ?? -1, 0)).toThrow()
       expect(existsSync(descriptorPath)).toBe(false)
       expect(ownerArtifactPaths(descriptorPath)).toEqual([])
     } finally {
@@ -846,41 +793,29 @@ describePosix('TerminalSessionBroker resilience', () => {
         pid: number
       }
       brokerPid = descriptor.pid
+      // The owner hook, python hook dir and per-session jsonl are written
+      // asynchronously; REAL_PTY_READY does not order them. Reading the
+      // directory once right after the marker was a read-after-write race.
+      await waitUntil(
+        () => ownerArtifactPaths(descriptorPath).length >= 3,
+        'the broker has written its owner artifacts',
+      )
       staleArtifacts = ownerArtifactPaths(descriptorPath)
-      expect(staleArtifacts.length).toBeGreaterThanOrEqual(3)
 
       // Simulate the renderer/app disappearing before the broker. Cleanup
       // must be owned by the guard processes, not by an onUnavailable callback.
       first.detach()
       process.kill(descriptor.pid, 'SIGKILL')
-      const deadline = Date.now() + 5_000
-      while (Date.now() < deadline) {
-        let wrapperAlive = true
-        let detachedAlive = true
-        try {
-          process.kill(confirmedWrapperPid, 0)
-        } catch {
-          wrapperAlive = false
-        }
-        try {
-          process.kill(detachedPid ?? -1, 0)
-        } catch {
-          detachedAlive = false
-        }
-        if (!wrapperAlive && !detachedAlive) break
-        await sleep(25)
-      }
-      expect(() => process.kill(confirmedWrapperPid, 0)).toThrow()
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      // The watchdog retries with a backoff capped at 1s, and on Linux each
+      // pass reads a full `ps axeww`. The old 5s budget was a coin flip on a
+      // loaded runner; a generous budget on a poll loop costs nothing when it
+      // passes, and the failure now names which pid survived.
+      await waitUntilAllGone([confirmedWrapperPid, detachedPid ?? -1])
 
-      const artifactDeadline = Date.now() + 3_000
-      while (
-        Date.now() < artifactDeadline &&
-        staleArtifacts.some((path) => existsSync(path))
-      ) {
-        await sleep(25)
-      }
-      expect(staleArtifacts.every((path) => !existsSync(path))).toBe(true)
+      await waitUntil(
+        () => staleArtifacts.every((path) => !existsSync(path)),
+        'the guard has removed the stale owner artifacts',
+      )
 
       const secondReady = deferred<void>()
       const second = new TerminalSessionBrokerClient({
@@ -948,7 +883,11 @@ describePosix('TerminalSessionBroker resilience', () => {
     }
   })
 
-  test('owner sentinel cleanup covers Node child_process options-only overloads', async () => {
+  // yes(1) and tail(1) are only stand-ins for "a child that stays alive", but
+  // hardcoding their absolute paths made the outcome depend on the image. A
+  // missing one now skips visibly instead of timing out on a marker that never
+  // arrives.
+  overloadTest('owner sentinel cleanup covers Node child_process options-only overloads', async () => {
     const unique = `broker-overload-sentinel-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-resilience-${unique}`
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
@@ -959,8 +898,8 @@ describePosix('TerminalSessionBroker resilience', () => {
       "const cp=require('child_process');" +
       `const forkModule=${JSON.stringify(forkModulePath)};` +
       "const children=[" +
-        "cp.spawn('/usr/bin/yes',{detached:true,stdio:'ignore'})," +
-        "cp.execFile('/usr/bin/tail',{detached:true},()=>{})," +
+        `cp.spawn(${JSON.stringify(overloadPaths['yes'])},{detached:true,stdio:'ignore'}),` +
+        `cp.execFile(${JSON.stringify(overloadPaths['tail'])},{detached:true},()=>{}),` +
         "cp.fork(forkModule,{detached:true,stdio:'ignore'})," +
         "cp.exec('sleep 30',{detached:true},()=>{})" +
       "];" +
@@ -1004,22 +943,11 @@ describePosix('TerminalSessionBroker resilience', () => {
       client.detach()
       process.kill(descriptor.pid, 'SIGKILL')
 
-      const deadline = Date.now() + 6_000
-      while (Date.now() < deadline) {
-        const alive = childPids.some((pid) => {
-          try {
-            process.kill(pid, 0)
-            return true
-          } catch {
-            return false
-          }
-        })
-        if (!alive) break
-        await sleep(25)
-      }
-      for (const pid of childPids) {
-        expect(() => process.kill(pid, 0)).toThrow()
-      }
+      // Four children, each reached through a different child_process
+      // overload, against a watchdog whose retry backoff caps at 1s. The old
+      // 6s budget could be spent in six retries on a loaded runner, and the
+      // per-pid assertion did not say which of the four had survived.
+      await waitUntilAllGone(childPids)
     } finally {
       client.detach()
       for (const pid of childPids) {
@@ -1114,25 +1042,12 @@ describePosix('TerminalSessionBroker resilience', () => {
       client.detach()
       process.kill(descriptor.pid, 'SIGKILL')
 
-      const processDeadline = Date.now() + 6_000
-      while (Date.now() < processDeadline) {
-        try {
-          process.kill(confirmedDetachedPid, 0)
-          await sleep(25)
-        } catch {
-          break
-        }
-      }
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      await waitUntilAllGone([confirmedDetachedPid])
 
-      const artifactDeadline = Date.now() + 3_000
-      while (
-        Date.now() < artifactDeadline &&
-        ownerArtifactPaths(descriptorPath).length > 0
-      ) {
-        await sleep(25)
-      }
-      expect(ownerArtifactPaths(descriptorPath)).toEqual([])
+      await waitUntil(
+        () => ownerArtifactPaths(descriptorPath).length === 0,
+        'the guard has removed its owner artifacts',
+      )
     } finally {
       client.detach()
       if (detachedPid !== undefined) {
@@ -1252,7 +1167,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       expect(existsSync(markerPath)).toBe(true)
       detachedPid = Number(readFileSync(markerPath, 'utf8'))
       await withTimeout(exited.promise)
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      await waitUntilAllGone([detachedPid])
     } finally {
       await client.shutdown().catch(() => undefined)
       if (detachedPid !== undefined) {
@@ -1274,6 +1189,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const exited = deferred<void>()
     const client = new TerminalSessionBrokerClient({ identity })
     let childPid: number | undefined
+    let nativeOutput = ''
     try {
       client.start(
         sessionId,
@@ -1287,7 +1203,12 @@ describePosix('TerminalSessionBroker resilience', () => {
         undefined,
         {
           onData: (data) => {
-            const match = /NATIVE_CHILD:(\d+)/u.exec(data)
+            // Accumulated, not matched per chunk: through a PTY the marker can
+            // arrive split across two reads, and where the boundary lands is a
+            // platform property. Matching one chunk passed on macOS and hung
+            // on Linux.
+            nativeOutput += data
+            const match = /NATIVE_CHILD:(\d+)/u.exec(nativeOutput)
             if (match) childReady.resolve(Number(match[1]))
           },
           onExit: () => exited.resolve(),
@@ -1297,7 +1218,9 @@ describePosix('TerminalSessionBroker resilience', () => {
       )
       childPid = await withTimeout(childReady.promise)
       await withTimeout(exited.promise)
-      expect(() => process.kill(childPid ?? -1, 0)).toThrow()
+      // The reaper runs after the guard observes the target's exit, so the
+      // exit frame can reach this client first.
+      await waitUntilAllGone([childPid])
     } finally {
       await client.shutdown().catch(() => undefined)
       if (childPid !== undefined) {
@@ -2329,48 +2252,11 @@ describePosix('TerminalSessionBroker resilience', () => {
     await secondClient.shutdown()
   })
 
-  test('bounds newline-free stderr while preserving its tail and exit sentinel', async () => {
-    const unique = `stderr-cap-${process.pid}-${Date.now()}-${Math.random()}`
-    const identity = `broker-resilience-${unique}`
-    const sessionId = `session-stderr-cap-${process.pid}-${Date.now()}`
-    const transcriptPath = join(tmpdir(), `taskchute-broker-${unique}.log`)
-    const exited = deferred<void>()
-    let output = ''
-    const client = new TerminalSessionBrokerClient({ identity })
-    try {
-      client.start(
-        sessionId,
-        {
-          command: '/bin/sh',
-          args: [
-            '-c',
-            'dd if=/dev/zero bs=65536 count=4 2>/dev/null | tr "\\000" "e" >&2; printf "TAIL\\n__TASKCHUTE_AI_EXIT__0\\n" >&2',
-          ],
-          env: { ...process.env },
-          stdinMode: 'pipe',
-        },
-        transcriptPath,
-        undefined,
-        {
-          onData: (data) => {
-            output += data
-          },
-          onExit: (outcome) => {
-            if (outcome.status === 'succeeded') exited.resolve()
-            else exited.reject(new Error(`Unexpected exit: ${outcome.status}`))
-          },
-        },
-      )
-      await withTimeout(exited.promise)
-
-      expect(output).toMatch(/^…\[\+\d+ stderr chars truncated\]\n/)
-      expect(output).toContain('TAIL\n')
-      expect(output).not.toContain('__TASKCHUTE_AI_EXIT__')
-      expect(output.length).toBeLessThanOrEqual(64 * 1024 + 128)
-    } finally {
-      await client.shutdown()
-    }
-  })
+  // The stderr cap itself is covered by
+  // tests/features/ai-task/broker-source/terminal-broker-pure-source.test.ts.
+  // Driving it through a real pipe made the outcome depend on how much one
+  // read delivered, which is a platform property: macOS passed by luck while
+  // Linux always failed. The pure test pins the read size instead.
 
   test('uses a close-flushed sentinel without a trailing newline for the final outcome', async () => {
     const unique = `sentinel-close-flush-${process.pid}-${Date.now()}-${Math.random()}`

@@ -10,7 +10,7 @@ on:
         type: choice
         options: [patch, minor, major]
       skip_tests:
-        description: "Skip the test suite (use only when a known-flaky suite blocks a release)"
+        description: "Skip the integration suite only; the unit suite always runs"
         required: false
         default: false
         type: boolean
@@ -57,9 +57,17 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
+      # The unit suite has no escape hatch. A hotfix at 2am is a reason to skip
+      # a ten-minute real-process suite; it is never a reason to ship without
+      # the unit tests.
+      - name: Test (unit)
+        run: npm run test:unit
+
+      - name: Test (integration)
         if: ${{ !inputs.skip_tests }}
-        run: npm test
+        env:
+          TASKCHUTE_TEST_REQUIRE_BINARIES: "1"
+        run: npm run test:integration
 
       - name: Configure git user
         run: |

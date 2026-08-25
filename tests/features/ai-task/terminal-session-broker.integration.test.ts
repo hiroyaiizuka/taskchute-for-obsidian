@@ -17,56 +17,15 @@ import {
   type TerminalBrokerSessionCallbacks,
 } from '../../../src/features/ai-task/services/TerminalSessionBroker'
 import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { buildTerminalShellLaunch } from '../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
+import { describePosix, testWithBinaries } from '../../support/platform'
+import {
+  deferred,
+  ownerPidFiles,
+  waitUntil,
+  waitUntilAllGone,
+  withTimeout,
+} from './brokerTestUtils'
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
-  })
-  return { promise, resolve, reject }
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs = 8_000): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('Broker integration test timed out')),
-      timeoutMs,
-    )
-    void promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error: unknown) => {
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      },
-    )
-  })
-}
-
-async function waitUntil(
-  predicate: () => boolean,
-  timeoutMs = 5_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (predicate()) return
-    await new Promise((resolve) => setTimeout(resolve, 25))
-  }
-  throw new Error('Broker integration condition timed out')
-}
-
-function ownerPidFiles(descriptorPath: string): string[] {
-  const directory = dirname(descriptorPath)
-  const prefix = `${basename(descriptorPath)}.owner-`
-  return readdirSync(directory)
-    .filter((name) => name.startsWith(prefix) && name.endsWith('.jsonl'))
-    .map((name) => join(directory, name))
-}
 
 interface RawBrokerDescriptor {
   port: number
@@ -129,7 +88,7 @@ async function sendRawBrokerFrame(
   })
 }
 
-const describePosix = process.platform === 'win32' ? describe.skip : describe
+const { test: pythonTest } = testWithBinaries(['python3'])
 
 describePosix('TerminalSessionBrokerClient integration', () => {
   jest.setTimeout(20_000)
@@ -422,7 +381,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
       } catch {
         return true
       }
-    })
+    }, 'the stopped session child is gone')
     await client.shutdown()
   })
 
@@ -640,6 +599,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
         () =>
           existsSync(sttyLogPath) &&
           readFileSync(sttyLogPath, 'utf8').includes('rows 24 cols 99'),
+        'the current-generation resize reaches stty',
       )
       expect(readFileSync(sttyLogPath, 'utf8')).not.toContain(
         'rows 55 cols 177',
@@ -652,7 +612,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
         } catch {
           return true
         }
-      })
+      }, 'the stopped session child is gone')
       await client.shutdown()
     } finally {
       delete process.env.TASKCHUTE_BROKER_STTY
@@ -810,7 +770,10 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     await client.scheduleShutdownAfterGrace(200)
     client.detach()
 
-    await waitUntil(() => !existsSync(descriptorPath), 5_000)
+    await waitUntil(
+      () => !existsSync(descriptorPath),
+      'the broker descriptor is gone',
+    )
     expect(() => process.kill(childPid ?? -1, 0)).toThrow()
   })
 
@@ -852,7 +815,10 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     // late traffic from that already-authenticated socket is not proof of a
     // canceled quit and must not renew/cancel the deadline.
     client.resize(sessionId, 100, 30)
-    await waitUntil(() => !existsSync(descriptorPath), 5_000)
+    await waitUntil(
+      () => !existsSync(descriptorPath),
+      'the broker descriptor is gone',
+    )
     expect(() => process.kill(childPid ?? -1, 0)).toThrow()
     client.detach()
   })
@@ -1077,6 +1043,10 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     const unique = `natural-exit-detached-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
     const exited = deferred<void>()
+    // Resolved from the stdout match rather than read after onExit: the child
+    // holds the root's stdout open, so its marker and the exit event race, and
+    // the pid must be captured whichever way that race lands.
+    const detached = deferred<number>()
     let output = ''
     let detachedPid: number | undefined
     const client = new TerminalSessionBrokerClient({
@@ -1093,7 +1063,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
       client.start(
         `session-${unique}`,
         {
-          command: 'node',
+          command: process.execPath,
           args: ['-e', nodeCode],
           env: { ...process.env },
           stdinMode: 'pipe',
@@ -1104,17 +1074,26 @@ describePosix('TerminalSessionBrokerClient integration', () => {
           onData: (data) => {
             output += data
             const match = /DETACHED_PID:(\d+)/u.exec(output)
-            if (match) detachedPid = Number(match[1])
+            if (match) {
+              detachedPid = Number(match[1])
+              detached.resolve(detachedPid)
+            }
           },
           onExit: () => exited.resolve(),
-          onUnavailable: () =>
-            exited.reject(new Error('Natural-exit session was unavailable')),
+          onUnavailable: () => {
+            const error = new Error('Natural-exit session was unavailable')
+            exited.reject(error)
+            detached.reject(error)
+          },
         },
       )
 
+      const reapedPid = await withTimeout(detached.promise)
       await withTimeout(exited.promise)
-      expect(detachedPid).toEqual(expect.any(Number))
-      expect(() => process.kill(detachedPid ?? -1, 0)).toThrow()
+      // The broker reaps the descendant after it observes the root's exit, so
+      // the exit frame can reach this client first. Polling makes the assertion
+      // about whether the reap happens, not about which of the two won.
+      await waitUntilAllGone([reapedPid])
       await withTimeout(client.shutdown())
     } finally {
       if (detachedPid !== undefined) {
@@ -1187,8 +1166,9 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
   })
 
-  test('Python intermediary tracking chains sitecustomize and survives a localized broker environment', async () => {
-    if (!existsSync('/usr/bin/python3')) return
+  pythonTest(
+    'Python intermediary tracking chains sitecustomize and survives a localized broker environment',
+    async () => {
     const unique = `python-detached-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
@@ -1275,24 +1255,16 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
   })
 
-  test.each([
-    ['direct', '/usr/bin/python3 -S'],
-    ['ignore environment', '/usr/bin/python3 -E'],
-    ['isolated mode', '/usr/bin/python3 -I'],
-    ['combined flags', '/usr/bin/python3 -ES'],
-    ['env launcher', '/usr/bin/env python3 -B -S'],
-    ['env clear', '/usr/bin/env -i /usr/bin/python3'],
-    ['env unset Python path', '/usr/bin/env -u PYTHONPATH /usr/bin/python3'],
-    ['env replace Python path', '/usr/bin/env PYTHONPATH= /usr/bin/python3'],
-    ['shell command prefix', 'command /usr/bin/python3 -S'],
-  ])('rejects %s hook-disabling Python flags before they can leak a detached child', async (
-    label,
-    pythonLaunch,
-  ) => {
-    if (!existsSync('/usr/bin/python3')) return
-    const safeLabel = label.replace(/[^A-Za-z0-9_-]/gu, '-')
+  // The full matrix of hook-disabling launch shapes lives in
+  // tests/features/ai-task/broker-source/terminal-broker-pure-source.test.ts,
+  // where it needs no interpreter on disk. What only a real spawn can show is
+  // that the rejection happens BEFORE the process starts, so one shape stays
+  // here: nothing runs, and nothing detaches.
+  pythonTest(
+    'rejects a hook-disabling Python launch before it can leak a detached child',
+    async () => {
     const unique =
-      `python-no-site-detached-${safeLabel}-${process.pid}-${Date.now()}-${Math.random()}`
+      `python-no-site-detached-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
     const failed = deferred<{
       status: string
@@ -1313,7 +1285,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
           command: '/bin/sh',
           args: [
             '-c',
-            `${pythonLaunch} -c ${JSON.stringify(pythonCode)}; echo READY; while :; do sleep 10; done`,
+            `/usr/bin/python3 -S -c ${JSON.stringify(pythonCode)}; echo READY; while :; do sleep 10; done`,
           ],
           env: { ...process.env },
           stdinMode: 'pipe',
@@ -1342,122 +1314,11 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
   })
 
-  test.each(['-S', '-E', '-I', '-ES'])(
-    'rejects Python %s through the production PTY wrapper shape before spawn',
-    async (pythonFlag) => {
-    if (!existsSync('/usr/bin/python3')) return
-    const unique =
-      `python-no-site-production-pty-${process.pid}-${Date.now()}-${Math.random()}`
-    const identity = `broker-integration-${unique}`
-    const failed = deferred<{ status: string; errorMessage?: string }>()
-    const transcriptPath = join(tmpdir(), `taskchute-broker-${unique}.log`)
-    const gateway = new NodeProcessGateway()
-    const ptyCommand = gateway.buildPtyCommand({
-      binaryPath: '/usr/bin/python3',
-      args: [pythonFlag, '-c', 'print("SHOULD_NOT_RUN")'],
-      rows: 24,
-      cols: 80,
-      transcriptPath,
-    })
-    const client = new TerminalSessionBrokerClient({ identity })
-    let output = ''
-    try {
-      client.start(
-        `session-${unique}`,
-        {
-          command: ptyCommand.command,
-          args: ptyCommand.args,
-          env: { ...process.env },
-          stdinMode: 'pipe',
-        },
-        transcriptPath,
-        undefined,
-        {
-          onData: (data) => {
-            output += data
-          },
-          onExit: failed.resolve,
-          onUnavailable: () =>
-            failed.reject(new Error('Production PTY rejection was unavailable')),
-        },
-      )
-
-      const outcome = await withTimeout(failed.promise)
-      expect(outcome.status).toBe('failed')
-      expect(outcome.errorMessage).toContain('Python interpreter flags')
-      expect(output).not.toContain('SHOULD_NOT_RUN')
-    } finally {
-      await client.shutdown().catch(() => undefined)
-      rmSync(transcriptPath, { force: true })
-      rmSync(`${transcriptPath}.tty`, { force: true })
-    }
-    },
-  )
-
-  test('rejects hook-disabling Python hidden inside the AI terminal argv bootstrap', async () => {
-    if (!existsSync('/usr/bin/python3')) return
-    const unique =
-      `python-no-site-terminal-bootstrap-${process.pid}-${Date.now()}-${Math.random()}`
-    const identity = `broker-integration-${unique}`
-    const observed = deferred<
-      | { kind: 'rejected'; errorMessage?: string }
-      | { kind: 'spawned' }
-    >()
-    const transcriptPath = join(tmpdir(), `taskchute-broker-${unique}.log`)
-    const gateway = new NodeProcessGateway()
-    const shellLaunch = buildTerminalShellLaunch(
-      '/bin/sh',
-      '/usr/bin/python3',
-      ['-S'],
-      ['-c', 'print("SHOULD_NOT_RUN", flush=True)'],
-    )
-    const ptyCommand = gateway.buildPtyCommand({
-      binaryPath: shellLaunch.binaryPath,
-      args: shellLaunch.args,
-      rows: 24,
-      cols: 80,
-      transcriptPath,
-    })
-    const client = new TerminalSessionBrokerClient({ identity })
-    try {
-      client.start(
-        `session-${unique}`,
-        {
-          command: ptyCommand.command,
-          args: ptyCommand.args,
-          env: { ...process.env },
-          stdinMode: 'pipe',
-        },
-        transcriptPath,
-        undefined,
-        {
-          onData: (data) => {
-            if (data.includes('SHOULD_NOT_RUN')) {
-              observed.resolve({ kind: 'spawned' })
-            }
-          },
-          onExit: (outcome) =>
-            observed.resolve({
-              kind: 'rejected',
-              errorMessage: outcome.errorMessage,
-            }),
-          onUnavailable: () =>
-            observed.reject(new Error('Bootstrap rejection was unavailable')),
-        },
-      )
-
-      const outcome = await withTimeout(observed.promise)
-      expect(outcome.kind).toBe('rejected')
-      if (outcome.kind === 'rejected') {
-        expect(outcome.errorMessage).toContain('Python interpreter flags')
-      }
-    } finally {
-      client.stop(`session-${unique}`, true)
-      await client.shutdown().catch(() => undefined)
-      rmSync(transcriptPath, { force: true })
-      rmSync(`${transcriptPath}.tty`, { force: true })
-    }
-  })
+  // The argv-bootstrap hiding case moved to
+  // tests/features/ai-task/broker-source/terminal-broker-pure-source.test.ts.
+  // buildTerminalShellLaunch and buildPtyCommand are both pure, so the nested
+  // shape is now checked for BOTH wrapper dialects instead of only the one this
+  // host speaks — and without needing an interpreter installed.
 
   test.each([
     ['clear environment', ['-i']],

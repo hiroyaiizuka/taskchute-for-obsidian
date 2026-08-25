@@ -1,3 +1,5 @@
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
+
 /**
  * Per-session supervisor used by the renderer-independent terminal broker.
  *
@@ -11,6 +13,7 @@ export const TERMINAL_SESSION_GUARD_SOURCE = String.raw`
 const cp = require('child_process');
 const fs = require('fs');
 const net = require('net');
+${POSIX_PROCESS_SNAPSHOT_SOURCE}
 const encoded = process.env.TASKCHUTE_SESSION_GUARD_REQUEST || '';
 const ownerPidFile =
   process.env.TASKCHUTE_BROKER_OWNER_PID_FILE || '';
@@ -188,48 +191,20 @@ function readSnapshot() {
     return null;
   }
   try {
+    // Deliberately the non-environment form on every platform, unlike the
+    // broker and watchdog which switch to 'axeww' on Linux. The guard only
+    // matches by pid/ppid/pgid and birth time, never by an environment marker,
+    // so the extra text would cost snapshot size for nothing. Whether the three
+    // should agree is a separate question from sharing the parser.
     const output = cp.execFileSync(
       '/bin/ps',
-      ['-axo', 'pid=,ppid=,pgid=,lstart=,command='],
-      {
-        encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024,
-        env: Object.assign({}, process.env, { LC_ALL: 'C', LANG: 'C' }),
-      },
+      posixSnapshotPsArgs('darwin'),
+      posixSnapshotPsOptions(process.env),
     );
-    const snapshot = new Map();
-    for (const line of output.split('\n')) {
-      const match = line.match(
-        /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\d\d:\d\d:\d\d\s+\d{4})(?:\s+(.*))?\s*$/,
-      );
-      if (!match) continue;
-      const startedAt = Date.parse(match[4]);
-      snapshot.set(Number(match[1]), {
-        ppid: Number(match[2]),
-        pgid: Number(match[3]),
-        startedAt: Number.isFinite(startedAt) ? startedAt : null,
-        command: match[5] || '',
-      });
-    }
-    return snapshot;
+    return parsePosixProcessSnapshot(output);
   } catch (_) {
     return null;
   }
-}
-
-function snapshotIdentity(entry) {
-  if (!entry || !Number.isFinite(entry.startedAt)) return null;
-  return {
-    lower: entry.startedAt,
-    upper: entry.startedAt,
-    kind: 'snapshot',
-    parentPid: entry.ppid,
-    processGroup: entry.pgid,
-    commandHint:
-      typeof entry.command === 'string'
-        ? entry.command.slice(0, 512)
-        : '',
-  };
 }
 
 function captureTargetTree(snapshot) {
@@ -247,40 +222,24 @@ function captureTargetTree(snapshot) {
     !rootEntry ||
     rootEntry.ppid !== process.pid ||
     !Number.isFinite(rootEntry.startedAt) ||
-    rootEntry.startedAt <
-      Math.floor(targetStartedAtLower / 1000) * 1000 ||
-    rootEntry.startedAt >
-      Math.floor(targetStartedAtUpper / 1000) * 1000
+    !posixBirthWindowMatches(
+      rootEntry.startedAt,
+      targetStartedAtLower,
+      targetStartedAtUpper,
+    )
   ) return;
-  const children = new Map();
-  for (const [pid, entry] of snapshot.entries()) {
-    const nested = children.get(entry.ppid) || [];
-    nested.push(pid);
-    children.set(entry.ppid, nested);
-  }
-  const pending = [target.pid];
-  const seen = new Set();
   if (!captured.has(target.pid)) {
     captured.set(target.pid, {
       lower: targetStartedAtLower,
       upper: targetStartedAtUpper,
     });
   }
-  while (pending.length > 0) {
-    const parent = pending.pop();
-    if (!parent || seen.has(parent)) continue;
-    seen.add(parent);
-    const entry = snapshot.get(parent);
-    const existing = captured.get(parent);
-    if (
-      entry &&
-      Number.isFinite(entry.startedAt) &&
-      (!existing || existing.kind === 'snapshot')
-    ) {
-      captured.set(parent, snapshotIdentity(entry));
+  for (const pid of posixSnapshotDescendantPids(snapshot, [target.pid])) {
+    const identity = posixSnapshotIdentity(snapshot.get(pid));
+    const existing = captured.get(pid);
+    if (identity && (!existing || existing.kind === 'snapshot')) {
+      captured.set(pid, identity);
     }
-    const nested = children.get(parent) || [];
-    for (const pid of nested) pending.push(pid);
   }
 }
 
@@ -292,12 +251,12 @@ function captureOriginalGroupMembers(snapshot) {
       pid === target.pid ||
       entry.pgid !== target.pid ||
       !Number.isFinite(entry.startedAt) ||
-      entry.startedAt < Math.floor(targetStartedAtLower / 1000) * 1000
+      entry.startedAt < posixBirthFloor(targetStartedAtLower)
     ) continue;
     found += 1;
     const existing = captured.get(pid);
     if (!existing || existing.kind === 'snapshot') {
-      captured.set(pid, snapshotIdentity(entry));
+      captured.set(pid, posixSnapshotIdentity(entry));
     }
   }
   return found;
@@ -316,10 +275,11 @@ function verifyDirectTargetIdentity(snapshot) {
     entry &&
     entry.ppid === process.pid &&
     Number.isFinite(entry.startedAt) &&
-    entry.startedAt >=
-      Math.floor(targetStartedAtLower / 1000) * 1000 &&
-    entry.startedAt <=
-      Math.floor(targetStartedAtUpper / 1000) * 1000,
+    posixBirthWindowMatches(
+      entry.startedAt,
+      targetStartedAtLower,
+      targetStartedAtUpper,
+    ),
   );
 }
 
@@ -337,21 +297,13 @@ function scheduleTargetIdentityBurst() {
 
 function windowsStartedAt(pid) {
   try {
-    const root = process.env.SystemRoot ||
-      process.env.SYSTEMROOT ||
-      'C:\\Windows';
-    const powershell =
-      root.replace(/[\\/]+$/, '') +
-      '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const reader = windowsBirthReaderArgv(
+      pid,
+      process.env.SystemRoot || process.env.SYSTEMROOT,
+    );
     const value = cp.execFileSync(
-      powershell,
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        "(Get-Process -Id " + String(pid) +
-          " -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')",
-      ],
+      reader.command,
+      reader.args,
       {
         encoding: 'utf8',
         maxBuffer: 4096,
@@ -438,15 +390,12 @@ function ownershipState(pid, identity, snapshot) {
     !Number.isFinite(actualStart)
   ) return 'unknown';
   if (process.platform === 'win32') {
-    return (
-      actualStart >= identity.lower &&
-      actualStart <= identity.upper
-    ) ? 'match' : 'mismatch';
+    return windowsBirthWindowMatches(actualStart, identity.lower, identity.upper)
+      ? 'match'
+      : 'mismatch';
   }
-  const birthMatches = (
-    actualStart >= Math.floor(identity.lower / 1000) * 1000 &&
-    actualStart <= Math.floor(identity.upper / 1000) * 1000
-  );
+  const birthMatches =
+    posixBirthWindowMatches(actualStart, identity.lower, identity.upper);
   if (!birthMatches) return 'mismatch';
   if (identity.kind === 'process') {
     const sentinel = sentinelState(pid, identity);
