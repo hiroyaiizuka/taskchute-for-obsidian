@@ -55,9 +55,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     timeout-minutes: 15
-    # Reports without blocking, until a run here is green. Four defects that
-    # only a Linux kernel can produce have been fixed and measured in a Debian
-    # 12 container running the same suites:
+    # Blocking. It was report-only from the day it was added until this commit,
+    # because it had never once been green — 82 cases, and up to five failed on
+    # every run. Four defects that only a Linux kernel can produce are what that
+    # was, fixed across #134 and #135 and measured in a Debian 12 container
+    # running the same suites:
     #
     #   resilience suite   before: 5 failed   after: 0 failed
     #   broker suite       before: 1 failed   after: 0 failed
@@ -101,8 +103,9 @@ jobs:
     # evidence behind it, and what it signalled. Every one of the four above was
     # found by tracing a decision; none was found by reading survivors.
     #
-    # Flip this to a blocking check once a run is green.
-    continue-on-error: true
+    # Green on the #135 run and on main immediately after it. It blocks from
+    # here, because a job nobody has to look at is how the four below survived a
+    # release: they were visible in a report for weeks.
 
     steps:
       - name: Checkout
