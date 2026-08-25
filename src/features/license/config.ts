@@ -23,7 +23,7 @@ export const LICENSE_PUBLIC_KEY = 'be-8ZHqidokTIubfzpcEUfk5hZbSQYGn6GyHU1nSrKg'
 /** Baked into the token payload (`p`) and the license-id derivation. */
 export const LICENSE_PRODUCT_ID = 'taskchute-plus'
 
-export const LICENSE_API_BASE = 'https://taskchute-license.ancient-truth-f5b4.workers.dev'
+export const LICENSE_API_BASE = 'https://taskchute-license.levers.workers.dev'
 
 /**
  * Refresh once the token has less than this long to live. Comfortably shorter
