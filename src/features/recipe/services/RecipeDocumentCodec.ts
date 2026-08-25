@@ -1,7 +1,7 @@
 import type {
   RecipeConstraint,
   RecipeDocumentData,
-  RecipeDocumentWriteInput,
+  RecipeDocumentStringifyInput,
   RecipeQualityCheck,
   RecipeStep,
 } from '../types'
@@ -292,7 +292,7 @@ function parseConstraints(content: string): RecipeConstraint[] {
   return constraints
 }
 
-function validateInput(input: RecipeDocumentWriteInput): void {
+function validateInput(input: RecipeDocumentStringifyInput): void {
   const values = [
     input.title,
     input.goal,
@@ -358,7 +358,7 @@ function assertManagedFrontmatterIsRewritable(markdown: string): void {
   }
 }
 
-function updateFrontmatter(markdown: string, input: RecipeDocumentWriteInput, newline: string): string {
+function updateFrontmatter(markdown: string, input: RecipeDocumentStringifyInput, newline: string): string {
   const region = findFrontmatterRegion(markdown)
   const managedLines = [
     'taskchute_recipe: true',
@@ -388,7 +388,7 @@ function renderSection(name: SectionName, heading: string, lines: string[], newl
   ].join(newline)
 }
 
-function renderManagedSections(input: RecipeDocumentWriteInput, newline: string): string {
+function renderManagedSections(input: RecipeDocumentStringifyInput, newline: string): string {
   const sections = [
     renderSection('goal', '完了基準', input.goal ? [input.goal] : [], newline),
     renderSection(
@@ -410,7 +410,7 @@ function renderManagedSections(input: RecipeDocumentWriteInput, newline: string)
   return sections.join(`${newline}${newline}`)
 }
 
-function replaceV2Sections(markdown: string, input: RecipeDocumentWriteInput, newline: string): string {
+function replaceV2Sections(markdown: string, input: RecipeDocumentStringifyInput, newline: string): string {
   const ranges = findMarkerRanges(markdown, true)
   let next = markdown
   const replacements = SECTION_NAMES.map((name) => ({
@@ -484,7 +484,7 @@ function createMigrationPreview(markdown: string): string {
   return markdown.length <= maximumLength ? markdown : `${markdown.slice(0, maximumLength)}\n…`
 }
 
-function migrateV1(markdown: string, input: RecipeDocumentWriteInput, newline: string): string {
+function migrateV1(markdown: string, input: RecipeDocumentStringifyInput, newline: string): string {
   const managed = renderManagedSections(input, newline)
   const legacyRange = findLegacyChecklistRange(markdown)
   if (legacyRange) {
@@ -560,7 +560,7 @@ export class RecipeDocumentCodec {
     }
   }
 
-  write(markdown: string | undefined, input: RecipeDocumentWriteInput): string {
+  stringify(markdown: string | undefined, input: RecipeDocumentStringifyInput): string {
     validateInput(input)
     const original = markdown ?? ''
     assertFrontmatterIsClosed(original)

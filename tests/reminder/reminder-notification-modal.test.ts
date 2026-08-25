@@ -47,7 +47,6 @@ describe('ReminderNotificationModal', () => {
       taskPath: '/tasks/test.md',
       onClose,
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     modal = new ReminderNotificationModal(mockApp as any, options);
   });
 
@@ -185,7 +184,6 @@ describe('Notification queue management', () => {
       taskPath: '/tasks/test.md',
       onClose,
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const modal = new ReminderNotificationModal(mockApp as any, options);
 
     // Modal starts as not displayed

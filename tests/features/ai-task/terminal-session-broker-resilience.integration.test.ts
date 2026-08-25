@@ -1584,9 +1584,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       signal: string,
       snapshot?: Map<number, unknown>,
     ) => void
-    // The production broker is itself a generated Node program. This narrow
-    // harness executes only the checked-in source slice with injected mocks.
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- the production broker is itself a generated Node program; this harness evaluates only the checked-in source slice with injected mocks
     const factory = new Function(
       'process',
       'cp',

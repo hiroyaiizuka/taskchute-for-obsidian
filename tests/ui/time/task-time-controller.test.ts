@@ -92,7 +92,6 @@ describe('TaskTimeController', () => {
   beforeEach(() => {
     ;(Notice as unknown as jest.Mock).mockClear()
     ;(TimeEditPopup as unknown as jest.Mock).mockClear()
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     _showMock.mockClear()
     ;(ScheduledTimeModal as unknown as jest.Mock).mockClear()
@@ -158,7 +157,6 @@ describe('TaskTimeController', () => {
     controller.showStartTimePopup(instance, anchor)
 
     expect((TimeEditPopup as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     expect(_showMock).toHaveBeenCalledTimes(1)
     const options = _showMock.mock.calls[0][0]
@@ -188,7 +186,6 @@ describe('TaskTimeController', () => {
 
       controller.showStartTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('10:00')
@@ -487,7 +484,6 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('10:00')
@@ -519,7 +515,6 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('09:00')
@@ -552,7 +547,6 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('09:00')
@@ -589,7 +583,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // 12:00 resolves to next-day (Oct 2 12:00), which is future at Oct 2 10:00
@@ -630,7 +623,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('09:00')
@@ -674,7 +666,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('01:00')
@@ -711,7 +702,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('11:00')
@@ -746,7 +736,6 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     const showOptions = _showMock.mock.calls[0][0]
     // validationDate should be Oct 1 (startTime date), not Oct 2 (stopTime date)
@@ -783,7 +772,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // Edit stop to 22:30 — resolveStopTimeDate should auto-select same-day
@@ -833,7 +821,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // Edit stop to 22:30 — both Oct 1 22:30 and Oct 2 22:30 are past
@@ -879,7 +866,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('22:30')
@@ -948,7 +934,6 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('11:00')

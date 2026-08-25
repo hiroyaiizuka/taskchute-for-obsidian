@@ -261,32 +261,32 @@ function isValidBrokerSessionId(sessionId: string): boolean {
 }
 
 function loadNet(): NodeNetModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the session socket is a Node net server
   return require('net') as NodeNetModuleLike
 }
 
 function loadFs(): NodeFsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; socket paths and lock files live on disk
   return require('fs') as NodeFsModuleLike
 }
 
 function loadOs(): NodeOsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the socket directory is derived from the OS temp dir
   return require('os') as NodeOsModuleLike
 }
 
 function loadPath(): NodePathModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; socket and lock paths are joined with Node path
   return require('path') as NodePathModuleLike
 }
 
 function loadCrypto(): NodeCryptoModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; session ids and owner tokens need Node crypto
   return require('crypto') as NodeCryptoModuleLike
 }
 
 function loadChildProcess(): NodeChildProcessModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules
+  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the PTY host is spawned as a child process
   return require('child_process') as NodeChildProcessModuleLike
 }
 

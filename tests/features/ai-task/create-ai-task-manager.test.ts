@@ -52,7 +52,6 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: false, isMobile: true },
       }))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       expect(mod.createAiTaskManager(makePlugin())).toBeUndefined()
     })
@@ -64,7 +63,6 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       ;(plugin as { licenseManager?: unknown }).licenseManager = createFakeLicenseManager(false)
@@ -78,7 +76,6 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       delete (plugin as { licenseManager?: unknown }).licenseManager
@@ -93,7 +90,6 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       const manager = mod.createAiTaskManager(makePlugin())
       expect(manager).toBeDefined()
@@ -136,9 +132,7 @@ describe('createAiTaskManager gating', () => {
           },
         }),
       )
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const runtimeLease = require(
         '../../../src/features/ai-task/services/AiTaskRuntimeLease'
       ) as typeof import('../../../src/features/ai-task/services/AiTaskRuntimeLease')
@@ -195,7 +189,6 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../../../src/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       delete (plugin.pathManager as Record<string, unknown>)['getAiLogsPath']

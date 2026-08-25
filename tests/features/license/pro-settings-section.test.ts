@@ -14,7 +14,6 @@ jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
   DeviceListView: jest.fn().mockImplementation(() => ({ dispose: jest.fn() })),
 }))
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { DeviceListView } = require('../../../src/features/license/ui/DeviceListView') as {
   DeviceListView: jest.Mock
 }

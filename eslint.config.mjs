@@ -5,6 +5,8 @@ import tseslint from "typescript-eslint";
 import js from "@eslint/js";
 import importPlugin from "eslint-plugin-import";
 import sdl from "@microsoft/eslint-plugin-sdl";
+import eslintComments from "@eslint-community/eslint-plugin-eslint-comments";
+import noUnsanitized from "eslint-plugin-no-unsanitized";
 // import json from "@eslint/json"; // Not used - manifest validation handled separately
 
 const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
@@ -186,9 +188,8 @@ export default [
       // Plain Node scripts spawned as fake CLIs by dispatcher tests; they are
       // not part of the typed lint project (tsconfig.test.json has allowJs: false).
       "tests/features/ai-task/fixtures/**",
-      // Plain CJS module stubs wired through jest.config.js moduleNameMapper;
+      // Plain CJS module stub wired through jest.config.js moduleNameMapper;
       // also outside the typed lint project.
-      "tests/setup/css-text-stub.js",
       "tests/setup/xterm-stub.js",
     ],
   },
@@ -199,6 +200,40 @@ export default [
     ...config,
     files: ["**/*.ts", "**/*.tsx"],
   })),
+  // Directive-comment hygiene. Mirrors the block eslint-plugin-obsidianmd's
+  // recommended config applies to every file, so the Obsidian plugin review
+  // cannot find a disable comment that this repo's own lint accepts.
+  {
+    files: ["**/*.{ts,tsx,cts,mts,js,cjs,mjs,jsx}"],
+    plugins: {
+      "eslint-comments": eslintComments,
+    },
+    rules: {
+      "eslint-comments/no-unlimited-disable": "error",
+      "eslint-comments/require-description": "error",
+      "eslint-comments/disable-enable-pair": ["error", { allowWholeFile: false }],
+      "eslint-comments/no-restricted-disable": [
+        "error",
+        "obsidianmd/*",
+        "no-console",
+        "no-restricted-globals",
+        "@typescript-eslint/no-restricted-imports",
+        "no-alert",
+        "@typescript-eslint/no-deprecated",
+        "@typescript-eslint/no-explicit-any",
+        "@microsoft/sdl/no-document-write",
+        "no-eval",
+        "@microsoft/sdl/no-inner-html",
+        "obsidianmd/no-nodejs-modules",
+      ],
+    },
+  },
+  {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+      reportUnusedInlineConfigs: "error",
+    },
+  },
   // Main source files config
   {
     files: ["src/**/*.{ts,tsx,js}"],
@@ -206,6 +241,7 @@ export default [
       obsidianmd,
       import: importPlugin,
       "@microsoft/sdl": sdl,
+      "no-unsanitized": noUnsanitized,
     },
     languageOptions: {
       parser: tseslint.parser,
@@ -226,6 +262,9 @@ export default [
       "@typescript-eslint/require-await": "error",
       "@typescript-eslint/no-misused-promises": "error",
       "@typescript-eslint/unbound-method": "error",
+      // Security rules the obsidianmd recommended config enforces
+      "no-unsanitized/method": "error",
+      "no-unsanitized/property": "error",
       // Override for unused vars
       "@typescript-eslint/no-unused-vars": ["warn", { args: "none", varsIgnorePattern: "^_" }],
     },
@@ -260,12 +299,15 @@ export default [
             "Markdown",
             "Obsidian",
             "TaskChute",
+            "TaskChute Plus Pro",
             "Windows",
             "macOS",
           ],
           // Markdown headings written into log notes and bare ordinals
-          // ("1st" … "5th") are not UI sentences.
-          ignoreRegex: ["^#+ ", "^\\d", "^e\\.g\\. "],
+          // ("1st" … "5th") are not UI sentences. Neither is the literal
+          // license-code format, nor mid-sentence link text that has to stay
+          // lowercase because the sentence continues around it.
+          ignoreRegex: ["^#+ ", "^\\d", "^e\\.g\\. ", "^TCP-", "^here$"],
         },
       ],
     },
@@ -277,6 +319,7 @@ export default [
       obsidianmd,
       import: importPlugin,
       "@microsoft/sdl": sdl,
+      "no-unsanitized": noUnsanitized,
     },
     languageOptions: {
       parser: tseslint.parser,
@@ -295,6 +338,14 @@ export default [
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/unbound-method": "off",
       "@typescript-eslint/require-await": "off",
+      // Jest mocking needs mid-test `require` and `any`-typed doubles. Both
+      // have to be turned off here rather than through inline disables:
+      // no-explicit-any is on the no-restricted-disable list, and a disable
+      // comment per mock would be noise.
+      "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "no-unsanitized/method": "error",
+      "no-unsanitized/property": "error",
       // Disable obsidianmd rules for tests
       "obsidianmd/ui/sentence-case": "off",
     },

@@ -29,7 +29,6 @@ describe('ReminderSettingsModal', () => {
       onClear,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     modal = new ReminderSettingsModal(mockApp as any, options);
   });
 
@@ -79,7 +78,6 @@ describe('ReminderSettingsModal', () => {
 
     it('should show current time when reminder is already set', () => {
       options.currentTime = '08:30';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
       const input = modal.contentEl.querySelector(
@@ -99,7 +97,6 @@ describe('ReminderSettingsModal', () => {
 
     it('should render clear button when reminder is set', () => {
       options.currentTime = '09:55';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
@@ -111,7 +108,6 @@ describe('ReminderSettingsModal', () => {
 
     it('should not render clear button when no reminder is set', () => {
       options.currentTime = undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
@@ -158,7 +154,6 @@ describe('ReminderSettingsModal', () => {
 
     it('should call onClear when clear button is clicked', () => {
       options.currentTime = '09:55';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
 
@@ -173,7 +168,6 @@ describe('ReminderSettingsModal', () => {
 
     it('should close modal when clear button is clicked', () => {
       options.currentTime = '09:55';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.open();
 
@@ -231,7 +225,6 @@ describe('ReminderSettingsModal', () => {
   describe('default time calculation', () => {
     it('should calculate default time when no scheduledTime', () => {
       options.scheduledTime = undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
 
@@ -246,7 +239,6 @@ describe('ReminderSettingsModal', () => {
     it('should handle hour rollover correctly', () => {
       options.scheduledTime = '00:03';
       options.defaultMinutesBefore = 5;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modal = new ReminderSettingsModal(mockApp as any, options);
       modal.onOpen();
 

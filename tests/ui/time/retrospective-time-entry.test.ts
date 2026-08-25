@@ -94,7 +94,6 @@ describe('Retrospective time entry', () => {
   beforeEach(() => {
     ;(Notice as unknown as jest.Mock).mockClear()
     ;(TimeEditPopup as unknown as jest.Mock).mockClear()
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     _showMock.mockClear()
   })
@@ -118,7 +117,6 @@ describe('Retrospective time entry', () => {
 
     controller.showStartTimePopup(inst, anchor)
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
     expect(_showMock).toHaveBeenCalledTimes(1)
     const options = _showMock.mock.calls[0][0]
