@@ -60,6 +60,44 @@ function findMatches(
   return matches
 }
 
+const VENDORED_CSS_START = '/* === vendored: @xterm/xterm/css/xterm.css'
+const VENDORED_CSS_END = '/* === end vendored @xterm/xterm css === */'
+
+/**
+ * styles.css with the vendored xterm block blanked out, line numbers kept.
+ * That block ships verbatim from @xterm/xterm so it can be diffed against the
+ * installed package, so the house style rules only cover what we wrote.
+ */
+function readPluginAuthoredStyles(): string {
+  const lines = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8').split(/\r?\n/)
+  let vendored = false
+  return lines
+    .map((line) => {
+      if (line.startsWith(VENDORED_CSS_START)) vendored = true
+      const kept = vendored ? '' : line
+      if (line.startsWith(VENDORED_CSS_END)) vendored = false
+      return kept
+    })
+    .join('\n')
+}
+
+function findMatchesInText(
+  relative: string,
+  text: string,
+  patterns: Array<{ name: string; regex: RegExp }>,
+): string[] {
+  const matches: string[] = []
+  const lines = text.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index += 1) {
+    for (const pattern of patterns) {
+      if (pattern.regex.test(lines[index])) {
+        matches.push(`${relative}:${index + 1} ${pattern.name}`)
+      }
+    }
+  }
+  return matches
+}
+
 function findDuplicateCssBlocks(css: string): string[] {
   const blocks = new Map<string, string[]>()
   const blockPattern = /([^{}@][^{}]*)\{([^{}]*)\}/g
@@ -259,8 +297,7 @@ describe('Obsidian review guardrails', () => {
   })
 
   test('styles avoid review-unfriendly CSS patterns', () => {
-    const stylesPath = path.join(ROOT, 'styles.css')
-    const offenders = findMatches([stylesPath], [
+    const offenders = findMatchesInText('styles.css', readPluginAuthoredStyles(), [
       { name: 'unexpected !important', regex: /!important\b/ },
       { name: '3-digit hex color', regex: /#[0-9A-Fa-f]{3}\b/ },
       { name: 'browser multicolumn feature', regex: /(^|\s)column-(?:count|gap|width)\s*:/ },
@@ -272,13 +309,11 @@ describe('Obsidian review guardrails', () => {
   })
 
   test('styles do not repeat identical selector blocks', () => {
-    const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
-
-    expect(findDuplicateCssBlocks(css)).toEqual([])
+    expect(findDuplicateCssBlocks(readPluginAuthoredStyles())).toEqual([])
   })
 
   test('styles keep duplicate selectors under the review budget', () => {
-    const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
+    const css = readPluginAuthoredStyles()
 
     expect(findDuplicateCssSelectors(css).length).toBeLessThanOrEqual(DUPLICATE_CSS_SELECTOR_BUDGET)
   })

@@ -184,7 +184,7 @@ export class RecipeService {
       throw new Error('Recipe requires at least one content field')
     }
 
-    const content = this.documentCodec.write(existingContent, {
+    const content = this.documentCodec.stringify(existingContent, {
       title,
       goal,
       steps,

@@ -75,11 +75,9 @@ export const en = {
       codeHelpLabel: "About the license code",
       codeHelpTitle: "About the license code",
       codeHelpBody:
-        // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
         "AI tasks require a TaskChute Plus Pro license.\nYour license code is in the email you received when you bought it. If you cannot find that email, check your spam folder.",
       codeHelpClose: "OK",
-      // The literal code format, not prose.
-      // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+      // The literal code format, not prose (exempted by the "^TCP-" ignoreRegex).
       codePlaceholder: "TCP-XXXX-XXXX-XXXX-XXXX",
       activate: "Activate",
       activating: "Activating…",
@@ -95,8 +93,8 @@ export const en = {
       requiredNotice: "A license is required.",
       // Split so the link sits inside the sentence rather than after it.
       purchaseBefore: "You can buy an activation code ",
-      // Mid-sentence link text, so it stays lowercase.
-      // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module
+      // Mid-sentence link text, so it stays lowercase (exempted by the
+      // "^here$" ignoreRegex).
       purchaseLink: "here",
       purchaseAfter: ".",
     },

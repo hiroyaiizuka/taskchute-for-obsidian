@@ -48,7 +48,7 @@ function readHostname(): string | undefined {
   if (!Platform?.isDesktop) return undefined
 
   try {
-    // eslint-disable-next-line import/no-nodejs-modules
+    // eslint-disable-next-line import/no-nodejs-modules -- desktop-only label lookup; the hostname comes from Node os (mobile returns undefined above)
     const os = require('os') as { hostname?: () => string }
     return os.hostname?.()
   } catch {

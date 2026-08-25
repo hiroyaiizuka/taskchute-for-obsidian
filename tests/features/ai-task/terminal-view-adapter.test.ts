@@ -1,49 +1,35 @@
 /**
  * TerminalViewAdapter module contract:
- *   - ensureXtermCssInjected injects the imported xterm css exactly once per
- *     document via a createEl('style') element (never innerHTML)
+ *   - the xterm css ships vendored inside styles.css (Obsidian forbids
+ *     plugins from attaching <style>/<link> elements), so the copy there must
+ *     stay identical to the installed @xterm/xterm package
  *   - createTerminalViewAdapter returns a lazily-initialised adapter that is
  *     safe to construct, buffer into, and dispose WITHOUT opening a real
  *     xterm instance (jsdom tests never instantiate xterm — see the pane
  *     controller tests, which mock the whole adapter)
  */
-import {
-  createTerminalViewAdapter,
-  ensureXtermCssInjected,
-  XTERM_CSS_STYLE_CLASS,
-} from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+import { createTerminalViewAdapter } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+
+const repoRoot = join(__dirname, '..', '..', '..')
 
 describe('TerminalViewAdapter module', () => {
   beforeEach(() => {
-    document
-      .querySelectorAll(`style.${XTERM_CSS_STYLE_CLASS}`)
-      .forEach((el) => el.remove())
     document.body.replaceChildren()
   })
 
-  test('ensureXtermCssInjected injects the css once per document', () => {
-    const container = document.body.createDiv()
+  test('styles.css carries the installed xterm css verbatim', () => {
+    const vendored = readFileSync(
+      join(repoRoot, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'),
+      'utf8',
+    ).trim()
+    const styles = readFileSync(join(repoRoot, 'styles.css'), 'utf8')
 
-    ensureXtermCssInjected(container)
-    ensureXtermCssInjected(container)
-
-    const styles = document.querySelectorAll(`style.${XTERM_CSS_STYLE_CLASS}`)
-    expect(styles).toHaveLength(1)
-    expect(styles[0].textContent?.length ?? 0).toBeGreaterThan(0)
-  })
-
-  test('re-injects after the previous style element was removed', () => {
-    const container = document.body.createDiv()
-    ensureXtermCssInjected(container)
-    document
-      .querySelectorAll(`style.${XTERM_CSS_STYLE_CLASS}`)
-      .forEach((el) => el.remove())
-
-    ensureXtermCssInjected(container)
-
-    expect(
-      document.querySelectorAll(`style.${XTERM_CSS_STYLE_CLASS}`),
-    ).toHaveLength(1)
+    // Fails after an @xterm/xterm upgrade until the new css is pasted back
+    // into the vendored block at the end of styles.css.
+    expect(styles).toContain(vendored)
   })
 
   test('factory returns an adapter whose pre-open calls are safe no-ops', () => {

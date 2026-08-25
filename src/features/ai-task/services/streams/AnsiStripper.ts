@@ -33,6 +33,8 @@ const LONE_ESCAPE = /\u001b/g
 /** C0 controls except backspace (08), tab (09), newline (0a), and CR (0d) */
 const OTHER_CONTROL_CHARS = /[\u0000-\u0007\u000b\u000c\u000e-\u001f\u007f]/g
 
+/* eslint-enable no-control-regex -- the control-byte pattern table ends here */
+
 /**
  * Render one physical line, applying carriage-return (cursor to column 0)
  * and backspace (cursor left) as overwrite edits. The mutable cell array is

@@ -9,7 +9,7 @@ const codec = new RecipeDocumentCodec()
 
 describe('RecipeDocumentCodec', () => {
   test('writes and reads all Recipe v2 contract sections', () => {
-    const markdown = codec.write(undefined, {
+    const markdown = codec.stringify(undefined, {
       title: '記事を公開する',
       goal: '公開URLを確認できること',
       steps: [{ id: 'step-proofread', text: '原稿を校正する' }],
@@ -30,7 +30,7 @@ describe('RecipeDocumentCodec', () => {
   })
 
   test('updates only managed frontmatter and marker sections', () => {
-    const original = codec.write(undefined, {
+    const original = codec.stringify(undefined, {
       title: '旧タイトル',
       goal: '旧ゴール',
       steps: [{ id: 'step-a', text: '旧手順' }],
@@ -46,7 +46,7 @@ describe('RecipeDocumentCodec', () => {
         '<!-- taskchute-recipe:checklist:end -->\n\n手入力した説明は残る',
       )
 
-    const updated = codec.write(original, {
+    const updated = codec.stringify(original, {
       title: '新タイトル',
       goal: '新ゴール',
       steps: [{ id: 'step-a', text: '新しい手順' }],
@@ -62,7 +62,7 @@ describe('RecipeDocumentCodec', () => {
   })
 
   test('preserves CRLF when updating a v2 document', () => {
-    const original = codec.write(undefined, {
+    const original = codec.stringify(undefined, {
       title: 'CRLF',
       goal: 'A',
       steps: [{ id: 'step-a', text: 'A' }],
@@ -70,7 +70,7 @@ describe('RecipeDocumentCodec', () => {
       constraints: [],
     }).replace(/\n/gu, '\r\n')
 
-    const updated = codec.write(original, {
+    const updated = codec.stringify(original, {
       title: 'CRLF',
       goal: 'B\nC',
       steps: [{ id: 'step-a', text: 'B' }],
@@ -101,7 +101,7 @@ describe('RecipeDocumentCodec', () => {
     expect(parsed.schemaVersion).toBe(1)
     expect(parsed.steps).toHaveLength(2)
 
-    const migrated = codec.write(legacy, {
+    const migrated = codec.stringify(legacy, {
       title: 'Legacy',
       goal: '完了していること',
       steps: parsed.steps,
@@ -121,7 +121,7 @@ describe('RecipeDocumentCodec', () => {
     const parsed = codec.parse(legacy)
 
     try {
-      codec.write(legacy, {
+      codec.stringify(legacy, {
         title: 'Legacy',
         goal: '',
         steps: parsed.steps,
@@ -136,7 +136,7 @@ describe('RecipeDocumentCodec', () => {
   })
 
   test('rejects incomplete markers and duplicate stable IDs', () => {
-    const valid = codec.write(undefined, {
+    const valid = codec.stringify(undefined, {
       title: 'Broken',
       goal: '',
       steps: [{ id: 'step-a', text: 'A' }],
@@ -154,7 +154,7 @@ describe('RecipeDocumentCodec', () => {
   })
 
   test('rejects reserved markers and NUL in user input', () => {
-    expect(() => codec.write(undefined, {
+    expect(() => codec.stringify(undefined, {
       title: 'Unsafe',
       goal: '<!-- taskchute-recipe:goal:end -->',
       steps: [],
@@ -162,7 +162,7 @@ describe('RecipeDocumentCodec', () => {
       constraints: [],
     })).toThrow(RecipeDocumentInputError)
 
-    expect(() => codec.write(undefined, {
+    expect(() => codec.stringify(undefined, {
       title: 'Unsafe',
       goal: 'bad\0value',
       steps: [],
@@ -176,7 +176,7 @@ describe('RecipeDocumentCodec', () => {
     ['quality', { steps: [], qualityChecks: [{ id: 'quality-a', text: 'line 1\rline 2' }], constraints: [] }],
     ['constraint', { steps: [], qualityChecks: [], constraints: ['line 1\r\nline 2'] }],
   ])('rejects CR/LF injection in %s list items', (_label, fields) => {
-    expect(() => codec.write(undefined, {
+    expect(() => codec.stringify(undefined, {
       title: 'Unsafe',
       goal: 'Multiline\ngoals remain supported',
       ...fields,
@@ -196,7 +196,7 @@ describe('RecipeDocumentCodec', () => {
     ].join('\n')
 
     expect(() => codec.parse(unknown)).toThrow(RecipeDocumentCorruptError)
-    expect(() => codec.write(unknown, {
+    expect(() => codec.stringify(unknown, {
       title: 'Unknown',
       goal: '',
       steps: [],
@@ -238,7 +238,7 @@ describe('RecipeDocumentCodec', () => {
       '',
     ].join('\n')
 
-    expect(() => codec.write(legacy, {
+    expect(() => codec.stringify(legacy, {
       title: 'Replacement',
       goal: '',
       steps: [{ id: 'step-a', text: 'Legacy step' }],
@@ -252,7 +252,7 @@ describe('RecipeDocumentCodec', () => {
     ['quality-checklist', '- [ ] A <!-- taskchute-quality-check-id: quality-a -->', 'plain text is not a quality check'],
     ['constraints', '- A', 'plain text is not a constraint'],
   ])('rejects unmanaged lines inside the v2 %s section', (section, validLine, invalidLine) => {
-    const valid = codec.write(undefined, {
+    const valid = codec.stringify(undefined, {
       title: 'Strict sections',
       goal: '',
       steps: [{ id: 'step-a', text: 'A' }],

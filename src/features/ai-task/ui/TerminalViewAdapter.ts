@@ -23,16 +23,12 @@ import {
   type ILink,
   type ILinkProvider,
 } from '@xterm/xterm'
-import xtermCssText from '@xterm/xterm/css/xterm.css'
 import { Platform } from 'obsidian'
 
 import {
   findTerminalFileLinks,
   type TerminalFileLinkMatch,
 } from './TerminalLinkMatcher'
-
-/** Marker class of the injected <style> element carrying the xterm css */
-export const XTERM_CSS_STYLE_CLASS = 'taskchute-xterm-css'
 
 /** Scrollback kept by the embedded terminal (lines) */
 const TERMINAL_SCROLLBACK_LINES = 2000
@@ -121,22 +117,6 @@ export interface TerminalViewAdapterLike {
 }
 
 export type TerminalViewAdapterFactory = () => TerminalViewAdapterLike
-
-/**
- * Inject the imported xterm css once per owner DOM tree (resolved through
- * container.ownerDocument, never a global). Re-injects when a prior style
- * element was removed, e.g. after a pop-out window closed.
- */
-export function ensureXtermCssInjected(container: HTMLElement): void {
-  const doc = container.ownerDocument
-  if (doc.querySelector(`style.${XTERM_CSS_STYLE_CLASS}`)) return
-  const target: HTMLElement = doc.head ?? container
-  // Vendored third-party css (bundled as text by esbuild) must not be pasted
-  // into styles.css; a created style element with textContent is the one
-  // sanctioned injection point for it.
-  // eslint-disable-next-line obsidianmd/no-forbidden-elements
-  target.createEl('style', { cls: XTERM_CSS_STYLE_CLASS, text: xtermCssText })
-}
 
 interface WrappedBufferLine {
   line: IBufferLine
@@ -515,7 +495,8 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
 
   open(container: HTMLElement, cols: number, rows: number): void {
     if (this.terminal || this.disposed) return
-    ensureXtermCssInjected(container)
+    // The xterm css ships vendored in styles.css, which Obsidian loads into
+    // every window (pop-outs included), so there is nothing to inject here.
     this.timerWindow = container.ownerDocument.defaultView ?? window
     const terminal = new Terminal({
       cols,

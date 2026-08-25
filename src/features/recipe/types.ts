@@ -58,7 +58,7 @@ export interface RecipeDocumentData {
   constraints: RecipeConstraint[]
 }
 
-export interface RecipeDocumentWriteInput {
+export interface RecipeDocumentStringifyInput {
   title: string
   goal: string
   steps: RecipeStep[]

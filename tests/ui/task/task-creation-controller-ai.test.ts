@@ -39,7 +39,6 @@ jest.mock('obsidian', () => {
 })
 
 // The controller sees the same mocked object reference.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const mockPlatformState = (require('obsidian') as {
   Platform: { isDesktop: boolean; isMobile: boolean }
 }).Platform
