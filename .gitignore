@@ -19,3 +19,5 @@ memory:
 
 .codex
 .agents/
+# Report written by npm run review:obsidian
+/obsidian-review.json

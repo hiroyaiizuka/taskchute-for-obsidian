@@ -13,7 +13,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "husky",
-    "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\""
+    "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\"",
+    "review:obsidian": "node scripts/obsidian-review.mjs"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js}": "eslint --config eslint.config.mjs --no-warn-ignored",

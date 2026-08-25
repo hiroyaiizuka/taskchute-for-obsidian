@@ -69,6 +69,29 @@ jobs:
           TASKCHUTE_TEST_REQUIRE_BINARIES: "1"
         run: npm run test:integration
 
+      # The Obsidian plugin review gate. Obsidian auto-reviews every published
+      # version and blocks the ones that fail, so run the part of that review we
+      # can run ourselves (eslint-plugin-obsidianmd, which Obsidian publishes for
+      # exactly this) before anything irreversible happens. Everything below this
+      # point pushes a bump commit and a tag to the default branch; a failure
+      # here leaves the branch untouched.
+      #
+      # Errors fail the release, warnings are reported only -- that is how
+      # Obsidian itself judges a submission. The dashboard additionally runs
+      # malware and dependency scans that have no public API, so a pass here is
+      # not a guarantee that publication is allowed; a failure is a guarantee
+      # that it is not.
+      - name: Obsidian plugin review
+        run: npm run review:obsidian
+
+      - name: Upload plugin review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-review-${{ github.run_id }}
+          path: obsidian-review.json
+          if-no-files-found: warn
+
       - name: Configure git user
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
