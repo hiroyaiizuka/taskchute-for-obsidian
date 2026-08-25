@@ -18,12 +18,17 @@ import {
   WorkspaceEntry,
   WorkspaceFileGateway,
 } from './WorkspaceFileService'
+import { Platform } from 'obsidian'
+
 import { stableTimeoutSource } from '../../../utils/stableTimer'
 import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
 declare function require(moduleId: string): unknown
+
+/** Every Node builtin below is reachable only from the desktop runtime. */
+const DESKTOP_ONLY_GATEWAY = 'The AI task gateway is desktop only.'
 
 declare const process: {
   env: Record<string, string | undefined>
@@ -270,30 +275,45 @@ interface TextCodecModuleLike {
 }
 
 function loadChildProcessModule(): ChildProcessModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only gateway; the CLI runs as a spawned child process
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_GATEWAY)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the CLI runs as a spawned child process
   return require('child_process') as ChildProcessModuleLike
 }
 
 function loadOsModule(): OsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only gateway; the working directory falls back to the OS home dir
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_GATEWAY)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the working directory falls back to the OS home dir
   return require('os') as OsModuleLike
 }
 
 function loadFsModule(): FsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only gateway; the gateway reads and writes real files
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_GATEWAY)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the gateway reads and writes real files
   return require('fs') as FsModuleLike
 }
 
 function loadPathModule(): PathModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only gateway; vault-relative paths are joined with Node path
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_GATEWAY)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; vault-relative paths are joined with Node path
   return require('path') as PathModuleLike
 }
 
 function loadTextCodecModule(): TextCodecModuleLike {
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_GATEWAY)
+  }
   // Jest's jsdom runtime lacks the browser globals. Electron supplies them,
   // while Node's equivalent strict codecs keep the gateway deterministic in
   // tests and any older renderer runtime.
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only gateway; Node's strict text codecs decode PTY chunks (see above)
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; Node's strict text codecs decode PTY chunks (see above)
   return require('util') as TextCodecModuleLike
 }
 

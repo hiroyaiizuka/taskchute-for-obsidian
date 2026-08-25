@@ -13,8 +13,23 @@ import {
  *
  * Kept plain ES2018 so Electron's `ELECTRON_RUN_AS_NODE` mode can execute it
  * unchanged. The source has no secrets; token/path/TTL arrive through env.
+ *
+ * Built on demand rather than at module init. Composing it gzips the two
+ * carried programs, and zlib does not exist on mobile — where this module is
+ * still imported, because main.js pulls in the whole feature graph on every
+ * platform and only decides against running it afterwards. As a module-scope
+ * constant this threw "Cannot find module 'zlib'" during plugin load and took
+ * the entire plugin down on phones. See
+ * tests/guardrails/mobile-plugin-load.test.ts.
+ *
+ * The result is memoised, so the ~1 ms of compression is paid once per session
+ * by the desktop runtime that actually spawns a broker.
  */
-export const TERMINAL_BROKER_SOURCE = String.raw`
+let cachedBrokerSource: string | undefined
+
+export function buildTerminalBrokerSource(): string {
+  if (cachedBrokerSource !== undefined) return cachedBrokerSource
+  cachedBrokerSource = String.raw`
 'use strict';
 const net = require('net');
 const fs = require('fs');
@@ -1904,3 +1919,5 @@ server.on('error', () => shutdown(false));
 process.on('SIGTERM', () => shutdown(false));
 process.on('SIGINT', () => shutdown(false));
 `
+  return cachedBrokerSource
+}

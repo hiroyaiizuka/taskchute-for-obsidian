@@ -22,7 +22,7 @@ import {
   type TerminalBrokerSessionCallbacks,
 } from '../../../src/features/ai-task/services/TerminalSessionBroker'
 import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { TERMINAL_BROKER_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionBrokerSource'
+import { buildTerminalBrokerSource } from '../../../src/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import { describePosix, testWithBinaries } from '../../support/platform'
@@ -1515,7 +1515,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       'scanOwnedPids',
       'pidOwnershipState',
       `${sourceSection(
-        TERMINAL_BROKER_SOURCE,
+        buildTerminalBrokerSource(),
         'function runWindowsTaskkill',
         'function requestGuardStop',
       )}\nreturn signalTree;`,

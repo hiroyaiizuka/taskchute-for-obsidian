@@ -39,11 +39,18 @@ describe('createAiTaskManager gating', () => {
     expect(manager).toBeUndefined()
   })
 
-  test('returns undefined when Platform is unavailable (mock has no Platform)', () => {
-    // The shared obsidian mock intentionally does not export Platform, which
-    // mirrors non-desktop runtimes where Platform?.isDesktop is falsy.
-    const manager = createAiTaskManager(makePlugin({ aiTaskEnabled: true }))
-    expect(manager).toBeUndefined()
+  test('returns undefined when Platform is unavailable', () => {
+    // The shared mock now supplies a desktop Platform, so the defensive path —
+    // createAiTaskManager reads Platform?.isDesktop rather than assuming the
+    // export exists — needs the absence staged explicitly.
+    jest.isolateModules(() => {
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: undefined,
+      }))
+      const mod = require('../../../src/features/ai-task') as FactoryModule
+      expect(mod.createAiTaskManager(makePlugin({ aiTaskEnabled: true }))).toBeUndefined()
+    })
   })
 
   test('returns undefined on mobile platforms', () => {

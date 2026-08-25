@@ -421,7 +421,12 @@ const TFolder = jest.fn().mockImplementation(() => ({
   name: "test-folder",
 }))
 
+// Suites that need a non-desktop runtime mock 'obsidian' locally; the shared
+// mock stands in for the ordinary case, an Obsidian desktop app.
+const Platform = { isDesktop: true, isMobile: false }
+
 module.exports = {
+  Platform,
   Plugin,
   ItemView,
   WorkspaceLeaf,

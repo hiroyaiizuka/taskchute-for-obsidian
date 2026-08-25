@@ -45,10 +45,14 @@ function describePlatform(): string | undefined {
  * cosmetic, so every failure path degrades quietly.
  */
 function readHostname(): string | undefined {
-  if (!Platform?.isDesktop) return undefined
+  // Written without optional chaining on purpose: the plugin review rule only
+  // recognises `Platform.isDesktop` as a guard, and Platform is always present
+  // in Obsidian. describePlatform above keeps its `?.` because it has no
+  // builtin to guard.
+  if (!Platform.isDesktop) return undefined
 
   try {
-    // eslint-disable-next-line import/no-nodejs-modules -- desktop-only label lookup; the hostname comes from Node os (mobile returns undefined above)
+    // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the hostname comes from Node os
     const os = require('os') as { hostname?: () => string }
     return os.hostname?.()
   } catch {

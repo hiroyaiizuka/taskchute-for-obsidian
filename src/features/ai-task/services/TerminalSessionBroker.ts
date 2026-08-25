@@ -13,17 +13,22 @@
 import type {
   AiRunExitOutcome,
 } from './dispatchers/Dispatcher'
+import { Platform } from 'obsidian'
+
 import type { SpawnProcessRequest } from './NodeProcessGateway'
-import { TERMINAL_BROKER_SOURCE } from './TerminalSessionBrokerSource'
+import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
 import {
   sleepWithStableTimer,
   stableTimeoutSource,
   type StableTimeoutId,
 } from '../../../utils/stableTimer'
 
-export { TERMINAL_BROKER_SOURCE } from './TerminalSessionBrokerSource'
+export { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
 
 declare function require(moduleId: string): unknown
+
+/** Every Node builtin below is reachable only from the desktop runtime. */
+const DESKTOP_ONLY_BROKER = 'The AI terminal broker is desktop only.'
 declare const process: {
   env: Record<string, string | undefined>
   platform?: string
@@ -261,32 +266,50 @@ function isValidBrokerSessionId(sessionId: string): boolean {
 }
 
 function loadNet(): NodeNetModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the session socket is a Node net server
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the session socket is a Node net server
   return require('net') as NodeNetModuleLike
 }
 
 function loadFs(): NodeFsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; socket paths and lock files live on disk
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; socket paths and lock files live on disk
   return require('fs') as NodeFsModuleLike
 }
 
 function loadOs(): NodeOsModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the socket directory is derived from the OS temp dir
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the socket directory is derived from the OS temp dir
   return require('os') as NodeOsModuleLike
 }
 
 function loadPath(): NodePathModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; socket and lock paths are joined with Node path
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; socket and lock paths are joined with Node path
   return require('path') as NodePathModuleLike
 }
 
 function loadCrypto(): NodeCryptoModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; session ids and owner tokens need Node crypto
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; session ids and owner tokens need Node crypto
   return require('crypto') as NodeCryptoModuleLike
 }
 
 function loadChildProcess(): NodeChildProcessModuleLike {
-  // eslint-disable-next-line import/no-nodejs-modules -- desktop-only broker; the PTY host is spawned as a child process
+  if (!Platform.isDesktop) {
+    throw new Error(DESKTOP_ONLY_BROKER)
+  }
+  // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; the PTY host is spawned as a child process
   return require('child_process') as NodeChildProcessModuleLike
 }
 
@@ -1168,7 +1191,7 @@ export class TerminalSessionBrokerClient {
     const env = this.options.getEnv?.() ?? { ...process.env }
     const child = loadChildProcess().spawn(
       'node',
-      ['-e', TERMINAL_BROKER_SOURCE],
+      ['-e', buildTerminalBrokerSource()],
       {
         detached: true,
         windowsHide: true,

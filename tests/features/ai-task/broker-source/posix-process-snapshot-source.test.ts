@@ -1,7 +1,7 @@
 import { createContext, runInContext } from 'vm'
 
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '../../../../src/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
-import { TERMINAL_BROKER_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
+import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import {
@@ -77,7 +77,7 @@ const posix = context as unknown as {
 }
 
 const PROGRAMS = [
-  ['broker', TERMINAL_BROKER_SOURCE],
+  ['broker', buildTerminalBrokerSource()],
   ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
   ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
 ] as const
