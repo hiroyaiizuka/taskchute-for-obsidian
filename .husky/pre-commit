@@ -1,13 +1,7 @@
 PATH="/Users/hiroyaiizuka/.local/share/mise/installs/node/24.8.0/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
 
-npm run lint
-
-# ts-jest transpiles without diagnostics and esbuild skips type checking, so
-# nothing else in this hook catches type errors.
-npm run typecheck
-
-# The two *.integration.test.ts suites drive real processes, PTYs and sockets,
-# and take ~50s locally against ~15s for everything else. Run them yourself with
-# npm run test:integration; the commit-time gate stays on the fast suite.
-npm run test:unit
+# Commit-time gate is lint only, and only over the staged files. Typecheck and
+# the test suites moved to CI (.github/workflows/test.yml) so committing stays
+# fast; run them yourself with npm run typecheck / npm run test:unit.
+npx lint-staged

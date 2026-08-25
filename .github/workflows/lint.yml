@@ -1,19 +1,20 @@
-name: CI
+name: Lint
 
+# Safety net for the pre-commit hook: the hook only lints staged files, and it
+# can be skipped with --no-verify, so CI lints the whole tree.
 on:
   pull_request:
-  push:
     branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: lint-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,12 +32,3 @@ jobs:
 
       - name: Lint
         run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      # The *.integration.test.ts suites are excluded here: they drive real
-      # processes, PTYs and sockets, and currently fail on Linux runners. They
-      # get their own job once they pass on ubuntu.
-      - name: Test
-        run: npm run test:unit

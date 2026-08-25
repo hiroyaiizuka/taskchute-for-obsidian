@@ -140,7 +140,8 @@ npm run dev    # esbuild --watch
 npm run build  # production bundle
 npm test       # Jest (ts-jest, jsdom)
 ```
-- Husky pre-commit runs `npm run lint` と `npm test`; `HUSKY=0` で一時無効化可能（推奨せず）
+- Husky pre-commit は `lint-staged` 経由でステージ済みファイルの `eslint` のみ実行; `HUSKY=0` で一時無効化可能（推奨せず）
+- 型チェックとテストは CI 側（`.github/workflows/test.yml`）が担当。手元では `npm run typecheck` / `npm run test:unit` を任意に実行
 - Jest roots: `tests/`
   - `tests/task-sort/…` – slot persistence & ordering
   - `tests/task-display/…` – display/deletion/target_date logic
