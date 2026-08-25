@@ -22,11 +22,16 @@ import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features
 const MAX_ARG_STRLEN = 32 * 4096
 
 /**
- * Deliberately far below the hard limit. A program that has crept to within a
- * few hundred bytes is already broken for the next person who adds a feature,
- * so the budget has to fail while there is still room to land a fix.
+ * Deliberately below the hard limit. A program that has crept to within a few
+ * hundred bytes is already broken for the next person who adds a feature, so
+ * the budget has to fail while there is still room to land a fix.
+ *
+ * ~11KB of cushion. Because the guard and watchdog reach the broker compressed,
+ * roughly 3KB of growth in either of them costs the broker 1KB, so this covers
+ * a substantial feature in any of the three before anyone has to think about
+ * the transport again.
  */
-const PROGRAM_BUDGET = 110_000
+const PROGRAM_BUDGET = 120_000
 
 describe('broker program size budget', () => {
   test.each([

@@ -1,6 +1,7 @@
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
 import { TERMINAL_BROKER_PURE_SOURCE } from './broker-source/TerminalBrokerPureSource'
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
 import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
@@ -20,6 +21,7 @@ const cp = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
 ${TERMINAL_BROKER_PURE_SOURCE}
+${POSIX_PROCESS_SNAPSHOT_SOURCE}
 ${INFLATE_PROGRAM_SOURCE}
 // Carried compressed: as plain string literals these two cost ~46KB of the
 // 131_072-byte Linux limit on a single argv string. See EmbeddedProgramSource.
@@ -590,54 +592,11 @@ function readOwnerPidRecords(session) {
     session.ownerTrackingUnknown = false;
   }
 }
-// macOS does not expose another process' environment through ps eww, while
-// the extra environment text makes every startup snapshot substantially
-// larger. Keep the environment-bearing form only on Linux, where it can
-// recover an already reparented cooperative descendant by its owner marker.
-const posixPsArgs = process.platform === 'linux'
-  ? ['axeww', '-o', 'pid=,ppid=,pgid=,lstart=,command=']
-  : ['-axo', 'pid=,ppid=,pgid=,lstart=,command='];
-const posixPsOptions = {
-  encoding: 'utf8',
-  maxBuffer: 16 * 1024 * 1024,
-  env: Object.assign({}, process.env, { LC_ALL: 'C', LANG: 'C' }),
-};
-function parsePosixProcessSnapshot(output) {
-  const snapshot = new Map();
-  for (const line of output.split('\n')) {
-    const match = line.match(
-      /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\d\d:\d\d:\d\d\s+\d{4})\s+(.*)$/,
-    );
-    if (!match) continue;
-    const startedAt = Date.parse(match[4]);
-    snapshot.set(Number(match[1]), {
-      ppid: Number(match[2]),
-      pgid: Number(match[3]),
-      startedAt: Number.isFinite(startedAt) ? startedAt : null,
-      command: match[5],
-    });
-  }
-  return snapshot;
-}
-function snapshotIdentity(entry) {
-  if (!entry || !Number.isFinite(entry.startedAt)) return null;
-  return {
-    lower: entry.startedAt,
-    upper: entry.startedAt,
-    kind: 'snapshot',
-    parentPid: entry.ppid,
-    processGroup: entry.pgid,
-    commandHint:
-      typeof entry.command === 'string'
-        ? entry.command.slice(0, 512)
-        : '',
-  };
-}
 function readPosixProcessSnapshot() {
   if (process.platform !== 'darwin' && process.platform !== 'linux') return null;
   try {
     return parsePosixProcessSnapshot(
-      cp.execFileSync('/bin/ps', posixPsArgs, posixPsOptions),
+      cp.execFileSync('/bin/ps', posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env)),
     );
   } catch (_) { return null; }
 }
@@ -647,7 +606,7 @@ function readPosixProcessSnapshotAsync(callback) {
     return;
   }
   try {
-    cp.execFile('/bin/ps', posixPsArgs, posixPsOptions, (error, stdout) => {
+    cp.execFile('/bin/ps', posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env), (error, stdout) => {
       if (error || typeof stdout !== 'string') {
         callback(null);
         return;
@@ -721,19 +680,13 @@ function pidOwnershipState(pid, identity, snapshot) {
     let actualStart;
     let entry = null;
     if (process.platform === 'win32') {
-      const root = process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows';
-      const powershell =
-        root.replace(/[\\/]+$/, '') +
-        '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+      const reader = windowsBirthReaderArgv(
+        pid,
+        process.env.SystemRoot || process.env.SYSTEMROOT,
+      );
       const value = cp.execFileSync(
-        powershell,
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          "(Get-Process -Id " + String(pid) +
-            " -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')",
-        ],
+        reader.command,
+        reader.args,
         { encoding: 'utf8', maxBuffer: 4096, windowsHide: true },
       ).trim();
       actualStart = Date.parse(value);
@@ -766,18 +719,9 @@ function pidOwnershipState(pid, identity, snapshot) {
         !entry.command.includes(identity.guardToken)
       )
     ) return 'mismatch';
-    // POSIX lstart is rounded down to seconds. The hook records the interval
-    // surrounding spawn(), so a paused/slow syscall remains a match without
-    // widening the PID-reuse window to several seconds.
     const matchesBirth = process.platform === 'win32'
-      ? (
-        actualStart >= identity.lower &&
-        actualStart <= identity.upper
-      )
-      : (
-        actualStart >= Math.floor(identity.lower / 1000) * 1000 &&
-        actualStart <= Math.floor(identity.upper / 1000) * 1000
-      );
+      ? windowsBirthWindowMatches(actualStart, identity.lower, identity.upper)
+      : posixBirthWindowMatches(actualStart, identity.lower, identity.upper);
     if (!matchesBirth) return 'mismatch';
     if (
       process.platform !== 'win32' &&
@@ -816,27 +760,11 @@ function pidOwnershipState(pid, identity, snapshot) {
 }
 function captureSnapshotDescendants(session, snapshot) {
   if (!snapshot || !session.child || !session.child.pid) return;
-  const children = new Map();
-  for (const [pid, entry] of snapshot.entries()) {
-    const siblings = children.get(entry.ppid) || [];
-    siblings.push(pid);
-    children.set(entry.ppid, siblings);
-  }
-  const pending = [session.child.pid];
-  const seen = new Set();
-  while (pending.length > 0) {
-    const parentPid = pending.pop();
-    if (!parentPid || seen.has(parentPid)) continue;
-    seen.add(parentPid);
-    const nested = children.get(parentPid);
-    if (!nested) continue;
-    for (const pid of nested) {
-      const entry = snapshot.get(pid);
-      const existing = session.ownedPids.get(pid);
-      if (entry && (!existing || existing.kind === 'snapshot')) {
-        session.ownedPids.set(pid, snapshotIdentity(entry));
-      }
-      pending.push(pid);
+  for (const pid of posixSnapshotDescendantPids(snapshot, [session.child.pid])) {
+    const entry = snapshot.get(pid);
+    const existing = session.ownedPids.get(pid);
+    if (entry && (!existing || existing.kind === 'snapshot')) {
+      session.ownedPids.set(pid, posixSnapshotIdentity(entry));
     }
   }
 }
@@ -905,7 +833,7 @@ function scanOwnedPids(session, providedSnapshot) {
     // shutdown unconfirmed instead of trusting a reusable numeric PID.
     const existing = session.ownedPids.get(pid);
     if (!existing || existing.kind === 'snapshot') {
-      session.ownedPids.set(pid, snapshotIdentity(entry));
+      session.ownedPids.set(pid, posixSnapshotIdentity(entry));
     }
     const nested = children.get(pid);
     if (nested) pending.push.apply(pending, nested);
