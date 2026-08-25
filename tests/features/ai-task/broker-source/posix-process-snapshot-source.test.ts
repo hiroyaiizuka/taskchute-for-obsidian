@@ -44,6 +44,7 @@ runInContext(POSIX_PROCESS_SNAPSHOT_SOURCE, context)
 const posix = context as unknown as {
   parsePosixProcessSnapshot: (output: string) => Map<number, SnapshotEntry>
   posixBirthFloor: (ms: number) => number
+  posixBirthAtOrAfter: (actualStart: number, lower: number) => boolean
   posixBirthSlackMs: () => number
   posixBirthWindowMatches: (
     actualStart: number,
@@ -112,6 +113,11 @@ describe('posix snapshot fragment composition', () => {
     expect(
       outsideFragment.match(/Math\.floor\([^)]*\/\s*1000\)\s*\*\s*1000/gu) ?? [],
     ).toEqual([])
+    // posixBirthFloor on its own is not enough: compared directly it drops the
+    // slack the floor exists to be paired with. Every comparison goes through
+    // posixBirthWindowMatches or posixBirthAtOrAfter.
+    expect(outsideFragment).not.toMatch(/[<>]=?\s*posixBirthFloor\(/u)
+    expect(outsideFragment).not.toMatch(/posixBirthFloor\([^)]*\)\s*[<>]/u)
   })
 })
 
@@ -296,6 +302,31 @@ describe('birth windows', () => {
 
   test('spends exactly the one second the truncation can lose', () => {
     expect(posix.posixBirthSlackMs()).toBe(1_000)
+  })
+
+  /**
+   * The same rule for a caller that has only a lower bound — the session
+   * guard, deciding whether a process in the target's group is young enough to
+   * belong to this session. It was open-coded as `startedAt <
+   * posixBirthFloor(lower)`, which skips the slack, so a background process the
+   * kernel reported one second early was never captured and never signalled:
+   * the session then waited for a PTY that process was holding open. Same
+   * defect as above, a second spelling of it.
+   */
+  test('accepts a member the kernel reported a second before its session', () => {
+    expect(posix.posixBirthAtOrAfter(second - 1000, second)).toBe(true)
+  })
+
+  test('accepts a member started later than its session', () => {
+    expect(posix.posixBirthAtOrAfter(second + 5_000, second)).toBe(true)
+  })
+
+  test('rejects a member older than truncation can explain', () => {
+    expect(posix.posixBirthAtOrAfter(second - 2000, second)).toBe(false)
+  })
+
+  test('rejects an unusable birth time instead of accepting everything', () => {
+    expect(posix.posixBirthAtOrAfter(Number.NaN, second)).toBe(false)
   })
 
   test('accepts a zero-width window', () => {

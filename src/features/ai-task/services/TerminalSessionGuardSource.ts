@@ -251,8 +251,7 @@ function captureOriginalGroupMembers(snapshot) {
     if (
       pid === target.pid ||
       entry.pgid !== target.pid ||
-      !Number.isFinite(entry.startedAt) ||
-      entry.startedAt < posixBirthFloor(targetStartedAtLower)
+      !posixBirthAtOrAfter(entry.startedAt, targetStartedAtLower)
     ) continue;
     found += 1;
     const existing = captured.get(pid);

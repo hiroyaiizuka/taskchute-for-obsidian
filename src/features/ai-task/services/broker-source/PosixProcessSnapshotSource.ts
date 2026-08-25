@@ -100,10 +100,21 @@ function posixBirthFloor(ms) {
 function posixBirthSlackMs() {
   return 1000;
 }
+// The one-sided form, for a caller that has a lower bound and no upper one.
+// Kept here so that comparison cannot be open-coded against posixBirthFloor
+// again: that spelling skips the slack, and a process the kernel reported one
+// second early then falls outside a window it belongs to. It is how an unhooked
+// background process survived its own session.
+function posixBirthAtOrAfter(actualStart, lower) {
+  return (
+    Number.isFinite(actualStart) &&
+    actualStart >= posixBirthFloor(lower) - posixBirthSlackMs()
+  );
+}
 // The owner record stores the interval surrounding spawn(), so both ends are
 // floored: a paused or slow syscall stays a match without widening the
-// PID-reuse window to several seconds. The slack below makes that window ~2s on
-// a host that reports an early start; a PID reused inside it is still caught by
+// PID-reuse window to several seconds. The slack makes that window ~2s on a
+// host that reports an early start; a PID reused inside it is still caught by
 // the identity checks the callers layer on top (the inherited sentinel
 // descriptor, the guard token, the command hint).
 function posixBirthWindowMatches(actualStart, lower, upper) {
