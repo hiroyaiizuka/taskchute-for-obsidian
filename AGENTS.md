@@ -105,7 +105,11 @@ memory/
   - Optional: `author`, `authorUrl`, `fundingUrl` (string or map)
 - Never change `id` after release. Treat it as stable API.
 - Keep `minAppVersion` accurate when using newer APIs.
-- Canonical requirements are coded here: https://github.com/obsidianmd/obsidian-releases/blob/master/.github/workflows/validate-plugin-entry.yml
+- Canonical requirements: https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines
+  （`obsidian-releases` の `validate-plugin-entry.yml` は既に存在しない。エントリ検証は
+  開発者ダッシュボード側の自動レビューへ移管済み）
+- 自動レビューのうち手元で再現できる範囲は `npm run review:obsidian` で確認できる。
+  `manifest.json` の検証もここで初めて実際に動く
 
 
 ## Coding conventions
@@ -189,3 +193,10 @@ npm test       # Jest (ts-jest, jsdom)
 - `esbuild.config.mjs` handles bundling; uses `esbuild --bundle --format=cjs`
 - `tsconfig.json` for main build, `tsconfig.test.json` extends for tests
 - `eslint.config.mjs` で `eslint-plugin-obsidianmd` と `typescript-eslint` を共有設定化し、`npm run lint` で実行
+- `eslint.review.config.mjs` は別物で、Obsidian の自動レビュー基準そのもの。
+  `eslint-plugin-obsidianmd` の `configs.recommended` を **手写しせずに spread** し、
+  `manifest.json` / `LICENSE` / `package.json` も対象に含める。`npm run review:obsidian`
+  で実行し、リリースワークフローが version bump より前に同じものを走らせる。
+  error があるとリリースは失敗し、warning は報告のみ（Obsidian 自身の判定と同じ）。
+  ダッシュボード側のマルウェア/依存脆弱性スキャンは公開 API がなく再現できないので、
+  通っても公開許可の保証にはならない（落ちれば確実に指摘される、の側だけが成り立つ）
