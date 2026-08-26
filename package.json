@@ -16,6 +16,9 @@
     "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\"",
     "review:obsidian": "node scripts/obsidian-review.mjs"
   },
+  "engines": {
+    "node": ">=22.22.1"
+  },
   "lint-staged": {
     "src/**/*.{ts,tsx,js}": "eslint --config eslint.config.mjs --no-warn-ignored",
     "tests/**/*.{ts,tsx,js}": "eslint --config eslint.config.mjs --no-warn-ignored"
