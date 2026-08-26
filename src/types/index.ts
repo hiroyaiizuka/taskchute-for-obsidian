@@ -84,7 +84,14 @@ export interface GoogleCalendarSettings {
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
 export const VIEW_TYPE_PROJECT_BOARD = "taskchute-project-board" as const
 
-export type TaskChutePlugin = Plugin & TaskChutePluginAugment
+/**
+ * Obsidian 1.13 added `settings?: unknown` to Plugin and tells subclasses to
+ * declare a concrete type for it, which is what TaskChutePluginAugment does.
+ * Intersecting instead of replacing would leave both declarations visible, and
+ * every read of `.settings` would resolve to the 1.13 base member — which
+ * obsidianmd/no-unsupported-api then reports against minAppVersion.
+ */
+export type TaskChutePlugin = Omit<Plugin, "settings"> & TaskChutePluginAugment
 
 type TaskChutePluginAugment = {
   settings: TaskChuteSettings

@@ -2,7 +2,7 @@
   "id": "taskchute-plus",
   "name": "TaskChute Plus",
   "version": "2.1.2",
-  "minAppVersion": "1.6.7",
+  "minAppVersion": "1.8.7",
   "author": "Hiroya Iizuka",
   "description": "Execute TaskChute that slots today's tasks, tracks projects, adds comments, and keeps you focused on now.",
   "isDesktopOnly": false

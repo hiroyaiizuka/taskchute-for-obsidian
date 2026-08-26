@@ -68,7 +68,21 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     this.plugin = plugin
   }
 
+  /**
+   * The pre-1.13 entry point. Obsidian deprecated it in favour of
+   * getSettingDefinitions(), but manifest.json still declares minAppVersion
+   * 1.6.7, so it stays as the fallback until this tab is migrated.
+   *
+   * The body lives in renderSettings() because internal redraws must not call
+   * a deprecated method — @typescript-eslint/no-deprecated is an error here and
+   * cannot be disabled inline.
+   */
   display(): void {
+    this.renderSettings()
+  }
+
+  /** Draws the whole tab. Call this, not display(), to redraw. */
+  private renderSettings(): void {
     const { containerEl } = this
     containerEl.empty()
     containerEl.classList.add("taskchute-settings-pane")
@@ -142,7 +156,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     new Notice(
       t("settings.version.proUnlocked", "Pro settings are now visible."),
     )
-    this.display()
+    this.renderSettings()
   }
 
   private setHeadingIfSupported(setting: Setting): void {
@@ -350,7 +364,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
             val === "specifiedFolder" ? "specifiedFolder" : "vaultRoot"
           this.plugin.settings.locationMode = mode
           await this.plugin.saveSettings()
-          this.display()
+          this.renderSettings()
         })
       })
 
@@ -766,7 +780,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
         void manager
           .refreshIfNeeded(true)
           .then(() => this.applyLicenseChange())
-          .then(() => this.display())
+          .then(() => this.renderSettings())
       },
     })
   }
@@ -807,7 +821,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
           if (result.ok) {
             new Notice(t("settings.license.activated", "License activated."))
             await this.applyLicenseChange()
-            this.display()
+            this.renderSettings()
             return
           }
 
