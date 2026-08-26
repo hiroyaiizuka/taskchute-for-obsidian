@@ -3,10 +3,17 @@ import { Plugin, normalizePath } from 'obsidian'
 import { TaskChuteSettings } from '../types';
 import { t } from '../i18n';
 
-export class PathService {
-  private plugin: Plugin & { settings: TaskChuteSettings };
+// Obsidian 1.13 declares `settings?: unknown` on Plugin and asks subclasses to
+// give it a concrete type. Omitting it rather than intersecting keeps `.settings`
+// resolving to ours; see TaskChutePlugin in ../types.
+type PluginWithTaskChuteSettings = Omit<Plugin, "settings"> & {
+  settings: TaskChuteSettings;
+};
 
-  constructor(plugin: Plugin & { settings: TaskChuteSettings }) {
+export class PathService {
+  private plugin: PluginWithTaskChuteSettings;
+
+  constructor(plugin: PluginWithTaskChuteSettings) {
     this.plugin = plugin;
   }
 

@@ -10,7 +10,7 @@ type MutableSettingTab = {
   }
   proSectionUnlocked: boolean
   versionClickCount: number
-  display: () => void
+  renderSettings: () => void
   renderVersionSection: (container: HTMLElement) => void
 }
 
@@ -61,7 +61,9 @@ describe('TaskChute settings version display', () => {
 
   test('unlocks the Pro section only after ten clicks', () => {
     const tab = createTab('1.7.12')
-    tab.display = jest.fn()
+    // The redraw entry point, not display(): Obsidian deprecated display() in
+    // 1.13 and the tab must not call it internally.
+    tab.renderSettings = jest.fn()
 
     tab.renderVersionSection({} as HTMLElement)
 
@@ -72,14 +74,14 @@ describe('TaskChute settings version display', () => {
 
     for (let i = 0; i < 9; i += 1) click()
     expect(tab.proSectionUnlocked).toBe(false)
-    expect(tab.display).not.toHaveBeenCalled()
+    expect(tab.renderSettings).not.toHaveBeenCalled()
 
     click()
     expect(tab.proSectionUnlocked).toBe(true)
-    expect(tab.display).toHaveBeenCalledTimes(1)
+    expect(tab.renderSettings).toHaveBeenCalledTimes(1)
 
     // Further clicks are inert once the section is already visible.
     click()
-    expect(tab.display).toHaveBeenCalledTimes(1)
+    expect(tab.renderSettings).toHaveBeenCalledTimes(1)
   })
 })
