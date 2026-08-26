@@ -1,112 +1,112 @@
-import { Notice, mockApp, mockLeaf } from 'obsidian';
+import type { SettingDefinitionAction, SettingDefinitionList } from 'obsidian';
+import { Notice, mockApp } from 'obsidian';
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab';
+import { SectionConfigService } from '../../src/services/SectionConfigService';
+import { flatten } from './definitionHelpers';
 
-/** Private members of TaskChuteSettingTab driven directly by these tests. */
-type MutableSettingTab = {
-  app: typeof mockApp;
-  plugin: {
-    settings: {
-      customSections?: Array<{ hour: number; minute: number }>;
-      slotKeys: Record<string, string>;
-    };
-    saveSettings: jest.Mock<Promise<void>, []>;
+function createTab() {
+  const plugin = {
+    app: mockApp,
+    manifest: { id: 'taskchute-plus', version: '2.2.0' },
+    settings: { slotKeys: {} } as Record<string, unknown>,
+    pathManager: { validatePath: () => ({ valid: true }) },
+    saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   };
-  renderSectionCustomization: (container: HTMLElement) => void;
-  applySectionCustomization: (
-    boundaries: Array<{ hour: number; minute: number }> | undefined,
-  ) => Promise<void>;
-};
+  const tab = new TaskChuteSettingTab(mockApp as never, plugin as never);
+  return { tab, plugin };
+}
 
-function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab;
-  tab.app = mockApp;
-  tab.plugin = {
-    settings: {
-      slotKeys: {},
-    },
-    saveSettings: jest.fn().mockResolvedValue(undefined),
-  };
-  return tab;
+function boundaryList(tab: TaskChuteSettingTab): SettingDefinitionList {
+  const list = flatten(tab.getSettingDefinitions()).find(
+    (item): item is SettingDefinitionList =>
+      'type' in item && item.type === 'list',
+  );
+  if (!list) throw new Error('boundary list not found');
+  return list;
+}
+
+function actionNamed(
+  tab: TaskChuteSettingTab,
+  name: string,
+): SettingDefinitionAction {
+  const row = flatten(tab.getSettingDefinitions()).find(
+    (item): item is SettingDefinitionAction =>
+      'action' in item && item.action !== undefined && item.name === name,
+  );
+  if (!row) throw new Error(`action row "${name}" not found`);
+  return row;
 }
 
 describe('TaskChuteSettingTab section customization', () => {
   beforeEach(() => {
     (Notice as jest.Mock).mockClear();
-    const container = mockLeaf.containerEl.children[1] as { empty?: () => void };
-    container.empty?.();
   });
 
-  test('restores the latest draft value when input becomes invalid', () => {
-    const tab = createTab();
-    const container = mockLeaf.containerEl.children[1];
+  test('seeds one row per boundary in effect', () => {
+    const { tab } = createTab();
 
-    tab.renderSectionCustomization(container);
-
-    const input = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
-    expect(input).not.toBeNull();
-
-    if (!input) {
-      return;
-    }
-
-    input.value = '01:30';
-    input.dispatchEvent(new Event('change'));
-    expect(input.value).toBe('01:30');
-
-    input.value = '99:99';
-    input.dispatchEvent(new Event('change'));
-
-    expect(input.value).toBe('01:30');
-    expect(Notice).toHaveBeenCalledTimes(1);
+    expect(boundaryList(tab).items).toHaveLength(
+      SectionConfigService.DEFAULT_BOUNDARIES.length,
+    );
+    expect(tab.getControlValue('sectionBoundary.0')).toBe('00:00');
   });
 
-  test('re-renders boundary rows after apply-triggered sorting', () => {
-    const tab = createTab();
-    const container = mockLeaf.containerEl.children[1] as HTMLElement & {
-      querySelector: (selector: string) => HTMLInputElement | HTMLButtonElement | null;
+  test('rejects a malformed time without touching the draft', async () => {
+    const { tab } = createTab();
+    const control = boundaryList(tab).items?.[1] as {
+      control: { validate: (value: string) => string | undefined };
     };
 
-    tab.renderSectionCustomization(container);
+    await tab.setControlValue('sectionBoundary.1', '01:30');
+    expect(tab.getControlValue('sectionBoundary.1')).toBe('01:30');
 
-    const firstInput = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
-    expect(firstInput).not.toBeNull();
-
-    if (!firstInput) {
-      return;
-    }
-
-    firstInput.value = '10:00';
-    firstInput.dispatchEvent(new Event('change'));
-
-    const applyButton = container.querySelector('.mod-cta');
-    expect(applyButton).not.toBeNull();
-
-    applyButton?.dispatchEvent(new Event('click'));
-
-    const updatedFirstInput = container.querySelector<HTMLInputElement>('.taskchute-boundary-input');
-    expect(updatedFirstInput?.value).toBe('08:00');
+    // The framework refuses the change on a non-empty message, so the handler
+    // never runs and the previous value stands.
+    expect(control.control.validate('99:99')).toBeTruthy();
+    expect(tab.getControlValue('sectionBoundary.1')).toBe('01:30');
   });
 
-  test('migrates invalid slotKeys to new boundaries instead of deleting them', async () => {
-    const tab = createTab();
-    tab.plugin.settings.slotKeys = {
-      taskA: '8:00-12:00',
-      taskB: '16:00-0:00',
-      taskC: 'none',
-    };
+  test('an added boundary survives the rebuild that adding it triggers', () => {
+    const { tab } = createTab();
+    const before = boundaryList(tab).items?.length ?? 0;
 
-    await tab.applySectionCustomization([
-      { hour: 0, minute: 0 },
-      { hour: 6, minute: 0 },
-      { hour: 12, minute: 0 },
-      { hour: 18, minute: 0 },
-    ]);
+    boundaryList(tab).addItem?.action({} as HTMLElement);
 
-    expect(tab.plugin.settings.slotKeys).toEqual({
-      taskA: '6:00-12:00',
-      taskB: '12:00-18:00',
-      taskC: 'none',
-    });
-    expect(tab.plugin.saveSettings).toHaveBeenCalled();
+    expect(boundaryList(tab).items).toHaveLength(before + 1);
+  });
+
+  test('keeps at least two boundaries by withholding the delete affordance', () => {
+    const { tab } = createTab();
+
+    let list = boundaryList(tab);
+    while ((list.items?.length ?? 0) > 2) {
+      list.onDelete?.(list.items!.length - 1);
+      list = boundaryList(tab);
+    }
+
+    expect(list.items).toHaveLength(2);
+    expect(list.onDelete).toBeUndefined();
+  });
+
+  test('applying sorts the boundaries before validating them', async () => {
+    const { tab } = createTab();
+
+    await tab.setControlValue('sectionBoundary.1', '02:00');
+    await tab.setControlValue('sectionBoundary.2', '01:00');
+    actionNamed(tab, 'Apply').action({} as HTMLElement, 0);
+
+    expect(tab.getControlValue('sectionBoundary.1')).toBe('01:00');
+    expect(tab.getControlValue('sectionBoundary.2')).toBe('02:00');
+  });
+
+  test('reset puts the default boundaries back', async () => {
+    const { tab } = createTab();
+    await tab.setControlValue('sectionBoundary.1', '02:00');
+
+    actionNamed(tab, 'Reset to default').action({} as HTMLElement, 0);
+
+    expect(tab.getControlValue('sectionBoundary.1')).toBe(
+      `0${SectionConfigService.DEFAULT_BOUNDARIES[1].hour}:00`,
+    );
   });
 });

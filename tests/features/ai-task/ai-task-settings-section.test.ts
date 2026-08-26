@@ -1,8 +1,17 @@
-import { Notice, Setting, mockApp } from 'obsidian'
+/**
+ * The AI task settings and the runtime lifecycle behind their toggle.
+ *
+ * The toggle is the only setting that starts and stops a process, and its
+ * completion can land after a newer toggle or after a hot reload has replaced
+ * the plugin instance. Those races are the bulk of what is tested here.
+ */
+import type { SettingDefinitionAction, SettingDefinitionItem } from 'obsidian'
+import { Notice, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
 import { createAiTaskManager } from '../../../src/features/ai-task'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
+import { findByKey, flatten } from '../../settings/definitionHelpers'
 
 jest.mock('../../../src/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
@@ -16,147 +25,15 @@ jest.mock(
   }),
 )
 
-type ToggleStub = {
-  setValue: jest.Mock
-  onChange: jest.Mock
-  trigger: (value: boolean) => Promise<void>
-}
-
-type TextStub = {
-  inputEl: HTMLInputElement
-  setPlaceholder: jest.Mock
-  setValue: jest.Mock
-  onChange: jest.Mock
-  trigger: (value: string) => Promise<void>
-}
-
-type ButtonStub = {
-  label: string
-  setButtonText: jest.Mock
-  onClick: jest.Mock
-  trigger: () => Promise<void>
-}
-
-type DropdownStub = {
-  options: Array<{ value: string; label: string }>
-  addOption: jest.Mock
-  setValue: jest.Mock
-  onChange: jest.Mock
-  trigger: (value: string) => Promise<void>
-}
-
-type SettingStub = {
-  setName: jest.Mock
-  setDesc: jest.Mock
-  setHeading: jest.Mock
-  addToggle: jest.Mock
-  addText: jest.Mock
-  addButton: jest.Mock
-  addDropdown: jest.Mock
-  controlEl: HTMLElement
-  settingEl: HTMLElement
-}
-
 type FakeManager = {
   dispose: jest.Mock
   disposeAndWait: jest.Mock<Promise<void>, []>
   invalidateBinaryCache: jest.Mock
 }
 
-// Intersecting the class itself would collapse to `never`: `renderAiTaskSection`
-// is private on TaskChuteSettingTab, so it exists in both constituents with
-// incompatible declarations. Omit strips the private members and keeps the
-// public surface the test actually touches.
-type MutableSettingTab = Omit<
-  TaskChuteSettingTab,
-  'app' | 'plugin' | 'renderAiTaskSection'
-> & {
-  app: typeof mockApp
-  plugin: {
-    manifest: { id: string }
-    settings: Record<string, unknown>
-    saveSettings: jest.Mock<Promise<void>, []>
-    aiTaskManager?: FakeManager
-    aiTaskManagersPendingDisposal?: Set<FakeManager>
-    aiTaskLifecycleActive?: boolean
-    aiTaskLifecycleGeneration?: number
-    licenseManager?: { isActive: () => boolean }
-  }
-  renderAiTaskSection: (container: HTMLElement) => void
-}
-
-function createToggleStub(): ToggleStub {
-  let handler: ((value: boolean) => Promise<void> | void) | null = null
-  const toggle: ToggleStub = {
-    setValue: jest.fn(() => toggle),
-    onChange: jest.fn((cb: (value: boolean) => Promise<void> | void) => {
-      handler = cb
-      return toggle
-    }),
-    trigger: async (value: boolean) => {
-      await handler?.(value)
-    },
-  }
-  return toggle
-}
-
-function createTextStub(): TextStub {
-  let handler: ((value: string) => Promise<void> | void) | null = null
-  const text: TextStub = {
-    inputEl: document.createElement('input'),
-    setPlaceholder: jest.fn(() => text),
-    setValue: jest.fn(() => text),
-    onChange: jest.fn((cb: (value: string) => Promise<void> | void) => {
-      handler = cb
-      return text
-    }),
-    trigger: async (value: string) => {
-      await handler?.(value)
-    },
-  }
-  return text
-}
-
-function createButtonStub(): ButtonStub {
-  let handler: (() => Promise<void> | void) | null = null
-  const button: ButtonStub = {
-    label: '',
-    setButtonText: jest.fn((label: string) => {
-      button.label = label
-      return button
-    }),
-    onClick: jest.fn((cb: () => Promise<void> | void) => {
-      handler = cb
-      return button
-    }),
-    trigger: async () => {
-      await handler?.()
-    },
-  }
-  return button
-}
-
-function createDropdownStub(): DropdownStub {
-  let handler: ((value: string) => Promise<void> | void) | null = null
-  const dropdown: DropdownStub = {
-    options: [],
-    addOption: jest.fn((value: string, label: string) => {
-      dropdown.options.push({ value, label })
-      return dropdown
-    }),
-    setValue: jest.fn(() => dropdown),
-    onChange: jest.fn((cb: (value: string) => Promise<void> | void) => {
-      handler = cb
-      return dropdown
-    }),
-    trigger: async (value: string) => {
-      await handler?.(value)
-    },
-  }
-  return dropdown
-}
-
 function createFakeManager(): FakeManager {
+  // The real disposeAndWait() disposes and then waits for the broker to
+  // confirm, so the fake keeps the two linked.
   const dispose = jest.fn()
   return {
     dispose,
@@ -167,84 +44,65 @@ function createFakeManager(): FakeManager {
   }
 }
 
-function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab
-  tab.app = {
+interface FakePlugin {
+  app: typeof mockApp
+  manifest: { id: string; version: string }
+  settings: Record<string, unknown>
+  pathManager: { validatePath: () => { valid: boolean } }
+  saveSettings: jest.Mock<Promise<void>, []>
+  aiTaskManager?: FakeManager
+  aiTaskManagersPendingDisposal?: Set<FakeManager>
+  aiTaskLifecycleActive?: boolean
+  aiTaskLifecycleGeneration?: number
+}
+
+function createTab(): { tab: TaskChuteSettingTab; plugin: FakePlugin } {
+  const app = {
     ...mockApp,
     plugins: { plugins: {} },
   } as unknown as typeof mockApp
-  tab.plugin = {
-    manifest: { id: 'taskchute-plus' },
-    settings: {},
-    saveSettings: jest.fn().mockResolvedValue(undefined),
+
+  const plugin: FakePlugin = {
+    app,
+    manifest: { id: 'taskchute-plus', version: '2.2.0' },
+    settings: { slotKeys: {} },
+    pathManager: { validatePath: () => ({ valid: true }) },
+    saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     aiTaskManagersPendingDisposal: new Set(),
     aiTaskLifecycleActive: true,
     aiTaskLifecycleGeneration: 1,
-    // The AI section renders its controls only for an active license.
+    // The AI settings only appear for an active license.
     licenseManager: createFakeLicenseManager(),
-  }
-  ;(tab.app as unknown as {
+  } as FakePlugin
+  ;(app as unknown as {
     plugins: { plugins: Record<string, unknown> }
-  }).plugins.plugins['taskchute-plus'] = tab.plugin
-  return tab
+  }).plugins.plugins['taskchute-plus'] = plugin
+
+  const tab = new TaskChuteSettingTab(app as never, plugin as never)
+  return { tab, plugin }
 }
 
+function browseRow(
+  tab: TaskChuteSettingTab,
+  pathName: string,
+): SettingDefinitionAction {
+  const row = flatten(tab.getSettingDefinitions()).find(
+    (item: SettingDefinitionItem): item is SettingDefinitionAction =>
+      'action' in item &&
+      item.action !== undefined &&
+      item.name === 'Browse' &&
+      item.desc === pathName,
+  )
+  if (!row) throw new Error(`browse row for "${pathName}" not found`)
+  return row
+}
+
+const CLAUDE_PATH_NAME = 'Claude CLI path (advanced fallback)'
+
 describe('TaskChute AI task settings section', () => {
-  const SettingMock = Setting as unknown as jest.Mock
-  const originalSettingImpl = SettingMock.getMockImplementation()
   const createAiTaskManagerMock = createAiTaskManager as jest.Mock
 
-  let settings: SettingStub[]
-  let toggles: ToggleStub[]
-  let texts: TextStub[]
-  let buttons: ButtonStub[]
-  let dropdowns: DropdownStub[]
-
-  beforeEach(() => {
-    settings = []
-    toggles = []
-    texts = []
-    buttons = []
-    dropdowns = []
-    SettingMock.mockImplementation(() => {
-      const instance: SettingStub = {
-        setName: jest.fn().mockReturnThis(),
-        setDesc: jest.fn().mockReturnThis(),
-        setHeading: jest.fn().mockReturnThis(),
-        addToggle: jest.fn((cb: (toggle: ToggleStub) => void) => {
-          const toggle = createToggleStub()
-          toggles.push(toggle)
-          cb(toggle)
-          return instance
-        }),
-        addText: jest.fn((cb: (text: TextStub) => void) => {
-          const text = createTextStub()
-          texts.push(text)
-          cb(text)
-          return instance
-        }),
-        addButton: jest.fn((cb: (button: ButtonStub) => void) => {
-          const button = createButtonStub()
-          buttons.push(button)
-          cb(button)
-          return instance
-        }),
-        addDropdown: jest.fn((cb: (dropdown: DropdownStub) => void) => {
-          const dropdown = createDropdownStub()
-          dropdowns.push(dropdown)
-          cb(dropdown)
-          return instance
-        }),
-        controlEl: document.createElement('div'),
-        settingEl: document.createElement('div'),
-      }
-      settings.push(instance)
-      return instance
-    })
-  })
-
   afterEach(() => {
-    SettingMock.mockImplementation(originalSettingImpl)
     jest.clearAllMocks()
     mockApp.workspace.getLeavesOfType.mockReturnValue([])
   })
@@ -254,329 +112,320 @@ describe('TaskChute AI task settings section', () => {
     expect(DEFAULT_SETTINGS.aiTaskLogRetentionDays).toBe(30)
   })
 
-  test('enabling the toggle creates the manager and notifies open views', async () => {
-    const manager = createFakeManager()
-    createAiTaskManagerMock.mockReturnValue(manager)
-    const tab = createTab()
-    const view = { onAiTaskSettingsChanged: jest.fn() }
-    mockApp.workspace.getLeavesOfType.mockReturnValue([{ view }])
+  test('declares the AI settings only once the license is active', () => {
+    const { tab } = createTab()
 
-    tab.renderAiTaskSection(document.createElement('div'))
-    expect(settings[0]?.setName).toHaveBeenCalledWith('AI task')
-
-    await toggles[0]?.trigger(true)
-
-    expect(tab.plugin.settings.aiTaskEnabled).toBe(true)
-    expect(tab.plugin.saveSettings).toHaveBeenCalled()
-    expect(createAiTaskManagerMock).toHaveBeenCalledWith(tab.plugin)
-    expect(tab.plugin.aiTaskManager).toBe(manager)
-    expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
+    const items = tab.getSettingDefinitions()
+    expect(findByKey(items, 'aiTaskEnabled')?.name).toBe('Enable AI tasks')
+    expect(findByKey(items, 'aiTaskRunMode')?.control.type).toBe('dropdown')
+    expect(findByKey(items, 'aiTaskLogRetentionDays')?.control.type).toBe(
+      'number',
+    )
   })
 
-  test('disabling the toggle disposes the manager and notifies open views', async () => {
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.settings.aiTaskEnabled = true
-    tab.plugin.aiTaskManager = manager
-    const view = { onAiTaskSettingsChanged: jest.fn() }
-    mockApp.workspace.getLeavesOfType.mockReturnValue([{ view }])
+  describe('the runtime toggle', () => {
+    test('enabling creates the manager and notifies open views', async () => {
+      const manager = createFakeManager()
+      createAiTaskManagerMock.mockReturnValue(manager)
+      const { tab, plugin } = createTab()
+      const view = { onAiTaskSettingsChanged: jest.fn() }
+      mockApp.workspace.getLeavesOfType.mockReturnValue([{ view }])
 
-    tab.renderAiTaskSection(document.createElement('div'))
-    await toggles[0]?.trigger(false)
+      await tab.setControlValue('aiTaskEnabled', true)
 
-    expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
-    expect(manager.dispose).toHaveBeenCalledTimes(1)
-    expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
-    expect(tab.plugin.aiTaskManager).toBeUndefined()
-    expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
-  })
-
-  test('re-enabling waits for the previous broker shutdown before creating a manager', async () => {
-    let finishShutdown: (() => void) | undefined
-    const shutdown = new Promise<void>((resolve) => {
-      finishShutdown = resolve
+      expect(plugin.settings.aiTaskEnabled).toBe(true)
+      expect(plugin.saveSettings).toHaveBeenCalled()
+      expect(createAiTaskManagerMock).toHaveBeenCalledWith(plugin)
+      expect(plugin.aiTaskManager).toBe(manager)
+      expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
     })
-    const oldManager = createFakeManager()
-    oldManager.disposeAndWait.mockImplementation(() => shutdown)
-    const replacementManager = createFakeManager()
-    createAiTaskManagerMock.mockReturnValue(replacementManager)
-    const tab = createTab()
-    tab.plugin.settings.aiTaskEnabled = true
-    tab.plugin.aiTaskManager = oldManager
 
-    tab.renderAiTaskSection(document.createElement('div'))
-    await toggles[0]?.trigger(false)
-    const enabling = toggles[0]?.trigger(true)
-    await Promise.resolve()
-    await Promise.resolve()
+    test('disabling disposes the manager and notifies open views', async () => {
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskEnabled = true
+      plugin.aiTaskManager = manager
+      const view = { onAiTaskSettingsChanged: jest.fn() }
+      mockApp.workspace.getLeavesOfType.mockReturnValue([{ view }])
 
-    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
-    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+      await tab.setControlValue('aiTaskEnabled', false)
 
-    finishShutdown?.()
-    await enabling
+      expect(plugin.settings.aiTaskEnabled).toBe(false)
+      expect(manager.dispose).toHaveBeenCalledTimes(1)
+      expect(manager.disposeAndWait).toHaveBeenCalledTimes(1)
+      expect(plugin.aiTaskManager).toBeUndefined()
+      expect(view.onAiTaskSettingsChanged).toHaveBeenCalledTimes(1)
+    })
 
-    expect(createAiTaskManagerMock).toHaveBeenCalledWith(tab.plugin)
-    expect(tab.plugin.aiTaskManager).toBe(replacementManager)
-    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(false)
-  })
+    test('re-enabling waits for the previous broker shutdown', async () => {
+      let finishShutdown: (() => void) | undefined
+      const shutdown = new Promise<void>((resolve) => {
+        finishShutdown = resolve
+      })
+      const oldManager = createFakeManager()
+      oldManager.disposeAndWait.mockImplementation(() => shutdown)
+      const replacementManager = createFakeManager()
+      createAiTaskManagerMock.mockReturnValue(replacementManager)
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskEnabled = true
+      plugin.aiTaskManager = oldManager
 
-  test('failed prior broker shutdown keeps AI tasks disabled instead of racing a new manager', async () => {
-    const oldManager = createFakeManager()
-    oldManager.disposeAndWait.mockRejectedValue(new Error('broker still alive'))
-    const tab = createTab()
-    tab.plugin.settings.aiTaskEnabled = true
-    tab.plugin.aiTaskManager = oldManager
+      await tab.setControlValue('aiTaskEnabled', false)
+      const enabling = tab.setControlValue('aiTaskEnabled', true)
+      await Promise.resolve()
+      await Promise.resolve()
 
-    tab.renderAiTaskSection(document.createElement('div'))
-    await toggles[0]?.trigger(false)
-    await toggles[0]?.trigger(true)
+      expect(plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
+      expect(createAiTaskManagerMock).not.toHaveBeenCalled()
 
-    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
-    expect(tab.plugin.aiTaskManager).toBeUndefined()
-    expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
-    expect(tab.plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
-    expect(Notice).toHaveBeenCalledWith(
-      'The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.',
-    )
-  })
+      finishShutdown?.()
+      await enabling
 
-  test('a toggle save completed by an old plugin instance cannot mutate the adopted manager', async () => {
-    let finishSave: (() => void) | undefined
-    const tab = createTab()
-    tab.plugin.saveSettings.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSave = resolve
-        }),
-    )
-    tab.renderAiTaskSection(document.createElement('div'))
+      expect(createAiTaskManagerMock).toHaveBeenCalledWith(plugin)
+      expect(plugin.aiTaskManager).toBe(replacementManager)
+      expect(plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(false)
+    })
 
-    const pendingToggle = toggles[0]?.trigger(true)
-    await Promise.resolve()
-    tab.app = {
-      ...mockApp,
-      plugins: {
-        plugins: {
-          'taskchute-plus': { replacement: true },
-        },
-      },
-    } as unknown as typeof mockApp
-    finishSave?.()
-    await pendingToggle
+    test('a failed prior shutdown keeps AI tasks disabled rather than racing', async () => {
+      const oldManager = createFakeManager()
+      oldManager.disposeAndWait.mockRejectedValue(new Error('broker still alive'))
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskEnabled = true
+      plugin.aiTaskManager = oldManager
 
-    expect(tab.plugin.settings.aiTaskEnabled).toBe(true)
-    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
-    expect(tab.plugin.aiTaskManager).toBeUndefined()
-  })
+      await tab.setControlValue('aiTaskEnabled', false)
+      await tab.setControlValue('aiTaskEnabled', true)
 
-  test('an old disable callback cannot dispose a manager adopted by the replacement plugin', async () => {
-    let finishSave: (() => void) | undefined
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.settings.aiTaskEnabled = true
-    tab.plugin.aiTaskManager = manager
-    tab.plugin.saveSettings.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSave = resolve
-        }),
-    )
-    tab.renderAiTaskSection(document.createElement('div'))
+      expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+      expect(plugin.aiTaskManager).toBeUndefined()
+      expect(plugin.settings.aiTaskEnabled).toBe(false)
+      expect(plugin.aiTaskManagersPendingDisposal?.has(oldManager)).toBe(true)
+      expect(Notice).toHaveBeenCalledWith(
+        'The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.',
+      )
+    })
 
-    const pendingToggle = toggles[0]?.trigger(false)
-    await Promise.resolve()
-    const replacement = { aiTaskManager: manager }
-    ;(tab.app as unknown as {
-      plugins: { plugins: Record<string, unknown> }
-    }).plugins.plugins['taskchute-plus'] = replacement
-    finishSave?.()
-    await pendingToggle
+    test('a save completed by an old plugin instance cannot adopt a manager', async () => {
+      let finishSave: (() => void) | undefined
+      const { tab, plugin } = createTab()
+      plugin.saveSettings.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSave = resolve
+          }),
+      )
 
-    expect(manager.dispose).not.toHaveBeenCalled()
-    expect(manager.disposeAndWait).not.toHaveBeenCalled()
-    expect(replacement.aiTaskManager).toBe(manager)
-  })
+      const pending = tab.setControlValue('aiTaskEnabled', true)
+      await Promise.resolve()
+      // A hot reload swaps the registry entry for a fresh plugin instance.
+      const reloadedApp = {
+        ...mockApp,
+        plugins: { plugins: { 'taskchute-plus': { replacement: true } } },
+      } as unknown as typeof mockApp
+      plugin.app = reloadedApp
+      finishSave?.()
+      await pending
 
-  test('an unload-started disable callback cannot dispose the manager while the registry still points to the old plugin', async () => {
-    let finishSave: (() => void) | undefined
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.settings.aiTaskEnabled = true
-    tab.plugin.aiTaskManager = manager
-    tab.plugin.saveSettings.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSave = resolve
-        }),
-    )
-    tab.renderAiTaskSection(document.createElement('div'))
+      expect(plugin.settings.aiTaskEnabled).toBe(true)
+      expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+      expect(plugin.aiTaskManager).toBeUndefined()
+    })
 
-    const pendingToggle = toggles[0]?.trigger(false)
-    await Promise.resolve()
+    test('an old disable callback cannot dispose the replacement plugin’s manager', async () => {
+      let finishSave: (() => void) | undefined
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskEnabled = true
+      plugin.aiTaskManager = manager
+      plugin.saveSettings.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSave = resolve
+          }),
+      )
 
-    // Hostile event order: onunload has begun, but Obsidian has not replaced
-    // the old instance in its plugin registry yet.
-    tab.plugin.aiTaskLifecycleActive = false
-    tab.plugin.aiTaskLifecycleGeneration = 2
-    expect(
-      (tab.app as unknown as {
+      const pending = tab.setControlValue('aiTaskEnabled', false)
+      await Promise.resolve()
+      const replacement = { aiTaskManager: manager }
+      ;(plugin.app as unknown as {
         plugins: { plugins: Record<string, unknown> }
-      }).plugins.plugins['taskchute-plus'],
-    ).toBe(tab.plugin)
+      }).plugins.plugins['taskchute-plus'] = replacement
+      finishSave?.()
+      await pending
 
-    finishSave?.()
-    await pendingToggle
+      expect(manager.dispose).not.toHaveBeenCalled()
+      expect(manager.disposeAndWait).not.toHaveBeenCalled()
+      expect(replacement.aiTaskManager).toBe(manager)
+    })
 
-    expect(manager.dispose).not.toHaveBeenCalled()
-    expect(manager.disposeAndWait).not.toHaveBeenCalled()
-    expect(tab.plugin.aiTaskManager).toBe(manager)
+    test('an unload-started callback cannot dispose while the registry is stale', async () => {
+      let finishSave: (() => void) | undefined
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskEnabled = true
+      plugin.aiTaskManager = manager
+      plugin.saveSettings.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSave = resolve
+          }),
+      )
+
+      const pending = tab.setControlValue('aiTaskEnabled', false)
+      await Promise.resolve()
+
+      // Hostile event order: onunload has begun, but Obsidian has not replaced
+      // the old instance in its plugin registry yet.
+      plugin.aiTaskLifecycleActive = false
+      plugin.aiTaskLifecycleGeneration = 2
+      expect(
+        (plugin.app as unknown as {
+          plugins: { plugins: Record<string, unknown> }
+        }).plugins.plugins['taskchute-plus'],
+      ).toBe(plugin)
+
+      finishSave?.()
+      await pending
+
+      expect(manager.dispose).not.toHaveBeenCalled()
+      expect(manager.disposeAndWait).not.toHaveBeenCalled()
+      expect(plugin.aiTaskManager).toBe(manager)
+    })
+
+    test('only the newest toggle applies when saves complete out of order', async () => {
+      const saveResolvers: Array<() => void> = []
+      const { tab, plugin } = createTab()
+      plugin.saveSettings.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            saveResolvers.push(resolve)
+          }),
+      )
+
+      const enable = tab.setControlValue('aiTaskEnabled', true)
+      await Promise.resolve()
+      const disable = tab.setControlValue('aiTaskEnabled', false)
+      await Promise.resolve()
+      saveResolvers[1]?.()
+      await disable
+      saveResolvers[0]?.()
+      await enable
+
+      expect(plugin.settings.aiTaskEnabled).toBe(false)
+      expect(createAiTaskManagerMock).not.toHaveBeenCalled()
+      expect(plugin.aiTaskManager).toBeUndefined()
+    })
   })
 
-  test('only the newest toggle operation applies when saves complete out of order', async () => {
-    const saveResolvers: Array<() => void> = []
-    const tab = createTab()
-    tab.plugin.saveSettings.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          saveResolvers.push(resolve)
-        }),
-    )
-    tab.renderAiTaskSection(document.createElement('div'))
+  describe('run mode', () => {
+    test('offers terminal and headless, defaulting to terminal', () => {
+      const { tab } = createTab()
 
-    const enable = toggles[0]?.trigger(true)
-    await Promise.resolve()
-    const disable = toggles[0]?.trigger(false)
-    await Promise.resolve()
-    saveResolvers[1]?.()
-    await disable
-    saveResolvers[0]?.()
-    await enable
+      const control = findByKey(tab.getSettingDefinitions(), 'aiTaskRunMode')
+        ?.control as { options: Record<string, string> } | undefined
+      expect(Object.keys(control?.options ?? {})).toEqual([
+        'terminal',
+        'headless',
+      ])
+      expect(tab.getControlValue('aiTaskRunMode')).toBe('terminal')
+    })
 
-    expect(tab.plugin.settings.aiTaskEnabled).toBe(false)
-    expect(createAiTaskManagerMock).not.toHaveBeenCalled()
-    expect(tab.plugin.aiTaskManager).toBeUndefined()
+    test('reflects a stored headless preference', () => {
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskRunMode = 'headless'
+
+      expect(tab.getControlValue('aiTaskRunMode')).toBe('headless')
+    })
+
+    test('persists a change and normalizes anything unknown', async () => {
+      const { tab, plugin } = createTab()
+
+      await tab.setControlValue('aiTaskRunMode', 'headless')
+      expect(plugin.settings.aiTaskRunMode).toBe('headless')
+      expect(plugin.saveSettings).toHaveBeenCalledTimes(1)
+
+      await tab.setControlValue('aiTaskRunMode', 'bogus')
+      expect(plugin.settings.aiTaskRunMode).toBe('terminal')
+    })
   })
 
-  test('run mode dropdown lists terminal and headless and reflects the saved setting', () => {
-    const tab = createTab()
+  describe('CLI paths', () => {
+    test('trim on the way in and invalidate the locator cache', async () => {
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.aiTaskManager = manager
 
-    tab.renderAiTaskSection(document.createElement('div'))
+      await tab.setControlValue(
+        'aiTaskClaudePath',
+        '  /opt/homebrew/bin/claude  ',
+      )
+      await tab.setControlValue('aiTaskCodexPath', '')
 
-    expect(dropdowns).toHaveLength(1)
-    const dropdown = dropdowns[0]
-    expect(dropdown.options.map((option) => option.value)).toEqual([
-      'terminal',
-      'headless',
-    ])
-    // No stored preference -> terminal default
-    expect(dropdown.setValue).toHaveBeenCalledWith('terminal')
+      expect(plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
+      expect(plugin.settings.aiTaskCodexPath).toBe('')
+      expect(plugin.saveSettings).toHaveBeenCalledTimes(2)
+      expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
+    })
+
+    test('reject Windows command shims with a visible notice', async () => {
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.aiTaskManager = manager
+
+      await tab.setControlValue(
+        'aiTaskClaudePath',
+        'C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd',
+      )
+      await tab.setControlValue(
+        'aiTaskCodexPath',
+        'C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.ps1',
+      )
+
+      expect(plugin.settings.aiTaskClaudePath).toBe('')
+      expect(plugin.settings.aiTaskCodexPath).toBe('')
+      expect(tab.getControlValue('aiTaskClaudePath')).toBe('')
+      expect(Notice).toHaveBeenCalledTimes(2)
+      expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
+    })
+
+    test('browsing writes the picked file into the setting', async () => {
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.aiTaskManager = manager
+      selectFileMock.mockResolvedValue('/opt/homebrew/bin/claude')
+
+      browseRow(tab, CLAUDE_PATH_NAME).action({} as HTMLElement, 0)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
+      expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(1)
+    })
+
+    test('cancelling the picker leaves the stored path untouched', async () => {
+      const { tab, plugin } = createTab()
+      plugin.settings.aiTaskClaudePath = '/existing/claude'
+      selectFileMock.mockResolvedValue(null)
+
+      browseRow(tab, CLAUDE_PATH_NAME).action({} as HTMLElement, 0)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(plugin.settings.aiTaskClaudePath).toBe('/existing/claude')
+      expect(plugin.saveSettings).not.toHaveBeenCalled()
+    })
   })
 
-  test('run mode dropdown reflects a stored headless preference', () => {
-    const tab = createTab()
-    tab.plugin.settings.aiTaskRunMode = 'headless'
+  test('retention days clamp instead of rejecting', async () => {
+    const { tab, plugin } = createTab()
 
-    tab.renderAiTaskSection(document.createElement('div'))
+    await tab.setControlValue('aiTaskLogRetentionDays', 0)
+    expect(plugin.settings.aiTaskLogRetentionDays).toBe(1)
 
-    expect(dropdowns[0]?.setValue).toHaveBeenCalledWith('headless')
-  })
+    await tab.setControlValue('aiTaskLogRetentionDays', 45.4)
+    expect(plugin.settings.aiTaskLogRetentionDays).toBe(45)
 
-  test('run mode changes persist through saveSettings', async () => {
-    const tab = createTab()
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    await dropdowns[0]?.trigger('headless')
-
-    expect(tab.plugin.settings.aiTaskRunMode).toBe('headless')
-    expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(1)
-
-    await dropdowns[0]?.trigger('terminal')
-    expect(tab.plugin.settings.aiTaskRunMode).toBe('terminal')
-  })
-
-  test('run mode dropdown normalizes unknown values back to terminal', async () => {
-    const tab = createTab()
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    await dropdowns[0]?.trigger('bogus')
-
-    expect(tab.plugin.settings.aiTaskRunMode).toBe('terminal')
-  })
-
-  test('binary path changes save trimmed values and invalidate the locator cache', async () => {
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.aiTaskManager = manager
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    // texts[0] = claude path, texts[1] = codex path, texts[2] = retention days
-    await texts[0]?.trigger('  /opt/homebrew/bin/claude  ')
-    await texts[1]?.trigger('')
-
-    expect(tab.plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
-    expect(tab.plugin.settings.aiTaskCodexPath).toBe('')
-    expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(2)
-    expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
-  })
-
-  test('rejects Windows command shims as manual binary paths with a visible notice', async () => {
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.aiTaskManager = manager
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    await texts[0]?.trigger('C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd')
-    await texts[1]?.trigger('C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.ps1')
-
-    expect(tab.plugin.settings.aiTaskClaudePath).toBe('')
-    expect(tab.plugin.settings.aiTaskCodexPath).toBe('')
-    expect(texts[0]?.setValue).toHaveBeenLastCalledWith('')
-    expect(texts[1]?.setValue).toHaveBeenLastCalledWith('')
-    expect(Notice).toHaveBeenCalledTimes(2)
-    expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
-  })
-
-  test('browsing for a CLI path writes the picked file into the field', async () => {
-    const manager = createFakeManager()
-    const tab = createTab()
-    tab.plugin.aiTaskManager = manager
-    selectFileMock.mockResolvedValue('/opt/homebrew/bin/claude')
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    // buttons[0] = claude browse, buttons[1] = codex browse
-    await buttons[0]?.trigger()
-
-    expect(texts[0]?.setValue).toHaveBeenLastCalledWith('/opt/homebrew/bin/claude')
-    expect(tab.plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
-    expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(1)
-  })
-
-  test('cancelling the CLI path picker leaves the stored path untouched', async () => {
-    const tab = createTab()
-    tab.plugin.settings.aiTaskClaudePath = '/existing/claude'
-    selectFileMock.mockResolvedValue(null)
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    await buttons[0]?.trigger()
-
-    expect(tab.plugin.settings.aiTaskClaudePath).toBe('/existing/claude')
-    expect(tab.plugin.saveSettings).not.toHaveBeenCalled()
-  })
-
-  test('retention days input normalizes invalid values', async () => {
-    const tab = createTab()
-
-    tab.renderAiTaskSection(document.createElement('div'))
-    const retention = texts[2]
-
-    await retention?.trigger('0')
-    expect(tab.plugin.settings.aiTaskLogRetentionDays).toBe(1)
-
-    await retention?.trigger('45.4')
-    expect(tab.plugin.settings.aiTaskLogRetentionDays).toBe(45)
-
-    await retention?.trigger('abc')
-    expect(tab.plugin.settings.aiTaskLogRetentionDays).toBe(30)
+    await tab.setControlValue('aiTaskLogRetentionDays', Number.NaN)
+    expect(plugin.settings.aiTaskLogRetentionDays).toBe(30)
   })
 })

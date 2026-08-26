@@ -83,6 +83,7 @@ export const en = {
       activating: "Activating…",
       statusName: "Status",
       statusActive: "Active",
+      statusInactive: "Not activated",
       statusUnlicensed: "Not activated",
       licenseIdName: "License ID",
       devicesName: "Devices",
@@ -92,6 +93,7 @@ export const en = {
       activated: "License activated.",
       requiredNotice: "A license is required.",
       // Split so the link sits inside the sentence rather than after it.
+      purchaseName: "Buy a license",
       purchaseBefore: "You can buy an activation code ",
       // Mid-sentence link text, so it stays lowercase (exempted by the
       // "^here$" ignoreRegex).
