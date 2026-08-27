@@ -5,6 +5,7 @@
  * gate will refuse to start.
  */
 import type {
+  SettingDefinitionAction,
   SettingDefinitionItem,
   SettingDefinitionRender,
 } from 'obsidian'
@@ -62,7 +63,10 @@ function activeManager(): LicenseManager {
   })
 }
 
-function createTab(manager: LicenseManager | undefined): TaskChuteSettingTab {
+function createTab(
+  manager: LicenseManager | undefined,
+  licenseCode?: string,
+): TaskChuteSettingTab {
   const app = { ...mockApp, plugins: { plugins: {} } }
   const plugin = {
     app,
@@ -72,6 +76,7 @@ function createTab(manager: LicenseManager | undefined): TaskChuteSettingTab {
       aiTaskEnabled: false,
       aiTaskRunMode: 'terminal',
       aiTaskLogRetentionDays: 30,
+      licenseCode,
     },
     pathManager: { validatePath: () => ({ valid: true }) },
     saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
@@ -82,9 +87,12 @@ function createTab(manager: LicenseManager | undefined): TaskChuteSettingTab {
 }
 
 /** The rows on the Pro page, with the page's own visibility ignored. */
-function proItems(manager: LicenseManager | undefined): SettingDefinitionItem[] {
+function proItems(
+  manager: LicenseManager | undefined,
+  licenseCode?: string,
+): SettingDefinitionItem[] {
   const page = pageNamed(
-    createTab(manager).getSettingDefinitions(),
+    createTab(manager, licenseCode).getSettingDefinitions(),
     t('settings.pro.heading', 'Pro settings'),
   )
   if (!page) throw new Error('Pro page not found')
@@ -98,6 +106,13 @@ function names(items: SettingDefinitionItem[]): string[] {
     .filter((name): name is string => Boolean(name))
 }
 
+function headings(items: SettingDefinitionItem[]): string[] {
+  return items
+    .filter((item) => isVisible(item as { visible?: boolean | (() => boolean) }))
+    .map((item) => ('heading' in item ? item.heading : undefined))
+    .filter((heading): heading is string => Boolean(heading))
+}
+
 function descs(items: SettingDefinitionItem[]): string[] {
   return items
     .map((item) => ('desc' in item ? item.desc : undefined))
@@ -107,18 +122,82 @@ function descs(items: SettingDefinitionItem[]): string[] {
     .filter(Boolean)
 }
 
-/** Runs a row's render callback against a throwaway group. */
-function invokeRender(item: SettingDefinitionItem): (() => void) | void {
+/** The row that carries the whole activation form. */
+function codeItem(manager: LicenseManager): SettingDefinitionItem {
+  const item = proItems(manager).find(
+    (candidate) => 'name' in candidate && candidate.name === 'License code',
+  )
+  if (!item) throw new Error('License code row not found')
+  return item
+}
+
+/**
+ * The row that mounts the seat list. Nameless by design — the group heading
+ * above it says "Devices" — so it is found by shape.
+ */
+function deviceItem(manager: LicenseManager): SettingDefinitionItem {
+  const item = proItems(manager).find(
+    (candidate) =>
+      'render' in candidate &&
+      candidate.render !== undefined &&
+      'name' in candidate &&
+      candidate.name === '',
+  )
+  if (!item) throw new Error('Device list row not found')
+  return item
+}
+
+/** Clicks the purchase row and reports where it tried to send the user. */
+function openPurchasePage(manager: LicenseManager): string | URL | undefined {
+  // Found by shape rather than by name: the name is localized, and the
+  // purchase row is the only one on this page that acts on a click.
+  const item = proItems(manager).find(
+    (candidate): candidate is SettingDefinitionAction =>
+      'action' in candidate && candidate.action !== undefined,
+  )
+  const action = item?.action
+  const open = jest.spyOn(window, 'open').mockReturnValue(null)
+
+  try {
+    action?.(document.createElement('div'), 0)
+    return open.mock.calls[0]?.[0]
+  } finally {
+    open.mockRestore()
+  }
+}
+
+type MockTextComponent = { __triggerChange: (value: string) => Promise<void> }
+type MockButtonComponent = { __click: () => Promise<void>; text: string }
+
+type MockSetting = {
+  settingEl: HTMLElement
+  nameEl: HTMLElement
+  controlEl: HTMLElement
+  __textComponents: MockTextComponent[]
+  __buttons: MockButtonComponent[]
+}
+
+type RenderedRow = {
+  cleanup: (() => void) | void
+  setting: MockSetting
+  group: { listEl: HTMLElement }
+}
+
+/** Runs a row's render callback against a throwaway row and group. */
+function invokeRender(item: SettingDefinitionItem): RenderedRow {
   const render = (item as SettingDefinitionRender).render
   const group = new (SettingGroup as unknown as new (
     el: HTMLElement,
   ) => { listEl: HTMLElement })(document.createElement('div'))
-  return render(
-    new (Setting as unknown as new (el: HTMLElement) => never)(
-      document.createElement('div'),
-    ),
-    group as never,
-  )
+  const setting = new (Setting as unknown as new (
+    el: HTMLElement,
+  ) => MockSetting)(document.createElement('div'))
+
+  return {
+    cleanup: render(setting as never, group as never),
+    setting,
+    group,
+  }
 }
 
 describe('Pro settings section', () => {
@@ -147,43 +226,52 @@ describe('Pro settings section', () => {
       expect(names(proItems(fakeManager()))).toContain('License code')
     })
 
-    test('links to the purchase page for someone without a code', () => {
-      const purchase = proItems(fakeManager()).find(
-        (item) => 'desc' in item && typeof item.desc === 'object',
+    test('opens the purchase page from the row itself', () => {
+      // The whole row is the target: an inline link inside a description is
+      // both smaller and easy to miss on the screen someone lands on with no
+      // code in hand.
+      expect(openPurchasePage(fakeManager())).toBe(
+        'https://obsidian.levers.co.jp/',
       )
-      const desc = (purchase as { desc: DocumentFragment }).desc
-      const link = desc.querySelector('a')
-
-      expect(link?.getAttribute('href')).toBe('https://obsidian.levers.co.jp/')
-      expect(link?.textContent).toBe('here')
-      // The link belongs inside the sentence, with text on both sides of it.
-      expect(desc.textContent).toBe('You can buy an activation code here.')
     })
 
-    test('explains where the code comes from on its own row', () => {
+    test('explains where the code comes from behind the label', () => {
       const items = proItems(fakeManager())
 
-      expect(names(items)).toContain('About the license code')
-      // The explanation must not also occupy the form as a standing paragraph.
+      // A row of its own would separate the note from the field it explains.
+      expect(names(items)).not.toContain('About the license code')
+      // Nor may it occupy the form as a standing paragraph.
       expect(descs(items).some((desc) => desc.includes('purchase email'))).toBe(
         false,
       )
+
+      const { setting } = invokeRender(codeItem(fakeManager()))
+      const help = setting.nameEl.querySelector('.taskchute-license-code__help')
+
+      expect(help?.getAttribute('aria-label')).toBe('About the license code')
     })
 
     test('sends Japanese users to the Japanese purchase page', () => {
       setLocaleOverride('ja')
       try {
-        const purchase = proItems(fakeManager()).find(
-          (item) => 'desc' in item && typeof item.desc === 'object',
-        )
-        const desc = (purchase as { desc: DocumentFragment }).desc
-
-        expect(desc.querySelector('a')?.getAttribute('href')).toBe(
+        expect(openPurchasePage(fakeManager())).toBe(
           'https://obsidian.levers.co.jp/ja/',
         )
       } finally {
         setLocaleOverride('en')
       }
+    })
+
+    test('activates with the code typed into the row', async () => {
+      const manager = fakeManager({
+        activate: jest.fn().mockResolvedValue({ ok: true }),
+      })
+      const { setting } = invokeRender(codeItem(manager))
+
+      await setting.__textComponents[0].__triggerChange('TCP-AAAA-BBBB-CCCC')
+      await setting.__buttons[0].__click()
+
+      expect(manager.activate).toHaveBeenCalledWith('TCP-AAAA-BBBB-CCCC')
     })
 
     test('does not show the device list or the AI settings', () => {
@@ -214,13 +302,26 @@ describe('Pro settings section', () => {
     test('shows the license details', () => {
       const items = proItems(activeManager())
 
-      expect(names(items)).toEqual(
-        expect.arrayContaining(['License ID', 'Devices']),
+      // Two sections: the licence to read, the seats to act on.
+      expect(headings(items)).toEqual(
+        expect.arrayContaining(['License', 'Devices']),
       )
+      expect(names(items)).toContain('License ID')
+
       const licenseId = items.find(
         (item) => 'name' in item && item.name === 'License ID',
       )
       expect((licenseId as { desc: string }).desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
+    })
+
+    test('shows the code that was entered, not the id derived from it', () => {
+      // What the user holds and would re-enter elsewhere is the code; the id
+      // means nothing to them.
+      const items = proItems(activeManager(), 'TCP-AAAA-BBBB-CCCC-DDDD')
+
+      expect(names(items)).toContain('License code')
+      expect(names(items)).not.toContain('License ID')
+      expect(descs(items)).toContain('TCP-AAAA-BBBB-CCCC-DDDD')
     })
 
     test('drops the status and expiry rows', () => {
@@ -233,11 +334,7 @@ describe('Pro settings section', () => {
     })
 
     test('mounts the device list and disposes it on teardown', () => {
-      const devices = proItems(activeManager()).find(
-        (item) => 'name' in item && item.name === 'Devices',
-      )
-
-      const cleanup = invokeRender(devices as SettingDefinitionItem)
+      const { cleanup } = invokeRender(deviceItem(activeManager()))
       expect(DeviceListView).toHaveBeenCalledTimes(1)
 
       // The framework tears the row down before replacing it, which is what
@@ -246,6 +343,23 @@ describe('Pro settings section', () => {
       expect(view.dispose).not.toHaveBeenCalled()
       cleanup?.()
       expect(view.dispose).toHaveBeenCalledTimes(1)
+    })
+
+    /**
+     * Obsidian finishes a group by setting its list to exactly the rows'
+     * elements, so a list mounted into the group is removed in the same render
+     * pass — the row ends up showing its name and nothing else. Mounting into
+     * the row's own control element is what keeps the seats on screen.
+     */
+    test('mounts the device list into the row, not the group', () => {
+      const { setting, group } = invokeRender(deviceItem(activeManager()))
+
+      const container = DeviceListView.mock.calls[0][0] as HTMLElement
+      expect(container).toBe(setting.controlEl)
+      expect(container).not.toBe(group.listEl)
+      expect(setting.settingEl.className).toContain(
+        'taskchute-license-devices-item',
+      )
     })
 
     test('shows the AI task settings', () => {

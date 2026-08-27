@@ -8453,7 +8453,60 @@ textarea.form-textarea {
   stroke-width: 1.8;
 }
 
+/* ── License activation form (Pro settings) ─────────────────────────────── */
+
+/* The code and the button that spends it are one action, so they share a line
+   under the label rather than being squeezed into the row's control column. */
+.setting-item.taskchute-license-code-item {
+  display: block;
+}
+
+.setting-item.taskchute-license-code-item .setting-item-name {
+  align-items: center;
+  display: flex;
+  gap: var(--size-2-2);
+}
+
+.setting-item.taskchute-license-code-item .setting-item-control {
+  margin-top: var(--size-4-2);
+  width: 100%;
+}
+
+/* Codes run to a couple of hundred characters, so the field takes whatever the
+   button leaves. */
+.setting-item.taskchute-license-code-item .setting-item-control input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* An activation code runs to a couple of hundred characters, so it wraps
+   anywhere rather than pushing the card sideways, and stays selectable for
+   someone copying it back out. */
+.taskchute-license-identity .setting-item-description {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 /* ── License device seats (rendered inline in the Pro settings section) ─── */
+
+/* The list mounts into the row's control element, which normally sits beside
+   the name and sizes itself to its content. The row carries no name — the
+   group heading above it does — so it becomes a plain full-width container. */
+.setting-item.taskchute-license-devices-item {
+  display: block;
+}
+
+.setting-item.taskchute-license-devices-item .setting-item-info {
+  display: none;
+}
+
+.setting-item.taskchute-license-devices-item .setting-item-control {
+  width: 100%;
+  justify-content: flex-start;
+  /* A control area is right-aligned by default, which is wrong for a block of
+     prose sitting where the row's own description would be. */
+  text-align: left;
+}
 
 .taskchute-license-devices {
   margin-bottom: var(--size-4-4);
@@ -8467,7 +8520,7 @@ textarea.form-textarea {
 .taskchute-license-devices__status {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  margin: var(--size-4-1) 0 var(--size-4-2);
+  margin-top: var(--size-4-2);
   min-height: 1.2em;
 }
 
@@ -8475,6 +8528,7 @@ textarea.form-textarea {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
 }
 
 .taskchute-license-devices__row {

@@ -180,6 +180,97 @@ class TextComponent {
   }
 }
 
+/**
+ * Enough of ButtonComponent for a `render:` callback that builds its own
+ * button — the activation form does, because the code field and the button
+ * that spends it belong to one row.
+ */
+class ButtonComponent {
+  constructor(containerEl) {
+    this.buttonEl = createMockElement('button')
+    this.text = ''
+    this.cta = false
+    this.disabled = false
+    this._onClick = null
+    this.containerEl = containerEl
+    containerEl?.appendChild?.(this.buttonEl)
+  }
+
+  setButtonText(text) {
+    this.text = text
+    this.buttonEl.textContent = text
+    return this
+  }
+
+  setCta() {
+    this.cta = true
+    return this
+  }
+
+  setDisabled(disabled) {
+    this.disabled = disabled
+    return this
+  }
+
+  setTooltip() {
+    return this
+  }
+
+  setIcon(icon) {
+    this.icon = icon
+    return this
+  }
+
+  onClick(callback) {
+    this._onClick = callback
+    return this
+  }
+
+  async __click() {
+    if (this._onClick) {
+      await this._onClick()
+    }
+  }
+}
+
+class ExtraButtonComponent {
+  constructor(containerEl) {
+    this.extraSettingsEl = createMockElement('div')
+    this.icon = null
+    this.tooltip = null
+    this.disabled = false
+    this._onClick = null
+    this.containerEl = containerEl
+    containerEl?.appendChild?.(this.extraSettingsEl)
+  }
+
+  setIcon(icon) {
+    this.icon = icon
+    return this
+  }
+
+  setTooltip(tooltip) {
+    this.tooltip = tooltip
+    return this
+  }
+
+  setDisabled(disabled) {
+    this.disabled = disabled
+    return this
+  }
+
+  onClick(callback) {
+    this._onClick = callback
+    return this
+  }
+
+  async __click() {
+    if (this._onClick) {
+      await this._onClick()
+    }
+  }
+}
+
 class AbstractInputSuggest {
   constructor(app, inputEl) {
     this.app = app
@@ -238,10 +329,30 @@ const Setting = jest.fn().mockImplementation(() => {
       return this
     }),
     addTextArea: jest.fn().mockReturnThis(),
-    addButton: jest.fn().mockReturnThis(),
+    addButton: jest.fn().mockImplementation(function (callback) {
+      if (!this.__buttons) {
+        this.__buttons = []
+      }
+      const button = new ButtonComponent(this.controlEl)
+      this.__buttons.push(button)
+      if (typeof callback === 'function') {
+        callback(button)
+      }
+      return this
+    }),
     addDropdown: jest.fn().mockReturnThis(),
     addSlider: jest.fn().mockReturnThis(),
-    addExtraButton: jest.fn().mockReturnThis(),
+    addExtraButton: jest.fn().mockImplementation(function (callback) {
+      if (!this.__extraButtons) {
+        this.__extraButtons = []
+      }
+      const button = new ExtraButtonComponent(createMockElement('div'))
+      this.__extraButtons.push(button)
+      if (typeof callback === 'function') {
+        callback(button)
+      }
+      return this
+    }),
   }
   SettingInstances.push(settingInstance)
   return settingInstance
@@ -259,6 +370,7 @@ const createMockElement = (tag = 'div') => {
   const element = {
     tagName: tag.toUpperCase(),
     children: [],
+    __attributes: {},
     style: {},
     textContent: "",
     innerHTML: "",
@@ -296,8 +408,17 @@ const createMockElement = (tag = 'div') => {
     }),
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
-    setAttribute: jest.fn(),
-    getAttribute: jest.fn(),
+    // Attributes are readable back: code under test sets aria-label and the
+    // like through createEl's `attr`, and a test that cannot read them can
+    // only assert against internals.
+    setAttribute: jest.fn(function (name, value) {
+      this.__attributes[name] = String(value)
+    }),
+    getAttribute: jest.fn(function (name) {
+      return Object.hasOwn(this.__attributes, name)
+        ? this.__attributes[name]
+        : null
+    }),
     appendChild: jest.fn(function(child) {
       this.children.push(child)
       return child
@@ -372,6 +493,7 @@ const createMockElement = (tag = 'div') => {
       if (options.attr) {
         Object.entries(options.attr).forEach(([key, value]) => {
           el[key] = value
+          el.setAttribute(key, value)
         })
       }
       this.appendChild(el)
@@ -540,6 +662,8 @@ module.exports = {
   Modal,
   SuggestModal,
   TextComponent,
+  ButtonComponent,
+  ExtraButtonComponent,
   AbstractInputSuggest,
   Notice,
   PluginSettingTab,

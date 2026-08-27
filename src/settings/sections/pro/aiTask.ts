@@ -1,4 +1,5 @@
 import { Notice } from "obsidian"
+import type { Setting, SettingDefinitionRender } from "obsidian"
 import { t } from "../../../i18n"
 import { ElectronDirectoryPicker } from "../../../features/ai-task/services/ElectronDirectoryPicker"
 import type { TaskChuteSettings } from "../../../types"
@@ -97,6 +98,60 @@ async function browseForCliPath(
 }
 
 /**
+ * Rendered imperatively rather than declared: a `control` row cannot also carry
+ * an action, and the picker belongs beside its field rather than on a row of
+ * its own. The picker is an Electron one because these are filesystem paths
+ * outside the vault, where the declarative file control's suggester is no help.
+ */
+function cliPathRow(
+  ctx: SectionContext,
+  path: CliPath,
+): SettingDefinitionRender {
+  return {
+    name: path.name,
+    desc: path.desc,
+    render: (setting: Setting) => {
+      let committed = ctx.plugin.settings[path.key] ?? ""
+
+      setting.addText((input) => {
+        const commit = async (value: string): Promise<void> => {
+          if (value === committed) return
+          await cliPathHandler(path).write(value, ctx)
+          // The handler trims and may reject outright, so the field follows
+          // what was actually stored rather than what was typed.
+          committed = ctx.plugin.settings[path.key] ?? ""
+          if (committed !== value) input.setValue(committed)
+        }
+
+        input
+          .setPlaceholder(
+            t("settings.aiTask.pathPlaceholder", "Auto-detect (recommended)"),
+          )
+          .setValue(committed)
+        // Saving on every keystroke would fire the shim rejection midway
+        // through typing "claude.cmd" and blank the field under the cursor, so
+        // the value is committed on blur instead.
+        input.inputEl.addEventListener("blur", () => {
+          void commit(input.getValue())
+        })
+        input.inputEl.addEventListener("keydown", (event: KeyboardEvent) => {
+          if (event.key === "Enter") input.inputEl.blur()
+        })
+      })
+
+      setting.addExtraButton((button) =>
+        button
+          .setIcon("folder")
+          .setTooltip(t("settings.aiTask.pathBrowse", "Browse"))
+          .onClick(() => {
+            void browseForCliPath(ctx, path)
+          }),
+      )
+    },
+  }
+}
+
+/**
  * Everything a Pro license unlocks. Only reached from the Pro page, which has
  * already checked entitlement.
  */
@@ -143,31 +198,7 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
               },
             },
           },
-          // The picker rows sit beside their fields; these are filesystem
-          // paths outside the vault, so the vault file suggester is no help.
-          ...paths.flatMap((path) => [
-            {
-              name: path.name,
-              desc: path.desc,
-              control: {
-                type: "text" as const,
-                key: path.key,
-                defaultValue: "",
-                placeholder: t(
-                  "settings.aiTask.pathPlaceholder",
-                  "Auto-detect (recommended)",
-                ),
-              },
-            },
-            {
-              name: t("settings.aiTask.pathBrowse", "Browse"),
-              desc: path.name,
-              searchable: false,
-              action: () => {
-                void browseForCliPath(ctx, path)
-              },
-            },
-          ]),
+          ...paths.map((path) => cliPathRow(ctx, path)),
           {
             name: t("settings.aiTask.retentionName", "Run log retention (days)"),
             desc: t(
@@ -211,9 +242,6 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
         min: 1,
         fallback: DEFAULT_SETTINGS.aiTaskLogRetentionDays ?? 30,
       }),
-      ...Object.fromEntries(
-        paths.map((path) => [path.key, cliPathHandler(path)]),
-      ),
     },
   }
 }

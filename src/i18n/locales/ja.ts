@@ -86,9 +86,6 @@ export const ja = {
       activated: "ライセンスを有効化しました。",
       requiredNotice: "ライセンスが必要です。",
       purchaseName: "ライセンスを購入",
-      purchaseBefore: "アクティベーションコードは",
-      purchaseLink: "こちら",
-      purchaseAfter: "から購入することができます",
     },
     aiTask: {
       heading: "AIタスク",
