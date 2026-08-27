@@ -256,6 +256,8 @@ export const en = {
     header: {
       openNavigation: "Open navigation",
       openCalendar: "Open calendar",
+      previousDay: "Previous day",
+      nextDay: "Next day",
       addTask: "Add new task",
       openTerminal: `Open ${TERMINAL_NAME}`,
       terminalOpenFailed: "Failed to open terminal: {message}",

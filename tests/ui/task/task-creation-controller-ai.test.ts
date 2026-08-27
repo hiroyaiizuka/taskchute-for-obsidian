@@ -725,18 +725,19 @@ describe('AI mode UI', () => {
     expect(agentCard(modal, 'codex').textContent).toContain('Codex')
   })
 
-  test('agent cards carry the reference icons (👑 Claude Code / 📜 Codex)', () => {
-    // Carried fix: the reference main-agents.ts uses 👑 for Claude Code.
+  test('agent cards carry the reference icons (crown Claude Code / scroll Codex)', () => {
+    // Carried fix: the reference main-agents.ts crowns Claude Code. The emoji
+    // pair is now drawn with the matching Lucide glyphs.
     const { host } = createHost()
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
 
     expect(
-      agentCard(modal, 'claude').querySelector('.ai-task-agent-icon')?.textContent,
-    ).toBe('👑')
+      agentCard(modal, 'claude').querySelector('.ai-task-agent-icon')?.getAttribute('data-icon'),
+    ).toBe('crown')
     expect(
-      agentCard(modal, 'codex').querySelector('.ai-task-agent-icon')?.textContent,
-    ).toBe('📜')
+      agentCard(modal, 'codex').querySelector('.ai-task-agent-icon')?.getAttribute('data-icon'),
+    ).toBe('scroll')
   })
 
   test('clicking the Codex card selects it and deselects Claude Code', () => {

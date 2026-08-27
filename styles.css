@@ -19,6 +19,31 @@
   --tc-shadow-popup: 0 2px 8px rgba(0, 0, 0, 0.15);
   --tc-shadow-modal: 0 4px 20px rgba(0, 0, 0, 0.3);
   --tc-focus-ring: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+
+  /* Default edge length for every Lucide glyph rendered through
+     `applyIcon()` / `createIconSpan()`. Individual call sites override it by
+     redeclaring the property on the icon host. */
+  --taskchute-icon-size: 18px;
+}
+
+/* ===== Lucide icons =====
+   Obsidian bundles Lucide and exposes it via setIcon(), so the plugin ships
+   no icon font of its own. Every element that used to hold a literal emoji or
+   an ASCII glyph ('<', '+', 'x') now carries `taskchute-icon`, and these two
+   rules give all of them one sizing and colouring contract: inherit the
+   surrounding text colour, size from --taskchute-icon-size. */
+.taskchute-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentcolor;
+  line-height: 0;
+}
+
+.taskchute-icon svg {
+  width: var(--taskchute-icon-size, 18px);
+  height: var(--taskchute-icon-size, 18px);
+  stroke-width: 1.8;
 }
 
 /* ===== Time Edit Popup ===== */
@@ -1493,7 +1518,8 @@
 }
 
 .ai-task-agent-icon {
-  font-size: 18px;
+  --taskchute-icon-size: 18px;
+
   line-height: 1;
 }
 
@@ -1781,7 +1807,7 @@
 }
 
 .star-rating .star.taskchute-star-filled {
-  /* 選択された星は元の絵文字の色をそのまま使用（濃い金色） */
+  /* 選択された星は塗りつぶし + 等倍より少し大きく */
   opacity: 1;
   transform: scale(1.1);
 }
@@ -2000,11 +2026,12 @@
 }
 
 .taskchute-move-calendar__nav {
+  --taskchute-icon-size: 18px;
+
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 18px;
   padding: 4px 6px;
   border-radius: var(--tc-radius-sm);
 }
@@ -3083,16 +3110,22 @@
 
 /* Drawer Toggle Button */
 .drawer-toggle {
+  --taskchute-icon-size: 18px;
+
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-sm);
-  padding: 0 10px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s ease;
+
+  /* Square: the box takes its edge length from the header row height it
+     already stretches to, so the menu glyph sits dead centre. */
+  padding: 0;
   height: 100%;
+  aspect-ratio: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
   display: flex;
   align-items: center;
+  justify-content: center;
   grid-column: 1;
   justify-self: start;
 }
@@ -3551,9 +3584,10 @@
 }
 
 .routine-button {
+  --taskchute-icon-size: 15px;
+
   background: none;
   border: none;
-  font-size: 14px;
   cursor: pointer;
   padding: 2px;
   padding-top: 4px;
@@ -3579,7 +3613,8 @@
 
 /* コメントボタンスタイル */
 .comment-button {
-  font-size: 15px;
+  --taskchute-icon-size: 15px;
+
   border: none;
   background: none;
   cursor: pointer;
@@ -3685,7 +3720,8 @@
 
 /* フォルダアイコン */
 .taskchute-project-icon {
-  font-size: 14px;
+  --taskchute-icon-size: 14px;
+
   flex-shrink: 0;
 }
 
@@ -3698,7 +3734,8 @@
 
 /* External Linkアイコン */
 .taskchute-external-link {
-  font-size: 14px;
+  --taskchute-icon-size: 14px;
+
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--tc-radius-sm);
@@ -3922,16 +3959,24 @@ textarea.form-textarea {
   color: var(--link-color-hover);
 }
 .play-stop-button {
-  font-size: 18px;
+  --taskchute-icon-size: 18px;
+
   border: none;
   background: none;
   cursor: pointer;
   transition: color 0.2s;
   color: #3498db;
-  padding: 2px;
-  padding-top: 4px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
-  width: 100%;
+
+  /* Square control: the icon sits in a 28x28 box centred in its cell rather
+     than stretching to the cell width, so the hover/active background reads
+     as a square button. */
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  flex-shrink: 0;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3966,7 +4011,8 @@ textarea.form-textarea {
 
 /* 設定ボタンスタイル */
 .settings-task-button {
-  font-size: 15px;
+  --taskchute-icon-size: 15px;
+
   border: none;
   background: none;
   cursor: pointer;
@@ -4097,20 +4143,24 @@ textarea.form-textarea {
   justify-content: center;
 }
 
+/* The three date-nav controls (prev / calendar / next) are one set: 24px
+   squares carrying identically sized Lucide glyphs. */
 .date-nav-arrow {
+  --taskchute-icon-size: 18px;
+
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  flex-shrink: 0;
   background: none;
   border: none;
-  font-size: 28px;
   color: #888888;
   cursor: pointer;
-  padding: 0 8px;
   transition: color 0.2s;
 }
 
-.date-nav-container.compact .date-nav-arrow {
-  font-size: 20px;
-  padding: 0 4px;
-}
+/* Compact keeps the same square; only the surrounding gaps tighten. */
 
 .date-nav-arrow:hover {
   color: #1976d2;
@@ -4148,17 +4198,20 @@ textarea.form-textarea {
   height: 24px;
 }
 .calendar-btn {
+  --taskchute-icon-size: 18px;
+
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  flex-shrink: 0;
   background: none;
   border: none;
-  font-size: 16px;
-  padding: 2px;
   margin-left: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  width: 24px;
   border-radius: var(--tc-radius-md);
   transition: background 0.2s;
 }
@@ -4411,12 +4464,21 @@ textarea.form-textarea {
 }
 
 .star-rating .star {
-  font-size: 20px;
+  --taskchute-icon-size: 20px;
+
+  color: var(--color-yellow, #e0a800);
   cursor: pointer;
   transition: all var(--tc-transition);
-  display: inline-block;
   user-select: none;
   opacity: 0.3;
+}
+
+.star-rating .star svg {
+  fill: none;
+}
+
+.star-rating .star.taskchute-star-filled svg {
+  fill: currentcolor;
 }
 
 .star-rating .star:hover {
@@ -7106,11 +7168,12 @@ textarea.form-textarea {
 
 /* Reset button */
 .taskchute-mobile-time-picker-btn-reset {
+  --taskchute-icon-size: 20px;
+
   width: 44px;
   height: 44px;
   background: var(--background-modifier-border);
   color: var(--text-muted);
-  font-size: 20px;
 }
 
 .taskchute-mobile-time-picker-btn-reset:hover,
@@ -7762,7 +7825,11 @@ textarea.form-textarea {
 }
 
 .ai-run-pane__file-tab-dirty {
-  color: var(--interactive-accent);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  flex-shrink: 0;
 }
 
 .ai-run-pane__work-tab-close {
@@ -7948,6 +8015,7 @@ textarea.form-textarea {
 
 .ai-run-pane__add {
   --ai-run-control-line-height: 20px;
+  --taskchute-icon-size: 14px;
 
   border: none;
   background: none;
@@ -8075,14 +8143,8 @@ textarea.form-textarea {
 }
 
 .ai-run-pane__work-tab .ai-run-pane__tab-dot {
-  display: inline;
-  width: auto;
-  height: auto;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-  line-height: 16px;
+  /* The horizontal tab strip stays calmer than the sidebar: same circle,
+     no pulse. */
   animation: none;
 }
 

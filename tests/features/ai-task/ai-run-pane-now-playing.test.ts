@@ -474,9 +474,11 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(tabs[0].classList).toContain('ai-run-pane__work-tab')
       expect(tabs[0].querySelector('.ai-run-pane__work-tab-close')).not.toBeNull()
       expect(tabs[0].getAttribute('data-run-id')).toBe('run-a')
+      // The status dot is a CSS circle, not a '●' glyph: presence of the
+      // status-modifier class is what marks the run as running.
       expect(
-        tabs[0].querySelector('.ai-run-pane__tab-dot--running')?.textContent,
-      ).toBe('●')
+        tabs[0].querySelector('.ai-run-pane__tab-dot--running'),
+      ).not.toBeNull()
       // Terminal runs read "Terminal"; the label is the content type, not
       // the task name (that lives in the sidebar).
       expect(

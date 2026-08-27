@@ -1,6 +1,7 @@
 import 'obsidian'
 import type { LocaleKey } from "../../i18n"
 import { getCurrentLocale, t } from "../../i18n"
+import { applyIcon } from "../icons"
 
 export interface TaskMoveCalendarOptions {
   anchor: HTMLElement
@@ -159,7 +160,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
         ),
       },
     })
-    prevBtn.textContent = "‹"
+    applyIcon(prevBtn, 'chevron-left')
     prevBtn.addEventListener("click", () => {
       this.changeMonth(-1)
     })
@@ -178,7 +179,7 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
         ),
       },
     })
-    nextBtn.textContent = "›"
+    applyIcon(nextBtn, 'chevron-right')
     nextBtn.addEventListener("click", () => {
       this.changeMonth(1)
     })

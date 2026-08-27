@@ -266,12 +266,20 @@ describe('style regressions', () => {
     const separator = readRule(css, '.ai-run-pane__work-tab::after {')
     expect(separator).toMatch(/width:\s*1px;/)
     expect(separator).toMatch(/background:\s*var\(--tc-code-border\);/)
+    // The content-tab status dot is the same CSS circle the sidebar rows use
+    // (declared once on `.ai-run-pane__tab-dot, .ai-run-pane__run-dot`); the
+    // tab strip only opts out of the pulse so it stays calmer.
+    const sharedDot = readRule(
+      css,
+      '.ai-run-pane__tab-dot,\n.ai-run-pane__run-dot {',
+    )
+    expect(sharedDot).toMatch(/border-radius:\s*50%;/)
+    expect(sharedDot).toMatch(/width:\s*8px;/)
     const terminalDot = readRule(
       css,
       '.ai-run-pane__work-tab .ai-run-pane__tab-dot {',
     )
-    expect(terminalDot).toMatch(/font-size:\s*12px;/)
-    expect(terminalDot).toMatch(/background:\s*transparent;/)
+    expect(terminalDot).toMatch(/animation:\s*none;/)
     expect(close).toMatch(/opacity:\s*0;/)
     expect(close).toMatch(/pointer-events:\s*none;/)
     expect(close).toMatch(/cursor:\s*pointer;/)

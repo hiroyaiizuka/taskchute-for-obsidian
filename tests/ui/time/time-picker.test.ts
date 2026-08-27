@@ -10,6 +10,9 @@ jest.mock('obsidian', () => ({
   Platform: {
     isMobile: false,
   },
+  setIcon: jest.fn((element: HTMLElement, iconId: string) => {
+    element.setAttribute('data-icon', iconId)
+  }),
 }))
 
 import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'

@@ -2,6 +2,7 @@ import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 ;
 
 import { t } from '../../../i18n';
+import { applyIcon } from '../../../ui/icons';
 
 import {
   RoutineFrontmatter,
@@ -307,10 +308,10 @@ export class RoutineManagerModal extends Modal {
       cls: 'routine-table__action-button',
     });
     const deleteBtn = actionsCell.createEl('button', {
-      text: '🗑️',
       cls: 'routine-table__action-button routine-table__action-button--danger',
       attr: { title: this.tv('tooltips.removeRoutine', 'Remove from routine') },
     });
+    applyIcon(deleteBtn, 'trash-2');
 
     editBtn.addEventListener('click', () => {
       const { file: currentFile } = this.filtered[index];

@@ -4,6 +4,9 @@ import type { TimeEditPopupOptions } from '../../../src/ui/time/TimeEditPopup'
 
 jest.mock('obsidian', () => ({
   Notice: jest.fn(),
+  setIcon: jest.fn((element: HTMLElement, iconId: string) => {
+    element.setAttribute('data-icon', iconId)
+  }),
 }))
 
 const setActiveDocument = (doc: Document): void => {
