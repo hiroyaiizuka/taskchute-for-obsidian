@@ -280,6 +280,7 @@ export const en = {
       closeTab: "Close run tab",
       stopAndClose: "Stop and close run",
       togglePane: "Toggle AI run pane",
+      resizePane: "Resize AI run pane",
       toggleSidebar: "Toggle terminal sidebar",
       expandPane: "Expand AI run pane",
       restorePane: "Restore AI run pane size",
