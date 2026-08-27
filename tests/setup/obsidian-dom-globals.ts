@@ -74,9 +74,22 @@ function createSvgElement<K extends keyof SVGElementTagNameMap>(
   return element
 }
 
+/**
+ * Obsidian's createFragment: a DocumentFragment the callback fills in, using
+ * the same node helpers defined below.
+ */
+function createDocumentFragment(
+  callback?: (fragment: DocumentFragment) => void,
+): DocumentFragment {
+  const fragment = document.createDocumentFragment()
+  callback?.(fragment)
+  return fragment
+}
+
 Object.assign(globalThis, {
   activeDocument: document,
   activeWindow: window,
+  createFragment: createDocumentFragment,
   createEl: createHtmlElement,
   createDiv: (options?: DomOptions | string) => createHtmlElement('div', options),
   createSpan: (options?: DomOptions | string) => createHtmlElement('span', options),
@@ -144,6 +157,13 @@ Object.defineProperties(Node.prototype, {
       this.appendChild(element)
       callback?.(element)
       return element
+    },
+  },
+  appendText: {
+    configurable: true,
+    writable: true,
+    value(this: Node, text: string) {
+      this.appendChild(document.createTextNode(text))
     },
   },
   empty: {

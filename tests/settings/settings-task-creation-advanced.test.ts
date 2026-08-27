@@ -1,188 +1,89 @@
-import { Setting, mockApp } from 'obsidian'
+import { mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../src/settings'
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
+import { findByKey, headings, pageNamed } from './definitionHelpers'
 
-type ToggleStub = {
-  setValue: jest.Mock<ToggleStub, [boolean]>
-  onChange: jest.Mock<ToggleStub, [(value: boolean) => Promise<void> | void]>
-  trigger: (value: boolean) => Promise<void>
-}
-
-type TextStub = {
-  inputEl: HTMLInputElement
-  setPlaceholder: jest.Mock<TextStub, [string]>
-  setValue: jest.Mock<TextStub, [string]>
-  onChange: jest.Mock<TextStub, [(value: string) => Promise<void> | void]>
-  trigger: (value: string) => Promise<void>
-}
-
-/**
- * Shape of the private members of TaskChuteSettingTab that this suite drives
- * directly. The class itself cannot be intersected because those members are
- * `private`.
- */
-type MutableSettingTab = {
-  app: typeof mockApp
-  plugin: {
-    settings: {
-      showTaskCreationAdvancedSettings?: boolean
-      defaultReminderMinutes?: number
-      googleCalendar?: {
-        enabled?: boolean
-        includeNoteContent?: boolean
-      }
-      slotKeys: Record<string, string>
-    }
-    saveSettings: jest.Mock<Promise<void>, []>
+function createTab() {
+  const plugin = {
+    app: mockApp,
+    manifest: { id: 'taskchute-plus', version: '2.2.0' },
+    settings: { slotKeys: {} } as Record<string, unknown>,
+    pathManager: { validatePath: () => ({ valid: true }) },
+    saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   }
-  renderTaskCreationSection: jest.Mock<void, [HTMLElement]>
-  renderAdvancedSection: (container: HTMLElement) => void
-  renderRecipeFeatureSection: jest.Mock
-  renderSectionCustomization: jest.Mock
-  renderCollapsibleTimeSlotsToggle: jest.Mock
-  renderFeaturesSection: jest.Mock
-}
-
-function createToggleStub(): ToggleStub {
-  let changeHandler: ((value: boolean) => Promise<void> | void) | null = null
-  const toggle = {
-    setValue: jest.fn(() => toggle),
-    onChange: jest.fn((handler) => {
-      changeHandler = handler
-      return toggle
-    }),
-    trigger: async (value: boolean) => {
-      await changeHandler?.(value)
-    },
-  } as unknown as ToggleStub
-  return toggle
-}
-
-function createTextStub(): TextStub {
-  let changeHandler: ((value: string) => Promise<void> | void) | null = null
-  const text = {
-    inputEl: document.createElement('input'),
-    setPlaceholder: jest.fn(() => text),
-    setValue: jest.fn((value: string) => {
-      text.inputEl.value = value
-      return text
-    }),
-    onChange: jest.fn((handler) => {
-      changeHandler = handler
-      return text
-    }),
-    trigger: async (value: string) => {
-      await changeHandler?.(value)
-    },
-  } as unknown as TextStub
-  return text
-}
-
-function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab
-  tab.app = mockApp
-  tab.plugin = {
-    settings: {
-      slotKeys: {},
-    },
-    saveSettings: jest.fn().mockResolvedValue(undefined),
-  }
-  return tab
+  const tab = new TaskChuteSettingTab(mockApp as never, plugin as never)
+  return { tab, plugin }
 }
 
 describe('TaskChute task creation advanced setting', () => {
-  const SettingMock = Setting as unknown as jest.Mock
-  const originalSettingImpl = SettingMock.getMockImplementation()
-
   afterEach(() => {
-    SettingMock.mockImplementation(originalSettingImpl)
     jest.clearAllMocks()
+    mockApp.workspace.getLeavesOfType.mockReturnValue([])
   })
 
   test('is disabled by default', () => {
     expect(DEFAULT_SETTINGS.showTaskCreationAdvancedSettings).toBe(false)
   })
 
-  test('renders task creation advanced toggle and reminder minutes setting', async () => {
-    const advancedToggle = createToggleStub()
-    const calendarToggle = createToggleStub()
-    const toggleStubs = [advancedToggle, calendarToggle]
-    const text = createTextStub()
-    type SettingInstance = {
-      setName: jest.Mock
-      setDesc: jest.Mock
-      addToggle: jest.Mock
-      addText: jest.Mock
-      setHeading: jest.Mock
-      controlEl?: { addClass: jest.Mock }
-    }
-    const createdSettings: SettingInstance[] = []
-    SettingMock.mockImplementation(() => {
-      const instance: SettingInstance = {
-        setName: jest.fn().mockReturnThis(),
-        setDesc: jest.fn().mockReturnThis(),
-        setHeading: jest.fn().mockReturnThis(),
-        addToggle: jest.fn((callback: (next: ToggleStub) => void) => {
-          const toggle = toggleStubs.shift() ?? createToggleStub()
-          callback(toggle)
-          return instance
-        }),
-        addText: jest.fn((callback: (next: TextStub) => void) => {
-          callback(text)
-          return instance
-        }),
-        controlEl: { addClass: jest.fn() },
-      }
-      createdSettings.push(instance)
-      return instance
-    })
+  test('declares the advanced toggle, reminder minutes and calendar toggle', () => {
+    const { tab } = createTab()
+    const items = tab.getSettingDefinitions()
 
-    const tab = createTab()
-    tab.renderTaskCreationSection(document.createElement('div'))
+    expect(findByKey(items, 'showTaskCreationAdvancedSettings')?.name).toBe(
+      'Show advanced settings in the task creation modal',
+    )
+    expect(findByKey(items, 'defaultReminderMinutes')?.name).toBe(
+      'Default reminder time (minutes)',
+    )
+    expect(findByKey(items, 'googleCalendar.enabled')?.name).toBe(
+      'Enable Google Calendar registration',
+    )
 
-    expect(createdSettings[0]?.setName).toHaveBeenCalledWith('Task creation')
-    expect(createdSettings[1]?.setName).toHaveBeenCalledWith('Show advanced settings in the task creation modal')
-    expect(createdSettings[2]?.setName).toHaveBeenCalledWith('Default reminder time (minutes)')
-    expect(createdSettings[3]?.setName).toHaveBeenCalledWith('Enable Google Calendar registration')
-    expect(advancedToggle.setValue).toHaveBeenCalledWith(false)
-    expect(calendarToggle.setValue).toHaveBeenCalledWith(false)
-    expect(text.setValue).toHaveBeenCalledWith('5')
+    expect(tab.getControlValue('showTaskCreationAdvancedSettings')).toBe(false)
+    expect(tab.getControlValue('googleCalendar.enabled')).toBe(false)
+    expect(tab.getControlValue('defaultReminderMinutes')).toBe(5)
+  })
 
-    await advancedToggle.trigger(true)
-    await text.trigger('10')
-    await calendarToggle.trigger(true)
+  test('persists each of the three settings', async () => {
+    const { tab, plugin } = createTab()
 
-    expect(tab.plugin.settings.showTaskCreationAdvancedSettings).toBe(true)
-    expect(tab.plugin.settings.defaultReminderMinutes).toBe(10)
-    expect(tab.plugin.settings.googleCalendar).toEqual({
+    await tab.setControlValue('showTaskCreationAdvancedSettings', true)
+    await tab.setControlValue('defaultReminderMinutes', 10)
+    await tab.setControlValue('googleCalendar.enabled', true)
+
+    expect(plugin.settings.showTaskCreationAdvancedSettings).toBe(true)
+    expect(plugin.settings.defaultReminderMinutes).toBe(10)
+    // Enabling the export also turns on note content, which the event body
+    // is built from.
+    expect(plugin.settings.googleCalendar).toEqual({
       enabled: true,
       includeNoteContent: true,
     })
-    expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(3)
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(3)
   })
 
-  test('places task creation at the top of advanced settings before recipe and section settings', () => {
-    const tab = createTab()
-    tab.renderTaskCreationSection = jest.fn()
-    tab.renderRecipeFeatureSection = jest.fn()
-    tab.renderSectionCustomization = jest.fn()
-    tab.renderCollapsibleTimeSlotsToggle = jest.fn()
-    tab.renderFeaturesSection = jest.fn()
+  test('clamps the reminder minutes rather than rejecting the value', async () => {
+    const { tab, plugin } = createTab()
 
-    tab.renderAdvancedSection(document.createElement('div'))
+    await tab.setControlValue('defaultReminderMinutes', -3)
+    expect(plugin.settings.defaultReminderMinutes).toBe(0)
 
-    expect(tab.renderTaskCreationSection).toHaveBeenCalledTimes(1)
-    expect(tab.renderRecipeFeatureSection).toHaveBeenCalledTimes(1)
-    expect(tab.renderSectionCustomization).toHaveBeenCalledTimes(1)
-    expect(tab.renderFeaturesSection).toHaveBeenCalledTimes(1)
-    expect(tab.renderTaskCreationSection.mock.invocationCallOrder[0]).toBeLessThan(
-      tab.renderRecipeFeatureSection.mock.invocationCallOrder[0],
-    )
-    expect(tab.renderRecipeFeatureSection.mock.invocationCallOrder[0]).toBeLessThan(
-      tab.renderSectionCustomization.mock.invocationCallOrder[0],
-    )
-    expect(tab.renderSectionCustomization.mock.invocationCallOrder[0]).toBeLessThan(
-      tab.renderFeaturesSection.mock.invocationCallOrder[0],
-    )
+    await tab.setControlValue('defaultReminderMinutes', Number.NaN)
+    expect(plugin.settings.defaultReminderMinutes).toBe(5)
+  })
+
+  test('places task creation first in the advanced page, before recipes and sections', () => {
+    const { tab } = createTab()
+
+    const page = pageNamed(tab.getSettingDefinitions(), 'Advanced settings')
+    expect(page).toBeDefined()
+    const order = headings(page?.items ?? [])
+
+    expect(order).toEqual([
+      'Task creation',
+      'Recipes',
+      'Section',
+      'External tools',
+    ])
   })
 })

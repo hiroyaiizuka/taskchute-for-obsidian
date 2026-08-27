@@ -8,6 +8,9 @@
 export interface FakeLicenseManager {
   isActive: () => boolean
   setActive: (active: boolean) => void
+  /** The settings tab picks its shape from the state, not from isActive(). */
+  getState: () => { status: 'active' | 'inactive' }
+  getLicenseSummary: () => undefined
 }
 
 export function createFakeLicenseManager(active = true): FakeLicenseManager {
@@ -18,5 +21,7 @@ export function createFakeLicenseManager(active = true): FakeLicenseManager {
     setActive: (next: boolean) => {
       value = next
     },
+    getState: () => ({ status: value ? 'active' : 'inactive' }),
+    getLicenseSummary: () => undefined,
   }
 }

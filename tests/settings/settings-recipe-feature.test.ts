@@ -1,59 +1,22 @@
-import { Setting, mockApp } from 'obsidian'
+import { mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../src/settings'
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
+import { findByKey, headings } from './definitionHelpers'
 
-type ToggleStub = {
-  setValue: jest.Mock<ToggleStub, [boolean]>
-  onChange: jest.Mock<ToggleStub, [(value: boolean) => Promise<void> | void]>
-  trigger: (value: boolean) => Promise<void>
-}
-
-/** Private members of TaskChuteSettingTab driven directly by these tests. */
-type MutableSettingTab = {
-  app: typeof mockApp
-  plugin: {
-    settings: {
-      recipeFeatureEnabled?: boolean
-      slotKeys: Record<string, string>
-    }
-    saveSettings: jest.Mock<Promise<void>, []>
+function createTab() {
+  const plugin = {
+    app: mockApp,
+    manifest: { id: 'taskchute-plus', version: '2.2.0' },
+    settings: { slotKeys: {} } as Record<string, unknown>,
+    pathManager: { validatePath: () => ({ valid: true }) },
+    saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   }
-  renderRecipeFeatureSection: (container: HTMLElement) => void
-}
-
-function createTab(): MutableSettingTab {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as unknown as MutableSettingTab
-  tab.app = mockApp
-  tab.plugin = {
-    settings: {
-      slotKeys: {},
-    },
-    saveSettings: jest.fn().mockResolvedValue(undefined),
-  }
-  return tab
-}
-
-function createToggleStub(): ToggleStub {
-  let changeHandler: ((value: boolean) => Promise<void> | void) | null = null
-  const toggle = {
-    setValue: jest.fn(() => toggle),
-    onChange: jest.fn((handler) => {
-      changeHandler = handler
-      return toggle
-    }),
-    trigger: async (value: boolean) => {
-      await changeHandler?.(value)
-    },
-  } as unknown as ToggleStub
-  return toggle
+  const tab = new TaskChuteSettingTab(mockApp as never, plugin as never)
+  return { tab, plugin }
 }
 
 describe('TaskChute recipe feature setting', () => {
-  const SettingMock = Setting as unknown as jest.Mock
-  const originalSettingImpl = SettingMock.getMockImplementation()
-
   afterEach(() => {
-    SettingMock.mockImplementation(originalSettingImpl)
     jest.clearAllMocks()
     mockApp.workspace.getLeavesOfType.mockReturnValue([])
   })
@@ -62,43 +25,34 @@ describe('TaskChute recipe feature setting', () => {
     expect(DEFAULT_SETTINGS.recipeFeatureEnabled).toBe(false)
   })
 
-  test('renders recipe toggle above advanced section settings and notifies open views', async () => {
-    const toggle = createToggleStub()
-    type SettingInstance = {
-      setName: jest.Mock
-      setDesc: jest.Mock
-      addToggle: jest.Mock
-      setHeading: jest.Mock
-    }
-    const createdSettings: SettingInstance[] = []
-    SettingMock.mockImplementation(() => {
-      const instance: SettingInstance = {
-        setName: jest.fn().mockReturnThis(),
-        setDesc: jest.fn().mockReturnThis(),
-        setHeading: jest.fn().mockReturnThis(),
-        addToggle: jest.fn((callback: (toggle: ToggleStub) => void) => {
-          callback(toggle)
-          return instance
-        }),
-      }
-      createdSettings.push(instance)
-      return instance
-    })
+  test('is a toggle under the recipes heading, off until set', () => {
+    const { tab } = createTab()
+    const items = tab.getSettingDefinitions()
 
-    const tab = createTab()
+    const control = findByKey(items, 'recipeFeatureEnabled')
+    expect(control?.control.type).toBe('toggle')
+    expect(control?.name).toBe('Enable recipe feature')
+    expect(headings(items)).toContain('Recipes')
+    expect(tab.getControlValue('recipeFeatureEnabled')).toBe(false)
+  })
+
+  test('sits above the section customization settings', () => {
+    const { tab } = createTab()
+
+    const order = headings(tab.getSettingDefinitions())
+
+    expect(order.indexOf('Recipes')).toBeLessThan(order.indexOf('Section'))
+  })
+
+  test('persists and tells open views when it changes', async () => {
+    const { tab, plugin } = createTab()
     const view = { onRecipeFeatureSettingsChanged: jest.fn() }
     mockApp.workspace.getLeavesOfType.mockReturnValue([{ view }])
 
-    tab.renderRecipeFeatureSection(document.createElement('div'))
+    await tab.setControlValue('recipeFeatureEnabled', true)
 
-    expect(createdSettings[0]?.setName).toHaveBeenCalledWith('Recipes')
-    expect(createdSettings[1]?.setName).toHaveBeenCalledWith('Enable recipe feature')
-    expect(toggle.setValue).toHaveBeenCalledWith(false)
-
-    await toggle.trigger(true)
-
-    expect(tab.plugin.settings.recipeFeatureEnabled).toBe(true)
-    expect(tab.plugin.saveSettings).toHaveBeenCalledTimes(1)
+    expect(plugin.settings.recipeFeatureEnabled).toBe(true)
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(1)
     expect(view.onRecipeFeatureSettingsChanged).toHaveBeenCalledTimes(1)
   })
 })

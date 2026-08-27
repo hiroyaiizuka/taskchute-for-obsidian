@@ -4,11 +4,22 @@
  * paying user with nowhere to activate, or shows AI settings for a feature the
  * gate will refuse to start.
  */
-import { Setting, mockApp } from 'obsidian'
+import type {
+  SettingDefinitionItem,
+  SettingDefinitionRender,
+} from 'obsidian'
+import { Setting, SettingGroup, mockApp } from 'obsidian'
 
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
-import { setLocaleOverride } from '../../../src/i18n'
+import {
+  PRO_SECTION_UNLOCK_CLICKS,
+  ProUnlockState,
+  isProSectionVisible,
+} from '../../../src/settings/proUnlockState'
+import type { SectionContext } from '../../../src/settings/types'
+import { setLocaleOverride, t } from '../../../src/i18n'
 import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
+import { flatten, isVisible, pageNamed } from '../../settings/definitionHelpers'
 
 jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
   DeviceListView: jest.fn().mockImplementation(() => ({ dispose: jest.fn() })),
@@ -16,54 +27,6 @@ jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
 
 const { DeviceListView } = require('../../../src/features/license/ui/DeviceListView') as {
   DeviceListView: jest.Mock
-}
-
-interface SettingStub {
-  name?: string
-  desc?: string
-  heading: boolean
-  setName: jest.Mock
-  setDesc: jest.Mock
-  setHeading: jest.Mock
-  addToggle: jest.Mock
-  addText: jest.Mock
-  addButton: jest.Mock
-  addDropdown: jest.Mock
-  controlEl: HTMLElement
-  nameEl: HTMLElement
-}
-
-const SettingMock = Setting as unknown as jest.Mock
-const originalSettingImpl = SettingMock.getMockImplementation()
-
-let settings: SettingStub[]
-
-function installSettingStub(): void {
-  SettingMock.mockImplementation(() => {
-    const instance: SettingStub = {
-      heading: false,
-      setName: jest.fn((name: string) => {
-        instance.name = name
-        return instance
-      }),
-      setDesc: jest.fn((desc: string) => {
-        instance.desc = desc
-        return instance
-      }),
-      setHeading: jest.fn(() => {
-        instance.heading = true
-        return instance
-      }),
-      addToggle: jest.fn(() => instance),
-      addText: jest.fn(() => instance),
-      addButton: jest.fn(() => instance),
-      addDropdown: jest.fn(() => instance),
-      controlEl: document.createElement('div'),
-      nameEl: document.createElement('div'),
-    }
-    settings.push(instance)
-    return instance
-  })
 }
 
 function fakeManager(
@@ -98,103 +61,123 @@ function activeManager(): LicenseManager {
   })
 }
 
-// Intersecting the class itself would collapse to `never`: renderProSection is
-// private on TaskChuteSettingTab, so it would exist in both constituents with
-// incompatible declarations. Omit strips it and lets the test re-declare it.
-type MutableSettingTab = Omit<
-  TaskChuteSettingTab,
-  'app' | 'plugin' | 'renderProSection'
-> & {
-  app: unknown
-  plugin: unknown
-  renderProSection: (container: HTMLElement) => void
-}
-
-function renderPro(manager: LicenseManager | undefined): HTMLElement {
-  const tab = Object.create(TaskChuteSettingTab.prototype) as MutableSettingTab
-  tab.app = { ...mockApp, plugins: { plugins: {} } }
-  tab.plugin = {
-    manifest: { id: 'taskchute-plus', version: '2.0.1' },
-    settings: { aiTaskEnabled: false, aiTaskRunMode: 'terminal', aiTaskLogRetentionDays: 30 },
-    saveSettings: jest.fn().mockResolvedValue(undefined),
+function createTab(manager: LicenseManager | undefined): TaskChuteSettingTab {
+  const app = { ...mockApp, plugins: { plugins: {} } }
+  const plugin = {
+    app,
+    manifest: { id: 'taskchute-plus', version: '2.2.0' },
+    settings: {
+      slotKeys: {},
+      aiTaskEnabled: false,
+      aiTaskRunMode: 'terminal',
+      aiTaskLogRetentionDays: 30,
+    },
+    pathManager: { validatePath: () => ({ valid: true }) },
+    saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     licenseManager: manager,
     aiTaskManagersPendingDisposal: new Set(),
   }
-
-  const container = document.createElement('div')
-  tab.renderProSection(container)
-  return container
+  return new TaskChuteSettingTab(app as never, plugin as never)
 }
 
-const names = () => settings.map((setting) => setting.name).filter(Boolean)
+/** The rows on the Pro page, with the page's own visibility ignored. */
+function proItems(manager: LicenseManager | undefined): SettingDefinitionItem[] {
+  const page = pageNamed(
+    createTab(manager).getSettingDefinitions(),
+    t('settings.pro.heading', 'Pro settings'),
+  )
+  if (!page) throw new Error('Pro page not found')
+  return flatten(page.items ?? [])
+}
+
+function names(items: SettingDefinitionItem[]): string[] {
+  return items
+    .filter((item) => isVisible(item as { visible?: boolean | (() => boolean) }))
+    .map((item) => ('name' in item ? item.name : undefined))
+    .filter((name): name is string => Boolean(name))
+}
+
+function descs(items: SettingDefinitionItem[]): string[] {
+  return items
+    .map((item) => ('desc' in item ? item.desc : undefined))
+    .map((desc) =>
+      typeof desc === 'string' ? desc : (desc?.textContent ?? ''),
+    )
+    .filter(Boolean)
+}
+
+/** Runs a row's render callback against a throwaway group. */
+function invokeRender(item: SettingDefinitionItem): (() => void) | void {
+  const render = (item as SettingDefinitionRender).render
+  const group = new (SettingGroup as unknown as new (
+    el: HTMLElement,
+  ) => { listEl: HTMLElement })(document.createElement('div'))
+  return render(
+    new (Setting as unknown as new (el: HTMLElement) => never)(
+      document.createElement('div'),
+    ),
+    group as never,
+  )
+}
 
 describe('Pro settings section', () => {
   beforeEach(() => {
-    settings = []
     DeviceListView.mockClear()
-    installSettingStub()
   })
 
   afterEach(() => {
-    SettingMock.mockImplementation(originalSettingImpl)
     jest.clearAllMocks()
   })
 
-  test('is a collapsed section headed "Pro settings"', () => {
-    const container = renderPro(fakeManager())
+  test('is a page of its own, not part of the everyday settings', () => {
+    const page = pageNamed(
+      createTab(activeManager()).getSettingDefinitions(),
+      'Pro settings',
+    )
 
-    const details = container.querySelector('details.taskchute-collapsible-section')
-    expect(details).not.toBeNull()
-    // Closed by default: the license is set once and then left alone.
-    expect((details as HTMLDetailsElement).open).toBe(false)
-    expect(details?.querySelector('summary')?.textContent).toBe('Pro settings')
-  })
-
-  test('renders its settings inside the collapsible content, not beside it', () => {
-    const container = renderPro(fakeManager())
-
-    // Anything appended to the container itself would stay visible while
-    // the section is collapsed.
-    expect(container.children).toHaveLength(1)
-    expect(
-      container.querySelector('.taskchute-collapsible-content')?.children.length,
-    ).toBeGreaterThan(0)
+    expect(page?.type).toBe('page')
+    // The entry shows the license state without opening the page.
+    expect(page?.displayValue).toBeInstanceOf(Function)
+    expect((page?.displayValue as () => string)()).toBe('Active')
   })
 
   describe('when not activated', () => {
     test('offers the activation code field', () => {
-      renderPro(fakeManager())
-
-      expect(names()).toContain('License code')
+      expect(names(proItems(fakeManager()))).toContain('License code')
     })
 
     test('links to the purchase page for someone without a code', () => {
-      const container = renderPro(fakeManager())
+      const purchase = proItems(fakeManager()).find(
+        (item) => 'desc' in item && typeof item.desc === 'object',
+      )
+      const desc = (purchase as { desc: DocumentFragment }).desc
+      const link = desc.querySelector('a')
 
-      const link = container.querySelector('a')
       expect(link?.getAttribute('href')).toBe('https://obsidian.levers.co.jp/')
       expect(link?.textContent).toBe('here')
       // The link belongs inside the sentence, with text on both sides of it.
-      expect(link?.parentElement?.textContent).toBe('You can buy an activation code here.')
+      expect(desc.textContent).toBe('You can buy an activation code here.')
     })
 
-    test('explains where the code comes from behind an info button', () => {
-      renderPro(fakeManager())
+    test('explains where the code comes from on its own row', () => {
+      const items = proItems(fakeManager())
 
-      const field = settings.find((setting) => setting.name === 'License code')
-      const help = field?.nameEl.querySelector('button')
-      expect(help?.getAttribute('aria-label')).toBe('About the license code')
+      expect(names(items)).toContain('About the license code')
       // The explanation must not also occupy the form as a standing paragraph.
-      const descriptions = settings.map((setting) => setting.desc).filter(Boolean)
-      expect(descriptions.some((desc) => desc?.includes('purchase email'))).toBe(false)
+      expect(descs(items).some((desc) => desc.includes('purchase email'))).toBe(
+        false,
+      )
     })
 
     test('sends Japanese users to the Japanese purchase page', () => {
       setLocaleOverride('ja')
       try {
-        const container = renderPro(fakeManager())
+        const purchase = proItems(fakeManager()).find(
+          (item) => 'desc' in item && typeof item.desc === 'object',
+        )
+        const desc = (purchase as { desc: DocumentFragment }).desc
 
-        expect(container.querySelector('a')?.getAttribute('href')).toBe(
+        expect(desc.querySelector('a')?.getAttribute('href')).toBe(
           'https://obsidian.levers.co.jp/ja/',
         )
       } finally {
@@ -202,114 +185,139 @@ describe('Pro settings section', () => {
       }
     })
 
-    test('does not render the device list or the AI settings', () => {
-      renderPro(fakeManager())
+    test('does not show the device list or the AI settings', () => {
+      const items = proItems(fakeManager())
 
       // Both need a license: the list needs the code to query, and the AI
       // settings would configure a runtime the gate refuses to start.
-      expect(DeviceListView).not.toHaveBeenCalled()
-      expect(names()).not.toContain('AI task')
-      expect(names()).not.toContain('Enable AI tasks')
+      expect(names(items)).not.toContain('AI task')
+      expect(names(items)).not.toContain('Enable AI tasks')
+      // The seat list is declared but hidden until a 409 supplies one.
+      expect(names(items)).not.toContain('Devices')
     })
 
-    test('explains a blocked license above the form', () => {
-      const container = renderPro(
-        fakeManager({ getState: () => ({ status: 'blocked', reason: 'license_revoked' }) }),
+    test('explains a blocked license alongside the form', () => {
+      const items = proItems(
+        fakeManager({
+          getState: () => ({ status: 'blocked', reason: 'license_revoked' }),
+        }),
       )
 
-      const descriptions = settings.map((setting) => setting.desc).filter(Boolean)
-      expect(descriptions.some((desc) => desc?.includes('revoked'))).toBe(true)
+      expect(descs(items).some((desc) => desc.includes('revoked'))).toBe(true)
       // Still activatable: a replacement code has to be enterable.
-      expect(names()).toContain('License code')
-      expect(container).toBeDefined()
+      expect(names(items)).toContain('License code')
     })
   })
 
   describe('when activated', () => {
     test('shows the license details', () => {
-      renderPro(activeManager())
+      const items = proItems(activeManager())
 
-      expect(names()).toEqual(
+      expect(names(items)).toEqual(
         expect.arrayContaining(['Status', 'License ID', 'Expires', 'Devices']),
       )
-      const licenseId = settings.find((setting) => setting.name === 'License ID')
-      expect(licenseId?.desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
+      const licenseId = items.find(
+        (item) => 'name' in item && item.name === 'License ID',
+      )
+      expect((licenseId as { desc: string }).desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
     })
 
-    test('renders the device list inline', () => {
-      renderPro(activeManager())
+    test('mounts the device list and disposes it on teardown', () => {
+      const devices = proItems(activeManager()).find(
+        (item) => 'name' in item && item.name === 'Devices',
+      )
 
+      const cleanup = invokeRender(devices as SettingDefinitionItem)
       expect(DeviceListView).toHaveBeenCalledTimes(1)
+
+      // The framework tears the row down before replacing it, which is what
+      // keeps an in-flight request from writing into a container that is gone.
+      const view = DeviceListView.mock.results[0].value as { dispose: jest.Mock }
+      expect(view.dispose).not.toHaveBeenCalled()
+      cleanup?.()
+      expect(view.dispose).toHaveBeenCalledTimes(1)
     })
 
-    test('renders the AI task settings', () => {
-      renderPro(activeManager())
+    test('shows the AI task settings', () => {
+      const items = proItems(activeManager())
 
-      expect(names()).toContain('AI task')
-      expect(names()).toContain('Enable AI tasks')
+      expect(names(items)).toContain('Enable AI tasks')
     })
 
     test('does not offer the activation field again', () => {
-      renderPro(activeManager())
-
-      expect(names()).not.toContain('Activation code')
+      expect(names(proItems(activeManager()))).not.toContain('License code')
     })
 
     test('has no separate sign-out control', () => {
-      renderPro(activeManager())
-
       // Releasing this device is done from the list like any other seat; a
       // second control that only cleared local state would just be confusing.
-      expect(names()).not.toContain('Deactivate on this device')
+      expect(names(proItems(activeManager()))).not.toContain(
+        'Deactivate on this device',
+      )
     })
   })
 
   describe('visibility', () => {
-    interface VisibilityTab {
-      plugin: unknown
-      proSectionUnlocked: boolean
-      isProSectionVisible: () => boolean
+    function context(manager: LicenseManager | undefined): SectionContext & {
+      plugin: { licenseManager: LicenseManager | undefined }
+    } {
+      return {
+        app: mockApp,
+        plugin: { licenseManager: manager },
+        update: jest.fn(),
+        refreshDomState: jest.fn(),
+      } as unknown as SectionContext & {
+        plugin: { licenseManager: LicenseManager | undefined }
+      }
     }
 
-    function visibility(
-      manager: LicenseManager | undefined,
-      unlocked = false,
-    ): { tab: VisibilityTab; visible: boolean } {
-      const tab = Object.create(TaskChuteSettingTab.prototype) as VisibilityTab
-      tab.plugin = { licenseManager: manager }
-      tab.proSectionUnlocked = unlocked
-
-      return { tab, visible: tab.isProSectionVisible() }
+    function unlockedState(): ProUnlockState {
+      const unlock = new ProUnlockState()
+      for (let i = 0; i < PRO_SECTION_UNLOCK_CLICKS; i += 1) unlock.registerClick()
+      return unlock
     }
 
     test('stays hidden without a license until the click unlock', () => {
-      expect(visibility(fakeManager()).visible).toBe(false)
-      expect(visibility(fakeManager(), true).visible).toBe(true)
-      expect(visibility(undefined).visible).toBe(false)
+      expect(isProSectionVisible(context(fakeManager()), new ProUnlockState())).toBe(false)
+      expect(isProSectionVisible(context(fakeManager()), unlockedState())).toBe(true)
+      expect(isProSectionVisible(context(undefined), new ProUnlockState())).toBe(false)
     })
 
     test('shows for an active license without any unlock clicks', () => {
       // Otherwise a paying user loses the AI settings and the seat list on
       // every reload, with no way back except rediscovering the click unlock.
-      expect(visibility(activeManager()).visible).toBe(true)
+      expect(isProSectionVisible(context(activeManager()), new ProUnlockState())).toBe(true)
     })
 
     test('hides again when the license goes away mid-session', () => {
-      // Releasing this device redraws with an unlicensed manager. Nothing is
+      // Releasing this device leaves an unlicensed manager behind. Nothing is
       // latched, so the section goes back into hiding with it.
-      const { tab } = visibility(activeManager())
-      expect(tab.proSectionUnlocked).toBe(false)
+      const ctx = context(activeManager())
+      const unlock = new ProUnlockState()
+      expect(isProSectionVisible(ctx, unlock)).toBe(true)
 
-      tab.plugin = { licenseManager: fakeManager() }
-      expect(tab.isProSectionVisible()).toBe(false)
+      ctx.plugin.licenseManager = fakeManager()
+      expect(isProSectionVisible(ctx, unlock)).toBe(false)
+    })
+
+    test('the page itself is hidden while the section is locked', () => {
+      const page = pageNamed(
+        createTab(fakeManager()).getSettingDefinitions(),
+        'Pro settings',
+      )
+
+      expect(isVisible(page as { visible?: boolean | (() => boolean) })).toBe(false)
     })
   })
 
   test('degrades to an error when the manager failed to start', () => {
-    renderPro(undefined)
+    const items = proItems(undefined)
 
     expect(DeviceListView).not.toHaveBeenCalled()
-    expect(names()).not.toContain('Activation code')
-    expect(names()).not.toContain('Enable AI tasks')
+    expect(names(items)).not.toContain('License code')
+    expect(names(items)).not.toContain('Enable AI tasks')
+    expect(descs(items).some((desc) => desc.includes('unexpected error'))).toBe(
+      true,
+    )
   })
 })

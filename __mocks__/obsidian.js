@@ -37,9 +37,92 @@ const TFile = jest.fn().mockImplementation(function (path = 'test-file.md') {
 const Notice = jest.fn()
 
 
-const PluginSettingTab = jest.fn().mockImplementation(() => ({
-  display: jest.fn(),
-}))
+/**
+ * A real class, so subclasses can call super() and inherit the declarative
+ * settings surface. The previous jest.fn() stand-in forced every settings suite
+ * to build tabs with Object.create() to dodge the constructor.
+ *
+ * getControlValue/setControlValue mirror PluginSettingTab's documented
+ * behavior: read from and write to `plugin.settings`, persisting through the
+ * plugin's own saveSettings().
+ */
+class SettingTab {
+  constructor(app, plugin) {
+    this.app = app
+    this.plugin = plugin
+    this.containerEl = createMockElement('div')
+    this.settingItems = []
+  }
+
+  getSettingDefinitions() {
+    return []
+  }
+
+  update() {
+    this.settingItems = this.getSettingDefinitions()
+  }
+
+  refreshDomState() {}
+
+  getControlValue(key) {
+    return this.plugin?.settings?.[key]
+  }
+
+  async setControlValue(key, value) {
+    if (this.plugin?.settings) {
+      this.plugin.settings[key] = value
+    }
+    await this.plugin?.saveSettings?.()
+  }
+
+  display() {}
+
+  hide() {}
+}
+
+const PluginSettingTab = SettingTab
+
+/**
+ * Enough of SettingGroup for a `render:` callback to mount into. Real
+ * definitions receive one of these as their second argument.
+ */
+class SettingGroup {
+  constructor(containerEl) {
+    this.containerEl = containerEl ?? createMockElement('div')
+    // Match the container's kind: a real DOM node cannot adopt a mock element,
+    // and callers pass either depending on what the code under test builds.
+    this.listEl =
+      typeof Node !== 'undefined' && this.containerEl instanceof Node
+        ? this.containerEl.ownerDocument.createElement('div')
+        : createMockElement('div')
+    this.containerEl.appendChild?.(this.listEl)
+    this.heading = undefined
+  }
+
+  setHeading(text) {
+    this.heading = text
+    return this
+  }
+
+  addClass(...classes) {
+    classes.forEach((cls) => this.containerEl.classList?.add?.(cls))
+    return this
+  }
+
+  addSetting(cb) {
+    const setting = new Setting(this.listEl)
+    cb?.(setting)
+    return this
+  }
+
+  addSearch() {
+    return this
+  }
+
+  addExtraButton() {
+    return this
+  }
+}
 
 const SettingInstances = []
 
@@ -189,6 +272,28 @@ const createMockElement = (tag = 'div') => {
       remove: jest.fn(),
       contains: jest.fn(),
     },
+    // Obsidian augments HTMLElement with these; code under test uses them
+    // interchangeably with classList.
+    addClass: jest.fn(function (...classes) {
+      const present = this.className ? this.className.split(' ') : []
+      classes.forEach((cls) => {
+        if (cls && !present.includes(cls)) present.push(cls)
+      })
+      this.className = present.join(' ')
+      return this
+    }),
+    removeClass: jest.fn(function (...classes) {
+      const present = this.className ? this.className.split(' ') : []
+      this.className = present.filter((cls) => !classes.includes(cls)).join(' ')
+      return this
+    }),
+    hasClass: jest.fn(function (cls) {
+      return this.className ? this.className.split(' ').includes(cls) : false
+    }),
+    setText: jest.fn(function (text) {
+      this.textContent = text
+      return this
+    }),
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
     setAttribute: jest.fn(),
@@ -438,7 +543,9 @@ module.exports = {
   AbstractInputSuggest,
   Notice,
   PluginSettingTab,
+  SettingTab,
   Setting,
+  SettingGroup,
   moment,
   requestUrl,
   activeDocument,

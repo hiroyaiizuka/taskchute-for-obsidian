@@ -43,6 +43,7 @@ const sharedGlobals = {
   activeWindow: "readonly",
   createDiv: "readonly",
   createEl: "readonly",
+  createFragment: "readonly",
   createSpan: "readonly",
   createSvg: "readonly",
   Option: "readonly",
@@ -90,10 +91,7 @@ const obsidianmdRecommendedRules = {
   "obsidianmd/prefer-window-timers": "error",
   "obsidianmd/prefer-instanceof": "error",
   "obsidianmd/no-global-this": "error",
-  // Obsidian 1.13's declarative settings API. Adopting it means rewriting the
-  // whole settings tab against typings we do not ship yet (obsidian@1.8.7),
-  // so keep the reminder visible without failing lint.
-  "obsidianmd/settings-tab/prefer-setting-definitions": "warn",
+  "obsidianmd/settings-tab/prefer-setting-definitions": "error",
   "obsidianmd/object-assign": "error",
   "obsidianmd/platform": "error",
   "obsidianmd/prefer-file-manager-trash-file": "warn",
