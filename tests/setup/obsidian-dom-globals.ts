@@ -175,6 +175,20 @@ Object.defineProperties(Node.prototype, {
       }
     },
   },
+  setText: {
+    configurable: true,
+    writable: true,
+    value(this: Node, text: string | DocumentFragment) {
+      if (typeof text === 'string') {
+        this.textContent = text
+        return
+      }
+      while (this.firstChild) {
+        this.removeChild(this.firstChild)
+      }
+      this.appendChild(text)
+    },
+  },
 })
 
 HTMLElement.prototype.setAttr = function setAttr(name: string, value: string | number | boolean): HTMLElement {
