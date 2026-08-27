@@ -101,7 +101,7 @@ describe('AI run pane drag resize', () => {
       stored.set(key, value)
     })
     host = {
-      tv: (_key, fallback) => fallback,
+      tv: (_key: string, fallback: string) => fallback,
       manager,
       createTerminalAdapter: () => {
         throw new Error('resize tests never open a terminal adapter')
