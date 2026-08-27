@@ -25,6 +25,7 @@ import type { App } from 'obsidian'
 import { en } from '../../../src/i18n/locales/en'
 import { ja } from '../../../src/i18n/locales/ja'
 import type { Recipe } from '../../../src/features/recipe/types'
+import { createFakeLicenseManager } from '../../features/license/fakeLicenseManager'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -70,6 +71,10 @@ interface CreateHostOptions {
   storedWorkingDirectories?: string[]
   selectDirectory?: (defaultPath?: string) => Promise<string | null>
   recipes?: Recipe[]
+  /** Defaults to an active license; set false to stage an unlicensed vault. */
+  licensed?: boolean
+  /** Defaults to a live runtime; set false to stage a vault without one. */
+  aiTaskManager?: boolean
 }
 
 function createHost(
@@ -124,7 +129,11 @@ function createHost(
       getLogYearPath: jest.fn(),
       ensureYearFolder: jest.fn(),
       validatePath: jest.fn(() => ({ valid: true })),
+      getAiLogsPath: () => 'TaskChute/AI/Logs',
+      getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
     },
+    licenseManager: createFakeLicenseManager(options.licensed !== false),
+    aiTaskManager: options.aiTaskManager === false ? undefined : {},
     routineAliasService: { loadAliases: jest.fn() },
     dayStateService: {
       loadDay: jest.fn(),
@@ -626,6 +635,28 @@ describe('task-type selector gating', () => {
       mockPlatformState.isDesktop = true
       mockPlatformState.isMobile = false
     }
+  })
+
+  /**
+   * Regression: this gate used to read the settings flag and the platform but
+   * not the license, unlike every other AI surface. A vault that carried
+   * `aiTaskEnabled: true` from a licensed machine — via sync, or because the
+   * license later lapsed — kept offering an AI mode it could not run.
+   */
+  test('renders no selector without an active license, even when enabled on desktop', () => {
+    const { host } = createHost({ aiTaskEnabled: true }, { licensed: false })
+    const modal = openModal(host)
+
+    expect(modal.querySelector('.task-type-group')).toBeNull()
+    expect(modal.querySelector('.ai-task-section')).toBeNull()
+  })
+
+  test('renders no selector while no AI runtime exists', () => {
+    const { host } = createHost({ aiTaskEnabled: true }, { aiTaskManager: false })
+    const modal = openModal(host)
+
+    expect(modal.querySelector('.task-type-group')).toBeNull()
+    expect(modal.querySelector('.ai-task-section')).toBeNull()
   })
 })
 

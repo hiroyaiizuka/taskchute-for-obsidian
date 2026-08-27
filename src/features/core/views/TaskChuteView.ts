@@ -65,6 +65,7 @@ import { TaskRecipeAssignmentService } from "../../recipe/services/TaskRecipeAss
 import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
 import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
 import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
+import { isAiTaskFeatureAvailable } from "../../ai-task/availability"
 import { AiRunPaneController } from "../../ai-task/ui/AiRunPaneController"
 import { createTerminalViewAdapter } from "../../ai-task/ui/TerminalViewAdapter"
 import {
@@ -816,7 +817,7 @@ export class TaskChuteView
   // ===========================================
 
   private isAiTaskFeatureEnabled(): boolean {
-    return this.plugin.aiTaskManager !== undefined
+    return isAiTaskFeatureAvailable(this.plugin)
   }
 
   /**

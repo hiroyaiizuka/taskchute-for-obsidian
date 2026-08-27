@@ -1,4 +1,4 @@
-import { App, Notice, Platform } from 'obsidian'
+import { App, Notice } from 'obsidian'
 import type { TFile } from "obsidian"
 import { t } from "../../i18n"
 import {
@@ -13,6 +13,7 @@ import type {
 } from "../../features/core/services/TaskCreationService"
 import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
 import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
+import { isAiTaskFeatureAvailable } from "../../features/ai-task/availability"
 import type { AiTaskHost } from "../../features/ai-task/types"
 import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
 import type {
@@ -720,12 +721,7 @@ export default class TaskCreationController {
     onTaskTypeChange: () => void,
     initialValue?: AiTaskControlsInitialValue,
   ): AiTaskControls | null {
-    if (
-      this.host.plugin.settings.aiTaskEnabled !== true ||
-      Platform?.isDesktop !== true
-    ) {
-      return null
-    }
+    if (!isAiTaskFeatureAvailable(this.host.plugin)) return null
 
     let taskType: TaskType = initialValue ? "ai" : "human"
     let selectedHost: AiTaskHost = initialValue?.host ?? "claude"
