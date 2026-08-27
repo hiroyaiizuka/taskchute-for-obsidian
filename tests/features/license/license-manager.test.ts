@@ -365,6 +365,109 @@ describe('device management', () => {
   })
 })
 
+describe('verifyDeviceRegistration', () => {
+  function deviceList(...deviceIds: string[]) {
+    return {
+      ok: true,
+      data: {
+        devices: deviceIds.map((device_id) => ({ device_id, last_seen_at: NOW })),
+        max_devices: 3,
+      },
+    }
+  }
+
+  function activeHarness(): Harness {
+    const harness = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    harness.store.saveToken(tokenFor(harness.store), NOW + 7 * DAY, SUMMARY, NOW)
+    harness.manager.initialize()
+    return harness
+  }
+
+  test('leaves an entitled device alone when the server still lists it', async () => {
+    const { manager, client, store } = activeHarness()
+    client.listDevices.mockResolvedValue(deviceList(manager.getDeviceId(), 'DEVICE-OTHER'))
+
+    await expect(manager.verifyDeviceRegistration()).resolves.toBe('registered')
+
+    expect(manager.isActive()).toBe(true)
+    expect(store.getState().token).toBeDefined()
+  })
+
+  test('drops the token when this device is gone from the license', async () => {
+    const { manager, client, store, code } = activeHarness()
+    const listener = jest.fn()
+    manager.onChange(listener)
+    client.listDevices.mockResolvedValue(deviceList('DEVICE-OTHER'))
+
+    await expect(manager.verifyDeviceRegistration()).resolves.toBe('released')
+
+    expect(manager.isActive()).toBe(false)
+    expect(store.getState().token).toBeUndefined()
+    expect(listener).toHaveBeenCalledWith({ status: 'unlicensed' })
+    // data.json is synced: clearing the code here would strip the license from
+    // every other vault that shares it.
+    expect(code.value).toBe('TCP-0000-0000-0000-0001')
+  })
+
+  test('does not retake the seat on the next refresh', async () => {
+    const { manager, client, store } = activeHarness()
+    client.listDevices.mockResolvedValue(deviceList('DEVICE-OTHER'))
+    client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
+
+    await manager.verifyDeviceRegistration()
+    await manager.refreshIfNeeded(true)
+
+    expect(client.issueToken).not.toHaveBeenCalled()
+    expect(manager.isActive()).toBe(false)
+  })
+
+  test('re-activating lifts the latch', async () => {
+    const { manager, client, store } = activeHarness()
+    client.listDevices.mockResolvedValue(deviceList('DEVICE-OTHER'))
+    await manager.verifyDeviceRegistration()
+
+    client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
+    const result = await manager.activate('TCP-0000-0000-0000-0001')
+
+    // Entering the code is the user asking for the seat back, which is the one
+    // thing that may claim it.
+    expect(result.ok).toBe(true)
+    expect(manager.isActive()).toBe(true)
+    expect(store.isSeatReleased()).toBe(false)
+  })
+
+  test('an unreachable server never revokes', async () => {
+    const { manager, client, store } = activeHarness()
+    client.listDevices.mockResolvedValue({ ok: false, kind: 'network', status: 0 })
+
+    await expect(manager.verifyDeviceRegistration()).resolves.toBe('unknown')
+
+    expect(manager.isActive()).toBe(true)
+    expect(store.getState().token).toBeDefined()
+    expect(store.isSeatReleased()).toBe(false)
+  })
+
+  test('skips the request when there is nothing to protect', async () => {
+    const { manager, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    manager.initialize()
+
+    await expect(manager.verifyDeviceRegistration()).resolves.toBe('unknown')
+    expect(client.listDevices).not.toHaveBeenCalled()
+  })
+
+  test('throttles repeat checks', async () => {
+    const { manager, client } = activeHarness()
+    client.listDevices.mockResolvedValue(deviceList(manager.getDeviceId()))
+
+    await manager.verifyDeviceRegistration()
+    // The settings tab rebuilds its definitions after every control change; one
+    // request per rebuild would be a burst.
+    await expect(manager.verifyDeviceRegistration()).resolves.toBe('unknown')
+
+    expect(client.listDevices).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('onChange', () => {
   test('notifies on a real transition and stays quiet otherwise', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })

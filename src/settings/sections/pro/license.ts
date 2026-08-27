@@ -181,24 +181,14 @@ function activeLicenseRows(
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
   const summary = manager.getLicenseSummary()
-  const rows: SettingDefinitionItem[] = [
-    {
-      name: t("settings.license.statusName", "Status"),
-      desc: t("settings.license.statusActive", "Active"),
-    },
-  ]
+  // No status or expiry rows: the page header already says "Active", and the
+  // seats below are the only part of an active license anyone acts on.
+  const rows: SettingDefinitionItem[] = []
 
   if (summary) {
     rows.push({
       name: t("settings.license.licenseIdName", "License ID"),
       desc: formatLicenseId(summary.license_id),
-    })
-    rows.push({
-      name: t("settings.license.expiresName", "Expires"),
-      desc:
-        summary.expires_at === null
-          ? t("settings.license.expiresNever", "No expiry")
-          : new Date(summary.expires_at * 1000).toLocaleDateString(),
     })
   }
 

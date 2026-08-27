@@ -10,6 +10,7 @@ import type { ReminderSystemManager } from "./features/reminder/services/Reminde
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
 import type { LicenseManager } from "./features/license/services/LicenseManager"
 import { LICENSE_REFRESH_INTERVAL_MS } from "./features/license/config"
+import { checkSeatRegistration } from "./features/license/ui/notifySeatReleased"
 import { syncAiTaskManagerToLicense } from "./features/ai-task/licenseGate"
 import { notifyAiTaskSettingsChanged } from "./features/ai-task/notifyAiTaskSettingsChanged"
 import {
@@ -133,9 +134,16 @@ export default class TaskChutePlusPlugin extends Plugin {
     )
 
     const refresh = () => {
-      void manager.refreshIfNeeded().catch((error) => {
-        this._log('warn', '[License] Refresh failed', error)
-      })
+      void manager
+        .refreshIfNeeded()
+        .catch((error) => {
+          this._log('warn', '[License] Refresh failed', error)
+        })
+        // A seat released from another machine leaves this device's token valid
+        // for the rest of its life, so the refresh alone would never notice.
+        // Runs after it so a token just renewed is checked against the list it
+        // renewed from, not the one before.
+        .then(() => checkSeatRegistration(this))
     }
 
     this.app.workspace.onLayoutReady(refresh)

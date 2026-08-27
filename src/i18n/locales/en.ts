@@ -84,12 +84,9 @@ export const en = {
       statusName: "Status",
       statusActive: "Active",
       statusInactive: "Not activated",
-      statusUnlicensed: "Not activated",
       licenseIdName: "License ID",
       devicesName: "Devices",
       devicesValue: "{used} of {max} in use",
-      expiresName: "Expires",
-      expiresNever: "No expiry",
       activated: "License activated.",
       requiredNotice: "A license is required.",
       // Split so the link sits inside the sentence rather than after it.
@@ -1062,6 +1059,12 @@ export const en = {
       release: "Release",
       releasing: "Releasing…",
       released: "Device released.",
+    },
+    seatReleased: {
+      title: "This device was released",
+      message:
+        "This device is no longer registered to your license, so AI tasks have been turned off here.\nTo use them on this device again, open the plugin settings and activate your license code.",
+      close: "OK",
     },
   },
   recipes: {

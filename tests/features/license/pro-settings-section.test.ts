@@ -41,6 +41,7 @@ function fakeManager(
     listDevices: jest.fn(),
     deactivateDevice: jest.fn(),
     refreshIfNeeded: jest.fn().mockResolvedValue(undefined),
+    verifyDeviceRegistration: jest.fn().mockResolvedValue('unknown'),
     onChange: jest.fn(() => () => undefined),
     ...overrides,
   } as unknown as LicenseManager
@@ -214,12 +215,21 @@ describe('Pro settings section', () => {
       const items = proItems(activeManager())
 
       expect(names(items)).toEqual(
-        expect.arrayContaining(['Status', 'License ID', 'Expires', 'Devices']),
+        expect.arrayContaining(['License ID', 'Devices']),
       )
       const licenseId = items.find(
         (item) => 'name' in item && item.name === 'License ID',
       )
       expect((licenseId as { desc: string }).desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
+    })
+
+    test('drops the status and expiry rows', () => {
+      // The page header already reads "Active", and neither row is something
+      // anyone acts on; the seats below are.
+      const shown = names(proItems(activeManager()))
+
+      expect(shown).not.toContain('Status')
+      expect(shown).not.toContain('Expires')
     })
 
     test('mounts the device list and disposes it on teardown', () => {

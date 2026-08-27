@@ -32,6 +32,13 @@ export interface LicenseDeviceState {
   lastServerTimeSec?: number
   /** Last known seat/expiry figures, for display while offline. */
   license?: LicenseSummary
+  /**
+   * When this device was found missing from the license's device list, in unix
+   * seconds. Set only by a real server answer; while it is present the token is
+   * never renewed automatically, so a seat released elsewhere is not silently
+   * retaken on the next refresh.
+   */
+  seatReleasedAt?: number
 }
 
 /** Duck-typed App#loadLocalStorage / App#saveLocalStorage bridge. */
@@ -130,9 +137,36 @@ export class LicenseStore {
 
   /** Drop the token but keep the device id, so re-activation reuses the seat. */
   clearToken(): void {
-    const { deviceId, lastServerTimeSec } = this.state
-    this.state = { deviceId, ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}) }
+    const { deviceId, lastServerTimeSec, seatReleasedAt } = this.state
+    this.state = {
+      deviceId,
+      ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
+      ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
+    }
     this.write()
+  }
+
+  /**
+   * Record that the server no longer lists this device. Drops the token like
+   * clearToken(), and latches the reason so no background refresh claims the
+   * seat back — only an explicit activation may do that.
+   */
+  markSeatReleased(now: number): void {
+    this.clearToken()
+    this.state = { ...this.state, seatReleasedAt: now }
+    this.write()
+  }
+
+  /** Lift the latch. Only a successful token request has the right to do this. */
+  clearSeatReleased(): void {
+    if (this.state.seatReleasedAt === undefined) return
+    const { seatReleasedAt: _removed, ...rest } = this.state
+    this.state = rest
+    this.write()
+  }
+
+  isSeatReleased(): boolean {
+    return this.state.seatReleasedAt !== undefined
   }
 
   /**
@@ -171,6 +205,7 @@ export class LicenseStore {
     const expiresAt = readPositiveInt(record['expiresAt'])
     const lastServerTimeSec = readPositiveInt(record['lastServerTimeSec'])
     const license = readLicenseSummary(record['license'])
+    const seatReleasedAt = readPositiveInt(record['seatReleasedAt'])
 
     return {
       deviceId,
@@ -178,6 +213,7 @@ export class LicenseStore {
       ...(expiresAt !== undefined ? { expiresAt } : {}),
       ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
       ...(license !== undefined ? { license } : {}),
+      ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
     }
   }
 

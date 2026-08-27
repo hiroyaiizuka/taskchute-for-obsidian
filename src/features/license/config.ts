@@ -36,6 +36,15 @@ export const LICENSE_REFRESH_THRESHOLD_SEC = 24 * 60 * 60
 export const LICENSE_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000
 
 /**
+ * Floor between two device-presence checks.
+ *
+ * The check runs whenever the settings tab builds its definitions, which
+ * happens again after every control change, so without a floor a few seconds
+ * of fiddling in settings would become a burst of requests.
+ */
+export const LICENSE_DEVICE_CHECK_MIN_INTERVAL_SEC = 60
+
+/**
  * Reject a stored token when the local clock has rewound at least this far
  * behind the last time the server told us (SPEC 11-5). Offline verification
  * trusts the device clock, so winding it back would otherwise defeat expiry.
