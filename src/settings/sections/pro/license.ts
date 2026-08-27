@@ -238,7 +238,7 @@ export function licenseRows(
   form: LicenseActivationState,
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
-  return manager.getState().status === "active"
+  return manager.isActive()
     ? activeLicenseRows(ctx, manager, applyLicenseChange)
     : activationRows(ctx, manager, form, applyLicenseChange)
 }

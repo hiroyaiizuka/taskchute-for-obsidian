@@ -6,6 +6,7 @@
  * unattended, when a background token refresh flips the entitlement, so it
  * stays silent and errs toward tearing the runtime down.
  */
+import { canStartAiTaskRuntime, isAiTaskLicensed } from './availability'
 import { createAiTaskManager, type AiTaskPluginLike } from './index'
 import { disposeAiTaskManagerTracked } from './registerProcessCleanup'
 import type { AiTaskManager } from './services/AiTaskManager'
@@ -22,9 +23,7 @@ export interface AiTaskLicenseGateHost extends AiTaskPluginLike {
 export async function syncAiTaskManagerToLicense(
   plugin: AiTaskLicenseGateHost,
 ): Promise<boolean> {
-  const licensed = plugin.licenseManager?.isActive() === true
-
-  if (!licensed) {
+  if (!isAiTaskLicensed(plugin)) {
     const manager = plugin.aiTaskManager
     if (manager) {
       // Revocation must take effect now, not at the next restart: an already
@@ -38,7 +37,9 @@ export async function syncAiTaskManagerToLicense(
   }
 
   if (plugin.aiTaskManager) return true
-  if (plugin.settings.aiTaskEnabled !== true) return false
+  // Checked before the pending-disposal wait below: there is no point draining
+  // a previous runtime for a manager the factory would refuse to build.
+  if (!canStartAiTaskRuntime(plugin)) return false
 
   // A new manager reuses the vault-scoped broker identity, so it must not start
   // while a previous one is still shutting down or that shutdown would kill it.
@@ -59,7 +60,6 @@ export async function syncAiTaskManagerToLicense(
     }
   }
 
-  // The factory owns the remaining gates (settings, desktop, license).
   plugin.aiTaskManager = createAiTaskManager(plugin)
 
   return plugin.aiTaskManager !== undefined

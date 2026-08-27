@@ -275,6 +275,7 @@ export const ja = {
       closeTab: "実行タブを閉じる",
       stopAndClose: "実行を停止して閉じる",
       togglePane: "AI実行ペインを開閉",
+      resizePane: "AI実行ペインの高さを調整",
       toggleSidebar: "ターミナルサイドバーを開閉",
       expandPane: "AI実行ペインを拡大",
       restorePane: "AI実行ペインの高さを戻す",

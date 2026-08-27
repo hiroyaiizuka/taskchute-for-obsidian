@@ -1,5 +1,6 @@
 import type { TaskChutePluginLike } from '../../types'
 import type { TaskChuteViewController } from '../../app/taskchute/TaskChuteViewController'
+import { isAiTaskFeatureAvailable } from './availability'
 import {
   findAiTaskAmbientCandidates,
   type AiTaskAmbientCandidate,
@@ -32,12 +33,7 @@ export function createAiTaskAmbientScheduler(
   return new AiTaskAmbientScheduler({
     stateStore,
     findCandidates: (now) => {
-      if (
-        plugin.settings.aiTaskEnabled !== true ||
-        !plugin.aiTaskManager
-      ) {
-        return []
-      }
+      if (!isAiTaskFeatureAvailable(plugin)) return []
       return findAiTaskAmbientCandidates(
         plugin.app,
         plugin.pathManager.getTaskFolderPath(),

@@ -19,7 +19,11 @@ function createHost(overrides: Partial<Record<string, unknown>> = {}): Host {
   return {
     app: {},
     settings: { aiTaskEnabled: true },
-    pathManager: {},
+    // The gate now asks canStartAiTaskRuntime, which includes the AI log paths.
+    pathManager: {
+      getAiLogsPath: () => 'TaskChute/AI/Logs',
+      getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
+    },
     licenseManager: createFakeLicenseManager(),
     aiTaskManagersPendingDisposal: new Set(),
     _log: jest.fn(),

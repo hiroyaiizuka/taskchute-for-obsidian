@@ -70,6 +70,39 @@ describe('style regressions', () => {
     expect(visiblePane).toMatch(/display:\s*flex;/)
   })
 
+  test('the AI pane splitter is a row-resize handle that hides while collapsed', () => {
+    const css = styles()
+    const resizer = readRule(css, '.ai-pane-resizer {')
+    expect(resizer).toMatch(/cursor:\s*row-resize;/)
+    expect(resizer).toMatch(/flex-shrink:\s*0;/)
+
+    // A resting grip keeps the splitter discoverable, and the active states
+    // stay translucent — a solid accent band is too loud at 6px.
+    const grip = readRule(css, '.ai-pane-resizer::after {')
+    expect(grip).toMatch(/background:\s*var\(--background-modifier-border\);/)
+    const dragging = readRule(css, '.ai-pane-resizer.is-dragging {')
+    expect(dragging).toMatch(/color-mix\(in srgb, var\(--interactive-accent\)/)
+    expect(dragging).not.toMatch(/background:\s*var\(--interactive-accent\);/)
+    // The handle sits inside the container so it inherits --visible; it must
+    // still disappear when the pane is collapsed to its header row.
+    const collapsed = readRule(css, '.ai-pane-container--collapsed .ai-pane-resizer {')
+    expect(collapsed).toMatch(/display:\s*none;/)
+  })
+
+  test('a drag-resized AI pane height beats the terminal share but loses to expanded', () => {
+    const css = styles()
+    const sized = readRule(css, '.ai-pane-container--sized {')
+    expect(sized).toMatch(/height:\s*var\(--tc-ai-pane-height\);/)
+    expect(sized).toMatch(/flex-basis:\s*var\(--tc-ai-pane-height\);/)
+
+    // Same specificity throughout, so source order decides the winner.
+    const terminalIndex = css.indexOf('.ai-pane-container--terminal {')
+    const sizedIndex = css.indexOf('.ai-pane-container--sized {')
+    const expandedIndex = css.indexOf('.ai-pane-container--expanded {')
+    expect(terminalIndex).toBeLessThan(sizedIndex)
+    expect(sizedIndex).toBeLessThan(expandedIndex)
+  })
+
   test('AI terminal close controls reveal on hover/focus and remain usable on touch', () => {
     const css = styles()
     const runClose = readRule(css, '.ai-run-pane__run-close {')

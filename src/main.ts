@@ -11,6 +11,7 @@ import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
 import type { LicenseManager } from "./features/license/services/LicenseManager"
 import { LICENSE_REFRESH_INTERVAL_MS } from "./features/license/config"
 import { syncAiTaskManagerToLicense } from "./features/ai-task/licenseGate"
+import { notifyAiTaskSettingsChanged } from "./features/ai-task/notifyAiTaskSettingsChanged"
 import {
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
@@ -118,9 +119,16 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     this.register(
       manager.onChange(() => {
-        void syncAiTaskManagerToLicense(this).catch((error) => {
-          this._log('warn', '[License] Failed to apply license change', error)
-        })
+        void syncAiTaskManagerToLicense(this)
+          .catch((error) => {
+            this._log('warn', '[License] Failed to apply license change', error)
+          })
+          // Even a failed sync leaves the views describing an entitlement that
+          // may be gone, so re-render either way; the view reads the current
+          // state rather than trusting what it drew last.
+          .finally(() => {
+            notifyAiTaskSettingsChanged(this.app)
+          })
       }),
     )
 

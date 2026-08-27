@@ -7291,6 +7291,11 @@ textarea.form-textarea {
 /* Bottom pane participates in the column layout while visible, shrinking the
    scrollable task-list sibling instead of covering its final rows. */
 .ai-pane-container {
+  /* Drag-resized height, as a share of the view. Overridden inline by the
+     pane controller once the user sizes the pane (see --sized below); the
+     value here is only the fallback that keeps the variable resolvable. */
+  --tc-ai-pane-height: 40%;
+
   display: none;
   width: 100%;
   max-height: 40%;
@@ -7301,6 +7306,64 @@ textarea.form-textarea {
 
 .ai-pane-container--visible {
   display: flex;
+}
+
+/* Splitter between the task list and the pane. It lives INSIDE the container
+   so it inherits --visible instead of needing its own visibility sync — a
+   previous sibling cannot be selected in CSS. */
+.ai-pane-resizer {
+  position: relative;
+  flex-shrink: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+/* Widen the hit area past the visible 6px without changing the layout. */
+.ai-pane-resizer::before {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+}
+
+/* Resting affordance: a short centred grip, so the splitter is discoverable
+   without painting a band across the whole view. */
+.ai-pane-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: var(--background-modifier-border);
+  transition: background 120ms ease;
+}
+
+.ai-pane-resizer:hover::after,
+.ai-pane-resizer:focus-visible::after,
+.ai-pane-resizer.is-dragging::after {
+  background: var(--background-modifier-border-hover);
+}
+
+/* Tinted rather than filled: a solid accent bar reads as an error state at
+   this width, so the active states stay translucent. */
+.ai-pane-resizer:hover,
+.ai-pane-resizer:focus-visible {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  outline: none;
+}
+
+.ai-pane-resizer.is-dragging {
+  background: color-mix(in srgb, var(--interactive-accent) 32%, transparent);
+  outline: none;
+}
+
+/* Nothing to resize while the pane is collapsed to its header row. */
+.ai-pane-container--collapsed .ai-pane-resizer {
+  display: none;
 }
 
 .ai-run-pane {
@@ -8140,6 +8203,21 @@ textarea.form-textarea {
 }
 
 .ai-pane-container--terminal .ai-run-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* A height the user dragged the splitter to. Declared after the terminal
+   chrome so an explicit height beats the fixed 40% share, and before the
+   expanded chrome so ⤢ still wins over it — this ordering is part of the
+   contract (tests/styles/style-regressions.test.ts asserts it). */
+.ai-pane-container--sized {
+  height: var(--tc-ai-pane-height);
+  flex-basis: var(--tc-ai-pane-height);
+  max-height: 90%;
+}
+
+.ai-pane-container--sized .ai-run-pane {
   flex: 1;
   min-height: 0;
 }

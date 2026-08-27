@@ -2,6 +2,13 @@ import { App } from "obsidian"
 import { VIEW_TYPE_TASKCHUTE } from "../../types"
 
 /**
+ * The AI variant lives with the feature, because a background license refresh
+ * has to send the same notification without going through the settings tab.
+ * Re-exported so section modules keep a single import for view notifications.
+ */
+export { notifyAiTaskSettingsChanged } from "../../features/ai-task/notifyAiTaskSettingsChanged"
+
+/**
  * Settings changes that open TaskChute views have to react to.
  *
  * Every view exposes a specific hook and falls back to a full re-render when
@@ -26,7 +33,7 @@ function taskChuteLeaves(app: App): LeafLike[] {
 /** Calls `hook` on every open view, or renderTaskList() where it is absent. */
 function notifyOrRerender(
   app: App,
-  hook: "onRecipeFeatureSettingsChanged" | "onAiTaskSettingsChanged",
+  hook: "onRecipeFeatureSettingsChanged",
 ): void {
   taskChuteLeaves(app).forEach((leaf) => {
     const view = leaf.view as
@@ -45,10 +52,6 @@ function notifyOrRerender(
 
 export function notifyRecipeFeatureSettingsChanged(app: App): void {
   notifyOrRerender(app, "onRecipeFeatureSettingsChanged")
-}
-
-export function notifyAiTaskSettingsChanged(app: App): void {
-  notifyOrRerender(app, "onAiTaskSettingsChanged")
 }
 
 /** Used where the change only affects layout, so a plain re-render suffices. */

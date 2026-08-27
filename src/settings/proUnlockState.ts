@@ -1,3 +1,4 @@
+import { isAiTaskLicensed } from "../features/ai-task/availability"
 import type { SectionContext } from "./types"
 
 /**
@@ -48,5 +49,16 @@ export function isProSectionVisible(
   unlock: ProUnlockState,
 ): boolean {
   if (unlock.isUnlocked) return true
-  return ctx.plugin.licenseManager?.getState().status === "active"
+  return isProLicenseActive(ctx)
+}
+
+/**
+ * The entitlement gate for everything in the Pro section.
+ *
+ * Routed through the AI availability module rather than reading the license
+ * state here: that module is the single source of truth for "is the feature
+ * on?", and the settings tab has to agree with the runtime it configures.
+ */
+export function isProLicenseActive(ctx: SectionContext): boolean {
+  return isAiTaskLicensed(ctx.plugin)
 }

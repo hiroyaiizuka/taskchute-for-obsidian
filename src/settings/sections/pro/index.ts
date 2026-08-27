@@ -1,7 +1,11 @@
 import type { SettingDefinitionItem } from "obsidian"
 import { t } from "../../../i18n"
 import { syncAiTaskManagerToLicense } from "../../../features/ai-task/licenseGate"
-import { ProUnlockState, isProSectionVisible } from "../../proUnlockState"
+import {
+  ProUnlockState,
+  isProLicenseActive,
+  isProSectionVisible,
+} from "../../proUnlockState"
 import type { AiTaskToggleGuard } from "../../services/aiTaskLifecycle"
 import { notifyAiTaskSettingsChanged } from "../../services/viewNotifications"
 import type { SectionContext, SectionModule } from "../../types"
@@ -56,7 +60,7 @@ export function proSection(
           },
         ]
       } else {
-        const active = manager.getState().status === "active"
+        const active = isProLicenseActive(ctx)
         items = [
           ...licenseRows(ctx, manager, form, () => applyLicenseChange(ctx)),
           ...(active ? aiTask.items(ctx) : []),
@@ -69,7 +73,7 @@ export function proSection(
           name: t("settings.pro.heading", "Pro settings"),
           visible: () => isProSectionVisible(ctx, unlock),
           displayValue: () =>
-            ctx.plugin.licenseManager?.getState().status === "active"
+            isProLicenseActive(ctx)
               ? t("settings.license.statusActive", "Active")
               : t("settings.license.statusInactive", "Not activated"),
           items,
