@@ -149,6 +149,18 @@ export async function bootstrapPlugin(
     plugin._log?.("warn", "Failed to assign task IDs", error)
   }
 
+  // Before the settings tab: registering a tab makes Obsidian read its
+  // definitions right away to build the search index, and the pro page decides
+  // its whole shape from whether this manager exists. Created later, that first
+  // read sees nothing and the page keeps offering the "unexpected error" row
+  // instead of the activation form. It is also the third gate in
+  // createAiTaskManager below.
+  try {
+    plugin.licenseManager = createLicenseManager(plugin)
+  } catch (error) {
+    plugin._log?.("warn", "[TaskChute] Failed to initialize license manager:", error)
+  }
+
   try {
     plugin.addSettingTab(new TaskChuteSettingTab(plugin.app, plugin))
   } catch (error) {
@@ -202,14 +214,6 @@ export async function bootstrapPlugin(
     plugin._log?.("debug", "[TaskChute] Reminder system initialized")
   } catch (error) {
     plugin._log?.("warn", "[TaskChute] Failed to initialize reminder system:", error)
-  }
-
-  // The license manager must exist before the AI task manager: it is the third
-  // gate in createAiTaskManager, and the settings tab needs it either way.
-  try {
-    plugin.licenseManager = createLicenseManager(plugin)
-  } catch (error) {
-    plugin._log?.("warn", "[TaskChute] Failed to initialize license manager:", error)
   }
 
   // Initialize the AI task manager (inert unless enabled AND on desktop AND licensed)
