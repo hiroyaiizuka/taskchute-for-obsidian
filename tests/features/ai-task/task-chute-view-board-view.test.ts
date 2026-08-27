@@ -15,6 +15,7 @@ import {
   AI_TASK_BOARD_VIEW_STORAGE_KEY,
 } from '../../../src/features/core/views/TaskChuteView'
 import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
+import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 interface LocalStorageMocks {
   loadLocalStorage: jest.Mock
@@ -82,7 +83,10 @@ function createPluginStub(storedBoardView?: unknown): {
       getLogYearPath: (year: string | number) => `${year}`,
       ensureYearFolder: jest.fn(async (year: string | number) => `${year}`),
       validatePath: () => ({ valid: true }),
+      getAiLogsPath: () => 'TaskChute/AI/Logs',
+      getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
     },
+    licenseManager: createFakeLicenseManager(),
     dayStateService: {
       loadDay: jest.fn(async () => ({
         hiddenRoutines: [],

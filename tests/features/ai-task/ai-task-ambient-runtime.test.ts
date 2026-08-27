@@ -4,6 +4,7 @@ import { createAiTaskAmbientScheduler } from '../../../src/features/ai-task/AiTa
 import { AI_TASK_AMBIENT_SCHEDULE_STATE_STORAGE_KEY } from '../../../src/features/ai-task/services/AiTaskAmbientScheduleStateStore'
 import type { TaskChuteViewController } from '../../../src/app/taskchute/TaskChuteViewController'
 import type { TaskChutePluginLike } from '../../../src/types'
+import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 const TASK_PATH = 'TaskChute/Task/Ambient review.md'
 const DUE_AT = new Date(2026, 6, 15, 8, 0)
@@ -27,6 +28,7 @@ function createFile(path: string): TFile {
 function createHarness(options: {
   enabled?: boolean
   manager?: boolean
+  licensed?: boolean
   linked?: boolean
 } = {}) {
   const file = createFile(TASK_PATH)
@@ -79,9 +81,12 @@ function createHarness(options: {
     settings: {
       aiTaskEnabled: options.enabled !== false,
     },
+    licenseManager: createFakeLicenseManager(options.licensed !== false),
     aiTaskManager: options.manager === false ? undefined : {},
     pathManager: {
       getTaskFolderPath: () => 'TaskChute/Task',
+      getAiLogsPath: () => 'TaskChute/AI/Logs',
+      getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
     },
     _log: jest.fn(),
   } as unknown as TaskChutePluginLike
@@ -207,6 +212,7 @@ describe('AI Task Ambient runtime composition', () => {
   test.each([
     ['feature disabled', { enabled: false }],
     ['manager unavailable', { manager: false }],
+    ['license inactive', { licensed: false }],
   ])('stays inert when %s', async (_label, options) => {
     const harness = createHarness(options)
 

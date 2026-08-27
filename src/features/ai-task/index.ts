@@ -2,15 +2,15 @@
  * AI Task - feature entry point
  *
  * createAiTaskManager wires the whole feature (Node gateway, binary locator,
- * dispatchers, log writer, run manager) and gates it twice: the feature must
- * be enabled in settings AND the runtime must be desktop. When either gate
- * fails it returns undefined and nothing AI-related is instantiated, keeping
- * mobile and opted-out vaults completely inert.
+ * dispatchers, log writer, run manager) behind the shared gate in
+ * ./availability. When any gate fails it returns undefined and nothing
+ * AI-related is instantiated, keeping mobile, unlicensed and opted-out vaults
+ * completely inert.
  */
 
-import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
 import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '../../types'
+import { evaluateAiTaskAvailability } from './availability'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
 import {
@@ -75,23 +75,19 @@ function getVaultBrokerIdentity(app: App): string | undefined {
  */
 export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | undefined {
   plugin.aiTaskRuntimeLeaseGeneration = undefined
-  if (plugin.settings.aiTaskEnabled !== true) return undefined
-  if (!Platform?.isDesktop) return undefined
-  if (plugin.licenseManager?.isActive() !== true) {
-    plugin._log?.('debug', '[AiTask] No active license; feature disabled')
+  const availability = evaluateAiTaskAvailability(plugin)
+  if (!availability.available) {
+    if (availability.reason === 'unlicensed') {
+      plugin._log?.('debug', '[AiTask] No active license; feature disabled')
+    } else if (availability.reason === 'unsupported-paths') {
+      plugin._log?.('warn', '[AiTask] Path manager lacks AI log paths; feature disabled')
+    }
     return undefined
   }
 
-  const pathManager = plugin.pathManager
-  if (
-    typeof pathManager.getAiLogsPath !== 'function' ||
-    typeof pathManager.getAiLogsMonthPath !== 'function'
-  ) {
-    plugin._log?.('warn', '[AiTask] Path manager lacks AI log paths; feature disabled')
-    return undefined
-  }
-  // Runtime-validated above; the cast makes the optional methods required.
-  const logPathManager = pathManager as PathManagerLike & {
+  // Runtime-validated by the availability gate; the cast makes the optional
+  // path methods required.
+  const logPathManager = plugin.pathManager as PathManagerLike & {
     getAiLogsPath: () => string
     getAiLogsMonthPath: (yearMonth: string) => string
   }

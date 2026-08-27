@@ -3,6 +3,8 @@ import { TaskChuteSettings, SectionBoundary, PathManagerLike, VIEW_TYPE_TASKCHUT
 import { getCurrentLocale, t } from "../i18n"
 import { TERMINAL_NAME } from "../constants"
 import { createAiTaskManager } from "../features/ai-task"
+import { isAiTaskLicensed } from "../features/ai-task/availability"
+import { notifyAiTaskSettingsChanged } from "../features/ai-task/notifyAiTaskSettingsChanged"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 import { disposeAiTaskManagerTracked } from "../features/ai-task/registerProcessCleanup"
 import { syncAiTaskManagerToLicense } from "../features/ai-task/licenseGate"
@@ -114,7 +116,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     // Deliberately not latched: releasing this device drops the state back to
     // unlicensed, and the section has to disappear with it rather than leave
     // an activation form behind for a feature that is hidden again.
-    return this.plugin.licenseManager?.getState().status === "active"
+    return isAiTaskLicensed(this.plugin)
   }
 
   /**
@@ -737,7 +739,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
       return
     }
 
-    if (manager.getState().status === "active") {
+    if (manager.isActive()) {
       this.renderActiveLicense(content, manager)
       this.renderAiTaskSection(content)
       return
@@ -1181,23 +1183,7 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   private notifyAiTaskSettingsChanged(): void {
-    const workspace = this.app.workspace as {
-      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
-    }
-    const leaves = typeof workspace.getLeavesOfType === "function"
-      ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE)
-      : []
-    leaves.forEach((leaf) => {
-      const view = leaf.view as {
-        onAiTaskSettingsChanged?: () => void
-        renderTaskList?: () => void
-      } | undefined
-      if (typeof view?.onAiTaskSettingsChanged === "function") {
-        view.onAiTaskSettingsChanged()
-        return
-      }
-      view?.renderTaskList?.()
-    })
+    notifyAiTaskSettingsChanged(this.app)
   }
 
   private renderSectionCustomization(container: HTMLElement): void {
