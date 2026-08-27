@@ -89,13 +89,7 @@ export const en = {
       devicesValue: "{used} of {max} in use",
       activated: "License activated.",
       requiredNotice: "A license is required.",
-      // Split so the link sits inside the sentence rather than after it.
       purchaseName: "Buy a license",
-      purchaseBefore: "You can buy an activation code ",
-      // Mid-sentence link text, so it stays lowercase (exempted by the
-      // "^here$" ignoreRegex).
-      purchaseLink: "here",
-      purchaseAfter: ".",
     },
     aiTask: {
       heading: "AI task",

@@ -36,6 +36,7 @@ function formatLastSeen(unixSeconds: number): string {
 export class DeviceListView {
   private devices?: DeviceView[]
   private maxDevices?: number
+  private readonly rootEl: HTMLElement
   private readonly statusEl: HTMLElement
   private readonly listEl: HTMLElement
   private busyDeviceId?: string
@@ -50,6 +51,7 @@ export class DeviceListView {
     this.maxDevices = options.initialMaxDevices
 
     const root = container.createDiv({ cls: 'taskchute-license-devices' })
+    this.rootEl = root
     root.createDiv({
       cls: 'taskchute-license-devices__description',
       text: t(
@@ -57,8 +59,10 @@ export class DeviceListView {
         'This license can be used on a limited number of devices. Release a device you no longer use to make room for another one.',
       ),
     })
-    this.statusEl = root.createDiv({ cls: 'taskchute-license-devices__status' })
     this.listEl = root.createDiv({ cls: 'taskchute-license-devices__list' })
+    // Under the list: the seat count is a summary of what is above it, and a
+    // load or failure message reads as the state of the list it follows.
+    this.statusEl = root.createDiv({ cls: 'taskchute-license-devices__status' })
 
     if (this.devices === undefined) {
       void this.load()
@@ -70,9 +74,13 @@ export class DeviceListView {
   /**
    * Stop touching the DOM. The settings tab rebuilds its whole container on
    * every display(), so an in-flight request must not write into the old tree.
+   *
+   * The tree this view owns goes with it: a host that is reused across renders
+   * would otherwise accumulate one dead list per pass.
    */
   dispose(): void {
     this.disposed = true
+    this.rootEl.remove()
   }
 
   private async load(): Promise<void> {

@@ -10,7 +10,7 @@ import type { AiTaskToggleGuard } from "../../services/aiTaskLifecycle"
 import { notifyAiTaskSettingsChanged } from "../../services/viewNotifications"
 import type { SectionContext, SectionModule } from "../../types"
 import { aiTaskSection } from "./aiTask"
-import { LICENSE_CODE_KEY, licenseCodeHandler, licenseRows } from "./license"
+import { licenseRows } from "./license"
 import { LicenseActivationState } from "./licenseActivationState"
 
 /** Create or dispose the AI runtime to match the new license state. */
@@ -81,9 +81,8 @@ export function proSection(
       ]
     },
 
-    handlers: {
-      ...aiTask.handlers,
-      [LICENSE_CODE_KEY]: licenseCodeHandler(form),
-    },
+    // No license handler: the activation form owns its field imperatively,
+    // because the code being typed is a draft rather than a stored setting.
+    handlers: aiTask.handlers,
   }
 }
