@@ -80,12 +80,9 @@ export const ja = {
       statusName: "状態",
       statusActive: "有効",
       statusInactive: "未アクティベート",
-      statusUnlicensed: "未有効化",
       licenseIdName: "ライセンスID",
       devicesName: "端末",
       devicesValue: "{max}台中{used}台を使用中",
-      expiresName: "有効期限",
-      expiresNever: "無期限",
       activated: "ライセンスを有効化しました。",
       requiredNotice: "ライセンスが必要です。",
       purchaseName: "ライセンスを購入",
@@ -1058,6 +1055,12 @@ export const ja = {
       release: "解除",
       releasing: "解除しています…",
       released: "端末を解除しました。",
+    },
+    seatReleased: {
+      title: "この端末の登録が解除されました",
+      message:
+        "この端末はライセンスに登録されていないため、AI タスクを無効にしました。\nこの端末で使い直すには、設定画面でライセンスコードをアクティベートしてください。",
+      close: "OK",
     },
   },
   recipes: {

@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, type SettingDefinitionItem } from "obsidian"
+import { checkSeatRegistration } from "../features/license/ui/notifySeatReleased"
 import type { PluginWithSettings } from "./pluginWithSettings"
 import { ProUnlockState } from "./proUnlockState"
 import { everydaySections, trailingSections } from "./sections"
@@ -78,6 +79,17 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
+    // Obsidian calls this on every display(), which makes it the hook for
+    // "the settings screen was opened" — the moment someone is most likely to
+    // wonder why the AI settings are still there after releasing this device
+    // elsewhere. The manager throttles the request, so the extra calls a
+    // rebuild makes cost nothing.
+    void checkSeatRegistration(this.plugin).then((result) => {
+      // The runtime is torn down by the license listener in main.ts; only the
+      // definitions this tab drew from the old state still need replacing.
+      if (result === "released") this.update()
+    })
+
     return this.modules.flatMap((module) => module.items(this.ctx))
   }
 

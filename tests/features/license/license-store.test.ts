@@ -107,6 +107,49 @@ describe('LicenseStore', () => {
     expect(new LicenseStore(bridge).getDeviceId()).toBe(deviceId)
   })
 
+  describe('seat release latch', () => {
+    test('markSeatReleased drops the token and survives a reload', () => {
+      const bridge = createBridge()
+      const store = new LicenseStore(bridge)
+      const deviceId = store.getDeviceId()
+      store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+
+      store.markSeatReleased(1787100000)
+
+      expect(store.getState().token).toBeUndefined()
+      expect(store.isSeatReleased()).toBe(true)
+
+      // The latch has to outlive a restart, or the next launch would renew the
+      // token and take the released seat straight back.
+      const reloaded = new LicenseStore(bridge)
+      expect(reloaded.isSeatReleased()).toBe(true)
+      expect(reloaded.getState().seatReleasedAt).toBe(1787100000)
+      // Same seat on re-activation, and the rollback watermark is untouched.
+      expect(reloaded.getDeviceId()).toBe(deviceId)
+      expect(reloaded.getState().lastServerTimeSec).toBe(1787000000)
+    })
+
+    test('clearToken alone leaves an existing latch in place', () => {
+      const store = new LicenseStore(createBridge())
+      store.markSeatReleased(1787100000)
+
+      store.clearToken()
+
+      expect(store.isSeatReleased()).toBe(true)
+    })
+
+    test('clearSeatReleased lifts it', () => {
+      const bridge = createBridge()
+      const store = new LicenseStore(bridge)
+      store.markSeatReleased(1787100000)
+
+      store.clearSeatReleased()
+
+      expect(store.isSeatReleased()).toBe(false)
+      expect(new LicenseStore(bridge).isSeatReleased()).toBe(false)
+    })
+  })
+
   test('survives a storage bridge that throws', () => {
     const bridge: LicenseStorageBridge = {
       loadLocalStorage: () => {
