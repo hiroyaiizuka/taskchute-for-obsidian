@@ -9,16 +9,18 @@ import type { LocaleKey } from '../../i18n'
  */
 
 /**
- * Ed25519 public key (base64url, raw 32 bytes) matching the API's
+ * Ed25519 public key (base64url, raw 32 bytes) matching the deployed Worker's
  * LICENSE_PRIVATE_KEY.
  *
- * ⚠️ This is currently the key from the API repo's local .dev.vars. The
- * deployed Worker's LICENSE_PRIVATE_KEY is a Cloudflare secret and its public
- * counterpart is not recorded in wrangler.jsonc, so it must be derived and
- * pasted here before a production release — otherwise every real token fails
- * verification with `invalid-signature`.
+ * Rotating the key pair means updating both sides together: the license repo's
+ * `npm run keys:generate` rewrites this constant and `npm run keys:upload` puts
+ * the private half into Cloudflare secrets. Skip either half and the Worker
+ * keeps signing happily while every user is rejected with `invalid-signature`.
+ *
+ * The generator rewrites this line by regex, so keep the declaration shaped as
+ * `export const LICENSE_PUBLIC_KEY = '…'`.
  */
-export const LICENSE_PUBLIC_KEY = 'be-8ZHqidokTIubfzpcEUfk5hZbSQYGn6GyHU1nSrKg'
+export const LICENSE_PUBLIC_KEY = 'YTWhN3Bl5zorbd6wJVRUF50CDee7hSPseXZiUHMoI0I'
 
 /** Baked into the token payload (`p`) and the license-id derivation. */
 export const LICENSE_PRODUCT_ID = 'taskchute-plus'
