@@ -1,4 +1,5 @@
 import { t } from '../../../i18n'
+import { applyIcon } from '../../../ui/icons'
 
 let recipeEditorFormId = 0
 
@@ -307,7 +308,6 @@ export class RecipeEditorForm {
 
       const remove = row.createEl('button', {
         cls: 'form-button cancel recipe-step-remove-button',
-        text: '×',
         attr: {
           type: 'button',
           title: isQuality
@@ -318,6 +318,7 @@ export class RecipeEditorForm {
             : t('recipes.manager.removeStep', '手順を削除'),
         },
       })
+      applyIcon(remove, 'x')
       remove.addEventListener('click', () => {
         const next = [...this.getValues(kind)]
         next.splice(index, 1)

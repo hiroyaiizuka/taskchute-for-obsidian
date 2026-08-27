@@ -1,4 +1,5 @@
 import { Notice, App, setIcon } from 'obsidian'
+import { applyIcon, createIconSpan } from '../icons'
 import TaskMoveCalendar, {
   TaskMoveCalendarFactory,
   TaskMoveCalendarHandle,
@@ -124,7 +125,7 @@ export default class TaskHeaderController {
         'aria-label': this.host.tv('header.openNavigation', 'Open navigation'),
       },
     })
-    drawerToggle.createSpan( { cls: 'drawer-toggle-icon', text: '☰' })
+    createIconSpan(drawerToggle, 'menu', 'drawer-toggle-icon')
     this.host.registerManagedDomEvent(drawerToggle, 'click', (event) => {
       event.stopPropagation()
       this.host.toggleNavigation()
@@ -137,21 +138,29 @@ export default class TaskHeaderController {
 
     const leftBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',
-      text: '<',
+      attr: {
+        title: this.host.tv('header.previousDay', 'Previous day'),
+        'aria-label': this.host.tv('header.previousDay', 'Previous day'),
+      },
     })
+    applyIcon(leftBtn, 'chevron-left')
     const calendarBtn = navContainer.createEl('button', {
       cls: 'calendar-btn',
-      text: '🗓️',
       attr: {
         title: this.host.tv('header.openCalendar', 'Open calendar'),
         'aria-label': this.host.tv('header.openCalendar', 'Open calendar'),
       },
     })
+    applyIcon(calendarBtn, 'calendar')
     const dateLabel = navContainer.createSpan( { cls: 'date-nav-label' })
     const rightBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',
-      text: '>',
+      attr: {
+        title: this.host.tv('header.nextDay', 'Next day'),
+        'aria-label': this.host.tv('header.nextDay', 'Next day'),
+      },
     })
+    applyIcon(rightBtn, 'chevron-right')
 
     this.dateLabelEl = dateLabel
     this.refreshDateLabel()
@@ -188,12 +197,12 @@ export default class TaskHeaderController {
     if (this.host.plugin.settings.aiRobotButtonEnabled === true) {
       const robotButton = actionSection.createEl('button', {
         cls: 'robot-terminal-button',
-        text: '🤖',
         attr: {
           title: this.host.tv('header.openTerminal', 'Open terminal'),
           'aria-label': this.host.tv('header.openTerminal', 'Open terminal'),
         },
       })
+      applyIcon(robotButton, 'bot')
       this.host.registerManagedDomEvent(robotButton, 'click', (event) => {
         void (async () => {
           event.stopPropagation()
@@ -231,12 +240,12 @@ export default class TaskHeaderController {
 
     const addTaskButton = actionSection.createEl('button', {
       cls: 'add-task-button repositioned',
-      text: '+',
       attr: {
         title: this.host.tv('header.addTask', 'Add new task'),
         'aria-label': this.host.tv('header.addTask', 'Add new task'),
       },
     })
+    applyIcon(addTaskButton, 'plus')
 
     this.host.registerManagedDomEvent(addTaskButton, 'click', (event) => {
       event.stopPropagation()

@@ -1,6 +1,7 @@
 import { App, EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
 import type { TaskChutePluginLike } from '../../types'
+import { applyIcon } from '../icons'
 import {
   ProjectBoardItem,
   ProjectBoardStatus,
@@ -187,9 +188,9 @@ export class ProjectBoardView extends ItemView {
     const actions = header.createDiv( { cls: 'project-board-column__actions' })
     const addButton = actions.createEl('button', {
       cls: 'project-board-button project-board-button--add',
-      text: '+',
       attr: { 'aria-label': this.translate('projectBoard.actions.addProject', 'Add new project') },
     })
+    applyIcon(addButton, 'plus')
     addButton.addEventListener('click', () => this.handleCreateProject(definition.id))
   }
 

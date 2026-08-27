@@ -1,4 +1,5 @@
 import { Notice } from 'obsidian'
+import { applyIcon } from '../icons'
 import type { TimePicker, TimePickerOptions } from './TimePickerFactory'
 
 /** @deprecated Use TimePickerOptions from TimePickerFactory instead */
@@ -25,19 +26,19 @@ export default class TimeEditPopup implements TimePicker {
     input.classList.add('taskchute-time-popup-input')
     container.appendChild(input)
 
-    // Save button (✓)
+    // Save button
     const saveBtn = createEl('button')
     saveBtn.type = 'button'
     saveBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-save')
-    saveBtn.textContent = '✓'
+    applyIcon(saveBtn, 'check')
     saveBtn.setAttribute('aria-label', 'Save')
     container.appendChild(saveBtn)
 
-    // Cancel button (✕)
+    // Cancel button
     const cancelBtn = createEl('button')
     cancelBtn.type = 'button'
     cancelBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-cancel')
-    cancelBtn.textContent = '✕'
+    applyIcon(cancelBtn, 'x')
     cancelBtn.setAttribute('aria-label', 'Cancel')
     container.appendChild(cancelBtn)
 
@@ -45,7 +46,7 @@ export default class TimeEditPopup implements TimePicker {
     const resetBtn = createEl('button')
     resetBtn.type = 'button'
     resetBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-reset')
-    resetBtn.textContent = '↺'
+    applyIcon(resetBtn, 'rotate-ccw')
     resetBtn.setAttribute('aria-label', 'Reset')
     container.appendChild(resetBtn)
 

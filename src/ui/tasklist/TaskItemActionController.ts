@@ -1,4 +1,5 @@
 import { Platform } from 'obsidian'
+import { applyIcon, createIconSpan } from '../icons'
 import type { TaskInstance } from '../../types'
 
 export interface TaskItemActionHost {
@@ -83,7 +84,7 @@ export class TaskItemActionController {
           title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title: displayTitle }),
         },
       })
-      projectButton.createSpan( { cls: 'taskchute-project-icon', text: '📁' })
+      createIconSpan(projectButton, 'folder', 'taskchute-project-icon')
       projectButton.createSpan( { cls: 'taskchute-project-name', text: displayTitle })
       this.registerTapEvent(projectButton, (event) => {
         event.stopPropagation()
@@ -96,11 +97,11 @@ export class TaskItemActionController {
 
       const externalLink = wrapper.createSpan( {
         cls: 'taskchute-external-link',
-        text: '🔗',
         attr: {
           title: this.host.tv('project.openNote', 'Open project note'),
         },
       })
+      applyIcon(externalLink, 'external-link')
       this.registerTapEvent(externalLink, (event) => {
         event.stopPropagation()
         const path = inst.task.projectPath ?? ''
@@ -132,9 +133,9 @@ export class TaskItemActionController {
   renderCommentButton(taskItem: HTMLElement, inst: TaskInstance): void {
     const button = taskItem.createEl('button', {
       cls: 'comment-button',
-      text: '💬',
       attr: { 'data-task-state': inst.state },
     })
+    applyIcon(button, 'message-square')
 
     if (inst.state !== 'done') {
       button.classList.add('disabled')
@@ -165,13 +166,13 @@ export class TaskItemActionController {
     const isRoutineEnabled = inst.task.isRoutine && inst.task.routine_enabled !== false
     const button = taskItem.createEl('button', {
       cls: `routine-button ${isRoutineEnabled ? 'active' : ''}`,
-      text: '🔄',
       attr: {
         title: inst.task.isRoutine
           ? this.host.tv('tooltips.routineAssigned', 'Routine task')
           : this.host.tv('tooltips.routineSet', 'Set as routine'),
       },
     })
+    applyIcon(button, 'repeat')
 
     this.registerTapEvent(button, (event) => {
       event.stopPropagation()
@@ -190,9 +191,9 @@ export class TaskItemActionController {
   renderSettingsButton(taskItem: HTMLElement, inst: TaskInstance): void {
     const button = taskItem.createEl('button', {
       cls: 'settings-task-button',
-      text: '⚙️',
       attr: { title: this.host.tv('forms.taskSettings', 'Task settings') },
     })
+    applyIcon(button, 'settings')
 
     this.registerTapEvent(button, (event) => {
       event.stopPropagation()

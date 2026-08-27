@@ -247,6 +247,8 @@ export const ja = {
     header: {
       openNavigation: "ナビゲーションを開く",
       openCalendar: "カレンダーを開く",
+      previousDay: "前日",
+      nextDay: "翌日",
       addTask: "新しいタスクを追加",
       openTerminal: "ターミナルを開く",
       terminalOpenFailed: "ターミナルを開けませんでした: {message}",

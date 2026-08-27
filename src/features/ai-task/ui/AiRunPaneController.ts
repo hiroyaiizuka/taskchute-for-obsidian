@@ -1009,9 +1009,9 @@ export class AiRunPaneController {
     const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
     const addButton = tabstrip.createEl('button', {
       cls: 'ai-run-pane__add',
-      text: '+',
       attr: { 'aria-label': addLabel, title: addLabel },
     })
+    setIcon(addButton, 'plus')
     addButton.addEventListener('click', (event) => {
       event.stopPropagation()
       this.handleNewShell(panel)
@@ -1802,7 +1802,6 @@ export class AiRunPaneController {
       )
       tab.createSpan({
         cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
-        text: '●',
         attr: { title: statusLabel },
       })
       tab.createSpan({

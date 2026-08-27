@@ -63,6 +63,9 @@ jest.mock('obsidian', () => {
     App: MockApp,
     Modal,
     Notice: jest.fn(),
+    setIcon: jest.fn((element: HTMLElement, iconId: string) => {
+      element.setAttribute('data-icon', iconId)
+    }),
   }
 })
 

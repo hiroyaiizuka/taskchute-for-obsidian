@@ -442,7 +442,7 @@ export class WorkspaceFileEditorController {
     })
     tabElement.createSpan({ cls: 'ai-run-pane__file-tab-title', text: tab.title })
     if (isDirty(tab)) {
-      tabElement.createSpan({ cls: 'ai-run-pane__file-tab-dirty', text: '•' })
+      tabElement.createSpan({ cls: 'ai-run-pane__file-tab-dirty' })
     }
     const close = tabElement.createEl('button', {
       cls: 'ai-run-pane__file-tab-close ai-run-pane__work-tab-close',

@@ -2,6 +2,7 @@ import { Notice, TFile } from 'obsidian'
 import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '../../types'
 import ProjectSettingsModal from '../modals/ProjectSettingsModal'
 import { listFilesInFolder } from '../../utils/vaultFiles'
+import { applyIcon, createIconSpan } from '../icons'
 
 export interface ProjectControllerHost {
   app: TaskChutePluginLike['app']
@@ -213,7 +214,7 @@ export default class ProjectController {
           title: this.host.tv('project.tooltipAssigned', 'Project: {title}', { title: displayName }),
         },
       })
-      projectButton.createSpan( { cls: 'taskchute-project-icon', text: '📁' })
+      createIconSpan(projectButton, 'folder', 'taskchute-project-icon')
       projectButton.createSpan( { cls: 'taskchute-project-name', text: displayName })
       projectButton.addEventListener('click', (event) => {
         event.stopPropagation()
@@ -222,9 +223,9 @@ export default class ProjectController {
 
       const externalLink = projectDisplay.createSpan( {
         cls: 'taskchute-external-link',
-        text: '🔗',
         attr: { title: this.host.tv('project.openNote', 'Open project note') },
       })
+      applyIcon(externalLink, 'external-link')
       externalLink.addEventListener('click', (event) => {
         void (async () => {
           event.stopPropagation()

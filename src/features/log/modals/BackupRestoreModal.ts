@@ -1,6 +1,7 @@
 import { App, Modal } from 'obsidian'
 import type { BackupEntry, BackupPreview } from '../services/BackupRestoreService'
 import { getCurrentLocale } from '../../../i18n'
+import { applyIcon } from '../../../ui/icons'
 
 const JA_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 const EN_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -292,10 +293,10 @@ class BackupConfirmModal extends Modal {
 
     // Left arrow
     const prevButton = headerEl.createEl('button', {
-      text: '←',
       cls: 'backup-preview-nav-button',
       attr: { 'aria-label': this.tv('prevDay', 'Previous day') },
     })
+    applyIcon(prevButton, 'chevron-left')
     prevButton.addEventListener('click', () => {
       void this.navigateDate(-1)
     })
@@ -308,10 +309,10 @@ class BackupConfirmModal extends Modal {
 
     // Right arrow
     const nextButton = headerEl.createEl('button', {
-      text: '→',
       cls: 'backup-preview-nav-button',
       attr: { 'aria-label': this.tv('nextDay', 'Next day') },
     })
+    applyIcon(nextButton, 'chevron-right')
     nextButton.addEventListener('click', () => {
       void this.navigateDate(1)
     })

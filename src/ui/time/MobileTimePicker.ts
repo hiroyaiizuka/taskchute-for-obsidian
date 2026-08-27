@@ -1,4 +1,5 @@
 import { Notice } from 'obsidian'
+import { applyIcon } from '../icons'
 import type { TimePicker, TimePickerOptions } from './TimePickerFactory'
 
 /**
@@ -117,7 +118,7 @@ export class MobileTimePicker implements TimePicker {
       'taskchute-mobile-time-picker-btn',
       'taskchute-mobile-time-picker-btn-reset',
     )
-    resetBtn.textContent = '↺'
+    applyIcon(resetBtn, 'rotate-ccw')
     resetBtn.setAttribute('aria-label', 'Reset')
     resetBtn.addEventListener('click', this.handleReset)
     buttonsContainer.appendChild(resetBtn)
