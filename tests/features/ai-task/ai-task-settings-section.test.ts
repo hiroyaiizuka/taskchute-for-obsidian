@@ -5,13 +5,17 @@
  * completion can land after a newer toggle or after a hot reload has replaced
  * the plugin instance. Those races are the bulk of what is tested here.
  */
-import type { SettingDefinitionAction, SettingDefinitionItem } from 'obsidian'
-import { Notice, mockApp } from 'obsidian'
+import type { SettingDefinitionItem, SettingDefinitionRender } from 'obsidian'
+import { Notice, Setting, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
 import { createAiTaskManager } from '../../../src/features/ai-task'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
-import { findByKey, flatten } from '../../settings/definitionHelpers'
+import {
+  findByKey,
+  findByName,
+  flatten,
+} from '../../settings/definitionHelpers'
 
 jest.mock('../../../src/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
@@ -82,22 +86,60 @@ function createTab(): { tab: TaskChuteSettingTab; plugin: FakePlugin } {
   return { tab, plugin }
 }
 
-function browseRow(
+interface FakeTextComponent {
+  getValue(): string
+  setValue(value: string): FakeTextComponent
+  __triggerEvent(type: string): Promise<void>
+}
+
+interface FakeExtraButton {
+  icon: string | null
+  tooltip: string | null
+  __click(): Promise<void>
+}
+
+/**
+ * The CLI path rows are imperative (`render:`) because the text field and its
+ * picker share one row, so the test has to run the callback against a Setting
+ * and reach for the components it created.
+ */
+function pathRow(
   tab: TaskChuteSettingTab,
   pathName: string,
-): SettingDefinitionAction {
+): { text: FakeTextComponent; browse: FakeExtraButton } {
   const row = flatten(tab.getSettingDefinitions()).find(
-    (item: SettingDefinitionItem): item is SettingDefinitionAction =>
-      'action' in item &&
-      item.action !== undefined &&
-      item.name === 'Browse' &&
-      item.desc === pathName,
+    (item: SettingDefinitionItem): item is SettingDefinitionRender =>
+      'render' in item && item.render !== undefined && item.name === pathName,
   )
-  if (!row) throw new Error(`browse row for "${pathName}" not found`)
-  return row
+  if (!row) throw new Error(`path row for "${pathName}" not found`)
+
+  const setting = new Setting(document.createElement('div')) as unknown as {
+    __textComponents?: FakeTextComponent[]
+    __extraButtons?: FakeExtraButton[]
+  }
+  row.render(setting as never, undefined as never)
+
+  const text = setting.__textComponents?.[0]
+  const browse = setting.__extraButtons?.[0]
+  if (!text || !browse) {
+    throw new Error(`path row for "${pathName}" rendered no field or picker`)
+  }
+  return { text, browse }
+}
+
+/** Types into the field and commits the way the row does: on blur. */
+async function typePath(
+  tab: TaskChuteSettingTab,
+  pathName: string,
+  value: string,
+): Promise<void> {
+  const { text } = pathRow(tab, pathName)
+  text.setValue(value)
+  await text.__triggerEvent('blur')
 }
 
 const CLAUDE_PATH_NAME = 'Claude CLI path (advanced fallback)'
+const CODEX_PATH_NAME = 'Codex CLI path (advanced fallback)'
 
 describe('TaskChute AI task settings section', () => {
   const createAiTaskManagerMock = createAiTaskManager as jest.Mock
@@ -350,16 +392,25 @@ describe('TaskChute AI task settings section', () => {
   })
 
   describe('CLI paths', () => {
+    test('carry their picker on the same row as the field', () => {
+      const { tab } = createTab()
+
+      // A stray "Browse" row of its own would mean the picker drifted back out
+      // of the field's row.
+      expect(findByName(tab.getSettingDefinitions(), 'Browse')).toBeUndefined()
+
+      const { browse } = pathRow(tab, CLAUDE_PATH_NAME)
+      expect(browse.icon).toBe('folder')
+      expect(browse.tooltip).toBe('Browse')
+    })
+
     test('trim on the way in and invalidate the locator cache', async () => {
       const manager = createFakeManager()
       const { tab, plugin } = createTab()
       plugin.aiTaskManager = manager
 
-      await tab.setControlValue(
-        'aiTaskClaudePath',
-        '  /opt/homebrew/bin/claude  ',
-      )
-      await tab.setControlValue('aiTaskCodexPath', '')
+      await typePath(tab, CLAUDE_PATH_NAME, '  /opt/homebrew/bin/claude  ')
+      await typePath(tab, CODEX_PATH_NAME, ' ')
 
       expect(plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
       expect(plugin.settings.aiTaskCodexPath).toBe('')
@@ -367,23 +418,39 @@ describe('TaskChute AI task settings section', () => {
       expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
     })
 
+    test('leave the stored path alone when a blur changed nothing', async () => {
+      const manager = createFakeManager()
+      const { tab, plugin } = createTab()
+      plugin.aiTaskManager = manager
+      plugin.settings.aiTaskClaudePath = '/opt/homebrew/bin/claude'
+
+      const { text } = pathRow(tab, CLAUDE_PATH_NAME)
+      await text.__triggerEvent('blur')
+
+      expect(plugin.saveSettings).not.toHaveBeenCalled()
+      expect(manager.invalidateBinaryCache).not.toHaveBeenCalled()
+    })
+
     test('reject Windows command shims with a visible notice', async () => {
       const manager = createFakeManager()
       const { tab, plugin } = createTab()
       plugin.aiTaskManager = manager
 
-      await tab.setControlValue(
-        'aiTaskClaudePath',
+      await typePath(
+        tab,
+        CLAUDE_PATH_NAME,
         'C:\\Users\\tester\\AppData\\Roaming\\npm\\claude.cmd',
       )
-      await tab.setControlValue(
-        'aiTaskCodexPath',
+      await typePath(
+        tab,
+        CODEX_PATH_NAME,
         'C:\\Users\\tester\\AppData\\Roaming\\npm\\codex.ps1',
       )
 
       expect(plugin.settings.aiTaskClaudePath).toBe('')
       expect(plugin.settings.aiTaskCodexPath).toBe('')
-      expect(tab.getControlValue('aiTaskClaudePath')).toBe('')
+      // The rejection rebuilds the tab, so the re-rendered field is empty too.
+      expect(pathRow(tab, CLAUDE_PATH_NAME).text.getValue()).toBe('')
       expect(Notice).toHaveBeenCalledTimes(2)
       expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(2)
     })
@@ -394,9 +461,7 @@ describe('TaskChute AI task settings section', () => {
       plugin.aiTaskManager = manager
       selectFileMock.mockResolvedValue('/opt/homebrew/bin/claude')
 
-      browseRow(tab, CLAUDE_PATH_NAME).action({} as HTMLElement, 0)
-      await Promise.resolve()
-      await Promise.resolve()
+      await pathRow(tab, CLAUDE_PATH_NAME).browse.__click()
 
       expect(plugin.settings.aiTaskClaudePath).toBe('/opt/homebrew/bin/claude')
       expect(manager.invalidateBinaryCache).toHaveBeenCalledTimes(1)
@@ -407,9 +472,7 @@ describe('TaskChute AI task settings section', () => {
       plugin.settings.aiTaskClaudePath = '/existing/claude'
       selectFileMock.mockResolvedValue(null)
 
-      browseRow(tab, CLAUDE_PATH_NAME).action({} as HTMLElement, 0)
-      await Promise.resolve()
-      await Promise.resolve()
+      await pathRow(tab, CLAUDE_PATH_NAME).browse.__click()
 
       expect(plugin.settings.aiTaskClaudePath).toBe('/existing/claude')
       expect(plugin.saveSettings).not.toHaveBeenCalled()
