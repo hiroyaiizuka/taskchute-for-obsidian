@@ -119,6 +119,7 @@ import type {
   TerminalViewAdapterLike,
 } from './TerminalViewAdapter'
 import type { FileEditorAdapterFactory } from './FileEditorAdapter'
+import { AI_PANE_MAX_HEIGHT_RATIO, AiPaneResizer } from './AiPaneResizer'
 import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
 import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
 
@@ -334,7 +335,10 @@ const TERMINAL_VERTICAL_INSET_PX = 64
  * screen.
  */
 export const RUN_SIDEBAR_WIDTH_PX = 180
-/** Share of the view height the terminal pane occupies (mirrors styles.css) */
+/**
+ * Default share of the view height the terminal pane occupies (mirrors
+ * styles.css). A drag-resized pane reports its own share instead.
+ */
 const TERMINAL_PANE_HEIGHT_RATIO = 0.4
 /** Share of the view height while expanded (mirrors styles.css) */
 const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 1
@@ -358,6 +362,12 @@ const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 const EXPANDED_CONTAINER_CLASS = 'ai-pane-container--expanded'
 /** Layout participation class while the pane (or a future artifact) is visible. */
 const VISIBLE_CONTAINER_CLASS = 'ai-pane-container--visible'
+/** Chrome class while the user dragged the splitter to an explicit height */
+const SIZED_CONTAINER_CLASS = 'ai-pane-container--sized'
+/** Chrome class while the pane is collapsed to its header row */
+const COLLAPSED_CONTAINER_CLASS = 'ai-pane-container--collapsed'
+/** Custom property carrying the drag-resized height (mirrors styles.css) */
+const PANE_HEIGHT_PROPERTY = '--tc-ai-pane-height'
 
 /**
  * Per-device persistence key of the pane's expanded state
@@ -367,6 +377,12 @@ export const AI_PANE_EXPANDED_STORAGE_KEY = 'taskchute-plus.ai-pane-expanded'
 /** Device-local preference for the independent left sidebar rail. */
 export const AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   'taskchute-plus.ai-pane-sidebar-collapsed'
+/**
+ * Device-local drag-resized pane height, stored as a share of the view
+ * height so it survives leaf splits and window resizes.
+ */
+export const AI_PANE_HEIGHT_RATIO_STORAGE_KEY =
+  'taskchute-plus.ai-pane-height-ratio'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -412,6 +428,9 @@ export class AiRunPaneController {
   private composerSend: HTMLButtonElement | null = null
   private expanded = false
   private sidebarCollapsed = false
+  private paneResizer: AiPaneResizer | null = null
+  /** Drag-resized height share; null while the stylesheet default applies. */
+  private paneHeightRatio: number | null = null
   private sidebarMode: 'runs' | 'files' = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
@@ -427,6 +446,26 @@ export class AiRunPaneController {
   mount(container: HTMLElement): void {
     if (this.root) return
     this.containerEl = container
+
+    this.paneResizer = new AiPaneResizer({
+      container,
+      label: this.host.tv('aiTask.resizePane', 'Resize AI run pane'),
+      // Same measurement source computeTerminalSize uses, so the PTY grid
+      // and the CSS share always describe the same box.
+      getViewHeight: () => container.parentElement?.clientHeight ?? 0,
+      getPaneHeight: () => container.getBoundingClientRect().height,
+      onResize: (ratio) => {
+        // Dragging out of ⤢ hands control back to the splitter; the toggle
+        // then flips between this height and full height.
+        if (this.expanded) this.setExpanded(false, true)
+        this.applyPaneHeightRatio(ratio, false)
+      },
+      onCommit: (ratio) => {
+        if (this.expanded) this.setExpanded(false, true)
+        this.applyPaneHeightRatio(ratio, true)
+      },
+      onReset: () => this.applyPaneHeightRatio(null, true),
+    })
 
     const root = container.createDiv({ cls: 'ai-run-pane is-hidden' })
     this.root = root
@@ -569,6 +608,12 @@ export class AiRunPaneController {
       this.host.loadLocalStorage?.(AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY) === true,
       false,
     )
+    const storedHeightRatio = this.host.loadLocalStorage?.(
+      AI_PANE_HEIGHT_RATIO_STORAGE_KEY,
+    )
+    if (typeof storedHeightRatio === 'number' && Number.isFinite(storedHeightRatio)) {
+      this.applyPaneHeightRatio(storedHeightRatio, false)
+    }
 
     this.unsubscribe = this.host.manager.onChange((record, changeType) => {
       this.handleChange(record, changeType)
@@ -636,9 +681,15 @@ export class AiRunPaneController {
     for (const view of this.runViews.values()) {
       this.disposeTerminalBinding(view)
     }
+    this.paneResizer?.dispose()
+    this.paneResizer = null
+    this.paneHeightRatio = null
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
     this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
     this.containerEl?.classList.remove(VISIBLE_CONTAINER_CLASS)
+    this.containerEl?.classList.remove(SIZED_CONTAINER_CLASS)
+    this.containerEl?.classList.remove(COLLAPSED_CONTAINER_CLASS)
+    this.containerEl?.style.removeProperty(PANE_HEIGHT_PROPERTY)
     this.containerEl = null
     this.root?.remove()
     this.root = null
@@ -843,7 +894,7 @@ export class AiRunPaneController {
     }
     const heightRatio = this.expanded
       ? TERMINAL_PANE_EXPANDED_HEIGHT_RATIO
-      : TERMINAL_PANE_HEIGHT_RATIO
+      : (this.paneHeightRatio ?? TERMINAL_PANE_HEIGHT_RATIO)
     const bodyHeight = parentHeight * heightRatio - TERMINAL_VERTICAL_INSET_PX
     const cols = clamp(
       Math.floor((width - TERMINAL_HORIZONTAL_INSET_PX) / TERMINAL_CELL_WIDTH_PX),
@@ -891,6 +942,38 @@ export class AiRunPaneController {
   private revealPane(): void {
     this.root?.classList.remove('is-hidden')
     this.updateContainerChrome()
+    this.fitVisibleTerminalViews()
+  }
+
+  /**
+   * Adopt a drag-resized pane height, or `null` to drop back to the
+   * stylesheet default (content height, or the fixed terminal share).
+   * `persist` is true only for settled gestures — continuous pointer moves
+   * and the mount-time restore must not write to storage.
+   */
+  private applyPaneHeightRatio(ratio: number | null, persist: boolean): void {
+    const container = this.containerEl
+    if (!container) return
+    const next =
+      ratio === null || !Number.isFinite(ratio)
+        ? null
+        : clamp(ratio, 0, AI_PANE_MAX_HEIGHT_RATIO)
+    this.paneHeightRatio = next
+    if (next === null) {
+      container.style.removeProperty(PANE_HEIGHT_PROPERTY)
+      container.classList.remove(SIZED_CONTAINER_CLASS)
+    } else {
+      container.style.setProperty(
+        PANE_HEIGHT_PROPERTY,
+        `${(next * 100).toFixed(2)}%`,
+      )
+      container.classList.add(SIZED_CONTAINER_CLASS)
+    }
+    if (persist) {
+      this.host.saveLocalStorage?.(AI_PANE_HEIGHT_RATIO_STORAGE_KEY, next)
+    }
+    // The xterm viewport just changed height; refitting propagates the new
+    // grid to the PTY.
     this.fitVisibleTerminalViews()
   }
 
@@ -2271,6 +2354,10 @@ export class AiRunPaneController {
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
     container.classList.toggle(VISIBLE_CONTAINER_CLASS, paneVisible)
+    container.classList.toggle(
+      COLLAPSED_CONTAINER_CLASS,
+      this.isCollapsed() && paneVisible,
+    )
   }
 
   // -------------------------------------------------------------------------
