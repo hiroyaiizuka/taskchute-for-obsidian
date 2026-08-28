@@ -200,7 +200,7 @@ jobs:
             ${{ steps.prep.outputs.dir }}/styles.css
 
       - name: Create GitHub Release (published)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.bump.outputs.new_version }}
           name: ${{ steps.bump.outputs.new_version }}
