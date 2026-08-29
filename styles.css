@@ -4169,7 +4169,7 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   margin-bottom: 8px;
-  gap: 2px;
+  gap: 6px;
   height: 36px;
 }
 
@@ -4177,21 +4177,22 @@ textarea.form-textarea {
   grid-column: 2;
   justify-self: center;
   margin-bottom: 0; /* Remove bottom margin */
-  gap: 1px;
+  gap: 6px;
   height: 100%; /* Match parent height */
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* The three date-nav controls (prev / calendar / next) are one set: 24px
-   squares carrying identically sized Lucide glyphs. */
+/* The three date-nav controls (prev / calendar / next) are one set of 30px
+   squares, the same edge length as the drawer toggle and the add button so
+   the whole top bar reads as one row of equally sized controls. */
 .date-nav-arrow {
   --taskchute-icon-size: 18px;
 
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
   padding: 0;
   flex-shrink: 0;
   background: none;
@@ -4207,52 +4208,43 @@ textarea.form-textarea {
   color: #1976d2;
 }
 
+/* The label reserves a fixed box wide enough for the longest string it ever
+   shows ("Today (12/31 Wed)"), so the arrows and the calendar button keep
+   their positions as the date changes instead of sliding in and out. Because
+   the box no longer shrinks, the `is-not-today` margin nudges that used to
+   re-centre it -- and pulled the text under the calendar glyph -- are gone. */
 .date-nav-label {
   font-size: 15px;
   font-weight: bold;
   color: #1976d2;
-  min-width: 90px;
+  width: 150px;
+  min-width: 150px;
+  flex-shrink: 0;
   text-align: center;
   letter-spacing: 0.5px;
   display: flex;
   align-items: center;
   justify-content: center;
   height: 28px;
-  margin-right: 3px;
-}
-.date-nav-container.is-not-today .calendar-btn {
-  margin-left: 14px;
-}
-.date-nav-container.is-not-today .date-nav-label,
-.date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px;
-}
-.is-mobile .date-nav-container.is-not-today .date-nav-label,
-.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px;
 }
 
 .date-nav-container.compact .date-nav-label {
   font-size: 15px;
-  min-width: 90px;
   letter-spacing: 0.5px;
   height: 24px;
 }
 .calendar-btn {
-  --taskchute-icon-size: 18px;
-
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  padding: 0;
-  flex-shrink: 0;
   background: none;
   border: none;
-  margin-left: 6px;
+  font-size: 16px;
+  padding: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 30px;
+  width: 30px;
+  min-width: 30px;
   border-radius: var(--tc-radius-md);
   transition: background 0.2s;
 }

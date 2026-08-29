@@ -102,7 +102,8 @@ export default class TaskHeaderController {
     if (this.dateLabelEl) {
       this.dateLabelEl.textContent = this.formatDateLabel()
     }
-    // 今日以外の場合はnavContainerにクラスを追加してカレンダーボタンの余白調整
+    // 今日以外の日付を見ているという状態をクラスとして出しておく（日付ラベルの
+    // 幅は固定なので、レイアウトの補正には使っていない）
     if (this.navContainerEl) {
       const isToday = this.isCurrentDateToday()
       this.navContainerEl.classList.toggle('is-not-today', !isToday)
