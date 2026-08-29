@@ -198,9 +198,15 @@ export default class TaskRowController {
     const timeRangeEl = taskItem.createSpan( { cls: 'task-time-range' })
     const formatTime = (date: Date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 
-    const startSpan = timeRangeEl.createSpan( { cls: 'task-time-start editable' })
-    const arrowSpan = timeRangeEl.createSpan( { cls: 'task-time-arrow', text: ' → ' })
-    const stopSpan = timeRangeEl.createSpan( { cls: 'task-time-stop' })
+    const startSpan = timeRangeEl.createSpan({
+      cls: 'task-time-start editable',
+      attr: { title: this.host.tv('tooltips.startTime', 'Start time') },
+    })
+    const arrowSpan = timeRangeEl.createSpan( { cls: 'task-time-arrow', text: '→' })
+    const stopSpan = timeRangeEl.createSpan({
+      cls: 'task-time-stop',
+      attr: { title: this.host.tv('tooltips.stopTime', 'End time') },
+    })
 
     // Determine if we have actual time values to show
     const hasTimeValues = Boolean(inst.startTime || inst.stopTime)
@@ -252,11 +258,19 @@ export default class TaskRowController {
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
       durationEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
-      if (inst.startTime.getDate() !== inst.stopTime.getDate()) {
-        durationEl.setAttribute('title', this.host.tv('tooltips.crossDayTask', 'Cross-day task'))
-      }
+      const durationLabel = this.host.tv('tooltips.duration', 'Duration')
+      const isCrossDay = inst.startTime.getDate() !== inst.stopTime.getDate()
+      durationEl.setAttribute(
+        'title',
+        isCrossDay
+          ? `${durationLabel} (${this.host.tv('tooltips.crossDayTask', 'Cross-day task')})`
+          : durationLabel,
+      )
     } else if (inst.state === 'running') {
-      const timerEl = taskItem.createSpan( { cls: 'task-timer-display' })
+      const timerEl = taskItem.createSpan({
+        cls: 'task-timer-display',
+        attr: { title: this.host.tv('tooltips.elapsedTime', 'Elapsed time') },
+      })
       this.updateTimerDisplay(timerEl, inst)
     } else {
       taskItem.createSpan( { cls: 'task-duration-placeholder' })

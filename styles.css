@@ -123,8 +123,8 @@
 .task-time-start.editable,
 .task-time-stop.editable {
   cursor: pointer;
-  border-radius: 3px;
-  padding: 0 2px;
+  border-radius: 4px;
+  padding: 4px 6px;
 }
 
 .task-time-start.editable:hover,
@@ -3521,6 +3521,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 0 4px;
+}
+.task-time-arrow {
+  margin: 0 2px;
 }
 .task-time-range.editable {
   cursor: pointer;
