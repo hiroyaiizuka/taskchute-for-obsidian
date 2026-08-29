@@ -3418,12 +3418,12 @@
 
 /* ドラッグハンドルのスタイル */
 .drag-handle {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: move;
   color: var(--text-muted);
   opacity: 0;
   transition:
@@ -3451,7 +3451,7 @@
 }
 
 .drag-handle:active {
-  cursor: grabbing;
+  cursor: move;
 }
 
 .drag-handle svg {
@@ -3468,9 +3468,21 @@
   fill: var(--background-modifier-border);
 }
 
+/* Off-screen clone used as the drag image when the row is partly scrolled
+   out of view (see TaskListRenderer.setRowDragImage). Positioned far off the
+   viewport so it never flashes; it lives for a single tick. */
+.task-item-drag-ghost {
+  position: fixed;
+  top: -10000px;
+  left: -10000px;
+  pointer-events: none;
+  opacity: 1;
+  background: var(--background-primary);
+}
+
 .task-item.dragging {
   opacity: 0.5;
-  cursor: move;
+  cursor: grabbing;
   background: var(--background-modifier-hover);
   transform: scale(0.98);
   transition: all var(--tc-transition);
@@ -3596,8 +3608,8 @@
 .time-slot-header.dragover {
   background: var(--background-modifier-hover);
   border: 1px dashed var(--interactive-accent);
-  border-left-width: 5px;
-  transition: all var(--tc-transition);
+  border-left: 3px solid var(--interactive-accent);
+  transition: none;
 }
 
 .routine-button {

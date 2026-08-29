@@ -430,11 +430,58 @@ export default class TaskListRenderer {
         'text/plain',
         `${slot ?? 'none'}::${idx}::${inst.instanceId}`,
       )
-      taskItem.classList.add('dragging')
+      // Only the grip is draggable, so the browser's default drag image is
+      // just the 24px grip. Hand it the row instead, so the whole row follows
+      // the cursor.
+      this.setRowDragImage(event, taskItem)
+      // The drag image is snapshotted after this handler returns, so the
+      // faded `.dragging` style has to land on the next tick or it bakes
+      // into the ghost.
+      window.setTimeout(() => taskItem.classList.add('dragging'), 0)
     })
     this.host.registerManagedDomEvent(dragHandle, 'dragend', () => {
       taskItem.classList.remove('dragging')
     })
+  }
+
+  /**
+   * Use the task row itself as the drag image. Passing a live element keeps
+   * the ghost pixel-identical to the row (theme colors, icons, layout) with
+   * no rasterizing of our own — but Chromium clips it to what is on screen,
+   * so a row scrolled half out of the list would drag a cropped ghost. In
+   * that case we snapshot an off-screen clone instead.
+   */
+  private setRowDragImage(event: DragEvent, taskItem: HTMLElement): void {
+    const dataTransfer = event.dataTransfer
+    if (!dataTransfer || typeof dataTransfer.setDragImage !== 'function') return
+
+    const rect = taskItem.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+
+    // Anchor the ghost under the cursor at the point the grip was grabbed.
+    const offsetX = event.clientX - rect.left
+    const offsetY = event.clientY - rect.top
+
+    const containerRect = taskItem.parentElement?.getBoundingClientRect()
+    const isFullyVisible =
+      !containerRect ||
+      (rect.top >= containerRect.top - 0.5 && rect.bottom <= containerRect.bottom + 0.5)
+
+    if (isFullyVisible) {
+      dataTransfer.setDragImage(taskItem, offsetX, offsetY)
+      return
+    }
+
+    const ghost = taskItem.cloneNode(true) as HTMLElement
+    ghost.classList.add('task-item-drag-ghost')
+    ghost.style.width = `${rect.width}px`
+    ghost.style.height = `${rect.height}px`
+    // ownerDocument, not the global one: the view can live in a popped-out window.
+    taskItem.ownerDocument.body.appendChild(ghost)
+    dataTransfer.setDragImage(ghost, offsetX, offsetY)
+    // The snapshot is taken right after this handler returns, so the clone
+    // only has to survive one tick.
+    window.setTimeout(() => ghost.remove(), 0)
   }
 
   private setupTimeSlotDragHandlers(header: HTMLElement, slot: string): void {

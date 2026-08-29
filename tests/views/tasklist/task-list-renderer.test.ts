@@ -156,6 +156,123 @@ describe('TaskListRenderer', () => {
     expect(taskItem).toBeTruthy();
   });
 
+  describe('drag image', () => {
+    function dispatchDragStart(from: HTMLElement): {
+      payload: string;
+      setDragImage: jest.Mock;
+    } {
+      let payload = '';
+      const setDragImage = jest.fn();
+      const dataTransfer = {
+        setData: (_format: string, data: string) => {
+          payload = data;
+        },
+        getData: () => payload,
+        setDragImage,
+      } as unknown as DataTransfer;
+      from.dispatchEvent(
+        new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }),
+      );
+      return { payload, setDragImage };
+    }
+
+    function stubRect(el: HTMLElement, rect: { top: number; height: number; width?: number }): void {
+      Object.defineProperty(el, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          top: rect.top,
+          bottom: rect.top + rect.height,
+          left: 0,
+          right: rect.width ?? 600,
+          width: rect.width ?? 600,
+          height: rect.height,
+        }),
+      });
+    }
+
+    test('only the grip is draggable', () => {
+      const { taskList, renderer } = createHost([createInstance()]);
+
+      renderer.render();
+
+      const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+      expect(taskItem.hasAttribute('draggable')).toBe(false);
+      expect(taskList.querySelector('.drag-handle')?.getAttribute('draggable')).toBe('true');
+    });
+
+    test('dragging the grip uses the whole row as the drag image', () => {
+      jest.useFakeTimers();
+      try {
+        const { taskList, renderer } = createHost([createInstance()]);
+
+        renderer.render();
+
+        const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+        const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
+        stubRect(taskList, { top: 0, height: 400 });
+        stubRect(taskItem, { top: 40, height: 32 });
+
+        const { payload, setDragImage } = dispatchDragStart(dragHandle);
+
+        expect(payload).toBe('8:00-12:00::0::instance-1');
+        expect(setDragImage).toHaveBeenCalledWith(taskItem, expect.any(Number), expect.any(Number));
+
+        // The faded style must not bake into the snapshot, so it lands a tick later.
+        expect(taskItem.classList.contains('dragging')).toBe(false);
+        jest.advanceTimersByTime(0);
+        expect(taskItem.classList.contains('dragging')).toBe(true);
+
+        // dragend fires on the drag source — the grip.
+        dragHandle.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+        expect(taskItem.classList.contains('dragging')).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('a row scrolled out of view is snapshotted from an off-screen clone', () => {
+      jest.useFakeTimers();
+      try {
+        const { taskList, renderer } = createHost([createInstance()]);
+
+        renderer.render();
+
+        const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+        const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
+        stubRect(taskList, { top: 0, height: 400 });
+        stubRect(taskItem, { top: 390, height: 32 }); // bottom 422 > container bottom 400
+
+        const { setDragImage } = dispatchDragStart(dragHandle);
+
+        const ghost = setDragImage.mock.calls[0][0] as HTMLElement;
+        expect(ghost).not.toBe(taskItem);
+        expect(ghost.classList.contains('task-item-drag-ghost')).toBe(true);
+        expect(document.body.contains(ghost)).toBe(true);
+
+        jest.advanceTimersByTime(0);
+        expect(document.body.contains(ghost)).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('completed rows are not draggable', () => {
+      const done = createInstance({
+        instanceId: 'done-1',
+        state: 'done',
+        startTime: new Date(2025, 0, 1, 13, 0),
+        stopTime: new Date(2025, 0, 1, 14, 15),
+      });
+      const { taskList, renderer } = createHost([done]);
+
+      renderer.render();
+
+      const dragHandle = taskList.querySelector('.drag-handle') as HTMLElement;
+      expect(dragHandle.hasAttribute('draggable')).toBe(false);
+      expect(dragHandle.classList.contains('disabled')).toBe(true);
+    });
+  });
+
   test('updateTimerDisplay formats elapsed running time', () => {
     const runningInst = createInstance({
       instanceId: 'run-2',
