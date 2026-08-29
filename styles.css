@@ -1518,8 +1518,7 @@
 }
 
 .ai-task-agent-icon {
-  --taskchute-icon-size: 18px;
-
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -1807,7 +1806,7 @@
 }
 
 .star-rating .star.taskchute-star-filled {
-  /* 選択された星は塗りつぶし + 等倍より少し大きく */
+  /* 選択された星は元の絵文字の色をそのまま使用（濃い金色） */
   opacity: 1;
   transform: scale(1.1);
 }
@@ -3720,8 +3719,7 @@
 
 /* フォルダアイコン */
 .taskchute-project-icon {
-  --taskchute-icon-size: 14px;
-
+  font-size: 14px;
   flex-shrink: 0;
 }
 
@@ -3734,8 +3732,7 @@
 
 /* External Linkアイコン */
 .taskchute-external-link {
-  --taskchute-icon-size: 14px;
-
+  font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--tc-radius-sm);
@@ -4464,21 +4461,12 @@ textarea.form-textarea {
 }
 
 .star-rating .star {
-  --taskchute-icon-size: 20px;
-
-  color: var(--color-yellow, #e0a800);
+  font-size: 20px;
   cursor: pointer;
   transition: all var(--tc-transition);
+  display: inline-block;
   user-select: none;
   opacity: 0.3;
-}
-
-.star-rating .star svg {
-  fill: none;
-}
-
-.star-rating .star.taskchute-star-filled svg {
-  fill: currentcolor;
 }
 
 .star-rating .star:hover {

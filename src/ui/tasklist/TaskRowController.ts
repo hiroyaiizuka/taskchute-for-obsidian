@@ -1,5 +1,4 @@
 import { Notice, Platform } from 'obsidian'
-import { applyIcon } from '../icons'
 import type { TaskInstance } from '../../types'
 import { ReminderIconRenderer } from '../../features/reminder/ui/ReminderIconRenderer'
 import { RecipeIconRenderer, type RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
@@ -83,27 +82,27 @@ export default class TaskRowController {
 
   renderPlayStopButton(taskItem: HTMLElement, inst: TaskInstance, isFutureTask: boolean): void {
     let cls = 'play-stop-button'
-    let icon = 'play'
+    let label = '▶️'
     let title = this.host.tv('buttons.start', 'Start')
 
     if (isFutureTask) {
       cls += ' future-task-button'
-      icon = 'minus'
+      label = '—'
       title = this.host.tv('notices.futureTaskPrevented', 'Cannot start future tasks')
     } else if (inst.state === 'running') {
       cls += ' stop'
-      icon = 'square'
+      label = '⏹'
       title = this.host.tv('buttons.stop', 'Stop')
     } else if (inst.state === 'done') {
-      icon = 'check-square'
+      label = '☑️'
       title = this.host.tv('buttons.remeasureCompleted', 'Re-measure completed task')
     }
 
     const button = taskItem.createEl('button', {
       cls,
+      text: label,
       attr: { title },
     })
-    applyIcon(button, icon)
 
     if (isFutureTask) {
       button.disabled = true

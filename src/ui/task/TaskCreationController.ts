@@ -7,7 +7,6 @@ import {
   TaskNameSuggestion,
 } from "../components/TaskNameAutocomplete"
 import { createNameModal } from "../components/NameModal"
-import { applyIcon } from "../icons"
 import type {
   CreateTaskFileAiTaskOptions,
   TaskCreationService,
@@ -122,15 +121,14 @@ const AI_AGENT_CARDS: ReadonlyArray<{
 }> = [
   {
     host: "claude",
-    // Reference parity: main-agents.ts crowns Claude Code; Lucide's `crown`
-    // stands in for the reference's 👑 emoji.
-    icon: "crown",
+    // Reference parity: main-agents.ts gives Claude Code the 👑 icon.
+    icon: "👑",
     labelKey: "addTask.aiAgentClaude",
     labelFallback: "Claude Code",
   },
   {
     host: "codex",
-    icon: "scroll",
+    icon: "📜",
     labelKey: "addTask.aiAgentCodex",
     labelFallback: "Codex",
   },
@@ -813,7 +811,7 @@ export default class TaskCreationController {
       card.dataset.aiHost = cardDef.host
       const icon = doc.win.createSpan()
       icon.className = "ai-task-agent-icon"
-      applyIcon(icon, cardDef.icon)
+      icon.textContent = cardDef.icon
       const name = doc.win.createSpan()
       name.className = "ai-task-agent-name"
       name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)

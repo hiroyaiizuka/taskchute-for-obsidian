@@ -4,7 +4,6 @@ import { ProjectNoteSyncService } from '../../features/project/services/ProjectN
 import type { TaskInstance, PathManagerLike } from '../../types'
 import type { TaskLogEntry } from '../../types/ExecutionLog'
 import { parseTaskLogSnapshot } from '../../utils/executionLogUtils'
-import { applyIcon } from '../icons'
 
 export interface TaskCompletionControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
@@ -178,8 +177,8 @@ export default class TaskCompletionController {
     for (let i = 1; i <= 5; i += 1) {
       const star = ratingEl.createSpan( {
         cls: `star ${i <= options.initial ? 'taskchute-star-filled' : 'taskchute-star-empty'}`,
+        text: '⭐',
       })
-      applyIcon(star, 'star')
       star.addEventListener('click', () => this.setRating(ratingEl, i))
       star.addEventListener('mouseenter', () => this.highlightRating(ratingEl, i))
       star.addEventListener('mouseleave', () => this.resetRatingHighlight(ratingEl))

@@ -1,4 +1,3 @@
-import { createIconSpan } from '../icons'
 import NavigationSectionController, {
   NavigationSection,
   NavigationSectionHost,
@@ -89,14 +88,14 @@ export default class NavigationController {
 
   private renderNavigationItems(navMenu: HTMLElement): void {
     const items: NavigationItem[] = [
-      { key: 'routine', label: this.view.tv('navigation.routine', 'ルーチン'), icon: 'repeat' },
-      { key: 'review', label: this.view.tv('navigation.review', 'デビュー'), icon: 'clipboard-list' },
-      { key: 'log', label: this.view.tv('navigation.log', 'ログ'), icon: 'bar-chart-3' },
+      { key: 'routine', label: this.view.tv('navigation.routine', 'ルーチン'), icon: '🔄' },
+      { key: 'review', label: this.view.tv('navigation.review', 'デビュー'), icon: '📋' },
+      { key: 'log', label: this.view.tv('navigation.log', 'ログ'), icon: '📊' },
       ...(this.isRecipeFeatureEnabled()
-        ? [{ key: 'recipes' as const, label: this.view.tv('navigation.recipes', 'レシピ'), icon: 'file-text' }]
+        ? [{ key: 'recipes' as const, label: this.view.tv('navigation.recipes', 'レシピ'), icon: '📄' }]
         : []),
-      { key: 'projects', label: this.view.tv('navigation.projects', 'プロジェクト'), icon: 'folder' },
-      { key: 'settings', label: this.view.tv('navigation.settings', '設定'), icon: 'settings' },
+      { key: 'projects', label: this.view.tv('navigation.projects', 'プロジェクト'), icon: '📁' },
+      { key: 'settings', label: this.view.tv('navigation.settings', '設定'), icon: '⚙️' },
     ]
 
     items.forEach((item) => {
@@ -104,7 +103,7 @@ export default class NavigationController {
         cls: 'navigation-nav-item',
         attr: { 'data-section': item.key },
       })
-      createIconSpan(navItem, item.icon, 'navigation-nav-icon')
+      navItem.createSpan( { cls: 'navigation-nav-icon', text: item.icon })
       navItem.createSpan( { cls: 'navigation-nav-label', text: item.label })
       this.bindDomEvent(navItem, 'click', () => {
         void this.handleNavigationItemClick(item.key)
