@@ -3360,11 +3360,20 @@
 }
 
 .task-item {
+  /* Row controls (play/stop, routine, settings) are square boxes of this size;
+     the comment button keeps the same height but is twice as wide so it is
+     easier to hit. Grid tracks below match these widths exactly, so the visual
+     spacing between the trailing buttons is just `gap`. */
+  --tc-row-control-size: 32px;
+  --tc-row-comment-width: calc(var(--tc-row-control-size) * 2);
+
   display: grid;
-  grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) 1fr 220px 110px 50px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 8px;
   align-items: center;
-  padding: 4px 15px 4px 10px;
+  padding: 4px 15px 4px 4px;
   cursor: default;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background-color 0.2s ease;
@@ -3592,17 +3601,23 @@
 }
 
 .routine-button {
-  --taskchute-icon-size: 15px;
-
   background: none;
   border: none;
+  font-size: 16px;
   cursor: pointer;
-  padding: 2px;
-  padding-top: 4px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0.4;
-  width: 100%;
+
+  /* Square control: the glyph sits in a --tc-row-control-size box centred in
+     its grid cell, so the hover background reads as a square the same size as
+     the play/stop and settings buttons instead of stretching to the cell. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  flex-shrink: 0;
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3621,18 +3636,23 @@
 
 /* コメントボタンスタイル */
 .comment-button {
-  --taskchute-icon-size: 15px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 2px;
-  padding-top: 4px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0;
-  width: 100%;
+
+  /* Same height as the other row controls, but twice as wide so the comment
+     button is easier to hit. */
+  width: var(--tc-row-comment-width);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-comment-width);
+  flex-shrink: 0;
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3965,8 +3985,7 @@ textarea.form-textarea {
   color: var(--link-color-hover);
 }
 .play-stop-button {
-  --taskchute-icon-size: 18px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
@@ -3975,14 +3994,11 @@ textarea.form-textarea {
   padding: 0;
   border-radius: var(--tc-radius-sm);
 
-  /* Square control: the icon sits in a 28x28 box centred in its cell rather
-     than stretching to the cell width, so the hover/active background reads
-     as a square button. */
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  flex-shrink: 0;
-  margin: 0 auto;
+  /* Same square box as the routine/settings controls. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4017,19 +4033,26 @@ textarea.form-textarea {
 
 /* 設定ボタンスタイル */
 .settings-task-button {
-  --taskchute-icon-size: 15px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 2px;
-  margin-right: 10px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0.6;
-  width: 100%;
-  text-align: center;
+
+  /* Same square box as the other row controls. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  flex-shrink: 0;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .settings-task-button:hover {
@@ -4575,8 +4598,8 @@ textarea.form-textarea {
 
 .taskchute-medium .task-item {
   grid-template-columns:
-    18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-    50px 30px 30px;
+    24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 8px;
   padding-right: 12px;
 }
@@ -4597,9 +4620,11 @@ textarea.form-textarea {
 
 /* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) minmax(0, 1fr) 100px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 6px;
-  padding-left: 6px;
+  padding-left: 4px;
   padding-right: 16px;
 }
 
@@ -4607,13 +4632,6 @@ textarea.form-textarea {
   justify-content: flex-start;
   text-align: left;
   padding-left: 4px;
-}
-
-.taskchute-narrow .settings-task-button {
-  width: auto;
-  min-width: 26px;
-  margin-left: 8px;
-  margin-right: 0;
 }
 
 /* narrow時は経過時間を非表示にし、コメント・ルーチンは表示を維持 */
@@ -4625,7 +4643,9 @@ textarea.form-textarea {
 
 /* very-narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-very-narrow .task-item {
-  grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) minmax(0, 1fr) 90px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 4px;
   padding-left: 4px;
   padding-right: 12px;
@@ -4638,16 +4658,6 @@ textarea.form-textarea {
   justify-content: flex-start;
   text-align: left;
   padding-left: 4px;
-}
-
-.taskchute-very-narrow .settings-task-button {
-  justify-self: flex-end;
-  width: auto;
-  min-width: 24px;
-  font-size: 13px;
-  margin-left: 10px;
-  margin-right: 0;
-  padding: 2px 4px;
 }
 
 .task-duration.cross-day {
@@ -4766,8 +4776,8 @@ textarea.form-textarea {
 @container taskchute-list (max-width: 900px) {
   .task-item {
     grid-template-columns:
-      18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-      50px 30px 30px;
+      24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 8px;
     padding-right: 12px;
   }
@@ -4781,9 +4791,11 @@ textarea.form-textarea {
 @container taskchute-list (max-width: 640px) {
   /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
+    grid-template-columns:
+      24px var(--tc-row-control-size) minmax(0, 1fr) 100px
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 6px;
-    padding-left: 6px;
+    padding-left: 4px;
     padding-right: 16px;
   }
 
@@ -4799,16 +4811,14 @@ textarea.form-textarea {
     padding-left: 4px;
   }
 
-  .task-item .settings-task-button {
-    width: auto;
-    min-width: 26px;
-  }
 }
 
 @container taskchute-list (max-width: 520px) {
   /* 520px以下: さらにコンパクト */
   .task-item {
-    grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+    grid-template-columns:
+      24px var(--tc-row-control-size) minmax(0, 1fr) 90px
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 4px;
     padding-left: 4px;
     padding-right: 12px;
@@ -4820,33 +4830,12 @@ textarea.form-textarea {
     text-align: left;
     padding-left: 4px;
   }
-
-  .task-item .settings-task-button {
-    justify-self: flex-end;
-    width: auto;
-    min-width: 24px;
-    font-size: 13px;
-    margin-left: 10px;
-    margin-right: 0;
-    padding: 2px 4px;
-  }
 }
 
 /* Routine edit modal */
 .routine-edit-modal {
   width: 600px;
   max-width: min(600px, 90vw);
-  padding: 20px;
-}
-
-.routine-edit-modal > .modal-header {
-  padding: 0 40px 12px 0;
-  margin-bottom: 16px;
-}
-
-.task-modal-content.routine-edit-modal .modal-header .modal-close-button {
-  top: -5px;
-  right: 0;
 }
 
 /* Hide Obsidian's default close button (direct child of modal) */
