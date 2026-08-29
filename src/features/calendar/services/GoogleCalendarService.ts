@@ -3,6 +3,7 @@ import type { GoogleCalendarSettings, TaskInstance } from "../../../types"
 import { ensureFrontmatterObject } from "../../../utils/frontmatter"
 import { isTimeString } from "../../../types/TaskFields"
 import type { SectionConfigService } from "../../../services/SectionConfigService"
+import { t } from "../../../i18n"
 
 const MAX_DESCRIPTION_LENGTH = 2000
 
@@ -51,12 +52,12 @@ export class GoogleCalendarService {
       options.overrideDateKey,
     )
     if (!dateKey) {
-      throw new Error("日付を特定できませんでした")
+      throw new Error(t("taskChuteView.calendar.export.errors.dateUnavailable", "日付を特定できませんでした"))
     }
 
     const startTime = this.resolveStartTime(inst, options.overrideStartTime)
     if (!startTime) {
-      throw new Error("開始時刻を決められませんでした")
+      throw new Error(t("taskChuteView.calendar.export.errors.startTimeUnavailable", "開始時刻を決められませんでした"))
     }
 
     const recurrence = this.buildRecurrenceRule(inst)
@@ -159,7 +160,10 @@ export class GoogleCalendarService {
   ): string | null {
     if (overrideStartTime !== undefined && overrideStartTime !== null) {
       if (!isTimeString(overrideStartTime)) {
-        throw new Error("開始時刻はHH:mm形式で入力してください")
+        throw new Error(t(
+          "taskChuteView.calendar.export.errors.startTimeFormat",
+          "開始時刻はHH:mm形式で入力してください",
+        ))
       }
       return overrideStartTime
     }
@@ -198,7 +202,10 @@ export class GoogleCalendarService {
       overrideDurationMinutes !== null
     ) {
       if (!Number.isFinite(overrideDurationMinutes) || overrideDurationMinutes <= 0) {
-        throw new Error("所要時間は1分以上の数値を入力してください")
+        throw new Error(t(
+          "taskChuteView.calendar.export.errors.durationInvalid",
+          "所要時間は1分以上の数値を入力してください",
+        ))
       }
       return Math.round(overrideDurationMinutes)
     }

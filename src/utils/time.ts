@@ -78,13 +78,3 @@ export function getNthWeekdayOfMonth(
     return null;
   }
 }
-
-export function getWeekdayName(weekday: number): string {
-  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-  return weekdays[weekday] || "";
-}
-
-export function getWeekdayNumber(weekdayName: string): number {
-  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-  return weekdays.indexOf(weekdayName);
-}

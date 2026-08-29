@@ -18,6 +18,7 @@ import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
 import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
 import type { SectionConfigService } from '../../../services/SectionConfigService'
 import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
+import { t } from '../../../i18n'
 import { listFilesInFolder } from '../../../utils/vaultFiles'
 import { resolveTaskDisplayTitle } from '../../../utils/taskDisplayTitle'
 import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
@@ -313,7 +314,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
     context.renderTaskList()
   } catch (error) {
     console.error('Failed to load tasks', error)
-    new Notice('タスクの読み込みに失敗しました')
+    new Notice(t('taskChuteView.notices.taskLoadFailed', 'タスクの読み込みに失敗しました'))
   }
 }
 

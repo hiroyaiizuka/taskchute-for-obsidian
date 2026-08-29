@@ -56,7 +56,7 @@ describe('ElectronDirectoryPicker', () => {
     expect(harness.showOpenDialog).toHaveBeenCalledWith({
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: '/Users/me/current',
-      title: 'ワーキングディレクトリを選択',
+      title: 'Select working directory',
     })
     expect(harness.getPath).not.toHaveBeenCalled()
   })
