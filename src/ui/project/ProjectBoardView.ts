@@ -1,4 +1,4 @@
-import { App, EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
+import { EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
 import type { TaskChutePluginLike } from '../../types'
 import { applyIcon } from '../icons'
@@ -90,11 +90,7 @@ export class ProjectBoardView extends ItemView {
   }
 
   getDisplayText(): string {
-    const appWithI18n = this.plugin?.app as App & { i18n?: { translate?: (key: string) => string | undefined } }
-    return appWithI18n?.i18n?.translate?.('navigation.projects')
-      ?? this.plugin?.settings?.languageOverride === 'ja'
-        ? 'プロジェクト'
-        : 'Projects'
+    return this.translate('navigation.projects', 'Projects')
   }
 
   async onOpen(): Promise<void> {
