@@ -531,4 +531,14 @@ describe('style regressions', () => {
     expect(columnsRule).toMatch(/grid-template-columns:\s*1fr;/)
     expect(cardsRule).toMatch(/overflow:\s*visible;/)
   })
+
+  test('task names fall back to the theme accent unless the contrast fix overrides it', () => {
+    const css = styles()
+    const rule = readRule(css, '.task-name--accent {')
+
+    // AccentContrastController only publishes `--tc-task-accent` when the
+    // theme's accent fails against the list background; the fallback keeps
+    // well-behaved themes on their own colour.
+    expect(rule).toMatch(/color:\s*var\(--tc-task-accent,\s*var\(--text-accent\)\);/)
+  })
 })

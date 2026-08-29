@@ -1919,8 +1919,29 @@
   font-weight: bold;
 }
 
+/* `--tc-task-accent` is published by AccentContrastController only when the
+   theme's own accent fails to read against the list background. It keeps the
+   accent's hue and moves lightness/chroma just far enough to clear WCAG AA, so
+   themes with a usable accent fall through to `--text-accent` untouched. */
 .task-name--accent {
+  color: var(--tc-task-accent, var(--text-accent));
+}
+
+/* Throwaway element AccentContrastController appends for a single frame so the
+   browser resolves a theme variable into a normalised `rgb()` for it to read.
+   Never visible, and removed before the call returns. */
+.tc-accent-probe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tc-accent-probe--accent {
   color: var(--text-accent);
+}
+
+.tc-accent-probe--background {
+  color: var(--background-primary);
 }
 
 .is-hidden {

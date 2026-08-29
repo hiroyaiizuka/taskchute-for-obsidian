@@ -51,6 +51,7 @@ import TaskCompletionController from "../../../ui/task/TaskCompletionController"
 import TaskSettingsTooltipController from "../../../ui/task/TaskSettingsTooltipController"
 import TaskSelectionController from "../../../ui/task/TaskSelectionController"
 import TaskKeyboardController from "../../../ui/task/TaskKeyboardController"
+import AccentContrastController from "../../../ui/tasklist/AccentContrastController"
 import RoutineController from "../../routine/controllers/RoutineController"
 import TaskHeaderController from "../../../ui/header/TaskHeaderController"
 import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
@@ -152,6 +153,7 @@ export class TaskChuteView
   private readonly taskContextMenuController: TaskContextMenuController
   private readonly taskSelectionController: TaskSelectionController
   private readonly taskKeyboardController: TaskKeyboardController
+  private readonly accentContrastController: AccentContrastController
   public readonly taskTimeController: TaskTimeController
   public readonly taskCreationController: TaskCreationController
   public readonly taskScheduleController: TaskScheduleController
@@ -377,6 +379,9 @@ export class TaskChuteView
         ),
       getContainer: () => this.containerEl,
       selectionController: this.taskSelectionController,
+    })
+    this.accentContrastController = new AccentContrastController({
+      getContainer: () => this.containerEl,
     })
     this.taskMutationService = new TaskMutationService(this)
     this.taskTimeController = new TaskTimeController({
@@ -776,6 +781,7 @@ export class TaskChuteView
     // Initialize timer service (ticks update timer displays)
     this.ensureTimerService()
     this.setupResizeObserver()
+    this.setupAccentContrast()
     this.navigationController.initializeNavigationEventListeners()
     this.setupEventListeners()
   }
@@ -3941,6 +3947,23 @@ export class TaskChuteView
 
     classList.add(...layoutClassesToAdd)
     this.taskListElement?.classList.add(...layoutClassesToAdd)
+  }
+
+  /**
+   * Keep the task name accent readable against the theme background, and
+   * recompute whenever the user switches theme or edits a snippet.
+   */
+  private setupAccentContrast(): void {
+    this.accentContrastController.apply()
+
+    const workspace = this.app?.workspace
+    if (typeof workspace?.on !== "function") return
+
+    this.registerManagedEvent(
+      workspace.on("css-change", () => {
+        this.accentContrastController.apply()
+      }),
+    )
   }
 
   private setupResizeObserver(): void {
