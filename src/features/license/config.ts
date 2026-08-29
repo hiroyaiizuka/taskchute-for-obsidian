@@ -54,13 +54,14 @@ export const LICENSE_DEVICE_CHECK_MIN_INTERVAL_SEC = 60
 export const LICENSE_CLOCK_ROLLBACK_TOLERANCE_SEC = 24 * 60 * 60
 
 /**
- * Landing page where a license can be bought, shown next to the activation
- * form so someone without a code has somewhere to go. The site serves its
- * Japanese pages under `/ja/`, so Japanese users are sent straight there
- * rather than to the English root.
+ * Guide page explaining how to buy and activate a Pro license, shown next to
+ * the activation form so someone without a code has somewhere to go. The site
+ * serves its Japanese pages under `/ja/`, so Japanese users are sent straight
+ * there rather than to the English root.
  */
-const LICENSE_PURCHASE_URL = 'https://obsidian.levers.co.jp/'
-const LICENSE_PURCHASE_URL_JA = 'https://obsidian.levers.co.jp/ja/'
+const LICENSE_PURCHASE_URL = 'https://obsidian.levers.co.jp/howto/pro-license'
+const LICENSE_PURCHASE_URL_JA =
+  'https://obsidian.levers.co.jp/ja/howto/pro-license'
 
 export function licensePurchaseUrl(locale: LocaleKey): string {
   return locale === 'ja' ? LICENSE_PURCHASE_URL_JA : LICENSE_PURCHASE_URL
