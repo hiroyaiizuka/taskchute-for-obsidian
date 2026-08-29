@@ -270,6 +270,7 @@
 
 :where(
     .taskchute-confirm-modal,
+    .taskchute-reminder-modal,
     .scheduled-time-modal,
     .time-edit-modal,
     .project-create-modal
@@ -523,7 +524,8 @@
   position: relative;
 }
 
-.taskchute-confirm-modal .modal-header {
+.taskchute-confirm-modal .modal-header,
+.taskchute-reminder-modal .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -583,25 +585,29 @@
   margin-bottom: 0;
 }
 
-.taskchute-confirm-modal .modal-message {
+.taskchute-confirm-modal .modal-message,
+.taskchute-reminder-modal .modal-message {
   margin: 12px 20px 0;
   color: var(--text-normal);
   font-size: 15px;
   line-height: 1.6;
 }
 
-.taskchute-confirm-modal .modal-description {
+.taskchute-confirm-modal .modal-description,
+.taskchute-reminder-modal .modal-description {
   margin: 8px 20px 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-muted);
 }
 
-.taskchute-confirm-modal .confirm-button-group {
+.taskchute-confirm-modal .confirm-button-group,
+.taskchute-reminder-modal .confirm-button-group {
   margin: 24px 20px 20px;
 }
 
-.taskchute-confirm-modal .form-button:focus-visible {
+.taskchute-confirm-modal .form-button:focus-visible,
+.taskchute-reminder-modal .form-button:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
@@ -5790,69 +5796,15 @@ textarea.form-textarea {
 }
 
 /* ===== Reminder Notification Modal ===== */
-.taskchute-reminder-modal .modal-content {
-  padding: 20px;
+/* Layout comes from the shared modal primitives (.modal-header / .modal-message /
+   .modal-description / .confirm-button-group), same as the confirm dialog. Only the
+   reminder-specific bits live here. */
+.taskchute-reminder-modal .modal-title {
+  display: none;
 }
 
-.reminder-modal-header {
-  padding: 0 0 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 16px;
-}
-
-.reminder-modal-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  font-size: 1.2em;
-}
-
-.reminder-modal-content {
-  padding: 0 0 20px;
-}
-
-.reminder-task-name {
-  font-size: 1.1em;
+.taskchute-reminder-modal p.modal-message {
   font-weight: 600;
-  color: var(--text-normal);
-  margin: 0 0 8px;
-}
-
-.reminder-message {
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.reminder-button-group {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.reminder-button-group .form-button {
-  padding: 8px 16px;
-  border-radius: var(--tc-radius-sm);
-  cursor: pointer;
-  border: none;
-  font-size: 14px;
-  transition: all var(--tc-transition);
-}
-
-.reminder-button-group .form-button.create {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.reminder-button-group .form-button.create:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.reminder-button-group .form-button.cancel {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.reminder-button-group .form-button.cancel:hover {
-  background: var(--background-modifier-border-hover);
 }
 
 /* ===== Reminder Settings Modal ===== */

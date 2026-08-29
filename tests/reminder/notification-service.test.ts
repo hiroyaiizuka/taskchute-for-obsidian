@@ -6,9 +6,16 @@ import {
   NotificationService,
   ReminderNotificationOptions,
 } from '../../src/features/reminder/services/NotificationService';
+import { t } from '../../src/i18n';
+
+const expectedBody = t('reminder.notification.body', '{name} - starting soon ({time})', {
+    name: 'Test Task',
+    time: '09:00',
+  });
 
 // Mock obsidian Platform
 jest.mock('obsidian', () => ({
+  getLanguage: () => 'en',
   Platform: {
     isMobile: false,
   },
@@ -102,7 +109,7 @@ describe('NotificationService', () => {
       expect(mockNotificationConstructor).toHaveBeenCalledWith(
         'TaskChute Plus',
         {
-          body: 'Test Task - まもなく開始 (09:00)',
+          body: expectedBody,
           tag: '/tasks/test.md',
         }
       );
@@ -227,7 +234,7 @@ describe('NotificationService', () => {
 
     it('should format notification body correctly', () => {
       const body = service.formatNotificationBody('Test Task', '09:00');
-      expect(body).toBe('Test Task - まもなく開始 (09:00)');
+      expect(body).toBe(expectedBody);
     });
   });
 });

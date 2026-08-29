@@ -987,6 +987,12 @@ export const ja = {
       clear: "解除",
       save: "設定",
     },
+    notification: {
+      title: "リマインダー",
+      startingSoon: "まもなく開始 ({time})",
+      openFile: "ファイルを開く",
+      body: "{name} - まもなく開始 ({time})",
+    },
   },
   buttons: {
     start: "スタート",

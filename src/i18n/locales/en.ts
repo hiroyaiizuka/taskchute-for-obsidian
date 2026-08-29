@@ -989,6 +989,12 @@ export const en = {
       clear: "Clear",
       save: "Save",
     },
+    notification: {
+      title: "Reminder",
+      startingSoon: "Starting soon ({time})",
+      openFile: "Open file",
+      body: "{name} - starting soon ({time})",
+    },
   },
   buttons: {
     start: "Start",
