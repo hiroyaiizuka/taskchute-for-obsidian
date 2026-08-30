@@ -8,7 +8,7 @@ const REVIEW_CONFIG = 'eslint.review.config.mjs'
 // depend/ban-dependencies は dev と prod を区別しないので、配布物に入らない
 // dev 専用パッケージだけをここで許している。増やすときは必ずこのテストと
 // eslint.review.config.mjs のコメントの両方を通すこと。
-const ALLOWED_BANNED_DEPENDENCIES = ['moment', 'lint-staged']
+const ALLOWED_BANNED_DEPENDENCIES = ['moment']
 
 type RuleEntry = unknown
 type RuleMap = Record<string, RuleEntry>

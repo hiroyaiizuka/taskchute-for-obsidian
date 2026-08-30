@@ -206,6 +206,28 @@ describe('TaskHeaderController board view switch', () => {
     expect(withDisabledFeature.innerHTML).toBe(withoutMembers.innerHTML)
   })
 
+  // The narrow-width header rules key off this class instead of `:has()`,
+  // which Obsidian's plugin review rejects. If it stops tracking the control,
+  // the switch silently overlaps the add action on a split pane.
+  test('the presence marker class follows the control on both the section and the top bar', () => {
+    const { host, state } = createHost({ enabled: false })
+    const { controller, container } = renderHeader(host)
+    const actions = container.querySelector('.header-action-section')
+
+    expect(actions?.classList.contains('has-board-view-switch')).toBe(false)
+    expect(container.classList.contains('has-board-view-switch')).toBe(false)
+
+    state.enabled = true
+    controller.refreshAiTaskBoardSwitch()
+    expect(actions?.classList.contains('has-board-view-switch')).toBe(true)
+    expect(container.classList.contains('has-board-view-switch')).toBe(true)
+
+    state.enabled = false
+    controller.refreshAiTaskBoardSwitch()
+    expect(actions?.classList.contains('has-board-view-switch')).toBe(false)
+    expect(container.classList.contains('has-board-view-switch')).toBe(false)
+  })
+
   test('refreshAiTaskBoardSwitch adds and removes the control as the feature toggles', () => {
     const { host, state } = createHost({ enabled: false })
     const { controller, container } = renderHeader(host)

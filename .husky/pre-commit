@@ -4,4 +4,4 @@ export PATH
 # Commit-time gate is lint only, and only over the staged files. Typecheck and
 # the test suites moved to CI (.github/workflows/test.yml) so committing stays
 # fast; run them yourself with npm run typecheck / npm run test:unit.
-npx lint-staged
+npm run lint:staged
