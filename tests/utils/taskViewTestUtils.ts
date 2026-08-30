@@ -91,7 +91,7 @@ function createDayState(overrides?: Partial<DayState>): DayState {
     slotOverrides: {},
     orders: {},
     ...overrides,
-  } as DayState;
+  };
 }
 
 function createDayStateStoreServiceStub(dayState: DayState, date: string) {

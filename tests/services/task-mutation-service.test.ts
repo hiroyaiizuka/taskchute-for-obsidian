@@ -150,7 +150,7 @@ describe('TaskMutationService', () => {
       instanceId: 'instance-1',
       state: 'idle',
       slotKey: '8:00-12:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     const service = new TaskMutationService(host)
 
@@ -173,7 +173,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-only',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost()
     const service = new TaskMutationService(host)
 
@@ -194,7 +194,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-only',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost()
     const persistError = new Error('persist failed')
     host.persistDayState = jest.fn(async () => Promise.reject(persistError))
@@ -223,7 +223,7 @@ describe('TaskMutationService', () => {
       state: 'idle',
       slotKey: 'none',
       isDuplicate: true,
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [duplicate], tasks: [task] })
     host.dayState.duplicatedInstances.push({
       instanceId: duplicate.instanceId,
@@ -250,7 +250,7 @@ describe('TaskMutationService', () => {
       instanceId: 'instance-1',
       state: 'idle',
       slotKey: '8:00-12:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     const service = new TaskMutationService(host)
 
@@ -280,7 +280,7 @@ describe('TaskMutationService', () => {
       instanceId: 'instance-1',
       state: 'idle',
       slotKey: '16:00-0:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     const service = new TaskMutationService(host)
 
@@ -335,7 +335,7 @@ describe('TaskMutationService', () => {
       originalSlotKey: '16:00-0:00',
       isDuplicate: true,
       createdMillis: 1000,
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [sourceDuplicate], tasks: [baseTask] })
     host.dayState.duplicatedInstances.push({
       instanceId: 'dup-source',
@@ -391,7 +391,7 @@ describe('TaskMutationService', () => {
       originalSlotKey: '8:00-12:00',
       isDuplicate: true,
       createdMillis: 1000,
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [sourceDuplicate], tasks: [baseTask] })
     host.dayState.duplicatedInstances.push({
       instanceId: 'dup-source-manual-slot',
@@ -476,13 +476,13 @@ describe('TaskMutationService', () => {
       instanceId: 'base-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const duplicate: TaskInstance = {
       task,
       instanceId: 'dup-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
     host.dayState.duplicatedInstances.push({
@@ -514,7 +514,7 @@ describe('TaskMutationService', () => {
       instanceId: 'inst-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     const service = new TaskMutationService(host)
@@ -539,7 +539,7 @@ describe('TaskMutationService', () => {
       instanceId: 'inst-run',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const removeRunningTaskRecord = jest.fn(async () => {})
     const host = createHost({
@@ -564,7 +564,7 @@ describe('TaskMutationService', () => {
       instanceId: 'dup-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const host = createHost({ taskInstances: [duplicate], tasks: [task] })
     host.dayState.duplicatedInstances.push({
@@ -587,13 +587,13 @@ describe('TaskMutationService', () => {
       instanceId: 'base-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const duplicate: TaskInstance = {
       task,
       instanceId: 'dup-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
     // Intentionally do NOT push to duplicatedInstances to simulate missing metadata
@@ -630,13 +630,13 @@ describe('TaskMutationService', () => {
       instanceId: 'base-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const duplicate: TaskInstance = {
       task,
       instanceId: 'dup-new',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
 
     const host = createHost({ taskInstances: [base, duplicate], tasks: [task] })
     host.dayState.duplicatedInstances.push({
@@ -661,13 +661,13 @@ describe('TaskMutationService', () => {
       instanceId: 'dup-first',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const second: TaskInstance = {
       task,
       instanceId: 'dup-second',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [first, second], tasks: [task] })
     host.dayState.duplicatedInstances.push(
       {
@@ -697,7 +697,7 @@ describe('TaskMutationService', () => {
       instanceId: 'instance-failure',
       state: 'idle',
       slotKey: '8:00-12:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     host.ensureDayStateForCurrentDate = jest.fn(async () => {
       throw new Error('ensure failed')
@@ -720,7 +720,7 @@ describe('TaskMutationService', () => {
       instanceId: 'instance-del',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     host.app.fileManager.trashFile = jest.fn(async () => {})
     const service = new TaskMutationService(host)
@@ -743,14 +743,14 @@ describe('TaskMutationService', () => {
       instanceId: 'routine-1',
       slotKey: '12:00-16:00',
       state: 'idle',
-    } as TaskInstance
+    }
     const nonRoutineTask = createTask('TASKS/non.md', { taskId: 'tc-task-non' })
     const nonRoutineInstance: TaskInstance = {
       task: nonRoutineTask,
       instanceId: 'non-1',
       slotKey: '16:00-0:00',
       state: 'idle',
-    } as TaskInstance
+    }
     const host = createHost()
     const service = new TaskMutationService(host)
 
@@ -774,13 +774,13 @@ describe('TaskMutationService', () => {
       state: 'idle',
       slotKey: '12:00-16:00',
       order: 100,
-    } as TaskInstance
+    }
     const target: TaskInstance = {
       task,
       instanceId: 'move-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [peer, target] })
     const service = new TaskMutationService(host)
 
@@ -800,7 +800,7 @@ describe('TaskMutationService', () => {
       instanceId: 'dup-sync-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [inst], tasks: [task] })
     host.dayState.duplicatedInstances.push({
       instanceId: 'dup-sync-1',
@@ -826,7 +826,7 @@ describe('TaskMutationService', () => {
       instanceId: 'dup-manual-1',
       state: 'idle',
       slotKey: '16:00-0:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [inst], tasks: [task] })
     host.dayState.duplicatedInstances.push({
       instanceId: 'dup-manual-1',
@@ -854,7 +854,7 @@ describe('TaskMutationService', () => {
       state: 'idle',
       slotKey: '8:00-12:00',
       order: 200,
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [inst] })
     host.saveTaskOrders = jest.fn().mockRejectedValueOnce(new Error('persist failed'))
     const service = new TaskMutationService(host)
@@ -900,7 +900,7 @@ describe('TaskMutationService', () => {
       instanceId: 'routine-1',
       state: 'idle',
       slotKey: '8:00-12:00',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [routineTask] })
     const service = new TaskMutationService(host)
 
@@ -922,7 +922,7 @@ describe('TaskMutationService', () => {
       instanceId: 'routine-persist-failure-1',
       state: 'running',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [routineTask] })
     host.persistDayState = jest
       .fn()
@@ -945,7 +945,7 @@ describe('TaskMutationService', () => {
       instanceId: 'error-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     host.app.fileManager.trashFile = jest.fn(async () => {
       throw new Error('trash failed')
@@ -970,7 +970,7 @@ describe('TaskMutationService', () => {
       instanceId: 'fail-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     host.ensureDayStateForCurrentDate = jest.fn(async () => {
       throw new Error('load failure')
@@ -991,7 +991,7 @@ describe('TaskMutationService', () => {
       instanceId: 'persist-failure-1',
       state: 'running',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost({ taskInstances: [instance], tasks: [task] })
     const originalDeleted = [...host.dayStateManager.getDeleted('2026-07-13')]
     host.persistDayState = jest.fn(async () => {
@@ -1016,7 +1016,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-original',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost()
     let currentDate = '2025-10-09'
     const originalDayState = host.dayState
@@ -1057,7 +1057,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-reload',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost()
     const service = new TaskMutationService(host)
 
@@ -1100,7 +1100,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-cleanup-reload',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     let releaseCleanup!: () => void
     const cleanupGate = new Promise<void>((resolve) => {
       releaseCleanup = resolve
@@ -1154,7 +1154,7 @@ describe('TaskMutationService', () => {
       instanceId: 'candidate-uncached',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createHost()
     let currentDate = '2025-10-09'
     const originalDayState = host.dayState

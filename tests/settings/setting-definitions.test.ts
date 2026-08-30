@@ -21,7 +21,7 @@ function createTab(): TaskChuteSettingTab {
     pathManager: { validatePath: () => ({ valid: true }) },
     saveSettings: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
   }
-  return new TaskChuteSettingTab(mockApp as never, plugin as never)
+  return new TaskChuteSettingTab(mockApp, plugin as never)
 }
 
 function controls(items: SettingDefinitionItem[]) {

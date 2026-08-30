@@ -217,7 +217,7 @@ describe('RoutineManagerModal', () => {
 
   it('gives the remove confirmation the shared dialog chrome', async () => {
     const file = createFile('TASKS/routine.md')
-    file.stat = { ctime: 1, mtime: 1, size: 0 } as TFile['stat']
+    file.stat = { ctime: 1, mtime: 1, size: 0 }
     const folder = { path: 'TASKS', children: [file] }
 
     const app = {

@@ -136,7 +136,7 @@ export class RecipeService {
 
     const raw = await this.plugin.app.vault.read(file)
     const parsedRecipe = this.documentCodec.parse(raw)
-    const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined
+    const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter
     const title = parsedRecipe.title
       ?? (typeof frontmatter?.title === 'string' && frontmatter.title.trim().length > 0
       ? frontmatter.title.trim()
@@ -229,7 +229,7 @@ export class RecipeService {
     const taskFolderPath = this.plugin.pathManager.getTaskFolderPath()
     return listFilesInFolder(this.plugin.app, taskFolderPath, { markdownOnly: true })
       .reduce<Array<{ path: string; title: string }>>((usages, file) => {
-        const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined
+        const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter
         const taskRecipePath = normalizeRecipeReference(frontmatter?.recipe)
         if (taskRecipePath !== normalizedRecipePath) return usages
         const title = typeof frontmatter?.title === 'string' && frontmatter.title.trim().length > 0

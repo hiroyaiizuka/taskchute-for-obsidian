@@ -175,7 +175,7 @@ describe("TaskMoveCalendar", () => {
           x: 0,
           y: 0,
           toJSON: () => ({}),
-        } as DOMRect
+        }
       }
       return {
         top: 0,
@@ -187,7 +187,7 @@ describe("TaskMoveCalendar", () => {
         x: 0,
         y: 0,
         toJSON: () => ({}),
-      } as DOMRect
+      }
     })
     const popoutCalendar = new TaskMoveCalendar({
       anchor: popoutAnchor,

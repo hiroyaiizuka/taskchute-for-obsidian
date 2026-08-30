@@ -12,7 +12,6 @@ import type { App } from 'obsidian'
 import type { TaskChuteSettings } from '../../types'
 import { LicenseApiClient } from './services/LicenseApiClient'
 import { LicenseManager } from './services/LicenseManager'
-import type { LicenseStorageBridge } from './services/LicenseStore'
 import { LicenseStore } from './services/LicenseStore'
 
 /** Electron's CommonJS require, available in Obsidian desktop only. */
@@ -107,7 +106,7 @@ export function createLicenseManager(plugin: LicensePluginLike): LicenseManager 
 
   // App exposes loadLocalStorage/saveLocalStorage but does not declare them in
   // the public typings; the same cast is used by AiCustomModelStore's callers.
-  const store = new LicenseStore(plugin.app as unknown as LicenseStorageBridge)
+  const store = new LicenseStore(plugin.app)
   const client = new LicenseApiClient({ log })
 
   const platform = describePlatform()

@@ -1,5 +1,5 @@
 import { RoutineRule } from '../../../types';
-import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields';
+import type { RoutineMonthday } from '../../../types/TaskFields';
 
 /**
  * RoutineService
@@ -66,7 +66,7 @@ export class RoutineService {
           if (Number.isFinite(raw)) {
             const zeroBased = Math.floor(raw);
             if (zeroBased >= 0 && zeroBased <= 4) {
-              week = (zeroBased + 1) as RoutineWeek;
+              week = (zeroBased + 1);
             }
           }
         }
@@ -278,7 +278,7 @@ export class RoutineService {
         const key = String(parsed);
         if (!seen.has(key)) {
           seen.add(key);
-          result.push(parsed as RoutineWeek);
+          result.push(parsed);
         }
       }
     }

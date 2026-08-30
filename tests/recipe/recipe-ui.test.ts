@@ -996,7 +996,7 @@ describe('recipe UI helpers', () => {
           x: 0,
           y: 0,
           toJSON: () => ({}),
-        } as DOMRect
+        }
       }
       return {
         top: 0,
@@ -1008,7 +1008,7 @@ describe('recipe UI helpers', () => {
         x: 0,
         y: 0,
         toJSON: () => ({}),
-      } as DOMRect
+      }
     })
     const popover = new RecipeRunPopover({
       service: {

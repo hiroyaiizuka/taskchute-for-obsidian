@@ -2348,12 +2348,12 @@ describe('LogReconciler', () => {
       }
       const originalApply = reconcilerAny.applyRecordsToSnapshot.bind(reconcilerAny)
       let firstReplayBatchSize = -1
-      reconcilerAny.applyRecordsToSnapshot = ((records: unknown, ...rest: unknown[]) => {
+      reconcilerAny.applyRecordsToSnapshot = (records: unknown, ...rest: unknown[]) => {
         if (firstReplayBatchSize < 0 && Array.isArray(records)) {
           firstReplayBatchSize = records.length
         }
         return originalApply(records, ...rest)
-      }) as unknown as (...args: unknown[]) => number
+      }
 
       const stats = await reconciler.reconcilePendingDeltas()
       expect(stats.processedEntries).toBeGreaterThan(0)
@@ -2425,12 +2425,12 @@ describe('LogReconciler', () => {
       }
       const originalApply = reconcilerAny.applyRecordsToSnapshot.bind(reconcilerAny)
       let firstReplayBatchSize = -1
-      reconcilerAny.applyRecordsToSnapshot = ((records: unknown, ...rest: unknown[]) => {
+      reconcilerAny.applyRecordsToSnapshot = (records: unknown, ...rest: unknown[]) => {
         if (firstReplayBatchSize < 0 && Array.isArray(records)) {
           firstReplayBatchSize = records.length
         }
         return originalApply(records, ...rest)
-      }) as unknown as (...args: unknown[]) => number
+      }
 
       const stats = await reconciler.reconcilePendingDeltas()
       expect(stats.processedEntries).toBe(0)

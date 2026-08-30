@@ -70,7 +70,7 @@ describe('Navigate to today (showTodayTasks)', () => {
           duplicatedInstances: [],
           slotOverrides: {},
           orders: {},
-        } as DayState)),
+        })),
         saveDay: jest.fn(),
       },
       routineAliasService: {
@@ -126,7 +126,7 @@ describe('Navigate to today (showTodayTasks)', () => {
         duplicatedInstances: [],
         slotOverrides: {},
         orders: {},
-      } as DayState;
+      };
 
       // showTodayTasksを呼び出す前の状態を確認
       expect(view['currentDayStateKey']).toBe(futureDateStr);
@@ -167,7 +167,7 @@ describe('Navigate to today (showTodayTasks)', () => {
         duplicatedInstances: [],
         slotOverrides: { 'TASKS/future-task.md': '10:00' },
         orders: {},
-      } as DayState);
+      });
 
       // ensureDayStateForCurrentDateをモック
       view['ensureDayStateForCurrentDate'] = jest.fn(async () => {
@@ -255,7 +255,7 @@ describe('Navigate to today (showTodayTasks)', () => {
         duplicatedInstances: [],
         slotOverrides: { 'TASKS/future-task.md': '15:00' },
         orders: { 'TASKS/future-task.md': 5 },
-      } as DayState;
+      };
 
       // showTodayTasksを実行
       view.showTodayTasks();

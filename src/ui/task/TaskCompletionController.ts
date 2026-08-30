@@ -287,7 +287,7 @@ export default class TaskCompletionController {
     try {
       const syncManager = new ProjectNoteSyncService(
         this.host.app as unknown as App,
-        this.host.plugin.pathManager as unknown as PathManagerLike,
+        this.host.plugin.pathManager,
       )
       const projectPath = syncManager.getProjectNotePath(inst)
       if (!projectPath) {

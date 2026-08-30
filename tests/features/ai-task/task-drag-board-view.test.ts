@@ -44,7 +44,7 @@ function makeInstance(
     state: 'idle',
     slotKey: SLOT,
     order: options.order,
-  } as TaskInstance
+  }
 }
 
 function sortByOrder(items: TaskInstance[]): TaskInstance[] {

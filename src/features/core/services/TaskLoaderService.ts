@@ -99,7 +99,7 @@ export interface TaskLoaderHost {
 const DEFAULT_SLOT_KEY = 'none'
 
 function resolveTaskId(metadata?: TaskFrontmatterWithLegacy): string | undefined {
-  return extractTaskIdFromFrontmatter(metadata as Record<string, unknown> | undefined)
+  return extractTaskIdFromFrontmatter(metadata)
 }
 
 function promoteDeletedEntriesToTaskId(
@@ -1184,7 +1184,7 @@ function migrateDayStateSlotKeys(context: TaskLoaderHost, state: DayState): bool
   // Migrate duplicatedInstances – clear invalid slotKey/originalSlotKey for downstream re-calculation
   if (Array.isArray(state.duplicatedInstances)) {
     for (const dup of state.duplicatedInstances) {
-      const dupRecord = dup as DuplicatedRecord
+      const dupRecord = dup
       if (dupRecord.slotKey && !config.isValidSlotKey(dupRecord.slotKey)) {
         dupRecord.slotKey = undefined
         mutated = true

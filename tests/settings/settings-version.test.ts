@@ -88,7 +88,7 @@ describe('TaskChute settings version display', () => {
       saveSettings: jest.fn(),
     }
     const tab = new TaskChuteSettingTab(
-      mockApp as never,
+      mockApp,
       plugin as never,
     )
 

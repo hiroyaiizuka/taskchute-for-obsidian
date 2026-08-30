@@ -44,7 +44,7 @@ function createHost(options: AiHostOptions = {}): {
   state: { view: AiTaskBoardView; enabled: boolean }
 } {
   const state = {
-    view: options.initialView ?? ('mixed' as AiTaskBoardView),
+    view: options.initialView ?? ('mixed'),
     enabled: options.enabled ?? true,
   }
   const setAiTaskBoardView = jest.fn((view: AiTaskBoardView) => {

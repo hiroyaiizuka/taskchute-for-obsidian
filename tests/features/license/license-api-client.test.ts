@@ -148,15 +148,20 @@ describe('isTransientFailure', () => {
     status,
   })
 
-  test.each([
-    ['network', { ok: false, kind: 'network' } as LicenseApiFailure, true],
+  // Annotated rather than asserted per row: the assertions this replaces read
+  // as unnecessary to no-unnecessary-type-assertion, but without them the two
+  // object literals widen and stop matching LicenseApiFailure.
+  const cases: Array<[string, LicenseApiFailure, boolean]> = [
+    ['network', { ok: false, kind: 'network' }, true],
     ['rate limited', api(429), true],
     ['server error', api(500), true],
     ['bad gateway', api(502), true],
     ['forbidden', api(403), false],
     ['conflict', api(409), false],
-    ['malformed request', { ok: false, kind: 'malformed', status: 400 } as LicenseApiFailure, false],
-  ])('%s -> %s', (_label, failure, expected) => {
+    ['malformed request', { ok: false, kind: 'malformed', status: 400 }, false],
+  ]
+
+  test.each(cases)('%s -> %s', (_label, failure, expected) => {
     expect(isTransientFailure(failure)).toBe(expected)
   })
 })

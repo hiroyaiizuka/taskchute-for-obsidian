@@ -7,7 +7,6 @@
  */
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
-import type { AiTaskManager } from '../../../src/features/ai-task/services/AiTaskManager'
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
@@ -159,7 +158,7 @@ function makeInstance(file: TFile | null = makeTaskFile()): TaskInstance {
     instanceId: 'inst-1',
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
@@ -306,7 +305,7 @@ describe('TaskChuteView AI pane lifecycle on settings changes', () => {
     expect(paneContainer.querySelector('.ai-run-pane')).toBeNull()
 
     ;(plugin as { aiTaskManager?: unknown }).aiTaskManager =
-      manager as unknown as AiTaskManager
+      manager
     view.onAiTaskSettingsChanged()
 
     expect(paneContainer.querySelector('.ai-run-pane')).not.toBeNull()
