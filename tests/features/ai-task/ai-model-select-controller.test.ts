@@ -65,6 +65,8 @@ describe('AiModelSelectController', () => {
     }> = {},
   ): AiModelSelectController {
     controller = new AiModelSelectController(container, {
+      // Only forwarded to the custom-model dialog, which these tests never open.
+      app: {} as never,
       doc: document,
       host,
       store,
