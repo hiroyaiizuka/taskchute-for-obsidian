@@ -120,7 +120,9 @@ class CommandRegistrarImpl implements CommandRegistrar {
   }
 
   private hasOwnBlockingModal(): boolean {
-    if (activeDocument.querySelector(".task-modal-overlay")) return true;
+    // Every dialog is an Obsidian `Modal` now, so `.modal` covers them all —
+    // including the comment, log and AI ones that the old overlay-class check
+    // never matched.
     return Array.from(activeDocument.querySelectorAll(".modal")).some(
       (modal) => !modal.classList.contains("mod-command-palette"),
     );

@@ -231,7 +231,7 @@ describe('Pro settings section', () => {
       // both smaller and easy to miss on the screen someone lands on with no
       // code in hand.
       expect(openPurchasePage(fakeManager())).toBe(
-        'https://obsidian.levers.co.jp/',
+        'https://obsidian.levers.co.jp/howto/pro-license',
       )
     })
 
@@ -255,7 +255,7 @@ describe('Pro settings section', () => {
       setLocaleOverride('ja')
       try {
         expect(openPurchasePage(fakeManager())).toBe(
-          'https://obsidian.levers.co.jp/ja/',
+          'https://obsidian.levers.co.jp/ja/howto/pro-license',
         )
       } finally {
         setLocaleOverride('en')

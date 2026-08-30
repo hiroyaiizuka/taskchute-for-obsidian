@@ -275,7 +275,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.value).toBe('2025-08-01')
@@ -292,7 +292,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[1]?.value).toBe('')
@@ -307,7 +307,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.value).toBe('2025-10-09')
@@ -322,7 +322,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.getAttribute('lang')).toBe('en-US')
@@ -337,7 +337,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const dateInputs = overlay?.querySelectorAll<HTMLInputElement>('input[type="date"]')
     expect(dateInputs?.length).toBe(2)
     expect(dateInputs?.[0]?.getAttribute('lang')).toBe('ja-JP')
@@ -352,7 +352,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const displayInputs = overlay?.querySelectorAll('.form-input-icon-wrapper input.form-input--bare')
     expect(displayInputs?.length).toBe(2)
     expect(displayInputs?.[1]?.getAttribute('placeholder')).toBe('YYYY-MM-DD')
@@ -366,7 +366,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const displayInputs = overlay?.querySelectorAll('.form-input-icon-wrapper input.form-input--bare')
     expect(displayInputs?.length).toBe(2)
     expect(displayInputs?.[1]?.getAttribute('placeholder')).toBe('年/月/日')
@@ -379,7 +379,7 @@ describe('RoutineController', () => {
 
     controller.showRoutineEditModal(task)
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const targets: HTMLElement[] = []
@@ -434,8 +434,8 @@ describe('RoutineController', () => {
       expect(sourceRemove).toHaveBeenCalledWith('click', expect.any(Function))
       expect(focusedRemove).not.toHaveBeenCalledWith('click', expect.any(Function))
     } finally {
-      sourceDoc.querySelector<HTMLElement>('.task-modal-overlay')?.remove()
-      focusedDoc.querySelector<HTMLElement>('.task-modal-overlay')?.remove()
+      sourceDoc.querySelector<HTMLElement>('.modal-container')?.remove()
+      focusedDoc.querySelector<HTMLElement>('.modal-container')?.remove()
       setActiveDocument(originalActiveDocument)
       sourceAdd.mockRestore()
       sourceRemove.mockRestore()

@@ -2,7 +2,6 @@ import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 ;
 
 import { t } from '../../../i18n';
-import { applyIcon } from '../../../ui/icons';
 
 import {
   RoutineFrontmatter,
@@ -48,6 +47,7 @@ class RoutineConfirmModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close');
     contentEl.addClass('routine-confirm');
 
     contentEl.createEl('h3', {
@@ -122,7 +122,7 @@ export class RoutineManagerModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('routine-manager');
-    this.modalEl?.classList.add('routine-manager-modal');
+    this.modalEl?.classList.add('taskchute-modal', 'routine-manager-modal');
 
     const header = contentEl.createDiv( { cls: 'routine-manager__header' });
     header.createEl('h3', {
@@ -308,25 +308,22 @@ export class RoutineManagerModal extends Modal {
       cls: 'routine-table__action-button',
     });
     const deleteBtn = actionsCell.createEl('button', {
+      text: '🗑️',
       cls: 'routine-table__action-button routine-table__action-button--danger',
       attr: { title: this.tv('tooltips.removeRoutine', 'Remove from routine') },
     });
-    applyIcon(deleteBtn, 'trash-2');
 
     editBtn.addEventListener('click', () => {
       const { file: currentFile } = this.filtered[index];
-      // Disable parent modal to prevent its focus trap from interfering
-      // with native <select> dropdowns in the child modal
-      this.containerEl.setAttribute('inert', '');
+      // The editor is a Modal of its own, so Obsidian stacks it above this one
+      // and moves the focus trap along with it. The `inert` toggle that used to
+      // guard native <select> dropdowns is no longer needed.
       new RoutineEditModal(
         this.app,
         this.plugin,
         currentFile,
         (updatedFm) => {
           void this.refreshRow(currentFile, undefined, updatedFm);
-        },
-        () => {
-          this.containerEl.removeAttribute('inert');
         },
       ).open();
     });

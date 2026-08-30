@@ -148,6 +148,44 @@ describe('TaskRowController', () => {
     expect(timer).toBeTruthy()
     controller.updateTimerDisplay(timer, running)
     expect(timer.textContent).toMatch(/00:05:1[45]/)
+    expect(timer.getAttribute('title')).toBe('Elapsed time')
     jest.useRealTimers()
+  })
+
+  test('time range and duration expose explanatory tooltips', () => {
+    const host = createHost()
+    const controller = new TaskRowController(host)
+    const container = document.createElement('div')
+    attachCreateEl(container)
+    const inst = createInstance({
+      state: 'done',
+      startTime: new Date(2025, 9, 9, 8, 0, 0),
+      stopTime: new Date(2025, 9, 9, 9, 0, 0),
+    })
+
+    controller.renderTimeRangeDisplay(container, inst)
+    controller.renderDurationDisplay(container, inst)
+
+    expect(container.querySelector('.task-time-start')?.getAttribute('title')).toBe('Start time')
+    expect(container.querySelector('.task-time-stop')?.getAttribute('title')).toBe('End time')
+    expect(container.querySelector('.task-duration')?.getAttribute('title')).toBe('Duration')
+  })
+
+  test('cross-day duration tooltip keeps the cross-day hint', () => {
+    const host = createHost()
+    const controller = new TaskRowController(host)
+    const container = document.createElement('div')
+    attachCreateEl(container)
+    const inst = createInstance({
+      state: 'done',
+      startTime: new Date(2025, 9, 9, 23, 0, 0),
+      stopTime: new Date(2025, 9, 10, 1, 0, 0),
+    })
+
+    controller.renderDurationDisplay(container, inst)
+
+    expect(container.querySelector('.task-duration')?.getAttribute('title')).toBe(
+      'Duration (Cross-day task)',
+    )
   })
 })

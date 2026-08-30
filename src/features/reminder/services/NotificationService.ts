@@ -7,6 +7,7 @@
 
 import { Platform } from 'obsidian'
 ;
+import { t } from '../../../i18n';
 
 export interface ReminderNotificationOptions {
   taskName: string;
@@ -118,6 +119,9 @@ export class NotificationService {
    * Format the notification body text.
    */
   formatNotificationBody(taskName: string, scheduledTime: string): string {
-    return `${taskName} - まもなく開始 (${scheduledTime})`;
+    return t('reminder.notification.body', '{name} - starting soon ({time})', {
+      name: taskName,
+      time: scheduledTime,
+    });
   }
 }

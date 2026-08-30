@@ -1,16 +1,13 @@
-import { attachCloseButtonIcon } from './iconUtils'
+import { App, Modal } from 'obsidian'
 
 export interface NameModalOptions {
+  app: App
   title: string
   label: string
   placeholder: string
   submitText: string
   cancelText: string
   closeLabel: string
-  context?: {
-    doc?: Document
-    win?: Window
-  }
 }
 
 export interface NameModalHandle {
@@ -22,136 +19,89 @@ export interface NameModalHandle {
   warning: HTMLElement
   submitButton: HTMLButtonElement
   cancelButton: HTMLButtonElement
-  closeButton: HTMLButtonElement
   close: () => void
   onClose: (handler: () => void) => void
 }
 
-function appendEl<T extends HTMLElement>(
-  doc: Document,
-  parent: HTMLElement,
-  tag: string,
-  options: {
-  cls?: string
-  text?: string
-  attr?: Record<string, string>
-} = {},
-): T {
-  const element = doc.win.createEl(tag as keyof HTMLElementTagNameMap) as T
-  if (options.cls) {
-    element.classList.add(...options.cls.split(' ').filter(Boolean))
+/**
+ * The name-entry dialog shared by task creation and project creation. Callers
+ * receive the built elements so they can graft their own fields into the form
+ * — task creation inserts its mode, reminder and AI sections around the input
+ * and the button row.
+ */
+class NameModal extends Modal {
+  readonly closeHandlers: Array<() => void> = []
+
+  constructor(app: App, private readonly options: NameModalOptions) {
+    super(app)
   }
-  if (options.text !== undefined) {
-    element.textContent = options.text
-  }
-  if (options.attr) {
-    Object.entries(options.attr).forEach(([key, value]) => {
-      if (value !== undefined) {
-        element.setAttribute(key, value)
-      }
+
+  build(): Omit<NameModalHandle, 'close' | 'onClose'> {
+    const { contentEl, options } = this
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-name-modal')
+    this.setTitle(options.title)
+
+    const form = contentEl.createEl('form', { cls: 'task-form' })
+    const inputGroup = form.createDiv({ cls: 'form-group' })
+    inputGroup.createEl('label', { cls: 'form-label', text: options.label })
+    const input = inputGroup.createEl('input', {
+      cls: 'form-input',
+      attr: { type: 'text', placeholder: options.placeholder },
     })
+    const warning = inputGroup.createDiv({
+      cls: 'task-name-warning hidden',
+      attr: { role: 'alert', 'aria-live': 'polite' },
+    })
+
+    const buttonGroup = form.createDiv({ cls: 'modal-button-container' })
+    const cancelButton = buttonGroup.createEl('button', {
+      cls: 'form-button cancel',
+      text: options.cancelText,
+      attr: { type: 'button' },
+    })
+    const submitButton = buttonGroup.createEl('button', {
+      cls: 'form-button create mod-cta',
+      text: options.submitText,
+      attr: { type: 'submit' },
+    })
+
+    cancelButton.addEventListener('click', () => this.close())
+
+    return {
+      overlay: this.containerEl,
+      content: this.modalEl,
+      form,
+      inputGroup,
+      input,
+      warning,
+      submitButton,
+      cancelButton,
+    }
   }
-  parent.appendChild(element)
-  return element
-}
 
-export function createNameModal(options: NameModalOptions): NameModalHandle {
-  const doc = options.context?.doc ?? document
-  const overlay = doc.win.createDiv()
-  overlay.className = 'task-modal-overlay'
-
-  const content = appendEl<HTMLDivElement>(doc, overlay, 'div', {
-    cls: 'task-modal-content',
-  })
-
-  const header = appendEl<HTMLDivElement>(doc, content, 'div', {
-    cls: 'modal-header',
-  })
-  appendEl<HTMLHeadingElement>(doc, header, 'h3', { text: options.title })
-  const closeButton = appendEl<HTMLButtonElement>(doc, header, 'button', {
-    cls: 'modal-close-button',
-    attr: {
-      'aria-label': options.closeLabel,
-      title: options.closeLabel,
-      type: 'button',
-    },
-  })
-  attachCloseButtonIcon(closeButton)
-
-  const form = appendEl<HTMLFormElement>(doc, content, 'form', {
-    cls: 'task-form',
-  })
-  const inputGroup = appendEl<HTMLDivElement>(doc, form, 'div', {
-    cls: 'form-group',
-  })
-  appendEl<HTMLLabelElement>(doc, inputGroup, 'label', {
-    text: options.label,
-    cls: 'form-label',
-  })
-  const input = appendEl<HTMLInputElement>(doc, inputGroup, 'input', {
-    cls: 'form-input',
-    attr: { type: 'text', placeholder: options.placeholder },
-  })
-
-  const warning = appendEl<HTMLDivElement>(doc, inputGroup, 'div', {
-    cls: 'task-name-warning hidden',
-    attr: { role: 'alert', 'aria-live': 'polite' },
-  })
-
-  const buttonGroup = appendEl<HTMLDivElement>(doc, form, 'div', {
-    cls: 'form-button-group',
-  })
-  const cancelButton = appendEl<HTMLButtonElement>(doc, buttonGroup, 'button', {
-    cls: 'form-button cancel',
-    text: options.cancelText,
-    attr: { type: 'button' },
-  })
-  const submitButton = appendEl<HTMLButtonElement>(doc, buttonGroup, 'button', {
-    cls: 'form-button create',
-    text: options.submitText,
-    attr: { type: 'submit' },
-  })
-
-  const closeHandlers: Array<() => void> = []
-  let closed = false
-
-  const close = () => {
-    if (closed) return
-    closed = true
-    closeHandlers.forEach((handler) => {
+  onClose(): void {
+    this.closeHandlers.forEach((handler) => {
       try {
         handler()
       } catch (error) {
         console.error('[NameModal] Close handler failed', error)
       }
     })
-    if (overlay.parentElement) {
-      overlay.parentElement.removeChild(overlay)
-    }
+    this.contentEl.empty()
   }
+}
 
-  const registerCloseHandler = (handler: () => void) => {
-    closeHandlers.push(handler)
-  }
-
-  closeButton.addEventListener('click', close)
-  cancelButton.addEventListener('click', close)
-
-  const targetBody = doc.body ?? activeDocument.body
-  targetBody.appendChild(overlay)
-  input.focus()
+export function createNameModal(options: NameModalOptions): NameModalHandle {
+  const modal = new NameModal(options.app, options)
+  modal.open()
+  const parts = modal.build()
+  parts.input.focus()
 
   return {
-    overlay,
-    content,
-    form,
-    inputGroup,
-    input,
-    warning,
-    submitButton,
-    cancelButton,
-    closeButton,
-    close,
-    onClose: registerCloseHandler,
+    ...parts,
+    close: () => modal.close(),
+    onClose: (handler: () => void) => {
+      modal.closeHandlers.push(handler)
+    },
   }
 }

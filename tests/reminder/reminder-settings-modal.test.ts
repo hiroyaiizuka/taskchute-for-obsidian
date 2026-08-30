@@ -44,21 +44,22 @@ describe('ReminderSettingsModal', () => {
   });
 
   describe('onOpen', () => {
-    it('should render header in modal', () => {
+    it('should title the modal through the standard header', () => {
       modal.onOpen();
-      expect(modal.contentEl.textContent).toContain(
+      expect(modal.titleEl.textContent).toBe(
         t('reminder.modal.title', 'Reminder settings')
       );
     });
 
-    it('should render with the same custom modal shell as task creation modal', () => {
+    it('should render inside the standard Obsidian modal shell', () => {
       modal.open();
-      expect(document.body.querySelector('.task-modal-overlay')).toBe(modal.containerEl);
-      expect(modal.containerEl.firstElementChild).toBe(modal.modalEl);
-      expect(modal.modalEl.classList.contains('task-modal-content')).toBe(true);
+      // Obsidian owns the frame: the plugin only tags the modal so its width
+      // rule can find it, and no longer builds an overlay or a close button.
+      expect(document.body.querySelector('.modal-container')).toBe(modal.containerEl);
+      expect(modal.modalEl.classList.contains('modal')).toBe(true);
       expect(modal.modalEl.classList.contains('taskchute-reminder-settings-modal')).toBe(true);
-      expect(Array.from(modal.modalEl.children).some((el) => el.classList.contains('modal-title'))).toBe(false);
-      expect(modal.modalEl.firstElementChild?.classList.contains('reminder-settings-header')).toBe(true);
+      expect(modal.contentEl.querySelector('.modal-close-button')).toBeNull();
+      expect(modal.contentEl.querySelector('.modal-button-container')).not.toBeNull();
     });
 
     it('should render input field for time', () => {

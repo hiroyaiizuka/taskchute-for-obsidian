@@ -5,12 +5,14 @@ import {
   ReminderNotificationModal,
   ReminderNotificationModalOptions,
 } from '../../src/features/reminder/modals/ReminderNotificationModal';
+import { t } from '../../src/i18n';
 
 // Mock Obsidian App and Modal
 const mockOpen = jest.fn();
 const mockClose = jest.fn();
 
 jest.mock('obsidian', () => ({
+  getLanguage: () => 'en',
   Modal: class MockModal {
     app: unknown;
     contentEl: HTMLElement;
@@ -72,14 +74,33 @@ describe('ReminderNotificationModal', () => {
 
     it('should render reminder message in modal', () => {
       modal.onOpen();
-      expect(modal.contentEl.textContent).toContain('まもなく開始');
+      expect(modal.contentEl.textContent).toContain(
+        t('reminder.notification.startingSoon', 'Starting soon ({time})', {
+          time: '09:00',
+        })
+      );
+    });
+
+    it('should render the title in the shared modal header', () => {
+      modal.onOpen();
+      const heading = modal.contentEl.querySelector('.modal-header h3');
+      expect(heading?.textContent).toBe(t('reminder.notification.title', 'Reminder'));
+    });
+
+    it('should use the shared modal body and button primitives', () => {
+      modal.onOpen();
+      expect(modal.contentEl.querySelector('.modal-message')?.textContent).toBe('Test Task');
+      expect(modal.contentEl.querySelector('.modal-description')).not.toBeNull();
+      expect(
+        modal.contentEl.querySelector('.form-button-group.confirm-button-group')
+      ).not.toBeNull();
     });
 
     it('should render "Open File" button', () => {
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
       const openFileButton = Array.from(buttons).find(
-        (btn) => btn.textContent === 'ファイルを開く'
+        (btn) => btn.textContent === t('reminder.notification.openFile', 'Open file')
       );
       expect(openFileButton).toBeDefined();
     });
@@ -88,7 +109,7 @@ describe('ReminderNotificationModal', () => {
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
       const closeButton = Array.from(buttons).find(
-        (btn) => btn.textContent === '閉じる'
+        (btn) => btn.textContent === t('common.close', 'Close')
       );
       expect(closeButton).toBeDefined();
     });
@@ -106,7 +127,7 @@ describe('ReminderNotificationModal', () => {
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
       const openFileButton = Array.from(buttons).find(
-        (btn) => btn.textContent === 'ファイルを開く'
+        (btn) => btn.textContent === t('reminder.notification.openFile', 'Open file')
       );
 
       openFileButton?.click();
@@ -122,7 +143,7 @@ describe('ReminderNotificationModal', () => {
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
       const openFileButton = Array.from(buttons).find(
-        (btn) => btn.textContent === 'ファイルを開く'
+        (btn) => btn.textContent === t('reminder.notification.openFile', 'Open file')
       );
 
       openFileButton?.click();
@@ -134,7 +155,7 @@ describe('ReminderNotificationModal', () => {
       modal.onOpen();
       const buttons = modal.contentEl.querySelectorAll('button');
       const closeButton = Array.from(buttons).find(
-        (btn) => btn.textContent === '閉じる'
+        (btn) => btn.textContent === t('common.close', 'Close')
       );
 
       closeButton?.click();

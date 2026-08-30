@@ -2,92 +2,14 @@ import { Notice, TFile } from 'obsidian'
 import type { TaskInstance } from '../../../src/types'
 import ScheduledTimeModal from '../../../src/ui/modals/ScheduledTimeModal'
 
+// The shared mock builds Obsidian's real modal markup, so this suite no longer
+// needs a hand-rolled Modal with DOM-helper shims.
 jest.mock('obsidian', () => {
-  const applyDomHelpers = (el: HTMLElement) => {
-    ;(el as unknown as { empty: () => void }).empty = function empty() {
-      while (this.firstChild) {
-        this.removeChild(this.firstChild)
-      }
-    }
-
-    ;(el as unknown as {
-      createEl: (
-        tag: string,
-        options?: {
-          cls?: string | string[]
-          text?: string
-          type?: string
-          attr?: Record<string, string>
-          value?: string
-        },
-      ) => HTMLElement
-    }).createEl = function createEl(tag: string, options = {}) {
-      const child = document.createElement(tag)
-      applyDomHelpers(child)
-
-      const cls = options.cls
-      if (cls) {
-        const classes = Array.isArray(cls) ? cls : cls.split(/\s+/).filter(Boolean)
-        child.classList.add(...classes)
-      }
-      if (typeof options.text === 'string') {
-        child.textContent = options.text
-      }
-      if (options.type) {
-        ;(child as HTMLInputElement).type = options.type
-      }
-      if (typeof options.value === 'string') {
-        ;(child as HTMLInputElement).value = options.value
-      }
-      if (options.attr) {
-        Object.entries(options.attr).forEach(([key, value]) => {
-          child.setAttribute(key, value)
-        })
-      }
-
-      this.appendChild(child)
-      return child
-    }
-  }
-
-  class MockApp {}
-  class Modal {
-    app: MockApp
-    modalEl: HTMLElement
-    contentEl: HTMLElement
-
-    constructor(app: MockApp) {
-      this.app = app
-      this.modalEl = document.createElement('div')
-      this.modalEl.classList.add('modal')
-      applyDomHelpers(this.modalEl)
-      this.contentEl = document.createElement('div')
-      applyDomHelpers(this.contentEl)
-      this.modalEl.appendChild(this.contentEl)
-    }
-
-    open(): void {
-      document.body.appendChild(this.modalEl)
-      const maybeOnOpen = (this as unknown as { onOpen?: () => void }).onOpen
-      if (typeof maybeOnOpen === 'function') {
-        maybeOnOpen.call(this)
-      }
-    }
-
-    close(): void {
-      const maybeOnClose = (this as unknown as { onClose?: () => void }).onClose
-      if (typeof maybeOnClose === 'function') {
-        maybeOnClose.call(this)
-      }
-      if (this.modalEl.parentElement) {
-        this.modalEl.parentElement.removeChild(this.modalEl)
-      }
-    }
-  }
-
+  const { Modal, ButtonComponent } = jest.requireActual('obsidian')
   return {
-    App: MockApp,
+    App: class MockApp {},
     Modal,
+    ButtonComponent,
     Notice: jest.fn(),
     TFile: class MockTFile {},
   }

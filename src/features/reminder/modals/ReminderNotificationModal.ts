@@ -7,6 +7,7 @@
 
 import { App, Modal } from 'obsidian'
 ;
+import { t } from '../../../i18n';
 
 export interface ReminderNotificationModalOptions {
   taskName: string;
@@ -92,6 +93,10 @@ export class ReminderNotificationModal extends Modal {
     return this.beingDisplayed;
   }
 
+  private tv(key: string, fallback: string, vars?: Record<string, string | number>): string {
+    return t(`reminder.notification.${key}`, fallback, vars);
+  }
+
   onOpen(): void {
     this.beingDisplayed = true;
     const { contentEl, modalEl } = this;
@@ -105,30 +110,30 @@ export class ReminderNotificationModal extends Modal {
       }
     }
 
-    modalEl?.classList.add('taskchute-reminder-modal');
+    modalEl?.classList.add('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-reminder-modal');
 
     // Header
-    const header = createElCompat(contentEl, 'div', { cls: 'reminder-modal-header' });
-    createElCompat(header, 'h3', { text: 'リマインダー' });
+    const header = createElCompat(contentEl, 'div', { cls: 'modal-header' });
+    createElCompat(header, 'h3', { text: this.tv('title', 'Reminder') });
 
     // Task info
-    const taskInfo = createElCompat(contentEl, 'div', { cls: 'reminder-modal-content' });
-    createElCompat(taskInfo, 'p', {
-      cls: 'reminder-task-name',
+    createElCompat(contentEl, 'p', {
+      cls: 'modal-message',
       text: this.taskName,
     });
-    createElCompat(taskInfo, 'p', {
-      cls: 'reminder-message',
-      text: `まもなく開始 (${this.scheduledTime})`,
+    createElCompat(contentEl, 'p', {
+      cls: 'modal-description',
+      text: this.tv('startingSoon', 'Starting soon ({time})', { time: this.scheduledTime }),
     });
 
     // Buttons
-    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'reminder-button-group' });
+    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' });
+    buttonGroup.classList.add('confirm-button-group');
 
     const openFileButton = createElCompat(buttonGroup, 'button', {
       type: 'button',
       cls: ['form-button', 'create'],
-      text: 'ファイルを開く',
+      text: this.tv('openFile', 'Open file'),
     });
     openFileButton.addEventListener('click', () => {
       this.openTaskFile();
@@ -138,7 +143,7 @@ export class ReminderNotificationModal extends Modal {
     const closeButton = createElCompat(buttonGroup, 'button', {
       type: 'button',
       cls: ['form-button', 'cancel'],
-      text: '閉じる',
+      text: t('common.close', 'Close'),
     });
     closeButton.addEventListener('click', () => {
       this.close();
@@ -157,7 +162,7 @@ export class ReminderNotificationModal extends Modal {
       }
     }
 
-    this.modalEl?.classList.remove('taskchute-reminder-modal');
+    this.modalEl?.classList.remove('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-reminder-modal');
 
     // Call the onClose callback
     this.onCloseCallback?.();

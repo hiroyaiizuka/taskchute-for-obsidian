@@ -246,9 +246,10 @@ describe('NavigationSectionController', () => {
     const [pluginArg, containerArg] = MockedLogView.mock.calls[0]
     expect(pluginArg).toBe(host.plugin)
     expect(containerArg).toBeInstanceOf(HTMLElement)
-    expect((containerArg).classList.contains('taskchute-log-modal-content')).toBe(true)
+    // The log now renders into a standard modal's content element.
+    expect((containerArg).classList.contains('modal-content')).toBe(true)
     expect(host.closeNavigation).toHaveBeenCalled()
-    expect(document.querySelector('.taskchute-log-modal-overlay')).not.toBeNull()
+    expect(document.querySelector('.taskchute-log-modal')).not.toBeNull()
   })
 
   test('handleNavigationItemClick opens project board view', async () => {

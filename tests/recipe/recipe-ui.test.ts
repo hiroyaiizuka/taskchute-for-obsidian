@@ -154,7 +154,7 @@ describe('recipe UI helpers', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(document.querySelector('.recipe-empty-create-state')).not.toBeNull()
-    const closeButton = document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')
+    const closeButton = document.querySelector<HTMLElement>('.modal .modal-close-button')
     expect(closeButton).not.toBeNull()
 
     closeButton?.click()
@@ -162,7 +162,7 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
   })
 
-  test('recipe select modal removes Escape listener from the document that registered it', () => {
+  test('recipe select modal opens and closes in the document that was focused', () => {
     const originalActiveDocument = activeDocument
     const sourceDoc = document.implementation.createHTMLDocument('source')
     const focusedDoc = document.implementation.createHTMLDocument('focused')
@@ -185,13 +185,14 @@ describe('recipe UI helpers', () => {
       setActiveDocument(sourceDoc)
       modal.open()
 
-      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(sourceDoc.querySelector('.modal-container')).not.toBeNull()
 
       setActiveDocument(focusedDoc)
       modal.close()
 
-      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
-      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+      // Torn down where it opened; never leaks into the newly focused window.
+      expect(sourceDoc.querySelector('.modal-container')).toBeNull()
+      expect(focusedDoc.querySelector('.modal-container')).toBeNull()
     } finally {
       modal.close()
       setActiveDocument(originalActiveDocument)
@@ -227,7 +228,7 @@ describe('recipe UI helpers', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(document.querySelector('.recipe-empty-create-state')).not.toBeNull()
-    const closeButton = document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')
+    const closeButton = document.querySelector<HTMLElement>('.modal .modal-close-button')
     expect(closeButton).not.toBeNull()
 
     closeButton?.click()
@@ -235,7 +236,7 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
   })
 
-  test('recipe manager removes Escape listener from the document that registered it', () => {
+  test('recipe manager opens and closes in the document that was focused', () => {
     const originalActiveDocument = activeDocument
     const sourceDoc = document.implementation.createHTMLDocument('source')
     const focusedDoc = document.implementation.createHTMLDocument('focused')
@@ -267,13 +268,14 @@ describe('recipe UI helpers', () => {
       setActiveDocument(sourceDoc)
       modal.open()
 
-      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(sourceDoc.querySelector('.modal-container')).not.toBeNull()
 
       setActiveDocument(focusedDoc)
       modal.close()
 
-      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
-      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+      // Torn down where it opened; never leaks into the newly focused window.
+      expect(sourceDoc.querySelector('.modal-container')).toBeNull()
+      expect(focusedDoc.querySelector('.modal-container')).toBeNull()
     } finally {
       modal.close()
       setActiveDocument(originalActiveDocument)
@@ -1144,7 +1146,7 @@ describe('recipe UI helpers', () => {
 
     modal.open()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(document.querySelector('.modal-header h3')?.textContent).toBe('レシピ一覧')
+    expect(document.querySelector('.modal-title')?.textContent).toBe('レシピ一覧')
     expect(document.querySelector('.recipe-source-open-button')).not.toBeNull()
     expect(document.querySelector('.recipe-card-delete-button')).not.toBeNull()
     document.querySelector<HTMLButtonElement>('.recipe-card-edit-button')?.click()
@@ -1254,7 +1256,7 @@ describe('recipe UI helpers', () => {
 
     modal.open()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(document.querySelector('.modal-header h3')?.textContent).toBe('レシピ編集')
+    expect(document.querySelector('.modal-title')?.textContent).toBe('レシピ編集')
 
     const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent === 'キャンセル')
@@ -1306,7 +1308,7 @@ describe('recipe UI helpers', () => {
       .find((button) => button.textContent === 'キャンセル')
     cancelButton?.click()
 
-    expect(document.querySelector('.modal-header h3')?.textContent).toBe('レシピ一覧')
+    expect(document.querySelector('.modal-title')?.textContent).toBe('レシピ一覧')
     expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
     modal.close()
   })
@@ -1353,16 +1355,15 @@ describe('recipe UI helpers', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     document.querySelector<HTMLButtonElement>('.recipe-card-delete-button')?.click()
 
-    expect(document.querySelector('.recipe-delete-confirm')).toBeNull()
-    expect(document.querySelector('.recipe-delete-confirm-overlay')).not.toBeNull()
-    expect(document.querySelector('.routine-confirm')).not.toBeNull()
-    expect(document.querySelector('.routine-confirm')?.closest('.recipe-delete-confirm-overlay')).not.toBeNull()
-    expect(document.body.lastElementChild?.classList.contains('recipe-delete-confirm-overlay')).toBe(true)
+    // Deletion reuses the shared confirm dialog, stacked above the manager.
+    const confirmModal = document.querySelector('.taskchute-confirm-modal')
+    expect(confirmModal).not.toBeNull()
+    expect(document.body.lastElementChild?.querySelector('.taskchute-confirm-modal')).not.toBeNull()
     expect(document.body.textContent).toContain('「aaa」を削除しますか？')
     expect(document.body.textContent).toContain('紐付いているタスクからも解除されます。')
     expect(document.body.textContent).not.toContain('自動解除されません')
 
-    document.querySelector<HTMLButtonElement>('.routine-confirm__button.mod-danger')?.click()
+    document.querySelector<HTMLButtonElement>('.taskchute-confirm-modal .form-button.danger')?.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(trashFile).toHaveBeenCalledWith(file)
@@ -1413,7 +1414,7 @@ describe('recipe UI helpers', () => {
     modal.open()
     await new Promise((resolve) => setTimeout(resolve, 0))
     document.querySelector<HTMLButtonElement>('.recipe-card-delete-button')?.click()
-    document.querySelector<HTMLButtonElement>('.routine-confirm__button.mod-danger')?.click()
+    document.querySelector<HTMLButtonElement>('.taskchute-confirm-modal .form-button.danger')?.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(trashFile).toHaveBeenCalledWith(file)
@@ -1459,13 +1460,16 @@ describe('recipe UI helpers', () => {
     modal.open()
     await new Promise((resolve) => setTimeout(resolve, 0))
     document.querySelector<HTMLButtonElement>('.recipe-card-delete-button')?.click()
-    expect(document.querySelector('.routine-confirm')).not.toBeNull()
+    const confirmModal = document.querySelector('.taskchute-confirm-modal')
+    expect(confirmModal).not.toBeNull()
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    // Obsidian routes Escape to the topmost modal only, so dismissing the
+    // confirmation leaves the manager open behind it.
+    document.querySelector<HTMLButtonElement>('.taskchute-confirm-modal .form-button.cancel')?.click()
 
-    expect(document.querySelector('.routine-confirm')).toBeNull()
+    expect(document.querySelector('.taskchute-confirm-modal')).toBeNull()
     expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
-    expect(document.querySelector('.modal-header h3')?.textContent).toBe('レシピ一覧')
+    expect(document.querySelector('.modal-title')?.textContent).toBe('レシピ一覧')
     modal.close()
   })
 
@@ -1509,7 +1513,7 @@ describe('recipe UI helpers', () => {
     document.querySelector<HTMLElement>('.recipe-modal-content')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
 
-    document.querySelector<HTMLElement>('.task-modal-overlay')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    document.querySelector<HTMLElement>('.modal-bg')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
   })
@@ -1634,13 +1638,13 @@ describe('recipe v2 accessibility and guarded editing', () => {
     goal.value = '完了できる'
     goal.dispatchEvent(new Event('input', { bubbles: true }))
 
-    document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')?.click()
+    document.querySelector<HTMLElement>('.modal .modal-close-button')?.click()
     await Promise.resolve()
     expect(confirm).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ destructive: true }))
     expect(document.querySelector('.recipe-modal-content')).not.toBeNull()
 
     confirm.mockResolvedValue(true)
-    document.querySelector<HTMLButtonElement>('.recipe-modal-header .modal-close-button')?.click()
+    document.querySelector<HTMLElement>('.modal .modal-close-button')?.click()
     await Promise.resolve()
     await Promise.resolve()
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
@@ -1675,7 +1679,8 @@ describe('recipe v2 accessibility and guarded editing', () => {
     goal.value = '公開済み'
     goal.dispatchEvent(new Event('input', { bubbles: true }))
 
-    const overlay = document.querySelector<HTMLElement>('.task-modal-overlay')!
+    // Obsidian's backdrop is `.modal-bg`; clicking it routes through close().
+    const overlay = document.querySelector<HTMLElement>('.modal-bg')!
     overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await Promise.resolve()
     expect(confirm).toHaveBeenCalled()

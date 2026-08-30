@@ -215,6 +215,54 @@ describe('RoutineManagerModal', () => {
     expect(fm?.target_date).toBe('2026-03-05')
   })
 
+  it('gives the remove confirmation the shared dialog chrome', async () => {
+    const file = createFile('TASKS/routine.md')
+    file.stat = { ctime: 1, mtime: 1, size: 0 } as TFile['stat']
+    const folder = { path: 'TASKS', children: [file] }
+
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn((target: string) =>
+          target === 'TASKS' ? folder : null,
+        ),
+      },
+      metadataCache: {
+        getFileCache: jest.fn(() => ({
+          frontmatter: {
+            isRoutine: true,
+            routine_enabled: true,
+            routine_type: 'daily',
+            routine_interval: 1,
+          },
+        })),
+      },
+      fileManager: { processFrontMatter: jest.fn() },
+      workspace: { getLeavesOfType: jest.fn(() => []), getMostRecentLeaf: jest.fn(() => null) },
+    }
+    const plugin = {
+      pathManager: { getTaskFolderPath: () => 'TASKS' },
+    } as unknown as TaskChutePluginLike
+
+    const modal = new RoutineManagerModal(app as unknown as App, plugin)
+    modal.open()
+
+    document
+      .querySelector<HTMLButtonElement>('.routine-table__action-button--danger')
+      ?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // The stylesheet keys the close button's gutter off `.taskchute-modal`, so
+    // a dialog without it would float the glyph somewhere else.
+    const confirmEl = document.querySelector('.routine-confirm')
+    expect(confirmEl).not.toBeNull()
+    expect(confirmEl?.closest('.modal')?.classList.contains('taskchute-modal')).toBe(true)
+
+    document
+      .querySelector<HTMLButtonElement>('.routine-confirm__button:not(.mod-danger)')
+      ?.click()
+    modal.close()
+  })
+
   it('deletes target_date when re-enabling routine', async () => {
     const { modal, file, frontmatterStore } = createModal({
       currentDate: new Date(2026, 2, 5),

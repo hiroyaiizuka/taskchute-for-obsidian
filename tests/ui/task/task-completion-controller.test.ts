@@ -7,6 +7,12 @@ const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
 }
 
+/** The dialog's footer is Obsidian's standard button row now. */
+const modalButton = (doc: Document, text: string): HTMLButtonElement | undefined =>
+  Array.from(doc.querySelectorAll('.modal-button-container button')).find(
+    (button) => button.textContent === text,
+  ) as HTMLButtonElement | undefined
+
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
   return {
@@ -180,9 +186,9 @@ describe('TaskCompletionController', () => {
     } as unknown as TaskInstance
 
     await controller.showTaskCompletionModal(inst)
-    const saveButton = document.querySelector('.taskchute-button-save') as HTMLButtonElement
+    const saveButton = modalButton(document, 'Save')
     expect(saveButton).toBeTruthy()
-    saveButton.click()
+    saveButton?.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
     await Promise.resolve()
     expect(host.renderTaskList).toHaveBeenCalled()
@@ -225,19 +231,16 @@ describe('TaskCompletionController', () => {
       expect(sourceDoc.querySelector('.taskchute-comment-modal')).not.toBeNull()
       expect(focusedDoc.querySelector('.taskchute-comment-modal')).toBeNull()
     } finally {
-      sourceDoc.querySelector('.taskchute-button-cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      focusedDoc.querySelector('.taskchute-button-cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modalButton(sourceDoc, 'Cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modalButton(focusedDoc, 'Cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       setActiveDocument(originalActiveDocument)
     }
   })
 
-  test('showTaskCompletionModal removes Escape listener from the document that registered it after async save', async () => {
+  test('showTaskCompletionModal tears the dialog down in the document it opened in after an async save', async () => {
     const originalActiveDocument = activeDocument
     const sourceDoc = document.implementation.createHTMLDocument('source')
     const focusedDoc = document.implementation.createHTMLDocument('focused')
-    const sourceAdd = jest.spyOn(sourceDoc, 'addEventListener')
-    const sourceRemove = jest.spyOn(sourceDoc, 'removeEventListener')
-    const focusedRemove = jest.spyOn(focusedDoc, 'removeEventListener')
     const { host } = createHost()
     const controller = new TaskCompletionController(host)
     const inst = {
@@ -266,28 +269,28 @@ describe('TaskCompletionController', () => {
       setActiveDocument(sourceDoc)
       await controller.showTaskCompletionModal(inst)
 
-      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
+      expect(sourceDoc.querySelector('.modal-container')).not.toBeNull()
 
-      const saveButton = sourceDoc.querySelector('.taskchute-button-save') as HTMLButtonElement
+      const saveButton = modalButton(sourceDoc, 'Save')
       expect(saveButton).toBeTruthy()
-      saveButton.click()
+      saveButton?.click()
       await Promise.resolve()
 
       expect(saveSpy).toHaveBeenCalled()
 
+      // Focus moves to another window while the save is still in flight.
       setActiveDocument(focusedDoc)
       resolveSave()
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
-      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
+      // The dialog closes where it was opened, and never appears in the window
+      // that happened to gain focus meanwhile.
+      expect(sourceDoc.querySelector('.modal-container')).toBeNull()
+      expect(focusedDoc.querySelector('.modal-container')).toBeNull()
     } finally {
       setActiveDocument(originalActiveDocument)
       saveSpy.mockRestore()
-      sourceAdd.mockRestore()
-      sourceRemove.mockRestore()
-      focusedRemove.mockRestore()
     }
   })
 })

@@ -270,7 +270,7 @@ describe('ProjectBoardView', () => {
     expect(addButton).not.toBeNull()
     addButton.click()
 
-    const overlay = document.querySelector('.task-modal-overlay') as HTMLElement
+    const overlay = document.querySelector('.modal-container') as HTMLElement
     const form = overlay.querySelector('form') as HTMLFormElement
     const input = overlay.querySelector('input') as HTMLInputElement
     input.value = 'New project'

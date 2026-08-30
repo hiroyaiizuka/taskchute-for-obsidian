@@ -75,13 +75,13 @@ describe('registerTaskCommands checkCallback', () => {
       expect(check(true)).toBe(false)
     })
 
-    test('checking=true: returns true even when task-modal-overlay is present', () => {
+    test('checking=true: returns true even when a plugin modal is open', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
 
       const overlay = document.createElement('div')
-      overlay.classList.add('task-modal-overlay')
+      overlay.classList.add('modal', 'taskchute-modal')
       document.body.appendChild(overlay)
 
       const check = getCheckCallback(registeredCommands, commandId)
@@ -231,13 +231,13 @@ describe('registerTaskCommands checkCallback', () => {
       expect((view as unknown as Record<string, jest.Mock>)[triggerMethod]).not.toHaveBeenCalled()
     })
 
-    test('checking=false: does not execute when task-modal-overlay is present', () => {
+    test('checking=false: does not execute when a plugin modal is open', () => {
       const { host, view, registeredCommands } = createMocks()
       const registrar = createCommandRegistrar(host, view)
       registrar.initialize()
 
       const overlay = document.createElement('div')
-      overlay.classList.add('task-modal-overlay')
+      overlay.classList.add('modal', 'taskchute-modal')
       document.body.appendChild(overlay)
 
       const check = getCheckCallback(registeredCommands, commandId)

@@ -7,7 +7,6 @@ import {
   TaskNameSuggestion,
 } from "../components/TaskNameAutocomplete"
 import { createNameModal } from "../components/NameModal"
-import { applyIcon } from "../icons"
 import type {
   CreateTaskFileAiTaskOptions,
   TaskCreationService,
@@ -93,7 +92,7 @@ export interface TaskCreationControllerHost {
     runBoundaryCheck?: boolean
   }) => Promise<void>
   getCurrentDateString: () => string
-  app: Pick<App, "metadataCache">
+  app: App
   plugin: TaskChutePluginLike
   getDocumentContext?: () => {
     doc: Document
@@ -122,15 +121,14 @@ const AI_AGENT_CARDS: ReadonlyArray<{
 }> = [
   {
     host: "claude",
-    // Reference parity: main-agents.ts crowns Claude Code; Lucide's `crown`
-    // stands in for the reference's 👑 emoji.
-    icon: "crown",
+    // Reference parity: main-agents.ts gives Claude Code the 👑 icon.
+    icon: "👑",
     labelKey: "addTask.aiAgentClaude",
     labelFallback: "Claude Code",
   },
   {
     host: "codex",
-    icon: "scroll",
+    icon: "📜",
     labelKey: "addTask.aiAgentCodex",
     labelFallback: "Codex",
   },
@@ -224,11 +222,11 @@ export default class TaskCreationController {
       submitText: this.host.tv("buttons.save", "Save"),
       cancelText: t("common.cancel", "Cancel"),
       closeLabel: this.host.tv("common.close", "Close"),
-      context: { doc, win },
+      app: this.host.app,
     })
 
     const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
-    const buttonGroup = form.querySelector(".form-button-group")
+    const buttonGroup = form.querySelector(".modal-button-container")
     if (editTarget) {
       nameInput.value = editTarget.taskName
       nameInput.readOnly = true
@@ -813,7 +811,7 @@ export default class TaskCreationController {
       card.dataset.aiHost = cardDef.host
       const icon = doc.win.createSpan()
       icon.className = "ai-task-agent-icon"
-      applyIcon(icon, cardDef.icon)
+      icon.textContent = cardDef.icon
       const name = doc.win.createSpan()
       name.className = "ai-task-agent-name"
       name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)
@@ -1006,6 +1004,7 @@ export default class TaskCreationController {
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
     )
     const modelSelect = new AiModelSelectController(modelField, {
+      app: this.host.app,
       doc,
       host: selectedHost,
       modelId: decodedInitialArgs?.modelId || null,

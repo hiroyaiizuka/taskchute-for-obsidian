@@ -1,4 +1,4 @@
-import { Notice, TFile } from 'obsidian'
+import { Modal, Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
 import { getCurrentLocale, t } from '../../../i18n'
 import { DATE_FORMAT_DISPLAY } from '../../../constants'
@@ -8,7 +8,7 @@ import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../..
 import type { RoutineMonthday, RoutineWeek } from '../../../types/TaskFields'
 import type { RoutineTaskShape } from '../../../types/routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
-import { attachCalendarButtonIcon, attachCloseButtonIcon } from '../../../ui/components/iconUtils'
+import { attachCalendarButtonIcon } from '../../../ui/components/iconUtils'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
@@ -47,6 +47,20 @@ interface RoutineDetailsInput {
   obsidianSync?: ObsidianTaskLinkConfig | null
 }
 
+/**
+ * The routine editor built inline by the controller. `cleanup` carries the
+ * teardown that used to live in a hand-rolled `closeModal`, so it runs however
+ * the dialog is dismissed — button, Escape or the close glyph.
+ */
+class RoutineEditDialog extends Modal {
+  cleanup: (() => void) | null = null
+
+  onClose(): void {
+    this.cleanup?.()
+    this.contentEl.empty()
+  }
+}
+
 export interface RoutineControllerHost {
   app: App
   plugin: TaskChutePluginLike
@@ -62,27 +76,15 @@ export default class RoutineController {
   showRoutineEditModal(task: RoutineTaskShape, anchor?: HTMLElement): void {
     this.ensureDomHelpers()
     const modalDocument = activeDocument
-    const modal = createDiv()
-    modal.className = 'task-modal-overlay'
-    const modalContent = modal.createDiv( { cls: 'task-modal-content routine-edit-modal' })
-
-    const modalHeader = modalContent.createDiv( { cls: 'modal-header' })
+    const modal = new RoutineEditDialog(this.host.app)
+    modal.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'routine-edit-modal')
+    const modalContent = modal.contentEl
     const taskTitle = deriveRoutineModalTitle(task as TaskData)
-    modalHeader.createEl('h3', {
-      text: t('routineEdit.title', `Routine settings for "${taskTitle}"`, {
+    modal.setTitle(
+      t('routineEdit.title', `Routine settings for "${taskTitle}"`, {
         name: taskTitle,
       }),
-    })
-
-    const closeButton = modalHeader.createEl('button', {
-      cls: 'modal-close-button',
-      attr: {
-        'aria-label': this.tv('common.close', 'Close'),
-        title: this.tv('common.close', 'Close'),
-        type: 'button',
-      },
-    })
-    attachCloseButtonIcon(closeButton)
+    )
 
     const form = modalContent.createEl('form', { cls: 'task-form' })
 
@@ -414,12 +416,11 @@ export default class RoutineController {
       })
     }
 
-    const closeModal = () => {
+    modal.cleanup = () => {
       modalDocument.removeEventListener('click', handleMonthdayOutsideClick)
       obsidianTaskLinkFields?.destroy()
-      modal.remove()
     }
-    closeButton.addEventListener('click', closeModal)
+    const closeModal = () => modal.close()
     cancelButton.addEventListener('click', closeModal)
 
     if (removeButton) {
@@ -552,7 +553,7 @@ export default class RoutineController {
       })()
     })
 
-    modalDocument.body.appendChild(modal)
+    modal.open()
     // Removed timeInput.focus() - prevents native time picker from auto-opening on mobile
   }
 

@@ -260,6 +260,10 @@ export const ja = {
     },
     aiTask: {
       paneTitle: "AI実行",
+      picker: {
+        selectDirectory: "ワーキングディレクトリを選択",
+        selectFile: "ファイルを選択",
+      },
       run: "AIタスクを実行",
       edit: "AIタスクを編集",
       editTitle: "AIタスクの設定を編集",
@@ -402,7 +406,6 @@ export const ja = {
       noRoutineFound: "ルーチンが見つかりません",
       weekdaysOnly: "平日のみ",
       weekendsOnly: "週末のみ",
-      noWeekdaySet: "曜日未指定",
       noWeekdaySelected: "曜日が選択されていません",
     },
     notices: {
@@ -411,6 +414,7 @@ export const ja = {
       idleReorganized: "アイドルタスクを整理しました",
       taskFileMissing: "タスクファイルが見つかりません",
       taskFileOpenFailed: "タスクファイルを開けませんでした",
+      taskLoadFailed: "タスクの読み込みに失敗しました",
       taskCreationFailed: "タスクの作成に失敗しました",
       taskCreationInvalidFilename: "タスクの作成に失敗しました: ファイル名に使用できない文字が含まれています",
       taskDuplicateFailed: "タスクの複製に失敗しました",
@@ -478,6 +482,10 @@ export const ja = {
       removeProject: "プロジェクトを外す",
       completedTask: "完了済みタスク",
       routineScheduled: "ルーチンタスク（{time}開始予定）",
+      startTime: "開始時刻",
+      stopTime: "終了時刻",
+      duration: "所要時間",
+      elapsedTime: "経過時間",
       crossDayTask: "日を跨いだタスク",
       routineAssigned: "ルーチンタスク",
       routineSet: "ルーチンタスクに設定",
@@ -708,6 +716,13 @@ export const ja = {
         cannotOpen: "プレビューを作成できません。開始時刻と所要時間を確認してください。",
         tooltip: "Googleカレンダーをブラウザで開きます",
         toGoogle: "📅 Googleカレンダーに登録",
+        disabled: "Googleカレンダー連携は設定で有効化してください",
+        errors: {
+          dateUnavailable: "日付を特定できませんでした",
+          startTimeUnavailable: "開始時刻を決められませんでした",
+          startTimeFormat: "開始時刻はHH:mm形式で入力してください",
+          durationInvalid: "所要時間は1分以上の数値を入力してください",
+        },
       },
     },
     labels: {
@@ -824,6 +839,7 @@ export const ja = {
       title: "ログデータの復元",
       cancel: "キャンセル",
       restoreVersion: "このバージョンを復元",
+      selectVersion: "復元するバージョンを選択してください。",
       emptyMessage: "バックアップが見つかりませんでした。",
       emptyHint: "バックアップは設定で指定した間隔で自動的に作成されます。",
       confirmTitle: "復元の確認",
@@ -839,6 +855,7 @@ export const ja = {
       minutesAgo: "{count}分前",
       hoursAgo: "{count}時間前",
       daysAgo: "{count}日前",
+      unknownTaskName: "(不明)",
     },
     notices: {
       reloadSuccess: "{year}年のデータを更新しました",
@@ -974,6 +991,12 @@ export const ja = {
       scheduledInfo: "タスク開始予定: {time}",
       clear: "解除",
       save: "設定",
+    },
+    notification: {
+      title: "リマインダー",
+      startingSoon: "まもなく開始 ({time})",
+      openFile: "ファイルを開く",
+      body: "{name} - まもなく開始 ({time})",
     },
   },
   buttons: {

@@ -367,7 +367,7 @@ export class WorkingDirectorySelectController {
       positionScrollableDropdown({
         anchor: this.inputWrapper,
         menu: this.menu,
-        boundary: this.root.closest<HTMLElement>('.task-modal-content'),
+        boundary: this.root.closest<HTMLElement>('.modal'),
       })
     }
   }

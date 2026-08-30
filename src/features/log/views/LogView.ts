@@ -68,10 +68,18 @@ export class LogView {
   private dayDetailCache = new Map<string, HeatmapDayDetail>()
   private dayDetailContainer: HTMLElement | null = null
   private selectedDateKey: string | null = null
+  private readonly onRequestClose?: () => void
 
-  constructor(plugin: LogPlugin, container: HTMLElement) {
+  /**
+   * `onRequestClose` lets the view dismiss whatever is hosting it — navigating
+   * to a date or opening the restore dialog both close the log first. The view
+   * used to reach out and delete the overlay element itself, which only worked
+   * while that overlay was a plain div.
+   */
+  constructor(plugin: LogPlugin, container: HTMLElement, onRequestClose?: () => void) {
     this.plugin = plugin
     this.container = container
+    this.onRequestClose = onRequestClose
     this.currentYear = new Date().getFullYear()
     this.heatmapService = new HeatmapService({
       app: plugin.app,
@@ -938,10 +946,7 @@ export class LogView {
       }
       workspace.setActiveLeaf(leaf)
 
-      const modal = this.container.closest('.taskchute-log-modal-overlay')
-      if (modal instanceof HTMLElement) {
-        modal.remove()
-      }
+      this.onRequestClose?.()
     } catch (error) {
       console.error('Failed to navigate to date', error);
     }
@@ -955,9 +960,8 @@ export class LogView {
   }
 
   private openRestoreModal(): void {
-    // Close the parent log modal overlay first
-    const logModalOverlay = activeDocument.querySelector('.taskchute-log-modal-overlay')
-    logModalOverlay?.remove()
+    // Close the log dialog before stacking the restore dialog on top of it.
+    this.onRequestClose?.()
 
     // BackupRestoreService expects TaskChutePluginLike, but LogPlugin has compatible structure
     const restoreService = new BackupRestoreService(

@@ -102,7 +102,8 @@ export default class TaskHeaderController {
     if (this.dateLabelEl) {
       this.dateLabelEl.textContent = this.formatDateLabel()
     }
-    // 今日以外の場合はnavContainerにクラスを追加してカレンダーボタンの余白調整
+    // 今日以外の日付を見ているという状態をクラスとして出しておく（日付ラベルの
+    // 幅は固定なので、レイアウトの補正には使っていない）
     if (this.navContainerEl) {
       const isToday = this.isCurrentDateToday()
       this.navContainerEl.classList.toggle('is-not-today', !isToday)
@@ -146,12 +147,12 @@ export default class TaskHeaderController {
     applyIcon(leftBtn, 'chevron-left')
     const calendarBtn = navContainer.createEl('button', {
       cls: 'calendar-btn',
+      text: '🗓️',
       attr: {
         title: this.host.tv('header.openCalendar', 'Open calendar'),
         'aria-label': this.host.tv('header.openCalendar', 'Open calendar'),
       },
     })
-    applyIcon(calendarBtn, 'calendar')
     const dateLabel = navContainer.createSpan( { cls: 'date-nav-label' })
     const rightBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',
@@ -197,12 +198,12 @@ export default class TaskHeaderController {
     if (this.host.plugin.settings.aiRobotButtonEnabled === true) {
       const robotButton = actionSection.createEl('button', {
         cls: 'robot-terminal-button',
+        text: '🤖',
         attr: {
           title: this.host.tv('header.openTerminal', 'Open terminal'),
           'aria-label': this.host.tv('header.openTerminal', 'Open terminal'),
         },
       })
-      applyIcon(robotButton, 'bot')
       this.host.registerManagedDomEvent(robotButton, 'click', (event) => {
         void (async () => {
           event.stopPropagation()

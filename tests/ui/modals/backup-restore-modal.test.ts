@@ -5,20 +5,31 @@ import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
 
 // Add Obsidian-specific methods to HTMLElement
 function addObsidianMethods(el: HTMLElement): void {
-  (el as HTMLElement & { addClass: (cls: string) => void }).addClass = function (cls: string) {
-    this.classList.add(cls)
+  // Obsidian's addClass/removeClass are variadic; the single-argument shim this
+  // replaces silently dropped every class after the first.
+  (el as HTMLElement & { addClass: (...cls: string[]) => void }).addClass = function (
+    ...cls: string[]
+  ) {
+    this.classList.add(...cls)
   };
-  (el as HTMLElement & { removeClass: (cls: string) => void }).removeClass = function (cls: string) {
-    this.classList.remove(cls)
+  (el as HTMLElement & { removeClass: (...cls: string[]) => void }).removeClass = function (
+    ...cls: string[]
+  ) {
+    this.classList.remove(...cls)
   };
   (el as HTMLElement & { empty: () => void }).empty = function () {
     this.innerHTML = ''
   };
-  el.createEl = (function (this: HTMLElement, tag: string, options?: { text?: string; cls?: string }): HTMLElement {
+  el.createEl = (function (this: HTMLElement, tag: string, options?: { text?: string; cls?: string; attr?: Record<string, string> }): HTMLElement {
       const child = document.createElement(tag)
       addObsidianMethods(child)
       if (options?.text) child.textContent = options.text
-      if (options?.cls) child.classList.add(options.cls)
+      if (options?.cls) child.classList.add(...options.cls.split(' ').filter(Boolean))
+      if (options?.attr) {
+        Object.entries(options.attr).forEach(([key, value]) => {
+          child.setAttribute(key, String(value))
+        })
+      }
       this.appendChild(child)
       return child
     }) as unknown as HTMLElement['createEl']
@@ -228,21 +239,49 @@ describe('BackupRestoreModal', () => {
       expect(entries[1]?.classList.contains('selected')).toBe(true)
     })
 
-    test('restore button is disabled when no selection', () => {
+    test('restoring without a selection asks for one instead of doing nothing', async () => {
       modal.open()
 
       const restoreButton = document.querySelector('.backup-restore-button') as HTMLButtonElement
-      expect(restoreButton?.disabled).toBe(true)
+      restoreButton?.click()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const message = document.querySelector('.backup-restore-message')
+      expect(message?.classList.contains('is-visible')).toBe(true)
+      // `mockTv` hands back the fallback, so this is the English wording.
+      expect(message?.textContent).toContain('Select the version')
+      expect(document.querySelector('.backup-confirm-modal')).toBeNull()
+      expect(callbacks.getPreview).not.toHaveBeenCalled()
     })
 
-    test('restore button is enabled when entry selected', () => {
+    test('selecting an entry clears the message', () => {
       modal.open()
 
+      const restoreButton = document.querySelector('.backup-restore-button') as HTMLButtonElement
+      restoreButton?.click()
       const firstEntry = document.querySelector('.backup-entry') as HTMLElement
       firstEntry?.click()
 
-      const restoreButton = document.querySelector('.backup-restore-button') as HTMLButtonElement
-      expect(restoreButton?.disabled).toBe(false)
+      const message = document.querySelector('.backup-restore-message')
+      expect(message?.classList.contains('is-visible')).toBe(false)
+      expect(message?.textContent).toBe('')
+    })
+  })
+
+  describe('layout', () => {
+    test('the buttons sit in a footer below the list, not in the header', () => {
+      modal.open()
+
+      const footer = document.querySelector('.backup-restore-footer')
+      expect(footer?.querySelector('.backup-cancel-button')).toBeTruthy()
+      expect(footer?.querySelector('.backup-restore-button')).toBeTruthy()
+      expect(document.querySelector('.backup-restore-header button')).toBeNull()
+
+      // Footer follows the list in document order.
+      const list = document.querySelector('.backup-restore-content') as HTMLElement
+      expect(
+        list.compareDocumentPosition(footer as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
     })
   })
 

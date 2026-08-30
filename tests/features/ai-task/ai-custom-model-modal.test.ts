@@ -45,7 +45,7 @@ describe('AiCustomModelModal', () => {
   test('adds a validated model, previews the literal flag, and reports the saved model', () => {
     const onSaved = jest.fn()
     modal = new AiCustomModelModal({
-      doc: document,
+      app: {} as never,
       host: 'claude',
       store,
       labels,
@@ -56,10 +56,6 @@ describe('AiCustomModelModal', () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
     expect(document.querySelector('.ai-custom-model-modal__agent')?.textContent)
       .toContain('Claude Code')
-    expect(setIcon).toHaveBeenCalledWith(
-      document.querySelector('.ai-custom-model-modal__title-icon'),
-      'plus',
-    )
 
     const id = document.querySelector<HTMLInputElement>(
       '.ai-custom-model-modal__model-id',
@@ -99,7 +95,7 @@ describe('AiCustomModelModal', () => {
   test('keeps the modal open and shows actionable validation errors', () => {
     const onSaved = jest.fn()
     modal = new AiCustomModelModal({
-      doc: document,
+      app: {} as never,
       host: 'claude',
       store,
       labels,
@@ -151,7 +147,7 @@ describe('AiCustomModelModal', () => {
     })
     const onSaved = jest.fn()
     modal = new AiCustomModelModal({
-      doc: document,
+      app: {} as never,
       host: 'codex',
       store,
       labels,
@@ -165,12 +161,8 @@ describe('AiCustomModelModal', () => {
     )!
     expect(id.value).toBe('acme/sol-pro')
     expect(id.disabled).toBe(true)
-    expect(document.querySelector('.ai-custom-model-modal__title')?.textContent)
+    expect(document.querySelector('.modal-title')?.textContent)
       .toBe('カスタムモデルを編集')
-    expect(setIcon).toHaveBeenCalledWith(
-      document.querySelector('.ai-custom-model-modal__title-icon'),
-      'pencil',
-    )
 
     const name = document.querySelector<HTMLInputElement>(
       '.ai-custom-model-modal__display-name',
@@ -193,38 +185,28 @@ describe('AiCustomModelModal', () => {
     })
   })
 
-  test('Escape, backdrop, and close button dismiss without saving and clean listeners', () => {
+  test('backdrop and close button dismiss without saving', () => {
     const onClosed = jest.fn()
     modal = new AiCustomModelModal({
-      doc: document,
+      app: {} as never,
       host: 'claude',
       store,
       labels,
       onClosed,
     })
+    // Escape is Obsidian's own scope now and is covered by the platform; what
+    // stays worth pinning is that dismissing never saves.
     modal.open()
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    )
+    expect(document.querySelector('.ai-custom-model-modal')).not.toBeNull()
+    document.querySelector<HTMLElement>('.modal-bg')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }))
     expect(document.querySelector('.ai-custom-model-modal')).toBeNull()
     expect(onClosed).toHaveBeenCalledTimes(1)
 
     modal.open()
-    const content = document.querySelector<HTMLElement>(
-      '.ai-custom-model-modal__content',
-    )!
-    content.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    expect(document.querySelector('.ai-custom-model-modal')).not.toBeNull()
-    document.querySelector<HTMLElement>('.ai-custom-model-modal')!
-      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    document.querySelector<HTMLElement>('.modal-close-button')!.click()
     expect(document.querySelector('.ai-custom-model-modal')).toBeNull()
-
-    modal.open()
-    ;(
-      document.querySelector('.ai-custom-model-modal__close') as HTMLButtonElement
-    ).click()
-    expect(document.querySelector('.ai-custom-model-modal')).toBeNull()
-    expect(onClosed).toHaveBeenCalledTimes(3)
+    expect(onClosed).toHaveBeenCalledTimes(2)
     expect(store.getCustomModels('claude')).toEqual([])
   })
 })

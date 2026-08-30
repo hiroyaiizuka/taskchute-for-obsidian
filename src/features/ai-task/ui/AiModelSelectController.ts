@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian'
+import { setIcon, type App } from 'obsidian'
 import { AI_MODEL_PRESETS } from '../config/AiTaskAdvancedOptions'
 import type {
   AiCustomModel,
@@ -28,6 +28,7 @@ export interface AiModelSelectValue {
 }
 
 export interface AiModelSelectControllerOptions {
+  app: App
   doc?: Document
   host: AiTaskHost
   store: AiCustomModelStore
@@ -304,7 +305,7 @@ export class AiModelSelectController {
     positionScrollableDropdown({
       anchor: this.trigger,
       menu: this.menu,
-      boundary: this.root.closest<HTMLElement>('.task-modal-content'),
+      boundary: this.root.closest<HTMLElement>('.modal'),
     })
   }
 
@@ -328,7 +329,7 @@ export class AiModelSelectController {
     this.closeOwnedModal()
     let modal: AiCustomModelModal
     modal = new AiCustomModelModal({
-      doc: this.doc,
+      app: this.options.app,
       host: this.host,
       store: this.options.store,
       labels: this.options.customModelModalLabels,
@@ -352,7 +353,7 @@ export class AiModelSelectController {
     this.closeOwnedModal()
     let modal: AiCustomModelModal
     modal = new AiCustomModelModal({
-      doc: this.doc,
+      app: this.options.app,
       host: this.host,
       store: this.options.store,
       editModel: model,

@@ -9,7 +9,10 @@
   );
 
   /* Design tokens. Only values repeated across the sheet live here; one-off
-     values stay inline so the token list does not become noise. */
+     values stay inline so the token list does not become noise.
+
+     Tokens that stand on their own live here; anything built out of an
+     Obsidian variable is declared on `body` below instead. */
   --tc-radius-sm: 4px;
   --tc-radius-md: 6px;
   --tc-radius-lg: 8px;
@@ -18,12 +21,52 @@
   --tc-transition: 0.2s ease;
   --tc-shadow-popup: 0 2px 8px rgba(0, 0, 0, 0.15);
   --tc-shadow-modal: 0 4px 20px rgba(0, 0, 0, 0.3);
-  --tc-focus-ring: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 
   /* Default edge length for every Lucide glyph rendered through
      `applyIcon()` / `createIconSpan()`. Individual call sites override it by
      redeclaring the property on the icon host. */
   --taskchute-icon-size: 18px;
+}
+
+/* Obsidian publishes every one of its own variables -- `--size-*`, `--icon-*`,
+   the theme colours -- on `body`, never on `:root`. A plugin token declared on
+   `:root` that references one of them therefore resolves against nothing,
+   computes to the guaranteed-invalid value, and silently drops whatever
+   property uses it. So every token built out of a core variable is declared
+   here, on the same element that publishes them. */
+body {
+  /* Shared modal metrics. `--tc-modal-gutter` is the inset every plugin dialog
+     uses for its content and for Obsidian's floating close button, so the two
+     line up.
+
+     `--tc-modal-close-size` is that button's own box. The plugin does not size
+     the button -- core does, and this restates core's arithmetic so the reserve
+     below is a measurement rather than a guess: Obsidian 1.13.7 gives
+     `.modal-close-button` `padding: var(--size-2-2)` around an
+     `--icon-m` glyph, and `--lightbox-close-size` in app.css spells the same
+     sum out. On a phone core swaps the box for a touch target instead, so the
+     value is restated on `body.is-phone` below.
+
+     `--tc-modal-close-reserve` is the corner every element sharing the button's
+     row has to keep clear. */
+  --tc-modal-gutter: var(--size-4-4);
+  --tc-modal-close-size: calc(var(--icon-m) + var(--size-2-2) * 2);
+  --tc-modal-close-reserve: calc(
+    var(--tc-modal-gutter) + var(--tc-modal-close-size) + var(--size-4-2)
+  );
+
+  /* Obsidian defines no `--interactive-accent-rgb`, so the `rgba()` this used
+     to build was invalid and the whole declaration was dropped -- the ring
+     never drew. `color-mix()` takes the accent as it is actually published. */
+  --tc-focus-ring: 0 0 0 2px
+    color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+/* On a phone core sizes the close button as a touch target
+   (`.is-phone .modal-close-button { width/height: var(--touch-size-m) }`), so
+   the reserve has to grow with it. */
+body.is-phone {
+  --tc-modal-close-size: var(--touch-size-m);
 }
 
 /* ===== Lucide icons =====
@@ -123,8 +166,8 @@
 .task-time-start.editable,
 .task-time-stop.editable {
   cursor: pointer;
-  border-radius: 3px;
-  padding: 0 2px;
+  border-radius: 4px;
+  padding: 4px 6px;
 }
 
 .task-time-start.editable:hover,
@@ -140,62 +183,6 @@
 
 .task-item:hover .task-time-range.time-hidden {
   opacity: 1;
-}
-
-/* ===== Restored original CSS (from full-css.ts) ===== */
-/* Modal overlay/content (used by time edit, settings, etc.) */
-.task-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.is-mobile .task-modal-overlay {
-  align-items: flex-start;
-  padding-top: 50px;
-  padding-bottom: 20px;
-}
-
-.is-mobile .task-modal-overlay .task-modal-content {
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-}
-
-.is-mobile .task-modal-overlay .task-modal-content .modal-header {
-  padding: 16px 50px 12px 16px;
-  position: relative;
-}
-
-.is-mobile .task-modal-overlay .task-modal-content .modal-header h3 {
-  font-size: 1rem;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.is-mobile
-  .task-modal-overlay
-  .task-modal-content
-  .modal-header
-  .modal-close-button {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-}
-
-.is-mobile .taskchute-comment-modal {
-  align-items: flex-start;
-  padding-top: 70px;
-}
-
-.is-mobile .taskchute-comment-modal .taskchute-comment-content {
-  max-height: 50vh;
 }
 
 .taskchute-calendar-export-modal .setting-item .setting-item-description:empty {
@@ -232,16 +219,9 @@
   padding-top: 8px;
   border-top: 0;
 }
-.taskchute-calendar-export-modal .modal-close-button {
-  top: 25px;
-  right: 16px;
-}
 .taskchute-calendar-export-modal .modal-title {
   padding-bottom: 12px;
   padding-top: 6px;
-}
-.taskchute-calendar-export-modal .modal-header {
-  padding-top: 0;
 }
 .taskchute-settings-pane .taskchute-subheading.setting-item .setting-item-name {
   font-size: 1rem;
@@ -259,35 +239,11 @@
   .setting-item-info {
   margin-top: 4px;
 }
-:where(.project-settings-modal-content) .modal-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  padding: 20px 56px 0 20px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  position: relative;
-}
-
-:where(
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-create-modal
-  )
-  .modal-header
-  h3 {
+:where(.taskchute-confirm-modal, .taskchute-reminder-modal) .modal-header h3 {
   margin: 0;
   color: var(--text-normal);
 }
 
-:where(
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-close-button,
 .taskchute-tooltip .tooltip-close-button {
   background: none;
   border: none;
@@ -303,44 +259,12 @@
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
 }
-:where(
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-header
-  .modal-close-button {
-  position: absolute;
-  top: 12px;
-  right: 20px;
-}
 
-:where(
-    .task-modal-content,
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-close-button:hover,
 .taskchute-tooltip .tooltip-close-button:hover {
   background: var(--background-modifier-border);
   color: var(--text-normal);
 }
 
-:where(
-    .task-modal-content,
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-close-button
-  svg,
 .taskchute-tooltip .tooltip-close-button svg {
   width: 18px;
   height: 18px;
@@ -349,28 +273,10 @@
   stroke-width: 1.75;
 }
 
-:where(
-    .task-modal-content,
-    .taskchute-confirm-modal,
-    .scheduled-time-modal,
-    .time-edit-modal,
-    .project-settings-modal-content,
-    .project-create-modal
-  )
-  .modal-close-button
-  svg
-  :is(line, path),
 .taskchute-tooltip .tooltip-close-button svg :is(line, path) {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.task-modal-content .task-form {
-  padding-top: 10px;
-}
-.task-modal-content .task-form .form-button-group {
-  margin-top: 28px;
-}
-
 .form-input:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -509,70 +415,28 @@
   background-color: transparent;
 }
 
-/* Borderless header shared by the small single-purpose modals. The confirm
-   modal uses the same chrome but no gap below the header, and is kept as a
-   separate rule so each selector stays declared exactly once. */
-.scheduled-time-modal .modal-header,
-.time-edit-modal .modal-header {
+/* Borderless header for the dialogs that still build a heading inside
+   `contentEl` rather than calling `setTitle()`. */
+.taskchute-confirm-modal .modal-header,
+.taskchute-reminder-modal .modal-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
   border-bottom: none;
-  padding: 20px 20px 12px;
-  margin-bottom: 4px;
-  position: relative;
-}
-
-.taskchute-confirm-modal .modal-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  border-bottom: none;
-  padding: 20px 20px 12px;
+  /* Both dialogs end in a button row, so they hide the close glyph and the
+     heading keeps the full width. */
+  padding: 0 0 12px;
   margin-bottom: 0;
   position: relative;
 }
 
-.scheduled-time-modal .task-form {
-  padding-top: 12px;
-}
-
-.scheduled-time-modal .modal-description {
-  margin: 12px 20px 20px;
+/* Helper text under the field, shared by the scheduled-time and reminder
+   dialogs so the two read identically. */
+:where(.scheduled-time-modal, .taskchute-reminder-settings-modal) .modal-description {
+  margin: 12px 0 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-muted);
-}
-
-.time-edit-modal-container .modal-title-bar,
-.time-edit-modal-container .modal-title {
-  border-bottom: none;
-}
-
-.time-edit-modal-container .modal-content {
-  border-top: none;
-}
-
-.time-edit-modal .form-group {
-  margin-bottom: 16px;
-}
-
-.time-edit-modal .form-button.secondary {
-  margin-top: 8px;
-}
-
-.project-create-modal {
-  min-width: min(90vw, 520px);
-  max-width: 520px;
-}
-
-.project-create-modal .modal-header {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  border-bottom: 1px solid var(--background-modifier-border);
-  padding: 20px 20px 0;
-  position: relative;
 }
 
 .project-create-form {
@@ -583,25 +447,29 @@
   margin-bottom: 0;
 }
 
-.taskchute-confirm-modal .modal-message {
-  margin: 12px 20px 0;
+.taskchute-confirm-modal .modal-message,
+.taskchute-reminder-modal .modal-message {
+  margin: 12px 0 0;
   color: var(--text-normal);
   font-size: 15px;
   line-height: 1.6;
 }
 
-.taskchute-confirm-modal .modal-description {
-  margin: 8px 20px 0;
+.taskchute-confirm-modal .modal-description,
+.taskchute-reminder-modal .modal-description {
+  margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-muted);
 }
 
-.taskchute-confirm-modal .confirm-button-group {
-  margin: 24px 20px 20px;
+.taskchute-confirm-modal .confirm-button-group,
+.taskchute-reminder-modal .confirm-button-group {
+  margin: 24px 0 0;
 }
 
-.taskchute-confirm-modal .form-button:focus-visible {
+.taskchute-confirm-modal .form-button:focus-visible,
+.taskchute-reminder-modal .form-button:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
@@ -1382,25 +1250,6 @@
   height: 18px;
 }
 
-.ai-custom-model-modal__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 5px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.ai-custom-model-modal__close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
 .ai-custom-model-modal__agent {
   margin: 16px 18px 0;
   padding: 9px 11px;
@@ -1518,8 +1367,7 @@
 }
 
 .ai-task-agent-icon {
-  --taskchute-icon-size: 18px;
-
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -1627,159 +1475,10 @@
   background-color: var(--background-modifier-hover);
 }
 
-/* コメントモーダル */
-.taskchute-comment-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-
-.taskchute-comment-content {
-  background-color: var(--background-primary);
-  border-radius: var(--tc-radius-lg);
-  padding: 20px;
-  width: 500px;
-  max-width: 90%;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.taskchute-modal-header {
-  margin-bottom: 20px;
-}
-
-.taskchute-modal-header h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-normal);
-  margin: 0;
-}
-
-.taskchute-time-info {
-  background-color: var(--background-secondary);
-  border-radius: var(--tc-radius-md);
-  padding: 12px;
-  margin-bottom: 20px;
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.time-duration {
-  font-weight: 600;
-  color: var(--text-success);
-  margin-bottom: 4px;
-}
-
-.time-range {
-  font-size: 12px;
-}
-
-.taskchute-rating-section {
-  margin-bottom: 20px;
-}
-
-.taskchute-rating-section h3 {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--text-normal);
-  margin-bottom: 16px;
-}
-
-.rating-group {
-  display: flex;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.rating-label {
-  font-size: 14px;
-  color: var(--text-normal);
-  margin-right: 12px;
-  min-width: 60px;
-}
-
+/* The star picker sits in the control slot of a standard setting row. */
 .star-rating {
   display: flex;
   gap: 4px;
-}
-
-.taskchute-comment-section {
-  margin-bottom: 20px;
-}
-
-.comment-label {
-  display: block;
-  font-size: 14px;
-  color: var(--text-normal);
-  margin-bottom: 8px;
-}
-
-.taskchute-button-save {
-  padding: 8px 20px;
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border: none;
-  border-radius: var(--tc-radius-sm);
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.taskchute-button-save:hover {
-  background-color: var(--interactive-accent-hover);
-}
-
-.taskchute-button-cancel {
-  padding: 8px 20px;
-  background-color: var(--background-modifier-border);
-  color: var(--text-normal);
-  border: none;
-  border-radius: var(--tc-radius-sm);
-  font-size: 14px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.taskchute-button-cancel:hover {
-  background-color: var(--background-modifier-border-hover);
-}
-
-.taskchute-comment-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  color: var(--text-normal);
-}
-
-.taskchute-comment-task-name {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 20px;
-}
-
-.taskchute-comment-textarea {
-  width: 100%;
-  min-height: 100px;
-  padding: 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background-color: var(--background-secondary);
-  color: var(--text-normal);
-  caret-color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  resize: vertical;
-}
-
-.theme-dark .taskchute-comment-textarea {
-  color: var(--text-normal);
-  caret-color: var(--text-normal);
 }
 
 .taskchute-rating-container {
@@ -1807,7 +1506,7 @@
 }
 
 .star-rating .star.taskchute-star-filled {
-  /* 選択された星は塗りつぶし + 等倍より少し大きく */
+  /* 選択された星は元の絵文字の色をそのまま使用（濃い金色） */
   opacity: 1;
   transform: scale(1.1);
 }
@@ -1823,14 +1522,6 @@
   font-size: 14px;
   color: var(--text-muted);
 }
-
-.taskchute-comment-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-}
-
 .taskchute-button {
   padding: 8px 16px;
   border-radius: var(--tc-radius-sm);
@@ -1914,8 +1605,29 @@
   font-weight: bold;
 }
 
+/* `--tc-task-accent` is published by AccentContrastController only when the
+   theme's own accent fails to read against the list background. It keeps the
+   accent's hue and moves lightness/chroma just far enough to clear WCAG AA, so
+   themes with a usable accent fall through to `--text-accent` untouched. */
 .task-name--accent {
+  color: var(--tc-task-accent, var(--text-accent));
+}
+
+/* Throwaway element AccentContrastController appends for a single frame so the
+   browser resolves a theme variable into a normalised `rgb()` for it to read.
+   Never visible, and removed before the call returns. */
+.tc-accent-probe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tc-accent-probe--accent {
   color: var(--text-accent);
+}
+
+.tc-accent-probe--background {
+  color: var(--background-primary);
 }
 
 .is-hidden {
@@ -2260,57 +1972,95 @@
   flex-direction: column;
 }
 
-/* Log Modal Styles */
-.taskchute-log-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+/* One gutter for every dialog in the plugin. Obsidian pads `.modal` by
+   --size-4-4 but floats the close glyph nearer the corner (--size-2-3 on the
+   desktop, --size-4-3/--size-4-4 on mobile), so the button does not line up
+   with the fields underneath it. Pulling it in to the same gutter -- on both
+   axes, on every platform -- lines its box up with the content column. Every
+   plugin dialog carries `.taskchute-modal`, so this is the one place the inset
+   is decided; there are no per-dialog exceptions.
+
+   Anything the dialog draws on this same row -- a core title, or a header of
+   its own -- reserves `--tc-modal-close-reserve` on its trailing edge so the
+   button never lands on top of it. */
+.taskchute-modal .modal-close-button {
+  top: var(--tc-modal-gutter);
+  inset-inline-end: var(--tc-modal-gutter);
 }
 
-.taskchute-log-modal-content {
-  background: var(--background-primary);
-  border-radius: var(--tc-radius-lg);
-  width: 90%;
-  max-width: 1200px;
-  height: 80%;
-  max-height: 800px;
+/* A dialog that ends in a cancel button already says how to leave, so the
+   floating glyph is a second, weaker copy of that affordance sitting on top of
+   the content. Those dialogs carry `--no-close` and drop it; Escape still
+   closes them. The three that stay -- the log, the routine manager and the
+   recipe manager -- are browse-style dialogs with no button row of their own,
+   so the glyph is their only way out. */
+.taskchute-modal--no-close .modal-close-button {
+  display: none;
+}
+
+/* Titles here carry a task or project name, so the corner the close button
+   occupies has to stay clear of the text -- and only while there is a button
+   in it. */
+.taskchute-modal:not(.taskchute-modal--no-close) .modal-title {
+  padding-right: var(--tc-modal-close-reserve);
+}
+
+/* A notes field needs the full width, but `.setting-item-control` is a
+   right-aligned row. Stack this one instead. */
+.taskchute-comment-setting {
+  display: block;
+}
+
+.taskchute-comment-setting .setting-item-control {
+  justify-content: flex-start;
+  margin-top: var(--size-4-2);
+}
+
+.taskchute-comment-setting textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+}
+
+/* Log Modal Styles
+   A standard Obsidian modal, sized from the core large-dialog tokens. The log
+   draws its own header, so the core one is hidden, and the content stacks
+   vertically rather than in the flex row `mod-sidebar-layout` would impose. */
+.taskchute-log-modal {
+  width: var(--modal-width);
+  height: var(--modal-height);
+  max-width: var(--modal-max-width);
+  max-height: var(--modal-max-height);
+  padding: 0;
   overflow: hidden;
+}
+
+.taskchute-log-modal .modal-header {
+  display: none;
+}
+
+.taskchute-log-modal .modal-content {
   display: flex;
   flex-direction: column;
-  position: relative;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.log-modal-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: var(--text-muted);
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--tc-radius-sm);
+/* The body takes the height the header leaves, so `.heatmap-container`'s own
+   `overflow: auto` has something to scroll within. */
+.taskchute-log-modal .heatmap-modal-body {
+  flex: 1;
+  min-height: 0;
 }
 
-.log-modal-close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+/* The log draws its own full-width header underneath the floating close
+   button, so it reserves the same corner the title rule does. */
+.taskchute-log-modal .taskchute-log-header {
+  padding-right: var(--tc-modal-close-reserve);
 }
 
 .taskchute-log-header {
-  padding: 20px;
+  padding: var(--size-4-4);
   border-bottom: 1px solid var(--background-modifier-border);
   display: flex;
   justify-content: space-between;
@@ -2331,20 +2081,6 @@
 /* Confirm Modal */
 .taskchute-confirm-modal {
   width: min(460px, 90vw);
-}
-
-.taskchute-confirm-content {
-  padding: 24px 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  background: var(--background-primary);
-  border-radius: 16px;
-  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.35);
-}
-
-.theme-light .taskchute-confirm-content {
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
 }
 
 .taskchute-confirm-header {
@@ -2397,41 +2133,6 @@
   filter: brightness(1.08);
 }
 
-.project-settings-modal-content {
-  gap: 20px;
-}
-
-.project-settings-modal-content .modal-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  font-size: 1.15rem;
-}
-
-.project-settings-modal-content .project-settings-body {
-  padding: 12px 20px 20px;
-}
-
-.project-settings-modal-content .task-form {
-  padding: 0;
-}
-
-.project-settings-form .project-select-group {
-  margin-bottom: 12px;
-}
-
-.project-settings-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.project-settings-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 8px;
-}
-
 .year-selector {
   padding: 5px 10px;
   border-radius: var(--tc-radius-sm);
@@ -2441,7 +2142,12 @@
   font-size: 14px;
 }
 
-.refresh-button {
+/* The log header's restore button had no rule of its own, so it fell back to
+   the browser's button metrics and grew wide enough to run under the close
+   glyph. It belongs to the same control row as the year picker, so it shares
+   the refresh button's box. */
+.refresh-button,
+.taskchute-log-header .restore-button {
   padding: 5px 12px;
   border-radius: var(--tc-radius-sm);
   border: 1px solid var(--background-modifier-border);
@@ -2452,7 +2158,8 @@
   transition: all var(--tc-transition);
 }
 
-.refresh-button:hover {
+.refresh-button:hover,
+.taskchute-log-header .restore-button:hover {
   background: var(--background-modifier-hover);
   border-color: var(--text-accent);
 }
@@ -3355,11 +3062,20 @@
 }
 
 .task-item {
+  /* Row controls (play/stop, routine, settings) are square boxes of this size;
+     the comment button keeps the same height but is twice as wide so it is
+     easier to hit. Grid tracks below match these widths exactly, so the visual
+     spacing between the trailing buttons is just `gap`. */
+  --tc-row-control-size: 32px;
+  --tc-row-comment-width: calc(var(--tc-row-control-size) * 2);
+
   display: grid;
-  grid-template-columns: 20px 40px 1fr 220px 110px 50px 30px 30px 30px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) 1fr 220px 110px 50px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 8px;
   align-items: center;
-  padding: 4px 15px 4px 10px;
+  padding: 4px 15px 4px 4px;
   cursor: default;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background-color 0.2s ease;
@@ -3380,10 +3096,18 @@
   font-weight: bold;
 }
 
+/* Tints the row's ground rather than replacing it. A solid `--interactive-accent`
+   fill cannot be made readable from here: the row's contents each carry a
+   colour of their own and inherit nothing from it -- the task name is a
+   wikilink on `--link-color`, a running timer is on the accent itself, and the
+   controls are colour emoji (⏹ / 🔄 / ⚙️ -- see TaskRowController and
+   TaskItemActionController) that ignore `color` outright. Overriding them one
+   by one still leaves `--text-on-accent` doing the work, and on a theme whose
+   accent is light that is white on a pale ground. A tint keeps the ground near
+   the normal one, so every one of those colours stays as legible as it is on
+   an unselected row and this rule needs no companions. */
 .task-item.keyboard-selected {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+  background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
 }
 
 .task-item.completed {
@@ -3404,12 +3128,12 @@
 
 /* ドラッグハンドルのスタイル */
 .drag-handle {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: move;
   color: var(--text-muted);
   opacity: 0;
   transition:
@@ -3437,7 +3161,7 @@
 }
 
 .drag-handle:active {
-  cursor: grabbing;
+  cursor: move;
 }
 
 .drag-handle svg {
@@ -3454,9 +3178,21 @@
   fill: var(--background-modifier-border);
 }
 
+/* Off-screen clone used as the drag image when the row is partly scrolled
+   out of view (see TaskListRenderer.setRowDragImage). Positioned far off the
+   viewport so it never flashes; it lives for a single tick. */
+.task-item-drag-ghost {
+  position: fixed;
+  top: -10000px;
+  left: -10000px;
+  pointer-events: none;
+  opacity: 1;
+  background: var(--background-primary);
+}
+
 .task-item.dragging {
   opacity: 0.5;
-  cursor: move;
+  cursor: grabbing;
   background: var(--background-modifier-hover);
   transform: scale(0.98);
   transition: all var(--tc-transition);
@@ -3516,6 +3252,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 0 4px;
+}
+.task-time-arrow {
+  margin: 0 2px;
 }
 .task-time-range.editable {
   cursor: pointer;
@@ -3579,22 +3318,28 @@
 .time-slot-header.dragover {
   background: var(--background-modifier-hover);
   border: 1px dashed var(--interactive-accent);
-  border-left-width: 5px;
-  transition: all var(--tc-transition);
+  border-left: 3px solid var(--interactive-accent);
+  transition: none;
 }
 
 .routine-button {
-  --taskchute-icon-size: 15px;
-
   background: none;
   border: none;
+  font-size: 16px;
   cursor: pointer;
-  padding: 2px;
-  padding-top: 4px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0.4;
-  width: 100%;
+
+  /* Square control: the glyph sits in a --tc-row-control-size box centred in
+     its grid cell, so the hover background reads as a square the same size as
+     the play/stop and settings buttons instead of stretching to the cell. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  flex-shrink: 0;
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3613,18 +3358,23 @@
 
 /* コメントボタンスタイル */
 .comment-button {
-  --taskchute-icon-size: 15px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 2px;
-  padding-top: 4px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0;
-  width: 100%;
+
+  /* Same height as the other row controls, but twice as wide so the comment
+     button is easier to hit. */
+  width: var(--tc-row-comment-width);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-comment-width);
+  flex-shrink: 0;
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3720,8 +3470,7 @@
 
 /* フォルダアイコン */
 .taskchute-project-icon {
-  --taskchute-icon-size: 14px;
-
+  font-size: 14px;
   flex-shrink: 0;
 }
 
@@ -3734,8 +3483,7 @@
 
 /* External Linkアイコン */
 .taskchute-external-link {
-  --taskchute-icon-size: 14px;
-
+  font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--tc-radius-sm);
@@ -3823,52 +3571,17 @@
 }
 
 /* モーダルスタイル */
-.task-modal-content {
-  background: var(--background-primary);
-  border-radius: var(--tc-radius-lg);
-  box-shadow: var(--tc-shadow-modal);
-  width: 90%;
-  max-width: 500px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
 
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 20px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
+/* `.modal-header`, `.modal-title` and `.modal-close-button` are Obsidian's own
+   elements. Every dialog here is a `Modal` now, so the frame — header, title
+   and close glyph — is core markup and is left alone; styling those unscoped
+   used to leak into the settings pane and other plugins' dialogs. The few
+   dialogs that still build a heading inside `contentEl` carry it under their
+   own class (see the `:where(...) .modal-header h3` rule above). */
 
-.modal-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-}
-
-.modal-close-button {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--tc-radius-sm);
-  transition: all var(--tc-transition);
-}
-
-.modal-close-button:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
+/* No padding of its own: the gutter is the modal frame's. */
 .task-form {
-  padding: 20px;
+  padding: 0;
 }
 
 .form-group {
@@ -3908,8 +3621,7 @@ select.form-input {
 .form-input:focus,
 .form-textarea:focus,
 .energy-select:focus,
-.completion-comment:focus,
-.reminder-input-container input[type="time"]:focus {
+.completion-comment:focus {
   outline: none;
   border-color: var(--interactive-accent);
   box-shadow: var(--tc-focus-ring);
@@ -3959,8 +3671,7 @@ textarea.form-textarea {
   color: var(--link-color-hover);
 }
 .play-stop-button {
-  --taskchute-icon-size: 18px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
@@ -3969,14 +3680,11 @@ textarea.form-textarea {
   padding: 0;
   border-radius: var(--tc-radius-sm);
 
-  /* Square control: the icon sits in a 28x28 box centred in its cell rather
-     than stretching to the cell width, so the hover/active background reads
-     as a square button. */
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  flex-shrink: 0;
-  margin: 0 auto;
+  /* Same square box as the routine/settings controls. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4011,19 +3719,26 @@ textarea.form-textarea {
 
 /* 設定ボタンスタイル */
 .settings-task-button {
-  --taskchute-icon-size: 15px;
-
+  font-size: 16px;
   border: none;
   background: none;
   cursor: pointer;
   color: var(--text-muted);
-  padding: 2px;
-  margin-right: 10px;
+  padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
   opacity: 0.6;
-  width: 100%;
-  text-align: center;
+
+  /* Same square box as the other row controls. */
+  width: var(--tc-row-control-size);
+  height: var(--tc-row-control-size);
+  min-width: var(--tc-row-control-size);
+  flex-shrink: 0;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .settings-task-button:hover {
@@ -4128,7 +3843,7 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   margin-bottom: 8px;
-  gap: 2px;
+  gap: 6px;
   height: 36px;
 }
 
@@ -4136,21 +3851,22 @@ textarea.form-textarea {
   grid-column: 2;
   justify-self: center;
   margin-bottom: 0; /* Remove bottom margin */
-  gap: 1px;
+  gap: 6px;
   height: 100%; /* Match parent height */
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* The three date-nav controls (prev / calendar / next) are one set: 24px
-   squares carrying identically sized Lucide glyphs. */
+/* The three date-nav controls (prev / calendar / next) are one set of 30px
+   squares, the same edge length as the drawer toggle and the add button so
+   the whole top bar reads as one row of equally sized controls. */
 .date-nav-arrow {
   --taskchute-icon-size: 18px;
 
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
   padding: 0;
   flex-shrink: 0;
   background: none;
@@ -4166,52 +3882,43 @@ textarea.form-textarea {
   color: #1976d2;
 }
 
+/* The label reserves a fixed box wide enough for the longest string it ever
+   shows ("Today (12/31 Wed)"), so the arrows and the calendar button keep
+   their positions as the date changes instead of sliding in and out. Because
+   the box no longer shrinks, the `is-not-today` margin nudges that used to
+   re-centre it -- and pulled the text under the calendar glyph -- are gone. */
 .date-nav-label {
   font-size: 15px;
   font-weight: bold;
   color: #1976d2;
-  min-width: 90px;
+  width: 150px;
+  min-width: 150px;
+  flex-shrink: 0;
   text-align: center;
   letter-spacing: 0.5px;
   display: flex;
   align-items: center;
   justify-content: center;
   height: 28px;
-  margin-right: 3px;
-}
-.date-nav-container.is-not-today .calendar-btn {
-  margin-left: 14px;
-}
-.date-nav-container.is-not-today .date-nav-label,
-.date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -14px;
-}
-.is-mobile .date-nav-container.is-not-today .date-nav-label,
-.is-mobile .date-nav-container.compact.is-not-today .date-nav-label {
-  margin-left: -22px;
 }
 
 .date-nav-container.compact .date-nav-label {
   font-size: 15px;
-  min-width: 90px;
   letter-spacing: 0.5px;
   height: 24px;
 }
 .calendar-btn {
-  --taskchute-icon-size: 18px;
-
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  padding: 0;
-  flex-shrink: 0;
   background: none;
   border: none;
-  margin-left: 6px;
+  font-size: 16px;
+  padding: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 30px;
+  width: 30px;
+  min-width: 30px;
   border-radius: var(--tc-radius-md);
   transition: background 0.2s;
 }
@@ -4407,12 +4114,6 @@ textarea.form-textarea {
 }
 
 /* タスク完了コメントモーダルのスタイル */
-.completion-modal {
-  max-width: 500px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
 .completion-form {
   display: flex;
   flex-direction: column;
@@ -4464,21 +4165,12 @@ textarea.form-textarea {
 }
 
 .star-rating .star {
-  --taskchute-icon-size: 20px;
-
-  color: var(--color-yellow, #e0a800);
+  font-size: 20px;
   cursor: pointer;
   transition: all var(--tc-transition);
+  display: inline-block;
   user-select: none;
   opacity: 0.3;
-}
-
-.star-rating .star svg {
-  fill: none;
-}
-
-.star-rating .star.taskchute-star-filled svg {
-  fill: currentcolor;
 }
 
 .star-rating .star:hover {
@@ -4578,8 +4270,8 @@ textarea.form-textarea {
 
 .taskchute-medium .task-item {
   grid-template-columns:
-    18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-    50px 30px 30px;
+    24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 8px;
   padding-right: 12px;
 }
@@ -4600,9 +4292,11 @@ textarea.form-textarea {
 
 /* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-narrow .task-item {
-  grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) minmax(0, 1fr) 100px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 6px;
-  padding-left: 6px;
+  padding-left: 4px;
   padding-right: 16px;
 }
 
@@ -4610,13 +4304,6 @@ textarea.form-textarea {
   justify-content: flex-start;
   text-align: left;
   padding-left: 4px;
-}
-
-.taskchute-narrow .settings-task-button {
-  width: auto;
-  min-width: 26px;
-  margin-left: 8px;
-  margin-right: 0;
 }
 
 /* narrow時は経過時間を非表示にし、コメント・ルーチンは表示を維持 */
@@ -4628,7 +4315,9 @@ textarea.form-textarea {
 
 /* very-narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
 .taskchute-very-narrow .task-item {
-  grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+  grid-template-columns:
+    24px var(--tc-row-control-size) minmax(0, 1fr) 90px
+    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 4px;
   padding-left: 4px;
   padding-right: 12px;
@@ -4641,16 +4330,6 @@ textarea.form-textarea {
   justify-content: flex-start;
   text-align: left;
   padding-left: 4px;
-}
-
-.taskchute-very-narrow .settings-task-button {
-  justify-self: flex-end;
-  width: auto;
-  min-width: 24px;
-  font-size: 13px;
-  margin-left: 10px;
-  margin-right: 0;
-  padding: 2px 4px;
 }
 
 .task-duration.cross-day {
@@ -4769,8 +4448,8 @@ textarea.form-textarea {
 @container taskchute-list (max-width: 900px) {
   .task-item {
     grid-template-columns:
-      18px 32px minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-      50px 30px 30px;
+      24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 8px;
     padding-right: 12px;
   }
@@ -4784,9 +4463,11 @@ textarea.form-textarea {
 @container taskchute-list (max-width: 640px) {
   /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
-    grid-template-columns: 18px 32px minmax(0, 1fr) 100px 28px 28px 28px;
+    grid-template-columns:
+      24px var(--tc-row-control-size) minmax(0, 1fr) 100px
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 6px;
-    padding-left: 6px;
+    padding-left: 4px;
     padding-right: 16px;
   }
 
@@ -4802,16 +4483,14 @@ textarea.form-textarea {
     padding-left: 4px;
   }
 
-  .task-item .settings-task-button {
-    width: auto;
-    min-width: 26px;
-  }
 }
 
 @container taskchute-list (max-width: 520px) {
   /* 520px以下: さらにコンパクト */
   .task-item {
-    grid-template-columns: 18px 28px minmax(0, 1fr) 90px 24px 27px 27px;
+    grid-template-columns:
+      24px var(--tc-row-control-size) minmax(0, 1fr) 90px
+      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 4px;
     padding-left: 4px;
     padding-right: 12px;
@@ -4823,103 +4502,16 @@ textarea.form-textarea {
     text-align: left;
     padding-left: 4px;
   }
-
-  .task-item .settings-task-button {
-    justify-self: flex-end;
-    width: auto;
-    min-width: 24px;
-    font-size: 13px;
-    margin-left: 10px;
-    margin-right: 0;
-    padding: 2px 4px;
-  }
 }
 
 /* Routine edit modal */
 .routine-edit-modal {
   width: 600px;
   max-width: min(600px, 90vw);
-  padding: 20px;
 }
 
-.routine-edit-modal > .modal-header {
-  padding: 0 40px 12px 0;
-  margin-bottom: 16px;
-}
-
-.task-modal-content.routine-edit-modal .modal-header .modal-close-button {
-  top: -5px;
-  right: 0;
-}
-
-/* Hide Obsidian's default close button (direct child of modal) */
-.routine-edit-modal > .modal-close-button {
-  display: none;
-}
-
-/* Header with title and close button - applies to all custom modals.
-   `.reminder-settings-header` is a standalone header outside `.task-modal-content`
-   but renders identically, so it shares these rules. */
-.task-modal-content .modal-header,
-.reminder-settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  padding: 20px 56px 10px 20px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  position: relative;
-}
-
-.task-modal-content .modal-header h3,
-.task-modal-content .modal-header h4,
-.reminder-settings-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  padding-right: 40px;
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-/* Close button positioned in header row - applies to all custom modals */
-.task-modal-content .modal-header .modal-close-button,
-.reminder-settings-header .modal-close-button {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--tc-radius-sm);
-  transition: all var(--tc-transition);
-}
-
-.task-modal-content .modal-header .modal-close-button:hover,
-.reminder-settings-header .modal-close-button:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.task-modal-content .modal-header .modal-close-button svg,
-.reminder-settings-header .modal-close-button svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.75;
-}
-
+/* Stands in for `.task-form`. Like it, no padding of its own: the gutter is
+   the frame's, and the gap above comes from `.modal-header`'s margin-bottom. */
 .routine-form {
   display: flex;
   flex-direction: column;
@@ -5133,14 +4725,17 @@ textarea.form-textarea {
   background: var(--background-modifier-hover);
 }
 
-.routine-editor__button--primary {
+.routine-editor__buttons .routine-editor__button--primary {
   background: var(--interactive-accent);
   border-color: var(--interactive-accent);
   color: var(--text-on-accent);
+  box-shadow: none;
 }
 
-.routine-editor__button--primary:hover {
+.routine-editor__buttons .routine-editor__button--primary:hover {
   background: var(--interactive-accent-hover);
+  border-color: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
 }
 
 /* Routine manager modal */
@@ -5162,6 +4757,8 @@ textarea.form-textarea {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  /* The search field is right-aligned on the close button's row. */
+  padding-right: var(--tc-modal-close-reserve);
 }
 
 .routine-manager__controls {
@@ -5388,12 +4985,6 @@ textarea.form-textarea {
 }
 
 /* Project board modal */
-.project-board-modal {
-  padding: 24px;
-  min-width: min(95vw, 1280px);
-  max-width: min(95vw, 1400px);
-}
-
 .project-board-view {
   padding: 24px;
   width: 100%;
@@ -5802,167 +5393,22 @@ textarea.form-textarea {
 }
 
 /* ===== Reminder Notification Modal ===== */
-.taskchute-reminder-modal .modal-content {
-  padding: 20px;
+/* Layout comes from the shared modal primitives (.modal-header / .modal-message /
+   .modal-description / .confirm-button-group), same as the confirm dialog. Only the
+   reminder-specific bits live here. */
+.taskchute-reminder-modal .modal-title {
+  display: none;
 }
 
-.reminder-modal-header {
-  padding: 0 0 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 16px;
-}
-
-.reminder-modal-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  font-size: 1.2em;
-}
-
-.reminder-modal-content {
-  padding: 0 0 20px;
-}
-
-.reminder-task-name {
-  font-size: 1.1em;
+.taskchute-reminder-modal p.modal-message {
   font-weight: 600;
-  color: var(--text-normal);
-  margin: 0 0 8px;
 }
 
-.reminder-message {
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.reminder-button-group {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.reminder-button-group .form-button {
-  padding: 8px 16px;
-  border-radius: var(--tc-radius-sm);
-  cursor: pointer;
-  border: none;
-  font-size: 14px;
-  transition: all var(--tc-transition);
-}
-
-.reminder-button-group .form-button.create {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.reminder-button-group .form-button.create:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.reminder-button-group .form-button.cancel {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.reminder-button-group .form-button.cancel:hover {
-  background: var(--background-modifier-border-hover);
-}
-
-/* ===== Reminder Settings Modal ===== */
-.taskchute-reminder-settings-modal {
-  width: 90%;
-  max-width: 500px;
-  padding: 0;
-  background: var(--background-primary);
-  border-radius: var(--tc-radius-lg);
-  box-shadow: var(--tc-shadow-modal);
-}
-
-.reminder-settings-task {
-  margin-bottom: 16px;
-}
-
-.reminder-settings-task-name {
-  font-weight: 600;
-  color: var(--text-normal);
-  margin: 0;
-}
-
-.reminder-settings-input-section {
-  padding: 10px 20px 0;
-  margin-bottom: 0;
-}
-
-.reminder-settings-input-section label {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--text-normal);
-  font-size: inherit;
-  font-weight: 500;
-}
-
-.reminder-input-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-
-.reminder-input-container input[type="number"] {
-  width: 80px;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
-}
-
-.reminder-input-container input[type="number"]:focus {
-  border-color: var(--interactive-accent);
-  outline: none;
-}
-
-.reminder-input-container input[type="time"] {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.reminder-input-suffix {
-  color: var(--text-muted);
-}
-
-.reminder-scheduled-info {
-  margin: 12px 0 0;
-  color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.reminder-settings-buttons {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 28px;
-  padding: 0 20px 20px;
-}
-
-/* Base/create/cancel styling comes from the generic `.form-button` rules;
-   only `danger` differs here (muted background instead of the accent). */
-.reminder-settings-buttons .form-button.danger {
-  background: var(--background-modifier-border);
-  color: var(--text-error);
-}
-
-.reminder-settings-buttons .form-button.danger:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-error);
-}
+/* ===== Reminder Settings Modal =====
+   The dialog is a plain Obsidian `Modal` now: the frame, the title, the close
+   button and the footer are all core markup, and the time field is a `Setting`
+   row. Nothing here needs overriding — the class stays on `modalEl` only as a
+   hook for user CSS snippets. */
 
 /* ===== Reminder Icon in Task Row ===== */
 .reminder-icon {
@@ -6285,14 +5731,19 @@ textarea.form-textarea {
 .recipe-modal-content {
   width: 600px;
   max-width: min(600px, 90vw);
-  padding: 20px;
   max-height: min(90vh, 880px);
   overflow-y: auto;
 }
 
 .recipe-modal-content > .modal-header {
-  padding: 0 40px 12px 0;
+  padding: 0 0 12px;
   margin-bottom: 16px;
+}
+
+/* The manager is the browse-style half of this pair and keeps its close glyph,
+   so only it reserves the corner; the select dialog ends in a button row. */
+.recipe-modal-content:not(.taskchute-modal--no-close) > .modal-header {
+  padding-right: var(--tc-modal-close-reserve);
 }
 
 .recipe-modal-subtitle,
@@ -6592,7 +6043,7 @@ textarea.form-textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: var(--size-4-4);
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -6602,42 +6053,31 @@ textarea.form-textarea {
   font-weight: 600;
 }
 
-.backup-restore-actions {
+/* The actions sit under the list, in the same button row every other dialog
+   ends with, so they are styled by `.form-button` rather than by rules of their
+   own. The message shares the row: it explains a refused click without moving
+   the buttons. */
+.backup-restore-footer {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: var(--size-4-4);
+  border-top: 1px solid var(--background-modifier-border);
 }
 
-.backup-cancel-button {
-  padding: 6px 12px;
-  border-radius: var(--tc-radius-sm);
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-normal);
-  cursor: pointer;
-  font-size: 13px;
+.backup-restore-footer .form-button-group {
+  margin-top: 0;
 }
 
-.backup-cancel-button:hover {
-  background: var(--background-modifier-hover);
+.backup-restore-message {
+  display: none;
+  color: var(--text-error);
+  font-size: 12px;
 }
 
-.backup-restore-button {
-  padding: 6px 12px;
-  border-radius: var(--tc-radius-sm);
-  border: none;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.backup-restore-button:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
-}
-
-.backup-restore-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.backup-restore-message.is-visible {
+  display: block;
 }
 
 .backup-restore-content {
@@ -6719,13 +6159,13 @@ textarea.form-textarea {
 
 .backup-confirm-title {
   margin: 0 0 16px;
-  padding: 16px 20px 0;
+  padding: var(--size-4-4) var(--size-4-4) 0;
   font-size: 18px;
   font-weight: 600;
 }
 
 .backup-confirm-warning {
-  padding: 0 20px;
+  padding: 0 var(--size-4-4);
   margin-bottom: 16px;
 }
 
@@ -6740,7 +6180,7 @@ textarea.form-textarea {
 }
 
 .backup-confirm-info {
-  padding: 12px 20px;
+  padding: 12px var(--size-4-4);
   background: var(--background-secondary);
   border-top: 1px solid var(--background-modifier-border);
   border-bottom: 1px solid var(--background-modifier-border);
@@ -6752,7 +6192,7 @@ textarea.form-textarea {
 }
 
 .backup-preview {
-  padding: 16px 20px;
+  padding: var(--size-4-4);
 }
 
 .backup-preview-header {
@@ -6843,39 +6283,21 @@ textarea.form-textarea {
   word-break: break-word;
 }
 
+/* Same button row as the restore dialog it is opened from; `.form-button`
+   carries the buttons' own looks. */
 .backup-confirm-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 16px 20px;
+  padding: var(--size-4-4);
+  margin-top: 0;
   border-top: 1px solid var(--background-modifier-border);
-}
-
-.backup-confirm-button {
-  padding: 8px 16px;
-  border-radius: var(--tc-radius-sm);
-  border: none;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.backup-confirm-button:hover {
-  background: var(--interactive-accent-hover);
 }
 
 /* ===== Mobile Touch Improvements ===== */
 /* Disable double-tap zoom on interactive elements for better touch responsiveness */
 .taskchute-container button,
 .taskchute-tooltip button,
-.task-modal-overlay button,
-.taskchute-log-modal-overlay button,
 .project-board-view button,
-.recipe-modal-content button,
 .taskchute-move-calendar button,
-.taskchute-comment-modal button,
+.taskchute-modal button,
 .taskchute-container .task-time-start.editable,
 .taskchute-container .task-time-stop.editable,
 .taskchute-container .drag-handle,
@@ -6893,8 +6315,6 @@ textarea.form-textarea {
 [class~="date-nav-arrow"],
 [class~="calendar-btn"],
 [class~="drawer-toggle"],
-[class~="taskchute-button-save"],
-[class~="taskchute-button-cancel"],
 [class~="taskchute-button-primary"],
 [class~="taskchute-button-secondary"],
 [class~="taskchute-nav-button"],

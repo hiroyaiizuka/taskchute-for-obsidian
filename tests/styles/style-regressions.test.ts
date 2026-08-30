@@ -475,14 +475,14 @@ describe('style regressions', () => {
     expect(touchActionRule).toContain('.taskchute-container .drag-handle')
     expect(touchActionRule).toContain('.taskchute-container .taskchute-project-button')
     expect(touchActionRule).toContain('.taskchute-tooltip .tooltip-item')
-    expect(touchActionRule).toContain('.taskchute-comment-modal button')
+    // Every migrated dialog carries `.taskchute-modal`, so one selector covers
+    // the plugin's dialog buttons without reaching into core modals.
+    expect(touchActionRule).toContain('.taskchute-modal button')
     expect(touchActionRule).toContain('[class~="drawer-toggle"]')
     expect(touchActionRule).toContain('[class~="date-nav-arrow"]')
     expect(touchActionRule).toContain('[class~="add-task-button"]')
     expect(touchActionRule).toContain('[class~="calendar-btn"]')
     expect(touchActionRule).toContain('[class~="form-button"]')
-    expect(touchActionRule).toContain('[class~="taskchute-button-save"]')
-    expect(touchActionRule).toContain('[class~="taskchute-button-cancel"]')
     expect(touchActionRule).toContain('[class~="taskchute-button-primary"]')
     expect(touchActionRule).toContain('[class~="taskchute-button-secondary"]')
     expect(touchActionRule).toContain('[class~="taskchute-nav-button"]')
@@ -530,5 +530,99 @@ describe('style regressions', () => {
     expect(bodyRule).toMatch(/overflow:\s*visible;/)
     expect(columnsRule).toMatch(/grid-template-columns:\s*1fr;/)
     expect(cardsRule).toMatch(/overflow:\s*visible;/)
+  })
+
+  test('tokens built out of Obsidian variables are declared where those exist', () => {
+    const css = styles()
+
+    // Obsidian publishes `--size-*`, `--icon-*` and the theme colours on
+    // `body`. A `:root` token referencing one of them resolves against nothing
+    // and drops every property that uses it, silently.
+    const rootBlock = readRule(css, ':root {')
+    expect(rootBlock).not.toMatch(/var\(--(?:size|icon|touch|interactive|text|background|color)-/)
+
+    const bodyBlock = readRule(css, 'body {')
+    expect(bodyBlock).toContain('--tc-modal-gutter')
+    expect(bodyBlock).toContain('--tc-modal-close-size')
+    expect(bodyBlock).toContain('--tc-modal-close-reserve')
+    expect(bodyBlock).toContain('--tc-focus-ring')
+  })
+
+  test('every dialog floats its close button on the same gutter', () => {
+    const css = styles()
+    const closeRule = readRule(css, '.taskchute-modal .modal-close-button {')
+
+    expect(closeRule).toMatch(/top:\s*var\(--tc-modal-gutter\);/)
+    expect(closeRule).toMatch(/inset-inline-end:\s*var\(--tc-modal-gutter\);/)
+    expect(codeToken(css, '--tc-modal-gutter')).toBe('var(--size-4-4)')
+
+    // The reserve below is only as good as the box it assumes, so the size
+    // token restates core's own arithmetic (--icon-m glyph + --size-2-2
+    // padding on each side) rather than guessing a literal.
+    expect(codeToken(css, '--tc-modal-close-size')).toBe(
+      'calc(var(--icon-m) + var(--size-2-2) * 2)',
+    )
+    expect(readRule(css, 'body.is-phone {')).toMatch(
+      /--tc-modal-close-size:\s*var\(--touch-size-m\);/,
+    )
+
+    // No dialog moves the glyph somewhere of its own: the only other rule is
+    // the shared one that hides it. Selectors start at column 0; anything
+    // indented is prose in a comment.
+    expect(css.match(/^\.[^\n{]*\.modal-close-button[^\n{]*\{/gm)).toEqual([
+      '.taskchute-modal .modal-close-button {',
+      '.taskchute-modal--no-close .modal-close-button {',
+    ])
+  })
+
+  test('everything sharing the close button row reserves its corner', () => {
+    const css = styles()
+
+    expect(codeToken(css, '--tc-modal-close-reserve')).toContain(
+      'var(--tc-modal-gutter) + var(--tc-modal-close-size) + var(--size-4-2)',
+    )
+
+    // Only the dialogs that still float a glyph reserve the corner; the ones
+    // that hide it behind `--no-close` keep the full width.
+    const reserved = [
+      '.taskchute-modal:not(.taskchute-modal--no-close) .modal-title {',
+      '.taskchute-log-modal .taskchute-log-header {',
+      '.recipe-modal-content:not(.taskchute-modal--no-close) > .modal-header {',
+      '.routine-manager__header {',
+    ]
+
+    for (const selector of reserved) {
+      expect(readRule(css, selector)).toContain('var(--tc-modal-close-reserve)')
+    }
+
+    for (const selector of ['.backup-restore-header {', '.taskchute-confirm-modal .modal-header,']) {
+      expect(readRule(css, selector)).not.toContain('var(--tc-modal-close-reserve)')
+    }
+  })
+
+  test('dialogs with a button row of their own hide the floating close glyph', () => {
+    const css = styles()
+
+    expect(readRule(css, '.taskchute-modal--no-close .modal-close-button {')).toMatch(
+      /display:\s*none;/,
+    )
+  })
+
+  test('the log header restore button is sized like the rest of its control row', () => {
+    const css = styles()
+    const rule = readRule(css, '.refresh-button,')
+
+    expect(rule).toContain('.taskchute-log-header .restore-button')
+    expect(rule).toMatch(/font-size:\s*14px;/)
+  })
+
+  test('task names fall back to the theme accent unless the contrast fix overrides it', () => {
+    const css = styles()
+    const rule = readRule(css, '.task-name--accent {')
+
+    // AccentContrastController only publishes `--tc-task-accent` when the
+    // theme's accent fails against the list background; the fallback keeps
+    // well-behaved themes on their own colour.
+    expect(rule).toMatch(/color:\s*var\(--tc-task-accent,\s*var\(--text-accent\)\);/)
   })
 })

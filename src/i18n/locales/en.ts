@@ -264,6 +264,10 @@ export const en = {
     },
     aiTask: {
       paneTitle: "AI runs",
+      picker: {
+        selectDirectory: "Select working directory",
+        selectFile: "Select file",
+      },
       run: "Run AI task",
       edit: "Edit AI task",
       editTitle: "Edit AI task settings",
@@ -414,6 +418,7 @@ export const en = {
       idleReorganized: "Reorganized idle tasks",
       taskFileMissing: "Task file not found",
       taskFileOpenFailed: "Failed to open task file",
+      taskLoadFailed: "Failed to load tasks",
       taskCreationFailed: "Failed to create task",
       taskCreationInvalidFilename: "Failed to create task: filename contains invalid characters",
       taskDuplicateFailed: "Failed to duplicate task",
@@ -481,6 +486,10 @@ export const en = {
       removeProject: "Remove project",
       completedTask: "Completed task",
       routineScheduled: 'Routine task (starts at {time})',
+      startTime: "Start time",
+      stopTime: "End time",
+      duration: "Duration",
+      elapsedTime: "Elapsed time",
       crossDayTask: "Cross-day task",
       routineAssigned: "Routine task",
       routineSet: "Set as routine",
@@ -711,6 +720,13 @@ export const en = {
         cannotOpen: "Cannot create preview. Check start time and duration.",
         tooltip: "Open Google Calendar in browser",
         toGoogle: "🗓️ register calender",
+        disabled: "Enable Google Calendar integration in settings",
+        errors: {
+          dateUnavailable: "Could not determine the date",
+          startTimeUnavailable: "Could not determine the start time",
+          startTimeFormat: "Enter the start time in 24-hour hh:mm format",
+          durationInvalid: "Enter a duration of at least 1 minute",
+        },
       },
     },
     labels: {
@@ -825,6 +841,7 @@ export const en = {
       title: "Restore log data",
       cancel: "Cancel",
       restoreVersion: "Restore this version",
+      selectVersion: "Select the version you want to restore.",
       emptyMessage: "No backups found.",
       emptyHint: "Backups are created automatically at the interval specified in settings.",
       confirmTitle: "Confirm restore",
@@ -840,6 +857,7 @@ export const en = {
       minutesAgo: "{count} min ago",
       hoursAgo: "{count} hours ago",
       daysAgo: "{count} days ago",
+      unknownTaskName: "(Unknown)",
     },
     notices: {
       reloadSuccess: "Updated data for {year}",
@@ -975,6 +993,12 @@ export const en = {
       scheduledInfo: "Scheduled start: {time}",
       clear: "Clear",
       save: "Save",
+    },
+    notification: {
+      title: "Reminder",
+      startingSoon: "Starting soon ({time})",
+      openFile: "Open file",
+      body: "{name} - starting soon ({time})",
     },
   },
   buttons: {

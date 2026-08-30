@@ -1,4 +1,4 @@
-import { App, Notice, TFile } from 'obsidian'
+import { App, Modal, Notice, TFile } from 'obsidian'
 
 import { t, getCurrentLocale } from "../../../i18n"
 import { DATE_FORMAT_DISPLAY } from "../../../constants"
@@ -17,7 +17,7 @@ import {
 } from "../../../utils/fieldMigration"
 import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
-import { attachCloseButtonIcon, attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
+import { attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
@@ -46,24 +46,14 @@ const WEEK_OPTION_DEFAULTS: Array<{ value: RoutineWeek; label: string }> = [
 
 const DEFAULT_DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-/**
- * Custom modal implementation that doesn't use Obsidian's Modal class.
- * This allows full control over the close button styling on mobile.
- */
-export default class RoutineEditModal {
-  private readonly app: App
+export default class RoutineEditModal extends Modal {
   private readonly plugin: TaskChutePluginLike
   private readonly file: TFile
   private readonly onSaved?: (frontmatter: RoutineFrontmatter) => void
   private readonly onClosed?: () => void
   private monthdayOutsideClickHandler: ((event: MouseEvent) => void) | null = null
   private monthdayOutsideClickDocument: Document | null = null
-  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
-  private escapeKeyDocument: Document | null = null
   private obsidianTaskLinkFields: ObsidianTaskLinkFieldsController | null = null
-
-  private modalEl: HTMLDivElement | null = null
-  private contentEl: HTMLDivElement | null = null
 
   constructor(
     app: App,
@@ -72,7 +62,7 @@ export default class RoutineEditModal {
     onSaved?: (frontmatter: RoutineFrontmatter) => void,
     onClosed?: () => void,
   ) {
-    this.app = app
+    super(app)
     this.plugin = plugin
     this.file = file
     this.onSaved = onSaved
@@ -127,58 +117,19 @@ export default class RoutineEditModal {
     )
   }
 
-  open(): void {
-    const modalDocument = activeDocument
-    // Create overlay
-    this.modalEl = createDiv()
-    this.modalEl.className = "task-modal-overlay"
-
-    // Create modal content container
-    this.contentEl = this.modalEl.createDiv( { cls: "task-modal-content routine-edit-modal" })
-
-    // Create header with title and close button
-    const header = this.contentEl.createDiv( { cls: "modal-header" })
-    header.createEl("h3", {
-      text: this.tv("title", `Routine settings for "${this.file.basename}"`, {
+  onOpen(): void {
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'routine-edit-modal')
+    this.setTitle(
+      this.tv("title", `Routine settings for "${this.file.basename}"`, {
         name: this.file.basename,
       }),
-    })
-    const closeButton = header.createEl("button", {
-      cls: "modal-close-button",
-      attr: {
-        "aria-label": t("common.close", "Close"),
-        type: "button",
-      },
-    })
-    attachCloseButtonIcon(closeButton)
-    closeButton.addEventListener("click", () => this.close())
-
-    // Build the form content
-    this.buildFormContent(modalDocument)
-
-    // Add to DOM
-    modalDocument.body.appendChild(this.modalEl)
-
-    // Prevent parent Obsidian Modal focus trap from stealing focus
-    // (focusin propagation to document triggers the parent's focus redirect)
-    this.modalEl.addEventListener("focusin", (e) => e.stopPropagation())
-    this.modalEl.addEventListener("mousedown", (e) => e.stopPropagation())
-    this.modalEl.addEventListener("click", (e) => e.stopPropagation())
-
-    // Close on Escape key
-    this.escapeKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        this.close()
-      }
-    }
-    this.escapeKeyDocument = modalDocument
-    modalDocument.addEventListener("keydown", this.escapeKeyHandler)
+    )
+    this.buildFormContent(this.contentEl.doc)
   }
 
-  close(): void {
+  onClose(): void {
     this.obsidianTaskLinkFields?.destroy()
     this.obsidianTaskLinkFields = null
-    // Cleanup event listeners
     if (this.monthdayOutsideClickHandler) {
       const listenerDocument = this.monthdayOutsideClickDocument ?? activeDocument
       listenerDocument.removeEventListener(
@@ -189,25 +140,11 @@ export default class RoutineEditModal {
       this.monthdayOutsideClickHandler = null
       this.monthdayOutsideClickDocument = null
     }
-    if (this.escapeKeyHandler) {
-      const listenerDocument = this.escapeKeyDocument ?? activeDocument
-      listenerDocument.removeEventListener("keydown", this.escapeKeyHandler)
-      this.escapeKeyHandler = null
-      this.escapeKeyDocument = null
-    }
-
-    // Remove from DOM
-    if (this.modalEl) {
-      this.modalEl.remove()
-      this.modalEl = null
-      this.contentEl = null
-    }
-
+    this.contentEl.empty()
     this.onClosed?.()
   }
 
   private buildFormContent(modalDocument: Document): void {
-    if (!this.contentEl) return
 
     const frontmatter = this.getFrontmatterSnapshot()
     const initialType = this.normalizeRoutineType(frontmatter.routine_type)
@@ -477,6 +414,7 @@ export default class RoutineEditModal {
     saveButton.classList.add(
       "routine-editor__button",
       "routine-editor__button--primary",
+      "mod-cta",
     )
     const cancelButton = buttonRow.createEl("button", {
       text: this.tv("fields.cancelButton", "Cancel"),
