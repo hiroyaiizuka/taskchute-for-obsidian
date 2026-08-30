@@ -1,10 +1,27 @@
 // The Obsidian plugin review gate.
 //
-// Obsidian auto-reviews every published version of a community plugin. The
-// part of that review we can run ourselves is eslint-plugin-obsidianmd, which
-// Obsidian publishes as the local equivalent of its guidelines. This config
-// exists to run that plugin's recommended config *verbatim* — the day it is
-// hand-copied here, it stops being a review and starts being a second opinion.
+// Obsidian auto-reviews every published version of a community plugin. That
+// review has two halves, and this config keeps them visibly apart:
+//
+//   1. The published half. eslint-plugin-obsidianmd is what Obsidian ships as
+//      the local equivalent of its guidelines, and its recommended config is
+//      applied here *verbatim* — the day it is hand-copied, it stops being a
+//      review and starts being a second opinion. Which findings it produces
+//      depends on the installed toolchain as much as on this file: the
+//      dashboard's 36 no-unnecessary-type-assertion findings for 2.2.2 need
+//      typescript-eslint 8.68 to appear at all (8.44 reports none of them), so
+//      keeping the toolchain current is part of keeping the gate honest.
+//   2. The reconstructed half. The dashboard's CSS analyser, capability
+//      disclosures and malware/dependency scans have no public implementation.
+//      What can be approximated lives in eslint.review.css.config.mjs and
+//      scripts/obsidian-review-capabilities.mjs, quoting the dashboard's own
+//      wording, and is marked as an approximation wherever it is reported.
+//      It is kept in a separate config on purpose: the recommended config
+//      above applies js.configs.recommended to every file it is asked about,
+//      and those rules crash on a CSS syntax tree.
+//
+// So a clean run here is not permission to publish; a failing one is a
+// guarantee that publishing is refused.
 // eslint.config.mjs is the day-to-day lint; this one is the release gate.
 import obsidianmd from "eslint-plugin-obsidianmd";
 import tseslint from "typescript-eslint";
