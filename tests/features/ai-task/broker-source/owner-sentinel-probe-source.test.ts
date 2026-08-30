@@ -226,7 +226,7 @@ describe('sentinelStateFrom', () => {
     ['a platform without a probe', 'unsupported', 'unknown'],
   ])('reads %s as %s', (_name, reading, expected) => {
     expect(
-      probe.sentinelStateFrom(identityOf('/tmp/owner.jsonl'), reading as Reading),
+      probe.sentinelStateFrom(identityOf('/tmp/owner.jsonl'), reading),
     ).toBe(expected)
   })
 

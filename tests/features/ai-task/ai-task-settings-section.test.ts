@@ -82,7 +82,7 @@ function createTab(): { tab: TaskChuteSettingTab; plugin: FakePlugin } {
     plugins: { plugins: Record<string, unknown> }
   }).plugins.plugins['taskchute-plus'] = plugin
 
-  const tab = new TaskChuteSettingTab(app as never, plugin as never)
+  const tab = new TaskChuteSettingTab(app, plugin as never)
   return { tab, plugin }
 }
 

@@ -104,7 +104,7 @@ class FakeRuntimeWindow {
 }
 
 function runtimeWindow(value: FakeRuntimeWindow): AiTaskRuntimeWindow {
-  return value as unknown as AiTaskRuntimeWindow
+  return value
 }
 
 describe('AiTaskRuntimeLease', () => {

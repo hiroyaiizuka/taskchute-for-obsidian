@@ -23,7 +23,7 @@ function createInstance(
     instanceId,
     state,
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function createHost(

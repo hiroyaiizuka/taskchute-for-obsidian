@@ -11,7 +11,7 @@ describe('routine modal helpers', () => {
     frontmatter: {},
     path: 'Task/Example.md',
     name: 'Example',
-  } as TaskData);
+  });
 
   test('deriveRoutineModalTitle prefers displayTitle', () => {
     const task = {

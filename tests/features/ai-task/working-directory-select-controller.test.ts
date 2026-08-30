@@ -29,7 +29,7 @@ function rect(top: number, bottom: number): DOMRect {
     width: 500,
     height: bottom - top,
     toJSON: () => ({}),
-  } as DOMRect
+  }
 }
 
 describe('WorkingDirectorySelectController', () => {

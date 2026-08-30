@@ -44,7 +44,7 @@ describe('TaskListRenderer', () => {
       }
       attachCreateEl(svg as unknown as HTMLElement);
       this.appendChild(svg as unknown as HTMLElement);
-      return svg as unknown as SVGElement;
+      return svg;
     }) as unknown as HTMLElement['createSvg'];
     (typed as HTMLElement & { empty?: () => void }).empty = function () {
       while (this.firstChild) {

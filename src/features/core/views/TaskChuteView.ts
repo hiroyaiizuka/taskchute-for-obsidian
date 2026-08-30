@@ -374,8 +374,8 @@ export class TaskChuteView
       registerManagedDomEvent: (target, event, handler) =>
         this.registerManagedDomEvent(
           target,
-          event as keyof DocumentEventMap | keyof HTMLElementEventMap,
-          handler as EventListener,
+          event,
+          handler,
         ),
       getContainer: () => this.containerEl,
       selectionController: this.taskSelectionController,
@@ -4313,7 +4313,7 @@ export class TaskChuteView
         task.file = file
         task.name = file.basename
         task.displayTitle = displayTitle
-        task.frontmatter = metadata as Record<string, unknown>
+        task.frontmatter = metadata
       })
 
       this.taskInstances.forEach((inst) => {

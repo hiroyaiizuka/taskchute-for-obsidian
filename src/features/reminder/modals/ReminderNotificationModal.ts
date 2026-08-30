@@ -27,13 +27,13 @@ const createElCompat = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   options?: CreateElOptions
 ): HTMLElementTagNameMap[K] => {
-  const maybeCreateEl = (
-    parent as HTMLElement & {
-      createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement;
-    }
-  ).createEl;
-  if (typeof maybeCreateEl === 'function') {
-    return maybeCreateEl.call(parent, tag, options as Record<string, unknown>) as HTMLElementTagNameMap[K];
+  // Called as a method rather than through `.call`, so `this` is bound by the
+  // call itself: no unbound-method finding, and no assertion on the result.
+  const host = parent as HTMLElement & {
+    createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement;
+  };
+  if (typeof host.createEl === 'function') {
+    return host.createEl(tag, options) as HTMLElementTagNameMap[K];
   }
   const element = createEl(tag);
   if (options?.cls) {

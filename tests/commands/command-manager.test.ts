@@ -29,7 +29,7 @@ describe('CommandRegistrar', () => {
     addCommand,
     app: appMock,
     showSettingsModal,
-  } as CommandHost;
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();

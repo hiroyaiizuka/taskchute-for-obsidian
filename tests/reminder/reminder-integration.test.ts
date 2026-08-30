@@ -514,7 +514,7 @@ describe('ReminderSystemManager', () => {
         },
       ];
 
-      manager.buildTodaySchedules(tasks as unknown[]);
+      manager.buildTodaySchedules(tasks);
 
       const reminderService = manager.getReminderService();
       const schedules = reminderService.getSchedules();
@@ -548,7 +548,7 @@ describe('ReminderSystemManager', () => {
         },
       ];
 
-      manager.buildTodaySchedules(tasks as unknown[]);
+      manager.buildTodaySchedules(tasks);
 
       const reminderService = manager.getReminderService();
       const schedule = reminderService.getScheduleByPath('task1.md');
@@ -580,7 +580,7 @@ describe('ReminderSystemManager', () => {
         },
       ];
 
-      manager.buildTodaySchedules(tasks as unknown[]);
+      manager.buildTodaySchedules(tasks);
 
       const schedules = manager.getReminderService().getSchedules();
       expect(schedules.length).toBe(1);

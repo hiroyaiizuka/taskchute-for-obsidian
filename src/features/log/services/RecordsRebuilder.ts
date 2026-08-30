@@ -270,7 +270,7 @@ export class RecordsRebuilder {
         typeof value === 'boolean' ||
         value === null
       ) {
-        record[key] = value as RecordsEntry[keyof RecordsEntry]
+        record[key] = value
       }
     }
     return record

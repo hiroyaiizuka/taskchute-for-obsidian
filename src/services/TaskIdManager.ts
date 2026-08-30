@@ -71,7 +71,7 @@ export class TaskIdManager {
 
   async ensureTaskIdForFile(file: TFile): Promise<string | null> {
     const cached = this.plugin.app.metadataCache.getFileCache(file)
-    const existing = extractTaskIdFromFrontmatter(cached?.frontmatter as Record<string, unknown> | undefined)
+    const existing = extractTaskIdFromFrontmatter(cached?.frontmatter)
     if (existing) {
       if (cached?.frontmatter && cached.frontmatter[TASK_ID_FRONTMATTER_KEY] !== existing) {
         await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {

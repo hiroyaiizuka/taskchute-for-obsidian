@@ -10,7 +10,7 @@ describe('DayStateStoreService', () => {
       slotOverrides: {},
       orders: {},
       ...overrides,
-    } as DayState;
+    };
   }
 
   function createDeps(initialStates: Record<string, DayState> = {}) {

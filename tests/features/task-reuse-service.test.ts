@@ -61,7 +61,7 @@ describe('TaskReuseService', () => {
         mergeDayState: jest.fn(),
         clearCache: jest.fn(),
         renameTaskPath: jest.fn(),
-      } as unknown as TaskChutePluginLike['dayStateService'],
+      },
       routineAliasService: {} as TaskChutePluginLike['routineAliasService'],
       pathManager: {} as TaskChutePluginLike['pathManager'],
       settings: { slotKeys: {}, useOrderBasedSort: true },

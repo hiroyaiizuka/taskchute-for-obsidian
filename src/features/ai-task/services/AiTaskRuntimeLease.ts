@@ -201,13 +201,13 @@ function terminalRendererLeaseIdentity(
 }
 
 function runtimeWindow(): AiTaskRuntimeWindow {
-  return window as unknown as AiTaskRuntimeWindow
+  return window
 }
 
 function legacyFocusedRuntimeWindow(): AiTaskRuntimeWindow | undefined {
   try {
     if (typeof activeWindow === 'undefined') return undefined
-    return activeWindow as unknown as AiTaskRuntimeWindow
+    return activeWindow
   } catch {
     return undefined
   }

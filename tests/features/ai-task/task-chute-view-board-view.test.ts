@@ -143,7 +143,7 @@ function makeInstance(path: string, aiTask: boolean): TaskInstance {
     instanceId: `inst-${path}`,
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 describe('TaskChuteView board view state', () => {

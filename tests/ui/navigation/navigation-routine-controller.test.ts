@@ -135,7 +135,7 @@ describe('NavigationRoutineController', () => {
         pathManager: {
           getTaskFolderPath: () => 'TASKS',
         },
-      } as NavigationRoutineHost['plugin'],
+      },
       navigationContent,
       reloadTasksAndRestore: jest.fn(),
       showRoutineEditModal: jest.fn(),

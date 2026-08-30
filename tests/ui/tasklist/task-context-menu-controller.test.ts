@@ -75,7 +75,7 @@ const getMenuInstance = (): FakeMenu => {
   if (!result) {
     throw new Error('Menu instance not created')
   }
-  return result as unknown as FakeMenu
+  return result
 }
 
 const createHost = (

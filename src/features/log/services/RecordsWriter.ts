@@ -49,7 +49,7 @@ function compactObject<T extends Record<string, unknown>>(input: T): Partial<T> 
     if (typeof value === 'object') {
       if (Array.isArray(value)) {
         if (value.length === 0) continue
-      } else if (Object.keys(value as Record<string, unknown>).length === 0) {
+      } else if (Object.keys(value).length === 0) {
         continue
       }
     }

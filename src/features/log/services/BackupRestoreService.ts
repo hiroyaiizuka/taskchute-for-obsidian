@@ -400,7 +400,7 @@ export class BackupRestoreService {
       ]
       const hasKnownEntryKey = knownEntryKeys.some((key) => key in asRecord)
       if (hasKnownEntryKey) {
-        normalized[dateKey] = [asRecord as TaskLogEntry]
+        normalized[dateKey] = [asRecord]
         continue
       }
 

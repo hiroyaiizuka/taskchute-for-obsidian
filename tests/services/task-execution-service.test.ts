@@ -112,7 +112,7 @@ describe('TaskExecutionService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2025-01-02T12:00:00.000Z'))
 
     const host = createHost({
-      getCurrentInstance: jest.fn().mockReturnValue({} as TaskInstance),
+      getCurrentInstance: jest.fn().mockReturnValue({}),
       hasRunningInstances: jest.fn().mockReturnValue(false),
     })
     const service = new TaskExecutionService(host)
