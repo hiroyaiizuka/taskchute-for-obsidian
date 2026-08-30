@@ -418,7 +418,7 @@ const createTimeController = () => {
           x: 0,
           y: 0,
           toJSON: () => ({}),
-        } as DOMRect
+        }
       }
       return {
         top: 0,
@@ -430,7 +430,7 @@ const createTimeController = () => {
         x: 0,
         y: 0,
         toJSON: () => ({}),
-      } as DOMRect
+      }
     })
     const host = createHost()
     const controller = new TaskSettingsTooltipController(host)

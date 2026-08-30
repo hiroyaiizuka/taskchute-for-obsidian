@@ -17,7 +17,7 @@ function createInstance(
     instanceId: 'instance-1',
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function createHost(

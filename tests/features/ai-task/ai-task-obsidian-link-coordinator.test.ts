@@ -50,7 +50,7 @@ function createInstance(options: InstanceOptions): TaskInstance {
     state: options.state ?? 'idle',
     slotKey: 'none',
     executedTitle: options.executedTitle,
-  } as TaskInstance
+  }
 }
 
 function createHuman(

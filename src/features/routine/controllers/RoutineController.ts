@@ -1064,7 +1064,7 @@ export default class RoutineController {
           task.monthly_week = 'last'
           task.routine_week = 'last'
         } else if (typeof singleWeek === 'number') {
-          task.monthly_week = (singleWeek - 1) as RoutineWeek
+          task.monthly_week = (singleWeek - 1)
           task.routine_week = singleWeek
         }
       } else {

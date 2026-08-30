@@ -109,7 +109,7 @@ describe('AI run pane drag resize', () => {
       registerManagedDisposer: () => () => undefined,
       saveLocalStorage,
       loadLocalStorage: (key: string) => stored.get(key),
-    } as unknown as AiRunPaneControllerHost
+    }
     controller = new AiRunPaneController(host)
   })
 

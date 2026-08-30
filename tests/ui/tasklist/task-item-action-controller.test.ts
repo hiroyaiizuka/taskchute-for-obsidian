@@ -140,7 +140,7 @@ describe('TaskItemActionController', () => {
         name: 'orphan',
         isRoutine: false,
       },
-    } as unknown as TaskInstance)
+    })
 
     controller.renderProject(container, inst)
 

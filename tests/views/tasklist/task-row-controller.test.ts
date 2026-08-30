@@ -30,7 +30,7 @@ const addCreateEl = (element: HTMLElement): HTMLElement => {
     addCreateEl(child)
     return child
   }
-  element.createEl = createEl as unknown as HTMLElement['createEl']
+  element.createEl = createEl
   return element
 }
 

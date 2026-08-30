@@ -116,7 +116,7 @@ Object.defineProperties(Node.prototype, {
   doc: {
     configurable: true,
     get(this: Node) {
-      return this.ownerDocument ?? (this as unknown as Document)
+      return this.ownerDocument ?? (this)
     },
   },
   createEl: {

@@ -667,7 +667,7 @@ export default class RoutineEditModal extends Modal {
     return {
       isRoutine: true,
       name: this.file.basename ?? "untitled",
-    } as RoutineFrontmatter
+    }
   }
 
   private normalizeRoutineType(type: unknown): RoutineType {

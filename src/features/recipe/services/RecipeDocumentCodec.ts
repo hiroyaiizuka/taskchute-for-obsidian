@@ -554,8 +554,8 @@ export class RecipeDocumentCodec {
       schemaVersion,
       title,
       goal: stripManagedHeading(section('goal')),
-      steps: parseChecklist(section('checklist'), 'step', true) as RecipeStep[],
-      qualityChecks: parseChecklist(section('quality-checklist'), 'quality', true) as RecipeQualityCheck[],
+      steps: parseChecklist(section('checklist'), 'step', true),
+      qualityChecks: parseChecklist(section('quality-checklist'), 'quality', true),
       constraints: parseConstraints(section('constraints')),
     }
   }

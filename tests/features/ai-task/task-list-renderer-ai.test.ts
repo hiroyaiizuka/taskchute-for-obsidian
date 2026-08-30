@@ -73,7 +73,7 @@ function createAiInstance(): TaskInstance {
     instanceId: 'ai-instance-1',
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 describe('TaskListRenderer AI task integration', () => {
@@ -200,7 +200,7 @@ describe('TaskListRenderer AI task integration', () => {
       instanceId: 'plain-1',
       state: 'idle',
       slotKey: 'none',
-    } as TaskInstance
+    }
     const host = createBaseHost([plain])
     host.isAiTaskFeatureEnabled = () => true
     host.editAiTask = jest.fn()

@@ -237,7 +237,7 @@ function toFailure(status: number, payload: unknown): LicenseApiFailure {
     status,
     ...(typeof message === 'string' ? { message } : {}),
     ...(typeof details === 'object' && details !== null
-      ? { details: details as LicenseErrorDetails }
+      ? { details: details }
       : {}),
   }
 }

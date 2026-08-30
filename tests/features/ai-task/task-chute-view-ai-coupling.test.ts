@@ -312,7 +312,7 @@ function makeInstance(
     instanceId: 'inst-1',
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function makeHumanInstance(title: string, instanceId = 'human-1'): TaskInstance {
@@ -328,7 +328,7 @@ function makeHumanInstance(title: string, instanceId = 'human-1'): TaskInstance 
     instanceId,
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function makeLinkedAiInstance(

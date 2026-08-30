@@ -26,7 +26,7 @@ const createAnchor = (): HTMLElement => {
       x: 0,
       y: 0,
       toJSON: () => '',
-    }) as DOMRect
+    })
   return anchor
 }
 

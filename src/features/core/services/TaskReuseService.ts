@@ -103,11 +103,11 @@ export class TaskReuseService {
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)
-    const frontmatter = metadata?.frontmatter as Record<string, unknown> | undefined
+    const frontmatter = metadata?.frontmatter
     const scheduledTime = options?.scheduledTime
       ?? getScheduledTime(frontmatter)
     const resolvedSlotKey = this.resolveSlotKey(options?.slotKey, scheduledTime)
-    let taskId = extractTaskIdFromFrontmatter(metadata?.frontmatter as Record<string, unknown> | undefined)
+    let taskId = extractTaskIdFromFrontmatter(metadata?.frontmatter)
     if (!taskId) {
       try {
         const manager = new TaskIdManager(this.plugin)

@@ -1,6 +1,5 @@
 import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView';
 import {
-  AutocompleteInstance,
   DayState,
   HiddenRoutine,
   TaskChutePluginLike,
@@ -94,7 +93,7 @@ function createDayState(overrides: Partial<DayState> = {}): DayState {
     slotOverrides: {},
     orders: {},
     ...overrides,
-  } as DayState;
+  };
 }
 
 function createPluginStub() {
@@ -201,7 +200,7 @@ function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
     isRoutine: false,
     taskId: defaultTaskId,
     ...overrides,
-  } as TaskData;
+  };
 }
 
 function createTaskInstance(task: TaskData, overrides: Partial<TaskInstance> = {}): TaskInstance {
@@ -211,7 +210,7 @@ function createTaskInstance(task: TaskData, overrides: Partial<TaskInstance> = {
     state: 'idle',
     slotKey: '8:00-12:00',
     ...overrides,
-  } as TaskInstance;
+  };
 }
 
 type CreateElCapableElement = HTMLElement & {
@@ -238,12 +237,10 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     this.appendChild(el);
     return el;
   }) as unknown as CreateElCapableElement['createEl'];
-  typed.createSpan = (function (this: CreateElCapableElement, options: Record<string, unknown> = {}) {
+  typed.createSpan = function (this: CreateElCapableElement, options: Record<string, unknown> = {}) {
     return this.createEl?.('span', options) ?? document.createElement('span');
-  }) as unknown as CreateElCapableElement['createSpan'];
-  (typed as HTMLElement & {
-    createSvg?: (tag: string, options?: { attr?: Record<string, string>; cls?: string }) => SVGElement;
-  }).createSvg = (function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
+  };
+  (typed).createSvg = (function (this: HTMLElement, tag: string, options: { attr?: Record<string, string>; cls?: string } = {}) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', tag);
     if (options.cls) {
       svg.setAttribute('class', options.cls);
@@ -255,7 +252,7 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     }
     attachRecursiveCreateEl(svg as unknown as HTMLElement);
     this.appendChild(svg as unknown as HTMLElement);
-    return svg as unknown as SVGElement;
+    return svg;
   }) as unknown as HTMLElement['createSvg'];
   if (typeof (typed as { empty?: () => void }).empty !== 'function') {
     (typed as { empty: () => void }).empty = function () {
@@ -2388,7 +2385,7 @@ describe('TaskChuteView running task restore', () => {
           originalSlotKey: '8:00-12:00',
           startTime: new Date('2025-01-01T06:00:00.000Z'),
           stopTime: undefined,
-        } as TaskInstance)
+        })
         return instances.slice(-1)
       })
 
@@ -2484,7 +2481,7 @@ describe('TaskChuteView navigation overlay', () => {
     const contentContainer = document.createElement('div');
     attachRecursiveCreateEl(contentContainer);
 
-    view.navigationController.createNavigationUI(contentContainer as CreateElCapableElement);
+    view.navigationController.createNavigationUI(contentContainer);
     view.navigationState.isOpen = true;
     view.navigationController.openNavigation();
 
@@ -3467,13 +3464,13 @@ describe('TaskChuteView onClose cleanup', () => {
     };
     scheduleAccessor.activeMoveCalendar = {
       close: closeMock,
-    } as MoveCalendarStub;
+    };
 
     const autocompleteCleanup = jest.fn();
     const secondaryCleanup = jest.fn();
     (view as Mutable<TaskChuteView>).autocompleteInstances = [
-      { cleanup: autocompleteCleanup } as AutocompleteInstance,
-      { cleanup: secondaryCleanup } as AutocompleteInstance,
+      { cleanup: autocompleteCleanup },
+      { cleanup: secondaryCleanup },
     ];
 
     const disposeMock = jest.fn();

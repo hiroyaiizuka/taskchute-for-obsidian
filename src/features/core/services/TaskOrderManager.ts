@@ -247,7 +247,7 @@ export class TaskOrderManager {
     }
 
     const working = [...sameTasks];
-    const needsSeed = working.some((inst) => !Number.isFinite(inst.order as number));
+    const needsSeed = working.some((inst) => !Number.isFinite(inst.order));
     if (needsSeed) {
       this.normalizeOrdersForDrag(working);
     }

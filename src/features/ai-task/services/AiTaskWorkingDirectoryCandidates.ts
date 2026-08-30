@@ -24,9 +24,7 @@ export function collectAiTaskWorkingDirectoryCandidates(
   for (const file of files) {
     let frontmatter: Record<string, unknown> | undefined
     try {
-      frontmatter = app.metadataCache.getFileCache(file)?.frontmatter as
-        | Record<string, unknown>
-        | undefined
+      frontmatter = app.metadataCache.getFileCache(file)?.frontmatter
     } catch {
       // One stale/broken cache entry must not hide candidates from later files.
       continue

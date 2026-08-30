@@ -63,16 +63,27 @@ jobs:
 
       # The Obsidian plugin review gate. Obsidian auto-reviews every published
       # version and blocks the ones that fail, so run the part of that review we
-      # can run ourselves (eslint-plugin-obsidianmd, which Obsidian publishes for
-      # exactly this) before anything irreversible happens. Everything below this
-      # point pushes a bump commit and a tag to the default branch; a failure
-      # here leaves the branch untouched.
+      # can run ourselves before anything irreversible happens. Everything below
+      # this point pushes a bump commit and a tag to the default branch; a
+      # failure here leaves the branch untouched.
+      #
+      # Three layers: eslint-plugin-obsidianmd applied verbatim (Obsidian's own
+      # published config), a reconstruction of the dashboard's CSS findings, and
+      # the capability disclosures read out of the built bundle. The last one is
+      # why the build runs here rather than only after the tag -- the disclosure
+      # describes what ships, so it is read from what ships. The later "Build
+      # plugin" step stays: it builds the tagged commit, which is what the
+      # release assets are cut from.
       #
       # Errors fail the release, warnings are reported only -- that is how
       # Obsidian itself judges a submission. The dashboard additionally runs
-      # malware and dependency scans that have no public API, so a pass here is
-      # not a guarantee that publication is allowed; a failure is a guarantee
-      # that it is not.
+      # malware and dependency scans that have no public API, and the CSS and
+      # capability layers are our reconstructions of an implementation Obsidian
+      # does not publish, so a pass here is not a guarantee that publication is
+      # allowed; a failure is a guarantee that it is not.
+      - name: Build plugin for review
+        run: npm run build
+
       - name: Obsidian plugin review
         run: npm run review:obsidian
 

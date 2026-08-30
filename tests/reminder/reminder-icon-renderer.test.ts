@@ -297,7 +297,7 @@ describe('ReminderIconRenderer', () => {
 
     it('should not render icon for invalid reminder_time "abc"', () => {
       const renderer = new ReminderIconRenderer({ tv: mockTv });
-      const task = createMockTask('abc' as string);
+      const task = createMockTask('abc');
       const container = document.createElement('div');
 
       renderer.render(container, task);
@@ -342,7 +342,7 @@ describe('ReminderIconRenderer', () => {
 
     it('should return false from hasReminder for "abc"', () => {
       const renderer = new ReminderIconRenderer({ tv: mockTv });
-      const task = createMockTask('abc' as string);
+      const task = createMockTask('abc');
 
       expect(renderer.hasReminder(task)).toBe(false);
     });

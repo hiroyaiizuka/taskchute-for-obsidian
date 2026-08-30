@@ -114,12 +114,11 @@ export class ReminderIconRenderer {
     tag: string,
     options?: { cls?: string; attr?: Record<string, string> }
   ): SVGElement {
-    const host = parent as (HTMLElement | SVGElement) & {
-      createSvg?: (tagName: string, options?: Record<string, unknown>) => SVGElement;
-    };
-
-    if (typeof host.createSvg === 'function') {
-      return host.createSvg(tag, options);
+    // No cast on `parent`: Obsidian augments both HTMLElement and SVGElement
+    // with createSvg, so one would not change the type. The tag is narrowed
+    // instead, exactly as the fallback below does.
+    if (typeof parent.createSvg === 'function') {
+      return parent.createSvg(tag as keyof SVGElementTagNameMap, options);
     }
 
     // Fallback for non-Obsidian environments

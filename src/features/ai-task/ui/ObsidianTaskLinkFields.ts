@@ -252,9 +252,7 @@ function collectHumanTaskTitles(
   const titles = new Set<string>()
   for (const file of files) {
     if (excludePath && file.path === excludePath) continue
-    const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter as
-      | Record<string, unknown>
-      | undefined
+    const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter
     if (frontmatter?.['ai_task'] === true) continue
     const title = resolveTaskDisplayTitle(frontmatter, file.basename)
     if (title) titles.add(title)

@@ -140,7 +140,7 @@ function makeInstance(instanceId = 'inst-1'): TaskInstance {
     instanceId,
     state: 'idle',
     slotKey: 'none',
-  } as TaskInstance
+  }
 }
 
 function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
