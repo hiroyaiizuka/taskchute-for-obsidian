@@ -1,4 +1,4 @@
-import { Modal, Notice, TFile } from 'obsidian'
+import { ButtonComponent, Modal, Notice, TFile } from 'obsidian'
 import { t } from '../../i18n'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
 import type { TaskInstance } from '../../types'
@@ -39,15 +39,16 @@ export default class ScheduledTimeModal extends Modal {
     super(options.host.app as unknown as Modal['app'])
   }
 
+  onClose(): void {
+    this.contentEl.empty()
+  }
+
   onOpen(): void {
     const { host, instance } = this.options
     const { contentEl } = this
     contentEl.empty()
-    contentEl.classList.add('scheduled-time-modal')
-
-    const title = host.tv('forms.scheduledTimeModalTitle', 'Set scheduled start time')
-    const header = contentEl.createDiv( { cls: 'modal-header' })
-    header.createEl('h3', { text: title })
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'scheduled-time-modal')
+    this.setTitle(host.tv('forms.scheduledTimeModalTitle', 'Set scheduled start time'))
 
     const form = contentEl.createEl('form', { cls: 'task-form scheduled-time-form' })
     const group = form.createDiv( { cls: 'form-group' })
@@ -72,7 +73,7 @@ export default class ScheduledTimeModal extends Modal {
       'forms.startTimeInfo',
       'Set the scheduled start time. Leave empty to clear it.',
     )
-    const description = contentEl.createEl('p', { cls: 'modal-description' })
+    const description = form.createEl('p', { cls: 'modal-description' })
     descriptionText.split('\n').forEach((line, index) => {
       if (index > 0) {
         description.createEl('br')
@@ -80,25 +81,17 @@ export default class ScheduledTimeModal extends Modal {
       description.appendChild(activeDocument.createTextNode(line))
     })
 
-    const footer = form.createDiv( { cls: 'form-button-group' })
-    const cancelButton = footer.createEl('button', {
-      type: 'button',
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'Cancel'),
-    })
+    const footer = form.createDiv({ cls: 'modal-button-container' })
+    new ButtonComponent(footer)
+      .setButtonText(t('common.cancel', 'Cancel'))
+      .onClick(() => this.close())
     footer.createEl('button', {
       type: 'submit',
-      cls: 'form-button create',
+      cls: 'form-button create mod-cta',
       text: host.tv('buttons.save', 'Save'),
     })
 
-    const close = () => {
-      contentEl.empty()
-      contentEl.classList.remove('scheduled-time-modal')
-      this.close()
-    }
-
-    cancelButton.addEventListener('click', () => close())
+    const close = () => this.close()
 
     form.addEventListener('submit', (event) => {
       void (async () => {

@@ -45,7 +45,7 @@ export class CalendarExportModal extends Modal {
   private async initialize(): Promise<void> {
     const { contentEl } = this
     contentEl.empty()
-    this.modalEl.addClass("taskchute-calendar-export-modal")
+    this.modalEl.addClass("taskchute-modal", "taskchute-modal--no-close", "taskchute-calendar-export-modal")
     contentEl.addClass("taskchute-calendar-export-body")
 
     // 標準タイトルをそのまま利用

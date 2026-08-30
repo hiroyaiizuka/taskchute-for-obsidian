@@ -110,7 +110,7 @@ export class ReminderNotificationModal extends Modal {
       }
     }
 
-    modalEl?.classList.add('taskchute-reminder-modal');
+    modalEl?.classList.add('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-reminder-modal');
 
     // Header
     const header = createElCompat(contentEl, 'div', { cls: 'modal-header' });
@@ -162,7 +162,7 @@ export class ReminderNotificationModal extends Modal {
       }
     }
 
-    this.modalEl?.classList.remove('taskchute-reminder-modal');
+    this.modalEl?.classList.remove('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-reminder-modal');
 
     // Call the onClose callback
     this.onCloseCallback?.();

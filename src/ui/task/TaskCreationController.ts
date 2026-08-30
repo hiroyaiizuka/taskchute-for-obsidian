@@ -92,7 +92,7 @@ export interface TaskCreationControllerHost {
     runBoundaryCheck?: boolean
   }) => Promise<void>
   getCurrentDateString: () => string
-  app: Pick<App, "metadataCache">
+  app: App
   plugin: TaskChutePluginLike
   getDocumentContext?: () => {
     doc: Document
@@ -222,11 +222,11 @@ export default class TaskCreationController {
       submitText: this.host.tv("buttons.save", "Save"),
       cancelText: t("common.cancel", "Cancel"),
       closeLabel: this.host.tv("common.close", "Close"),
-      context: { doc, win },
+      app: this.host.app,
     })
 
     const { input: nameInput, inputGroup: nameGroup, warning: warningMessage, submitButton: saveButton, form, close, onClose } = modal
-    const buttonGroup = form.querySelector(".form-button-group")
+    const buttonGroup = form.querySelector(".modal-button-container")
     if (editTarget) {
       nameInput.value = editTarget.taskName
       nameInput.readOnly = true
@@ -1004,6 +1004,7 @@ export default class TaskCreationController {
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
     )
     const modelSelect = new AiModelSelectController(modelField, {
+      app: this.host.app,
       doc,
       host: selectedHost,
       modelId: decodedInitialArgs?.modelId || null,

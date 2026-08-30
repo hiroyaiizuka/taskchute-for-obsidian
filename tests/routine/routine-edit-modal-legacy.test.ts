@@ -7,7 +7,12 @@ import type { App } from 'obsidian'
 import RoutineEditModal from '../../src/features/routine/modals/RoutineEditModal'
 import type { RoutineFrontmatter, TaskChutePluginLike } from '../../src/types'
 
-jest.mock('obsidian')
+// Automocking obsidian would strip `Modal.open()` of its behaviour, and the
+// routine editor is a Modal now. Keep the rest automocked.
+jest.mock('obsidian', () => ({
+  ...jest.createMockFromModule<Record<string, unknown>>('obsidian'),
+  Modal: jest.requireActual('obsidian').Modal,
+}))
 
 const NoticeMock = Notice as unknown as jest.Mock
 
@@ -134,7 +139,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
@@ -170,7 +175,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
     const monthlyGroup = overlay?.querySelector('.routine-form__monthly')
     expect(monthlyGroup).not.toBeNull()
@@ -198,7 +203,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const trigger = overlay?.querySelector('.routine-monthday-trigger') as HTMLButtonElement
@@ -217,7 +222,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     modal.close()
   })
 
-  it('removes Escape and monthday listeners from the document that registered them', () => {
+  it('removes the monthday listener from the document that registered it', () => {
     const originalActiveDocument = activeDocument
     const sourceDoc = document.implementation.createHTMLDocument('source')
     const focusedDoc = document.implementation.createHTMLDocument('focused')
@@ -234,16 +239,15 @@ describe('RoutineEditModal legacy frontmatter', () => {
       setActiveDocument(sourceDoc)
       modal.open()
 
+      // Escape is Obsidian's scope now; only the monthday dropdown still binds
+      // a document listener of its own.
       expect(sourceAdd).toHaveBeenCalledWith('click', expect.any(Function), true)
-      expect(sourceAdd).toHaveBeenCalledWith('keydown', expect.any(Function))
 
       setActiveDocument(focusedDoc)
       modal.close()
 
       expect(sourceRemove).toHaveBeenCalledWith('click', expect.any(Function), true)
-      expect(sourceRemove).toHaveBeenCalledWith('keydown', expect.any(Function))
       expect(focusedRemove).not.toHaveBeenCalledWith('click', expect.any(Function), true)
-      expect(focusedRemove).not.toHaveBeenCalledWith('keydown', expect.any(Function))
     } finally {
       modal.close()
       setActiveDocument(originalActiveDocument)
@@ -267,7 +271,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
@@ -297,7 +301,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const typeSelect = overlay?.querySelector('select') as HTMLSelectElement
@@ -338,7 +342,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
@@ -369,7 +373,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
     const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
@@ -406,7 +410,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
 
     modal.open()
 
-    const overlay = document.body.querySelector('.task-modal-overlay')
+    const overlay = document.body.querySelector('.modal-container')
     const section = overlay?.querySelector('.obsidian-task-link-fields')
     const enabled = section?.querySelector<HTMLInputElement>(
       '.obsidian-task-link-enabled',

@@ -1,4 +1,4 @@
-import { App, Notice, TFile } from 'obsidian'
+import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian'
 import { t } from '../../i18n'
 import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '../../types'
@@ -18,135 +18,106 @@ export interface TaskCompletionControllerHost {
   appendCommentDelta?: (dateKey: string, entry: TaskLogEntry) => Promise<void>
 }
 
+/**
+ * The completion dialog. It opens empty and fills itself once the existing
+ * comment has loaded, so the modal binds to the window that was focused when
+ * the user clicked rather than whichever one has focus when the read settles.
+ */
+class TaskCompletionModal extends Modal {
+  onClose(): void {
+    this.contentEl.empty()
+  }
+}
+
 export default class TaskCompletionController {
   constructor(private readonly host: TaskCompletionControllerHost) {}
 
   async showTaskCompletionModal(inst: TaskInstance): Promise<void> {
-    const modalDocument = activeDocument
+    const modal = new TaskCompletionModal(this.host.app as unknown as App)
+    modal.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-comment-modal')
+    modal.open()
+
     const existingComment = await this.getExistingTaskComment(inst)
     const displayTitle = this.host.getInstanceDisplayTitle(inst)
+    const { contentEl } = modal
 
-    const modal = createDiv()
-    modal.className = 'taskchute-comment-modal'
-    const modalContent = modal.createDiv( { cls: 'taskchute-comment-content' })
-
-    const header = modalContent.createDiv( { cls: 'taskchute-modal-header' })
-    const headerText = existingComment
-      ? this.host.tv('comment.editTitle', `✏️ Edit comment for "${displayTitle}"`, {
-          title: displayTitle,
-        })
-      : this.host.tv(
-          'comment.completedTitle',
-          `🎉 Great job! "${displayTitle}" completed`,
-          { title: displayTitle },
-        )
-    header.createEl('h2', { text: headerText })
+    modal.setTitle(
+      existingComment
+        ? this.host.tv('comment.editTitle', `✏️ Edit comment for "${displayTitle}"`, {
+            title: displayTitle,
+          })
+        : this.host.tv('comment.completedTitle', `🎉 Great job! "${displayTitle}" completed`, {
+            title: displayTitle,
+          }),
+    )
 
     if (inst.state === 'done' && typeof inst.actualTime === 'number') {
-      const timeInfo = modalContent.createDiv( { cls: 'taskchute-time-info' })
       const duration = this.formatDuration(inst.actualTime)
-      timeInfo.createDiv( {
-        cls: 'time-duration',
-        text: this.host.tv('comment.duration', `Duration: ${duration}`, {
-          duration,
-        }),
-      })
-
+      const timeSetting = new Setting(contentEl).setName(
+        this.host.tv('comment.duration', `Duration: ${duration}`, { duration }),
+      )
       if (inst.startTime && inst.stopTime) {
         const startStr = this.toTimeString(inst.startTime)
         const stopStr = this.toTimeString(inst.stopTime)
-        timeInfo.createDiv( {
-          cls: 'time-range',
-          text: this.host.tv('comment.timeRange', `Start: ${startStr} End: ${stopStr}`, {
+        timeSetting.setDesc(
+          this.host.tv('comment.timeRange', `Start: ${startStr} End: ${stopStr}`, {
             start: startStr,
             end: stopStr,
           }),
-        })
+        )
       }
     }
 
-    const ratingSection = modalContent.createDiv( {
-      cls: 'taskchute-rating-section',
-    })
-    ratingSection.createEl('h3', {
-      text: this.host.tv('comment.question', 'How was this task?'),
-    })
+    new Setting(contentEl)
+      .setName(this.host.tv('comment.question', 'How was this task?'))
+      .setHeading()
 
-    const focusRating = this.createRatingGroup(ratingSection, {
+    const focusRating = this.createRatingGroup(contentEl, {
       labelKey: 'comment.focusLabel',
       fallback: 'Focus:',
       initial: this.convertToFiveScale(existingComment?.focusLevel ?? 0),
     })
 
-    const energyRating = this.createRatingGroup(ratingSection, {
+    const energyRating = this.createRatingGroup(contentEl, {
       labelKey: 'comment.energyLabel',
       fallback: 'Energy:',
       initial: this.convertToFiveScale(existingComment?.energyLevel ?? 0),
     })
 
-    const commentSection = modalContent.createDiv( {
-      cls: 'taskchute-comment-section',
-    })
-    commentSection.createEl('label', {
-      text: this.host.tv('comment.fieldLabel', 'Notes / learnings / improvements:'),
-      cls: 'comment-label',
-    })
-    const commentInput = commentSection.createEl('textarea', {
-      cls: 'taskchute-comment-textarea',
-      placeholder: this.host.tv(
-        'comment.placeholder',
-        'Share any thoughts, learnings, or improvements for next time...',
-      ),
-    })
-    if (existingComment?.executionComment) {
-      commentInput.value = existingComment.executionComment
-    }
+    let commentInput!: HTMLTextAreaElement
+    new Setting(contentEl)
+      .setName(this.host.tv('comment.fieldLabel', 'Notes / learnings / improvements:'))
+      .setClass('taskchute-comment-setting')
+      .addTextArea((textArea) => {
+        textArea.setPlaceholder(
+          this.host.tv(
+            'comment.placeholder',
+            'Share any thoughts, learnings, or improvements for next time...',
+          ),
+        )
+        textArea.setValue(existingComment?.executionComment ?? '')
+        commentInput = textArea.inputEl
+      })
 
-    const buttonGroup = modalContent.createDiv( {
-      cls: 'taskchute-comment-actions',
-    })
-    const cancelButton = buttonGroup.createEl('button', {
-      type: 'button',
-      cls: 'taskchute-button-cancel',
-      text: t('common.cancel', 'Cancel'),
-    })
-    const saveButton = buttonGroup.createEl('button', {
-      type: 'button',
-      cls: 'taskchute-button-save',
-      text: this.host.tv('buttons.save', 'Save'),
-    })
+    const buttons = contentEl.createDiv({ cls: 'modal-button-container' })
+    new ButtonComponent(buttons)
+      .setButtonText(t('common.cancel', 'Cancel'))
+      .onClick(() => modal.close())
+    new ButtonComponent(buttons)
+      .setButtonText(this.host.tv('buttons.save', 'Save'))
+      .setCta()
+      .onClick(() => {
+        void (async () => {
+          await this.saveTaskComment(inst, {
+            comment: commentInput.value,
+            energy: parseInt(energyRating.getAttribute('data-rating') || '0', 10),
+            focus: parseInt(focusRating.getAttribute('data-rating') || '0', 10),
+          })
+          modal.close()
+          this.host.renderTaskList()
+        })()
+      })
 
-    let modalClosed = false
-    const closeModal = () => {
-      if (modalClosed) return
-      modalClosed = true
-      modalDocument.removeEventListener('keydown', handleEsc)
-      modal.remove()
-    }
-
-    const handleEsc = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeModal()
-      }
-    }
-
-    cancelButton.addEventListener('click', closeModal)
-    saveButton.addEventListener('click', () => {
-      void (async () => {
-        const focusValue = parseInt(focusRating.getAttribute('data-rating') || '0', 10)
-        const energyValue = parseInt(energyRating.getAttribute('data-rating') || '0', 10)
-        await this.saveTaskComment(inst, {
-          comment: commentInput.value,
-          energy: energyValue,
-          focus: focusValue,
-        })
-        closeModal()
-        this.host.renderTaskList()
-      })()
-    })
-
-    modalDocument.addEventListener('keydown', handleEsc)
-    modalDocument.body.appendChild(modal)
     commentInput.focus()
   }
 
@@ -161,16 +132,15 @@ export default class TaskCompletionController {
     }
   }
 
+  /** A star picker living in the control slot of a standard setting row. */
   private createRatingGroup(
     container: HTMLElement,
     options: { labelKey: string; fallback: string; initial: number },
   ): HTMLElement {
-    const group = container.createDiv( { cls: 'rating-group' })
-    group.createEl('label', {
-      text: this.host.tv(options.labelKey, options.fallback),
-      cls: 'rating-label',
-    })
-    const ratingEl = group.createDiv( {
+    const setting = new Setting(container).setName(
+      this.host.tv(options.labelKey, options.fallback),
+    )
+    const ratingEl = setting.controlEl.createDiv({
       cls: 'star-rating',
       attr: { 'data-rating': options.initial.toString() },
     })

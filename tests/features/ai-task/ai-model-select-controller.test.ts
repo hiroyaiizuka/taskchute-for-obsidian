@@ -167,7 +167,7 @@ describe('AiModelSelectController', () => {
   })
 
   test('opens upward with a bounded scroll area near the modal bottom', () => {
-    const modal = document.body.createDiv({ cls: 'task-modal-content' })
+    const modal = document.body.createDiv({ cls: 'modal' })
     modal.appendChild(container)
     create()
 

@@ -186,7 +186,7 @@ describe('TaskCreationController', () => {
     const controller = new TaskCreationController(host)
 
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     expect(modal).toBeTruthy()
 
     const input = modal.querySelector('input') as HTMLInputElement
@@ -199,7 +199,7 @@ describe('TaskCreationController', () => {
 
     expect(taskCreationService.createTaskFile).toHaveBeenCalledWith('New Task', '2025-10-09')
     expect(host.reloadTasksAndRestore).toHaveBeenCalled()
-    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+    expect(document.querySelector('.modal-container')).toBeNull()
   })
 
   test('showAddTaskModal does not render advanced settings when disabled', () => {
@@ -207,7 +207,7 @@ describe('TaskCreationController', () => {
     const controller = new TaskCreationController(host)
 
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
 
     expect(modal.querySelector('.task-creation-advanced')).toBeNull()
   })
@@ -225,7 +225,7 @@ describe('TaskCreationController', () => {
     const controller = new TaskCreationController(host)
 
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
     const scheduledInput = modal.querySelector('.task-creation-scheduled-time') as HTMLInputElement
     const reminderRow = modal.querySelector('.task-creation-reminder-row') as HTMLElement
@@ -274,7 +274,7 @@ describe('TaskCreationController', () => {
     const controller = new TaskCreationController(host)
 
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     const input = modal.querySelector('input.form-input') as HTMLInputElement
     const advanced = modal.querySelector('.task-creation-advanced') as HTMLElement
 
@@ -324,7 +324,7 @@ describe('TaskCreationController', () => {
     const controller = new TaskCreationController(host)
 
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
     const scheduledInput = modal.querySelector('.task-creation-scheduled-time') as HTMLInputElement
     const reminderToggle = modal.querySelector('.task-creation-reminder-toggle') as HTMLInputElement
@@ -389,21 +389,30 @@ describe('TaskCreationController', () => {
     } as unknown as Window & typeof globalThis
     host.getDocumentContext = () => ({ doc: popoutDoc, win: fakeWindow })
 
-    const controller = new TaskCreationController(host)
-    controller.showAddTaskModal()
+    const originalActiveDocument = activeDocument
+    ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = popoutDoc
+    try {
+      const controller = new TaskCreationController(host)
+      controller.showAddTaskModal()
 
-    expect(popoutDoc.body.querySelector('.task-modal-overlay')).not.toBeNull()
-    expect(document.body.querySelector('.task-modal-overlay')).toBeNull()
+      // Obsidian opens a Modal on the focused window, so the dialog belongs to
+      // the popout rather than the main document.
+      expect(popoutDoc.body.querySelector('.modal-container')).not.toBeNull()
+      expect(document.body.querySelector('.modal-container')).toBeNull()
 
-    const modeGroup = popoutDoc.querySelector('.task-mode-group')
-    expect(modeGroup).not.toBeNull()
-    expect(modeGroup?.ownerDocument).toBe(popoutDoc)
+      const modeGroup = popoutDoc.querySelector('.task-mode-group')
+      expect(modeGroup).not.toBeNull()
+      expect(modeGroup?.ownerDocument).toBe(popoutDoc)
 
-    const autocompleteMock = TaskNameAutocomplete as unknown as jest.Mock
-    expect(autocompleteMock).toHaveBeenCalled()
-    const ctorArgs = autocompleteMock.mock.calls[0]
-    expect(ctorArgs[3]?.doc).toBe(popoutDoc)
-    expect(ctorArgs[3]?.win).toBe(fakeWindow)
+      const autocompleteMock = TaskNameAutocomplete as unknown as jest.Mock
+      expect(autocompleteMock).toHaveBeenCalled()
+      const ctorArgs = autocompleteMock.mock.calls[0]
+      expect(ctorArgs[3]?.doc).toBe(popoutDoc)
+      expect(ctorArgs[3]?.win).toBe(fakeWindow)
+    } finally {
+      ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument =
+        originalActiveDocument
+    }
   })
 
   test('task name validation clears pending timer on the same Window that created it', () => {
@@ -451,7 +460,7 @@ describe('TaskCreationController', () => {
 
     const controller = new TaskCreationController(host)
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     const input = modal.querySelector('input') as HTMLInputElement
 
     input.value = 'Restore me'
@@ -469,7 +478,7 @@ describe('TaskCreationController', () => {
 
     expect(host.restoreDeletedTaskCandidate).toHaveBeenCalledWith(candidate)
     expect(host.reloadTasksAndRestore).toHaveBeenCalled()
-    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+    expect(document.querySelector('.modal-container')).toBeNull()
   })
 
   test('hides restore banner when candidate disappears', async () => {
@@ -485,7 +494,7 @@ describe('TaskCreationController', () => {
 
     const controller = new TaskCreationController(host)
     controller.showAddTaskModal()
-    const modal = document.querySelector('.task-modal-overlay') as HTMLElement
+    const modal = document.querySelector('.modal-container') as HTMLElement
     const input = modal.querySelector('input') as HTMLInputElement
 
     input.value = 'Recover'

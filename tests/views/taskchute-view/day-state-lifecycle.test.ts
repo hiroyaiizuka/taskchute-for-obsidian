@@ -18,7 +18,13 @@ import {
   createRoutineLoadContext,
 } from '../../utils/taskViewTestUtils';
 import { HeatmapService } from '../../../src/features/log/services/HeatmapService';
-jest.mock('obsidian');
+// This suite automocks obsidian, but `Modal` has to keep its real behaviour:
+// the log dialog is a Modal now, and an automocked `open()` would never run
+// `onOpen`, so nothing would render. Everything else stays automocked.
+jest.mock('obsidian', () => ({
+  ...jest.createMockFromModule<Record<string, unknown>>('obsidian'),
+  Modal: jest.requireActual('obsidian').Modal,
+}));
 jest.mock('../../../src/features/log/services/HeatmapService', () => {
   const updateDailyStats = jest.fn().mockResolvedValue(undefined);
   return {
@@ -2528,15 +2534,15 @@ describe('TaskChuteView navigation commands', () => {
   });
 
   test('log section opens modal and closes navigation', async () => {
-    document.querySelectorAll('.taskchute-log-modal-overlay').forEach((overlay) => overlay.remove());
+    document.querySelectorAll('.modal-container').forEach((container) => container.remove());
     const { view } = createView();
     await view.navigationController.handleNavigationItemClick('log');
 
     expect(MockedLogView).toHaveBeenCalledTimes(1);
     expect(view.navigationState.isOpen).toBe(false);
-    const overlay = document.querySelector('.taskchute-log-modal-overlay');
-    expect(overlay).not.toBeNull();
-    overlay?.remove();
+    const modal = document.querySelector('.taskchute-log-modal');
+    expect(modal).not.toBeNull();
+    modal?.closest('.modal-container')?.remove();
     MockedLogView.mockClear();
   });
 

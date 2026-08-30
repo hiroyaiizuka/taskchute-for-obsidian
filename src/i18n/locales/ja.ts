@@ -839,6 +839,7 @@ export const ja = {
       title: "ログデータの復元",
       cancel: "キャンセル",
       restoreVersion: "このバージョンを復元",
+      selectVersion: "復元するバージョンを選択してください。",
       emptyMessage: "バックアップが見つかりませんでした。",
       emptyHint: "バックアップは設定で指定した間隔で自動的に作成されます。",
       confirmTitle: "復元の確認",

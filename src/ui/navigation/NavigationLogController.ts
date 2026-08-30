@@ -1,9 +1,6 @@
-import type { WorkspaceLeaf } from 'obsidian'
+import { App, Modal, type WorkspaceLeaf } from 'obsidian'
 import type { TaskChutePluginLike } from '../../types'
 import { LogView } from '../../features/log/views/LogView'
-
-const OVERLAY_CLASS = 'taskchute-log-modal-overlay'
-const CONTAINER_CLASS = 'taskchute-log-modal-content'
 
 export interface NavigationLogHost {
   plugin: TaskChutePluginLike
@@ -11,33 +8,38 @@ export interface NavigationLogHost {
   navigationState: { selectedSection: string | null; isOpen: boolean }
 }
 
+/**
+ * Hosts the log view, which draws its own header and stacks its sections
+ * vertically. Sizing comes from `.taskchute-log-modal` rather than Obsidian's
+ * `mod-sidebar-layout`: that modifier lays `.modal-content` out as a flex row,
+ * which is right for a sidebar beside a pane but puts the log's header,
+ * heatmap and detail panel side by side.
+ */
+class LogModal extends Modal {
+  constructor(app: App, private readonly plugin: TaskChutePluginLike) {
+    super(app)
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass('taskchute-modal', 'taskchute-log-modal')
+    const view = new LogView(this.plugin, this.contentEl, () => this.close())
+    void view.render()
+  }
+
+  onClose(): void {
+    this.contentEl.empty()
+  }
+}
+
 export default class NavigationLogController {
+  private modal: LogModal | null = null
+
   constructor(private readonly host: NavigationLogHost) {}
 
   openLogModal(): void {
-    const existing = activeDocument.querySelector(`.${OVERLAY_CLASS}`)
-    existing?.remove()
-
-    const overlay = createDiv()
-    overlay.className = OVERLAY_CLASS
-    const container = createDiv()
-    container.className = CONTAINER_CLASS
-    overlay.appendChild(container)
-
-    const close = () => {
-      overlay.removeEventListener('click', handleOverlay)
-      overlay.remove()
-    }
-    const handleOverlay = (event: MouseEvent) => {
-      if (event.target === overlay) {
-        close()
-      }
-    }
-    overlay.addEventListener('click', handleOverlay)
-    activeDocument.body.appendChild(overlay)
-
-    const logView = new LogView(this.host.plugin, container)
-    void logView.render()
+    this.modal?.close()
+    this.modal = new LogModal(this.host.plugin.app, this.host.plugin)
+    this.modal.open()
     this.host.navigationState.selectedSection = 'log'
   }
 }

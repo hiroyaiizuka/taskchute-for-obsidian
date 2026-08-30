@@ -80,7 +80,7 @@ class ConfirmModal extends Modal {
         contentEl.removeChild(contentEl.firstChild)
       }
     }
-    this.modalEl?.classList.add('taskchute-confirm-modal')
+    this.modalEl?.classList.add('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-confirm-modal')
     if (this.destructive) {
       this.modalEl?.classList.add('taskchute-confirm-modal--destructive')
     }
@@ -141,7 +141,7 @@ class ConfirmModal extends Modal {
         this.contentEl.removeChild(this.contentEl.firstChild)
       }
     }
-    this.modalEl?.classList.remove('taskchute-confirm-modal', 'taskchute-confirm-modal--destructive')
+    this.modalEl?.classList.remove('taskchute-modal', 'taskchute-modal--no-close', 'taskchute-confirm-modal', 'taskchute-confirm-modal--destructive')
   }
 
   private closeWith(result: boolean): void {

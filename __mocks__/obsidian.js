@@ -1,4 +1,22 @@
 // Obsidian API のモック
+
+// The modal and settings primitives come from the shared module so that this
+// mock and the tests that declare their own `jest.mock('obsidian', ...)`
+// factory agree on one behaviour: real jsdom trees matching Obsidian's own
+// markup, a modal that opens on the active window, and a `Setting` whose
+// controls actually land in the container. They keep the `__triggerChange` /
+// `__triggerEvent` / `__click` helpers the settings suites drive them with.
+const {
+  ButtonComponent,
+  DropdownComponent,
+  ExtraButtonComponent,
+  Modal,
+  Setting,
+  TextAreaComponent,
+  TextComponent,
+  ToggleComponent,
+} = require('../tests/setup/obsidian-modal-mock')
+
 const Plugin = jest.fn().mockImplementation(() => ({
   onload: jest.fn(),
   onunload: jest.fn(),
@@ -124,153 +142,6 @@ class SettingGroup {
   }
 }
 
-const SettingInstances = []
-
-class TextComponent {
-  constructor(containerEl) {
-    this.inputEl = createMockElement('input')
-    this.inputElListeners = {}
-    this.inputEl.addEventListener = jest.fn((type, handler) => {
-      if (!this.inputElListeners[type]) {
-        this.inputElListeners[type] = []
-      }
-      this.inputElListeners[type].push(handler)
-      return undefined
-    })
-    this.inputEl.dispatchEvent = jest.fn((event) => {
-      const listeners = this.inputElListeners[event.type] || []
-      listeners.forEach((listener) => listener(event))
-    })
-    this._onChange = null
-    this._onBlur = null
-    this.containerEl = containerEl
-    containerEl?.appendChild?.(this.inputEl)
-  }
-
-  setPlaceholder() {
-    return this
-  }
-
-  setValue(value) {
-    this.inputEl.value = value
-    return this
-  }
-
-  getValue() {
-    return this.inputEl.value
-  }
-
-  onChange(callback) {
-    this._onChange = callback
-    return this
-  }
-
-  async __triggerChange(value) {
-    this.setValue(value)
-    if (this._onChange) {
-      await this._onChange(value)
-    }
-  }
-
-  async __triggerEvent(type) {
-    const listeners = this.inputElListeners[type] || []
-    for (const listener of listeners) {
-      await listener({ type, target: this.inputEl })
-    }
-  }
-}
-
-/**
- * Enough of ButtonComponent for a `render:` callback that builds its own
- * button — the activation form does, because the code field and the button
- * that spends it belong to one row.
- */
-class ButtonComponent {
-  constructor(containerEl) {
-    this.buttonEl = createMockElement('button')
-    this.text = ''
-    this.cta = false
-    this.disabled = false
-    this._onClick = null
-    this.containerEl = containerEl
-    containerEl?.appendChild?.(this.buttonEl)
-  }
-
-  setButtonText(text) {
-    this.text = text
-    this.buttonEl.textContent = text
-    return this
-  }
-
-  setCta() {
-    this.cta = true
-    return this
-  }
-
-  setDisabled(disabled) {
-    this.disabled = disabled
-    return this
-  }
-
-  setTooltip() {
-    return this
-  }
-
-  setIcon(icon) {
-    this.icon = icon
-    return this
-  }
-
-  onClick(callback) {
-    this._onClick = callback
-    return this
-  }
-
-  async __click() {
-    if (this._onClick) {
-      await this._onClick()
-    }
-  }
-}
-
-class ExtraButtonComponent {
-  constructor(containerEl) {
-    this.extraSettingsEl = createMockElement('div')
-    this.icon = null
-    this.tooltip = null
-    this.disabled = false
-    this._onClick = null
-    this.containerEl = containerEl
-    containerEl?.appendChild?.(this.extraSettingsEl)
-  }
-
-  setIcon(icon) {
-    this.icon = icon
-    return this
-  }
-
-  setTooltip(tooltip) {
-    this.tooltip = tooltip
-    return this
-  }
-
-  setDisabled(disabled) {
-    this.disabled = disabled
-    return this
-  }
-
-  onClick(callback) {
-    this._onClick = callback
-    return this
-  }
-
-  async __click() {
-    if (this._onClick) {
-      await this._onClick()
-    }
-  }
-}
-
 class AbstractInputSuggest {
   constructor(app, inputEl) {
     this.app = app
@@ -306,58 +177,6 @@ class AbstractInputSuggest {
 
   renderSuggestion() {}
 }
-
-const Setting = jest.fn().mockImplementation(() => {
-  const settingInstance = {
-    settingEl: createMockElement('div'),
-    nameEl: createMockElement('div'),
-    descEl: createMockElement('div'),
-    controlEl: createMockElement('div'),
-    setName: jest.fn().mockReturnThis(),
-    setDesc: jest.fn().mockReturnThis(),
-    setClass: jest.fn().mockReturnThis(),
-    addToggle: jest.fn().mockReturnThis(),
-    addText: jest.fn().mockImplementation(function (callback) {
-      if (!this.__textComponents) {
-        this.__textComponents = []
-      }
-      const text = new TextComponent(createMockElement('div'))
-      this.__textComponents.push(text)
-      if (typeof callback === 'function') {
-        callback(text)
-      }
-      return this
-    }),
-    addTextArea: jest.fn().mockReturnThis(),
-    addButton: jest.fn().mockImplementation(function (callback) {
-      if (!this.__buttons) {
-        this.__buttons = []
-      }
-      const button = new ButtonComponent(this.controlEl)
-      this.__buttons.push(button)
-      if (typeof callback === 'function') {
-        callback(button)
-      }
-      return this
-    }),
-    addDropdown: jest.fn().mockReturnThis(),
-    addSlider: jest.fn().mockReturnThis(),
-    addExtraButton: jest.fn().mockImplementation(function (callback) {
-      if (!this.__extraButtons) {
-        this.__extraButtons = []
-      }
-      const button = new ExtraButtonComponent(createMockElement('div'))
-      this.__extraButtons.push(button)
-      if (typeof callback === 'function') {
-        callback(button)
-      }
-      return this
-    }),
-  }
-  SettingInstances.push(settingInstance)
-  return settingInstance
-})
-Setting.__instances = SettingInstances
 
 const momentLib = require('moment')
 const moment = (...args) => momentLib(...args)
@@ -514,17 +333,6 @@ const createMockElement = (tag = 'div') => {
     }),
   }
   return element
-}
-
-class Modal {
-  constructor(app) {
-    this.app = app
-    this.titleEl = createMockElement('h1')
-    this.contentEl = createMockElement('div')
-    this.open = jest.fn()
-    this.close = jest.fn()
-    this.setTitle = jest.fn()
-  }
 }
 
 class SuggestModal {

@@ -144,7 +144,7 @@ describe('WorkingDirectorySelectController', () => {
   })
 
   test('anchors the scrollable menu to the input and opens upward inside the modal boundary', () => {
-    const modal = document.body.createDiv({ cls: 'task-modal-content' })
+    const modal = document.body.createDiv({ cls: 'modal' })
     modal.appendChild(container)
     create()
 

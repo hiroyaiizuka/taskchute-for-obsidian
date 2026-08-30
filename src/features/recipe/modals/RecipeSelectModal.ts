@@ -1,8 +1,7 @@
-import { App, Notice } from 'obsidian'
+import { App, Modal, Notice } from 'obsidian'
 import type { TaskInstance } from '../../../types'
 import { Recipe, RecipeService } from '../services/RecipeService'
 import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
-import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import { t } from '../../../i18n'
 import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
 import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
@@ -16,7 +15,7 @@ export interface RecipeSelectModalOptions {
 }
 
 type Mode = 'select' | 'create'
-export class RecipeSelectModal {
+export class RecipeSelectModal extends Modal {
   private recipes: Recipe[] = []
   private mode: Mode = 'select'
   private createInitialTitle = ''
@@ -27,19 +26,16 @@ export class RecipeSelectModal {
   private createEditor: RecipeEditorForm | null = null
   private saveButton: HTMLButtonElement | null = null
   private suggestionsEl: HTMLElement | null = null
-  private modalEl: HTMLDivElement | null = null
-  private contentEl: HTMLDivElement | null = null
-  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
-  private escapeKeyDocument: Document | null = null
-  private previouslyFocusedElement: HTMLElement | null = null
-  private discardConfirmationPending = false
   private activeSuggestionIndex = -1
+  /** Set once the discard prompt has been answered, so `close()` lets go. */
+  private closeConfirmed = false
   private suggestionRecipes: Recipe[] = []
   private readonly dialogTitleId: string
   private readonly searchInputId: string
   private readonly suggestionsId: string
 
-  constructor(private readonly app: App, private readonly options: RecipeSelectModalOptions) {
+  constructor(app: App, private readonly options: RecipeSelectModalOptions) {
+    super(app)
     recipeSelectModalId += 1
     this.dialogTitleId = `taskchute-recipe-select-title-${recipeSelectModalId}`
     this.searchInputId = `taskchute-recipe-select-search-${recipeSelectModalId}`
@@ -47,64 +43,47 @@ export class RecipeSelectModal {
     this.createInitialTitle = this.getTaskTitle()
   }
 
-  open(): void {
-    const modalDocument = activeDocument
-    this.previouslyFocusedElement = this.toFocusableElement(modalDocument.activeElement)
-    this.modalEl = createDiv()
-    this.modalEl.className = 'task-modal-overlay'
-    this.contentEl = this.modalEl.createDiv( {
-      cls: 'task-modal-content routine-edit-modal recipe-modal-content',
-      attr: {
-        role: 'dialog',
-        'aria-modal': 'true',
-        'aria-labelledby': this.dialogTitleId,
-        tabindex: '-1',
-      },
-    })
-    this.modalEl.addEventListener('click', (event) => {
-      if (event.target === this.modalEl) {
-        void this.requestClose()
-      }
-    })
-    modalDocument.body.appendChild(this.modalEl)
-    this.escapeKeyHandler = (event: KeyboardEvent) => {
-      if (this.discardConfirmationPending) return
-      if (event.key === 'Tab') {
-        this.trapFocus(event)
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        void this.requestClose()
-      }
-    }
-    this.escapeKeyDocument = modalDocument
-    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
+  onOpen(): void {
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'recipe-modal-content')
+    // Obsidian does not mark the frame up as a dialog, so keep the roles the
+    // hand-rolled overlay used to carry.
+    this.modalEl.setAttribute('role', 'dialog')
+    this.modalEl.setAttribute('aria-modal', 'true')
+    this.modalEl.setAttribute('aria-labelledby', this.dialogTitleId)
     void this.loadRecipes()
   }
 
+  /**
+   * Escape, the close glyph and a backdrop click all route through `close()`,
+   * so the unsaved-changes prompt has to live here rather than in a hand-rolled
+   * key handler.
+   */
   close(): void {
-    if (this.escapeKeyHandler) {
-      const listenerDocument = this.escapeKeyDocument ?? activeDocument
-      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
-      this.escapeKeyHandler = null
-      this.escapeKeyDocument = null
+    if (this.closeConfirmed || !this.hasUnsavedChanges()) {
+      super.close()
+      return
     }
-    this.modalEl?.remove()
+    void this.confirmDiscardChanges().then((confirmed) => {
+      if (!confirmed) return
+      this.closeConfirmed = true
+      super.close()
+    })
+  }
+
+  /** Close without re-asking: the caller has already settled the edit. */
+  private forceClose(): void {
+    this.closeConfirmed = true
+    this.close()
+  }
+
+  onClose(): void {
     this.hideSuggestions()
-    this.modalEl = null
-    this.contentEl = null
     this.inlineEditor = null
     this.createEditor = null
-    const focusTarget = this.previouslyFocusedElement
-    this.previouslyFocusedElement = null
-    if (focusTarget?.isConnected) {
-      focusTarget.focus()
-    }
+    this.contentEl.empty()
   }
 
   private render(): void {
-    if (!this.contentEl) return
     this.inlineEditor = null
     this.createEditor = null
     this.saveButton = null
@@ -123,7 +102,7 @@ export class RecipeSelectModal {
 
   private renderSelect(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.select.title', 'レシピを設定'), true)
+    this.renderHeader(t('recipes.select.title', 'レシピを設定'))
 
     if (this.recipes.length > 0) {
       const titleGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-name-group' })
@@ -238,7 +217,7 @@ export class RecipeSelectModal {
 
   private renderCreate(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.manager.createTitle', 'レシピ新規作成'), true)
+    this.renderHeader(t('recipes.manager.createTitle', 'レシピ新規作成'))
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
     this.createEditor = new RecipeEditorForm(form, { title: this.createInitialTitle })
@@ -295,7 +274,7 @@ export class RecipeSelectModal {
       text: t('recipes.manager.saveButton', '保存'),
       attr: { type: 'button' },
     })
-    cancelButton.addEventListener('click', () => void this.requestClose())
+    cancelButton.addEventListener('click', () => this.close())
     this.saveButton.addEventListener('click', () => {
       const recipe = this.resolveRecipeForSave()
       const title = this.searchInput?.value.trim() ?? ''
@@ -369,21 +348,9 @@ export class RecipeSelectModal {
     return this.recipes.find((recipe) => recipe.title.trim().toLowerCase() === title)
   }
 
-  private renderHeader(title: string, showClose: boolean): void {
-    const header = this.contentEl?.createDiv( { cls: 'modal-header recipe-modal-header' })
-    if (!header) return
-    header.createEl('h3', { text: title, attr: { id: this.dialogTitleId } })
-    if (!showClose) return
-    const closeButton = header.createEl('button', {
-      cls: 'modal-close-button',
-      attr: {
-        type: 'button',
-        title: t('common.close', '閉じる'),
-        'aria-label': t('common.close', '閉じる'),
-      },
-    })
-    attachCloseButtonIcon(closeButton)
-    closeButton.addEventListener('click', () => void this.requestClose())
+  private renderHeader(title: string): void {
+    this.setTitle(title)
+    this.titleEl.id = this.dialogTitleId
   }
 
   private handleSearchKeydown(event: KeyboardEvent): void {
@@ -450,16 +417,7 @@ export class RecipeSelectModal {
       this.render()
       return
     }
-    this.close()
-  }
-
-  private async requestClose(): Promise<void> {
-    if (!this.hasUnsavedChanges()) {
-      this.close()
-      return
-    }
-    const confirmed = await this.confirmDiscardChanges()
-    if (confirmed) this.close()
+    this.forceClose()
   }
 
   private hasUnsavedChanges(): boolean {
@@ -470,66 +428,28 @@ export class RecipeSelectModal {
     return this.inlineEditor?.isDirty(this.searchInput?.value ?? '') ?? false
   }
 
-  private async confirmDiscardChanges(): Promise<boolean> {
-    if (this.discardConfirmationPending) return false
-    this.discardConfirmationPending = true
-    try {
-      return await showConfirmModal(this.app, {
-        title: t('recipes.manager.discardTitle', '未保存の変更'),
-        message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
-        confirmText: t('recipes.manager.discardButton', '破棄'),
-        cancelText: t('common.cancel', 'キャンセル'),
-        destructive: true,
-      })
-    } finally {
-      this.discardConfirmationPending = false
-    }
+  private confirmDiscardChanges(): Promise<boolean> {
+    return showConfirmModal(this.app, {
+      title: t('recipes.manager.discardTitle', '未保存の変更'),
+      message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
+      confirmText: t('recipes.manager.discardButton', '破棄'),
+      cancelText: t('common.cancel', 'キャンセル'),
+      destructive: true,
+    })
   }
 
-  private trapFocus(event: KeyboardEvent): void {
-    if (!this.contentEl) return
-    const focusable = this.getFocusableElements()
-    if (focusable.length === 0) {
-      event.preventDefault()
-      this.contentEl.focus()
-      return
-    }
-    const active = this.contentEl.ownerDocument.activeElement
-    const currentIndex = focusable.indexOf(active as HTMLElement)
-    const atBoundary = currentIndex < 0
-      || (event.shiftKey && currentIndex === 0)
-      || (!event.shiftKey && currentIndex === focusable.length - 1)
-    if (!atBoundary) return
-    event.preventDefault()
-    const next = event.shiftKey ? focusable[focusable.length - 1] : focusable[0]
-    next?.focus()
-  }
-
-  private getFocusableElements(): HTMLElement[] {
-    if (!this.contentEl) return []
-    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    )).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
-  }
-
+  /** Obsidian traps Tab within the modal; only the initial focus is ours. */
   private focusInitialElement(): void {
-    if (!this.contentEl?.isConnected) return
+    if (!this.contentEl.isConnected) return
     if (this.mode === 'create' && this.createEditor) {
       this.createEditor.focus()
       return
     }
-    const preferred = this.contentEl.querySelector<HTMLElement>('.recipe-search-input')
-    ;(preferred ?? this.getFocusableElements()[0])?.focus()
+    this.contentEl.querySelector<HTMLElement>('.recipe-search-input')?.focus()
   }
 
   private getTaskTitle(): string {
     return this.options.instance.task.displayTitle ?? this.options.instance.task.name ?? ''
-  }
-
-  private toFocusableElement(element: Element | null): HTMLElement | null {
-    return element && typeof (element as HTMLElement).focus === 'function'
-      ? element as HTMLElement
-      : null
   }
 
   private async loadRecipes(): Promise<void> {
@@ -543,7 +463,7 @@ export class RecipeSelectModal {
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to load recipes', error)
       new Notice(t('recipes.select.notices.loadFailed', 'レシピ一覧の読み込みに失敗しました'))
-      this.close()
+      this.forceClose()
     }
   }
 
@@ -556,7 +476,7 @@ export class RecipeSelectModal {
       return false
     }
 
-    this.close()
+    this.forceClose()
     try {
       await this.options.onAssigned()
     } catch (error) {
@@ -574,7 +494,7 @@ export class RecipeSelectModal {
       return
     }
 
-    this.close()
+    this.forceClose()
     try {
       await this.options.onAssigned()
     } catch (error) {

@@ -1,8 +1,7 @@
-import { App, Notice } from 'obsidian'
+import { App, Modal, Notice } from 'obsidian'
 import type { TaskChutePluginLike } from '../../../types'
 import { Recipe, RecipeService, normalizeRecipeReference } from '../services/RecipeService'
 import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
-import { attachCloseButtonIcon } from '../../../ui/components/iconUtils'
 import { t } from '../../../i18n'
 import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
 import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
@@ -11,170 +10,69 @@ let recipeManagerModalId = 0
 
 type Mode = 'list' | 'edit'
 
-class RecipeDeleteConfirmModal {
-  private resolver: ((result: boolean) => void) | null = null
-  private overlayEl: HTMLDivElement | null = null
-  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
-  private escapeKeyDocument: Document | null = null
-
-  constructor(
-    private readonly recipe: Recipe,
-  ) {}
-
-  openAndWait(): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.resolver = resolve
-      this.render()
-    })
-  }
-
-  private render(): void {
-    const modalDocument = activeDocument
-    this.overlayEl = createDiv()
-    this.overlayEl.className = 'task-modal-overlay recipe-delete-confirm-overlay'
-    const contentEl = this.overlayEl.createDiv( { cls: 'task-modal-content recipe-delete-confirm-modal' })
-    const body = contentEl.createDiv( { cls: 'routine-confirm' })
-    body.createEl('h3', { text: t('routineManager.confirm.heading', '確認') })
-    body.createEl('p', {
-      text: t('recipes.manager.deleteConfirmTitle', '「{title}」を削除しますか？', { title: this.recipe.title }),
-    })
-    body.createEl('p', { text: t('recipes.manager.deleteConfirmMessage', '紐付いているタスクからも解除されます。') })
-
-    const buttonRow = body.createDiv( { cls: 'routine-confirm__buttons' })
-    const deleteButton = buttonRow.createEl('button', {
-      text: t('common.delete', '削除'),
-      cls: 'routine-confirm__button mod-danger',
-      attr: { type: 'button' },
-    })
-    const cancelButton = buttonRow.createEl('button', {
-      text: t('common.cancel', 'キャンセル'),
-      cls: 'routine-confirm__button',
-      attr: { type: 'button' },
-    })
-
-    deleteButton.addEventListener('click', () => {
-      this.closeWith(true)
-    })
-    cancelButton.addEventListener('click', () => {
-      this.closeWith(false)
-    })
-
-    this.overlayEl.addEventListener('click', (event) => {
-      if (event.target === this.overlayEl) {
-        this.closeWith(false)
-      }
-    })
-    this.escapeKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        this.closeWith(false)
-      }
-    }
-    this.escapeKeyDocument = modalDocument
-    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
-    modalDocument.body.appendChild(this.overlayEl)
-    deleteButton.focus()
-  }
-
-  private closeWith(result: boolean): void {
-    if (this.escapeKeyHandler) {
-      const listenerDocument = this.escapeKeyDocument ?? activeDocument
-      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
-      this.escapeKeyHandler = null
-      this.escapeKeyDocument = null
-    }
-    this.overlayEl?.remove()
-    this.overlayEl = null
-    if (!this.resolver) return
-    const resolve = this.resolver
-    this.resolver = null
-    resolve(result)
-  }
-}
-
 export interface RecipeManagerModalOptions {
   initialRecipePath?: string
   onRecipesChanged?: () => Promise<void> | void
 }
 
-export default class RecipeManagerModal {
+export default class RecipeManagerModal extends Modal {
   private readonly service: RecipeService
   private recipes: Recipe[] = []
   private mode: Mode = 'list'
   private editing: Recipe | null = null
   private searchQuery = ''
-  private modalEl: HTMLDivElement | null = null
-  private contentEl: HTMLDivElement | null = null
-  private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
-  private escapeKeyDocument: Document | null = null
   private pendingInitialRecipePath: string | undefined
   private directEditFromRecipePath = false
   private activeEditor: RecipeEditorForm | null = null
-  private previouslyFocusedElement: HTMLElement | null = null
-  private discardConfirmationPending = false
   private readonly dialogTitleId: string
+  /** Set once the discard prompt has been answered, so `close()` lets go. */
+  private closeConfirmed = false
 
-  constructor(private readonly app: App, plugin: TaskChutePluginLike, private readonly options: RecipeManagerModalOptions = {}) {
+  constructor(app: App, plugin: TaskChutePluginLike, private readonly options: RecipeManagerModalOptions = {}) {
+    super(app)
     recipeManagerModalId += 1
     this.dialogTitleId = `taskchute-recipe-manager-title-${recipeManagerModalId}`
     this.service = new RecipeService(plugin)
     this.pendingInitialRecipePath = options.initialRecipePath
   }
 
-  open(): void {
-    const modalDocument = activeDocument
-    this.previouslyFocusedElement = this.toFocusableElement(modalDocument.activeElement)
-    this.modalEl = createDiv()
-    this.modalEl.className = 'task-modal-overlay'
-    this.contentEl = this.modalEl.createDiv( {
-      cls: 'task-modal-content routine-edit-modal recipe-modal-content',
-      attr: {
-        role: 'dialog',
-        'aria-modal': 'true',
-        'aria-labelledby': this.dialogTitleId,
-        tabindex: '-1',
-      },
-    })
-    this.modalEl.addEventListener('click', (event) => {
-      if (event.target === this.modalEl) {
-        void this.requestClose()
-      }
-    })
-    modalDocument.body.appendChild(this.modalEl)
-    this.escapeKeyHandler = (event: KeyboardEvent) => {
-      if (this.discardConfirmationPending) return
-      if (event.key === 'Tab') {
-        this.trapFocus(event)
-        return
-      }
-      if (event.key === 'Escape') {
-        if (modalDocument.querySelector('.recipe-delete-confirm-overlay')) {
-          return
-        }
-        event.preventDefault()
-        void this.requestClose()
-      }
-    }
-    this.escapeKeyDocument = modalDocument
-    modalDocument.addEventListener('keydown', this.escapeKeyHandler)
+  onOpen(): void {
+    this.modalEl.addClass('taskchute-modal', 'recipe-modal-content')
+    // Obsidian does not mark the frame up as a dialog, so keep the roles the
+    // hand-rolled overlay used to carry.
+    this.modalEl.setAttribute('role', 'dialog')
+    this.modalEl.setAttribute('aria-modal', 'true')
+    this.modalEl.setAttribute('aria-labelledby', this.dialogTitleId)
     void this.reload()
   }
 
+  /**
+   * Escape, the close glyph and a backdrop click all route through `close()`,
+   * so guarding it here is what keeps an in-progress edit from being discarded
+   * silently. Obsidian's `setCloseCallback` fires after the fact and cannot
+   * hold the dialog open, which is why this overrides `close()` instead.
+   */
   close(): void {
-    if (this.escapeKeyHandler) {
-      const listenerDocument = this.escapeKeyDocument ?? activeDocument
-      listenerDocument.removeEventListener('keydown', this.escapeKeyHandler)
-      this.escapeKeyHandler = null
-      this.escapeKeyDocument = null
+    if (this.closeConfirmed || !this.activeEditor?.isDirty()) {
+      super.close()
+      return
     }
-    this.modalEl?.remove()
-    this.modalEl = null
-    this.contentEl = null
+    void this.confirmDiscardChanges().then((confirmed) => {
+      if (!confirmed) return
+      this.closeConfirmed = true
+      super.close()
+    })
+  }
+
+  /** Close without re-asking: the caller has already settled the edit. */
+  private forceClose(): void {
+    this.closeConfirmed = true
+    this.close()
+  }
+
+  onClose(): void {
     this.activeEditor = null
-    const focusTarget = this.previouslyFocusedElement
-    this.previouslyFocusedElement = null
-    if (focusTarget?.isConnected) {
-      focusTarget.focus()
-    }
+    this.contentEl.empty()
   }
 
   private async reload(): Promise<void> {
@@ -199,8 +97,7 @@ export default class RecipeManagerModal {
   }
 
   private render(): void {
-    if (!this.contentEl) return
-    this.activeEditor = null
+        this.activeEditor = null
     this.contentEl.empty()
     if (this.mode === 'edit') {
       this.renderEdit()
@@ -213,7 +110,7 @@ export default class RecipeManagerModal {
 
   private renderList(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.manager.listTitle', 'レシピ一覧'), true)
+    this.renderHeader(t('recipes.manager.listTitle', 'レシピ一覧'))
 
     if (this.recipes.length > 0) {
       const toolbar = this.contentEl.createDiv( { cls: 'recipe-list-toolbar' })
@@ -340,7 +237,6 @@ export default class RecipeManagerModal {
 
     this.renderHeader(
       recipe ? t('recipes.manager.editTitle', 'レシピ編集') : t('recipes.manager.createTitle', 'レシピ新規作成'),
-      true,
     )
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
@@ -378,30 +274,9 @@ export default class RecipeManagerModal {
     })
   }
 
-  private renderHeader(title: string, showClose: boolean): void {
-    const header = this.contentEl?.createDiv( { cls: 'modal-header recipe-modal-header' })
-    if (!header) return
-    header.createEl('h3', { text: title, attr: { id: this.dialogTitleId } })
-    if (!showClose) return
-    const closeButton = header.createEl('button', {
-      cls: 'modal-close-button',
-      attr: {
-        type: 'button',
-        title: t('common.close', '閉じる'),
-        'aria-label': t('common.close', '閉じる'),
-      },
-    })
-    attachCloseButtonIcon(closeButton)
-    closeButton.addEventListener('click', () => void this.requestClose())
-  }
-
-  private async requestClose(): Promise<void> {
-    if (!this.activeEditor?.isDirty()) {
-      this.close()
-      return
-    }
-    const confirmed = await this.confirmDiscardChanges()
-    if (confirmed) this.close()
+  private renderHeader(title: string): void {
+    this.setTitle(title)
+    this.titleEl.id = this.dialogTitleId
   }
 
   private async requestLeaveEdit(): Promise<void> {
@@ -410,7 +285,7 @@ export default class RecipeManagerModal {
       if (!confirmed) return
     }
     if (this.directEditFromRecipePath) {
-      this.close()
+      this.forceClose()
       return
     }
     this.mode = 'list'
@@ -418,62 +293,24 @@ export default class RecipeManagerModal {
     this.render()
   }
 
-  private async confirmDiscardChanges(): Promise<boolean> {
-    if (this.discardConfirmationPending) return false
-    this.discardConfirmationPending = true
-    try {
-      return await showConfirmModal(this.app, {
-        title: t('recipes.manager.discardTitle', '未保存の変更'),
-        message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
-        confirmText: t('recipes.manager.discardButton', '破棄'),
-        cancelText: t('common.cancel', 'キャンセル'),
-        destructive: true,
-      })
-    } finally {
-      this.discardConfirmationPending = false
-    }
+  private confirmDiscardChanges(): Promise<boolean> {
+    return showConfirmModal(this.app, {
+      title: t('recipes.manager.discardTitle', '未保存の変更'),
+      message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
+      confirmText: t('recipes.manager.discardButton', '破棄'),
+      cancelText: t('common.cancel', 'キャンセル'),
+      destructive: true,
+    })
   }
 
-  private trapFocus(event: KeyboardEvent): void {
-    if (!this.contentEl) return
-    const focusable = this.getFocusableElements()
-    if (focusable.length === 0) {
-      event.preventDefault()
-      this.contentEl.focus()
-      return
-    }
-    const active = this.contentEl.ownerDocument.activeElement
-    const currentIndex = focusable.indexOf(active as HTMLElement)
-    const targetIndex = event.shiftKey
-      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-      : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1)
-    if (currentIndex < 0 || (event.shiftKey && currentIndex === 0) || (!event.shiftKey && currentIndex === focusable.length - 1)) {
-      event.preventDefault()
-      focusable[targetIndex]?.focus()
-    }
-  }
-
-  private getFocusableElements(): HTMLElement[] {
-    if (!this.contentEl) return []
-    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    )).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
-  }
-
+  /** Obsidian traps Tab within the modal; only the initial focus is ours. */
   private focusInitialElement(): void {
-    if (!this.contentEl?.isConnected) return
+    if (!this.contentEl.isConnected) return
     if (this.mode === 'edit' && this.activeEditor) {
       this.activeEditor.focus()
       return
     }
-    const preferred = this.contentEl.querySelector<HTMLElement>('.recipe-search-input')
-    ;(preferred ?? this.getFocusableElements()[0])?.focus()
-  }
-
-  private toFocusableElement(element: Element | null): HTMLElement | null {
-    return element && typeof (element as HTMLElement).focus === 'function'
-      ? element as HTMLElement
-      : null
+    this.contentEl.querySelector<HTMLElement>('.recipe-search-input')?.focus()
   }
 
   private appendOpenSourceIcon(container: HTMLElement): void {
@@ -524,7 +361,7 @@ export default class RecipeManagerModal {
   private async openRecipeSource(path: string): Promise<void> {
     try {
       await this.app.workspace.openLinkText(path, '', false)
-      this.close()
+      this.forceClose()
     } catch (error) {
       console.error('[RecipeManagerModal] Failed to open recipe source', error)
       new Notice(t('recipes.manager.notices.openSourceFailed', 'レシピ原本を開けませんでした'))
@@ -568,7 +405,19 @@ export default class RecipeManagerModal {
   }
 
   private async confirmDeleteRecipe(recipe: Recipe): Promise<void> {
-    const confirmed = await new RecipeDeleteConfirmModal(recipe).openAndWait()
+    const confirmed = await showConfirmModal(this.app, {
+      title: t('routineManager.confirm.heading', '確認'),
+      message: t('recipes.manager.deleteConfirmTitle', '「{title}」を削除しますか？', {
+        title: recipe.title,
+      }),
+      description: t(
+        'recipes.manager.deleteConfirmMessage',
+        '紐付いているタスクからも解除されます。',
+      ),
+      confirmText: t('common.delete', '削除'),
+      cancelText: t('common.cancel', 'キャンセル'),
+      destructive: true,
+    })
     if (!confirmed) return
     await this.deleteCurrentRecipe(recipe)
   }

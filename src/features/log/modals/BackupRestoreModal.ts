@@ -30,6 +30,7 @@ export class BackupRestoreModal extends Modal {
   private selectedEntry: BackupEntry | null = null
   private restoreButton: HTMLButtonElement | null = null
   private listContainer: HTMLElement | null = null
+  private messageEl: HTMLElement | null = null
 
   constructor(
     app: App,
@@ -41,10 +42,9 @@ export class BackupRestoreModal extends Modal {
   }
 
   onOpen(): void {
-    this.modalEl.addClass('backup-restore-modal')
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'backup-restore-modal')
     this.contentEl.empty()
 
-    // Header with title and action buttons
     this.renderHeader()
 
     if (this.backups.size === 0) {
@@ -52,6 +52,10 @@ export class BackupRestoreModal extends Modal {
     } else {
       this.renderContent()
     }
+
+    // The buttons close the dialog and act on the list above them, so they sit
+    // at the bottom like every other dialog rather than beside the title.
+    this.renderFooter()
   }
 
   onClose(): void {
@@ -62,27 +66,48 @@ export class BackupRestoreModal extends Modal {
     const header = this.contentEl.createDiv( { cls: 'backup-restore-header' })
 
     header.createEl('h2', { text: this.tv('title', 'Restore log data'), cls: 'backup-restore-title' })
+  }
 
-    const actions = header.createDiv( { cls: 'backup-restore-actions' })
+  private renderFooter(): void {
+    const footer = this.contentEl.createDiv( { cls: 'backup-restore-footer' })
 
-    // Cancel button
-    const cancelButton = actions.createEl('button', {
+    this.messageEl = footer.createDiv( {
+      cls: 'backup-restore-message',
+      attr: { role: 'alert', 'aria-live': 'polite' },
+    })
+
+    const buttonGroup = footer.createDiv( { cls: 'form-button-group' })
+
+    const cancelButton = buttonGroup.createEl('button', {
       text: this.tv('cancel', 'Cancel'),
-      cls: 'backup-cancel-button',
+      cls: 'form-button cancel backup-cancel-button',
+      attr: { type: 'button' },
     })
     cancelButton.addEventListener('click', () => {
       this.close()
     })
 
-    // Restore button
-    this.restoreButton = actions.createEl('button', {
+    // Restoring without a selection used to be blocked by a disabled button,
+    // which said nothing about what was missing. It stays clickable and answers
+    // instead.
+    this.restoreButton = buttonGroup.createEl('button', {
       text: this.tv('restoreVersion', 'Restore this version'),
-      cls: 'backup-restore-button',
+      cls: 'form-button create backup-restore-button',
+      attr: { type: 'button' },
     })
-    this.restoreButton.disabled = true
     this.restoreButton.addEventListener('click', () => {
+      if (!this.selectedEntry) {
+        this.setMessage(this.tv('selectVersion', 'Select the version you want to restore.'))
+        return
+      }
       void this.showConfirmation()
     })
+  }
+
+  private setMessage(message: string): void {
+    if (!this.messageEl) return
+    this.messageEl.textContent = message
+    this.messageEl.classList.toggle('is-visible', message.length > 0)
   }
 
   private renderEmptyState(): void {
@@ -144,11 +169,7 @@ export class BackupRestoreModal extends Modal {
     // Select current
     entryEl.addClass('selected')
     this.selectedEntry = entry
-
-    // Enable restore button
-    if (this.restoreButton) {
-      this.restoreButton.disabled = false
-    }
+    this.setMessage('')
   }
 
   private async showConfirmation(): Promise<void> {
@@ -224,7 +245,7 @@ class BackupConfirmModal extends Modal {
   }
 
   onOpen(): void {
-    this.modalEl.addClass('backup-confirm-modal')
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'backup-confirm-modal')
     this.contentEl.empty()
 
     // Header
@@ -252,11 +273,12 @@ class BackupConfirmModal extends Modal {
     this.renderPreview()
 
     // Buttons
-    const buttonGroup = this.contentEl.createDiv( { cls: 'backup-confirm-buttons' })
+    const buttonGroup = this.contentEl.createDiv( { cls: 'form-button-group backup-confirm-buttons' })
 
     const cancelButton = buttonGroup.createEl('button', {
       text: this.tv('confirmCancel', 'Cancel'),
-      cls: 'backup-cancel-button',
+      cls: 'form-button cancel backup-cancel-button',
+      attr: { type: 'button' },
     })
     cancelButton.addEventListener('click', () => {
       this.safeResolve(false)
@@ -265,7 +287,8 @@ class BackupConfirmModal extends Modal {
 
     const confirmButton = buttonGroup.createEl('button', {
       text: this.tv('confirmRestore', 'Restore'),
-      cls: 'backup-confirm-button',
+      cls: 'form-button danger backup-confirm-button',
+      attr: { type: 'button' },
     })
     confirmButton.addEventListener('click', () => {
       this.safeResolve(true)

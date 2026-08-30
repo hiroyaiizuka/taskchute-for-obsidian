@@ -278,6 +278,7 @@ export class ProjectBoardView extends ItemView {
       submitText: submitLabel,
       cancelText: t('common.cancel', 'Cancel'),
       closeLabel: this.translate('common.close', 'Close'),
+      app: this.app,
     })
 
     const { form, input, submitButton, close } = modal

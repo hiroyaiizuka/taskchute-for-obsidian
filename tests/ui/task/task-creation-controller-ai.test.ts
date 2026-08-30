@@ -215,7 +215,7 @@ function makeRecipe(path = 'TaskChute/Recipes/Publish.md'): Recipe {
 function openModal(host: TaskCreationControllerHost): HTMLElement {
   const controller = new TaskCreationController(host)
   controller.showAddTaskModal()
-  const modal = document.querySelector<HTMLElement>('.task-modal-overlay')
+  const modal = document.querySelector<HTMLElement>('.modal-container')
   if (!modal) throw new Error('modal did not open')
   return modal
 }
@@ -226,7 +226,7 @@ async function openEditModal(
 ): Promise<HTMLElement> {
   const controller = new TaskCreationController(host)
   await controller.showEditAiTaskModal(inst)
-  const modal = document.querySelector<HTMLElement>('.task-modal-overlay')
+  const modal = document.querySelector<HTMLElement>('.modal-container')
   if (!modal) throw new Error('edit modal did not open')
   return modal
 }
@@ -567,7 +567,7 @@ describe('AI task edit modal', () => {
     expect(host.reloadTasksAndRestore).toHaveBeenCalledWith({
       runBoundaryCheck: true,
     })
-    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+    expect(document.querySelector('.modal-container')).toBeNull()
   })
 
   test('keeps the edit modal open when saving fails', async () => {
@@ -1178,7 +1178,7 @@ describe('AI mode submission', () => {
         },
       }),
     )
-    expect(document.querySelector('.task-modal-overlay')).toBeNull()
+    expect(document.querySelector('.modal-container')).toBeNull()
   })
 
   test('an invalid model id contributes no token to the submitted args', async () => {

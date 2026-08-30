@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian'
+import { Modal, setIcon, type App } from 'obsidian'
 import type {
   AiCustomModel,
   AiCustomModelMutationError,
@@ -31,7 +31,7 @@ export interface AiCustomModelModalLabels {
 }
 
 export interface AiCustomModelModalOptions {
-  doc?: Document
+  app: App
   host: AiTaskHost
   store: AiCustomModelStore
   editModel?: AiCustomModel
@@ -72,10 +72,9 @@ let modalSequence = 0
  * Model IDs are editable only while adding. Editing intentionally keeps the
  * ID fixed because task notes persist the literal CLI model ID.
  */
-export class AiCustomModelModal {
+export class AiCustomModelModal extends Modal {
   private readonly doc: Document
   private readonly labels: AiCustomModelModalLabels
-  private overlay: HTMLElement | null = null
   private idInput: HTMLInputElement | null = null
   private nameInput: HTMLInputElement | null = null
   private descriptionInput: HTMLTextAreaElement | null = null
@@ -83,48 +82,24 @@ export class AiCustomModelModal {
   private previewValue: HTMLElement | null = null
 
   constructor(private readonly options: AiCustomModelModalOptions) {
-    this.doc = options.doc ?? document
+    super(options.app)
+    this.doc = this.contentEl.doc
     this.labels = { ...DEFAULT_LABELS, ...options.labels }
   }
 
-  open(): void {
-    if (this.overlay) return
-
+  onOpen(): void {
     const editing = this.options.editModel !== undefined
     const sequence = modalSequence += 1
     const titleId = `ai-custom-model-modal-title-${sequence}`
 
-    const overlay = this.doc.win.createDiv()
-    overlay.className = 'ai-custom-model-modal'
-    overlay.addEventListener('mousedown', this.handleBackdropMouseDown)
+    this.modalEl.addClass('taskchute-modal', 'taskchute-modal--no-close', 'ai-custom-model-modal')
+    this.modalEl.setAttribute('role', 'dialog')
+    this.modalEl.setAttribute('aria-modal', 'true')
+    this.modalEl.setAttribute('aria-labelledby', titleId)
+    this.setTitle(editing ? this.labels.editTitle : this.labels.addTitle)
+    this.titleEl.id = titleId
 
-    const content = this.doc.win.createEl('section')
-    content.className = 'ai-custom-model-modal__content'
-    content.setAttribute('role', 'dialog')
-    content.setAttribute('aria-modal', 'true')
-    content.setAttribute('aria-labelledby', titleId)
-    overlay.appendChild(content)
-
-    const header = this.doc.win.createEl('header')
-    header.className = 'ai-custom-model-modal__header'
-    const titleWrap = this.doc.win.createDiv()
-    titleWrap.className = 'ai-custom-model-modal__title-wrap'
-    const titleIcon = this.doc.win.createSpan()
-    titleIcon.className = 'ai-custom-model-modal__title-icon'
-    setIcon(titleIcon, editing ? 'pencil' : 'plus')
-    const title = this.doc.win.createEl('h2')
-    title.id = titleId
-    title.className = 'ai-custom-model-modal__title'
-    title.textContent = editing ? this.labels.editTitle : this.labels.addTitle
-    titleWrap.append(titleIcon, title)
-    const closeButton = this.iconButton(
-      'ai-custom-model-modal__close',
-      this.labels.close,
-      'x',
-    )
-    closeButton.addEventListener('click', () => this.close())
-    header.append(titleWrap, closeButton)
-    content.appendChild(header)
+    const content = this.contentEl
 
     const agent = this.doc.win.createDiv()
     agent.className = 'ai-custom-model-modal__agent'
@@ -223,40 +198,23 @@ export class AiCustomModelModal {
     form.appendChild(actions)
     content.appendChild(form)
 
-    this.overlay = overlay
     this.idInput = idInput
     this.nameInput = nameInput
     this.descriptionInput = descriptionInput
     this.errorElement = error
     this.previewValue = previewValue
     this.updatePreview()
-    this.doc.body.appendChild(overlay)
-    this.doc.addEventListener('keydown', this.handleKeyDown)
     ;(editing ? nameInput : idInput).focus()
   }
 
-  close(): void {
-    if (!this.overlay) return
-    this.doc.removeEventListener('keydown', this.handleKeyDown)
-    this.overlay.removeEventListener('mousedown', this.handleBackdropMouseDown)
-    this.overlay.remove()
-    this.overlay = null
+  onClose(): void {
     this.idInput = null
     this.nameInput = null
     this.descriptionInput = null
     this.errorElement = null
     this.previewValue = null
+    this.contentEl.empty()
     this.options.onClosed?.()
-  }
-
-  private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape') return
-    event.preventDefault()
-    this.close()
-  }
-
-  private readonly handleBackdropMouseDown = (event: MouseEvent): void => {
-    if (event.target === this.overlay) this.close()
   }
 
   private readonly handleIdInput = (): void => {

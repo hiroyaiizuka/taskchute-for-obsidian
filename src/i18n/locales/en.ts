@@ -841,6 +841,7 @@ export const en = {
       title: "Restore log data",
       cancel: "Cancel",
       restoreVersion: "Restore this version",
+      selectVersion: "Select the version you want to restore.",
       emptyMessage: "No backups found.",
       emptyHint: "Backups are created automatically at the interval specified in settings.",
       confirmTitle: "Confirm restore",
