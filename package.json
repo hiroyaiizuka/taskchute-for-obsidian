@@ -14,14 +14,11 @@
     "test:coverage": "jest --coverage",
     "prepare": "husky",
     "lint": "eslint --config eslint.config.mjs \"src/**/*.{ts,tsx,js}\" \"tests/**/*.{ts,tsx,js}\"",
+    "lint:staged": "node scripts/lint-staged.mjs",
     "review:obsidian": "node scripts/obsidian-review.mjs"
   },
   "engines": {
     "node": ">=22.22.1"
-  },
-  "lint-staged": {
-    "src/**/*.{ts,tsx,js}": "eslint --config eslint.config.mjs --no-warn-ignored",
-    "tests/**/*.{ts,tsx,js}": "eslint --config eslint.config.mjs --no-warn-ignored"
   },
   "devDependencies": {
     "@codemirror/lang-markdown": "^6.5.0",
@@ -44,7 +41,6 @@
     "husky": "^9.1.7",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "lint-staged": "^17.3.0",
     "moment": "^2.30.1",
     "obsidian": "^1.13.1",
     "ts-jest": "^29.4.4",

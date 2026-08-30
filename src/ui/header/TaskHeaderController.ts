@@ -271,6 +271,7 @@ export default class TaskHeaderController {
       !this.host.setAiTaskBoardView
     ) {
       this.boardViewSwitchEl?.remove()
+      this.markBoardViewSwitchPresence(actionSection, false)
       return
     }
 
@@ -287,7 +288,25 @@ export default class TaskHeaderController {
     ) {
       actionSection.insertBefore(group, addTaskButton)
     }
+    this.markBoardViewSwitchPresence(actionSection, true)
     this.refreshBoardViewActiveState()
+  }
+
+  /**
+   * The narrow-width header layout has to know whether the switch is on screen.
+   * A `:has()` selector would say so declaratively, but Obsidian's plugin
+   * review rejects it, so the state is published as a class on both elements
+   * the layout rules select.
+   */
+  private markBoardViewSwitchPresence(
+    actionSection: HTMLElement,
+    present: boolean,
+  ): void {
+    actionSection.classList.toggle('has-board-view-switch', present)
+    actionSection.parentElement?.classList.toggle(
+      'has-board-view-switch',
+      present,
+    )
   }
 
   /** Build the segmented control and register its handlers exactly once */

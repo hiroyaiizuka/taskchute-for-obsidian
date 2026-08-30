@@ -78,15 +78,12 @@ export class ReminderIconRenderer {
     tag: string,
     options?: { cls?: string; text?: string; attr?: Record<string, string> }
   ): HTMLElement {
-    const maybeCreateEl = (
-      parent as HTMLElement & {
-        createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement;
-      }
-    ).createEl;
+    const host = parent as HTMLElement & {
+      createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement;
+    };
 
-    if (typeof maybeCreateEl === 'function') {
-      const result: HTMLElement = maybeCreateEl.call(parent, tag, options as Record<string, unknown> | undefined) as HTMLElement;
-      return result;
+    if (typeof host.createEl === 'function') {
+      return host.createEl(tag, options);
     }
 
     // Fallback for non-Obsidian environments
@@ -117,15 +114,12 @@ export class ReminderIconRenderer {
     tag: string,
     options?: { cls?: string; attr?: Record<string, string> }
   ): SVGElement {
-    const maybeCreateSvg = (
-      parent as (HTMLElement | SVGElement) & {
-        createSvg?: (tagName: string, options?: Record<string, unknown>) => SVGElement;
-      }
-    ).createSvg;
+    const host = parent as (HTMLElement | SVGElement) & {
+      createSvg?: (tagName: string, options?: Record<string, unknown>) => SVGElement;
+    };
 
-    if (typeof maybeCreateSvg === 'function') {
-      const result: SVGElement = maybeCreateSvg.call(parent, tag, options as Record<string, unknown> | undefined) as SVGElement;
-      return result;
+    if (typeof host.createSvg === 'function') {
+      return host.createSvg(tag, options);
     }
 
     // Fallback for non-Obsidian environments

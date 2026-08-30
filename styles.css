@@ -2844,9 +2844,12 @@ body.is-phone {
 /* Obsidian leaf splits do not change the viewport width, so use the view
    container instead of a media query. At narrow widths the right-side switch
    and add action stay together on a second row while the drawer returns to
-   its original top-left position. */
+   its original top-left position. The `has-board-view-switch` marker class is
+   toggled by TaskHeaderController: `:has()` would express the same thing, but
+   Obsidian's plugin review flags it for the invalidation cost it puts on every
+   ancestor of the switch. */
 @container taskchute-view (max-width: 680px) {
-  .top-bar-container:has(> .header-action-section > .ai-board-view-switch) {
+  .top-bar-container.has-board-view-switch {
     grid-template-rows: repeat(2, 30px);
     height: 66px;
     row-gap: 6px;
@@ -2862,7 +2865,7 @@ body.is-phone {
     justify-self: start;
   }
 
-  .top-bar-container > .header-action-section:has(> .ai-board-view-switch) {
+  .top-bar-container > .header-action-section.has-board-view-switch {
     grid-column: 1 / -1;
     grid-row: 2;
     justify-self: end;
@@ -2872,7 +2875,7 @@ body.is-phone {
   }
 
   .top-bar-container
-    > .header-action-section:has(> .ai-board-view-switch)::-webkit-scrollbar {
+    > .header-action-section.has-board-view-switch::-webkit-scrollbar {
     display: none;
   }
 }
@@ -8175,30 +8178,41 @@ textarea.form-textarea {
     overflow: hidden;
 }
 
-.xterm-dim {
+/* xterm.js customization: upstream carries `!important` here and on the
+   scrollbar arrow below. Obsidian's plugin review rejects `!important`, so both
+   rules win on specificity instead — the selectors are scoped to the terminal's
+   own subtree, which no theme rule reaches. */
+.xterm .xterm-rows .xterm-dim {
     /* Dim should not apply to background, so the opacity of the foreground color is applied
      * explicitly in the generated class and reset to 1 here */
-    opacity: 1 !important;
+    opacity: 1;
 }
 
-.xterm-underline-1 { text-decoration: underline; }
-.xterm-underline-2 { text-decoration: double underline; }
-.xterm-underline-3 { text-decoration: wavy underline; }
-.xterm-underline-4 { text-decoration: dotted underline; }
-.xterm-underline-5 { text-decoration: dashed underline; }
+/* xterm.js customization: upstream writes these as the `text-decoration`
+   shorthand ("overline wavy underline"). Obsidian's plugin review only accepts
+   the single-keyword form of the shorthand, so the line and the style are set
+   through their longhands instead — same rendering, same cascade. */
+.xterm-underline-1 { text-decoration-line: underline; }
+.xterm-underline-2 { text-decoration-line: underline; text-decoration-style: double; }
+.xterm-underline-3 { text-decoration-line: underline; text-decoration-style: wavy; }
+.xterm-underline-4 { text-decoration-line: underline; text-decoration-style: dotted; }
+.xterm-underline-5 { text-decoration-line: underline; text-decoration-style: dashed; }
 
 .xterm-overline {
-    text-decoration: overline;
+    text-decoration-line: overline;
 }
 
-.xterm-overline.xterm-underline-1 { text-decoration: overline underline; }
-.xterm-overline.xterm-underline-2 { text-decoration: overline double underline; }
-.xterm-overline.xterm-underline-3 { text-decoration: overline wavy underline; }
-.xterm-overline.xterm-underline-4 { text-decoration: overline dotted underline; }
-.xterm-overline.xterm-underline-5 { text-decoration: overline dashed underline; }
+.xterm-overline.xterm-underline-1 { text-decoration-line: overline underline; }
+.xterm-overline.xterm-underline-2 { text-decoration-line: overline underline; text-decoration-style: double; }
+.xterm-overline.xterm-underline-3 { text-decoration-line: overline underline; text-decoration-style: wavy; }
+.xterm-overline.xterm-underline-4 { text-decoration-line: overline underline; text-decoration-style: dotted; }
+.xterm-overline.xterm-underline-5 { text-decoration-line: overline underline; text-decoration-style: dashed; }
 
 .xterm-strikethrough {
-    text-decoration: line-through;
+    text-decoration-line: line-through;
+    /* The shorthand this replaces also reset the style; keep that reset so a
+       strikethrough over a wavy/dotted underline still draws solid. */
+    text-decoration-style: solid;
 }
 
 .xterm-screen .xterm-decoration-container .xterm-decoration {
@@ -8233,9 +8247,9 @@ textarea.form-textarea {
 }
 
 /* Arrows */
-.xterm .xterm-scrollable-element > .scrollbar > .scra {
+.xterm .xterm-scrollable-element > .scrollbar > .scra.scra {
 	cursor: pointer;
-	font-size: 11px !important;
+	font-size: 11px;
 }
 
 .xterm .xterm-scrollable-element > .visible {

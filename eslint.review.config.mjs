@@ -76,11 +76,11 @@ export default [
     },
   },
 
-  // depend/ban-dependencies does not distinguish dev from prod. Neither of
-  // these reaches the published plugin: moment is a type-only dependency the
-  // obsidian typings require (esbuild marks obsidian external), and
-  // lint-staged only runs in the pre-commit hook. Anything added here needs
-  // the same kind of reason written next to it.
+  // depend/ban-dependencies does not distinguish dev from prod, and moment does
+  // not reach the published plugin: it is a type-only dependency the obsidian
+  // typings require (esbuild marks obsidian external). Anything added here
+  // needs the same kind of reason written next to it — lint-staged used to be
+  // on this list and was removed instead, in favour of scripts/lint-staged.mjs.
   {
     files: ["package.json"],
     rules: {
@@ -88,7 +88,7 @@ export default [
         "error",
         {
           presets: ["native", "microutilities", "preferred"],
-          allowed: ["moment", "lint-staged"],
+          allowed: ["moment"],
         },
       ],
     },

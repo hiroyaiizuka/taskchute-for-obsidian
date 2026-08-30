@@ -326,10 +326,9 @@ export class ProjectBoardView extends ItemView {
 
       const workspace = this.app.workspace
       const workspaceWithSplit = workspace as { splitActiveLeaf?: (direction: 'vertical' | 'horizontal') => WorkspaceLeaf | null }
-      const splitFunction = workspaceWithSplit.splitActiveLeaf
       const rightLeaf: WorkspaceLeaf | null =
-        typeof splitFunction === 'function'
-          ? (splitFunction.call(workspace, 'vertical') as WorkspaceLeaf | null)
+        typeof workspaceWithSplit.splitActiveLeaf === 'function'
+          ? workspaceWithSplit.splitActiveLeaf('vertical')
           : workspace.getLeaf('split')
 
       if (!rightLeaf) {

@@ -49,14 +49,14 @@ describe('TaskChute header layout', () => {
 
     const query = css.slice(queryStart, css.indexOf('/* Navigation Overlay */', queryStart))
     expect(query).toMatch(
-      /\.top-bar-container:has\([\s\S]*\.ai-board-view-switch[\s\S]*grid-template-rows:\s*repeat\(2,\s*30px\);/,
+      /\.top-bar-container\.has-board-view-switch\s*\{[\s\S]*grid-template-rows:\s*repeat\(2,\s*30px\);/,
     )
     expect(query).toMatch(/\.date-nav-container\.compact\s*\{[\s\S]*grid-row:\s*1;/)
     expect(query).toMatch(
       /\.top-bar-container\s*>\s*\.drawer-toggle\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*1;/,
     )
     expect(query).toMatch(
-      /\.header-action-section:has\(>\s*\.ai-board-view-switch\)\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;[\s\S]*grid-row:\s*2;[\s\S]*justify-self:\s*end;/,
+      /\.header-action-section\.has-board-view-switch\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;[\s\S]*grid-row:\s*2;[\s\S]*justify-self:\s*end;/,
     )
   })
 
