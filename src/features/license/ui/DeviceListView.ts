@@ -90,7 +90,7 @@ export class DeviceListView {
     if (this.disposed) return
 
     if (!result.ok) {
-      this.setStatus(describeApiFailure(result.failure))
+      this.setError(describeApiFailure(result.failure))
       return
     }
 
@@ -101,6 +101,13 @@ export class DeviceListView {
 
   private setStatus(message: string): void {
     this.statusEl.setText(message)
+    this.statusEl.classList.remove('taskchute-license-devices__status--error')
+  }
+
+  /** A failed request is not a seat count, and must not read like one. */
+  private setError(message: string): void {
+    this.statusEl.setText(message)
+    this.statusEl.classList.add('taskchute-license-devices__status--error')
   }
 
   private render(): void {
@@ -187,7 +194,7 @@ export class DeviceListView {
     if (!result.ok) {
       // render() rewrites the status line, so the error goes on after it.
       this.render()
-      this.setStatus(describeApiFailure(result.failure))
+      this.setError(describeApiFailure(result.failure))
       return
     }
 

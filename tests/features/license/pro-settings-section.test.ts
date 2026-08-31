@@ -274,6 +274,46 @@ describe('Pro settings section', () => {
       expect(manager.activate).toHaveBeenCalledWith('TCP-AAAA-BBBB-CCCC')
     })
 
+    test('reports a failed activation with its message and error code', async () => {
+      // Support is asked for the code, so the row has to carry both halves:
+      // what the user should do, and what identifies the failure.
+      const manager = fakeManager({
+        activate: jest.fn().mockResolvedValue({
+          ok: false,
+          failure: { ok: false, kind: 'api', code: 'invalid_code', status: 404 },
+        }),
+      })
+      const tab = createTab(manager)
+      const items = () => {
+        const page = pageNamed(
+          tab.getSettingDefinitions(),
+          t('settings.pro.heading', 'Pro settings'),
+        )
+        if (!page) throw new Error('Pro page not found')
+        return flatten(page.items ?? [])
+      }
+      const codeRow = () => {
+        const item = items().find(
+          (candidate) => 'name' in candidate && candidate.name === 'License code',
+        )
+        if (!item) throw new Error('License code row not found')
+        return item
+      }
+      const { setting } = invokeRender(codeRow())
+
+      await setting.__textComponents[0].__triggerChange('TCP-AAAA-BBBB-CCCC')
+      await setting.__buttons[0].__click()
+
+      const desc = descs([codeRow()])[0] ?? ''
+      expect(desc).toContain('was not found')
+      expect(desc).toContain('invalid_code')
+      // And it is marked as an error, not left reading as help text.
+      const { setting: failed } = invokeRender(codeRow())
+      expect(
+        failed.settingEl.classList.contains('taskchute-license-code-item--error'),
+      ).toBe(true)
+    })
+
     test('does not show the device list or the AI settings', () => {
       const items = proItems(fakeManager())
 

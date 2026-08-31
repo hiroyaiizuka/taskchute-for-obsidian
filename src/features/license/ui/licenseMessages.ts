@@ -4,6 +4,10 @@
  * Localized from the API's stable `error` code, never from its `message`: that
  * field is Japanese prose and would leak into an English UI. The server text is
  * kept only as a last resort for a code this build does not recognize.
+ *
+ * Every message carries its code. The prose is what the user acts on, but the
+ * code is what support asks for and what a bug report has to contain, and a
+ * failure that reaches the screen without one leaves both sides guessing.
  */
 import { t } from '../../../i18n'
 import type { ActivationFailure } from '../services/LicenseManager'
@@ -27,6 +31,13 @@ const FALLBACKS: Record<string, string> = {
   malformed: 'The license request was rejected. Please report this as a bug.',
 }
 
+/** Codes for the failures the client itself decides, which have no server code. */
+const CLIENT_CODES = {
+  network: 'network_unreachable',
+  malformed: 'bad_request',
+  untrustedToken: 'untrusted_token',
+} as const
+
 function formatRetryAt(retryAfterAt: number | undefined): string {
   if (retryAfterAt === undefined) return ''
 
@@ -37,7 +48,45 @@ function messageForCode(code: string, vars?: Record<string, string>): string {
   return t(`license.errors.${code}`, FALLBACKS[code] ?? FALLBACKS['internal'], vars)
 }
 
+/**
+ * The message the user reads, with the code that identifies the failure.
+ *
+ * The code goes last and in parentheses so it never gets in the way of the
+ * instruction, which is the part most users need.
+ */
+function withCode(message: string, code: string): string {
+  return t('license.errors.withCode', '{message} (code: {code})', { message, code })
+}
+
+/**
+ * The stable identifier for a failure: the server's own code where there is
+ * one, and a client-side code where the request never produced an answer.
+ */
+export function apiFailureCode(failure: LicenseApiFailure): string {
+  if (failure.kind === 'network') return CLIENT_CODES.network
+  if (failure.kind === 'malformed') return `${CLIENT_CODES.malformed}_${failure.status}`
+
+  return failure.code
+}
+
+export function activationFailureCode(failure: ActivationFailure): string {
+  switch (failure.kind) {
+    case 'invalid-input':
+      return 'malformed_code'
+    case 'device-limit':
+      return 'device_limit_reached'
+    case 'untrusted-token':
+      return CLIENT_CODES.untrustedToken
+    default:
+      return apiFailureCode(failure)
+  }
+}
+
 export function describeApiFailure(failure: LicenseApiFailure): string {
+  return withCode(apiFailureMessage(failure), apiFailureCode(failure))
+}
+
+function apiFailureMessage(failure: LicenseApiFailure): string {
   if (failure.kind === 'network') return messageForCode('network')
   if (failure.kind === 'malformed') return messageForCode('malformed')
 
@@ -54,6 +103,10 @@ export function describeApiFailure(failure: LicenseApiFailure): string {
 }
 
 export function describeActivationFailure(failure: ActivationFailure): string {
+  return withCode(activationFailureMessage(failure), activationFailureCode(failure))
+}
+
+function activationFailureMessage(failure: ActivationFailure): string {
   switch (failure.kind) {
     case 'invalid-input':
       return messageForCode('malformed_code')
@@ -65,6 +118,6 @@ export function describeActivationFailure(failure: ActivationFailure): string {
         'The license service returned a token this version cannot verify. Please update the plugin.',
       )
     default:
-      return describeApiFailure(failure)
+      return apiFailureMessage(failure)
   }
 }

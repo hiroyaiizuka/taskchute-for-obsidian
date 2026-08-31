@@ -8010,6 +8010,13 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   min-width: 0;
 }
 
+/* A failed activation is written into the row's description slot, which is
+   muted prose by default — the one place on the screen the user must not read
+   past. */
+.setting-item.taskchute-license-code-item--error .setting-item-description {
+  color: var(--text-error);
+}
+
 /* An activation code runs to a couple of hundred characters, so it wraps
    anywhere rather than pushing the card sideways, and stays selectable for
    someone copying it back out. */
@@ -8053,6 +8060,10 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: var(--font-ui-smaller);
   margin-top: var(--size-4-2);
   min-height: 1.2em;
+}
+
+.taskchute-license-devices__status--error {
+  color: var(--text-error);
 }
 
 .taskchute-license-devices__list {

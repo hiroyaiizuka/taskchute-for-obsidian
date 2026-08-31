@@ -27,6 +27,27 @@ describe('DeviceListView', () => {
     expect(host.childElementCount).toBe(0)
   })
 
+  test('shows a failed load as an error, with its code', async () => {
+    // The status line otherwise reads as a seat count in muted grey, which is
+    // the wrong thing for a request that never returned a list.
+    const manager = {
+      getDeviceId: () => 'DEVICE-0001',
+      listDevices: jest
+        .fn()
+        .mockResolvedValue({ ok: false, failure: { ok: false, kind: 'network' } }),
+      deactivateDevice: jest.fn(),
+    } as unknown as LicenseManager
+    const host = document.createElement('div')
+
+    new DeviceListView(host, manager)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const status = host.querySelector('.taskchute-license-devices__status')
+    expect(status?.classList.contains('taskchute-license-devices__status--error')).toBe(true)
+    expect(status?.textContent).toContain('network_unreachable')
+  })
+
   test('mounting again after a dispose leaves a single list', () => {
     const host = document.createElement('div')
 
