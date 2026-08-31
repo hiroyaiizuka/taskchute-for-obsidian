@@ -1,4 +1,4 @@
-import { Notice, App, setIcon } from 'obsidian'
+import { Notice, App, Platform, setIcon } from 'obsidian'
 import { applyIcon, createIconSpan } from '../icons'
 import TaskMoveCalendar, {
   TaskMoveCalendarFactory,
@@ -195,7 +195,10 @@ export default class TaskHeaderController {
     })
     this.actionSectionEl = actionSection
 
-    if (this.host.plugin.settings.aiRobotButtonEnabled === true) {
+    // The platform check is not redundant with the settings row hiding itself
+    // on mobile: settings sync, so a vault turned on from a desktop carries
+    // `aiRobotButtonEnabled: true` to an iPad that can never run the command.
+    if (Platform.isDesktop && this.host.plugin.settings.aiRobotButtonEnabled === true) {
       const robotButton = actionSection.createEl('button', {
         cls: 'robot-terminal-button',
         text: '🤖',
