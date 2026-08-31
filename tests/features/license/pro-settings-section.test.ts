@@ -9,15 +9,9 @@ import type {
   SettingDefinitionItem,
   SettingDefinitionRender,
 } from 'obsidian'
-import { Setting, SettingGroup, mockApp } from 'obsidian'
+import { Platform, Setting, SettingGroup, mockApp } from 'obsidian'
 
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
-import {
-  PRO_SECTION_UNLOCK_CLICKS,
-  ProUnlockState,
-  isProSectionVisible,
-} from '../../../src/settings/proUnlockState'
-import type { SectionContext } from '../../../src/settings/types'
 import { setLocaleOverride, t } from '../../../src/i18n'
 import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
 import { flatten, isVisible, pageNamed } from '../../settings/definitionHelpers'
@@ -422,55 +416,50 @@ describe('Pro settings section', () => {
   })
 
   describe('visibility', () => {
-    function context(manager: LicenseManager | undefined): SectionContext & {
-      plugin: { licenseManager: LicenseManager | undefined }
-    } {
-      return {
-        app: mockApp,
-        plugin: { licenseManager: manager },
-        update: jest.fn(),
-        refreshDomState: jest.fn(),
-      } as unknown as SectionContext & {
-        plugin: { licenseManager: LicenseManager | undefined }
-      }
-    }
-
-    function unlockedState(): ProUnlockState {
-      const unlock = new ProUnlockState()
-      for (let i = 0; i < PRO_SECTION_UNLOCK_CLICKS; i += 1) unlock.registerClick()
-      return unlock
-    }
-
-    test('stays hidden without a license until the click unlock', () => {
-      expect(isProSectionVisible(context(fakeManager()), new ProUnlockState())).toBe(false)
-      expect(isProSectionVisible(context(fakeManager()), unlockedState())).toBe(true)
-      expect(isProSectionVisible(context(undefined), new ProUnlockState())).toBe(false)
-    })
-
-    test('shows for an active license without any unlock clicks', () => {
-      // Otherwise a paying user loses the AI settings and the seat list on
-      // every reload, with no way back except rediscovering the click unlock.
-      expect(isProSectionVisible(context(activeManager()), new ProUnlockState())).toBe(true)
-    })
-
-    test('hides again when the license goes away mid-session', () => {
-      // Releasing this device leaves an unlicensed manager behind. Nothing is
-      // latched, so the section goes back into hiding with it.
-      const ctx = context(activeManager())
-      const unlock = new ProUnlockState()
-      expect(isProSectionVisible(ctx, unlock)).toBe(true)
-
-      ctx.plugin.licenseManager = fakeManager()
-      expect(isProSectionVisible(ctx, unlock)).toBe(false)
-    })
-
-    test('the page itself is hidden while the section is locked', () => {
+    /**
+     * The section is no longer hidden behind a click unlock: the AI feature is
+     * public, so an unlicensed vault has to be able to find the page that sells
+     * it and takes the code.
+     */
+    test('shows the page without a license, marked as not activated', () => {
       const page = pageNamed(
         createTab(fakeManager()).getSettingDefinitions(),
         'Pro settings',
       )
 
-      expect(isVisible(page as { visible?: boolean | (() => boolean) })).toBe(false)
+      expect(page).toBeDefined()
+      expect(isVisible(page as { visible?: boolean | (() => boolean) })).toBe(true)
+    })
+
+    test('shows the page for an active license', () => {
+      const page = pageNamed(
+        createTab(activeManager()).getSettingDefinitions(),
+        'Pro settings',
+      )
+
+      expect(page).toBeDefined()
+      expect(isVisible(page as { visible?: boolean | (() => boolean) })).toBe(true)
+    })
+
+    /**
+     * Mobile cannot spawn the CLI the license buys, so the page is dropped from
+     * the definitions entirely rather than merely hidden — a hidden page's
+     * contents still reach the settings search.
+     */
+    test('drops the page on mobile', () => {
+      Platform.isDesktop = false
+      Platform.isMobile = true
+      try {
+        const page = pageNamed(
+          createTab(activeManager()).getSettingDefinitions(),
+          'Pro settings',
+        )
+
+        expect(page).toBeUndefined()
+      } finally {
+        Platform.isDesktop = true
+        Platform.isMobile = false
+      }
     })
   })
 

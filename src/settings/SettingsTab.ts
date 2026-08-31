@@ -1,7 +1,6 @@
 import { App, PluginSettingTab, type SettingDefinitionItem } from "obsidian"
 import { checkSeatRegistration } from "../features/license/ui/notifySeatReleased"
 import type { PluginWithSettings } from "./pluginWithSettings"
-import { ProUnlockState } from "./proUnlockState"
 import { everydaySections, trailingSections } from "./sections"
 import { advancedSection } from "./sections/advanced"
 import { SectionBoundaryDraft } from "./sections/advanced/sectionBoundaryDraft"
@@ -25,7 +24,6 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   plugin: PluginWithSettings
   /** Rejects an older async toggle completion after a newer operation wins. */
   private readonly aiTaskToggleGuard = new AiTaskToggleGuard()
-  private readonly proUnlock = new ProUnlockState()
   private readonly licenseForm = new LicenseActivationState()
   /**
    * Held by the tab, not by a render pass: adding or removing a boundary
@@ -65,8 +63,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
     this.modules = [
       ...everydaySections(),
       advancedSection(this.boundaryDraft),
-      proSection(this.proUnlock, this.licenseForm, this.aiTaskToggleGuard),
-      ...trailingSections(this.proUnlock),
+      proSection(this.licenseForm, this.aiTaskToggleGuard),
+      ...trailingSections(),
     ]
     this.handlers = Object.assign(
       {},
