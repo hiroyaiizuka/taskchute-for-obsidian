@@ -81,6 +81,12 @@ function codeRow(
     desc: form.errorDesc,
     render: (setting) => {
       setting.settingEl.addClass("taskchute-license-code-item")
+      // A failure is not a description: it reads as one unless it is coloured
+      // like the error it is.
+      setting.settingEl.classList.toggle(
+        "taskchute-license-code-item--error",
+        form.errorDesc.length > 0,
+      )
       helpButton(ctx, setting)
 
       setting.addText((text) => {

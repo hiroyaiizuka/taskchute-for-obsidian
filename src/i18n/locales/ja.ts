@@ -1062,6 +1062,7 @@ export const ja = {
       malformed: "ライセンスのリクエストが拒否されました。不具合として報告してください。",
       untrustedToken:
         "このバージョンでは検証できないトークンが返されました。プラグインを更新してください。",
+      withCode: "{message}（エラーコード: {code}）",
     },
     devices: {
       description:

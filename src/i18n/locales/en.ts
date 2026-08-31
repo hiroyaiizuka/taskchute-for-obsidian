@@ -1064,6 +1064,7 @@ export const en = {
       malformed: "The license request was rejected. Please report this as a bug.",
       untrustedToken:
         "The license service returned a token this version cannot verify. Please update the plugin.",
+      withCode: "{message} (code: {code})",
     },
     devices: {
       description:
