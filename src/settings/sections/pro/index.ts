@@ -4,6 +4,7 @@ import { syncAiTaskManagerToLicense } from "../../../features/ai-task/licenseGat
 import {
   ProUnlockState,
   isProLicenseActive,
+  isProSectionSupported,
   isProSectionVisible,
 } from "../../proUnlockState"
 import type { AiTaskToggleGuard } from "../../services/aiTaskLifecycle"
@@ -44,6 +45,11 @@ export function proSection(
 
   return {
     items: (ctx) => {
+      // Not merely hidden behind the page's `visible` predicate: a page's
+      // contents still reach the settings search, and there is nothing here
+      // for a platform that cannot run what the license unlocks.
+      if (!isProSectionSupported()) return []
+
       const manager = ctx.plugin.licenseManager
       let items: SettingDefinitionItem[]
 

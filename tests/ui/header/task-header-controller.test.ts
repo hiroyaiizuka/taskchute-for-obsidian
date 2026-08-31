@@ -1,3 +1,4 @@
+import { Platform } from 'obsidian'
 import TaskHeaderController, {
   TaskHeaderControllerHost,
   TaskHeaderControllerDependencies,
@@ -118,6 +119,32 @@ describe('TaskHeaderController', () => {
     const robotButton = container.querySelector('.robot-terminal-button') as HTMLButtonElement
     robotButton.dispatchEvent(new Event('click', { bubbles: true }))
     expect(executeCommand).toHaveBeenCalledWith('terminal:open-terminal.integrated.root')
+  })
+
+  /**
+   * The setting is synced, so a vault switched on from a desktop reaches an
+   * iPad with the flag set — where the Terminal plugin cannot be installed and
+   * the button could only ever report it as missing.
+   */
+  test('omits the robot button on mobile even with the setting on', () => {
+    Platform.isDesktop = false
+    Platform.isMobile = true
+    try {
+      const host = createHost({
+        plugin: { settings: { aiRobotButtonEnabled: true } } as TaskHeaderControllerHost['plugin'],
+      })
+      const controller = new TaskHeaderController(host)
+      const container = document.createElement('div')
+      attachCreateEl(container)
+
+      controller.render(container)
+
+      expect(container.querySelector('.robot-terminal-button')).toBeNull()
+      expect(container.querySelector('.add-task-button')).toBeTruthy()
+    } finally {
+      Platform.isDesktop = true
+      Platform.isMobile = false
+    }
   })
 
   test('calendar selection updates current date and triggers reload', async () => {

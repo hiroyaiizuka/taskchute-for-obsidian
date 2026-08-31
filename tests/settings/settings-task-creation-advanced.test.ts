@@ -1,4 +1,4 @@
-import { mockApp } from 'obsidian'
+import { Platform, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../src/settings'
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
 import { findByKey, headings, pageNamed } from './definitionHelpers'
@@ -85,5 +85,27 @@ describe('TaskChute task creation advanced setting', () => {
       'Section',
       'External tools',
     ])
+  })
+
+  /**
+   * The one row under "External tools" turns on a button that runs a command
+   * from the desktop-only Terminal plugin, so on mobile it could only ever
+   * enable a button that reports the plugin as missing.
+   */
+  test('drops the external tools group on mobile', () => {
+    Platform.isDesktop = false
+    Platform.isMobile = true
+    try {
+      const { tab } = createTab()
+      const items = tab.getSettingDefinitions()
+
+      expect(headings(items)).not.toContain('External tools')
+      expect(findByKey(items, 'aiRobotButtonEnabled')).toBeUndefined()
+      // The rest of the page is unaffected.
+      expect(findByKey(items, 'showTaskCreationAdvancedSettings')).toBeDefined()
+    } finally {
+      Platform.isDesktop = true
+      Platform.isMobile = false
+    }
   })
 })

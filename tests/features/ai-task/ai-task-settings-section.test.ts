@@ -6,7 +6,7 @@
  * the plugin instance. Those races are the bulk of what is tested here.
  */
 import type { SettingDefinitionItem, SettingDefinitionRender } from 'obsidian'
-import { Notice, Setting, mockApp } from 'obsidian'
+import { Notice, Platform, Setting, mockApp } from 'obsidian'
 import { DEFAULT_SETTINGS } from '../../../src/settings'
 import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
 import { createAiTaskManager } from '../../../src/features/ai-task'
@@ -15,6 +15,8 @@ import {
   findByKey,
   findByName,
   flatten,
+  headings,
+  pageNamed,
 } from '../../settings/definitionHelpers'
 
 jest.mock('../../../src/features/ai-task', () => ({
@@ -163,6 +165,32 @@ describe('TaskChute AI task settings section', () => {
     expect(findByKey(items, 'aiTaskLogRetentionDays')?.control.type).toBe(
       'number',
     )
+  })
+
+  /**
+   * The license unlocks AI tasks and nothing else, and those spawn a local CLI
+   * that evaluateAiTaskAvailability refuses on mobile as `not-desktop`, so the
+   * page has nothing to offer there -- activation form included.
+   */
+  test('declares no Pro page at all on mobile, license rows included', () => {
+    Platform.isDesktop = false
+    Platform.isMobile = true
+    try {
+      const { tab } = createTab()
+
+      const items = tab.getSettingDefinitions()
+      expect(pageNamed(items, 'Pro settings')).toBeUndefined()
+      expect(findByKey(items, 'aiTaskEnabled')).toBeUndefined()
+      expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
+      expect(findByKey(items, 'aiTaskLogRetentionDays')).toBeUndefined()
+      expect(findByName(items, CLAUDE_PATH_NAME)).toBeUndefined()
+      expect(headings(items)).not.toContain('AI task')
+      // The rest of the tab is unaffected.
+      expect(findByName(items, 'Version')).toBeDefined()
+    } finally {
+      Platform.isDesktop = true
+      Platform.isMobile = false
+    }
   })
 
   describe('the runtime toggle', () => {
