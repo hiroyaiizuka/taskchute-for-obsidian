@@ -4253,6 +4253,7 @@ textarea.form-textarea {
 
 .form-button-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: flex-end;
   margin-top: 13px;
@@ -5502,6 +5503,59 @@ textarea.form-textarea {
   min-height: auto;
   max-height: none;
   overflow: visible;
+}
+
+/* The log header is a title/controls row on desktop. A phone is too narrow for
+   both: the title wraps to two or three lines and the year picker and restore
+   button get squeezed against the close glyph. Stack them instead, title first,
+   controls on their own full-width line underneath. */
+.is-mobile .taskchute-log-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+}
+
+.is-mobile .log-title {
+  font-size: 20px;
+}
+
+/* Only the title line shares its row with the close glyph now, so the corner is
+   reserved there instead of across the whole header, and the controls get the
+   full width. */
+.is-mobile .taskchute-log-modal .taskchute-log-header {
+  padding-right: var(--size-4-4);
+}
+
+.is-mobile .taskchute-log-modal .log-title {
+  padding-right: var(--tc-modal-close-reserve);
+}
+
+.is-mobile .log-controls {
+  flex-wrap: wrap;
+}
+
+/* Same story in the routine manager: on a phone the title and the search field
+   cannot share a row, so the title takes the close button's row alone and the
+   search box gets the full width underneath it. */
+.is-mobile .routine-manager__header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  padding-right: 0;
+}
+
+.is-mobile .routine-manager__header > h3 {
+  margin: 0;
+  padding-right: var(--tc-modal-close-reserve);
+}
+
+.is-mobile .routine-manager__controls {
+  align-items: stretch;
+}
+
+.is-mobile .routine-manager__controls input[type="search"] {
+  min-width: 0;
+  width: 100%;
 }
 
 /* ===== Reminder Notification Modal ===== */
