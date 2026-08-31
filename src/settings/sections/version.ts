@@ -2,6 +2,7 @@ import { Notice } from "obsidian"
 import { t } from "../../i18n"
 import {
   ProUnlockState,
+  isProSectionSupported,
   isProSectionVisible,
 } from "../proUnlockState"
 import type { SectionModule } from "../types"
@@ -21,6 +22,9 @@ export function versionSection(unlock: ProUnlockState): SectionModule {
             name: t("settings.version.name", "Version"),
             desc: ctx.plugin.manifest.version,
             action: () => {
+              // Counting taps where the section can never be drawn would end in
+              // a notice announcing settings that are not there.
+              if (!isProSectionSupported()) return
               if (isProSectionVisible(ctx, unlock)) return
               if (!unlock.registerClick()) return
               new Notice(

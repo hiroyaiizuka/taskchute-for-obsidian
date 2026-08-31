@@ -1,4 +1,4 @@
-import { Notice, Platform } from "obsidian"
+import { Notice } from "obsidian"
 import type { Setting, SettingDefinitionRender } from "obsidian"
 import { t } from "../../../i18n"
 import { ElectronDirectoryPicker } from "../../../features/ai-task/services/ElectronDirectoryPicker"
@@ -154,17 +154,12 @@ function cliPathRow(
 /**
  * Everything a Pro license unlocks. Only reached from the Pro page, which has
  * already checked entitlement.
- *
- * Rendered on desktop only. Every row here configures a local CLI the plugin
- * spawns -- which `evaluateAiTaskAvailability` already refuses on mobile as
- * `not-desktop` -- so a licensed iPad would otherwise be offered a feature it
- * can never run. The license rows stay: those matter on every platform.
  */
 export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
   const paths = cliPaths()
 
   return {
-    items: (ctx) => (!Platform.isDesktop ? [] : [
+    items: (ctx) => [
       {
         type: "group",
         heading: t("settings.aiTask.heading", "AI task"),
@@ -221,7 +216,7 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
           },
         ],
       },
-    ]),
+    ],
 
     handlers: {
       aiTaskEnabled: {

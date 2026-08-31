@@ -1,5 +1,5 @@
 import type { SettingDefinitionAction } from 'obsidian'
-import { Notice, mockApp } from 'obsidian'
+import { Notice, Platform, mockApp } from 'obsidian'
 import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
 import { ProUnlockState, isProSectionVisible } from '../../src/settings/proUnlockState'
 import { versionSection } from '../../src/settings/sections/version'
@@ -78,6 +78,33 @@ describe('TaskChute settings version display', () => {
     // Further clicks are inert once the section is already visible.
     click()
     expect(ctx.refreshDomState).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * The section it would reveal is not declared on mobile, so counting the taps
+   * would end in a notice announcing settings that are not there.
+   */
+  test('does not unlock the Pro section on mobile', () => {
+    Platform.isDesktop = false
+    Platform.isMobile = true
+    try {
+      const ctx = createContext('1.7.13')
+      const unlock = new ProUnlockState()
+      const row = findByName(
+        versionSection(unlock).items(ctx),
+        'Version',
+      ) as SettingDefinitionAction
+
+      for (let i = 0; i < 12; i += 1) row.action({} as HTMLElement, 0)
+
+      expect(unlock.isUnlocked).toBe(false)
+      expect(isProSectionVisible(ctx, unlock)).toBe(false)
+      expect(Notice).not.toHaveBeenCalled()
+      expect(ctx.refreshDomState).not.toHaveBeenCalled()
+    } finally {
+      Platform.isDesktop = true
+      Platform.isMobile = false
+    }
   })
 
   test('the tab exposes the version row through its definitions', () => {

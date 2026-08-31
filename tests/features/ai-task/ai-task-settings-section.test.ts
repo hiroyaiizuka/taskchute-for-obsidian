@@ -168,23 +168,25 @@ describe('TaskChute AI task settings section', () => {
   })
 
   /**
-   * Every row here configures a local CLI the plugin spawns, which
-   * evaluateAiTaskAvailability already refuses on mobile as `not-desktop`. The
-   * license rows stay: activating and seeing device seats matters on an iPad.
+   * The license unlocks AI tasks and nothing else, and those spawn a local CLI
+   * that evaluateAiTaskAvailability refuses on mobile as `not-desktop`, so the
+   * page has nothing to offer there -- activation form included.
    */
-  test('declares no AI settings on mobile, license rows aside', () => {
+  test('declares no Pro page at all on mobile, license rows included', () => {
     Platform.isDesktop = false
     Platform.isMobile = true
     try {
       const { tab } = createTab()
 
       const items = tab.getSettingDefinitions()
+      expect(pageNamed(items, 'Pro settings')).toBeUndefined()
       expect(findByKey(items, 'aiTaskEnabled')).toBeUndefined()
       expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
       expect(findByKey(items, 'aiTaskLogRetentionDays')).toBeUndefined()
       expect(findByName(items, CLAUDE_PATH_NAME)).toBeUndefined()
       expect(headings(items)).not.toContain('AI task')
-      expect(pageNamed(items, 'Pro settings')).toBeDefined()
+      // The rest of the tab is unaffected.
+      expect(findByName(items, 'Version')).toBeDefined()
     } finally {
       Platform.isDesktop = true
       Platform.isMobile = false
