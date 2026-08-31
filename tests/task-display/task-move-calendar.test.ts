@@ -137,6 +137,67 @@ describe("TaskMoveCalendar", () => {
     }
   })
 
+  it("fills only the weeks the month touches", () => {
+    // September 2025 starts on a Monday and ends on a Tuesday: five weeks, so
+    // the fixed 42-cell grid used to hang a seventh row of next-month days off
+    // the bottom.
+    calendar.open()
+    expect(document.querySelectorAll(".taskchute-move-calendar__day")).toHaveLength(35)
+    calendar.close()
+
+    // February 2026: starts Sunday, 28 days -- exactly four weeks, no padding
+    // of any kind, and certainly not two spare rows of next-month days.
+    const february = new TaskMoveCalendar({
+      anchor,
+      initialDate: new Date(2026, 1, 10),
+      today: new Date(2026, 1, 10),
+      onSelect: jest.fn(),
+    })
+    try {
+      february.open()
+      const days = document.querySelectorAll(".taskchute-move-calendar__day")
+      expect(days).toHaveLength(28)
+      expect(document.querySelectorAll(".taskchute-move-calendar__day.is-outside")).toHaveLength(0)
+    } finally {
+      february.close()
+    }
+  })
+
+  it("centres the calendar on the mobile shell instead of hanging it off the anchor", () => {
+    document.body.classList.add("is-mobile")
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 700 })
+    const rectSpy = jest
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const size = this.classList.contains("taskchute-move-calendar")
+          ? { width: 358, height: 360 }
+          : { width: 10, height: 10 }
+        return {
+          top: 0,
+          right: size.width,
+          bottom: size.height,
+          left: 0,
+          width: size.width,
+          height: size.height,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }
+      })
+
+    try {
+      calendar.open()
+
+      const calendarEl = document.querySelector<HTMLElement>(".taskchute-move-calendar")
+      expect(calendarEl?.style.left).toBe("16px")
+      expect(calendarEl?.style.top).toBe("170px")
+    } finally {
+      rectSpy.mockRestore()
+      document.body.classList.remove("is-mobile")
+    }
+  })
+
   it("clamps position using the anchor document window", () => {
     const iframe = document.createElement("iframe")
     document.body.appendChild(iframe)

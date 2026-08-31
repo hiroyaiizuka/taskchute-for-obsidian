@@ -178,4 +178,37 @@ describe('TaskHeaderController', () => {
 
     ;(capturedClose as (() => void) | null)?.()
   })
+
+  test('the date label opens the calendar, by click and by keyboard', () => {
+    const host = createHost()
+    const open = jest.fn()
+    const anchors: HTMLElement[] = []
+    const dependencies: TaskHeaderControllerDependencies = {
+      createCalendar: (options) => {
+        anchors.push(options.anchor)
+        return { open, close: jest.fn() }
+      },
+    }
+    const controller = new TaskHeaderController(host, dependencies)
+    const container = document.createElement('div')
+    attachCreateEl(container)
+
+    controller.render(container)
+    const label = container.querySelector('.date-nav-label') as HTMLElement
+    const calendarButton = container.querySelector('.calendar-btn') as HTMLElement
+
+    expect(label.getAttribute('role')).toBe('button')
+    expect(label.getAttribute('tabindex')).toBe('0')
+
+    label.dispatchEvent(new Event('click'))
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    label.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
+
+    // Twice, not three times: an unrelated key is left alone.
+    expect(open).toHaveBeenCalledTimes(2)
+
+    // The popup hangs off the glyph either way, so it lands in the same place
+    // whichever of the two the user reached for.
+    expect(anchors).toEqual([calendarButton, calendarButton])
+  })
 })

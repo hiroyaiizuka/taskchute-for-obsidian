@@ -238,9 +238,12 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
       this.createDayButton(grid, date, true)
     }
 
-    // Next month leading days to fill grid (6 rows * 7 columns = 42 cells)
+    // Next month leading days, enough to finish the last week the month
+    // touches -- a fixed six-row grid would add a whole row of nothing but
+    // greyed-out next-month days whenever the month ends early in a week.
     const totalCells = grid.childElementCount
-    for (let i = totalCells; i < 42; i += 1) {
+    const filledCells = Math.ceil(totalCells / 7) * 7
+    for (let i = totalCells; i < filledCells; i += 1) {
       const date = new Date(
         this.currentMonth.getFullYear(),
         this.currentMonth.getMonth() + 1,
@@ -320,6 +323,19 @@ export class TaskMoveCalendar implements TaskMoveCalendarHandle {
     const ownerWindow = this.container.ownerDocument.defaultView ?? this.anchor.ownerDocument.defaultView ?? window
     const viewportWidth = ownerWindow.innerWidth
     const viewportHeight = ownerWindow.innerHeight
+
+    // On a phone the popover is nearly as wide as the screen (see the
+    // `.is-mobile` width in styles.css), so there is no room left to hang it
+    // off the anchor: clamping it against the edge would just look like a
+    // misaligned sheet. Centre it instead, the way the mobile shell places
+    // every other overlay.
+    if (this.container.ownerDocument.body.classList.contains("is-mobile")) {
+      const centeredLeft = Math.max(0, (viewportWidth - calendarRect.width) / 2)
+      const centeredTop = Math.max(0, (viewportHeight - calendarRect.height) / 2)
+      this.container.style.left = `${Math.round(centeredLeft)}px`
+      this.container.style.top = `${Math.round(centeredTop)}px`
+      return
+    }
 
     let left = rect.left
     let top = rect.bottom + 8

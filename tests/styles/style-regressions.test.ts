@@ -758,4 +758,118 @@ describe('style regressions', () => {
     )
     expect(stacked).toMatch(/flex-direction:\s*column;/)
   })
+
+  test('the header drops to two rows only on a phone-width leaf', () => {
+    const css = styles()
+    const query = '@container taskchute-view (max-width: 380px)'
+    expect(css).toContain(query)
+
+    // Drawer and add stay at the corners of the top row; the date navigator
+    // takes the full width of the second one, arrows at its edges.
+    const bar = readRuleAfter(css, '.top-bar-container {', query)
+    expect(bar).toMatch(/grid-template-rows:\s*repeat\(2, 30px\);/)
+
+    const nav = readRuleAfter(
+      css,
+      '.top-bar-container > .date-nav-container.compact {',
+      query,
+    )
+    expect(nav).toMatch(/grid-row:\s*2;/)
+    expect(nav).toMatch(/grid-column:\s*1 \/ -1;/)
+    expect(nav).toMatch(/justify-content:\s*space-between;/)
+
+    // No width to spare: the label gives up its fixed 150px box and truncates
+    // rather than pushing the next-day arrow off the edge of the leaf.
+    const label = readRuleAfter(
+      css,
+      '.top-bar-container > .date-nav-container.compact .date-nav-label {',
+      query,
+    )
+    expect(label).toMatch(/text-overflow:\s*ellipsis;/)
+    expect(label).toMatch(/min-width:\s*0;/)
+    // An ellipsis does nothing to a flex container, which is what the label is
+    // at every other width.
+    expect(label).toMatch(/display:\s*block;/)
+
+    // `.date-nav-container.compact` sets its own column and centring later in
+    // the sheet, so the narrow rule has to outrank it rather than merely
+    // follow it -- hence the `.top-bar-container >` qualifier above.
+    expect(css.indexOf('\n.date-nav-container.compact {')).toBeGreaterThan(
+      css.indexOf(query),
+    )
+  })
+
+  test('the move calendar keeps its arrows and Today button compact on mobile', () => {
+    const css = styles()
+    const compact = readRule(
+      css,
+      '.taskchute-move-calendar button.taskchute-move-calendar__nav {',
+    )
+    // Core's mobile button box is what puffs these up; drop the height it
+    // hands over and restate the padding the popover asks for.
+    expect(compact).toMatch(/height:\s*auto;/)
+    expect(compact).toMatch(/min-height:\s*0;/)
+    expect(compact).toMatch(/padding:\s*4px 6px;/)
+
+    // `.is-mobile button:not(.clickable-icon)` is (0,2,1), so a bare class
+    // cannot win: the reset has to name the element and come later than the
+    // plain rules it repeats.
+    expect(compact).toMatch(/^\.taskchute-move-calendar button\./)
+    expect(css.indexOf('.taskchute-move-calendar button.taskchute-move-calendar__nav {')).toBeGreaterThan(
+      css.indexOf('\n.taskchute-move-calendar__nav {'),
+    )
+
+    const action = readRule(css, '.taskchute-move-calendar button.taskchute-move-calendar__action {')
+    expect(action).toMatch(/height:\s*auto;/)
+    expect(action).toMatch(/padding:\s*4px 6px;/)
+  })
+
+  test('an outside day reads as faint, not as a weekend', () => {
+    const css = styles()
+    // All four are single-class rules on the same element, so source order is
+    // the whole of the cascade here: weekend, then outside, then selected.
+    const sunday = css.indexOf('.taskchute-move-calendar__day.is-sunday {')
+    const saturday = css.indexOf('.taskchute-move-calendar__day.is-saturday {')
+    const outside = css.indexOf('.taskchute-move-calendar__day.is-outside {')
+    const selected = css.indexOf('.taskchute-move-calendar__day.is-selected {')
+    expect(outside).toBeGreaterThan(sunday)
+    expect(outside).toBeGreaterThan(saturday)
+    expect(selected).toBeGreaterThan(outside)
+  })
+
+  test('every move calendar button is a 44px touch target on a phone', () => {
+    const css = styles()
+    // Core's `.is-mobile button:not(.clickable-icon)` is (0,2,1), so each of
+    // these has to name the element to win.
+    const nav = readRule(css, '.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__nav {')
+    expect(nav).toMatch(/width:\s*44px;/)
+    expect(nav).toMatch(/height:\s*44px;/)
+
+    const action = readRule(css, '.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__action {')
+    expect(action).toMatch(/height:\s*44px;/)
+
+    const day = readRule(css, '.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__day {')
+    expect(day).toMatch(/height:\s*44px;/)
+
+    // Core also pads day cells to `4px var(--size-4-5)`, which widens each one
+    // to 55px and pushes the seven-column grid past the sheet.
+    const dayBox = readRule(css, '.taskchute-move-calendar button.taskchute-move-calendar__day {')
+    expect(dayBox).toMatch(/padding:\s*6px 0;/)
+
+    // Seven 44px cells plus the 4px gaps and the popover's own padding: the
+    // cap has to leave the grid room, or the days shrink below the target.
+    expect(7 * 44 + 6 * 4 + 2 * 12).toBeLessThanOrEqual(360)
+  })
+
+  test('the move calendar fills the phone screen up to a cap', () => {
+    const css = styles()
+    const mobile = readRule(css, '.is-mobile .taskchute-move-calendar {')
+    // Wider than the 260px desktop popover, but never wider than the screen
+    // minus its margins -- and capped so a tablet keeps a sane month.
+    expect(mobile).toMatch(/width:\s*min\(calc\(100vw - 32px\), 360px\);/)
+    expect(mobile).toMatch(/max-width:\s*calc\(100vw - 32px\);/)
+    expect(css.indexOf('.is-mobile .taskchute-move-calendar {')).toBeGreaterThan(
+      css.indexOf('\n.taskchute-move-calendar {'),
+    )
+  })
 })
