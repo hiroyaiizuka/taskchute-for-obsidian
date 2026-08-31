@@ -1,5 +1,6 @@
-import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian'
+import { App, Modal, Notice, Setting, TFile } from 'obsidian'
 import { t } from '../../i18n'
+import { createModalFooter } from '../components/modalFooter'
 import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '../../types'
 import type { TaskLogEntry } from '../../types/ExecutionLog'
@@ -99,24 +100,24 @@ export default class TaskCompletionController {
         commentInput = textArea.inputEl
       })
 
-    const buttons = contentEl.createDiv({ cls: 'modal-button-container' })
-    new ButtonComponent(buttons)
-      .setButtonText(t('common.cancel', 'Cancel'))
-      .onClick(() => modal.close())
-    new ButtonComponent(buttons)
-      .setButtonText(this.host.tv('buttons.save', 'Save'))
-      .setCta()
-      .onClick(() => {
-        void (async () => {
-          await this.saveTaskComment(inst, {
-            comment: commentInput.value,
-            energy: parseInt(energyRating.getAttribute('data-rating') || '0', 10),
-            focus: parseInt(focusRating.getAttribute('data-rating') || '0', 10),
-          })
-          modal.close()
-          this.host.renderTaskList()
-        })()
-      })
+    createModalFooter(contentEl, [
+      { text: t('common.cancel', 'Cancel'), role: 'cancel', onClick: () => modal.close() },
+      {
+        text: this.host.tv('buttons.save', 'Save'),
+        role: 'primary',
+        onClick: () => {
+          void (async () => {
+            await this.saveTaskComment(inst, {
+              comment: commentInput.value,
+              energy: parseInt(energyRating.getAttribute('data-rating') || '0', 10),
+              focus: parseInt(focusRating.getAttribute('data-rating') || '0', 10),
+            })
+            modal.close()
+            this.host.renderTaskList()
+          })()
+        },
+      },
+    ])
 
     commentInput.focus()
   }

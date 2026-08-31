@@ -308,7 +308,24 @@ export default [
           // ("1st" … "5th") are not UI sentences. Neither is the literal
           // license-code format, nor mid-sentence link text that has to stay
           // lowercase because the sentence continues around it.
-          ignoreRegex: ["^#+ ", "^\\d", "^e\\.g\\. ", "^TCP-", "^here$"],
+          //
+          // The last pattern is a workaround, not an exemption. The rule
+          // strips a leading emoji with /\p{Emoji}/u before deciding whether
+          // the first word starts the sentence, and U+FE0F (variation
+          // selector-16) does not carry the Emoji property, so it survives the
+          // strip. The rule then reads it as leading content and demands a
+          // lowercase first word -- the opposite of Obsidian's own guideline.
+          // Only labels whose emoji is written with the selector ("🗑️ ", but
+          // not "🕐 ") are affected. Skip those rather than spell their labels
+          // against the guideline; drop this once the rule strips U+FE0F.
+          ignoreRegex: [
+            "^#+ ",
+            "^\\d",
+            "^e\\.g\\. ",
+            "^TCP-",
+            "^here$",
+            "^.{1,2}\\uFE0F ",
+          ],
         },
       ],
     },

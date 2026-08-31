@@ -18,6 +18,7 @@ import {
 import { getToday } from "../../../utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
 import { attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
+import { createModalFooter } from "../../../ui/components/modalFooter"
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
@@ -404,22 +405,26 @@ export default class RoutineEditModal extends Modal {
       })
     }
 
-    // Buttons
-    const buttonRow = this.contentEl.createDiv( {
-      cls: "routine-editor__buttons",
-    })
-    const saveButton = buttonRow.createEl("button", {
-      text: this.tv("fields.saveButton", "Save"),
-    })
-    saveButton.classList.add(
-      "routine-editor__button",
-      "routine-editor__button--primary",
-      "mod-cta",
-    )
-    const cancelButton = buttonRow.createEl("button", {
-      text: this.tv("fields.cancelButton", "Cancel"),
-    })
-    cancelButton.classList.add("routine-editor__button")
+    // Cancel is declared first so the row reads Cancel-then-Save like every
+    // other dialog; this one used to build them the other way round.
+    let saveButton!: HTMLButtonElement
+    let cancelButton!: HTMLButtonElement
+    createModalFooter(this.contentEl, [
+      {
+        text: this.tv("fields.cancelButton", "Cancel"),
+        role: "cancel",
+        ref: (button) => {
+          cancelButton = button
+        },
+      },
+      {
+        text: this.tv("fields.saveButton", "Save"),
+        role: "primary",
+        ref: (button) => {
+          saveButton = button
+        },
+      },
+    ])
 
     saveButton.addEventListener("click", () => {
       void (async () => {

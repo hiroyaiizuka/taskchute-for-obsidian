@@ -91,9 +91,7 @@ describe('ReminderNotificationModal', () => {
       modal.onOpen();
       expect(modal.contentEl.querySelector('.modal-message')?.textContent).toBe('Test Task');
       expect(modal.contentEl.querySelector('.modal-description')).not.toBeNull();
-      expect(
-        modal.contentEl.querySelector('.form-button-group.confirm-button-group')
-      ).not.toBeNull();
+      expect(modal.contentEl.querySelector('.modal-button-container')).not.toBeNull();
     });
 
     it('should render "Open File" button', () => {

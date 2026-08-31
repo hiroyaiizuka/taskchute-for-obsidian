@@ -29,7 +29,6 @@ function createBaseHost(instances: TaskInstance[]): TaskListRendererHost {
         openLinkText: jest.fn(),
       },
     },
-    applyResponsiveClasses: jest.fn(),
     sortTaskInstancesByTimeOrder: jest.fn(),
     getTimeSlotKeys: () => ['0:00-8:00', '8:00-12:00', '12:00-16:00', '16:00-0:00'],
     sortByOrder: (items: TaskInstance[]) => [...items],

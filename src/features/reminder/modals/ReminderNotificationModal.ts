@@ -5,9 +5,10 @@
  * are unavailable. Also shown when desktop notification is clicked.
  */
 
-import { App, Modal } from 'obsidian'
-;
+import { App, Modal } from 'obsidian';
 import { t } from '../../../i18n';
+import { createElCompat } from '../../../ui/components/domCompat';
+import { createModalFooter } from '../../../ui/components/modalFooter';
 
 export interface ReminderNotificationModalOptions {
   taskName: string;
@@ -15,40 +16,6 @@ export interface ReminderNotificationModalOptions {
   taskPath: string;
   onClose?: () => void;
 }
-
-type CreateElOptions = {
-  cls?: string | string[];
-  text?: string;
-  type?: 'button' | 'reset' | 'submit';
-};
-
-const createElCompat = <K extends keyof HTMLElementTagNameMap>(
-  parent: HTMLElement,
-  tag: K,
-  options?: CreateElOptions
-): HTMLElementTagNameMap[K] => {
-  // Called as a method rather than through `.call`, so `this` is bound by the
-  // call itself: no unbound-method finding, and no assertion on the result.
-  const host = parent as HTMLElement & {
-    createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement;
-  };
-  if (typeof host.createEl === 'function') {
-    return host.createEl(tag, options) as HTMLElementTagNameMap[K];
-  }
-  const element = createEl(tag);
-  if (options?.cls) {
-    const classes = Array.isArray(options.cls) ? options.cls : [options.cls];
-    element.classList.add(...classes);
-  }
-  if (options?.text !== undefined) {
-    element.textContent = options.text;
-  }
-  if (options?.type !== undefined && 'type' in element) {
-    (element as HTMLButtonElement).type = options.type;
-  }
-  parent.appendChild(element);
-  return element;
-};
 
 export class ReminderNotificationModal extends Modal {
   private readonly taskName: string;
@@ -126,28 +93,23 @@ export class ReminderNotificationModal extends Modal {
       text: this.tv('startingSoon', 'Starting soon ({time})', { time: this.scheduledTime }),
     });
 
-    // Buttons
-    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' });
-    buttonGroup.classList.add('confirm-button-group');
-
-    const openFileButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'create'],
-      text: this.tv('openFile', 'Open file'),
-    });
-    openFileButton.addEventListener('click', () => {
-      this.openTaskFile();
-      this.close();
-    });
-
-    const closeButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'cancel'],
-      text: t('common.close', 'Close'),
-    });
-    closeButton.addEventListener('click', () => {
-      this.close();
-    });
+    createModalFooter(contentEl, [
+      {
+        text: t('common.close', 'Close'),
+        role: 'cancel',
+        onClick: () => {
+          this.close();
+        },
+      },
+      {
+        text: this.tv('openFile', 'Open file'),
+        role: 'primary',
+        onClick: () => {
+          this.openTaskFile();
+          this.close();
+        },
+      },
+    ]);
   }
 
   onClose(): void {

@@ -211,14 +211,6 @@ body.is-phone {
   padding-top: 0;
   padding-bottom: 0;
 }
-.taskchute-calendar-export-modal .calendar-export-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 8px;
-  border-top: 0;
-}
 .taskchute-calendar-export-modal .modal-title {
   padding-bottom: 12px;
   padding-top: 6px;
@@ -282,22 +274,27 @@ body.is-phone {
   cursor: not-allowed;
 }
 
+/* A date field and its calendar button behaving as one box. The box has to be
+   drawn here rather than on the `input`, so it restates core's field tokens --
+   the same ones the plain fields beside it resolve -- instead of a set of its
+   own. Get this wrong and the date row is the odd one out on a phone, where
+   core swaps the whole set for a 44px pill. */
 .form-input-icon-wrapper {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
   width: 100%;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  padding: 8px 12px;
+  min-height: var(--input-height);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  padding: var(--input-padding);
   box-sizing: border-box;
 }
 
 .form-input-icon-wrapper:focus-within {
-  border-color: var(--interactive-accent);
-  box-shadow: var(--tc-focus-ring);
+  border-color: var(--background-modifier-border-focus);
 }
 
 .form-input-icon-wrapper .form-input--bare {
@@ -307,8 +304,9 @@ body.is-phone {
   margin: 0;
   width: 100%;
   min-width: 0;
+  height: auto;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--font-ui-small);
   color: var(--text-normal);
   box-shadow: none;
   outline: none;
@@ -321,7 +319,7 @@ body.is-phone {
 .form-input--date {
   -webkit-appearance: none;
   appearance: none;
-  font-size: 14px;
+  font-size: var(--font-ui-small);
   color: var(--text-normal);
   text-align: left;
   background: transparent;
@@ -463,24 +461,25 @@ body.is-phone {
   color: var(--text-muted);
 }
 
-.taskchute-confirm-modal .confirm-button-group,
-.taskchute-reminder-modal .confirm-button-group {
-  margin: 24px 0 0;
-}
-
 .taskchute-confirm-modal .form-button:focus-visible,
 .taskchute-reminder-modal .form-button:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
 
+/* The destructive button in a dialog's action row. It used to carry the accent,
+   which made it indistinguishable from the confirm button beside it -- a
+   "Delete" that looks exactly like "Save" is the one button that must not.
+   Core's own destructive colour is `--background-modifier-error`, and it wins
+   over `button.mod-warning` from core, so this is the single place the look is
+   decided. */
 .form-button.danger {
-  background: var(--interactive-accent);
+  background: var(--background-modifier-error);
   color: var(--text-on-accent);
 }
 
 .form-button.danger:hover {
-  background: var(--interactive-accent-hover);
+  background: var(--background-modifier-error-hover);
 }
 
 /* Collapsible time slot headers */
@@ -1197,61 +1196,26 @@ body.is-phone {
   color: var(--text-accent-hover);
 }
 
-.ai-custom-model-modal {
-  position: fixed;
-  z-index: 10050;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgb(0 0 0 / 0.55);
-}
-
-.ai-custom-model-modal__content {
-  width: min(520px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
-  overflow-y: auto;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-primary);
-  box-shadow: var(--shadow-l);
-}
-
-.ai-custom-model-modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.ai-custom-model-modal__title-wrap,
-.ai-custom-model-modal__content > .ai-custom-model-modal__agent {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.ai-custom-model-modal__title {
-  margin: 0;
-  font-size: 18px;
-}
-
-.ai-custom-model-modal__title-icon,
+/* This dialog is a plain Obsidian `Modal` now. It used to be a hand-rolled
+   full-screen overlay, and the frame, the backdrop and the scroll box that
+   went with that are core's job -- the rules that drew them a second time
+   inside core's own frame are gone, along with the `__content`, `__header` and
+   `__title*` markup no TS builds any more. */
 .ai-custom-model-modal__agent-icon {
   display: inline-flex;
   color: var(--text-accent);
 }
 
-.ai-custom-model-modal__title-icon svg,
 .ai-custom-model-modal__agent-icon svg {
   width: 18px;
   height: 18px;
 }
 
 .ai-custom-model-modal__agent {
-  margin: 16px 18px 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: var(--size-4-3);
   padding: 9px 11px;
   border-radius: 7px;
   background: var(--background-secondary);
@@ -1262,7 +1226,6 @@ body.is-phone {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 18px 18px;
 }
 
 .ai-custom-model-modal__label {
@@ -1323,18 +1286,6 @@ body.is-phone {
 
 .ai-custom-model-modal__error.is-hidden {
   display: none;
-}
-
-.ai-custom-model-modal__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.ai-custom-model-modal__cancel,
-.ai-custom-model-modal__submit {
-  min-width: 88px;
 }
 
 .ai-task-agent-grid {
@@ -1756,6 +1707,10 @@ body.is-phone {
 .taskchute-move-calendar__weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
+  /* Same gap as the day grid below -- without it the seven header cells are
+     each 3.4px wider than the column they label, and the drift is visible by
+     Saturday. */
+  gap: 4px;
   margin-bottom: 4px;
   font-size: 12px;
   color: var(--text-muted);
@@ -1795,15 +1750,6 @@ body.is-phone {
   border: 1px solid var(--text-accent);
 }
 
-.taskchute-move-calendar__day.is-selected {
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.taskchute-move-calendar__day.is-outside {
-  color: var(--text-faint);
-}
-
 .taskchute-move-calendar__day.is-sunday {
   color: var(--text-error);
 }
@@ -1812,8 +1758,33 @@ body.is-phone {
   color: var(--text-accent);
 }
 
+/* A day outside the month reads as unavailable first and as a weekend second,
+   so this has to come after the two rules above -- same specificity, later
+   wins -- or a leading Sunday keeps its red while the Mondays beside it go
+   faint. */
+.taskchute-move-calendar__day.is-outside {
+  color: var(--text-faint);
+}
+
+/* Last word of all: the picked day keeps its on-accent text even when the
+   month has been paged away from it and it is now an outside day. */
+.taskchute-move-calendar__day.is-selected {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
 .taskchute-move-calendar__day:hover {
   background-color: var(--background-modifier-hover);
+}
+
+/* Core's mobile button padding (`4px var(--size-4-5)`, i.e. 4px 20px) lands on
+   the day cells as well and blows each one out sideways -- a 55px-wide cell in
+   a seven-column grid is what pushed the sheet past the screen. The grid gives
+   the cell its width, so drop the horizontal padding and let the height rule
+   below decide the box. */
+.taskchute-move-calendar button.taskchute-move-calendar__day {
+  padding: 6px 0;
+  line-height: 1;
 }
 
 .taskchute-move-calendar__footer {
@@ -1833,6 +1804,68 @@ body.is-phone {
 
 .taskchute-move-calendar__action:hover {
   background-color: var(--background-modifier-hover);
+}
+
+/* Obsidian's mobile shell gives every button that is not one of its own
+   `.clickable-icon`s a full touch box -- `.is-mobile button:not(.clickable-icon)`
+   in app.css, (0,2,1) -- which outranks the single-class rules above and
+   stretches these two flat controls to an input's height. The popover's header
+   and footer then carry far more vertical air than the 4px these buttons ask
+   for, and the arrows tower over the month title. Restate the box one element
+   deeper (0,2,1, and later in the cascade) so the plugin's own compact button
+   wins on a phone; the values are the ones the controls already use, so
+   nothing changes on desktop. */
+.taskchute-move-calendar button.taskchute-move-calendar__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  min-height: 0;
+  padding: 4px 6px;
+  line-height: 1;
+}
+
+.taskchute-move-calendar button.taskchute-move-calendar__action {
+  height: auto;
+  min-height: 0;
+  padding: 4px 6px;
+  line-height: 1;
+}
+
+/* The phone sheet is wide enough to give every control a real touch target,
+   so the compact desktop box above gives way to a 44px-high one throughout:
+   square for the month arrows, a pill for Today, and a full-height day cell.
+   Each of these has to name the element too -- the core rule they are undoing
+   is (0,2,1). */
+.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__nav {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__action {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.is-mobile .taskchute-move-calendar button.taskchute-move-calendar__day {
+  height: 44px;
+  font-size: 13px;
+}
+
+.is-mobile .taskchute-move-calendar__weekday {
+  font-size: 13px;
+}
+
+/* 260px is a desktop popover width; on a phone it leaves the day grid cramped
+   next to all the room there is. Let the sheet take the screen, minus a margin
+   on each side, and cap it so a tablet does not get one absurdly wide month.
+   `position()` centres it on the same shell -- there is no width left to hang
+   it off the date field. */
+.is-mobile .taskchute-move-calendar {
+  width: min(calc(100vw - 32px), 360px);
+  max-width: calc(100vw - 32px);
 }
 
 .routine-weekly-group,
@@ -2003,6 +2036,23 @@ body.is-phone {
    in it. */
 .taskchute-modal:not(.taskchute-modal--no-close) .modal-title {
   padding-right: var(--tc-modal-close-reserve);
+}
+
+/* Every dialog ends in core's `.modal-button-container`, which is what gives
+   the row its shape: right-aligned on the desktop, a full-width stack on a
+   phone. The one thing core gets wrong here is the gutter -- on a phone it
+   pads the row by `--size-4-3` on top of the `--size-4-4` that
+   `.is-phone .modal-content` already pads the fields by, so the buttons sit
+   further in than the inputs above them. Drop the horizontal half and the two
+   line up on the shared gutter; the bottom safe-area margin core sets in the
+   same rule is left alone.
+
+   Scoped to the phone because that is the only place core adds the padding.
+   Unscoped it would also outrank the per-dialog footer padding a couple of
+   dialogs rely on for their only gutter (`.backup-confirm-buttons`), and
+   flatten them on the desktop for no reason. */
+body.is-phone .taskchute-modal .modal-button-container {
+  padding-inline: 0;
 }
 
 /* A notes field needs the full width, but `.setting-item-control` is a
@@ -2880,6 +2930,75 @@ body.is-phone {
   }
 }
 
+/* Phone-width leaf. The five controls need ~340px to sit on one line, so below
+   that they stop trying: the two that frame the header keep the top row at its
+   corners and the date navigator takes a full-width row of its own, arrows
+   pinned to the edges and the date centred between them.
+
+       [三]                    [+]
+       [<]        Today        [>]
+
+   The calendar glyph is what gives way -- the date label opens the same
+   picker, and it is the bigger target of the two. */
+@container taskchute-view (max-width: 380px) {
+  .top-bar-container {
+    grid-template-rows: repeat(2, 30px);
+    height: 66px;
+    row-gap: 6px;
+  }
+
+  /* The drawer is already pinned to the top-left corner by the 680px layout
+     above, which this width is inside of. */
+  .top-bar-container > .header-action-section {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  /* Qualified by the bar: `.date-nav-container.compact` declares its own
+     column and centring further down the sheet, and would otherwise win this
+     on source order alone. */
+  .top-bar-container > .date-nav-container.compact {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: space-between;
+  }
+
+  .top-bar-container > .date-nav-container.compact .calendar-btn {
+    display: none;
+  }
+
+  /* The label is a fixed 150px box everywhere else, so the arrows never move
+     as the date changes. There is no width to spare here, though, and holding
+     that box pushes the next-day arrow off the edge of the leaf. So it gives
+     up the fixed width and truncates instead -- the leading "Today (8/31" is
+     the part that carries the meaning. `display: block` is what lets it: an
+     ellipsis has no effect on the flex box it used to be. */
+  .top-bar-container > .date-nav-container.compact .date-nav-label {
+    display: block;
+    width: auto;
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 28px;
+  }
+
+  /* The board switch cannot share the top row with anything, so it keeps the
+     row of its own that the 680px layout gave it -- pushed below the date
+     navigator rather than above it. */
+  .top-bar-container.has-board-view-switch {
+    grid-template-rows: repeat(3, 30px);
+    height: 102px;
+  }
+
+  .top-bar-container > .header-action-section.has-board-view-switch {
+    grid-row: 3;
+  }
+}
+
 /* Navigation Overlay */
 .navigation-overlay {
   position: fixed;
@@ -3064,29 +3183,43 @@ body.is-phone {
   container-name: taskchute-list;
 }
 
+/* The row is a flex line: grip, play, the text column, then the trailing
+   controls. It used to be a grid with a fixed column template per breakpoint,
+   which meant a track was reserved whether or not anything filled it -- an
+   idle row rendered an empty span just to hold its place, and a phone kept a
+   whole spare column to the right of the settings button. Only the text column
+   grows now, and an element that is not rendered costs no width.
+
+   Row controls (play/stop, routine, settings) are square boxes of
+   `--tc-row-control-size`; the comment button keeps the height but doubles the
+   width so it is easier to hit. The grip is narrower than the rest -- it is a
+   grip, not a glyph -- so it carries its own pair of dimensions. */
 .task-item {
-  /* Row controls (play/stop, routine, settings) are square boxes of this size;
-     the comment button keeps the same height but is twice as wide so it is
-     easier to hit. Grid tracks below match these widths exactly, so the visual
-     spacing between the trailing buttons is just `gap`. The drag grip is
-     narrower than the rest -- it is a grip, not a glyph -- so it carries its
-     own pair of dimensions. */
   --tc-row-control-size: 32px;
   --tc-row-comment-width: calc(var(--tc-row-control-size) * 2);
   --tc-row-grip-width: 24px;
   --tc-row-grip-height: 24px;
 
-  display: grid;
-  grid-template-columns:
-    var(--tc-row-grip-width) var(--tc-row-control-size) 1fr 220px 110px 50px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 8px;
+  display: flex;
   align-items: center;
-  padding: 4px 15px 4px 4px;
+  gap: 8px;
+  padding: 4px 8px;
   cursor: default;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background-color 0.2s ease;
   margin: 0;
+}
+
+/* Everything textual in the row: name, project, clock, duration. It is the
+   only part that grows, and `min-width: 0` is what lets it shrink past its
+   content so a long task name ellipsises instead of pushing the controls off
+   the row. */
+.task-item__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .task-item:last-child {
@@ -3097,8 +3230,8 @@ body.is-phone {
    32px controls sized for a cursor fall short of the ~44px tap target phones
    and tablets expect, so grow every row control (and the grip, which is
    dragged rather than tapped and so gains height rather than width) on any
-   coarse pointer. The grid tracks are written in these variables, so the row
-   re-lays itself out with no second template to keep in sync. */
+   coarse pointer. Every control sizes itself from these variables, so the row
+   re-lays itself out with nothing else to keep in sync. */
 @media (pointer: coarse) {
   .task-item {
     --tc-row-control-size: 40px;
@@ -3151,6 +3284,7 @@ body.is-phone {
 .drag-handle {
   width: var(--tc-row-grip-width, 24px);
   height: var(--tc-row-grip-height, 24px);
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3257,7 +3391,6 @@ body.is-phone {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: -4px; /* プロジェクトとの間隔を狭める */
 }
 
 .task-time-range {
@@ -3269,10 +3402,9 @@ body.is-phone {
   display: flex;
   justify-content: flex-start;
   align-items: center;
-  min-width: 0;
+  flex: 0 0 auto;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 4px;
 }
 .task-time-arrow {
   margin: 0 2px;
@@ -3291,6 +3423,9 @@ body.is-phone {
 .task-time-range.idle-placeholder:hover {
   opacity: 1;
 }
+/* The measured total, and the clock that replaces it while a task runs. Both
+   are the last thing in the text column and both hold their natural width --
+   a duration that shrinks is a duration that lies. */
 .task-duration {
   font-size: 12px;
   color: var(--text-muted);
@@ -3298,10 +3433,8 @@ body.is-phone {
   font-family: monospace;
   display: flex;
   justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .task-timer-display {
@@ -3311,10 +3444,8 @@ body.is-phone {
   font-family: monospace;
   display: flex;
   justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-weight: bold;
 }
 
@@ -3353,14 +3484,13 @@ body.is-phone {
   transition: all var(--tc-transition);
   opacity: 0.4;
 
-  /* Square control: the glyph sits in a --tc-row-control-size box centred in
-     its grid cell, so the hover background reads as a square the same size as
-     the play/stop and settings buttons instead of stretching to the cell. */
+  /* Square control: the glyph sits in a --tc-row-control-size box, so the
+     hover background reads as a square the same size as the play/stop and
+     settings buttons. */
   width: var(--tc-row-control-size);
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3395,7 +3525,6 @@ body.is-phone {
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-comment-width);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3454,12 +3583,17 @@ body.is-phone {
 }
 
 /* プロジェクト表示コンポーネント全体 */
+/* Gives up its width before the task name does: the project is context, the
+   name is the row. `margin-right` used to hold it off the clock -- the text
+   column's `gap` does that now. */
 .taskchute-project-display {
   display: flex;
   align-items: center;
   gap: 4px;
   justify-content: flex-start;
-  margin-right: 32px; /* 時間との間隔を広げる */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
 }
 
 /* プロジェクトボタン（フォルダアイコン + プロジェクト名） */
@@ -3616,41 +3750,47 @@ body.is-phone {
   color: var(--text-normal);
 }
 
-.form-input,
-.form-textarea,
-.energy-select {
+/* Obsidian builds every field it uses itself out of the `--input-*` tokens --
+   `input[type=text|number|date|search|...]`, `select` and `textarea` all share
+   one padding, radius, border and height, and all three swap to a 44px touch
+   pill on a phone. This class used to restate that in its own values, and lost:
+   the core rules are attribute- and element-based (0,1,1) and outrank a bare
+   class (0,1,0), so text and number fields took core's look while `select`
+   (0,1,1, and later in the cascade) and `time` (which core styles not at all)
+   kept this one. Two shapes of field in the same form, which is exactly the
+   mismatch this class was meant to prevent.
+
+   So the box is core's now and only the width is ours; the exceptions below
+   are the fields core does not reach. */
+.form-input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
   box-sizing: border-box;
 }
 
-/* セレクトボックスの高さ調整 */
-select.form-input {
-  min-height: 36px;
-  line-height: 1.5;
-  padding: 8px 12px;
+/* `time` is the one input type the plugin asks for that Obsidian never uses,
+   so no core rule matches it. Restate core's own declaration in the same
+   tokens -- not in resolved values, or the phone pill would stop here. */
+.form-input[type="time"] {
+  height: var(--input-height);
+  padding: var(--input-padding);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-small);
 }
 
-/* Shared focus ring. Must stay ahead of `.form-input.error`, which has equal
-   specificity and is meant to keep its red border while focused. */
-.form-input:focus,
-.form-textarea:focus,
-.energy-select:focus,
-.completion-comment:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: var(--tc-focus-ring);
-}
-
-textarea.form-textarea {
-  min-height: 80px;
-  resize: vertical;
+/* Not an input at all -- a button that opens the month-day picker and has to
+   pass for the field above it. Core's input rules can never match it. */
+.form-input.routine-monthday-trigger {
+  height: var(--input-height);
+  padding: var(--input-padding);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
 }
 
 .form-button.cancel {
@@ -3705,7 +3845,7 @@ textarea.form-textarea {
   width: var(--tc-row-control-size);
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
-  justify-self: center;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3755,7 +3895,6 @@ textarea.form-textarea {
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3921,6 +4060,11 @@ textarea.form-textarea {
   align-items: center;
   justify-content: center;
   height: 28px;
+
+  /* It opens the calendar. Nothing else about it changes -- no underline, no
+     hover colour -- because the header reads as a date first and a control
+     second, and the glyph beside it already advertises the picker. */
+  cursor: pointer;
 }
 
 .date-nav-container.compact .date-nav-label {
@@ -4198,31 +4342,6 @@ textarea.form-textarea {
   transform: scale(1.2);
 }
 
-.completion-comment {
-  width: 100%;
-  min-height: 100px;
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-md);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  resize: vertical;
-  box-sizing: border-box;
-}
-
-/* 入力時のテキスト色を明るくする */
-.completion-comment:not(:placeholder-shown) {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.completion-comment::placeholder {
-  color: var(--text-faint);
-  opacity: 0.6;
-  font-style: italic;
-}
-
 .tag-selection {
   display: flex;
   flex-wrap: wrap;
@@ -4249,13 +4368,6 @@ textarea.form-textarea {
 .tag-option.selected {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-}
-
-.form-button-group {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 13px;
 }
 
 .form-button {
@@ -4285,72 +4397,6 @@ textarea.form-textarea {
 
 .form-button.secondary:hover {
   background: var(--background-modifier-border-hover);
-}
-
-/* レスポンシブ対応 - 表示優先度の調整 */
-
-.taskchute-medium .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 8px;
-  padding-right: 12px;
-}
-
-.taskchute-medium .taskchute-project-display,
-.taskchute-medium .taskchute-project-placeholder {
-  display: none;
-}
-
-.taskchute-medium .task-name,
-.taskchute-narrow .task-name,
-.taskchute-very-narrow .task-name {
-  margin-right: 0;
-  white-space: normal;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-/* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-.taskchute-narrow .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) 100px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 6px;
-  padding-left: 4px;
-  padding-right: 16px;
-}
-
-.taskchute-narrow .task-time-range {
-  justify-content: flex-start;
-  text-align: left;
-  padding-left: 4px;
-}
-
-/* narrow時は経過時間を非表示にし、コメント・ルーチンは表示を維持 */
-.taskchute-narrow .task-duration,
-.taskchute-narrow .task-duration-placeholder,
-.taskchute-narrow .task-timer-display {
-  display: none;
-}
-
-/* very-narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-.taskchute-very-narrow .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) 90px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 4px;
-  padding-left: 4px;
-  padding-right: 12px;
-}
-
-/* very-narrow時もコメント・ルーチンは表示を維持（経過時間はnarrowで既に非表示） */
-
-.taskchute-very-narrow .task-time-range {
-  font-size: 11px;
-  justify-content: flex-start;
-  text-align: left;
-  padding-left: 4px;
 }
 
 .task-duration.cross-day {
@@ -4420,8 +4466,10 @@ textarea.form-textarea {
 }
 
 /* タスク名検証スタイル */
+/* The border width comes with it: core sets `--input-border-width: 0` on a
+   phone, so colouring the border alone would leave the error invisible there. */
 .form-input.error {
-  border-color: var(--text-error);
+  border: var(--border-width) solid var(--text-error);
   background-color: var(--background-modifier-error);
 }
 
@@ -4466,16 +4514,13 @@ textarea.form-textarea {
   margin-top: 4px;
 }
 
+/* Narrowing the row is a matter of dropping what it can do without and
+   tightening the gap -- there is no column template to restate, so each step
+   below only says what changes. The container is `.task-list`, so a row
+   responds to the pane it is in rather than to the window. */
 @container taskchute-list (max-width: 900px) {
-  .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
-      minmax(140px, auto) minmax(70px, auto) var(--tc-row-comment-width)
-      var(--tc-row-control-size) var(--tc-row-control-size);
-    gap: 8px;
-    padding-right: 12px;
-  }
-
+  /* The project is the first thing to go: it is context for the name, and the
+     name is what the row is for. */
   .task-item .taskchute-project-display,
   .task-item .taskchute-project-placeholder {
     display: none;
@@ -4483,114 +4528,56 @@ textarea.form-textarea {
 }
 
 @container taskchute-list (max-width: 640px) {
-  /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 100px
-      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 6px;
-    padding-left: 4px;
-    padding-right: 16px;
   }
 
+  /* Elapsed and measured time go next. Both are readable in the log, and the
+     start/stop clock beside them already says whether a task has run. */
   .task-item .task-duration,
-  .task-item .task-duration-placeholder,
   .task-item .task-timer-display {
     display: none;
   }
-
-  .task-item .task-time-range {
-    justify-content: flex-start;
-    text-align: left;
-    padding-left: 4px;
-  }
-
 }
 
 @container taskchute-list (max-width: 520px) {
-  /* 520px以下: さらにコンパクト */
   .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 90px
-      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 4px;
-    padding-left: 4px;
-    padding-right: 12px;
   }
 
   .task-item .task-time-range {
     font-size: 11px;
-    justify-content: flex-start;
-    text-align: left;
-    padding-left: 4px;
   }
 }
 
-/* Phone width: everything above still tries to keep the row on one line, and
-   below ~440px there is no line left to keep -- the name track collapses to a
-   few characters while the clock and the four controls hold their widths. So
-   stop competing for one line: the controls span a two-row row, the name takes
-   the top line and the start/stop clock drops underneath it. Row height is set
-   by the controls, which span both rows, so the row grows by the leading
-   between the two text lines rather than by a second control-sized band. */
+/* Phone width: everything above still keeps the row on one line, and below
+   ~440px there is no line left to keep -- the name shrinks to a few characters
+   while the clock and the controls hold their widths. So stop competing for
+   one line: the text column stacks, the name takes the top line and the clock
+   drops underneath it as a caption. The controls stay on the row's own line,
+   centred against the pair, so the row grows by the leading between two text
+   lines rather than by a second control-sized band. */
 @container taskchute-list (max-width: 440px) {
   .task-item {
-    /* Its own column now, so it no longer needs the double width it had when
-       it shared the trailing run of buttons. */
+    /* On its own again, so it no longer needs the double width it had when it
+       shared the trailing run of buttons. */
     --tc-row-comment-width: var(--tc-row-control-size);
 
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
-      var(--tc-row-comment-width) var(--tc-row-control-size)
-      var(--tc-row-control-size);
-    grid-template-areas:
-      "grip play name comment routine settings"
-      "grip play time comment routine settings";
     gap: 4px;
-    padding: 4px 8px 4px 2px;
   }
 
-  /* Placement only below: every control keeps the paint it was given above,
-     and each spans both rows, so `align-self` is what stops a fixed-height
-     box from sitting against the top of the pair. */
-  .task-item .drag-handle {
-    grid-area: grip;
-    align-self: center;
+  .task-item__main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
   }
 
-  .task-item .play-stop-button {
-    grid-area: play;
-    align-self: center;
-  }
-
-  .task-item .task-name-container {
-    grid-area: name;
-  }
-
-  /* The clock is the second line rather than a column of its own, so it reads
-     as a caption under the name: same left edge, no padding pushing it in. */
-  .task-item .task-time-range {
-    grid-area: time;
-    align-self: start;
-    padding-left: 0;
-  }
-
-  .task-item .comment-button {
-    grid-area: comment;
-    align-self: center;
-  }
-
-  .task-item .routine-button {
-    grid-area: routine;
-    align-self: center;
-  }
-
-  .task-item .settings-task-button {
-    grid-area: settings;
-    align-self: center;
+  /* Both lines start at the same left edge, and the name is free to take the
+     full width of the column now that nothing sits beside it. */
+  .task-item__main > * {
+    max-width: 100%;
   }
 }
-
 
 /* Routine edit modal */
 .routine-edit-modal {
@@ -4790,42 +4777,6 @@ textarea.form-textarea {
   color: var(--text-on-accent);
 }
 
-.routine-editor__buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.routine-editor__button {
-  padding: 6px 14px;
-  border-radius: var(--tc-radius-md);
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.routine-editor__button:hover {
-  background: var(--background-modifier-hover);
-}
-
-.routine-editor__buttons .routine-editor__button--primary {
-  background: var(--interactive-accent);
-  border-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-  box-shadow: none;
-}
-
-.routine-editor__buttons .routine-editor__button--primary:hover {
-  background: var(--interactive-accent-hover);
-  border-color: var(--interactive-accent-hover);
-  color: var(--text-on-accent);
-}
-
 /* Routine manager modal */
 .routine-manager-modal {
   width: 90vw;
@@ -4997,39 +4948,12 @@ textarea.form-textarea {
   color: var(--text-muted);
 }
 
+/* No padding of its own: the gutter is the modal frame's, the same as every
+   other confirm dialog. This one used to add a second 16px on top of it. */
 .routine-confirm {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-}
-
-.routine-confirm__buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.routine-confirm__button {
-  padding: 6px 14px;
-  border-radius: var(--tc-radius-md);
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.routine-confirm__button:hover {
-  background: var(--background-modifier-hover);
-}
-
-.routine-confirm__button.mod-danger {
-  color: var(--text-on-accent);
-  background: var(--color-red, #e74c3c);
-  border-color: var(--color-red, #e74c3c);
 }
 
 /* ===== Task Warning Styles ===== */
@@ -5431,6 +5355,30 @@ textarea.form-textarea {
   }
 }
 
+/* Obsidian's tablet shell pads every button that is not one of its own
+   `.clickable-icon`s: `.is-tablet button:not(.clickable-icon) { padding:
+   var(--size-4-1) var(--size-4-5) }` in app.css. That selector is (0,2,1),
+   more specific than the single-class rules below that give each of these
+   controls `padding: 0` inside a fixed square box, so on an iPad the shell
+   wins: a 30px border-box button gets 40px of horizontal padding, its content
+   box collapses to zero width and the `<svg>` inside is squeezed out of
+   sight. The buttons then read as empty pills -- the emoji controls survive
+   only because text overflows a zero-width box, while Lucide icons, which are
+   sized elements, do not. Restate the reset one class deeper (0,3,0) so the
+   plugin's own box wins on every platform; the value is what these controls
+   already ask for, so nothing changes on desktop. */
+.taskchute-view-root .top-bar-container .drawer-toggle,
+.taskchute-view-root .top-bar-container .date-nav-arrow,
+.taskchute-view-root .top-bar-container .calendar-btn,
+.taskchute-view-root .top-bar-container .add-task-button.repositioned,
+.taskchute-view-root .task-item .play-stop-button,
+.taskchute-view-root .task-item .comment-button,
+.taskchute-view-root .task-item .routine-button,
+.taskchute-view-root .task-item .settings-task-button,
+.modal.taskchute-modal .form-input-icon-button {
+  padding: 0;
+}
+
 .is-mobile .task-list {
   padding-bottom: var(--taskchute-mobile-bottom-obstruction);
   scroll-padding-bottom: var(--taskchute-mobile-bottom-obstruction);
@@ -5480,10 +5428,63 @@ textarea.form-textarea {
   overflow: visible;
 }
 
+/* The log header is a title/controls row on desktop. A phone is too narrow for
+   both: the title wraps to two or three lines and the year picker and restore
+   button get squeezed against the close glyph. Stack them instead, title first,
+   controls on their own full-width line underneath. */
+.is-mobile .taskchute-log-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+}
+
+.is-mobile .log-title {
+  font-size: 20px;
+}
+
+/* Only the title line shares its row with the close glyph now, so the corner is
+   reserved there instead of across the whole header, and the controls get the
+   full width. */
+.is-mobile .taskchute-log-modal .taskchute-log-header {
+  padding-right: var(--size-4-4);
+}
+
+.is-mobile .taskchute-log-modal .log-title {
+  padding-right: var(--tc-modal-close-reserve);
+}
+
+.is-mobile .log-controls {
+  flex-wrap: wrap;
+}
+
+/* Same story in the routine manager: on a phone the title and the search field
+   cannot share a row, so the title takes the close button's row alone and the
+   search box gets the full width underneath it. */
+.is-mobile .routine-manager__header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-4-2);
+  padding-right: 0;
+}
+
+.is-mobile .routine-manager__header > h3 {
+  margin: 0;
+  padding-right: var(--tc-modal-close-reserve);
+}
+
+.is-mobile .routine-manager__controls {
+  align-items: stretch;
+}
+
+.is-mobile .routine-manager__controls input[type="search"] {
+  min-width: 0;
+  width: 100%;
+}
+
 /* ===== Reminder Notification Modal ===== */
 /* Layout comes from the shared modal primitives (.modal-header / .modal-message /
-   .modal-description / .confirm-button-group), same as the confirm dialog. Only the
-   reminder-specific bits live here. */
+   .modal-description, and core's .modal-button-container for the actions), same
+   as the confirm dialog. Only the reminder-specific bits live here. */
 .taskchute-reminder-modal .modal-title {
   display: none;
 }
@@ -5980,10 +5981,6 @@ textarea.form-textarea {
   color: var(--text-accent);
 }
 
-.recipe-select-footer {
-  margin-top: 28px;
-}
-
 .recipe-card-main {
   min-width: 0;
 }
@@ -6114,10 +6111,15 @@ textarea.form-textarea {
 }
 
 /* ===== Backup Restore Modal ===== */
+/* The header, the footer and the list draw dividers that span the dialog, so
+   they own the gutter and the frame gives up its own -- the same arrangement
+   `.taskchute-log-modal` uses. Without this the two gutters stack and the
+   dividers stop short of the edge. */
 .backup-restore-modal {
   width: 500px;
   max-width: 90vw;
   max-height: 80vh;
+  padding: 0;
 }
 
 .backup-restore-modal .modal-content {
@@ -6141,10 +6143,6 @@ textarea.form-textarea {
   font-weight: 600;
 }
 
-/* The actions sit under the list, in the same button row every other dialog
-   ends with, so they are styled by `.form-button` rather than by rules of their
-   own. The message shares the row: it explains a refused click without moving
-   the buttons. */
 .backup-restore-footer {
   display: flex;
   align-items: center;
@@ -6154,8 +6152,20 @@ textarea.form-textarea {
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.backup-restore-footer .form-button-group {
+/* The button row is one half of the footer rather than the whole of it, so it
+   drops core's leading margin and its phone full-width -- otherwise it would
+   squeeze the message beside it to nothing. */
+.backup-restore-footer .modal-button-container {
   margin-top: 0;
+  width: auto;
+}
+
+/* On a phone the buttons stack, and a stack cannot sit in a `space-between`
+   row beside the message. Turn the whole footer into a column instead, message
+   first. */
+body.is-mobile .backup-restore-footer {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .backup-restore-message {
@@ -6236,9 +6246,12 @@ textarea.form-textarea {
 }
 
 /* ===== Backup Confirm Modal ===== */
+/* Full-bleed dividers again, so the frame gives up its gutter to the sections
+   inside it. */
 .backup-confirm-modal {
   width: 450px;
   max-width: 90vw;
+  padding: 0;
 }
 
 .backup-confirm-modal .modal-content {
@@ -6372,11 +6385,17 @@ textarea.form-textarea {
 }
 
 /* Same button row as the restore dialog it is opened from; `.form-button`
-   carries the buttons' own looks. */
+   carries the buttons' own looks. This row is the one place the dialog's
+   gutter comes from its own padding rather than from `.modal-content`, so it
+   has to opt back out of the shared phone rule that strips it. */
 .backup-confirm-buttons {
   padding: var(--size-4-4);
   margin-top: 0;
   border-top: 1px solid var(--background-modifier-border);
+}
+
+body.is-phone .taskchute-modal .backup-confirm-buttons {
+  padding-inline: var(--size-4-4);
 }
 
 /* ===== Mobile Touch Improvements ===== */
@@ -6458,11 +6477,14 @@ textarea.form-textarea {
     opacity: 0.8;
   }
 
-  /* Idle/running state (disabled): completely hidden */
-  .comment-button:disabled {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
+  /* Idle/running state (disabled): gone, not merely invisible. A pointer
+     device keeps the space so the button can fade in under the cursor without
+     shifting the row; a touch device has no hover to fade in from, so the
+     reserved width would be dead space against the right edge of the screen
+     for every task that has not run yet -- which is most of them. */
+  .comment-button:disabled,
+  .comment-button.disabled:not(.active) {
+    display: none;
   }
 
   /* Drag handle: invisible by default, visible on tap */
@@ -6723,9 +6745,10 @@ textarea.form-textarea {
 
 /* ===== AI Task ===== */
 
-/* Row controls. Rendered inside
-   .task-name-container (never a direct child of the .task-item grid);
-   spacing from the task name comes from the container's gap. */
+/* Row controls. Rendered inside .task-name-container, beside the name itself
+   -- put them in the row's text column instead and a phone would stack them
+   under the name along with the clock. Spacing comes from the container's
+   gap. */
 .ai-task-controls {
   display: inline-flex;
   align-items: center;

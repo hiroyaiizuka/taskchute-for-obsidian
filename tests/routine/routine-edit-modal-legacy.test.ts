@@ -275,7 +275,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
 
     const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
-    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    const saveButton = overlay?.querySelector('.modal-button-container .form-button.create') as HTMLButtonElement
     expect(enabledToggle).toBeTruthy()
     expect(saveButton).toBeTruthy()
 
@@ -307,7 +307,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     const typeSelect = overlay?.querySelector('select') as HTMLSelectElement
     const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
     const weeklyCheckbox = overlay?.querySelector('.routine-form__weekly input[value="3"]') as HTMLInputElement
-    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    const saveButton = overlay?.querySelector('.modal-button-container .form-button.create') as HTMLButtonElement
     expect(typeSelect).toBeTruthy()
     expect(enabledToggle).toBeTruthy()
     expect(weeklyCheckbox).toBeTruthy()
@@ -345,7 +345,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     const overlay = document.body.querySelector('.modal-container')
     expect(overlay).not.toBeNull()
 
-    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    const saveButton = overlay?.querySelector('.modal-button-container .form-button.create') as HTMLButtonElement
     expect(saveButton).toBeTruthy()
 
     saveButton.click()
@@ -377,7 +377,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     expect(overlay).not.toBeNull()
 
     const enabledToggle = overlay?.querySelector('.form-group--inline input[type="checkbox"]') as HTMLInputElement
-    const saveButton = overlay?.querySelector('.routine-editor__button--primary') as HTMLButtonElement
+    const saveButton = overlay?.querySelector('.modal-button-container .form-button.create') as HTMLButtonElement
     expect(enabledToggle).toBeTruthy()
     expect(saveButton).toBeTruthy()
 
@@ -432,7 +432,7 @@ describe('RoutineEditModal legacy frontmatter', () => {
     contains.dispatchEvent(new Event('change', { bubbles: true }))
 
     const saveButton = overlay?.querySelector(
-      '.routine-editor__button--primary',
+      '.modal-button-container .form-button.create',
     ) as HTMLButtonElement
     saveButton.click()
     await new Promise((resolve) => setTimeout(resolve, 0))

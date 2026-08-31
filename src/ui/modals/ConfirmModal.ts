@@ -1,4 +1,6 @@
 import { App, Modal } from 'obsidian'
+import { createElCompat } from '../components/domCompat'
+import { createModalFooter } from '../components/modalFooter'
 
 export interface ConfirmModalOptions {
   title: string
@@ -9,46 +11,6 @@ export interface ConfirmModalOptions {
   description?: string
   /** Info-only dialog: drop the cancel button so OK is the single way out. */
   hideCancel?: boolean
-}
-
-type CreateElOptions = {
-  cls?: string | string[]
-  text?: string
-  type?: 'button' | 'reset' | 'submit'
-  attr?: Record<string, string>
-}
-
-const createElCompat = <K extends keyof HTMLElementTagNameMap>(
-  parent: HTMLElement,
-  tag: K,
-  options?: CreateElOptions,
-): HTMLElementTagNameMap[K] => {
-  // Called as a method rather than through `.call`, so `this` is bound by the
-  // call itself: no unbound-method finding, and no assertion on the result.
-  const host = parent as HTMLElement & {
-    createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement
-  }
-  if (typeof host.createEl === 'function') {
-    return host.createEl(tag, options) as HTMLElementTagNameMap[K]
-  }
-  const element = createEl(tag)
-  if (options?.cls) {
-    const classes = Array.isArray(options.cls) ? options.cls : [options.cls]
-    element.classList.add(...classes)
-  }
-  if (options?.text !== undefined) {
-    element.textContent = options.text
-  }
-  if (options?.type !== undefined && 'type' in element) {
-    ;(element as HTMLButtonElement).type = options.type
-  }
-  if (options?.attr) {
-    Object.entries(options.attr).forEach(([key, value]) => {
-      element.setAttribute(key, value)
-    })
-  }
-  parent.appendChild(element)
-  return element
 }
 
 class ConfirmModal extends Modal {
@@ -108,31 +70,39 @@ class ConfirmModal extends Modal {
       })
     }
 
-    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' })
-    buttonGroup.classList.add('confirm-button-group')
+    let cancelButton: HTMLButtonElement | undefined
+    let confirmButton: HTMLButtonElement | undefined
+    createModalFooter(contentEl, [
+      ...(this.hideCancel
+        ? []
+        : [
+            {
+              text: this.cancelText,
+              role: 'cancel' as const,
+              ref: (button: HTMLButtonElement) => {
+                cancelButton = button
+              },
+              onClick: () => {
+                this.closeWith(false)
+              },
+            },
+          ]),
+      {
+        text: this.confirmText,
+        role: this.destructive ? ('danger' as const) : ('primary' as const),
+        ref: (button: HTMLButtonElement) => {
+          confirmButton = button
+        },
+        onClick: () => {
+          this.closeWith(true)
+        },
+      },
+    ])
 
-    const cancelButton = this.hideCancel
-      ? undefined
-      : createElCompat(buttonGroup, 'button', {
-          type: 'button',
-          cls: ['form-button', 'cancel'],
-          text: this.cancelText,
-        })
-    cancelButton?.addEventListener('click', () => {
-      this.closeWith(false)
-    })
-
-    const confirmButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', this.destructive ? 'danger' : 'create'],
-      text: this.confirmText,
-    })
-    confirmButton.addEventListener('click', () => {
-      this.closeWith(true)
-    })
-
+    // A destructive dialog opens with cancel focused, so Enter does not carry
+    // out the deletion by reflex.
     const defaultButton = this.destructive ? (cancelButton ?? confirmButton) : confirmButton
-    defaultButton.focus()
+    defaultButton?.focus()
   }
 
   onClose(): void {

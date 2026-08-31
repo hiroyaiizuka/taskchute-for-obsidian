@@ -2,6 +2,7 @@ import { App, Modal } from 'obsidian'
 import type { BackupEntry, BackupPreview } from '../services/BackupRestoreService'
 import { getCurrentLocale } from '../../../i18n'
 import { applyIcon } from '../../../ui/icons'
+import { createModalFooter } from '../../../ui/components/modalFooter'
 
 const JA_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 const EN_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -76,32 +77,34 @@ export class BackupRestoreModal extends Modal {
       attr: { role: 'alert', 'aria-live': 'polite' },
     })
 
-    const buttonGroup = footer.createDiv( { cls: 'form-button-group' })
-
-    const cancelButton = buttonGroup.createEl('button', {
-      text: this.tv('cancel', 'Cancel'),
-      cls: 'form-button cancel backup-cancel-button',
-      attr: { type: 'button' },
-    })
-    cancelButton.addEventListener('click', () => {
-      this.close()
-    })
-
-    // Restoring without a selection used to be blocked by a disabled button,
-    // which said nothing about what was missing. It stays clickable and answers
-    // instead.
-    this.restoreButton = buttonGroup.createEl('button', {
-      text: this.tv('restoreVersion', 'Restore this version'),
-      cls: 'form-button create backup-restore-button',
-      attr: { type: 'button' },
-    })
-    this.restoreButton.addEventListener('click', () => {
-      if (!this.selectedEntry) {
-        this.setMessage(this.tv('selectVersion', 'Select the version you want to restore.'))
-        return
-      }
-      void this.showConfirmation()
-    })
+    createModalFooter(footer, [
+      {
+        text: this.tv('cancel', 'Cancel'),
+        role: 'cancel',
+        cls: 'backup-cancel-button',
+        onClick: () => {
+          this.close()
+        },
+      },
+      // Restoring without a selection used to be blocked by a disabled button,
+      // which said nothing about what was missing. It stays clickable and
+      // answers instead.
+      {
+        text: this.tv('restoreVersion', 'Restore this version'),
+        role: 'primary',
+        cls: 'backup-restore-button',
+        ref: (button) => {
+          this.restoreButton = button
+        },
+        onClick: () => {
+          if (!this.selectedEntry) {
+            this.setMessage(this.tv('selectVersion', 'Select the version you want to restore.'))
+            return
+          }
+          void this.showConfirmation()
+        },
+      },
+    ])
   }
 
   private setMessage(message: string): void {
@@ -272,28 +275,27 @@ class BackupConfirmModal extends Modal {
     this.previewContainer = this.contentEl.createDiv( { cls: 'backup-preview' })
     this.renderPreview()
 
-    // Buttons
-    const buttonGroup = this.contentEl.createDiv( { cls: 'form-button-group backup-confirm-buttons' })
-
-    const cancelButton = buttonGroup.createEl('button', {
-      text: this.tv('confirmCancel', 'Cancel'),
-      cls: 'form-button cancel backup-cancel-button',
-      attr: { type: 'button' },
-    })
-    cancelButton.addEventListener('click', () => {
-      this.safeResolve(false)
-      this.close()
-    })
-
-    const confirmButton = buttonGroup.createEl('button', {
-      text: this.tv('confirmRestore', 'Restore'),
-      cls: 'form-button danger backup-confirm-button',
-      attr: { type: 'button' },
-    })
-    confirmButton.addEventListener('click', () => {
-      this.safeResolve(true)
-      this.close()
-    })
+    const { footer } = createModalFooter(this.contentEl, [
+      {
+        text: this.tv('confirmCancel', 'Cancel'),
+        role: 'cancel',
+        cls: 'backup-cancel-button',
+        onClick: () => {
+          this.safeResolve(false)
+          this.close()
+        },
+      },
+      {
+        text: this.tv('confirmRestore', 'Restore'),
+        role: 'danger',
+        cls: 'backup-confirm-button',
+        onClick: () => {
+          this.safeResolve(true)
+          this.close()
+        },
+      },
+    ])
+    footer.classList.add('backup-confirm-buttons')
   }
 
   onClose(): void {

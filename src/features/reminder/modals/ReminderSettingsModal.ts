@@ -5,8 +5,9 @@
  * Time is stored in HH:mm format.
  */
 
-import { App, ButtonComponent, Modal } from 'obsidian';
+import { App, Modal } from 'obsidian';
 import { t } from '../../../i18n';
+import { createModalFooter } from '../../../ui/components/modalFooter';
 
 export interface ReminderSettingsModalOptions {
   /** Current reminder time in HH:mm format, or undefined if not set */
@@ -105,27 +106,23 @@ export class ReminderSettingsModal extends Modal {
       });
     }
 
-    const buttons = contentEl.createDiv({ cls: 'modal-button-container' });
-
-    // Clearing is only on offer once a reminder exists to clear.
-    if (this.currentTime) {
-      new ButtonComponent(buttons)
-        .setButtonText(t('reminder.modal.clear', 'Clear'))
-        .setDestructive()
-        .onClick(() => {
-          this.onClearCallback();
-          this.close();
-        });
-    }
-
-    new ButtonComponent(buttons)
-      .setButtonText(t('common.cancel', 'Cancel'))
-      .onClick(() => this.close());
-
-    new ButtonComponent(buttons)
-      .setButtonText(t('reminder.modal.save', 'Save'))
-      .setCta()
-      .onClick(() => this.handleSave());
+    createModalFooter(contentEl, [
+      // Clearing is only on offer once a reminder exists to clear.
+      ...(this.currentTime
+        ? [
+            {
+              text: t('reminder.modal.clear', 'Clear'),
+              role: 'danger' as const,
+              onClick: () => {
+                this.onClearCallback();
+                this.close();
+              },
+            },
+          ]
+        : []),
+      { text: t('common.cancel', 'Cancel'), role: 'cancel', onClick: () => this.close() },
+      { text: t('reminder.modal.save', 'Save'), role: 'primary', onClick: () => this.handleSave() },
+    ]);
 
     this.inputEl?.focus();
   }

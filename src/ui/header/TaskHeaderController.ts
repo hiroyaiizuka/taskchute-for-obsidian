@@ -153,7 +153,19 @@ export default class TaskHeaderController {
         'aria-label': this.host.tv('header.openCalendar', 'Open calendar'),
       },
     })
-    const dateLabel = navContainer.createSpan( { cls: 'date-nav-label' })
+    // The label opens the same calendar the glyph beside it does. It is the
+    // largest thing in the header and reads as the current date, so it is what
+    // a finger goes for; on a phone it is also the only one of the two left,
+    // since the narrow layout drops the glyph to fit the row.
+    const dateLabel = navContainer.createSpan({
+      cls: 'date-nav-label',
+      attr: {
+        role: 'button',
+        tabindex: '0',
+        title: this.host.tv('header.openCalendar', 'Open calendar'),
+        'aria-label': this.host.tv('header.openCalendar', 'Open calendar'),
+      },
+    })
     const rightBtn = navContainer.createEl('button', {
       cls: 'date-nav-arrow',
       attr: {
@@ -185,6 +197,7 @@ export default class TaskHeaderController {
     })
 
     this.attachCalendarButton(calendarBtn)
+    this.attachCalendarButton(dateLabel, calendarBtn)
 
     container.createDiv( { cls: 'header-divider' })
   }
@@ -376,10 +389,30 @@ export default class TaskHeaderController {
     this.renderAiTaskBoardSwitch(this.actionSectionEl)
   }
 
-  private attachCalendarButton(calendarBtn: HTMLElement): void {
-    this.host.registerManagedDomEvent(calendarBtn, 'click', (event) => {
+  /**
+   * Wire an element to open the date picker.
+   *
+   * @param trigger the element that is clicked.
+   * @param anchor what the popup positions itself against, when that is not
+   *   the trigger itself. The label and the glyph both anchor to the glyph, so
+   *   the calendar opens in the same place whichever one is used.
+   */
+  private attachCalendarButton(trigger: HTMLElement, anchor = trigger): void {
+    this.host.registerManagedDomEvent(trigger, 'click', (event) => {
       event.stopPropagation()
-      this.openCalendar(calendarBtn)
+      this.openCalendar(anchor)
+    })
+
+    // A span is not a button: it answers to a click on its own, but the
+    // keyboard activation a `role="button"` promises has to be spelled out.
+    if (trigger.getAttribute('role') !== 'button') return
+
+    this.host.registerManagedDomEvent(trigger, 'keydown', (event) => {
+      const key = (event as KeyboardEvent).key
+      if (key !== 'Enter' && key !== ' ') return
+      event.preventDefault()
+      event.stopPropagation()
+      this.openCalendar(anchor)
     })
   }
 

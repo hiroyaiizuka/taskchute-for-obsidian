@@ -1,5 +1,6 @@
-import { ButtonComponent, Modal, Notice, TFile } from 'obsidian'
+import { Modal, Notice, TFile } from 'obsidian'
 import { t } from '../../i18n'
+import { createModalFooter } from '../components/modalFooter'
 import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
 import type { TaskInstance } from '../../types'
 
@@ -81,15 +82,10 @@ export default class ScheduledTimeModal extends Modal {
       description.appendChild(activeDocument.createTextNode(line))
     })
 
-    const footer = form.createDiv({ cls: 'modal-button-container' })
-    new ButtonComponent(footer)
-      .setButtonText(t('common.cancel', 'Cancel'))
-      .onClick(() => this.close())
-    footer.createEl('button', {
-      type: 'submit',
-      cls: 'form-button create mod-cta',
-      text: host.tv('buttons.save', 'Save'),
-    })
+    createModalFooter(form, [
+      { text: t('common.cancel', 'Cancel'), role: 'cancel', onClick: () => this.close() },
+      { text: host.tv('buttons.save', 'Save'), role: 'primary', type: 'submit' },
+    ])
 
     const close = () => this.close()
 

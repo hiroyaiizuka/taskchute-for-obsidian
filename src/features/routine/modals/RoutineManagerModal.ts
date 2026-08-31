@@ -15,6 +15,7 @@ import { getToday } from '../../../utils/date';
 import { listFilesInFolder } from '../../../utils/vaultFiles';
 import RoutineEditModal from './RoutineEditModal';
 import { resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils';
+import { createModalFooter } from '../../../ui/components/modalFooter';
 
 interface RoutineRow {
   file: TFile;
@@ -55,23 +56,24 @@ class RoutineConfirmModal extends Modal {
     });
     contentEl.createEl('p', { text: this.message });
 
-    const buttonRow = contentEl.createDiv( { cls: 'routine-confirm__buttons' });
-    const confirmBtn = buttonRow.createEl('button', {
-      text: t('routineManager.confirm.removeButton', 'Remove'),
-      cls: 'routine-confirm__button mod-danger',
-    });
-    const cancelBtn = buttonRow.createEl('button', {
-      text: t('routineManager.confirm.cancelButton', 'Cancel'),
-      cls: 'routine-confirm__button',
-    });
-
-    confirmBtn.addEventListener('click', () => {
-      this.closeWith(true);
-    });
-
-    cancelBtn.addEventListener('click', () => {
-      this.closeWith(false);
-    });
+    createModalFooter(contentEl, [
+      {
+        text: t('routineManager.confirm.cancelButton', 'Cancel'),
+        role: 'cancel',
+        cls: 'routine-confirm__button',
+        onClick: () => {
+          this.closeWith(false);
+        },
+      },
+      {
+        text: t('routineManager.confirm.removeButton', 'Remove'),
+        role: 'danger',
+        cls: ['routine-confirm__button', 'mod-danger'],
+        onClick: () => {
+          this.closeWith(true);
+        },
+      },
+    ]);
   }
 
   onClose(): void {

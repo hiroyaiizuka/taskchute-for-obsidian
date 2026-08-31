@@ -5,6 +5,7 @@ import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
 import { t } from '../../../i18n'
 import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
 import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
+import { createModalFooter } from '../../../ui/components/modalFooter'
 
 let recipeManagerModalId = 0
 
@@ -249,27 +250,32 @@ export default class RecipeManagerModal extends Modal {
     })
     this.activeEditor = editor
 
-    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
-    const cancelButton = buttonGroup.createEl('button', {
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'キャンセル'),
-      attr: { type: 'button' },
-    })
-    const saveButton = buttonGroup.createEl('button', {
-      cls: 'form-button create',
-      text: t('recipes.manager.saveButton', '保存'),
-      attr: { type: 'submit' },
-    })
-    cancelButton.addEventListener('click', () => {
-      void this.requestLeaveEdit()
-    })
+    let saveButton: HTMLButtonElement | undefined
+    createModalFooter(form, [
+      {
+        text: t('common.cancel', 'キャンセル'),
+        role: 'cancel',
+        onClick: () => {
+          void this.requestLeaveEdit()
+        },
+      },
+      {
+        text: t('recipes.manager.saveButton', '保存'),
+        role: 'primary',
+        type: 'submit',
+        ref: (button) => {
+          saveButton = button
+        },
+      },
+    ])
     form.addEventListener('submit', (event) => {
       event.preventDefault()
-      if (!editor.validate()) return
-      saveButton.disabled = true
+      if (!editor.validate() || !saveButton) return
+      const button = saveButton
+      button.disabled = true
       void this.saveCurrentRecipe(recipe?.path, editor.getValue())
         .finally(() => {
-          saveButton.disabled = false
+          button.disabled = false
         })
     })
   }
