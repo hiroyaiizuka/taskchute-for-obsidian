@@ -3068,13 +3068,17 @@ body.is-phone {
   /* Row controls (play/stop, routine, settings) are square boxes of this size;
      the comment button keeps the same height but is twice as wide so it is
      easier to hit. Grid tracks below match these widths exactly, so the visual
-     spacing between the trailing buttons is just `gap`. */
+     spacing between the trailing buttons is just `gap`. The drag grip is
+     narrower than the rest -- it is a grip, not a glyph -- so it carries its
+     own pair of dimensions. */
   --tc-row-control-size: 32px;
   --tc-row-comment-width: calc(var(--tc-row-control-size) * 2);
+  --tc-row-grip-width: 24px;
+  --tc-row-grip-height: 24px;
 
   display: grid;
   grid-template-columns:
-    24px var(--tc-row-control-size) 1fr 220px 110px 50px
+    var(--tc-row-grip-width) var(--tc-row-control-size) 1fr 220px 110px 50px
     var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
   gap: 8px;
   align-items: center;
@@ -3087,6 +3091,20 @@ body.is-phone {
 
 .task-item:last-child {
   border-bottom: none;
+}
+
+/* Touch input: a finger needs a bigger target than a mouse pointer does. The
+   32px controls sized for a cursor fall short of the ~44px tap target phones
+   and tablets expect, so grow every row control (and the grip, which is
+   dragged rather than tapped and so gains height rather than width) on any
+   coarse pointer. The grid tracks are written in these variables, so the row
+   re-lays itself out with no second template to keep in sync. */
+@media (pointer: coarse) {
+  .task-item {
+    --tc-row-control-size: 40px;
+    --tc-row-grip-width: 28px;
+    --tc-row-grip-height: 40px;
+  }
 }
 
 .task-item:hover {
@@ -3131,8 +3149,8 @@ body.is-phone {
 
 /* ドラッグハンドルのスタイル */
 .drag-handle {
-  width: 24px;
-  height: 24px;
+  width: var(--tc-row-grip-width, 24px);
+  height: var(--tc-row-grip-height, 24px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4451,8 +4469,9 @@ textarea.form-textarea {
 @container taskchute-list (max-width: 900px) {
   .task-item {
     grid-template-columns:
-      24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
+      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
+      minmax(140px, auto) minmax(70px, auto) var(--tc-row-comment-width)
+      var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 8px;
     padding-right: 12px;
   }
@@ -4467,7 +4486,7 @@ textarea.form-textarea {
   /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
     grid-template-columns:
-      24px var(--tc-row-control-size) minmax(0, 1fr) 100px
+      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 100px
       var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 6px;
     padding-left: 4px;
@@ -4492,7 +4511,7 @@ textarea.form-textarea {
   /* 520px以下: さらにコンパクト */
   .task-item {
     grid-template-columns:
-      24px var(--tc-row-control-size) minmax(0, 1fr) 90px
+      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 90px
       var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 4px;
     padding-left: 4px;
@@ -4506,6 +4525,72 @@ textarea.form-textarea {
     padding-left: 4px;
   }
 }
+
+/* Phone width: everything above still tries to keep the row on one line, and
+   below ~440px there is no line left to keep -- the name track collapses to a
+   few characters while the clock and the four controls hold their widths. So
+   stop competing for one line: the controls span a two-row row, the name takes
+   the top line and the start/stop clock drops underneath it. Row height is set
+   by the controls, which span both rows, so the row grows by the leading
+   between the two text lines rather than by a second control-sized band. */
+@container taskchute-list (max-width: 440px) {
+  .task-item {
+    /* Its own column now, so it no longer needs the double width it had when
+       it shared the trailing run of buttons. */
+    --tc-row-comment-width: var(--tc-row-control-size);
+
+    grid-template-columns:
+      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
+      var(--tc-row-comment-width) var(--tc-row-control-size)
+      var(--tc-row-control-size);
+    grid-template-areas:
+      "grip play name comment routine settings"
+      "grip play time comment routine settings";
+    gap: 4px;
+    padding: 4px 8px 4px 2px;
+  }
+
+  /* Placement only below: every control keeps the paint it was given above,
+     and each spans both rows, so `align-self` is what stops a fixed-height
+     box from sitting against the top of the pair. */
+  .task-item .drag-handle {
+    grid-area: grip;
+    align-self: center;
+  }
+
+  .task-item .play-stop-button {
+    grid-area: play;
+    align-self: center;
+  }
+
+  .task-item .task-name-container {
+    grid-area: name;
+  }
+
+  /* The clock is the second line rather than a column of its own, so it reads
+     as a caption under the name: same left edge, no padding pushing it in. */
+  .task-item .task-time-range {
+    grid-area: time;
+    align-self: start;
+    padding-left: 0;
+  }
+
+  .task-item .comment-button {
+    grid-area: comment;
+    align-self: center;
+  }
+
+  .task-item .routine-button {
+    grid-area: routine;
+    align-self: center;
+  }
+
+  .task-item .settings-task-button {
+    grid-area: settings;
+    align-self: center;
+  }
+}
+
 
 /* Routine edit modal */
 .routine-edit-modal {
