@@ -257,7 +257,7 @@ export default class TaskSettingsTooltipController {
 
     const item = tooltip.createDiv( {
       cls: "tooltip-item",
-      text: this.host.tv("calendar.export.toGoogle", "🗓️ register calendar"),
+      text: this.host.tv("calendar.export.toGoogle", "🗓️ Register calendar"),
       attr: {
         title: this.host.tv(
           "calendar.export.tooltip",
