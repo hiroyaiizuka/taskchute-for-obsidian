@@ -719,7 +719,7 @@ export const en = {
         opened: "Opened Google Calendar in your browser",
         cannotOpen: "Cannot create preview. Check start time and duration.",
         tooltip: "Open Google Calendar in browser",
-        toGoogle: "🗓️ register calender",
+        toGoogle: "🗓️ register calendar",
         disabled: "Enable Google Calendar integration in settings",
         errors: {
           dateUnavailable: "Could not determine the date",
@@ -982,7 +982,7 @@ export const en = {
         opened: "Opened Google Calendar in your browser",
         cannotOpen: "Cannot create preview. Check start time and duration.",
         tooltip: "Open Google Calendar in browser",
-        toGoogle: "🗓️ register calender",
+        toGoogle: "🗓️ register calendar",
       },
     },
   },
@@ -1040,7 +1040,7 @@ export const en = {
       opened: "Opened Google Calendar in your browser",
       cannotOpen: "Cannot create preview. Check start time and duration.",
       tooltip: "Open Google Calendar in browser",
-      toGoogle: "🗓️ register calender",
+      toGoogle: "🗓️ register calendar",
     },
   },
   license: {

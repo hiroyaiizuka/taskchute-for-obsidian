@@ -19,7 +19,7 @@ describe("calendar export i18n", () => {
       "Register to Google Calendar",
     )
     expect(t("taskChuteView.calendar.export.toGoogle")).toContain(
-      "register calender",
+      "register calendar",
     )
   })
 
