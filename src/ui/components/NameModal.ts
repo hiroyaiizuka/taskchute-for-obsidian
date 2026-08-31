@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian'
+import { createModalFooter } from './modalFooter'
 
 export interface NameModalOptions {
   app: App
@@ -53,19 +54,12 @@ class NameModal extends Modal {
       attr: { role: 'alert', 'aria-live': 'polite' },
     })
 
-    const buttonGroup = form.createDiv({ cls: 'modal-button-container' })
-    const cancelButton = buttonGroup.createEl('button', {
-      cls: 'form-button cancel',
-      text: options.cancelText,
-      attr: { type: 'button' },
-    })
-    const submitButton = buttonGroup.createEl('button', {
-      cls: 'form-button create mod-cta',
-      text: options.submitText,
-      attr: { type: 'submit' },
-    })
-
-    cancelButton.addEventListener('click', () => this.close())
+    const {
+      buttons: [cancelButton, submitButton],
+    } = createModalFooter(form, [
+      { text: options.cancelText, role: 'cancel', onClick: () => this.close() },
+      { text: options.submitText, role: 'primary', type: 'submit' },
+    ])
 
     return {
       overlay: this.containerEl,

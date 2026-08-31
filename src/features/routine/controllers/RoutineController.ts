@@ -9,6 +9,7 @@ import type { RoutineMonthday, RoutineWeek } from '../../../types/TaskFields'
 import type { RoutineTaskShape } from '../../../types/routine'
 import { setScheduledTime } from '../../../utils/fieldMigration'
 import { attachCalendarButtonIcon } from '../../../ui/components/iconUtils'
+import { createModalFooter } from '../../../ui/components/modalFooter'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
@@ -396,43 +397,36 @@ export default class RoutineController {
       })
     }
 
-    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
-    const cancelButton = buttonGroup.createEl('button', {
-      type: 'button',
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'Cancel'),
-    })
-    buttonGroup.createEl('button', {
-      type: 'submit',
-      cls: 'form-button create',
-      text: this.tv('buttons.save', 'Save'),
-    })
-    let removeButton: HTMLButtonElement | null = null
-    if (task.isRoutine) {
-      removeButton = buttonGroup.createEl('button', {
-        type: 'button',
-        cls: 'form-button cancel',
-        text: this.tv('buttons.removeRoutine', 'Remove from routine'),
-      })
-    }
-
     modal.cleanup = () => {
       modalDocument.removeEventListener('click', handleMonthdayOutsideClick)
       obsidianTaskLinkFields?.destroy()
     }
     const closeModal = () => modal.close()
-    cancelButton.addEventListener('click', closeModal)
 
-    if (removeButton) {
-      removeButton.addEventListener('click', (event) => {
-        void (async () => {
-          event.preventDefault()
-          event.stopPropagation()
-          await this.toggleRoutine(task, anchor ?? removeButton)
-          closeModal()
-        })()
-      })
-    }
+    // Leaving the routine is an aside to saving it, so it takes the row's
+    // secondary slot rather than sitting beside Save as a third equal choice.
+    let removeButton: HTMLButtonElement | null = null
+    const { buttons } = createModalFooter(form, [
+      ...(task.isRoutine
+        ? [
+            {
+              text: this.tv('buttons.removeRoutine', 'Remove from routine'),
+              role: 'secondary' as const,
+              onClick: (event: MouseEvent) => {
+                void (async () => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  await this.toggleRoutine(task, anchor ?? removeButton ?? undefined)
+                  closeModal()
+                })()
+              },
+            },
+          ]
+        : []),
+      { text: t('common.cancel', 'Cancel'), role: 'cancel', onClick: closeModal },
+      { text: this.tv('buttons.save', 'Save'), role: 'primary', type: 'submit' },
+    ])
+    removeButton = task.isRoutine ? buttons[0] : null
 
     form.addEventListener('submit', (event) => {
       void (async () => {

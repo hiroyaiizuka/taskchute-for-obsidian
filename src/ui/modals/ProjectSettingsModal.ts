@@ -1,5 +1,6 @@
-import { App, ButtonComponent, Modal, Notice, Setting, TFile } from 'obsidian'
+import { App, Modal, Notice, Setting, TFile } from 'obsidian'
 import { t } from '../../i18n'
+import { createModalFooter } from '../components/modalFooter'
 import type { TaskChutePluginLike } from '../../types'
 
 export interface ProjectSettingsModalOptions {
@@ -36,10 +37,9 @@ export default class ProjectSettingsModal extends Modal {
         cls: 'form-description',
         text: tv('project.noFiles', 'No project files found in the configured folder.'),
       })
-      const emptyButtons = contentEl.createDiv({ cls: 'modal-button-container' })
-      new ButtonComponent(emptyButtons)
-        .setButtonText(t('common.close', 'Close'))
-        .onClick(() => this.close())
+      createModalFooter(contentEl, [
+        { text: t('common.close', 'Close'), role: 'cancel', onClick: () => this.close() },
+      ])
       return
     }
 
@@ -63,28 +63,43 @@ export default class ProjectSettingsModal extends Modal {
         })
       })
 
-    const buttons = contentEl.createDiv({ cls: 'modal-button-container' })
-    const cancelButton = new ButtonComponent(buttons)
-      .setButtonText(t('common.cancel', 'Cancel'))
-      .onClick(() => this.close())
-    const submitButton = new ButtonComponent(buttons)
-      .setButtonText(tv('buttons.save', 'Save'))
-      .setCta()
-      .onClick(() => {
-        void (async () => {
-          submitButton.setDisabled(true)
-          cancelButton.setDisabled(true)
-          try {
-            await options.onSubmit(this.selectedPath)
-            this.close()
-          } catch (error) {
-            console.error('[ProjectSettingsModal] Failed to save project', error)
-            new Notice(tv('notices.projectSetFailed', 'Failed to set project'))
-            submitButton.setDisabled(false)
-            cancelButton.setDisabled(false)
-          }
-        })()
+    // Both buttons go inert while the save is in flight.
+    const busyButtons: HTMLButtonElement[] = []
+    const collect = (button: HTMLButtonElement): void => {
+      busyButtons.push(button)
+    }
+    const setBusy = (busy: boolean): void => {
+      busyButtons.forEach((button) => {
+        button.disabled = busy
       })
+    }
+
+    createModalFooter(contentEl, [
+      {
+        text: t('common.cancel', 'Cancel'),
+        role: 'cancel',
+        ref: collect,
+        onClick: () => this.close(),
+      },
+      {
+        text: tv('buttons.save', 'Save'),
+        role: 'primary',
+        ref: collect,
+        onClick: () => {
+          void (async () => {
+            setBusy(true)
+            try {
+              await options.onSubmit(this.selectedPath)
+              this.close()
+            } catch (error) {
+              console.error('[ProjectSettingsModal] Failed to save project', error)
+              new Notice(tv('notices.projectSetFailed', 'Failed to set project'))
+              setBusy(false)
+            }
+          })()
+        },
+      },
+    ])
   }
 
   onClose(): void {

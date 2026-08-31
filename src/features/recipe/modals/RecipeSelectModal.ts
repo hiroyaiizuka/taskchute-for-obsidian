@@ -5,6 +5,7 @@ import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
 import { t } from '../../../i18n'
 import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
 import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
+import { createModalFooter } from '../../../ui/components/modalFooter'
 
 let recipeSelectModalId = 0
 
@@ -222,81 +223,93 @@ export class RecipeSelectModal extends Modal {
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
     this.createEditor = new RecipeEditorForm(form, { title: this.createInitialTitle })
 
-    const buttonGroup = form.createDiv( { cls: 'form-button-group' })
-    const cancelButton = buttonGroup.createEl('button', {
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'キャンセル'),
-      attr: { type: 'button' },
-    })
-    const saveButton = buttonGroup.createEl('button', {
-      cls: 'form-button create',
-      text: t('recipes.manager.saveButton', '保存'),
-      attr: { type: 'submit' },
-    })
-    cancelButton.addEventListener('click', () => {
-      void this.requestLeaveCreate()
-    })
+    let saveButton: HTMLButtonElement | undefined
+    createModalFooter(form, [
+      {
+        text: t('common.cancel', 'キャンセル'),
+        role: 'cancel',
+        onClick: () => {
+          void this.requestLeaveCreate()
+        },
+      },
+      {
+        text: t('recipes.manager.saveButton', '保存'),
+        role: 'primary',
+        type: 'submit',
+        ref: (button) => {
+          saveButton = button
+        },
+      },
+    ])
 
     form.addEventListener('submit', (event) => {
       event.preventDefault()
-      if (!this.createEditor?.validate()) return
-      saveButton.disabled = true
+      if (!this.createEditor?.validate() || !saveButton) return
+      const button = saveButton
+      button.disabled = true
       void this.createAndAssign(this.createEditor.getValue())
         .finally(() => {
-          saveButton.disabled = false
+          button.disabled = false
         })
     })
   }
 
   private renderSelectFooter(): void {
     if (!this.contentEl) return
-    const buttonGroup = this.contentEl.createDiv( { cls: 'form-button-group recipe-select-footer' })
-    const cancelButton = buttonGroup.createEl('button', {
-      cls: 'form-button cancel',
-      text: t('common.cancel', 'キャンセル'),
-      attr: { type: 'button' },
-    })
-    if (this.options.instance.task.recipePath) {
-      const clearButton = buttonGroup.createEl('button', {
-        cls: 'form-button cancel recipe-select-clear-button',
-        text: t('recipes.select.clear', 'レシピを解除'),
-        attr: { type: 'button' },
-      })
-      clearButton.addEventListener('click', () => {
-        clearButton.disabled = true
-        void this.unassign().finally(() => {
-          clearButton.disabled = false
-        })
-      })
-    }
-    this.saveButton = buttonGroup.createEl('button', {
-      cls: 'form-button create recipe-select-save-button',
-      text: t('recipes.manager.saveButton', '保存'),
-      attr: { type: 'button' },
-    })
-    cancelButton.addEventListener('click', () => this.close())
-    this.saveButton.addEventListener('click', () => {
-      const recipe = this.resolveRecipeForSave()
-      const title = this.searchInput?.value.trim() ?? ''
-      if (!recipe && !title) return
-      if (!recipe) {
-        if (!this.inlineEditor?.validate(title)) return
-        this.hideSuggestions()
-        this.saveButton!.disabled = true
-        void this.createAndAssign(this.inlineEditor.getValue(title)).finally(() => {
-          if (this.saveButton) {
-            this.saveButton.disabled = false
+    // Clearing the assignment is an aside to picking one, so it takes the
+    // row's secondary slot rather than a third seat beside cancel and save.
+    let clearButton: HTMLButtonElement | undefined
+    createModalFooter(this.contentEl, [
+      ...(this.options.instance.task.recipePath
+        ? [
+            {
+              text: t('recipes.select.clear', 'レシピを解除'),
+              role: 'secondary' as const,
+              cls: 'recipe-select-clear-button',
+              ref: (button: HTMLButtonElement) => {
+                clearButton = button
+              },
+              onClick: () => {
+                if (!clearButton) return
+                clearButton.disabled = true
+                void this.unassign().finally(() => {
+                  if (clearButton) clearButton.disabled = false
+                })
+              },
+            },
+          ]
+        : []),
+      { text: t('common.cancel', 'キャンセル'), role: 'cancel', onClick: () => this.close() },
+      {
+        text: t('recipes.manager.saveButton', '保存'),
+        role: 'primary',
+        cls: 'recipe-select-save-button',
+        ref: (button) => {
+          this.saveButton = button
+        },
+        onClick: () => {
+          const recipe = this.resolveRecipeForSave()
+          const title = this.searchInput?.value.trim() ?? ''
+          if (!recipe && !title) return
+          const setBusy = (busy: boolean): void => {
+            if (this.saveButton) this.saveButton.disabled = busy
           }
-        })
-        return
-      }
-      this.saveButton!.disabled = true
-      void this.assign(recipe).finally(() => {
-        if (this.saveButton) {
-          this.saveButton.disabled = false
-        }
-      })
-    })
+          if (!recipe) {
+            if (!this.inlineEditor?.validate(title)) return
+            this.hideSuggestions()
+            setBusy(true)
+            void this.createAndAssign(this.inlineEditor.getValue(title)).finally(() => {
+              setBusy(false)
+            })
+            return
+          }
+          setBusy(true)
+          void this.assign(recipe).finally(() => {
+            setBusy(false)
+          })
+        },
+      },
+    ])
     this.updateSaveButton()
   }
 

@@ -646,4 +646,71 @@ describe('style regressions', () => {
     // well-behaved themes on their own colour.
     expect(rule).toMatch(/color:\s*var\(--tc-task-accent,\s*var\(--text-accent\)\);/)
   })
+
+  test('every dialog footer is core\'s button container, with no plugin rival left', () => {
+    const css = styles()
+
+    // The five hand-rolled action rows the dialogs used to each pick from.
+    // `createModalFooter` builds `.modal-button-container` for all of them now,
+    // so none of these may come back: a second container class is how the
+    // phone stacking diverged between dialogs in the first place.
+    expect(css).not.toContain('.form-button-group')
+    expect(css).not.toContain('.confirm-button-group')
+    expect(css).not.toContain('.routine-editor__buttons')
+    expect(css).not.toContain('.routine-confirm__buttons')
+    expect(css).not.toContain('.ai-custom-model-modal__actions')
+    expect(css).not.toContain('.calendar-export-buttons')
+  })
+
+  test('the dialog footer lines up with the fields above it on a phone', () => {
+    const css = styles()
+
+    // Core pads `.is-phone .modal-button-container` by --size-4-3 on top of the
+    // --size-4-4 that `.is-phone .modal-content` gives the fields, so the
+    // buttons sit further in than the inputs. Only the horizontal half is
+    // cancelled -- the bottom safe-area margin is core's to keep -- and the
+    // rule stays scoped to the phone so it cannot outrank the per-dialog
+    // footer padding a couple of dialogs use as their only gutter.
+    const rule = readRule(css, 'body.is-phone .taskchute-modal .modal-button-container {')
+
+    expect(rule).toMatch(/padding-inline:\s*0;/)
+    expect(rule).not.toMatch(/padding-block/)
+  })
+
+  test('the destructive dialog button does not wear the accent', () => {
+    const css = styles()
+    const rule = readRule(css, '.form-button.danger {')
+
+    // `.form-button.danger` (0,2,0) outranks core's `button.mod-warning`, so
+    // this rule is the only thing standing between a delete button and looking
+    // exactly like the Save button beside it.
+    expect(rule).toMatch(/background:\s*var\(--background-modifier-error\);/)
+    expect(rule).not.toContain('--interactive-accent')
+  })
+
+  test('form fields take their box from core so one form cannot mix two shapes', () => {
+    const css = styles()
+    const rule = readRule(css, '.form-input {')
+
+    // Core styles text/number/date/select/textarea from `--input-*` with
+    // attribute and element selectors (0,1,1), which outrank this class. When
+    // the class restated the box it therefore won on `select` and on `time`
+    // and lost everywhere else -- pill-shaped number fields beside square
+    // selects. Width is all it may own now.
+    expect(rule).toMatch(/width:\s*100%;/)
+    expect(rule).not.toMatch(/border-radius/)
+    expect(rule).not.toMatch(/padding/)
+    expect(rule).not.toMatch(/background/)
+
+    // The two fields core's own rules never reach, restated in core's tokens
+    // rather than in resolved values so the phone's 44px pill reaches them.
+    const time = readRule(css, '.form-input[type="time"] {')
+    expect(time).toMatch(/border-radius:\s*var\(--input-radius\);/)
+    expect(time).toMatch(/padding:\s*var\(--input-padding\);/)
+    expect(time).toMatch(/height:\s*var\(--input-height\);/)
+
+    const composite = readRule(css, '.form-input-icon-wrapper {')
+    expect(composite).toMatch(/border-radius:\s*var\(--input-radius\);/)
+    expect(composite).toMatch(/padding:\s*var\(--input-padding\);/)
+  })
 })

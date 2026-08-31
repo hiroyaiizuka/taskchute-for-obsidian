@@ -7,6 +7,7 @@ import {
   GoogleCalendarService,
   CalendarEventBuildResult,
 } from "../services/GoogleCalendarService"
+import { createModalFooter } from "../../../ui/components/modalFooter"
 
 export interface CalendarExportModalOptions {
   app: App
@@ -126,17 +127,20 @@ export class CalendarExportModal extends Modal {
 
     this.errorEl = contentEl.createDiv( { cls: "calendar-export-error" })
 
-    const buttonBar = contentEl.createDiv( { cls: "calendar-export-buttons" })
-    const cancelButton = buttonBar.createEl("button", { text: this.opts.tv("common.cancel", "キャンセル") })
-    cancelButton.addEventListener("click", () => this.close())
-
-    const openButton = buttonBar.createEl("button", {
-      text: this.opts.tv("calendar.export.open", "カレンダーを開く"),
-      cls: "mod-cta",
-    })
-    openButton.addEventListener("click", () => {
-      void this.handleOpen()
-    })
+    createModalFooter(contentEl, [
+      {
+        text: this.opts.tv("common.cancel", "キャンセル"),
+        role: "cancel",
+        onClick: () => this.close(),
+      },
+      {
+        text: this.opts.tv("calendar.export.open", "カレンダーを開く"),
+        role: "primary",
+        onClick: () => {
+          void this.handleOpen()
+        },
+      },
+    ])
 
     await this.updatePreview()
   }

@@ -1,4 +1,6 @@
 import { App, Modal } from 'obsidian'
+import { createElCompat } from '../components/domCompat'
+import { createModalFooter } from '../components/modalFooter'
 
 export type DisambiguateChoice = 'same-day' | 'next-day' | 'cancel'
 
@@ -6,40 +8,6 @@ export interface DisambiguateStopTimeDateOptions {
   sameDayDate: Date
   nextDayDate: Date
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
-}
-
-type CreateElOptions = {
-  cls?: string | string[]
-  text?: string
-  type?: 'button' | 'reset' | 'submit'
-}
-
-const createElCompat = <K extends keyof HTMLElementTagNameMap>(
-  parent: HTMLElement,
-  tag: K,
-  options?: CreateElOptions,
-): HTMLElementTagNameMap[K] => {
-  // Called as a method rather than through `.call`, so `this` is bound by the
-  // call itself: no unbound-method finding, and no assertion on the result.
-  const host = parent as HTMLElement & {
-    createEl?: (tagName: string, options?: Record<string, unknown>) => HTMLElement
-  }
-  if (typeof host.createEl === 'function') {
-    return host.createEl(tag, options) as HTMLElementTagNameMap[K]
-  }
-  const element = createEl(tag)
-  if (options?.cls) {
-    const classes = Array.isArray(options.cls) ? options.cls : [options.cls]
-    element.classList.add(...classes)
-  }
-  if (options?.text !== undefined) {
-    element.textContent = options.text
-  }
-  if (options?.type !== undefined && 'type' in element) {
-    ;(element as HTMLButtonElement).type = options.type
-  }
-  parent.appendChild(element)
-  return element
 }
 
 function formatDateForDisplay(date: Date): string {
@@ -87,41 +55,38 @@ class DisambiguateStopTimeDateModal extends Modal {
       ),
     })
 
-    const buttonGroup = createElCompat(contentEl, 'div', { cls: 'form-button-group' })
-    buttonGroup.classList.add('confirm-button-group')
-
-    const sameDayLabel = tv('forms.disambiguateStopTimeSameDay', '{date} (same day)', {
-      date: formatDateForDisplay(sameDayDate),
-    })
-    const sameDayButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'create'],
-      text: sameDayLabel,
-    })
-    sameDayButton.addEventListener('click', () => {
-      this.closeWith('same-day')
-    })
-
-    const nextDayLabel = tv('forms.disambiguateStopTimeNextDay', '{date} (next day)', {
-      date: formatDateForDisplay(nextDayDate),
-    })
-    const nextDayButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'create'],
-      text: nextDayLabel,
-    })
-    nextDayButton.addEventListener('click', () => {
-      this.closeWith('next-day')
-    })
-
-    const cancelButton = createElCompat(buttonGroup, 'button', {
-      type: 'button',
-      cls: ['form-button', 'cancel'],
-      text: tv('common.cancel', 'Cancel'),
-    })
-    cancelButton.addEventListener('click', () => {
-      this.closeWith('cancel')
-    })
+    // Both dates are affirmative answers, so both are primaries. Declaring the
+    // same day last puts it in the row's primary position on either platform:
+    // right-most in the desktop row, top-most in the phone's reversed stack.
+    const {
+      buttons: [, , sameDayButton],
+    } = createModalFooter(contentEl, [
+      {
+        text: tv('common.cancel', 'Cancel'),
+        role: 'cancel',
+        onClick: () => {
+          this.closeWith('cancel')
+        },
+      },
+      {
+        text: tv('forms.disambiguateStopTimeNextDay', '{date} (next day)', {
+          date: formatDateForDisplay(nextDayDate),
+        }),
+        role: 'primary',
+        onClick: () => {
+          this.closeWith('next-day')
+        },
+      },
+      {
+        text: tv('forms.disambiguateStopTimeSameDay', '{date} (same day)', {
+          date: formatDateForDisplay(sameDayDate),
+        }),
+        role: 'primary',
+        onClick: () => {
+          this.closeWith('same-day')
+        },
+      },
+    ])
 
     sameDayButton.focus()
   }

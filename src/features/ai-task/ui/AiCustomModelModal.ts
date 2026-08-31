@@ -5,6 +5,7 @@ import type {
   AiCustomModelStore,
 } from '../models/AiCustomModelStore'
 import type { AiTaskHost } from '../types'
+import { createModalFooter } from '../../../ui/components/modalFooter'
 
 export interface AiCustomModelModalLabels {
   addTitle: string
@@ -183,19 +184,20 @@ export class AiCustomModelModal extends Modal {
     error.setAttribute('aria-live', 'polite')
     form.appendChild(error)
 
-    const actions = this.doc.win.createEl('footer')
-    actions.className = 'ai-custom-model-modal__actions'
-    const cancel = this.doc.win.createEl('button')
-    cancel.type = 'button'
-    cancel.className = 'ai-custom-model-modal__cancel'
-    cancel.textContent = this.labels.cancel
-    cancel.addEventListener('click', () => this.close())
-    const submit = this.doc.win.createEl('button')
-    submit.type = 'submit'
-    submit.className = 'ai-custom-model-modal__submit mod-cta'
-    submit.textContent = editing ? this.labels.save : this.labels.add
-    actions.append(cancel, submit)
-    form.appendChild(actions)
+    createModalFooter(form, [
+      {
+        text: this.labels.cancel,
+        role: 'cancel',
+        cls: 'ai-custom-model-modal__cancel',
+        onClick: () => this.close(),
+      },
+      {
+        text: editing ? this.labels.save : this.labels.add,
+        role: 'primary',
+        type: 'submit',
+        cls: 'ai-custom-model-modal__submit',
+      },
+    ])
     content.appendChild(form)
 
     this.idInput = idInput

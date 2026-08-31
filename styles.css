@@ -211,14 +211,6 @@ body.is-phone {
   padding-top: 0;
   padding-bottom: 0;
 }
-.taskchute-calendar-export-modal .calendar-export-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 8px;
-  border-top: 0;
-}
 .taskchute-calendar-export-modal .modal-title {
   padding-bottom: 12px;
   padding-top: 6px;
@@ -282,22 +274,27 @@ body.is-phone {
   cursor: not-allowed;
 }
 
+/* A date field and its calendar button behaving as one box. The box has to be
+   drawn here rather than on the `input`, so it restates core's field tokens --
+   the same ones the plain fields beside it resolve -- instead of a set of its
+   own. Get this wrong and the date row is the odd one out on a phone, where
+   core swaps the whole set for a 44px pill. */
 .form-input-icon-wrapper {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 8px;
   width: 100%;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  padding: 8px 12px;
+  min-height: var(--input-height);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  padding: var(--input-padding);
   box-sizing: border-box;
 }
 
 .form-input-icon-wrapper:focus-within {
-  border-color: var(--interactive-accent);
-  box-shadow: var(--tc-focus-ring);
+  border-color: var(--background-modifier-border-focus);
 }
 
 .form-input-icon-wrapper .form-input--bare {
@@ -307,8 +304,9 @@ body.is-phone {
   margin: 0;
   width: 100%;
   min-width: 0;
+  height: auto;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--font-ui-small);
   color: var(--text-normal);
   box-shadow: none;
   outline: none;
@@ -321,7 +319,7 @@ body.is-phone {
 .form-input--date {
   -webkit-appearance: none;
   appearance: none;
-  font-size: 14px;
+  font-size: var(--font-ui-small);
   color: var(--text-normal);
   text-align: left;
   background: transparent;
@@ -463,24 +461,25 @@ body.is-phone {
   color: var(--text-muted);
 }
 
-.taskchute-confirm-modal .confirm-button-group,
-.taskchute-reminder-modal .confirm-button-group {
-  margin: 24px 0 0;
-}
-
 .taskchute-confirm-modal .form-button:focus-visible,
 .taskchute-reminder-modal .form-button:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
 
+/* The destructive button in a dialog's action row. It used to carry the accent,
+   which made it indistinguishable from the confirm button beside it -- a
+   "Delete" that looks exactly like "Save" is the one button that must not.
+   Core's own destructive colour is `--background-modifier-error`, and it wins
+   over `button.mod-warning` from core, so this is the single place the look is
+   decided. */
 .form-button.danger {
-  background: var(--interactive-accent);
+  background: var(--background-modifier-error);
   color: var(--text-on-accent);
 }
 
 .form-button.danger:hover {
-  background: var(--interactive-accent-hover);
+  background: var(--background-modifier-error-hover);
 }
 
 /* Collapsible time slot headers */
@@ -1197,61 +1196,26 @@ body.is-phone {
   color: var(--text-accent-hover);
 }
 
-.ai-custom-model-modal {
-  position: fixed;
-  z-index: 10050;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgb(0 0 0 / 0.55);
-}
-
-.ai-custom-model-modal__content {
-  width: min(520px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
-  overflow-y: auto;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-primary);
-  box-shadow: var(--shadow-l);
-}
-
-.ai-custom-model-modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.ai-custom-model-modal__title-wrap,
-.ai-custom-model-modal__content > .ai-custom-model-modal__agent {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.ai-custom-model-modal__title {
-  margin: 0;
-  font-size: 18px;
-}
-
-.ai-custom-model-modal__title-icon,
+/* This dialog is a plain Obsidian `Modal` now. It used to be a hand-rolled
+   full-screen overlay, and the frame, the backdrop and the scroll box that
+   went with that are core's job -- the rules that drew them a second time
+   inside core's own frame are gone, along with the `__content`, `__header` and
+   `__title*` markup no TS builds any more. */
 .ai-custom-model-modal__agent-icon {
   display: inline-flex;
   color: var(--text-accent);
 }
 
-.ai-custom-model-modal__title-icon svg,
 .ai-custom-model-modal__agent-icon svg {
   width: 18px;
   height: 18px;
 }
 
 .ai-custom-model-modal__agent {
-  margin: 16px 18px 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: var(--size-4-3);
   padding: 9px 11px;
   border-radius: 7px;
   background: var(--background-secondary);
@@ -1262,7 +1226,6 @@ body.is-phone {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 18px 18px;
 }
 
 .ai-custom-model-modal__label {
@@ -1323,18 +1286,6 @@ body.is-phone {
 
 .ai-custom-model-modal__error.is-hidden {
   display: none;
-}
-
-.ai-custom-model-modal__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.ai-custom-model-modal__cancel,
-.ai-custom-model-modal__submit {
-  min-width: 88px;
 }
 
 .ai-task-agent-grid {
@@ -2003,6 +1954,23 @@ body.is-phone {
    in it. */
 .taskchute-modal:not(.taskchute-modal--no-close) .modal-title {
   padding-right: var(--tc-modal-close-reserve);
+}
+
+/* Every dialog ends in core's `.modal-button-container`, which is what gives
+   the row its shape: right-aligned on the desktop, a full-width stack on a
+   phone. The one thing core gets wrong here is the gutter -- on a phone it
+   pads the row by `--size-4-3` on top of the `--size-4-4` that
+   `.is-phone .modal-content` already pads the fields by, so the buttons sit
+   further in than the inputs above them. Drop the horizontal half and the two
+   line up on the shared gutter; the bottom safe-area margin core sets in the
+   same rule is left alone.
+
+   Scoped to the phone because that is the only place core adds the padding.
+   Unscoped it would also outrank the per-dialog footer padding a couple of
+   dialogs rely on for their only gutter (`.backup-confirm-buttons`), and
+   flatten them on the desktop for no reason. */
+body.is-phone .taskchute-modal .modal-button-container {
+  padding-inline: 0;
 }
 
 /* A notes field needs the full width, but `.setting-item-control` is a
@@ -3616,41 +3584,47 @@ body.is-phone {
   color: var(--text-normal);
 }
 
-.form-input,
-.form-textarea,
-.energy-select {
+/* Obsidian builds every field it uses itself out of the `--input-*` tokens --
+   `input[type=text|number|date|search|...]`, `select` and `textarea` all share
+   one padding, radius, border and height, and all three swap to a 44px touch
+   pill on a phone. This class used to restate that in its own values, and lost:
+   the core rules are attribute- and element-based (0,1,1) and outrank a bare
+   class (0,1,0), so text and number fields took core's look while `select`
+   (0,1,1, and later in the cascade) and `time` (which core styles not at all)
+   kept this one. Two shapes of field in the same form, which is exactly the
+   mismatch this class was meant to prevent.
+
+   So the box is core's now and only the width is ours; the exceptions below
+   are the fields core does not reach. */
+.form-input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-sm);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
   box-sizing: border-box;
 }
 
-/* セレクトボックスの高さ調整 */
-select.form-input {
-  min-height: 36px;
-  line-height: 1.5;
-  padding: 8px 12px;
+/* `time` is the one input type the plugin asks for that Obsidian never uses,
+   so no core rule matches it. Restate core's own declaration in the same
+   tokens -- not in resolved values, or the phone pill would stop here. */
+.form-input[type="time"] {
+  height: var(--input-height);
+  padding: var(--input-padding);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-small);
 }
 
-/* Shared focus ring. Must stay ahead of `.form-input.error`, which has equal
-   specificity and is meant to keep its red border while focused. */
-.form-input:focus,
-.form-textarea:focus,
-.energy-select:focus,
-.completion-comment:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: var(--tc-focus-ring);
-}
-
-textarea.form-textarea {
-  min-height: 80px;
-  resize: vertical;
+/* Not an input at all -- a button that opens the month-day picker and has to
+   pass for the field above it. Core's input rules can never match it. */
+.form-input.routine-monthday-trigger {
+  height: var(--input-height);
+  padding: var(--input-padding);
+  border: var(--input-border-width) solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  background: var(--background-modifier-form-field);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
 }
 
 .form-button.cancel {
@@ -4198,31 +4172,6 @@ textarea.form-textarea {
   transform: scale(1.2);
 }
 
-.completion-comment {
-  width: 100%;
-  min-height: 100px;
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-md);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: 14px;
-  resize: vertical;
-  box-sizing: border-box;
-}
-
-/* 入力時のテキスト色を明るくする */
-.completion-comment:not(:placeholder-shown) {
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.completion-comment::placeholder {
-  color: var(--text-faint);
-  opacity: 0.6;
-  font-style: italic;
-}
-
 .tag-selection {
   display: flex;
   flex-wrap: wrap;
@@ -4249,14 +4198,6 @@ textarea.form-textarea {
 .tag-option.selected {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
-}
-
-.form-button-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: flex-end;
-  margin-top: 13px;
 }
 
 .form-button {
@@ -4421,8 +4362,10 @@ textarea.form-textarea {
 }
 
 /* タスク名検証スタイル */
+/* The border width comes with it: core sets `--input-border-width: 0` on a
+   phone, so colouring the border alone would leave the error invisible there. */
 .form-input.error {
-  border-color: var(--text-error);
+  border: var(--border-width) solid var(--text-error);
   background-color: var(--background-modifier-error);
 }
 
@@ -4791,42 +4734,6 @@ textarea.form-textarea {
   color: var(--text-on-accent);
 }
 
-.routine-editor__buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.routine-editor__button {
-  padding: 6px 14px;
-  border-radius: var(--tc-radius-md);
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.routine-editor__button:hover {
-  background: var(--background-modifier-hover);
-}
-
-.routine-editor__buttons .routine-editor__button--primary {
-  background: var(--interactive-accent);
-  border-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-  box-shadow: none;
-}
-
-.routine-editor__buttons .routine-editor__button--primary:hover {
-  background: var(--interactive-accent-hover);
-  border-color: var(--interactive-accent-hover);
-  color: var(--text-on-accent);
-}
-
 /* Routine manager modal */
 .routine-manager-modal {
   width: 90vw;
@@ -4998,39 +4905,12 @@ textarea.form-textarea {
   color: var(--text-muted);
 }
 
+/* No padding of its own: the gutter is the modal frame's, the same as every
+   other confirm dialog. This one used to add a second 16px on top of it. */
 .routine-confirm {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-}
-
-.routine-confirm__buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.routine-confirm__button {
-  padding: 6px 14px;
-  border-radius: var(--tc-radius-md);
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.routine-confirm__button:hover {
-  background: var(--background-modifier-hover);
-}
-
-.routine-confirm__button.mod-danger {
-  color: var(--text-on-accent);
-  background: var(--color-red, #e74c3c);
-  border-color: var(--color-red, #e74c3c);
 }
 
 /* ===== Task Warning Styles ===== */
@@ -5560,8 +5440,8 @@ textarea.form-textarea {
 
 /* ===== Reminder Notification Modal ===== */
 /* Layout comes from the shared modal primitives (.modal-header / .modal-message /
-   .modal-description / .confirm-button-group), same as the confirm dialog. Only the
-   reminder-specific bits live here. */
+   .modal-description, and core's .modal-button-container for the actions), same
+   as the confirm dialog. Only the reminder-specific bits live here. */
 .taskchute-reminder-modal .modal-title {
   display: none;
 }
@@ -6058,10 +5938,6 @@ textarea.form-textarea {
   color: var(--text-accent);
 }
 
-.recipe-select-footer {
-  margin-top: 28px;
-}
-
 .recipe-card-main {
   min-width: 0;
 }
@@ -6192,10 +6068,15 @@ textarea.form-textarea {
 }
 
 /* ===== Backup Restore Modal ===== */
+/* The header, the footer and the list draw dividers that span the dialog, so
+   they own the gutter and the frame gives up its own -- the same arrangement
+   `.taskchute-log-modal` uses. Without this the two gutters stack and the
+   dividers stop short of the edge. */
 .backup-restore-modal {
   width: 500px;
   max-width: 90vw;
   max-height: 80vh;
+  padding: 0;
 }
 
 .backup-restore-modal .modal-content {
@@ -6219,10 +6100,6 @@ textarea.form-textarea {
   font-weight: 600;
 }
 
-/* The actions sit under the list, in the same button row every other dialog
-   ends with, so they are styled by `.form-button` rather than by rules of their
-   own. The message shares the row: it explains a refused click without moving
-   the buttons. */
 .backup-restore-footer {
   display: flex;
   align-items: center;
@@ -6232,8 +6109,20 @@ textarea.form-textarea {
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.backup-restore-footer .form-button-group {
+/* The button row is one half of the footer rather than the whole of it, so it
+   drops core's leading margin and its phone full-width -- otherwise it would
+   squeeze the message beside it to nothing. */
+.backup-restore-footer .modal-button-container {
   margin-top: 0;
+  width: auto;
+}
+
+/* On a phone the buttons stack, and a stack cannot sit in a `space-between`
+   row beside the message. Turn the whole footer into a column instead, message
+   first. */
+body.is-mobile .backup-restore-footer {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .backup-restore-message {
@@ -6314,9 +6203,12 @@ textarea.form-textarea {
 }
 
 /* ===== Backup Confirm Modal ===== */
+/* Full-bleed dividers again, so the frame gives up its gutter to the sections
+   inside it. */
 .backup-confirm-modal {
   width: 450px;
   max-width: 90vw;
+  padding: 0;
 }
 
 .backup-confirm-modal .modal-content {
@@ -6450,11 +6342,17 @@ textarea.form-textarea {
 }
 
 /* Same button row as the restore dialog it is opened from; `.form-button`
-   carries the buttons' own looks. */
+   carries the buttons' own looks. This row is the one place the dialog's
+   gutter comes from its own padding rather than from `.modal-content`, so it
+   has to opt back out of the shared phone rule that strips it. */
 .backup-confirm-buttons {
   padding: var(--size-4-4);
   margin-top: 0;
   border-top: 1px solid var(--background-modifier-border);
+}
+
+body.is-phone .taskchute-modal .backup-confirm-buttons {
+  padding-inline: var(--size-4-4);
 }
 
 /* ===== Mobile Touch Improvements ===== */
