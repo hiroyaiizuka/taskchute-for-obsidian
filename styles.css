@@ -5431,6 +5431,30 @@ textarea.form-textarea {
   }
 }
 
+/* Obsidian's tablet shell pads every button that is not one of its own
+   `.clickable-icon`s: `.is-tablet button:not(.clickable-icon) { padding:
+   var(--size-4-1) var(--size-4-5) }` in app.css. That selector is (0,2,1),
+   more specific than the single-class rules below that give each of these
+   controls `padding: 0` inside a fixed square box, so on an iPad the shell
+   wins: a 30px border-box button gets 40px of horizontal padding, its content
+   box collapses to zero width and the `<svg>` inside is squeezed out of
+   sight. The buttons then read as empty pills -- the emoji controls survive
+   only because text overflows a zero-width box, while Lucide icons, which are
+   sized elements, do not. Restate the reset one class deeper (0,3,0) so the
+   plugin's own box wins on every platform; the value is what these controls
+   already ask for, so nothing changes on desktop. */
+.taskchute-view-root .top-bar-container .drawer-toggle,
+.taskchute-view-root .top-bar-container .date-nav-arrow,
+.taskchute-view-root .top-bar-container .calendar-btn,
+.taskchute-view-root .top-bar-container .add-task-button.repositioned,
+.taskchute-view-root .task-item .play-stop-button,
+.taskchute-view-root .task-item .comment-button,
+.taskchute-view-root .task-item .routine-button,
+.taskchute-view-root .task-item .settings-task-button,
+.modal.taskchute-modal .form-input-icon-button {
+  padding: 0;
+}
+
 .is-mobile .task-list {
   padding-bottom: var(--taskchute-mobile-bottom-obstruction);
   scroll-padding-bottom: var(--taskchute-mobile-bottom-obstruction);
