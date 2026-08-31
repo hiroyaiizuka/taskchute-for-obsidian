@@ -17,7 +17,6 @@ export type TaskListRendererHost = {
       openLinkText: (path: string, sourcePath: string, newLeaf?: boolean) => Promise<void> | void
     }
   }
-  applyResponsiveClasses: () => void
   sortTaskInstancesByTimeOrder: () => void
   getTimeSlotKeys: () => string[]
   sortByOrder: (instances: TaskInstance[]) => TaskInstance[]
@@ -148,7 +147,6 @@ export default class TaskListRenderer {
     const scrollTop = taskList.scrollTop
     const scrollLeft = taskList.scrollLeft
 
-    this.host.applyResponsiveClasses()
     this.host.sortTaskInstancesByTimeOrder()
     taskList.empty()
 
@@ -289,11 +287,17 @@ export default class TaskListRenderer {
 
     this.createDragHandle(taskItem, inst, slot, idx)
     this.rowController.renderPlayStopButton(taskItem, inst, isFutureTask)
-    const taskNameContainer = this.rowController.renderTaskName(taskItem, inst)
+
+    // The row is a flex line: grip, play, this column, then the trailing
+    // controls. Everything textual lives in the column so that a phone can
+    // stack the name over the clock by flipping one `flex-direction`, while
+    // the controls beside it keep setting the row's height.
+    const main = taskItem.createDiv({ cls: 'task-item__main' })
+    const taskNameContainer = this.rowController.renderTaskName(main, inst)
     this.aiTaskRowRenderer?.render(taskNameContainer, inst)
-    this.actions.renderProject(taskItem, inst)
-    this.rowController.renderTimeRangeDisplay(taskItem, inst)
-    this.rowController.renderDurationDisplay(taskItem, inst)
+    this.actions.renderProject(main, inst)
+    this.rowController.renderTimeRangeDisplay(main, inst)
+    this.rowController.renderDurationDisplay(main, inst)
     this.actions.renderCommentButton(taskItem, inst)
     this.actions.renderRoutineButton(taskItem, inst)
     this.actions.renderSettingsButton(taskItem, inst)

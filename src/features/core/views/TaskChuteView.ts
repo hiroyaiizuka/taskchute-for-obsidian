@@ -198,7 +198,6 @@ export class TaskChuteView
   public readonly dayStateManager: DayStateStoreService
   public readonly taskOrderManager: TaskOrderManager
   private managedDisposers: Array<() => void> = []
-  private resizeObserver: ResizeObserver | null = null
 
   // Boundary Check (idle-task-auto-move feature)
   public boundaryCheckTimeout: ReturnType<Window['setTimeout']> | null = null
@@ -640,7 +639,6 @@ export class TaskChuteView
       },
       tv: (key, fallback, vars) => view.tv(key, fallback, vars),
       app: view.app,
-      applyResponsiveClasses: () => view.applyResponsiveClasses(),
       sortTaskInstancesByTimeOrder: () => view.sortTaskInstancesByTimeOrder(),
       getTimeSlotKeys: () => view.getTimeSlotKeys(),
       sortByOrder: (instances) => view.sortByOrder(instances),
@@ -780,7 +778,6 @@ export class TaskChuteView
     // Styles are now provided via styles.css (no dynamic CSS injection)
     // Initialize timer service (ticks update timer displays)
     this.ensureTimerService()
-    this.setupResizeObserver()
     this.setupAccentContrast()
     this.navigationController.initializeNavigationEventListeners()
     this.setupEventListeners()
@@ -3921,34 +3918,6 @@ export class TaskChuteView
     return this.taskOrderManager.sortByOrder(instances)
   }
 
-  private applyResponsiveClasses(): void {
-    // Apply responsive classes based on pane width
-    const width = this.containerEl.clientWidth
-    const classList = this.containerEl.classList
-
-    const layoutClasses = [
-      "taskchute-very-narrow",
-      "taskchute-narrow",
-      "taskchute-medium",
-      "taskchute-wide",
-    ]
-
-    classList.remove(...layoutClasses)
-    this.taskListElement?.classList.remove(...layoutClasses)
-
-    let layoutClassesToAdd: string[] = ["taskchute-wide"]
-    if (width < 520) {
-      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow", "taskchute-very-narrow"]
-    } else if (width < 640) {
-      layoutClassesToAdd = ["taskchute-medium", "taskchute-narrow"]
-    } else if (width < 900) {
-      layoutClassesToAdd = ["taskchute-medium"]
-    }
-
-    classList.add(...layoutClassesToAdd)
-    this.taskListElement?.classList.add(...layoutClassesToAdd)
-  }
-
   /**
    * Keep the task name accent readable against the theme background, and
    * recompute whenever the user switches theme or edits a snippet.
@@ -3964,23 +3933,6 @@ export class TaskChuteView
         this.accentContrastController.apply()
       }),
     )
-  }
-
-  private setupResizeObserver(): void {
-    if (this.resizeObserver) return
-
-    const observer = new ResizeObserver(() => {
-      this.applyResponsiveClasses()
-    })
-
-    observer.observe(this.containerEl)
-    this.resizeObserver = observer
-    this.registerManagedDisposer(() => {
-      observer.disconnect()
-      if (this.resizeObserver === observer) {
-        this.resizeObserver = null
-      }
-    })
   }
 
   private updateTotalTasksCount(): void {

@@ -127,11 +127,14 @@ export default class TaskRowController {
   }
 
   /**
-   * Renders the task name column and returns its container so callers can
-   * append inline companions (reminder/recipe/AI controls) without adding
-   * extra direct children to the fixed-column .task-item grid.
+   * Renders the task name and returns its container so callers can append
+   * inline companions (reminder/recipe/AI controls) to the name itself rather
+   * than to the row's text column, where they would become siblings of the
+   * clock and get stacked under it on a phone.
+   *
+   * @param parent the row's `.task-item__main` column.
    */
-  renderTaskName(taskItem: HTMLElement, inst: TaskInstance): HTMLElement {
+  renderTaskName(parent: HTMLElement, inst: TaskInstance): HTMLElement {
     const displayName = (() => {
       const executed = typeof inst.executedTitle === 'string' ? inst.executedTitle.trim() : ''
       if (inst.state === 'done' && executed.length > 0) {
@@ -145,7 +148,7 @@ export default class TaskRowController {
     })()
 
     // Container for task name and reminder icon
-    const taskNameContainer = taskItem.createSpan( {
+    const taskNameContainer = parent.createSpan( {
       cls: 'task-name-container',
     })
 
@@ -194,8 +197,9 @@ export default class TaskRowController {
     return taskNameContainer
   }
 
-  renderTimeRangeDisplay(taskItem: HTMLElement, inst: TaskInstance): void {
-    const timeRangeEl = taskItem.createSpan( { cls: 'task-time-range' })
+  /** @param parent the row's `.task-item__main` column. */
+  renderTimeRangeDisplay(parent: HTMLElement, inst: TaskInstance): void {
+    const timeRangeEl = parent.createSpan( { cls: 'task-time-range' })
     const formatTime = (date: Date) => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 
     const startSpan = timeRangeEl.createSpan({
@@ -251,9 +255,17 @@ export default class TaskRowController {
     }
   }
 
-  renderDurationDisplay(taskItem: HTMLElement, inst: TaskInstance): void {
+  /**
+   * The duration column: elapsed time while running, the measured total once
+   * done, and nothing at all otherwise. An idle row used to render an empty
+   * `.task-duration-placeholder` here to keep the grid's track count fixed;
+   * the row is a flex line now, so an absent element simply takes no width.
+   *
+   * @param parent the row's `.task-item__main` column.
+   */
+  renderDurationDisplay(parent: HTMLElement, inst: TaskInstance): void {
     if (inst.state === 'done' && inst.startTime && inst.stopTime) {
-      const durationEl = taskItem.createSpan( { cls: 'task-duration' })
+      const durationEl = parent.createSpan( { cls: 'task-duration' })
       const duration = this.host.calculateCrossDayDuration(inst.startTime, inst.stopTime)
       const hours = Math.floor(duration / 3600000)
       const minutes = Math.floor((duration % 3600000) / 60000) % 60
@@ -267,13 +279,11 @@ export default class TaskRowController {
           : durationLabel,
       )
     } else if (inst.state === 'running') {
-      const timerEl = taskItem.createSpan({
+      const timerEl = parent.createSpan({
         cls: 'task-timer-display',
         attr: { title: this.host.tv('tooltips.elapsedTime', 'Elapsed time') },
       })
       this.updateTimerDisplay(timerEl, inst)
-    } else {
-      taskItem.createSpan( { cls: 'task-duration-placeholder' })
     }
   }
 

@@ -3032,29 +3032,43 @@ body.is-phone .taskchute-modal .modal-button-container {
   container-name: taskchute-list;
 }
 
+/* The row is a flex line: grip, play, the text column, then the trailing
+   controls. It used to be a grid with a fixed column template per breakpoint,
+   which meant a track was reserved whether or not anything filled it -- an
+   idle row rendered an empty span just to hold its place, and a phone kept a
+   whole spare column to the right of the settings button. Only the text column
+   grows now, and an element that is not rendered costs no width.
+
+   Row controls (play/stop, routine, settings) are square boxes of
+   `--tc-row-control-size`; the comment button keeps the height but doubles the
+   width so it is easier to hit. The grip is narrower than the rest -- it is a
+   grip, not a glyph -- so it carries its own pair of dimensions. */
 .task-item {
-  /* Row controls (play/stop, routine, settings) are square boxes of this size;
-     the comment button keeps the same height but is twice as wide so it is
-     easier to hit. Grid tracks below match these widths exactly, so the visual
-     spacing between the trailing buttons is just `gap`. The drag grip is
-     narrower than the rest -- it is a grip, not a glyph -- so it carries its
-     own pair of dimensions. */
   --tc-row-control-size: 32px;
   --tc-row-comment-width: calc(var(--tc-row-control-size) * 2);
   --tc-row-grip-width: 24px;
   --tc-row-grip-height: 24px;
 
-  display: grid;
-  grid-template-columns:
-    var(--tc-row-grip-width) var(--tc-row-control-size) 1fr 220px 110px 50px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 8px;
+  display: flex;
   align-items: center;
-  padding: 4px 15px 4px 4px;
+  gap: 8px;
+  padding: 4px 8px;
   cursor: default;
   border-bottom: 1px solid var(--background-modifier-border);
   transition: background-color 0.2s ease;
   margin: 0;
+}
+
+/* Everything textual in the row: name, project, clock, duration. It is the
+   only part that grows, and `min-width: 0` is what lets it shrink past its
+   content so a long task name ellipsises instead of pushing the controls off
+   the row. */
+.task-item__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .task-item:last-child {
@@ -3065,8 +3079,8 @@ body.is-phone .taskchute-modal .modal-button-container {
    32px controls sized for a cursor fall short of the ~44px tap target phones
    and tablets expect, so grow every row control (and the grip, which is
    dragged rather than tapped and so gains height rather than width) on any
-   coarse pointer. The grid tracks are written in these variables, so the row
-   re-lays itself out with no second template to keep in sync. */
+   coarse pointer. Every control sizes itself from these variables, so the row
+   re-lays itself out with nothing else to keep in sync. */
 @media (pointer: coarse) {
   .task-item {
     --tc-row-control-size: 40px;
@@ -3119,6 +3133,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 .drag-handle {
   width: var(--tc-row-grip-width, 24px);
   height: var(--tc-row-grip-height, 24px);
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3225,7 +3240,6 @@ body.is-phone .taskchute-modal .modal-button-container {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: -4px; /* プロジェクトとの間隔を狭める */
 }
 
 .task-time-range {
@@ -3237,10 +3251,9 @@ body.is-phone .taskchute-modal .modal-button-container {
   display: flex;
   justify-content: flex-start;
   align-items: center;
-  min-width: 0;
+  flex: 0 0 auto;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 4px;
 }
 .task-time-arrow {
   margin: 0 2px;
@@ -3259,6 +3272,9 @@ body.is-phone .taskchute-modal .modal-button-container {
 .task-time-range.idle-placeholder:hover {
   opacity: 1;
 }
+/* The measured total, and the clock that replaces it while a task runs. Both
+   are the last thing in the text column and both hold their natural width --
+   a duration that shrinks is a duration that lies. */
 .task-duration {
   font-size: 12px;
   color: var(--text-muted);
@@ -3266,10 +3282,8 @@ body.is-phone .taskchute-modal .modal-button-container {
   font-family: monospace;
   display: flex;
   justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .task-timer-display {
@@ -3279,10 +3293,8 @@ body.is-phone .taskchute-modal .modal-button-container {
   font-family: monospace;
   display: flex;
   justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-weight: bold;
 }
 
@@ -3321,14 +3333,13 @@ body.is-phone .taskchute-modal .modal-button-container {
   transition: all var(--tc-transition);
   opacity: 0.4;
 
-  /* Square control: the glyph sits in a --tc-row-control-size box centred in
-     its grid cell, so the hover background reads as a square the same size as
-     the play/stop and settings buttons instead of stretching to the cell. */
+  /* Square control: the glyph sits in a --tc-row-control-size box, so the
+     hover background reads as a square the same size as the play/stop and
+     settings buttons. */
   width: var(--tc-row-control-size);
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3363,7 +3374,6 @@ body.is-phone .taskchute-modal .modal-button-container {
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-comment-width);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3422,12 +3432,17 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 /* プロジェクト表示コンポーネント全体 */
+/* Gives up its width before the task name does: the project is context, the
+   name is the row. `margin-right` used to hold it off the clock -- the text
+   column's `gap` does that now. */
 .taskchute-project-display {
   display: flex;
   align-items: center;
   gap: 4px;
   justify-content: flex-start;
-  margin-right: 32px; /* 時間との間隔を広げる */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
 }
 
 /* プロジェクトボタン（フォルダアイコン + プロジェクト名） */
@@ -3679,7 +3694,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   width: var(--tc-row-control-size);
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
-  justify-self: center;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3729,7 +3744,6 @@ body.is-phone .taskchute-modal .modal-button-container {
   height: var(--tc-row-control-size);
   min-width: var(--tc-row-control-size);
   flex-shrink: 0;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4229,72 +4243,6 @@ body.is-phone .taskchute-modal .modal-button-container {
   background: var(--background-modifier-border-hover);
 }
 
-/* レスポンシブ対応 - 表示優先度の調整 */
-
-.taskchute-medium .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) minmax(140px, auto) minmax(70px, auto)
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 8px;
-  padding-right: 12px;
-}
-
-.taskchute-medium .taskchute-project-display,
-.taskchute-medium .taskchute-project-placeholder {
-  display: none;
-}
-
-.taskchute-medium .task-name,
-.taskchute-narrow .task-name,
-.taskchute-very-narrow .task-name {
-  margin-right: 0;
-  white-space: normal;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-/* narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-.taskchute-narrow .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) 100px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 6px;
-  padding-left: 4px;
-  padding-right: 16px;
-}
-
-.taskchute-narrow .task-time-range {
-  justify-content: flex-start;
-  text-align: left;
-  padding-left: 4px;
-}
-
-/* narrow時は経過時間を非表示にし、コメント・ルーチンは表示を維持 */
-.taskchute-narrow .task-duration,
-.taskchute-narrow .task-duration-placeholder,
-.taskchute-narrow .task-timer-display {
-  display: none;
-}
-
-/* very-narrow: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
-.taskchute-very-narrow .task-item {
-  grid-template-columns:
-    24px var(--tc-row-control-size) minmax(0, 1fr) 90px
-    var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
-  gap: 4px;
-  padding-left: 4px;
-  padding-right: 12px;
-}
-
-/* very-narrow時もコメント・ルーチンは表示を維持（経過時間はnarrowで既に非表示） */
-
-.taskchute-very-narrow .task-time-range {
-  font-size: 11px;
-  justify-content: flex-start;
-  text-align: left;
-  padding-left: 4px;
-}
-
 .task-duration.cross-day {
   color: var(--text-accent);
   font-weight: 500;
@@ -4410,16 +4358,13 @@ body.is-phone .taskchute-modal .modal-button-container {
   margin-top: 4px;
 }
 
+/* Narrowing the row is a matter of dropping what it can do without and
+   tightening the gap -- there is no column template to restate, so each step
+   below only says what changes. The container is `.task-list`, so a row
+   responds to the pane it is in rather than to the window. */
 @container taskchute-list (max-width: 900px) {
-  .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
-      minmax(140px, auto) minmax(70px, auto) var(--tc-row-comment-width)
-      var(--tc-row-control-size) var(--tc-row-control-size);
-    gap: 8px;
-    padding-right: 12px;
-  }
-
+  /* The project is the first thing to go: it is context for the name, and the
+     name is what the row is for. */
   .task-item .taskchute-project-display,
   .task-item .taskchute-project-placeholder {
     display: none;
@@ -4427,114 +4372,56 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 @container taskchute-list (max-width: 640px) {
-  /* 640px以下: ドラッグ、再生、タスク名、時間範囲、コメント、ルーチン、設定 (経過時間なし) */
   .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 100px
-      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 6px;
-    padding-left: 4px;
-    padding-right: 16px;
   }
 
+  /* Elapsed and measured time go next. Both are readable in the log, and the
+     start/stop clock beside them already says whether a task has run. */
   .task-item .task-duration,
-  .task-item .task-duration-placeholder,
   .task-item .task-timer-display {
     display: none;
   }
-
-  .task-item .task-time-range {
-    justify-content: flex-start;
-    text-align: left;
-    padding-left: 4px;
-  }
-
 }
 
 @container taskchute-list (max-width: 520px) {
-  /* 520px以下: さらにコンパクト */
   .task-item {
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr) 90px
-      var(--tc-row-comment-width) var(--tc-row-control-size) var(--tc-row-control-size);
     gap: 4px;
-    padding-left: 4px;
-    padding-right: 12px;
   }
 
   .task-item .task-time-range {
     font-size: 11px;
-    justify-content: flex-start;
-    text-align: left;
-    padding-left: 4px;
   }
 }
 
-/* Phone width: everything above still tries to keep the row on one line, and
-   below ~440px there is no line left to keep -- the name track collapses to a
-   few characters while the clock and the four controls hold their widths. So
-   stop competing for one line: the controls span a two-row row, the name takes
-   the top line and the start/stop clock drops underneath it. Row height is set
-   by the controls, which span both rows, so the row grows by the leading
-   between the two text lines rather than by a second control-sized band. */
+/* Phone width: everything above still keeps the row on one line, and below
+   ~440px there is no line left to keep -- the name shrinks to a few characters
+   while the clock and the controls hold their widths. So stop competing for
+   one line: the text column stacks, the name takes the top line and the clock
+   drops underneath it as a caption. The controls stay on the row's own line,
+   centred against the pair, so the row grows by the leading between two text
+   lines rather than by a second control-sized band. */
 @container taskchute-list (max-width: 440px) {
   .task-item {
-    /* Its own column now, so it no longer needs the double width it had when
-       it shared the trailing run of buttons. */
+    /* On its own again, so it no longer needs the double width it had when it
+       shared the trailing run of buttons. */
     --tc-row-comment-width: var(--tc-row-control-size);
 
-    grid-template-columns:
-      var(--tc-row-grip-width) var(--tc-row-control-size) minmax(0, 1fr)
-      var(--tc-row-comment-width) var(--tc-row-control-size)
-      var(--tc-row-control-size);
-    grid-template-areas:
-      "grip play name comment routine settings"
-      "grip play time comment routine settings";
     gap: 4px;
-    padding: 4px 8px 4px 2px;
   }
 
-  /* Placement only below: every control keeps the paint it was given above,
-     and each spans both rows, so `align-self` is what stops a fixed-height
-     box from sitting against the top of the pair. */
-  .task-item .drag-handle {
-    grid-area: grip;
-    align-self: center;
+  .task-item__main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
   }
 
-  .task-item .play-stop-button {
-    grid-area: play;
-    align-self: center;
-  }
-
-  .task-item .task-name-container {
-    grid-area: name;
-  }
-
-  /* The clock is the second line rather than a column of its own, so it reads
-     as a caption under the name: same left edge, no padding pushing it in. */
-  .task-item .task-time-range {
-    grid-area: time;
-    align-self: start;
-    padding-left: 0;
-  }
-
-  .task-item .comment-button {
-    grid-area: comment;
-    align-self: center;
-  }
-
-  .task-item .routine-button {
-    grid-area: routine;
-    align-self: center;
-  }
-
-  .task-item .settings-task-button {
-    grid-area: settings;
-    align-self: center;
+  /* Both lines start at the same left edge, and the name is free to take the
+     full width of the column now that nothing sits beside it. */
+  .task-item__main > * {
+    max-width: 100%;
   }
 }
-
 
 /* Routine edit modal */
 .routine-edit-modal {
@@ -6434,11 +6321,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
     opacity: 0.8;
   }
 
-  /* Idle/running state (disabled): completely hidden */
-  .comment-button:disabled {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
+  /* Idle/running state (disabled): gone, not merely invisible. A pointer
+     device keeps the space so the button can fade in under the cursor without
+     shifting the row; a touch device has no hover to fade in from, so the
+     reserved width would be dead space against the right edge of the screen
+     for every task that has not run yet -- which is most of them. */
+  .comment-button:disabled,
+  .comment-button.disabled:not(.active) {
+    display: none;
   }
 
   /* Drag handle: invisible by default, visible on tap */
@@ -6699,9 +6589,10 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 /* ===== AI Task ===== */
 
-/* Row controls. Rendered inside
-   .task-name-container (never a direct child of the .task-item grid);
-   spacing from the task name comes from the container's gap. */
+/* Row controls. Rendered inside .task-name-container, beside the name itself
+   -- put them in the row's text column instead and a phone would stack them
+   under the name along with the clock. Spacing comes from the container's
+   gap. */
 .ai-task-controls {
   display: inline-flex;
   align-items: center;

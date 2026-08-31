@@ -713,4 +713,49 @@ describe('style regressions', () => {
     expect(composite).toMatch(/border-radius:\s*var\(--input-radius\);/)
     expect(composite).toMatch(/padding:\s*var\(--input-padding\);/)
   })
+
+  test('the task row is one flex line with a symmetric gutter', () => {
+    const css = styles()
+    const rule = readRule(css, '.task-item {')
+
+    // A grid reserved a track whether or not anything filled it, which is how
+    // a phone ended up with a spare column to the right of the settings
+    // button. Flex gives width only to what renders.
+    expect(rule).toMatch(/display:\s*flex;/)
+    expect(rule).not.toMatch(/grid-template/)
+
+    // One padding for every width. Each breakpoint used to set its own
+    // padding-right (12/15/16px), so the gutter changed as the pane resized.
+    expect(rule).toMatch(/padding:\s*4px 8px;/)
+    expect(css).not.toMatch(/\.task-item[^{]*\{[^}]*padding-right/)
+
+    // The text column is the only part that grows, and it must be able to
+    // shrink past its content or a long task name pushes the controls off.
+    const main = readRule(css, '.task-item__main {')
+    expect(main).toMatch(/flex:\s*1 1 auto;/)
+    expect(main).toMatch(/min-width:\s*0;/)
+  })
+
+  test('the row has one responsive system, not two', () => {
+    const css = styles()
+
+    // `.taskchute-very-narrow .task-item` (0,2,0) outranked the container
+    // query's `.task-item` (0,1,0) -- container queries add no specificity --
+    // so the phone got the wide layout's column count with the phone
+    // layout's areas, and the mismatch left an empty trailing column. The
+    // width classes are gone; `@container` is the only responsive path.
+    expect(css).not.toContain('.taskchute-medium')
+    expect(css).not.toContain('.taskchute-narrow')
+    expect(css).not.toContain('.taskchute-very-narrow')
+    expect(css).not.toContain('.taskchute-wide')
+
+    // The phone layout stacks the text column instead of naming grid areas.
+    expect(css).not.toContain('grid-area: name')
+    const stacked = readRuleAfter(
+      css,
+      '.task-item__main {',
+      '@container taskchute-list (max-width: 440px)',
+    )
+    expect(stacked).toMatch(/flex-direction:\s*column;/)
+  })
 })

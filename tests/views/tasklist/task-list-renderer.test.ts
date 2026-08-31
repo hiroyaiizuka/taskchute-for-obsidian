@@ -76,7 +76,6 @@ describe('TaskListRenderer', () => {
           openLinkText: jest.fn(),
         },
       },
-      applyResponsiveClasses: jest.fn(),
       sortTaskInstancesByTimeOrder: jest.fn(),
       getTimeSlotKeys: () => ['0:00-8:00', '8:00-12:00', '12:00-16:00', '16:00-0:00'],
       sortByOrder: (items: TaskInstance[]) => [...items],
@@ -140,6 +139,37 @@ describe('TaskListRenderer', () => {
     expect(taskList.querySelector('[data-instance-id="run-1"] .task-timer-display')).toBeTruthy();
     const duration = taskList.querySelector('[data-instance-id="done-1"] .task-duration');
     expect(duration?.textContent).toBe('01:15');
+  });
+
+  test('the row keeps its text in one column and its controls beside it', () => {
+    const idleInst = createInstance({ instanceId: 'idle-1' });
+    const { taskList, renderer } = createHost([idleInst]);
+
+    renderer.render();
+
+    const item = taskList.querySelector('.task-item') as HTMLElement;
+    const main = item.querySelector('.task-item__main') as HTMLElement;
+    expect(main).toBeTruthy();
+
+    // Name, project and clock stack together on a phone, so they share one
+    // flex column; the controls set the row's height and stay outside it.
+    expect(main.querySelector('.task-name-container')).toBeTruthy();
+    expect(main.querySelector('.taskchute-project-display')).toBeTruthy();
+    expect(main.querySelector('.task-time-range')).toBeTruthy();
+    expect(
+      Array.from(item.children).map((el) => el.className.split(' ')[0]),
+    ).toEqual([
+      'drag-handle',
+      'play-stop-button',
+      'task-item__main',
+      'comment-button',
+      'routine-button',
+      'settings-task-button',
+    ]);
+
+    // The row is flex now, so an idle task simply renders no duration -- the
+    // empty span that used to hold a grid track open is gone.
+    expect(item.querySelector('.task-duration-placeholder')).toBeNull();
   });
 
   test('render registers managed handlers for drag and context interactions', () => {

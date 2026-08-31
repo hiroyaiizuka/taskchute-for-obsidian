@@ -55,7 +55,6 @@ function createHost(
     currentDate: new Date(2026, 6, 12),
     tv: (_key: string, fallback: string) => fallback,
     app: { workspace: { openLinkText: jest.fn() } },
-    applyResponsiveClasses: jest.fn(),
     sortTaskInstancesByTimeOrder: jest.fn(),
     getTimeSlotKeys: () => ['0:00-8:00', '8:00-12:00', '12:00-16:00', '16:00-0:00'],
     sortByOrder: (items: TaskInstance[]) => [...items],
