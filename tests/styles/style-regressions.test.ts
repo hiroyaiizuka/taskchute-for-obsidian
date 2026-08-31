@@ -50,6 +50,25 @@ const codeToken = (css: string, token: string): string => {
   return (match as RegExpExecArray)[1].trim()
 }
 
+/**
+ * Index of the last rule for `selectorStart` that paints -- one declaring
+ * `background`, `color` or `cursor`. Placement-only rules (grid-area and
+ * friends) cannot override the disabled styling the callers guard, so they are
+ * skipped rather than counted as the last word on the selector.
+ */
+const lastPaintingRuleIndex = (css: string, selectorStart: string): number => {
+  let found = -1
+  for (let i = css.indexOf(selectorStart); i >= 0; i = css.indexOf(selectorStart, i + 1)) {
+    const end = css.indexOf('}', i)
+    if (end < 0) break
+    if (/(?:^|\s)(?:background|color|cursor):/.test(css.slice(i, end))) {
+      found = i
+    }
+  }
+
+  return found
+}
+
 describe('style regressions', () => {
   test('AI runs participates in vertical layout so the task list remains scrollable', () => {
     const css = styles()
@@ -362,7 +381,9 @@ describe('style regressions', () => {
 
   test('future task play button keeps disabled styling over generic play-stop styles', () => {
     const css = styles()
-    const lastGenericPlayStopIndex = css.lastIndexOf('.play-stop-button {')
+    // Only a rule that repaints the button can undo the disabled look, so the
+    // narrow-container rules that merely place it in the grid do not count.
+    const lastGenericPlayStopIndex = lastPaintingRuleIndex(css, '.play-stop-button {')
     expect(lastGenericPlayStopIndex).toBeGreaterThanOrEqual(0)
 
     const futurePlayStopRule = readRuleAtOrAfter(
