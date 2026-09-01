@@ -2803,9 +2803,18 @@ body.is-phone .taskchute-modal .modal-button-container {
 .top-bar-container {
   /* Keep the date navigator on the visual centre line of the whole view.
      Equal outer tracks prevent controls added on either side (for example
-     the AI board-view switch) from pushing the navigator off centre. */
+     the AI board-view switch) from pushing the navigator off centre.
+
+     The outer tracks bottom out at `min-content` rather than 0: a track
+     narrower than its contents does not clip them, and the action section is
+     `justify-self: end`, so the overflow spills leftwards and covers the
+     navigator's next-day arrow. Where the row is too tight to stay symmetric
+     the navigator drifts off centre instead, which is the lesser fault. The
+     switch labels are translated ("Human/AI/Mixed" against "人間/AI/混合"),
+     so the floor has to come from the contents rather than from a
+     pixel breakpoint. */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(min-content, 1fr) auto minmax(min-content, 1fr);
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
@@ -2859,12 +2868,13 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 /* Obsidian leaf splits do not change the viewport width, so use the view
-   container instead of a media query. At narrow widths the right-side switch
-   and add action stay together on a second row while the drawer returns to
-   its original top-left position. The `has-board-view-switch` marker class is
-   toggled by TaskHeaderController: `:has()` would express the same thing, but
-   Obsidian's plugin review flags it for the invalidation cost it puts on every
-   ancestor of the switch. */
+   container instead of a media query. At narrow widths the board-view filter
+   drops to a second row on its own; the drawer, the date navigator and the add
+   action keep the top row they had, so the header still reads as the familiar
+   one-line header with a filter parked underneath. The `has-board-view-switch`
+   marker class is toggled by TaskHeaderController: `:has()` would express the
+   same thing, but Obsidian's plugin review flags it for the invalidation cost
+   it puts on every ancestor of the switch. */
 @container taskchute-view (max-width: 680px) {
   .top-bar-container.has-board-view-switch {
     grid-template-rows: repeat(2, 30px);
@@ -2882,8 +2892,26 @@ body.is-phone .taskchute-modal .modal-button-container {
     justify-self: start;
   }
 
+  /* The filter and the add action share one flex section so they read as a
+     pair at comfortable widths. Here they belong on different rows, which a
+     single grid item cannot do, so the section stops being a box of its own
+     and hands its children straight to the grid. */
   .top-bar-container > .header-action-section.has-board-view-switch {
-    grid-column: 1 / -1;
+    display: contents;
+  }
+
+  .top-bar-container.has-board-view-switch .add-task-button.repositioned {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  /* Scrolling moves from the section to the control itself. It doubles as the
+     reason the span stays honest: a scroll container's automatic minimum size
+     is 0, so reaching across to column 2 cannot widen the outer track that
+     `.top-bar-container` floors at `min-content`. */
+  .top-bar-container.has-board-view-switch .ai-board-view-switch {
+    grid-column: 2 / -1;
     grid-row: 2;
     justify-self: end;
     max-width: 100%;
@@ -2891,9 +2919,18 @@ body.is-phone .taskchute-modal .modal-button-container {
     scrollbar-width: none;
   }
 
-  .top-bar-container
-    > .header-action-section.has-board-view-switch::-webkit-scrollbar {
+  .top-bar-container.has-board-view-switch
+    .ai-board-view-switch::-webkit-scrollbar {
     display: none;
+  }
+
+  /* The optional terminal action (off by default) has no room left on the top
+     row, so it takes the far end of the second one. The filter starts at
+     column 2, which leaves this cell free. */
+  .top-bar-container.has-board-view-switch .robot-terminal-button {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
   }
 }
 
