@@ -4742,52 +4742,75 @@ body.is-phone .taskchute-modal .modal-button-container {
   background: var(--background-primary);
 }
 
-.routine-table {
-  min-width: 900px;
-  display: flex;
-  flex-direction: column;
-}
+/* One grid for the whole table, not one per row: the rows are display: contents
+   so every row shares the same column tracks. Per-row grids drift apart as soon
+   as a cell's content changes width.
 
-.routine-table__row {
+   Every track except the title is floored at max-content, so a bigger font or a
+   longer label widens the column instead of spilling out of the cell. The title
+   is the one column allowed to shrink (its link ellipsises) - flooring it too
+   would let a single long filename stretch the table arbitrarily.
+
+   width/min-width matter as much as the tracks: a block-level grid box takes the
+   wrapper's width, and once the track minimums exceed it the tracks overflow the
+   box - the buttons burst through the right border and the header labels collide.
+   fit-content lets the box grow with its tracks, and the wrapper scrolls. */
+.routine-table {
   display: grid;
   grid-template-columns:
     minmax(160px, 1.3fr)
-    minmax(80px, 0.6fr)
-    minmax(56px, 0.4fr)
-    minmax(56px, 0.8fr)
-    minmax(56px, 0.4fr)
-    minmax(88px, 0.7fr)
-    minmax(96px, 0.7fr)
-    minmax(96px, 0.7fr)
-    minmax(56px, 0.45fr)
-    minmax(100px, 0.6fr);
-  gap: 6px;
-  align-items: center;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--background-modifier-border);
+    minmax(max-content, 0.6fr)
+    minmax(max-content, 0.4fr)
+    minmax(max-content, 0.8fr)
+    minmax(max-content, 0.4fr)
+    minmax(max-content, 0.7fr)
+    minmax(max-content, 0.7fr)
+    minmax(max-content, 0.7fr)
+    minmax(max-content, 0.45fr)
+    minmax(max-content, 0.6fr);
+  width: fit-content;
+  min-width: max(900px, 100%);
+  align-content: start;
 }
 
-.routine-table__row:last-child {
-  border-bottom: none;
+.routine-table__body,
+.routine-table__row {
+  display: contents;
 }
 
-.routine-table__row--head {
-  position: sticky;
-  top: 0;
-  background: var(--background-primary);
-  z-index: 2;
-  font-weight: 600;
-}
-
+/* The separator lives on the cells, so the spacing between the columns has to
+   be padding. A grid gap would leave the border broken between them. */
 .routine-table__cell {
   display: flex;
   align-items: center;
+  min-width: 0;
   min-height: 28px;
+  padding: 6px 3px;
+  border-bottom: 1px solid var(--background-modifier-border);
   font-size: 0.92em;
   color: var(--text-normal);
 }
 
-.routine-table__row--head .routine-table__cell {
+.routine-table__row > .routine-table__cell:first-child {
+  padding-left: 10px;
+}
+
+.routine-table__row > .routine-table__cell:last-child:not(.routine-table__cell--actions) {
+  padding-right: 10px;
+}
+
+.routine-table__body > .routine-table__row:last-child > .routine-table__cell {
+  border-bottom: none;
+}
+
+/* The row itself cannot be sticky while it is display: contents, so each header
+   cell sticks on its own. */
+.routine-table__row--head > .routine-table__cell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--background-primary);
+  font-weight: 600;
   font-size: 0.88em;
   white-space: nowrap;
 }
@@ -4803,9 +4826,12 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 .routine-table__link {
+  overflow: hidden;
   color: var(--text-accent);
   text-decoration: none;
   line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .routine-table__link:hover {
@@ -4831,6 +4857,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 
 .routine-table__action-button {
   padding: 4px 10px;
+  white-space: nowrap;
   border-radius: var(--tc-radius-md);
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
@@ -4857,6 +4884,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 .routine-empty {
+  grid-column: 1 / -1;
   padding: 12px;
   color: var(--text-muted);
 }
