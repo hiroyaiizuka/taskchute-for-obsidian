@@ -55,35 +55,23 @@ const OBSIDIAN_REVIEW_PATCHES: ReadonlyArray<readonly [string, string]> = [
 .xterm-overline.xterm-underline-3 { text-decoration: overline wavy underline; }
 .xterm-overline.xterm-underline-4 { text-decoration: overline dotted underline; }
 .xterm-overline.xterm-underline-5 { text-decoration: overline dashed underline; }`,
-    `/* xterm.js customization: upstream writes these as the \`text-decoration\`
-   shorthand ("overline wavy underline"). Obsidian's plugin review only accepts
-   the single-keyword form of the shorthand, so the line and the style are set
-   through their longhands instead — same rendering, same cascade. */
-.xterm-underline-1 { text-decoration-line: underline; }
-.xterm-underline-2 { text-decoration-line: underline; text-decoration-style: double; }
-.xterm-underline-3 { text-decoration-line: underline; text-decoration-style: wavy; }
-.xterm-underline-4 { text-decoration-line: underline; text-decoration-style: dotted; }
-.xterm-underline-5 { text-decoration-line: underline; text-decoration-style: dashed; }
-
-.xterm-overline {
-    text-decoration-line: overline;
+    `/* xterm.js customization: upstream draws these with the \`text-decoration\`
+   shorthand and its \`-line\` / \`-style\` longhands. Obsidian's plugin review
+   accepts \`text-decoration\` only with a single keyword and rejects the
+   longhands outright, so the underline styles collapse to a plain underline and
+   the overline is drawn as a top border instead — a border on an inline box
+   adds no height, so the rows keep their geometry, and overline now composes
+   with underline without needing the five combined rules upstream carries. */
+.xterm-underline-1,
+.xterm-underline-2,
+.xterm-underline-3,
+.xterm-underline-4,
+.xterm-underline-5 {
+    text-decoration: underline;
 }
 
-.xterm-overline.xterm-underline-1 { text-decoration-line: overline underline; }
-.xterm-overline.xterm-underline-2 { text-decoration-line: overline underline; text-decoration-style: double; }
-.xterm-overline.xterm-underline-3 { text-decoration-line: overline underline; text-decoration-style: wavy; }
-.xterm-overline.xterm-underline-4 { text-decoration-line: overline underline; text-decoration-style: dotted; }
-.xterm-overline.xterm-underline-5 { text-decoration-line: overline underline; text-decoration-style: dashed; }`,
-  ],
-  [
-    `.xterm-strikethrough {
-    text-decoration: line-through;
-}`,
-    `.xterm-strikethrough {
-    text-decoration-line: line-through;
-    /* The shorthand this replaces also reset the style; keep that reset so a
-       strikethrough over a wavy/dotted underline still draws solid. */
-    text-decoration-style: solid;
+.xterm-overline {
+    border-top: 1px solid currentColor;
 }`,
   ],
   [

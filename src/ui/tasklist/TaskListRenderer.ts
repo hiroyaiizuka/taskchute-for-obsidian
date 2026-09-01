@@ -66,13 +66,13 @@ export default class TaskListRenderer {
 
   constructor(private readonly host: TaskListRendererHost) {
     const showProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showProjectModal
-      ? (this.host.showProjectModal.bind(this.host) as (inst: TaskInstance) => Promise<void> | void)
+      ? (inst) => this.host.showProjectModal?.(inst)
       : undefined
     const showUnifiedProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showUnifiedProjectModal
-      ? (this.host.showUnifiedProjectModal.bind(this.host) as (inst: TaskInstance) => Promise<void> | void)
+      ? (inst) => this.host.showUnifiedProjectModal?.(inst)
       : undefined
     const openProjectInSplitBound: ((projectPath: string) => Promise<void> | void) | undefined = this.host.openProjectInSplit
-      ? (this.host.openProjectInSplit.bind(this.host) as (projectPath: string) => Promise<void> | void)
+      ? (projectPath) => this.host.openProjectInSplit?.(projectPath)
       : undefined
 
     this.actions = new TaskItemActionController({
