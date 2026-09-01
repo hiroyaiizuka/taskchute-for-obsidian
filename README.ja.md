@@ -143,7 +143,8 @@ npm install
 npm run dev       # esbuild watch
 npm run build     # production bundle
 npm run lint      # eslint for src/tests
-npm test          # jest
+npm run test:unit        # jest（ユニット）
+npm run test:integration # jest（*.integration.test.ts / 実プロセスを起動）
 ```
 
 ### リリース成果物

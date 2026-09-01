@@ -1,202 +1,218 @@
-# Obsidian community plugin
+# TaskChute Plus — Obsidian community plugin
 
 ## Project overview
 
-- Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
-- Entry point: `main.ts` compiled to `main.js` and loaded by Obsidian.
-- Required release artifacts: `main.js`, `manifest.json`, and optional `styles.css`.
+- Target: Obsidian community plugin (TypeScript → bundled JavaScript).
+- Entry point: `main.ts`, bundled to `main.js` and loaded by Obsidian.
+- Release artifacts: `main.js`, `manifest.json`, and `styles.css`.
 
-## Project rules
-- プラグインのソースコードは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/srcに作成にあります。
-- コードを実装したら、npm run testと、npm run lint、npm run buildを実行して、エラーがないことを確認してください。
-- TaskChute Plusのコード変更後は、完了報告前に必ず`obsidian-e2e-tester`スキルで実機E2Eを実施し、PASSを確認すること（詳細: /Users/hiroyaiizuka/Desktop/Evergreens/.agents/skills/obsidian-e2e-tester/SKILL.md）。
-- 要件定義や仕様書は、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/.kiro/steeringに作成してください。
-- 一時的に記載するドキュメントや実装のチェックリストは、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/tmpに作成してください。
-- メモリーで記載するノートについては、/Users/hiroyaiizuka/Desktop/Evergreens/.obsidian/plugins/taskchute-plus/memoryに作成してください。
+## Working agreements
 
+- Ask when something is unclear. Use `AskUserQuestion` for questions, and give every
+  option a recommendation level (⭐, 1–5) with the reason behind it.
+- After changing code, run `npm run test:unit`, `npm run lint`, and `npm run build`, and
+  confirm they pass. Run `npm run test:integration` separately when the change touches
+  the terminal broker or anything else that spawns real processes — the two suites are
+  kept apart on purpose, because running them together starves the integration suites of
+  processes and makes them fail spuriously.
+- After any change to TaskChute Plus, run the on-device E2E pass with the
+  `obsidian-e2e-tester` skill and confirm PASS before reporting the work as done.
+- Where documents go:
+  - Requirements and specs → `.kiro/steering/`
+  - Scratch notes and implementation checklists → `tmp/`
+  - Memory notes → `memory/`
 
-## 基本方針
-- 不明な点は積極的に質問する
-- 質問する時は常にAskUserQuestionを使って回答させる
-- **選択肢にはそれぞれ、推奨度と理由を提示する**
-  - 推奨度は⭐の5段階評価
+## Memory workflow
 
-
-## Basic Memory ワークフロー
-
-メモリの読み書き・検索・構造の詳細は **memory-manager スキル** に集約。
-
-- **セッション開始時**: `memories/corrections/lessons.md` を読む
-
-
-### メモリ構造
+Reading, writing, searching, and the structure of memory are owned by the
+**memory-manager skill**. At the start of a session, read `memory/corrections/lessons.md`.
 
 ```
 memory/
-├── schemas/           # スキーマ定義（触らない）
-├── events/            # 実装ログ・機能追加
-├── bugfixes/          # バグ調査と修正
-├── investigations/    # アーキテクチャ探索・原因調査
-├── designs/           # 設計決定・ADR
-├── corrections/       # 失敗と教訓の蒸留
-│   ├── inbox.md       # ミスをすぐ書く
-│   ├── lessons.md     # 蒸留された教訓
-│   └── graduated.md   # 仕組み化済み
-├── reviews/           # コードレビュー所見
-└── archive/           # 古いメモ
+├── schemas/           # Schema definitions (do not edit)
+├── events/            # Implementation logs, feature work
+├── bugfixes/          # Bug investigation and fixes
+├── investigations/    # Architecture exploration, root-cause analysis
+├── designs/           # Design decisions, ADRs
+├── corrections/       # Mistakes, distilled into lessons
+│   ├── inbox.md       # Write mistakes down immediately
+│   ├── lessons.md     # Distilled lessons
+│   └── graduated.md   # Lessons already built into process
+├── reviews/           # Code-review findings
+└── archive/           # Old notes
 ```
 
-### 記録ルール
+| What happened | Category | Destination | type |
+|---|---|---|---|
+| Feature work, refactoring | event | `events/` | event |
+| Bug fix | bugfix | `bugfixes/` | bugfix |
+| Code investigation, analysis | investigation | `investigations/` | investigation |
+| Design decision, tech selection | design | `designs/` | design |
+| Code review | review | `reviews/` | review |
+| Mistake, failure | correction | append to `corrections/inbox.md` | correction |
 
-| 何をした | カテゴリ | 保存先 | type |
-|---------|----------|--------|------|
-| 機能実装・リファクタリング | event | `events/` | event |
-| バグ修正 | bugfix | `bugfixes/` | bugfix |
-| コード調査・分析 | investigation | `investigations/` | investigation |
-| 設計決定・技術選定 | design | `designs/` | design |
-| コードレビュー | review | `reviews/` | review |
-| ミス・失敗 | correction | `corrections/inbox.md` に追記 | correction |
+Search:
 
-### 検索
 ```bash
-/Users/hiroyaiizuka/.local/bin/bm tool search-notes "{検索語}" --project taskchute-plus-memory
+bm tool search-notes "{query}" --project taskchute-plus-memory
 ```
+
 ## Environment & tooling
 
-- Node.js: use current LTS (Node 18+ recommended).
-- **Package manager: npm** (required for this sample - `package.json` defines npm scripts and dependencies).
-- **Bundler: esbuild** (required for this sample - `esbuild.config.mjs` and build scripts depend on it). Alternative bundlers like Rollup or webpack are acceptable for other projects if they bundle all external dependencies into `main.js`.
-- Types: `obsidian` type definitions.
+- Node.js: current LTS (18+).
+- Package manager: **npm** — the scripts and dependencies in `package.json` assume it.
+- Bundler: **esbuild** via `esbuild.config.mjs` (`--bundle --format=cjs`); `obsidian` and
+  friends stay external, everything else is bundled so there are no runtime deps.
+- Types: the `obsidian` type definitions.
+- `tsconfig.json` drives the main build; `tsconfig.test.json` extends it for tests.
 
+### Testing on a mobile device without cutting a release
+
+`npm run dev` writes `main.js` at the repo root by default. Point the output at a vault's
+plugin folder on iCloud Drive instead and every save reaches iPhone / iPad — no Obsidian
+Sync subscription needed.
+
+1. Create a test vault under iCloud; iOS Obsidian opens a vault at this path directly:
+
+   ```
+   ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/<vault>
+   ```
+
+2. Put the destination in `.env` at the repo root (already gitignored):
+
+   ```
+   OBSIDIAN_PLUGIN_DIR=/Users/<you>/Library/Mobile Documents/iCloud~md~obsidian/Documents/<vault>/.obsidian/plugins/taskchute-plus
+   ```
+
+   Spaces in the value need no quotes — Node's `--env-file` reads to end of line.
+3. Leave `npm run dev` running while you edit. Each save writes `main.js`,
+   `manifest.json`, and `styles.css` into the vault (CSS-only changes included).
+4. On the device, toggle the plugin off and on under Settings → Community plugins to
+   reload it.
+
+Notes:
+- Vault-targeted builds drop the inline sourcemap, so a 10MB bundle isn't synced every time.
+- Only `npm run dev` reads `.env` (`--env-file-if-exists=.env`). `npm run build` does not,
+  so release artifacts always land at the repo root.
+- If iCloud is slow to propagate, opening the folder in Finder nudges the transfer.
+
+## Build & test
+
+```bash
+npm install
+npm run dev    # esbuild --watch
+npm run build  # production bundle
+npm run test:unit        # Jest (ts-jest, jsdom)
+npm run test:integration # Jest, *.integration.test.ts only (real processes, PTYs, sockets)
+```
+
+- The Husky pre-commit hook runs only `eslint` on staged files via `lint-staged`.
+  `HUSKY=0` disables it temporarily (not recommended).
+- Type checking and the test suite are CI's job (`.github/workflows/test.yml`). Locally,
+  `npm run typecheck` and `npm run test:unit` are optional.
+- Jest roots: `tests/`
+  - `tests/task-sort/…` – slot persistence & ordering
+  - `tests/task-display/…` – display / deletion / `target_date` logic
+  - `tests/routine/…` – `RoutineService.isDue` semantics
+  - `tests/execution/…` – `ExecutionLogService` daily summary counts
+  - Shared helpers: `tests/utils/taskViewTestUtils.ts`
+
+## Linting & release review
+
+- `eslint.config.mjs` combines `eslint-plugin-obsidianmd` with `typescript-eslint` as the
+  shared config; run it with `npm run lint`.
+- `eslint.review.config.mjs` is a separate thing: it *is* Obsidian's automated review
+  standard. It **spreads** `eslint-plugin-obsidianmd`'s `configs.recommended` rather than
+  transcribing it, and also covers `manifest.json`, `LICENSE`, and `package.json`. Run it
+  with `npm run review:obsidian`; the release workflow runs the same check before the
+  version bump. Errors fail the release; warnings are reported only — the same way
+  Obsidian itself judges it.
+- The dashboard's malware and dependency-vulnerability scans have no public API and can't
+  be reproduced locally, so passing here is not a guarantee of approval — only the
+  converse holds: if it fails here, it will be flagged there.
 
 ## File & folder conventions
 
-- **Organize code into multiple files**: Split functionality across separate modules rather than putting everything in `main.ts`.
-- Source lives in `src/`. Keep `main.ts` small and focused on plugin lifecycle (loading, unloading, registering commands).
-- **Example file structure**:
-  ```
-  src/
-    main.ts           # Plugin entry point, lifecycle management
-    settings.ts       # Settings interface and defaults
-    commands/         # Command implementations
-      command1.ts
-      command2.ts
-    ui/              # UI components, modals, views
-      modal.ts
-      view.ts
-    utils/           # Utility functions, helpers
-      helpers.ts
-      constants.ts
-    types.ts         # TypeScript interfaces and types
-  ```
-- **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
-- Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.
-- Generated output should be placed at the plugin root or `dist/` depending on your build setup. Release artifacts must end up at the top level of the plugin folder in the vault (`main.js`, `manifest.json`, `styles.css`).
+- Split functionality across modules instead of piling it into `main.ts`.
+- Source lives in `src/`. Keep `main.ts` to plugin lifecycle only — load, unload, command
+  registration — and delegate feature logic to modules.
+- Never commit build artifacts (`node_modules/`, `main.js`, other generated files).
+- Keep the plugin small. Avoid large dependencies; prefer browser-compatible packages.
+- Release artifacts must end up at the top level of the plugin folder in the vault
+  (`main.js`, `manifest.json`, `styles.css`).
 
-## Manifest rules (`manifest.json`)
+### Source layout
 
-- Must include (non-exhaustive):  
-  - `id` (plugin ID; for local dev it should match the folder name)  
-  - `name`  
-  - `version` (Semantic Versioning `x.y.z`)  
-  - `minAppVersion`  
-  - `description`  
-  - `isDesktopOnly` (boolean)  
-  - Optional: `author`, `authorUrl`, `fundingUrl` (string or map)
-- Never change `id` after release. Treat it as stable API.
-- Keep `minAppVersion` accurate when using newer APIs.
-- Canonical requirements: https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines
-  （`obsidian-releases` の `validate-plugin-entry.yml` は既に存在しない。エントリ検証は
-  開発者ダッシュボード側の自動レビューへ移管済み）
-- 自動レビューのうち手元で再現できる範囲は `npm run review:obsidian` で確認できる。
-  `manifest.json` の検証もここで初めて実際に動く
-
+- `features/core/views/TaskChuteView.ts` – main view lifecycle and UI orchestration
+- `features/core/helpers/` – task loading, display predicates, and similar helpers
+- `features/routine/services/RoutineService.ts` – routine frontmatter normalization and
+  `isDue` logic
+- `services/` – shared services such as DayState persistence and `PathService`
+- `types/` – shared types (`TaskInstance`, `TaskChuteSettings`, …)
 
 ## Coding conventions
 
-- TypeScript with `"strict": true` preferred.
-- **Keep `main.ts` minimal**: Focus only on plugin lifecycle (onload, onunload, addCommand calls). Delegate all feature logic to separate modules.
-- **Split large files**: If any file exceeds ~200-300 lines, consider breaking it into smaller, focused modules.
-- **Use clear module boundaries**: Each file should have a single, well-defined responsibility.
-- Bundle everything into `main.js` (no unbundled runtime deps).
-- Avoid Node/Electron APIs if you want mobile compatibility; set `isDesktopOnly` accordingly.
-- Prefer `async/await` over promise chains; handle errors gracefully.
+- Strict TypeScript (`"strict": true`) throughout `src/`.
+- If a file grows past ~200–300 lines, consider splitting it.
+- Give each file a single, well-defined responsibility.
+- Avoid Node/Electron APIs when mobile compatibility matters; set `isDesktopOnly`
+  accordingly.
+- Prefer `async/await` over promise chains, and handle errors gracefully.
 
+## Manifest rules (`manifest.json`)
 
-## Agent do/don't
+- Required (non-exhaustive): `id` (matches the folder name for local dev), `name`,
+  `version` (SemVer `x.y.z`), `minAppVersion`, `description`, `isDesktopOnly`.
+  Optional: `author`, `authorUrl`, `fundingUrl` (string or map).
+- Never change `id` after release — treat it as stable API.
+- Keep `minAppVersion` accurate when adopting newer APIs.
+- Canonical requirements: https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines
+  (`obsidian-releases`' `validate-plugin-entry.yml` no longer exists; entry validation
+  moved to the automated review on the developer dashboard.)
+- The reproducible part of that review is `npm run review:obsidian` — it's also the first
+  place `manifest.json` is actually validated.
+
+## Agent do / don't
 
 **Do**
 - Add commands with stable IDs (don't rename once released).
 - Provide defaults and validation in settings.
 - Write idempotent code paths so reload/unload doesn't leak listeners or intervals.
-- Use `this.register*` helpers for everything that needs cleanup.
+- Use the `this.register*` helpers for anything needing cleanup.
 
 **Don't**
 - Introduce network calls without an obvious user-facing reason and documentation.
-- Ship features that require cloud services without clear disclosure and explicit opt-in.
+- Ship features requiring cloud services without clear disclosure and explicit opt-in.
 - Store or transmit vault contents unless essential and consented.
 
+## Domain notes
 
-## Build & Test
-```bash
-npm install
-npm run dev    # esbuild --watch
-npm run build  # production bundle
-npm test       # Jest (ts-jest, jsdom)
-```
-- Husky pre-commit は `lint-staged` 経由でステージ済みファイルの `eslint` のみ実行; `HUSKY=0` で一時無効化可能（推奨せず）
-- 型チェックとテストは CI 側（`.github/workflows/test.yml`）が担当。手元では `npm run typecheck` / `npm run test:unit` を任意に実行
-- Jest roots: `tests/`
-  - `tests/task-sort/…` – slot persistence & ordering
-  - `tests/task-display/…` – display/deletion/target_date logic
-  - `tests/routine/…` – RoutineService isDue semantics
-  - `tests/execution/…` – ExecutionLogService daily summary counts
-  - Shared helpers: `tests/utils/taskViewTestUtils.ts`
+### Routine logic
 
-## Source Conventions
-- `src/` 配下は strict TS。主要モジュールは機能別ディレクトリに整理。
-  - `features/core/views/TaskChuteView.ts` – メインビューのライフサイクルと UI オーケストレーション
-  - `features/core/helpers/` – タスク読み込みや表示判定などのヘルパ群
-  - `features/routine/services/RoutineService.ts` – ルーチン frontmatter 正規化と `isDue` ロジック
-  - `services/` – DayState 永続化や PathService など共通サービス
-  - `types/` – `TaskInstance` や `TaskChuteSettings` 等の共通型定義
-- `main.ts` はプラグイン登録処理のみを担当させ、ロジックは各機能モジュールへ委譲
-- esbuild バンドルによりランタイム依存を残さない（外部 `obsidian` などは external）
-
-
-## Routine Logic
-- `RoutineService.parseFrontmatter` normalizes daily/weekly/monthly rules
+- `RoutineService.parseFrontmatter` normalizes daily / weekly / monthly rules.
 - `RoutineService.isDue(date, rule, movedTargetDate)` handles:
-  - Daily intervals & start anchor
-  - Weekly intervals anchored by start-week Monday
-  - Monthly `week` (1..5 or `'last'`) and weekday combos
-  - `movedTargetDate` short-circuits to single-day visibility
-  - Disabled rules return false
+  - Daily intervals and the start anchor
+  - Weekly intervals anchored to the start week's Monday
+  - Monthly `week` (1..5 or `'last'`) combined with weekdays
+  - `movedTargetDate`, which short-circuits to single-day visibility
+  - Disabled rules, which return false
 - Tests: `routine-service.test.ts`
 
-## Execution Logging & Heatmap
-- `ExecutionLogService.saveTaskLog(inst, durationSec)` writes to `<logDataPath>/YYYY-MM-tasks.json`
+### Execution logging & heatmap
+
+- `ExecutionLogService.saveTaskLog(inst, durationSec)` writes to
+  `<logDataPath>/YYYY-MM-tasks.json`:
   - Upserts `taskExecutions[date]`
-  - Recomputes `dailySummary[date]` with unique completed count (`completedTasks`)
-  - Preserves `totalTasks` if already set (from UI count)
-  - Derived fields: `procrastinatedTasks`, `completionRate`
-- `TaskChuteView.updateTotalTasksCount()` saves visible count
-- Tests: `execution-log-service.test.ts` verifies unique counting and preservation
+  - Recomputes `dailySummary[date]` with a unique completed count (`completedTasks`)
+  - Preserves `totalTasks` when already set from the UI count
+  - Derives `procrastinatedTasks` and `completionRate`
+- `TaskChuteView.updateTotalTasksCount()` saves the visible count.
+- Tests: `execution-log-service.test.ts` covers unique counting and preservation.
 
-## Deletion / Duplication Specs
-- Routine duplicates stored in `dayState.duplicatedInstances` with slot metadata
-- Non-routine duplicates track `instanceId`
-- Permanent deletion hides base task for that day; temporary hides only the instance
-- Specs referenced: `.kiro/steering/*` documents (slot, display, duplication, completed tasks)
+### Deletion & duplication
 
-## Tooling
-- `esbuild.config.mjs` handles bundling; uses `esbuild --bundle --format=cjs`
-- `tsconfig.json` for main build, `tsconfig.test.json` extends for tests
-- `eslint.config.mjs` で `eslint-plugin-obsidianmd` と `typescript-eslint` を共有設定化し、`npm run lint` で実行
-- `eslint.review.config.mjs` は別物で、Obsidian の自動レビュー基準そのもの。
-  `eslint-plugin-obsidianmd` の `configs.recommended` を **手写しせずに spread** し、
-  `manifest.json` / `LICENSE` / `package.json` も対象に含める。`npm run review:obsidian`
-  で実行し、リリースワークフローが version bump より前に同じものを走らせる。
-  error があるとリリースは失敗し、warning は報告のみ（Obsidian 自身の判定と同じ）。
-  ダッシュボード側のマルウェア/依存脆弱性スキャンは公開 API がなく再現できないので、
-  通っても公開許可の保証にはならない（落ちれば確実に指摘される、の側だけが成り立つ）
+- Routine duplicates live in `dayState.duplicatedInstances` with slot metadata.
+- Non-routine duplicates track `instanceId`.
+- Permanent deletion hides the base task for that day; temporary deletion hides only the
+  instance.
+- Specs: the `.kiro/steering/*` documents (slot, display, duplication, completed tasks).

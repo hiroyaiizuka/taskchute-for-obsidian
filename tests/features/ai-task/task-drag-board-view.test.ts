@@ -1,6 +1,6 @@
 /**
  * Drag & drop under a non-mixed board view (regression):
- *   - the dragstart payload written by TaskListRenderer identifies the row by
+ *   - the payload TaskListRenderer hands the drop side identifies the row by
  *     its instanceId, not only by its index in the FILTERED render list
  *   - TaskDragController resolves the drop source by that identity, so under
  *     a 'human'/'ai' board view the dragged task itself moves — never the
@@ -11,20 +11,6 @@ import TaskListRenderer, {
 } from '../../../src/ui/tasklist/TaskListRenderer'
 import TaskDragController from '../../../src/ui/tasklist/TaskDragController'
 import type { TaskInstance } from '../../../src/types'
-
-// JSDOM lacks DragEvent; provide a minimal polyfill
-if (typeof globalThis.DragEvent === 'undefined') {
-  ;(globalThis as Record<string, unknown>).DragEvent = class DragEvent extends Event {
-    readonly dataTransfer: DataTransfer | null
-    constructor(
-      type: string,
-      init?: EventInit & { dataTransfer?: DataTransfer | null },
-    ) {
-      super(type, init)
-      this.dataTransfer = init?.dataTransfer ?? null
-    }
-  }
-}
 
 const SLOT = '8:00-12:00'
 
@@ -111,21 +97,44 @@ function createDragController(instances: TaskInstance[]) {
   return { controller, moveTaskToSlot }
 }
 
-/** Fire the renderer-attached dragstart handler and return the payload */
-function captureDragPayload(taskItem: HTMLElement): string {
-  const dragHandle = taskItem.querySelector<HTMLElement>('.drag-handle')
+function pointer(type: string, clientY: number): PointerEvent {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: 10,
+    clientY,
+    pointerId: 1,
+    isPrimary: true,
+  })
+}
+
+/**
+ * Drag a row's grip onto `target` and return the payload the renderer handed
+ * the drop side. The drop target is resolved by hit-testing the pointer
+ * position, so the test says what is under the finger.
+ */
+function capturePayload(
+  host: TaskListRendererHost,
+  source: HTMLElement,
+  target: HTMLElement,
+): string {
+  const dragHandle = source.querySelector<HTMLElement>('.drag-handle')
   expect(dragHandle).not.toBeNull()
-  let payload = ''
-  const dataTransfer = {
-    setData: (_format: string, data: string) => {
-      payload = data
-    },
-    getData: () => payload,
-  } as unknown as DataTransfer
-  dragHandle!.dispatchEvent(
-    new DragEvent('dragstart', { bubbles: true, dataTransfer }),
-  )
-  return payload
+
+  const hitTest = jest.spyOn(document, 'elementFromPoint').mockReturnValue(target)
+  try {
+    dragHandle!.dispatchEvent(pointer('pointerdown', 5))
+    dragHandle!.dispatchEvent(pointer('pointermove', 45))
+    dragHandle!.dispatchEvent(pointer('pointerup', 45))
+  } finally {
+    hitTest.mockRestore()
+  }
+
+  const drop = host.handleDrop as jest.Mock
+  const slotDrop = host.handleSlotDrop as jest.Mock
+  const payload = drop.mock.calls[0]?.[3] ?? slotDrop.mock.calls[0]?.[2]
+  expect(typeof payload).toBe('string')
+  return payload as string
 }
 
 function dropTarget(): HTMLElement {
@@ -141,7 +150,7 @@ beforeEach(() => {
 })
 
 describe('drag & drop under a filtered board view', () => {
-  test("the dragstart payload carries the row's instanceId", () => {
+  test("the drag payload carries the row's instanceId", () => {
     const instances = [
       makeInstance('TASKS/ai.md', { aiTask: true, order: 0 }),
       makeInstance('TASKS/human-a.md', { order: 1 }),
@@ -153,8 +162,12 @@ describe('drag & drop under a filtered board view', () => {
     const humanB = host.taskList.querySelector<HTMLElement>(
       '[data-instance-id="inst-TASKS/human-b.md"]',
     )
+    const humanARow = host.taskList.querySelector<HTMLElement>(
+      '[data-instance-id="inst-TASKS/human-a.md"]',
+    )
     expect(humanB).not.toBeNull()
-    const payload = captureDragPayload(humanB!)
+    expect(humanARow).not.toBeNull()
+    const payload = capturePayload(host, humanB!, humanARow!)
 
     expect(payload).toContain('inst-TASKS/human-b.md')
   })
@@ -175,17 +188,13 @@ describe('drag & drop under a filtered board view', () => {
     const humanBItem = host.taskList.querySelector<HTMLElement>(
       '[data-instance-id="inst-TASKS/human-b.md"]',
     )
-    const payload = captureDragPayload(humanBItem!)
+    const humanAItem = host.taskList.querySelector<HTMLElement>(
+      '[data-instance-id="inst-TASKS/human-a.md"]',
+    )
+    const payload = capturePayload(host, humanBItem!, humanAItem!)
 
     const { controller, moveTaskToSlot } = createDragController(instances)
-    controller.handleDrop(
-      {
-        dataTransfer: { getData: () => payload },
-        clientY: 5,
-      } as unknown as DragEvent,
-      dropTarget(),
-      humanA,
-    )
+    controller.handleDrop({ clientY: 5 }, dropTarget(), humanA, payload)
 
     expect(moveTaskToSlot).toHaveBeenCalledTimes(1)
     expect(moveTaskToSlot.mock.calls[0][0]).toBe(humanB)
@@ -204,13 +213,13 @@ describe('drag & drop under a filtered board view', () => {
     const aiBItem = host.taskList.querySelector<HTMLElement>(
       '[data-instance-id="inst-TASKS/ai-b.md"]',
     )
-    const payload = captureDragPayload(aiBItem!)
+    const aiAItem = host.taskList.querySelector<HTMLElement>(
+      '[data-instance-id="inst-TASKS/ai-a.md"]',
+    )
+    const payload = capturePayload(host, aiBItem!, aiAItem!)
 
     const { controller, moveTaskToSlot } = createDragController(instances)
-    controller.handleSlotDrop(
-      { dataTransfer: { getData: () => payload } } as unknown as DragEvent,
-      '12:00-16:00',
-    )
+    controller.handleSlotDrop({ clientY: 0 }, '12:00-16:00', payload)
 
     expect(moveTaskToSlot).toHaveBeenCalledTimes(1)
     expect(moveTaskToSlot.mock.calls[0][0]).toBe(aiB)

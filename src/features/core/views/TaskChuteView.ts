@@ -40,6 +40,7 @@ import TaskMutationService from "../../../features/core/services/TaskMutationSer
 import type { DuplicateInstanceOptions, TaskMutationHost } from "../../../features/core/services/TaskMutationService"
 import TaskListRenderer from "../../../ui/tasklist/TaskListRenderer"
 import type { TaskListRendererHost } from "../../../ui/tasklist/TaskListRenderer"
+import type { DragPointer } from "../../../ui/tasklist/TaskListPointerDrag"
 import TaskContextMenuController from "../../../ui/tasklist/TaskContextMenuController"
 import TaskTimeController from "../../../ui/time/TaskTimeController"
 import TaskCreationController, {
@@ -648,9 +649,9 @@ export class TaskChuteView
         view.registerManagedDomEvent(target, event, handler),
       handleDragOver: (event, taskItem, inst) =>
         view.handleDragOver(event, taskItem, inst),
-      handleDrop: (event, taskItem, inst) =>
-        view.handleDrop(event, taskItem, inst),
-      handleSlotDrop: (event, slot) => view.handleSlotDrop(event, slot),
+      handleDrop: (event, taskItem, inst, payload) =>
+        view.handleDrop(event, taskItem, inst, payload),
+      handleSlotDrop: (event, slot, payload) => view.handleSlotDrop(event, slot, payload),
       startInstance: (inst) => view.startInstance(inst),
       stopInstance: (inst) => view.stopInstance(inst),
       duplicateAndStartInstance: (inst) => {
@@ -4066,7 +4067,7 @@ export class TaskChuteView
   }
 
   private handleDragOver(
-    e: DragEvent,
+    e: DragPointer,
     taskItem: HTMLElement,
     inst: TaskInstance,
   ): void {
@@ -4074,15 +4075,16 @@ export class TaskChuteView
   }
 
   private handleDrop(
-    e: DragEvent,
+    e: DragPointer,
     taskItem: HTMLElement,
     targetInst: TaskInstance,
+    payload?: string,
   ): void {
-    this.taskDragController.handleDrop(e, taskItem, targetInst)
+    this.taskDragController.handleDrop(e, taskItem, targetInst, payload)
   }
 
-  private handleSlotDrop(e: DragEvent, slot: string): void {
-    this.taskDragController.handleSlotDrop(e, slot)
+  private handleSlotDrop(e: DragPointer, slot: string, payload?: string): void {
+    this.taskDragController.handleSlotDrop(e, slot, payload)
   }
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {

@@ -236,39 +236,6 @@ body.is-phone {
   color: var(--text-normal);
 }
 
-.taskchute-tooltip .tooltip-close-button {
-  background: none;
-  border: none;
-  font-size: 0;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--tc-radius-sm);
-  transition: all var(--tc-transition);
-}
-
-.taskchute-tooltip .tooltip-close-button:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-}
-
-.taskchute-tooltip .tooltip-close-button svg {
-  width: 18px;
-  height: 18px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.75;
-}
-
-.taskchute-tooltip .tooltip-close-button svg :is(line, path) {
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .form-input:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -3282,6 +3249,15 @@ body.is-phone .taskchute-modal .modal-button-container {
 
 /* ドラッグハンドルのスタイル */
 .drag-handle {
+  /* `manipulation` (which the shared touch-action list below gives every other
+     control) still lets the browser claim a vertical pan, which on iOS means
+     the list scrolls out from under the grip and the drag never starts. The
+     grip is the one control that has to own the gesture outright. The two
+     WebKit properties suppress the long-press callout and the text selection
+     that would otherwise fire in the middle of a drag. */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
   width: var(--tc-row-grip-width, 24px);
   height: var(--tc-row-grip-height, 24px);
   flex-shrink: 0;
@@ -3343,6 +3319,19 @@ body.is-phone .taskchute-modal .modal-button-container {
   pointer-events: none;
   opacity: 1;
   background: var(--background-primary);
+}
+
+/* The row that follows the pointer during a drag. The native drag image is
+   gone with the HTML5 path, so this clone is the one the user actually sees;
+   `pointer-events: none` (inherited above) is what keeps `elementFromPoint`
+   reporting the row underneath rather than the ghost itself. */
+.task-item-drag-ghost--floating {
+  top: 0;
+  left: 0;
+  z-index: var(--layer-modal);
+  opacity: 0.85;
+  border-radius: var(--tc-radius-sm);
+  box-shadow: var(--shadow-l);
 }
 
 .task-item.dragging {
@@ -3517,7 +3506,11 @@ body.is-phone .taskchute-modal .modal-button-container {
   padding: 0;
   border-radius: var(--tc-radius-sm);
   transition: all var(--tc-transition);
-  opacity: 0;
+  /* Visible whenever it can be pressed. It used to fade in on row hover, which
+     left it undiscoverable on a touch device -- an iPad has no hover, so the
+     only way to find the button was to tap where it should be. The disabled
+     states below still hide it, so what is shown is exactly what is clickable. */
+  opacity: 0.6;
 
   /* Same height as the other row controls, but twice as wide so the comment
      button is easier to hit. */
@@ -3571,13 +3564,8 @@ body.is-phone .taskchute-modal .modal-button-container {
   opacity: 1;
 }
 
-/* 完了済みでコメント未記入のタスク - 通常時非表示、ホバー時表示（空間は保持） */
+/* 完了済みでコメント未記入のタスク - クリックできるので常に表示する */
 .comment-button.no-comment {
-  opacity: 0;
-  visibility: hidden;
-}
-
-.task-item:hover .comment-button.no-comment {
   opacity: 0.6;
   visibility: visible;
 }
@@ -3765,12 +3753,23 @@ body.is-phone .taskchute-modal .modal-button-container {
 .form-input {
   width: 100%;
   box-sizing: border-box;
+  /* WebKit gives form controls an intrinsic minimum width that beats
+     `width: 100%`, so inside a padded box -- every dialog here -- the field
+     grows past the gutter instead of shrinking to it. These two pin it to the
+     content column on iOS the same way it already sits on the desktop. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* `time` is the one input type the plugin asks for that Obsidian never uses,
    so no core rule matches it. Restate core's own declaration in the same
    tokens -- not in resolved values, or the phone pill would stop here. */
 .form-input[type="time"] {
+  /* The date fields already drop the native appearance (see `.form-input--date`
+     above); `time` is the one that never did, and on iOS the native control is
+     what carries the oversized intrinsic width. */
+  -webkit-appearance: none;
+  appearance: none;
   height: var(--input-height);
   padding: var(--input-padding);
   border: var(--input-border-width) solid var(--background-modifier-border);
@@ -3932,34 +3931,6 @@ body.is-phone .taskchute-modal .modal-button-container {
 
 .taskchute-settings-pane .setting-item-description {
   font-size: 0.75em;
-}
-
-.tooltip-header {
-  display: flex;
-  justify-content: flex-end;
-  padding: 4px 8px 0;
-  margin-bottom: 4px;
-}
-
-.tooltip-close-button {
-  background: none;
-  border: none;
-  font-size: 12px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-  transition: all var(--tc-transition);
-}
-
-.tooltip-close-button:hover {
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
 }
 
 .tooltip-item {
@@ -6407,7 +6378,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .taskchute-modal button,
 .taskchute-container .task-time-start.editable,
 .taskchute-container .task-time-stop.editable,
-.taskchute-container .drag-handle,
 .taskchute-container .taskchute-project-button,
 .taskchute-tooltip .tooltip-item,
 [class~="routine-button"],
@@ -6417,7 +6387,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 [class~="task-time-start"][class~="editable"],
 [class~="task-time-stop"][class~="editable"],
 [class~="task-time-range"][class~="editable"],
-[class~="drag-handle"],
 [class~="add-task-button"],
 [class~="date-nav-arrow"],
 [class~="calendar-btn"],
@@ -6429,7 +6398,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 [class~="task-button"],
 [class~="form-button"],
 [class~="tooltip-item"],
-[class~="tooltip-close-button"],
 [class~="modal-close-button"] {
   touch-action: manipulation;
 }
@@ -6458,23 +6426,24 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
     color: var(--text-muted);
   }
 
-  /* Comment button: transparent by default, visible on tap */
+  /* Comment button: shown whenever the task is done, so it can be tapped */
   /* Has comments (done state with active class): always visible */
   .comment-button.active {
     opacity: 1;
     visibility: visible;
   }
 
-  /* Done state without comments: invisible but tappable, shows on :active */
+  /* Done state without comments: still clickable, so still visible. A sticky
+     :hover from a previous tap must not be what decides it. */
   .comment-button.no-comment,
   .task-item:hover .comment-button.no-comment:not(:active) {
-    opacity: 0;
+    opacity: 0.6;
     visibility: visible;
   }
 
   .comment-button.no-comment:active,
   .task-item:hover .comment-button.no-comment:active {
-    opacity: 0.8;
+    opacity: 1;
   }
 
   /* Idle/running state (disabled): gone, not merely invisible. A pointer

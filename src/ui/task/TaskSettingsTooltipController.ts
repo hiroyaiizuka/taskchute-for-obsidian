@@ -1,5 +1,4 @@
 import 'obsidian'
-import { t } from '../../i18n'
 import type { TaskInstance } from '../../types'
 import { normalizeReminderTime } from '../../features/reminder/services/ReminderFrontmatterService'
 
@@ -23,54 +22,24 @@ export interface TaskSettingsTooltipHost {
 }
 
 export default class TaskSettingsTooltipController {
+  /** Tears down the menu that is currently open, if any. */
+  private activeDismiss: (() => void) | null = null
+
   constructor(private readonly host: TaskSettingsTooltipHost) {}
 
   show(inst: TaskInstance, anchor: HTMLElement): void {
     const ownerDocument = anchor.ownerDocument ?? activeDocument
     const ownerWindow = ownerDocument.defaultView ?? window
+    this.activeDismiss?.()
     const existing = ownerDocument.querySelector('.task-settings-tooltip')
     existing?.remove()
 
     const tooltip = createDiv()
     tooltip.className = 'task-settings-tooltip taskchute-tooltip'
 
-    const header = tooltip.createDiv( { cls: 'tooltip-header' })
-    const closeButton = header.createEl('button', {
-      cls: 'tooltip-close-button',
-      attr: {
-        'aria-label': t('common.close', 'Close'),
-        title: t('common.close', 'Close'),
-        type: 'button',
-      },
-    })
-    const svg = createSvg('svg')
-    svg.setAttribute('width', '14')
-    svg.setAttribute('height', '14')
-    svg.setAttribute('viewBox', '0 0 24 24')
-    svg.setAttribute('fill', 'none')
-    svg.setAttribute('stroke', 'currentColor')
-    svg.setAttribute('stroke-width', '2')
-    svg.setAttribute('stroke-linecap', 'round')
-    svg.setAttribute('stroke-linejoin', 'round')
-    const line1 = createSvg('line')
-    line1.setAttribute('x1', '18')
-    line1.setAttribute('y1', '6')
-    line1.setAttribute('x2', '6')
-    line1.setAttribute('y2', '18')
-    const line2 = createSvg('line')
-    line2.setAttribute('x1', '6')
-    line2.setAttribute('y1', '6')
-    line2.setAttribute('x2', '18')
-    line2.setAttribute('y2', '18')
-    svg.appendChild(line1)
-    svg.appendChild(line2)
-    closeButton.appendChild(svg)
-    const dismiss = (event?: Event) => {
-      event?.stopPropagation()
-      tooltip.remove()
-    }
-    closeButton.addEventListener('click', dismiss)
-
+    // No close button: it never drew on a tablet, and a menu that closes on
+    // the next tap anywhere -- plus Escape -- does not need a second, weaker
+    // way out taking up a header row above the first item.
     this.appendMove(inst, tooltip, anchor)
     this.appendDuplicate(inst, tooltip)
     void this.appendDelete(inst, tooltip)
@@ -102,26 +71,41 @@ export default class TaskSettingsTooltipController {
     tooltip.style.setProperty('--taskchute-tooltip-top', `${top}px`)
     tooltip.classList.remove('is-measuring')
 
-    // Click-away to close (with mobile touch support)
-    // Record open time to ignore events from the same interaction that opened the tooltip
-    const openTime = Date.now()
-    const DEBOUNCE_MS = 150 // Ignore events within 150ms of opening
-
-    const handleOutsideInteraction = (event: MouseEvent | TouchEvent) => {
-      // Ignore events that happen too soon after opening (same interaction)
-      if (Date.now() - openTime < DEBOUNCE_MS) return
-
-      const target = event.target as Node
-      if (!tooltip.contains(target) && target !== anchor) {
-        tooltip.remove()
-        ownerDocument.removeEventListener('click', handleOutsideInteraction)
-        ownerDocument.removeEventListener('touchend', handleOutsideInteraction)
+    const dismiss = () => {
+      tooltip.remove()
+      ownerDocument.removeEventListener('pointerdown', handleOutsideInteraction)
+      ownerDocument.removeEventListener('keydown', handleKeydown)
+      if (this.activeDismiss === dismiss) {
+        this.activeDismiss = null
       }
     }
 
-    // Register both click and touchend for better mobile support
-    ownerDocument.addEventListener('click', handleOutsideInteraction)
-    ownerDocument.addEventListener('touchend', handleOutsideInteraction)
+    const handleOutsideInteraction = (event: Event) => {
+      // A menu item's own handler removes the tooltip without going through
+      // dismiss(), so the listeners outlive it; clear them on the next event.
+      if (!tooltip.isConnected) {
+        dismiss()
+        return
+      }
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (tooltip.contains(target) || target === anchor || anchor.contains(target)) return
+      dismiss()
+    }
+
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      dismiss()
+    }
+
+    // `pointerdown` rather than click + touchend: one event for a mouse, a pen
+    // and a finger alike, which is also what removes the need for the timing
+    // guard the two-listener version needed to ignore its own opening tap.
+    // The tap that opened this menu is a `click`, so it is already past.
+    ownerDocument.addEventListener('pointerdown', handleOutsideInteraction)
+    ownerDocument.addEventListener('keydown', handleKeydown)
+    this.activeDismiss = dismiss
   }
 
   private appendReset(inst: TaskInstance, tooltip: HTMLElement): void {
