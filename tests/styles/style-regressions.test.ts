@@ -802,44 +802,35 @@ describe('style regressions', () => {
     expect(stacked).toMatch(/flex-direction:\s*column;/)
   })
 
-  test('the header drops to two rows only on a phone-width leaf', () => {
+  test('the date label keeps a fixed box so the nav controls never move', () => {
     const css = styles()
-    const query = '@container taskchute-view (max-width: 380px)'
-    expect(css).toContain(query)
 
-    // Drawer and add stay at the corners of the top row; the date navigator
-    // takes the full width of the second one, arrows at its edges.
-    const bar = readRuleAfter(css, '.top-bar-container {', query)
-    expect(bar).toMatch(/grid-template-rows:\s*repeat\(2, 30px\);/)
+    // The label holds a box wide enough for the longest date string it ever
+    // shows, so neither arrow nor the calendar glyph slides as the date
+    // changes -- "Today (9/2 Wed)" and "9/3 Thu" occupy the same width.
+    const label = readRule(css, '.date-nav-label {')
+    expect(label).toMatch(/flex:\s*0 1 150px;/)
+    expect(label).toMatch(/width:\s*150px;/)
+    expect(label).toMatch(/text-align:\s*center;/)
 
-    const nav = readRuleAfter(
-      css,
-      '.top-bar-container > .date-nav-container.compact {',
-      query,
-    )
-    expect(nav).toMatch(/grid-row:\s*2;/)
-    expect(nav).toMatch(/grid-column:\s*1 \/ -1;/)
-    expect(nav).toMatch(/justify-content:\s*space-between;/)
-
-    // No width to spare: the label gives up its fixed 150px box and truncates
-    // rather than pushing the next-day arrow off the edge of the leaf.
-    const label = readRuleAfter(
-      css,
-      '.top-bar-container > .date-nav-container.compact .date-nav-label {',
-      query,
-    )
-    expect(label).toMatch(/text-overflow:\s*ellipsis;/)
+    // Below the ~338px the row needs for that box, the label is the one thing
+    // allowed to give: it truncates rather than pushing an arrow off the edge.
     expect(label).toMatch(/min-width:\s*0;/)
-    // An ellipsis does nothing to a flex container, which is what the label is
-    // at every other width.
+    expect(label).toMatch(/text-overflow:\s*ellipsis;/)
+    // An ellipsis does nothing to a flex container, which this used to be.
     expect(label).toMatch(/display:\s*block;/)
 
-    // `.date-nav-container.compact` sets its own column and centring later in
-    // the sheet, so the narrow rule has to outrank it rather than merely
-    // follow it -- hence the `.top-bar-container >` qualifier above.
-    expect(css.indexOf('\n.date-nav-container.compact {')).toBeGreaterThan(
-      css.indexOf(query),
-    )
+    // No width-keyed exception left: the phone rule that used to shrink the
+    // label to its text is gone, along with the two-row header and the hidden
+    // calendar glyph it belonged to.
+    expect(css).not.toContain('@container taskchute-view (max-width: 380px)')
+    expect(css).not.toMatch(/\.calendar-btn\s*\{[^}]*display:\s*none/)
+
+    // The compact variant only tunes the type; anything it said about the box
+    // would override the rule above on source order.
+    const compact = readRule(css, '.date-nav-container.compact .date-nav-label {')
+    expect(compact).not.toMatch(/width:/)
+    expect(compact).not.toMatch(/flex:/)
   })
 
   test('the move calendar keeps its arrows and Today button compact on mobile', () => {
