@@ -26,7 +26,7 @@ describe('TaskChute header layout', () => {
 
     expect(topBar).toMatch(/display:\s*grid;/)
     expect(topBar).toMatch(
-      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+minmax\(0,\s*1fr\);/,
+      /grid-template-columns:\s*minmax\(min-content,\s*1fr\)\s+auto\s+minmax\(min-content,\s*1fr\);/,
     )
     expect(drawer).toMatch(/grid-column:\s*1;/)
     expect(drawer).toMatch(/justify-self:\s*start;/)
@@ -36,7 +36,17 @@ describe('TaskChute header layout', () => {
     expect(actions).toMatch(/justify-self:\s*end;/)
   })
 
-  test('narrow split keeps the switch and add action together below the centred date', () => {
+  test('outer tracks never shrink below the controls they hold', () => {
+    // A zero floor lets the action track become narrower than the switch and
+    // add button it holds. They are `justify-self: end`, so the overflow runs
+    // leftwards and hides the date navigator's next-day arrow.
+    const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
+    const topBar = readRule(css, '.top-bar-container {')
+
+    expect(topBar).not.toMatch(/grid-template-columns:[^;]*minmax\(0,/)
+  })
+
+  test('narrow split drops only the filter to a second row', () => {
     const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8')
     const viewRoot = readRule(css, '.taskchute-view-root {')
     const queryStart = css.indexOf('@container taskchute-view (max-width: 680px)')
@@ -55,8 +65,21 @@ describe('TaskChute header layout', () => {
     expect(query).toMatch(
       /\.top-bar-container\s*>\s*\.drawer-toggle\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*1;/,
     )
+    // The section holds the filter and the add action in one flex box, so it
+    // has to dissolve before the grid can put them on different rows.
     expect(query).toMatch(
-      /\.header-action-section\.has-board-view-switch\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;[\s\S]*grid-row:\s*2;[\s\S]*justify-self:\s*end;/,
+      /\.header-action-section\.has-board-view-switch\s*\{[\s\S]*display:\s*contents;/,
+    )
+    expect(query).toMatch(
+      /\.add-task-button\.repositioned\s*\{[\s\S]*grid-column:\s*3;[\s\S]*grid-row:\s*1;[\s\S]*justify-self:\s*end;/,
+    )
+    expect(query).toMatch(
+      /\.ai-board-view-switch\s*\{[\s\S]*grid-row:\s*2;[\s\S]*justify-self:\s*end;/,
+    )
+    // The add action riding down with the filter is the regression this
+    // layout exists to prevent.
+    expect(query).not.toMatch(
+      /\.add-task-button\.repositioned\s*\{[^}]*grid-row:\s*2/,
     )
   })
 
