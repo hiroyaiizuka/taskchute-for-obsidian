@@ -61,6 +61,18 @@ describe('DayStatePersistenceService.renameTaskPath', () => {
     return { plugin, store, pathManager, vault }
   }
 
+  // The fixtures below live in 2025-09, and collectStateFiles' fallback only
+  // probes the twelve months before today (the vault mock has no folder listing,
+  // so that fallback is the path taken). Pin the clock inside the fixture month
+  // instead of letting the suite age out of the window.
+  beforeEach(() => {
+    jest.useFakeTimers({ now: new Date('2025-09-14T00:00:00.000Z') })
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
   it('updates stored state files and cache entries', async () => {
     const { plugin, store, vault } = createPlugin()
     const service = new DayStatePersistenceService(plugin)
