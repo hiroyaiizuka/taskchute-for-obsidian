@@ -21,3 +21,6 @@ memory:
 .agents/
 # Report written by npm run review:obsidian
 /obsidian-review.json
+
+# Local dev settings (OBSIDIAN_PLUGIN_DIR) read by `npm run dev`
+.env

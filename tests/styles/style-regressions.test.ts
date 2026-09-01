@@ -356,7 +356,24 @@ describe('style regressions', () => {
     expect(weekdayRule).toMatch(/row-gap:\s*var\(--heatmap-week-gap\);/)
   })
 
-  test('touch devices keep the no-comment button override stronger than hover', () => {
+  test('the comment button stays visible whenever it can be clicked', () => {
+    const css = styles()
+
+    // A pointer device no longer waits for row hover to reveal it, and a done
+    // task without a comment is as clickable as one with a comment.
+    const baseRule = readRule(css, '.comment-button {')
+    expect(baseRule).toMatch(/opacity:\s*0\.6;/)
+
+    const noCommentRule = readRule(css, '.comment-button.no-comment {')
+    expect(noCommentRule).toMatch(/opacity:\s*0\.6;/)
+    expect(noCommentRule).toMatch(/visibility:\s*visible;/)
+
+    // What is not clickable is still hidden, so visible means pressable.
+    const disabledRule = readRule(css, '.comment-button.disabled {')
+    expect(disabledRule).toMatch(/visibility:\s*hidden;/)
+  })
+
+  test('touch devices keep the no-comment button visible over a sticky hover', () => {
     const mobileNoCommentRule = readRuleAfter(
       styles(),
       '.comment-button.no-comment,',
@@ -364,7 +381,7 @@ describe('style regressions', () => {
     )
 
     expect(mobileNoCommentRule).toContain('.task-item:hover .comment-button.no-comment:not(:active)')
-    expect(mobileNoCommentRule).toMatch(/opacity:\s*0;/)
+    expect(mobileNoCommentRule).toMatch(/opacity:\s*0\.6;/)
     expect(mobileNoCommentRule).toMatch(/visibility:\s*visible;/)
     expect(mobileNoCommentRule).not.toContain('!important')
 
@@ -374,7 +391,7 @@ describe('style regressions', () => {
       '@media (hover: none)',
     )
 
-    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*0\.8;/)
+    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*1;/)
     expect(mobileNoCommentActiveRule).toContain('.task-item:hover .comment-button.no-comment:active')
     expect(mobileNoCommentActiveRule).not.toContain('!important')
   })
@@ -488,12 +505,39 @@ describe('style regressions', () => {
     expect(css).not.toMatch(/:is\([^{}]*::(?:before|after)[^{}]*\)\s*\{/)
   })
 
+  test('form fields shrink to the dialog gutter instead of overflowing it', () => {
+    // WebKit gives a form control an intrinsic minimum width that outranks
+    // `width: 100%`, so inside the modal's padding the field grew past the
+    // gutter on iOS. `time` was the last type still carrying the native
+    // appearance that supplies that width.
+    const fieldRule = readRule(styles(), '.form-input {');
+    expect(fieldRule).toMatch(/min-width:\s*0;/);
+    expect(fieldRule).toMatch(/max-width:\s*100%;/);
+    expect(fieldRule).toMatch(/box-sizing:\s*border-box;/);
+
+    const timeRule = readRule(styles(), '.form-input[type="time"] {');
+    expect(timeRule).toMatch(/appearance:\s*none;/);
+    expect(timeRule).toMatch(/-webkit-appearance:\s*none;/);
+  });
+
+  test('the drag grip claims the whole gesture instead of sharing it', () => {
+    // `manipulation` leaves the browser free to take a vertical pan, which on
+    // iOS scrolls the list out from under the grip so the pointer drag never
+    // starts. The grip is deliberately absent from the shared rule below.
+    const gripRule = readRule(styles(), '.drag-handle {')
+
+    expect(gripRule).toMatch(/touch-action:\s*none;/)
+    expect(gripRule).toMatch(/user-select:\s*none;/)
+
+    const touchActionRule = readRule(styles(), '.taskchute-container button,')
+    expect(touchActionRule).not.toContain('drag-handle')
+  })
+
   test('mobile touch-action covers non-button tap targets', () => {
     const touchActionRule = readRule(styles(), '.taskchute-container button,')
 
     expect(touchActionRule).toContain('.taskchute-container .task-time-start.editable')
     expect(touchActionRule).toContain('.taskchute-container .task-time-stop.editable')
-    expect(touchActionRule).toContain('.taskchute-container .drag-handle')
     expect(touchActionRule).toContain('.taskchute-container .taskchute-project-button')
     expect(touchActionRule).toContain('.taskchute-tooltip .tooltip-item')
     // Every migrated dialog carries `.taskchute-modal`, so one selector covers
@@ -508,7 +552,6 @@ describe('style regressions', () => {
     expect(touchActionRule).toContain('[class~="taskchute-button-secondary"]')
     expect(touchActionRule).toContain('[class~="taskchute-nav-button"]')
     expect(touchActionRule).toContain('[class~="task-button"]')
-    expect(touchActionRule).toContain('[class~="tooltip-close-button"]')
     expect(touchActionRule).toContain('[class~="modal-close-button"]')
     expect(touchActionRule).toMatch(/touch-action:\s*manipulation;/)
   })

@@ -2805,7 +2805,18 @@ describe('TaskChuteView registerDomEvent harness', () => {
 
     expect(registerDomEvent).toHaveBeenCalled();
     const events = registerDomEvent.mock.calls.map(([, event]) => event);
-    expect(events).toEqual(expect.arrayContaining(['contextmenu', 'click', 'dragover', 'dragleave', 'drop']));
+    // Reordering runs on Pointer Events, so the row's drag wiring is the grip's
+    // pointer listeners; rows themselves are hit-tested rather than listened to.
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'contextmenu',
+        'click',
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+      ]),
+    );
   });
 });
 

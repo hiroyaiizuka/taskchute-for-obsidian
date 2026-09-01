@@ -180,32 +180,25 @@ describe('TaskListRenderer', () => {
 
     expect(registerManagedDomEvent).toHaveBeenCalled();
     const events = registerManagedDomEvent.mock.calls.map(([, event]) => event);
-    expect(events).toEqual(expect.arrayContaining(['dragover', 'dragleave', 'drop', 'contextmenu', 'click', 'dragstart', 'dragend']));
+    // Reordering runs on Pointer Events now, so the grip -- not the row -- is
+    // where the drag listeners live; rows are hit-tested instead of listened to.
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+        'contextmenu',
+        'click',
+      ]),
+    );
+    expect(events).not.toContain('dragstart');
 
     const taskItem = host.taskList.querySelector('.task-item') as HTMLElement;
     expect(taskItem).toBeTruthy();
   });
 
-  describe('drag image', () => {
-    function dispatchDragStart(from: HTMLElement): {
-      payload: string;
-      setDragImage: jest.Mock;
-    } {
-      let payload = '';
-      const setDragImage = jest.fn();
-      const dataTransfer = {
-        setData: (_format: string, data: string) => {
-          payload = data;
-        },
-        getData: () => payload,
-        setDragImage,
-      } as unknown as DataTransfer;
-      from.dispatchEvent(
-        new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }),
-      );
-      return { payload, setDragImage };
-    }
-
+  describe('pointer drag', () => {
     function stubRect(el: HTMLElement, rect: { top: number; height: number; width?: number }): void {
       Object.defineProperty(el, 'getBoundingClientRect', {
         configurable: true,
@@ -220,70 +213,121 @@ describe('TaskListRenderer', () => {
       });
     }
 
-    test('only the grip is draggable', () => {
+    function pointer(type: string, clientX: number, clientY: number): PointerEvent {
+      return new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        pointerId: 1,
+        isPrimary: true,
+      });
+    }
+
+    test('the grip carries no draggable attribute -- iPadOS never fires dragstart', () => {
       const { taskList, renderer } = createHost([createInstance()]);
 
       renderer.render();
 
       const taskItem = taskList.querySelector('.task-item') as HTMLElement;
       expect(taskItem.hasAttribute('draggable')).toBe(false);
-      expect(taskList.querySelector('.drag-handle')?.getAttribute('draggable')).toBe('true');
+      expect(taskList.querySelector('.drag-handle')?.hasAttribute('draggable')).toBe(false);
     });
 
-    test('dragging the grip uses the whole row as the drag image', () => {
-      jest.useFakeTimers();
-      try {
-        const { taskList, renderer } = createHost([createInstance()]);
+    test('a press that never moves stays a tap and leaves the row alone', () => {
+      const { taskList, renderer } = createHost([createInstance()]);
 
-        renderer.render();
+      renderer.render();
 
-        const taskItem = taskList.querySelector('.task-item') as HTMLElement;
-        const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
-        stubRect(taskList, { top: 0, height: 400 });
-        stubRect(taskItem, { top: 40, height: 32 });
+      const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+      const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
+      stubRect(taskItem, { top: 40, height: 32 });
 
-        const { payload, setDragImage } = dispatchDragStart(dragHandle);
+      dragHandle.dispatchEvent(pointer('pointerdown', 10, 50));
+      dragHandle.dispatchEvent(pointer('pointermove', 11, 51));
+      dragHandle.dispatchEvent(pointer('pointerup', 11, 51));
 
-        expect(payload).toBe('8:00-12:00::0::instance-1');
-        expect(setDragImage).toHaveBeenCalledWith(taskItem, expect.any(Number), expect.any(Number));
-
-        // The faded style must not bake into the snapshot, so it lands a tick later.
-        expect(taskItem.classList.contains('dragging')).toBe(false);
-        jest.advanceTimersByTime(0);
-        expect(taskItem.classList.contains('dragging')).toBe(true);
-
-        // dragend fires on the drag source — the grip.
-        dragHandle.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
-        expect(taskItem.classList.contains('dragging')).toBe(false);
-      } finally {
-        jest.useRealTimers();
-      }
+      expect(taskItem.classList.contains('dragging')).toBe(false);
+      expect(document.querySelector('.task-item-drag-ghost')).toBeNull();
     });
 
-    test('a row scrolled out of view is snapshotted from an off-screen clone', () => {
-      jest.useFakeTimers();
+    test('dragging the grip fades the row and floats a clone under the pointer', () => {
+      const { taskList, renderer } = createHost([createInstance()]);
+
+      renderer.render();
+
+      const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+      const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
+      stubRect(taskList, { top: 0, height: 400 });
+      stubRect(taskItem, { top: 40, height: 32 });
+
+      dragHandle.dispatchEvent(pointer('pointerdown', 10, 50));
+      dragHandle.dispatchEvent(pointer('pointermove', 10, 90));
+
+      expect(taskItem.classList.contains('dragging')).toBe(true);
+      const ghost = document.querySelector('.task-item-drag-ghost') as HTMLElement;
+      expect(ghost).toBeTruthy();
+      expect(ghost).not.toBe(taskItem);
+      // Anchored where the grip was grabbed: 40px down from the row's top.
+      expect(ghost.classList.contains('task-item-drag-ghost--floating')).toBe(true);
+      expect(ghost.style.transform).toBe('translate3d(0px, 80px, 0)');
+
+      dragHandle.dispatchEvent(pointer('pointerup', 10, 90));
+
+      expect(taskItem.classList.contains('dragging')).toBe(false);
+      expect(document.querySelector('.task-item-drag-ghost')).toBeNull();
+    });
+
+    test('a cancelled pointer drops nothing and cleans up', () => {
+      const { taskList, renderer, host } = createHost([createInstance()]);
+
+      renderer.render();
+
+      const taskItem = taskList.querySelector('.task-item') as HTMLElement;
+      const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
+      stubRect(taskList, { top: 0, height: 400 });
+      stubRect(taskItem, { top: 40, height: 32 });
+
+      dragHandle.dispatchEvent(pointer('pointerdown', 10, 50));
+      dragHandle.dispatchEvent(pointer('pointermove', 10, 90));
+      dragHandle.dispatchEvent(pointer('pointercancel', 10, 90));
+
+      expect(host.handleDrop).not.toHaveBeenCalled();
+      expect(taskItem.classList.contains('dragging')).toBe(false);
+      expect(document.querySelector('.task-item-drag-ghost')).toBeNull();
+    });
+
+    test('dropping on another row hands the drop the payload and the pointer position', () => {
+      const first = createInstance();
+      const second = createInstance({ instanceId: 'instance-2', order: 1 });
+      const { taskList, renderer, host } = createHost([first, second]);
+
+      renderer.render();
+
+      const rows = Array.from(taskList.querySelectorAll<HTMLElement>('.task-item'));
+      const dragHandle = rows[0].querySelector('.drag-handle') as HTMLElement;
+      stubRect(taskList, { top: 0, height: 400 });
+      stubRect(rows[0], { top: 40, height: 32 });
+      stubRect(rows[1], { top: 72, height: 32 });
+
+      // The row under the pointer is resolved by hit-testing, not by listeners.
+      const elementFromPoint = jest
+        .spyOn(document, 'elementFromPoint')
+        .mockReturnValue(rows[1]);
       try {
-        const { taskList, renderer } = createHost([createInstance()]);
-
-        renderer.render();
-
-        const taskItem = taskList.querySelector('.task-item') as HTMLElement;
-        const dragHandle = taskItem.querySelector('.drag-handle') as HTMLElement;
-        stubRect(taskList, { top: 0, height: 400 });
-        stubRect(taskItem, { top: 390, height: 32 }); // bottom 422 > container bottom 400
-
-        const { setDragImage } = dispatchDragStart(dragHandle);
-
-        const ghost = setDragImage.mock.calls[0][0] as HTMLElement;
-        expect(ghost).not.toBe(taskItem);
-        expect(ghost.classList.contains('task-item-drag-ghost')).toBe(true);
-        expect(document.body.contains(ghost)).toBe(true);
-
-        jest.advanceTimersByTime(0);
-        expect(document.body.contains(ghost)).toBe(false);
+        dragHandle.dispatchEvent(pointer('pointerdown', 10, 50));
+        dragHandle.dispatchEvent(pointer('pointermove', 10, 95));
+        dragHandle.dispatchEvent(pointer('pointerup', 10, 95));
       } finally {
-        jest.useRealTimers();
+        elementFromPoint.mockRestore();
       }
+
+      expect(host.handleDrop).toHaveBeenCalledTimes(1);
+      const [point, target, inst, payload] = (host.handleDrop as jest.Mock).mock.calls[0];
+      expect(point).toEqual({ clientY: 95 });
+      expect(target).toBe(rows[1]);
+      expect(inst).toBe(second);
+      expect(payload).toBe('8:00-12:00::0::instance-1');
     });
 
     test('completed rows are not draggable', () => {
@@ -297,9 +341,14 @@ describe('TaskListRenderer', () => {
 
       renderer.render();
 
+      const taskItem = taskList.querySelector('.task-item') as HTMLElement;
       const dragHandle = taskList.querySelector('.drag-handle') as HTMLElement;
-      expect(dragHandle.hasAttribute('draggable')).toBe(false);
       expect(dragHandle.classList.contains('disabled')).toBe(true);
+
+      dragHandle.dispatchEvent(pointer('pointerdown', 10, 50));
+      dragHandle.dispatchEvent(pointer('pointermove', 10, 90));
+
+      expect(taskItem.classList.contains('dragging')).toBe(false);
     });
   });
 

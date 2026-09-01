@@ -219,6 +219,72 @@ const createTimeController = () => {
     expect(host.resetTaskToIdle).not.toHaveBeenCalled()
   })
 
+  describe('dismissal', () => {
+    function open(): { controller: TaskSettingsTooltipController; anchor: HTMLElement } {
+      const controller = new TaskSettingsTooltipController(createHost())
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      controller.show(createInstance(), anchor)
+      return { controller, anchor }
+    }
+
+    function pointerdownOn(target: EventTarget): void {
+      target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    }
+
+    test('the menu carries no close button -- tapping away is the way out', () => {
+      open()
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip).toBeTruthy()
+      expect(tooltip.querySelector('.tooltip-close-button')).toBeNull()
+      expect(tooltip.querySelector('.tooltip-header')).toBeNull()
+    })
+
+    test('a pointer press outside closes it, one inside does not', () => {
+      open()
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      pointerdownOn(tooltip)
+      expect(document.querySelector('.task-settings-tooltip')).not.toBeNull()
+
+      pointerdownOn(document.body)
+      expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+    })
+
+    test('pressing the anchor again leaves the reopen to the anchor itself', () => {
+      const { anchor } = open()
+
+      pointerdownOn(anchor)
+
+      expect(document.querySelector('.task-settings-tooltip')).not.toBeNull()
+    })
+
+    test('Escape closes it', () => {
+      open()
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+      expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+    })
+
+    test('a dismissed menu leaves no document listeners behind', () => {
+      const { controller, anchor } = open()
+      const remove = jest.spyOn(document, 'removeEventListener')
+      try {
+        // Reopening tears the previous menu down rather than stacking a second
+        // set of listeners on the document.
+        controller.show(createInstance(), anchor)
+
+        expect(remove).toHaveBeenCalledWith('pointerdown', expect.any(Function))
+        expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function))
+        expect(document.querySelectorAll('.task-settings-tooltip')).toHaveLength(1)
+      } finally {
+        remove.mockRestore()
+      }
+    })
+  })
+
   test('move action opens date picker and tooltip cleans up on outside click', () => {
     jest.useFakeTimers()
     const host = createHost()

@@ -1,5 +1,7 @@
 import esbuild from "esbuild";
 import process from "process";
+import fs from "fs";
+import path from "path";
 // Use Node's built-in modules list to avoid JSON import assertions incompatibility
 import { builtinModules as nodeBuiltinModules } from "module";
 
@@ -11,6 +13,31 @@ if you want to view the source, please visit the github repository of this plugi
 `;
 
 const prod = (process.argv[2] === "production");
+
+// Optional dev target: write the build artifacts straight into an Obsidian
+// vault's plugin folder instead of the repository root. Pointed at a vault in
+// iCloud Drive, that is what puts a change on an iPhone or iPad without
+// cutting a release. `npm run dev` reads OBSIDIAN_PLUGIN_DIR out of `.env`
+// (see AGENTS.md); a production build ignores it outright, so a release
+// artifact always lands at the repository root no matter what the shell holds.
+const pluginDir = prod ? null : process.env.OBSIDIAN_PLUGIN_DIR?.trim() || null;
+if (pluginDir && !fs.existsSync(pluginDir)) {
+	throw new Error(`OBSIDIAN_PLUGIN_DIR does not exist: ${pluginDir}`);
+}
+
+// `manifest.json` and `styles.css` are not part of the esbuild graph, so copy
+// them alongside every rebuild; otherwise a CSS-only edit never reaches the vault.
+const copyStaticAssets = {
+	name: "copy-static-assets",
+	setup(build) {
+		build.onEnd((result) => {
+			if (!pluginDir || result.errors.length > 0) return;
+			for (const file of ["manifest.json", "styles.css"]) {
+				fs.copyFileSync(file, path.join(pluginDir, file));
+			}
+		});
+	},
+};
 
 const context = await esbuild.context({
 	banner: {
@@ -41,9 +68,13 @@ const context = await esbuild.context({
 	// limits of several static-analysis and malware scanners, which then skip
 	// the file instead of reporting a result.
 	minify: prod,
-	sourcemap: prod ? false : "inline",
+	// The inline sourcemap makes the dev bundle ~10MB. That is fine on disk but
+	// wasteful when every rebuild is pushed through Obsidian Sync to a phone or
+	// tablet, so vault-targeted builds ship without it.
+	sourcemap: (prod || pluginDir) ? false : "inline",
 	treeShaking: true,
-	outfile: "main.js",
+	outfile: pluginDir ? path.join(pluginDir, "main.js") : "main.js",
+	plugins: pluginDir ? [copyStaticAssets] : [],
 });
 
 if (prod) {

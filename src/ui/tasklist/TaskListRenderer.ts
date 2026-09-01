@@ -6,6 +6,7 @@ import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconR
 import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
 import { matchesAiTaskBoardView } from '../../features/ai-task/services/BoardViewFilter'
 import type { AiTaskBoardView } from '../../features/ai-task/types'
+import TaskListPointerDrag, { type DragPointer } from './TaskListPointerDrag'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
@@ -22,9 +23,14 @@ export type TaskListRendererHost = {
   sortByOrder: (instances: TaskInstance[]) => TaskInstance[]
   selectTaskForKeyboard: (inst: TaskInstance, element: HTMLElement) => void
   registerManagedDomEvent: (target: Document | HTMLElement, event: string, handler: EventListener) => void
-  handleDragOver: (e: DragEvent, taskItem: HTMLElement, inst: TaskInstance) => void
-  handleDrop: (e: DragEvent, taskItem: HTMLElement, inst: TaskInstance) => void
-  handleSlotDrop: (e: DragEvent, slot: string) => void
+  handleDragOver: (e: DragPointer, taskItem: HTMLElement, inst: TaskInstance) => void
+  handleDrop: (
+    e: DragPointer,
+    taskItem: HTMLElement,
+    inst: TaskInstance,
+    payload?: string,
+  ) => void
+  handleSlotDrop: (e: DragPointer, slot: string, payload?: string) => void
   startInstance: (inst: TaskInstance) => Promise<void> | void
   stopInstance: (inst: TaskInstance) => Promise<void> | void
   duplicateAndStartInstance: (inst: TaskInstance) => Promise<void> | void
@@ -63,8 +69,24 @@ export default class TaskListRenderer {
   private readonly aiTaskRowRenderer?: AiTaskRowRenderer
   private collapsedByDate = new Map<string, Set<string>>()
   private isDragging = false
+  private readonly pointerDrag: TaskListPointerDrag
 
   constructor(private readonly host: TaskListRendererHost) {
+    this.pointerDrag = new TaskListPointerDrag({
+      registerManagedDomEvent: (target, event, handler) =>
+        this.host.registerManagedDomEvent(target, event, handler),
+      handleDragOver: (point, taskItem, inst) => this.host.handleDragOver(point, taskItem, inst),
+      handleDrop: (point, taskItem, inst, payload) =>
+        this.host.handleDrop(point, taskItem, inst, payload),
+      handleSlotDrop: (point, slot, payload) => {
+        // Dropping onto a collapsed slot reveals it, the way the native path did.
+        this.collapsedSlots.delete(slot)
+        this.host.handleSlotDrop(point, slot, payload)
+      },
+      onDragStateChange: (dragging) => {
+        this.isDragging = dragging
+      },
+    })
     const showProjectModalBound: ((inst: TaskInstance) => Promise<void> | void) | undefined = this.host.showProjectModal
       ? (inst) => this.host.showProjectModal?.(inst)
       : undefined
@@ -306,10 +328,12 @@ export default class TaskListRenderer {
 
   private createDragHandle(taskItem: HTMLElement, inst: TaskInstance, slot: string, idx: number): void {
     const isDraggable = inst.state !== 'done'
+    // No `draggable` attribute: the grip is driven by Pointer Events (see
+    // TaskListPointerDrag), which is the only path iPadOS ever fires.
     const dragHandle = taskItem.createDiv( {
       cls: 'drag-handle',
       attr: isDraggable
-        ? { draggable: 'true', title: this.host.tv('tooltips.dragToMove', 'Drag to move') }
+        ? { title: this.host.tv('tooltips.dragToMove', 'Drag to move') }
         : { title: this.host.tv('tooltips.completedTask', 'Completed task') },
     })
 
@@ -333,7 +357,18 @@ export default class TaskListRenderer {
       svg.createSvg('circle', { attr: { cx, cy, r: '1.5' } })
     })
 
-    this.setupDragEvents(dragHandle, taskItem, inst, slot, idx)
+    if (isDraggable) {
+      // The index counts rows in the RENDERED (board-view filtered) list, so
+      // the drop side resolves the source by the instanceId — a positional
+      // lookup against the unfiltered slot list would hit the wrong task
+      // under a 'human'/'ai' board view. The slot::idx prefix stays for
+      // legacy payload compatibility.
+      this.pointerDrag.attachHandle(
+        dragHandle,
+        taskItem,
+        `${slot ?? 'none'}::${idx}::${inst.instanceId}`,
+      )
+    }
     this.registerTapEvent(dragHandle, (e) => {
       e.stopPropagation()
       this.host.selectTaskForKeyboard(inst, taskItem)
@@ -399,116 +434,15 @@ export default class TaskListRenderer {
     })
   }
 
-  private setupTaskItemDragDrop(taskItem: HTMLElement, inst: TaskInstance): void {
-    this.host.registerManagedDomEvent(taskItem, 'dragover', (event) => {
-      if (!(event instanceof DragEvent)) return
-      event.preventDefault()
-      this.host.handleDragOver(event, taskItem, inst)
-    })
-    this.host.registerManagedDomEvent(taskItem, 'dragleave', () => {
-      taskItem.classList.remove('dragover', 'dragover-top', 'dragover-bottom', 'dragover-invalid')
-      delete taskItem.dataset.dragInvalidMessage
-    })
-    this.host.registerManagedDomEvent(taskItem, 'drop', (event) => {
-      if (!(event instanceof DragEvent)) return
-      event.preventDefault()
-      this.host.handleDrop(event, taskItem, inst)
-    })
-  }
-
-  private setupDragEvents(
-    dragHandle: HTMLElement,
-    taskItem: HTMLElement,
-    inst: TaskInstance,
-    slot: string,
-    idx: number,
-  ): void {
-    this.host.registerManagedDomEvent(dragHandle, 'dragstart', (event) => {
-      if (!(event instanceof DragEvent)) return
-      // The index counts rows in the RENDERED (board-view filtered) list, so
-      // the drop side resolves the source by the instanceId — a positional
-      // lookup against the unfiltered slot list would hit the wrong task
-      // under a 'human'/'ai' board view. The slot::idx prefix stays for
-      // legacy payload compatibility.
-      event.dataTransfer?.setData(
-        'text/plain',
-        `${slot ?? 'none'}::${idx}::${inst.instanceId}`,
-      )
-      // Only the grip is draggable, so the browser's default drag image is
-      // just the 24px grip. Hand it the row instead, so the whole row follows
-      // the cursor.
-      this.setRowDragImage(event, taskItem)
-      // The drag image is snapshotted after this handler returns, so the
-      // faded `.dragging` style has to land on the next tick or it bakes
-      // into the ghost.
-      window.setTimeout(() => taskItem.classList.add('dragging'), 0)
-    })
-    this.host.registerManagedDomEvent(dragHandle, 'dragend', () => {
-      taskItem.classList.remove('dragging')
-    })
-  }
-
   /**
-   * Use the task row itself as the drag image. Passing a live element keeps
-   * the ghost pixel-identical to the row (theme colors, icons, layout) with
-   * no rasterizing of our own — but Chromium clips it to what is on screen,
-   * so a row scrolled half out of the list would drag a cropped ghost. In
-   * that case we snapshot an off-screen clone instead.
+   * Drop targets are hit-tested from the pointer position rather than
+   * listened to, so a row only has to announce which instance it stands for.
    */
-  private setRowDragImage(event: DragEvent, taskItem: HTMLElement): void {
-    const dataTransfer = event.dataTransfer
-    if (!dataTransfer || typeof dataTransfer.setDragImage !== 'function') return
-
-    const rect = taskItem.getBoundingClientRect()
-    if (rect.width === 0 || rect.height === 0) return
-
-    // Anchor the ghost under the cursor at the point the grip was grabbed.
-    const offsetX = event.clientX - rect.left
-    const offsetY = event.clientY - rect.top
-
-    const containerRect = taskItem.parentElement?.getBoundingClientRect()
-    const isFullyVisible =
-      !containerRect ||
-      (rect.top >= containerRect.top - 0.5 && rect.bottom <= containerRect.bottom + 0.5)
-
-    if (isFullyVisible) {
-      dataTransfer.setDragImage(taskItem, offsetX, offsetY)
-      return
-    }
-
-    const ghost = taskItem.cloneNode(true) as HTMLElement
-    ghost.classList.add('task-item-drag-ghost')
-    ghost.style.width = `${rect.width}px`
-    ghost.style.height = `${rect.height}px`
-    // ownerDocument, not the global one: the view can live in a popped-out window.
-    taskItem.ownerDocument.body.appendChild(ghost)
-    dataTransfer.setDragImage(ghost, offsetX, offsetY)
-    // The snapshot is taken right after this handler returns, so the clone
-    // only has to survive one tick.
-    window.setTimeout(() => ghost.remove(), 0)
+  private setupTaskItemDragDrop(taskItem: HTMLElement, inst: TaskInstance): void {
+    this.pointerDrag.registerRow(taskItem, inst)
   }
 
   private setupTimeSlotDragHandlers(header: HTMLElement, slot: string): void {
-    this.host.registerManagedDomEvent(header, 'dragover', (event) => {
-      if (!(event instanceof DragEvent)) return
-      event.preventDefault()
-      this.isDragging = true
-      header.classList.add('dragover')
-    })
-    this.host.registerManagedDomEvent(header, 'dragleave', () => {
-      header.classList.remove('dragover')
-      this.isDragging = false
-    })
-    this.host.registerManagedDomEvent(header, 'drop', (event) => {
-      if (!(event instanceof DragEvent)) return
-      event.preventDefault()
-      header.classList.remove('dragover')
-      this.collapsedSlots.delete(slot)
-      this.isDragging = false
-      this.host.handleSlotDrop(event, slot)
-    })
-    this.host.registerManagedDomEvent(header, 'dragend', () => {
-      this.isDragging = false
-    })
+    this.pointerDrag.registerSlotHeader(header, slot)
   }
 }
