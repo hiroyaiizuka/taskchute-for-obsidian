@@ -2897,75 +2897,6 @@ body.is-phone .taskchute-modal .modal-button-container {
   }
 }
 
-/* Phone-width leaf. The five controls need ~340px to sit on one line, so below
-   that they stop trying: the two that frame the header keep the top row at its
-   corners and the date navigator takes a full-width row of its own, arrows
-   pinned to the edges and the date centred between them.
-
-       [三]                    [+]
-       [<]        Today        [>]
-
-   The calendar glyph is what gives way -- the date label opens the same
-   picker, and it is the bigger target of the two. */
-@container taskchute-view (max-width: 380px) {
-  .top-bar-container {
-    grid-template-rows: repeat(2, 30px);
-    height: 66px;
-    row-gap: 6px;
-  }
-
-  /* The drawer is already pinned to the top-left corner by the 680px layout
-     above, which this width is inside of. */
-  .top-bar-container > .header-action-section {
-    grid-column: 3;
-    grid-row: 1;
-    justify-self: end;
-  }
-
-  /* Qualified by the bar: `.date-nav-container.compact` declares its own
-     column and centring further down the sheet, and would otherwise win this
-     on source order alone. */
-  .top-bar-container > .date-nav-container.compact {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: stretch;
-    justify-content: space-between;
-  }
-
-  .top-bar-container > .date-nav-container.compact .calendar-btn {
-    display: none;
-  }
-
-  /* The label is a fixed 150px box everywhere else, so the arrows never move
-     as the date changes. There is no width to spare here, though, and holding
-     that box pushes the next-day arrow off the edge of the leaf. So it gives
-     up the fixed width and truncates instead -- the leading "Today (8/31" is
-     the part that carries the meaning. `display: block` is what lets it: an
-     ellipsis has no effect on the flex box it used to be. */
-  .top-bar-container > .date-nav-container.compact .date-nav-label {
-    display: block;
-    width: auto;
-    min-width: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    line-height: 28px;
-  }
-
-  /* The board switch cannot share the top row with anything, so it keeps the
-     row of its own that the 680px layout gave it -- pushed below the date
-     navigator rather than above it. */
-  .top-bar-container.has-board-view-switch {
-    grid-template-rows: repeat(3, 30px);
-    height: 102px;
-  }
-
-  .top-bar-container > .header-action-section.has-board-view-switch {
-    grid-row: 3;
-  }
-}
-
 /* Navigation Overlay */
 .navigation-overlay {
   position: fixed;
@@ -4016,21 +3947,31 @@ body.is-phone .taskchute-modal .modal-button-container {
 /* The label reserves a fixed box wide enough for the longest string it ever
    shows ("Today (12/31 Wed)"), so the arrows and the calendar button keep
    their positions as the date changes instead of sliding in and out. Because
-   the box no longer shrinks, the `is-not-today` margin nudges that used to
-   re-centre it -- and pulled the text under the calendar glyph -- are gone. */
+   the box no longer shrinks with the text, the `is-not-today` margin nudges
+   that used to re-centre it -- and pulled the text under the calendar glyph --
+   are gone.
+
+   The whole row needs 338px to hold that box (30 + 10 + [30 + 6 + 30 + 6 +
+   150 + 6 + 30] + 10 + 30). Below that the label is the one thing allowed to
+   give: `min-width: 0` lets it shrink and truncate to "Today (9/2..." rather
+   than push the next-day arrow off the edge of the leaf. `display: block` is
+   what lets an ellipsis work at all -- it has no effect on the flex container
+   this used to be. */
 .date-nav-label {
   font-size: 15px;
   font-weight: bold;
   color: #1976d2;
+  flex: 0 1 150px;
   width: 150px;
-  min-width: 150px;
-  flex-shrink: 0;
+  min-width: 0;
+  display: block;
   text-align: center;
   letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   height: 28px;
+  line-height: 28px;
 
   /* It opens the calendar. Nothing else about it changes -- no underline, no
      hover colour -- because the header reads as a date first and a control
@@ -4042,6 +3983,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   font-size: 15px;
   letter-spacing: 0.5px;
   height: 24px;
+  line-height: 24px;
 }
 .calendar-btn {
   background: none;
