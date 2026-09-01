@@ -4778,9 +4778,8 @@ body.is-phone .taskchute-modal .modal-button-container {
   display: contents;
 }
 
-/* The separator lives on the cells, so the column spacing has to be padding
-   rather than a column-gap: a gap would leave the border broken between the
-   columns. */
+/* The separator lives on the cells, so the spacing between the columns has to
+   be padding. A grid gap would leave the border broken between them. */
 .routine-table__cell {
   display: flex;
   align-items: center;
