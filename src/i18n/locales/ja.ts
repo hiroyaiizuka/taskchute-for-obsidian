@@ -1097,6 +1097,8 @@ export const ja = {
       release: "解除",
       releasing: "解除しています…",
       released: "端末を解除しました。",
+      refresh: "最新の状態に更新",
+      refreshing: "更新しています…",
     },
     seatReleased: {
       title: "この端末の登録が解除されました",

@@ -8112,9 +8112,23 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   margin-bottom: var(--size-4-4);
 }
 
+/* The description carries the width and the button sits beside it, so the
+   button stays on the same line as the text it belongs to rather than taking a
+   row of its own above a list it is not part of. */
+.taskchute-license-devices__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
 .taskchute-license-devices__description {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
+}
+
+.taskchute-license-devices__refresh {
+  flex-shrink: 0;
 }
 
 .taskchute-license-devices__status {

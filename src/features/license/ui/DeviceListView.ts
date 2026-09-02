@@ -48,6 +48,9 @@ export class DeviceListView {
   private readonly listEl: HTMLElement
   private busyDeviceId?: string
   private disposed = false
+  private refreshing = false
+  private refreshEl!: HTMLButtonElement
+  private readonly unsubscribe?: () => void
 
   constructor(
     container: HTMLElement,
@@ -57,24 +60,68 @@ export class DeviceListView {
     this.devices = options.initialDevices
     this.maxDevices = options.initialMaxDevices
 
+    // The last seats the manager saw, so the list has something to draw while
+    // the request behind it is still out. Skipped for a list seeded from a 409:
+    // that one belongs to the code being typed, which may be a different
+    // license than the snapshot was taken from.
+    if (this.devices === undefined && options.code === undefined) {
+      const snapshot = manager.getDeviceSnapshot()
+      if (snapshot) {
+        this.devices = snapshot.devices
+        this.maxDevices = snapshot.maxDevices
+      }
+
+      // Opening the Pro screen settles entitlement and the seat list from one
+      // fetch — whichever of the two started it, both hear the answer.
+      this.unsubscribe = manager.onDevicesChange((next) => {
+        if (this.disposed) return
+        // Mid-release the list is showing a pending row; the release writes its
+        // own result when it lands.
+        if (this.busyDeviceId !== undefined) return
+        this.devices = next.devices
+        this.maxDevices = next.maxDevices
+        this.render()
+      })
+    }
+
     const root = container.createDiv({ cls: 'taskchute-license-devices' })
     this.rootEl = root
-    root.createDiv({
+
+    const header = root.createDiv({ cls: 'taskchute-license-devices__header' })
+    header.createDiv({
       cls: 'taskchute-license-devices__description',
       text: t(
         'license.devices.description',
         'This license can be used on a limited number of devices. Release a device you no longer use to make room for another one.',
       ),
     })
+    // Both answers come from the server and both can go stale while this screen
+    // is open — a seat taken on another machine, a license renewed. Neither is
+    // something the user can make happen from here, so there has to be a way to
+    // ask again without closing the settings and coming back.
+    this.refreshEl = header.createEl('button', {
+      cls: ['form-button', 'taskchute-license-devices__refresh'],
+      text: t('license.devices.refresh', 'Refresh'),
+    })
+    this.refreshEl.type = 'button'
+    this.refreshEl.addEventListener('click', () => {
+      void this.refresh()
+    })
+
     this.listEl = root.createDiv({ cls: 'taskchute-license-devices__list' })
     // Under the list: the seat count is a summary of what is above it, and a
     // load or failure message reads as the state of the list it follows.
     this.statusEl = root.createDiv({ cls: 'taskchute-license-devices__status' })
 
-    if (this.devices === undefined) {
+    // Nothing to draw yet leaves the container empty for load() to fill, rather
+    // than flashing "no devices" at someone whose seats are on their way.
+    if (this.devices !== undefined) this.render()
+
+    // Always re-asked, even with a snapshot on screen: what is drawn may be a
+    // visit old. The manager coalesces this with the sync's own fetch, so the
+    // screen still costs one request.
+    if (options.initialDevices === undefined) {
       void this.load()
-    } else {
-      this.render()
     }
   }
 
@@ -87,11 +134,68 @@ export class DeviceListView {
    */
   dispose(): void {
     this.disposed = true
+    this.unsubscribe?.()
     this.rootEl.remove()
   }
 
+  /**
+   * Re-ask the server for both halves of what this screen shows: whether this
+   * device is still licensed, and which seats the license holds.
+   *
+   * One request covers both — the manager coalesces the seat list it fetches to
+   * answer the first question with the one this list needs — so the two can
+   * never come back disagreeing with each other.
+   */
+  private async refresh(): Promise<void> {
+    if (this.refreshing || this.busyDeviceId !== undefined) return
+
+    this.refreshing = true
+    this.applyRefreshState()
+
+    // Forced: the user pressing this button is exactly the case the throttle
+    // must not answer with a cached "nothing to report".
+    const before = this.manager.getState().status
+    let state = before
+    try {
+      state = (await this.manager.syncFromServer({ force: true })).status
+    } catch {
+      // Reported through the list below like any other failure to reach the
+      // server; entitlement is left as it was.
+    }
+
+    if (this.disposed) return
+
+    // A sync that dropped this device out of the license replaces this whole
+    // section with the activation form, so there is no list left to reload —
+    // and no code to reload it with.
+    if (state !== before) {
+      this.refreshing = false
+      this.options.onChanged?.()
+      return
+    }
+
+    await this.load()
+    if (this.disposed) return
+
+    this.refreshing = false
+    this.applyRefreshState()
+  }
+
+  private applyRefreshState(): void {
+    this.refreshEl.disabled = this.refreshing || this.busyDeviceId !== undefined
+    this.refreshEl.setText(
+      this.refreshing
+        ? t('license.devices.refreshing', 'Refreshing…')
+        : t('license.devices.refresh', 'Refresh'),
+    )
+  }
+
   private async load(): Promise<void> {
-    this.setStatus(t('license.devices.loading', 'Loading devices…'))
+    // Only when there is nothing to look at. Replacing a drawn list with
+    // "Loading…" on every visit hides seats the user can already act on.
+    if (this.devices === undefined) {
+      this.setStatus(t('license.devices.loading', 'Loading devices…'))
+    }
 
     const result = await this.manager.listDevices(this.options.code)
     if (this.disposed) return
@@ -118,6 +222,10 @@ export class DeviceListView {
   }
 
   private render(): void {
+    // Sharing the list's busy state: releasing a seat and re-reading the seats
+    // must not run at once, or the answer overwrites the row being removed.
+    this.applyRefreshState()
+
     const devices = this.devices ?? []
 
     this.setStatus(

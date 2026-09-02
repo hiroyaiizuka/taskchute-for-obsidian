@@ -112,3 +112,53 @@ describe('syncAiTaskManagerToLicense', () => {
     expect(createAiTaskManagerMock).not.toHaveBeenCalled()
   })
 })
+
+describe('concurrent calls', () => {
+  beforeEach(() => {
+    createAiTaskManagerMock.mockReset()
+    disposeMock.mockReset()
+  })
+
+  test('run one at a time, so a teardown and a build cannot overlap', async () => {
+    // Both the license listener in main.ts and the settings screen react to the
+    // same change, so one activation starts two calls. They share the manager
+    // slot and the pending-disposal set: run at once, one can build a runtime
+    // while the other is still stopping that very runtime.
+    const pending = new Set<{ disposeAndWait: () => Promise<void> }>()
+    let draining = false
+    let overlapped = false
+    const stopping = {
+      disposeAndWait: async () => {
+        draining = true
+        await Promise.resolve()
+        await Promise.resolve()
+        draining = false
+      },
+    }
+    pending.add(stopping)
+
+    createAiTaskManagerMock.mockImplementation(() => {
+      if (draining) overlapped = true
+      return { id: 'manager' }
+    })
+
+    const host = createHost({ aiTaskManagersPendingDisposal: pending })
+
+    await Promise.all([syncAiTaskManagerToLicense(host), syncAiTaskManagerToLicense(host)])
+
+    expect(overlapped).toBe(false)
+    // The second call finds the runtime the first built and leaves it alone.
+    expect(createAiTaskManagerMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('a failed call does not wedge the queue', async () => {
+    const host = createHost()
+    createAiTaskManagerMock.mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    createAiTaskManagerMock.mockReturnValue({ id: 'manager' })
+
+    await expect(syncAiTaskManagerToLicense(host)).rejects.toThrow('boom')
+    expect(await syncAiTaskManagerToLicense(host)).toBe(true)
+  })
+})

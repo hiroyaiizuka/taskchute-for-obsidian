@@ -310,7 +310,7 @@ describe('device management', () => {
     expect(manager.isActive()).toBe(true)
   })
 
-  test('releasing this device drops the local token and the stored code', async () => {
+  test('releasing this device drops the local token and stops using the code', async () => {
     const { manager, store, client, code } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
     store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
     manager.initialize()
@@ -321,7 +321,56 @@ describe('device management', () => {
     // The token still verifies, but the seat is gone and no refresh can work.
     expect(manager.isActive()).toBe(false)
     expect(store.getState().token).toBeUndefined()
-    expect(code.value).toBeUndefined()
+
+    // The code is thrown away device-locally rather than deleted: data.json is
+    // synced, so deleting it would take the license off every other machine.
+    expect(manager.getStoredCode()).toBeUndefined()
+    expect(manager.isSeatReleased()).toBe(true)
+    expect(code.value).toBe('TCP-0000-0000-0000-0001')
+  })
+
+  test('a seat released from another machine drops the code the same way', async () => {
+    // Whichever end the release came from, this device must stop acting on the
+    // code and must not show it as something the user can still use here.
+    const { manager, store, client, code } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: { devices: [{ device_id: 'DEVICE-OTHER' }], max_devices: 3 },
+    })
+
+    expect(await manager.verifyDeviceRegistration()).toBe('released')
+
+    expect(manager.isActive()).toBe(false)
+    expect(manager.getStoredCode()).toBeUndefined()
+    expect(code.value).toBe('TCP-0000-0000-0000-0001')
+  })
+
+  test('a released device makes no further requests with the code', async () => {
+    // The latch has to reach every path that reads the stored code, or the
+    // seat list would keep loading and a refresh would retake the seat.
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
+
+    await manager.deactivateDevice(manager.getDeviceId())
+    client.deactivateDevice.mockClear()
+
+    expect(await manager.listDevices()).toEqual({
+      ok: false,
+      failure: { ok: false, kind: 'no-code' },
+    })
+    expect(await manager.deactivateDevice('DEVICE-OTHER')).toEqual({
+      ok: false,
+      failure: { ok: false, kind: 'no-code' },
+    })
+    await manager.refreshIfNeeded(true)
+
+    expect(client.listDevices).not.toHaveBeenCalled()
+    expect(client.deactivateDevice).not.toHaveBeenCalled()
+    expect(client.issueToken).not.toHaveBeenCalled()
   })
 
   test('a release is not undone by the next refresh', async () => {
@@ -340,8 +389,10 @@ describe('device management', () => {
     expect(manager.isActive()).toBe(false)
   })
 
-  test('still releases when the settings write fails', async () => {
-    const { manager, store, client } = createHarness({
+  test('releasing this device never touches data.json', async () => {
+    // Nothing is written to settings, so there is no data.json failure that
+    // could turn a seat the server has already freed into "release failed".
+    const { manager, store, client, code } = createHarness({
       code: 'TCP-0000-0000-0000-0001',
       failSetCode: true,
     })
@@ -351,10 +402,9 @@ describe('device management', () => {
 
     const result = await manager.deactivateDevice(manager.getDeviceId())
 
-    // The seat is already gone on the server; a failed data.json write must not
-    // turn that into a rejected promise the UI reports as "release failed".
     expect(result).toEqual({ ok: true, devicesUsed: 0 })
     expect(manager.isActive()).toBe(false)
+    expect(code.value).toBe('TCP-0000-0000-0000-0001')
   })
 
   test('does not call the API without a stored code', async () => {
@@ -533,3 +583,211 @@ describe('onChange', () => {
   })
 })
 
+
+describe('syncFromServer', () => {
+  test('asks about the seat before renewing the token', async () => {
+    // The order is the whole point. Issuing a token re-registers this device
+    // id, so renewing first would hand back a seat released on another machine
+    // and the list would then honestly report the device present — the release
+    // would disappear without a trace.
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+
+    const calls: string[] = []
+    client.listDevices.mockImplementation(() => {
+      calls.push('listDevices')
+      return Promise.resolve({
+        ok: true,
+        data: { devices: [{ device_id: store.getDeviceId() }], max_devices: 3 },
+      })
+    })
+    client.issueToken.mockImplementation(() => {
+      calls.push('issueToken')
+      return Promise.resolve(issued(tokenFor(store), NOW + 7 * DAY))
+    })
+
+    await manager.syncFromServer({ force: true })
+
+    expect(calls[0]).toBe('listDevices')
+  })
+
+  test('does not renew a token for a seat that is gone', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: { devices: [{ device_id: 'DEVICE-OTHER' }], max_devices: 3 },
+    })
+
+    const state = await manager.syncFromServer({ force: true })
+
+    expect(state).toEqual({ status: 'unlicensed' })
+    expect(client.issueToken).not.toHaveBeenCalled()
+  })
+
+  test('recovers an entitlement that only looked gone offline', async () => {
+    // The token expired while the machine was away. Nothing on disk can tell
+    // that from a revoked license, so the screen would keep saying "not
+    // activated" until something asked.
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store, { expiresAt: NOW - DAY }), NOW - DAY, SUMMARY, NOW - 2 * DAY)
+    manager.initialize()
+    expect(manager.isActive()).toBe(false)
+
+    client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
+
+    const state = await manager.syncFromServer({ force: true })
+
+    expect(state.status).toBe('active')
+    // No seat to check while unlicensed: the token request is the question.
+    expect(client.listDevices).not.toHaveBeenCalled()
+  })
+
+  test('leaves a released device alone', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
+    await manager.deactivateDevice(manager.getDeviceId())
+    client.listDevices.mockClear()
+
+    const state = await manager.syncFromServer({ force: true })
+
+    expect(state).toEqual({ status: 'unlicensed' })
+    expect(client.issueToken).not.toHaveBeenCalled()
+    expect(client.listDevices).not.toHaveBeenCalled()
+  })
+
+  test('stops asking about a code the server called invalid', async () => {
+    // Unlike a revoked license, which may be reinstated, a string that is not a
+    // code never becomes one — and every settings visit forces a sync.
+    const { manager, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    manager.initialize()
+    client.issueToken.mockResolvedValue({
+      ok: false,
+      kind: 'api',
+      code: 'invalid_code',
+      status: 404,
+    })
+
+    await manager.syncFromServer({ force: true })
+    await manager.syncFromServer({ force: true })
+
+    expect(client.issueToken).toHaveBeenCalledTimes(1)
+  })
+
+  test('throttles unless forced', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: { devices: [{ device_id: store.getDeviceId() }], max_devices: 3 },
+    })
+
+    await manager.syncFromServer()
+    await manager.syncFromServer()
+    expect(client.listDevices).toHaveBeenCalledTimes(1)
+
+    // Someone pressing refresh is exactly the case the throttle must not answer
+    // with a cached "nothing to report".
+    await manager.syncFromServer({ force: true })
+    expect(client.listDevices).toHaveBeenCalledTimes(2)
+  })
+
+  test('never rejects, whatever the server does', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockRejectedValue(new Error('offline'))
+
+    await expect(manager.syncFromServer({ force: true })).resolves.toBeDefined()
+    expect(manager.isActive()).toBe(true)
+  })
+})
+
+describe('the seat list snapshot', () => {
+  test('one fetch answers both the seat check and the list', async () => {
+    // Opening the Pro screen asks the same question twice at once. Two requests
+    // could come back disagreeing; one cannot.
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+
+    let resolveList: (value: unknown) => void = () => undefined
+    client.listDevices.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve
+      }),
+    )
+
+    const sync = manager.syncFromServer({ force: true })
+    const list = manager.listDevices()
+    resolveList({
+      ok: true,
+      data: { devices: [{ device_id: store.getDeviceId() }], max_devices: 3 },
+    })
+
+    await sync
+    expect(await list).toEqual({
+      ok: true,
+      devices: [{ device_id: store.getDeviceId() }],
+      maxDevices: 3,
+    })
+    expect(client.listDevices).toHaveBeenCalledTimes(1)
+  })
+
+  test('tells watchers about a list they did not ask for', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: { devices: [{ device_id: store.getDeviceId() }], max_devices: 3 },
+    })
+
+    const listener = jest.fn()
+    manager.onDevicesChange(listener)
+
+    await manager.syncFromServer({ force: true })
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener.mock.calls[0][0].devices).toEqual([{ device_id: store.getDeviceId() }])
+    expect(manager.getDeviceSnapshot()?.maxDevices).toBe(3)
+  })
+
+  test('drops a released seat without re-fetching', async () => {
+    const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: {
+        devices: [{ device_id: store.getDeviceId() }, { device_id: 'DEVICE-OTHER' }],
+        max_devices: 3,
+      },
+    })
+    client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 1 } })
+    await manager.listDevices()
+    client.listDevices.mockClear()
+
+    await manager.deactivateDevice('DEVICE-OTHER')
+
+    expect(manager.getDeviceSnapshot()?.devices).toEqual([{ device_id: store.getDeviceId() }])
+    expect(client.listDevices).not.toHaveBeenCalled()
+  })
+
+  test('an explicit code is not coalesced with the stored one', async () => {
+    // The 409 list belongs to the code being typed, which may be a different
+    // license than the one already stored.
+    const { manager, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
+    manager.initialize()
+    client.listDevices.mockResolvedValue({ ok: true, data: { devices: [], max_devices: 3 } })
+
+    await Promise.all([manager.listDevices(), manager.listDevices('TCP-9999-9999-9999-9999')])
+
+    expect(client.listDevices).toHaveBeenCalledTimes(2)
+  })
+})

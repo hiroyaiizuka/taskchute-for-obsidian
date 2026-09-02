@@ -44,6 +44,16 @@ export type LicenseState =
 
 export type LicenseChangeListener = (state: LicenseState) => void
 
+/** The seat list as the server last reported it. */
+export interface DeviceListSnapshot {
+  devices: DeviceView[]
+  maxDevices: number
+  /** Unix seconds, so a view can tell a fresh answer from a stale one. */
+  fetchedAt: number
+}
+
+export type DeviceListListener = (snapshot: DeviceListSnapshot) => void
+
 /**
  * Outcome of asking the server whether this device still holds a seat.
  *
@@ -83,6 +93,15 @@ export class LicenseManager {
   private refreshInFlight?: Promise<void>
   private deviceCheckInFlight?: Promise<DeviceRegistrationCheck>
   private lastDeviceCheckSec?: number
+  private syncInFlight?: Promise<LicenseState>
+  private lastSyncSec?: number
+  /** A code the server called invalid, so the sync stops re-asking about it. */
+  private rejectedCode?: string
+  private deviceSnapshot?: DeviceListSnapshot
+  private deviceListInFlight?: Promise<
+    { ok: true; devices: DeviceView[]; maxDevices: number } | { ok: false; failure: LicenseApiFailure }
+  >
+  private readonly deviceListeners = new Set<DeviceListListener>()
 
   constructor(private readonly deps: LicenseManagerDeps) {}
 
@@ -110,6 +129,29 @@ export class LicenseManager {
   /** Last known seat figures, available even while offline. */
   getLicenseSummary(): LicenseSummary | undefined {
     return this.deps.store.getState().license
+  }
+
+  /**
+   * The activation code this device may act with, or undefined once it has
+   * given up its seat.
+   *
+   * The code cannot simply be deleted: it lives in data.json, which Obsidian
+   * Sync shares, so removing it would take the license away from every other
+   * machine as well. Hiding it behind the device-local latch throws it away
+   * where it has to be thrown away — on this machine — and leaves the others
+   * untouched. Everything downstream then follows for free: no refresh, no
+   * device check, an empty field in settings, and no way back except the user
+   * entering the code again.
+   */
+  getStoredCode(): string | undefined {
+    return this.usableCode()
+  }
+
+  private usableCode(): string | undefined {
+    if (this.deps.store.isSeatReleased()) return undefined
+
+    const code = this.deps.getCode()
+    return code !== undefined && code.length > 0 ? code : undefined
   }
 
   onChange(listener: LicenseChangeListener): () => void {
@@ -148,9 +190,88 @@ export class LicenseManager {
     return run
   }
 
-  /** Whether a device check found this device gone and latched the token off. */
+  /** Whether this device has given up its seat and latched the code off. */
   isSeatReleased(): boolean {
     return this.deps.store.isSeatReleased()
+  }
+
+  /**
+   * Settle this device's entitlement against the server and report the result.
+   *
+   * The single entry point for "am I still Pro?", used on startup, on the
+   * background timer, and when the settings screen is opened. Returns the state
+   * afterwards so a caller that drew the old one can compare and redraw.
+   *
+   * Never throws and never rejects: every failure inside leaves entitlement
+   * exactly as it was, because being unable to ask is not an answer.
+   *
+   * @param options.force Skip the throttle. For the settings screen being
+   * opened, which is a deliberate act by someone waiting to see the answer.
+   */
+  async syncFromServer(options: { force?: boolean } = {}): Promise<LicenseState> {
+    if (this.syncInFlight) return this.syncInFlight
+
+    const now = this.now()
+    if (
+      options.force !== true &&
+      this.lastSyncSec !== undefined &&
+      now - this.lastSyncSec < LICENSE_DEVICE_CHECK_MIN_INTERVAL_SEC
+    ) {
+      return this.state
+    }
+    this.lastSyncSec = now
+
+    const run = this.doSync().finally(() => {
+      this.syncInFlight = undefined
+    })
+    this.syncInFlight = run
+
+    return run
+  }
+
+  private async doSync(): Promise<LicenseState> {
+    try {
+      return await this.settleAgainstServer()
+    } catch (error) {
+      // The API client turns every outcome into a value, so this is a bug or a
+      // broken environment rather than an unreachable server. It still must not
+      // reach the callers: they are plugin startup, a background timer and the
+      // settings screen, none of which may be derailed by the license server.
+      this.deps.log?.('warn', '[License] License sync failed', error)
+      return this.state
+    }
+  }
+
+  private async settleAgainstServer(): Promise<LicenseState> {
+    // The seat question comes first. Issuing a token re-registers this device
+    // id, so a refresh that ran ahead of the check would hand the seat straight
+    // back and the list would then honestly report the device present — a
+    // release made from another machine would vanish without a trace.
+    //
+    // Forced because this method's own throttle already decided the call was
+    // due; letting the check's floor veto it again is how a sync a minute after
+    // startup came to do nothing at all.
+    if ((await this.verifyDeviceRegistration({ force: true })) === 'released') {
+      return this.state
+    }
+
+    if (this.state.status === 'active') {
+      // Not forced: an unexpired token needs nothing, and the check above has
+      // already confirmed the seat.
+      await this.refreshIfNeeded()
+      return this.state
+    }
+
+    // Not active, which offline evidence alone cannot undo — the token may have
+    // simply expired while the machine was away, or the license may have been
+    // un-suspended since. Only the server can say. A device that gave up its
+    // seat has no usable code, so this can never retake one.
+    const code = this.usableCode()
+    if (code === undefined || code === this.rejectedCode) return this.state
+
+    await this.requestToken(code)
+
+    return this.state
   }
 
   /**
@@ -162,16 +283,19 @@ export class LicenseManager {
    * list is the only thing that can tell us, and only a real answer counts —
    * every failure returns `unknown` and leaves entitlement alone.
    */
-  async verifyDeviceRegistration(): Promise<DeviceRegistrationCheck> {
+  async verifyDeviceRegistration(
+    options: { force?: boolean } = {},
+  ): Promise<DeviceRegistrationCheck> {
+    // Only an entitlement that is currently granted can be taken away, and a
+    // device that already gave up its seat has no code to ask with.
     if (this.state.status !== 'active') return 'unknown'
-
-    const code = this.deps.getCode()
-    if (code === undefined || code.length === 0) return 'unknown'
+    if (this.usableCode() === undefined) return 'unknown'
 
     if (this.deviceCheckInFlight) return this.deviceCheckInFlight
 
     const now = this.now()
     if (
+      options.force !== true &&
       this.lastDeviceCheckSec !== undefined &&
       now - this.lastDeviceCheckSec < LICENSE_DEVICE_CHECK_MIN_INTERVAL_SEC
     ) {
@@ -203,13 +327,32 @@ export class LicenseManager {
     // this very screen, say. Acting on a stale reading would clobber it.
     if (this.state.status !== 'active') return 'unknown'
 
-    // The code stays in settings on purpose: data.json is synced, so clearing it
-    // here would strip the license from every other vault that shares it. The
-    // latch is device-local and stops this device alone from renewing.
+    // Drops the token and, with it, the code — device-locally. The value in
+    // settings is left alone because data.json is synced and clearing it would
+    // strip the license from every other machine that shares it; the latch
+    // makes it unreadable here, which is what "throw the code away" means on
+    // the one device that lost its seat.
     this.deps.store.markSeatReleased(this.now())
     this.setState({ status: 'unlicensed' })
 
     return 'released'
+  }
+
+  /** The seats as of the last successful fetch, for a list that has to paint now. */
+  getDeviceSnapshot(): DeviceListSnapshot | undefined {
+    return this.deviceSnapshot
+  }
+
+  /**
+   * Watch the seat list. The settings screen settles entitlement and the seat
+   * list from the same fetch, so the list has to hear about a result it did not
+   * ask for itself.
+   */
+  onDevicesChange(listener: DeviceListListener): () => void {
+    this.deviceListeners.add(listener)
+    return () => {
+      this.deviceListeners.delete(listener)
+    }
   }
 
   /**
@@ -222,15 +365,55 @@ export class LicenseManager {
   ): Promise<
     { ok: true; devices: DeviceView[]; maxDevices: number } | { ok: false; failure: LicenseApiFailure }
   > {
-    const code = explicitCode ?? this.deps.getCode()
+    const code = explicitCode ?? this.usableCode()
     if (code === undefined || code.length === 0) {
       return { ok: false, failure: { ok: false, kind: 'no-code' } }
     }
 
+    // Opening the Pro screen asks this question twice at once — the sync, to
+    // find out whether this device still holds a seat, and the list the screen
+    // draws. One request answers both, and answers them identically, which a
+    // second request would not guarantee. Only for the stored code: an explicit
+    // one belongs to a different license than the one being coalesced.
+    if (explicitCode === undefined && this.deviceListInFlight) {
+      return this.deviceListInFlight
+    }
+
+    const run = this.fetchDevices(code).finally(() => {
+      if (explicitCode === undefined) this.deviceListInFlight = undefined
+    })
+    if (explicitCode === undefined) this.deviceListInFlight = run
+
+    return run
+  }
+
+  private async fetchDevices(
+    code: string,
+  ): Promise<
+    { ok: true; devices: DeviceView[]; maxDevices: number } | { ok: false; failure: LicenseApiFailure }
+  > {
     const result = await this.deps.client.listDevices(code)
     if (!result.ok) return { ok: false, failure: result }
 
+    this.setDeviceSnapshot({
+      devices: result.data.devices,
+      maxDevices: result.data.max_devices,
+      fetchedAt: this.now(),
+    })
+
     return { ok: true, devices: result.data.devices, maxDevices: result.data.max_devices }
+  }
+
+  private setDeviceSnapshot(snapshot: DeviceListSnapshot): void {
+    this.deviceSnapshot = snapshot
+
+    for (const listener of this.deviceListeners) {
+      try {
+        listener(snapshot)
+      } catch (error) {
+        this.deps.log?.('warn', '[License] Device list listener failed', error)
+      }
+    }
   }
 
   /** @param explicitCode See listDevices: the code behind a 409 is not stored. */
@@ -238,7 +421,7 @@ export class LicenseManager {
     deviceId: string,
     explicitCode?: string,
   ): Promise<{ ok: true; devicesUsed: number } | { ok: false; failure: LicenseApiFailure }> {
-    const code = explicitCode ?? this.deps.getCode()
+    const code = explicitCode ?? this.usableCode()
     if (code === undefined || code.length === 0) {
       return { ok: false, failure: { ok: false, kind: 'no-code' } }
     }
@@ -246,19 +429,26 @@ export class LicenseManager {
     const result = await this.deps.client.deactivateDevice(code, deviceId)
     if (!result.ok) return { ok: false, failure: result }
 
+    // Drop the seat from the snapshot rather than re-fetching: the server has
+    // just told us it is gone, and every list watching stays in step without a
+    // second request.
+    if (this.deviceSnapshot) {
+      this.setDeviceSnapshot({
+        ...this.deviceSnapshot,
+        devices: this.deviceSnapshot.devices.filter((device) => device.device_id !== deviceId),
+      })
+    }
+
     // Releasing this very device invalidates the local token: it still verifies
     // cryptographically, but the seat is gone and no refresh will succeed.
+    //
+    // The same latch as a release from another machine, and for the same
+    // reason: the code has to stop working here — otherwise the next refresh
+    // would issue a fresh token under the same device id and silently retake
+    // the seat the user just gave up — while staying readable on every other
+    // machine that shares data.json through Obsidian Sync.
     if (deviceId === this.getDeviceId()) {
-      this.deps.store.clearToken()
-      // The code has to go with it. Left in settings, the next refresh would
-      // issue a fresh token under the same device id and silently retake the
-      // seat the user just released — on this machine and, via Obsidian Sync,
-      // on every other vault that shares data.json.
-      try {
-        await this.deps.setCode(undefined)
-      } catch (error) {
-        this.deps.log?.('warn', '[License] Failed to clear the stored code', error)
-      }
+      this.deps.store.markSeatReleased(this.now())
       this.setState({ status: 'unlicensed' })
     }
 
@@ -266,13 +456,10 @@ export class LicenseManager {
   }
 
   private async doRefresh(force: boolean): Promise<void> {
-    const code = this.deps.getCode()
-    if (code === undefined || code.length === 0) return
-
-    // A seat released elsewhere left the code in place so other synced vaults
-    // keep working. Refreshing here would hand this device the seat straight
-    // back, undoing the release the user made deliberately.
-    if (this.deps.store.isSeatReleased()) return
+    // Undefined once this device gave up its seat, which is what stops a
+    // refresh from handing it straight back.
+    const code = this.usableCode()
+    if (code === undefined) return
 
     if (!force && !this.needsRefresh()) return
 
@@ -298,7 +485,7 @@ export class LicenseManager {
     })
 
     if (!result.ok) {
-      return { ok: false, failure: this.handleFailure(result) }
+      return { ok: false, failure: this.handleFailure(code, result) }
     }
 
     const { token, expires_at: expiresAt, license } = result.data
@@ -316,8 +503,10 @@ export class LicenseManager {
       return { ok: false, failure: { kind: 'untrusted-token', reason: verification.error } }
     }
 
-    // Only activate() gets this far while the latch is on — doRefresh() bails
-    // out first — so a new token here is always the user asking for the seat.
+    // Only activate() gets this far while the latch is on — every other path
+    // reads the code through usableCode(), which returns nothing — so a new
+    // token here is always the user deliberately asking for the seat back.
+    this.rejectedCode = undefined
     this.deps.store.clearSeatReleased()
     this.deps.store.saveToken(token, expiresAt, license, this.now())
     this.setState({ status: 'active', token: verification.token, license })
@@ -325,7 +514,7 @@ export class LicenseManager {
     return { ok: true, state: this.state }
   }
 
-  private handleFailure(failure: LicenseApiFailure): ActivationFailure {
+  private handleFailure(code: string, failure: LicenseApiFailure): ActivationFailure {
     if (failure.kind !== 'api') {
       // Could not reach the server, or sent a malformed request. Neither says
       // anything about entitlement, so an unexpired token keeps working.
@@ -345,6 +534,11 @@ export class LicenseManager {
 
     if (failure.code === 'invalid_code' || failure.code === 'malformed_code') {
       // The stored code is not a license at all; the token cannot be renewed.
+      // Remembered so the periodic sync stops asking: a revoked or suspended
+      // license may be reinstated, but a string that is not a code never
+      // becomes one, and every settings visit would otherwise spend a request
+      // re-learning that.
+      this.rejectedCode = code
       this.deps.store.clearToken()
       this.setState({ status: 'unlicensed' })
       return failure

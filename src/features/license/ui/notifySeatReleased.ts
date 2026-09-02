@@ -1,5 +1,5 @@
 /**
- * The user-facing half of the device-presence check.
+ * The user-facing half of settling entitlement against the server.
  *
  * Losing the seat is not something the user did on this machine, so it cannot
  * pass as a Notice that scrolls away: the AI task UI simply disappears, and the
@@ -9,7 +9,7 @@ import type { App } from 'obsidian'
 
 import { t } from '../../../i18n'
 import { showInfoModal } from '../../../ui/modals/ConfirmModal'
-import type { DeviceRegistrationCheck, LicenseManager } from '../services/LicenseManager'
+import type { LicenseManager, LicenseState } from '../services/LicenseManager'
 
 export interface SeatCheckHost {
   app: App
@@ -17,40 +17,57 @@ export interface SeatCheckHost {
   _log?: (level?: string, ...args: unknown[]) => void
 }
 
+export interface SeatCheckResult {
+  /** Entitlement afterwards, or undefined where there was no manager to ask. */
+  state?: LicenseState
+  /**
+   * Whether the sync moved entitlement. What a caller that drew the old state
+   * needs to know — narrower than "the seat was released", which is only one of
+   * the ways the answer can change.
+   */
+  changed: boolean
+}
+
 /**
- * Check whether this device still holds a seat and tell the user if it does
- * not. Returns what the check found, so a caller that draws license state can
- * redraw itself.
+ * Settle this device's entitlement against the server, telling the user if it
+ * lost its seat. Reports whether anything moved, so a caller that draws license
+ * state can redraw itself.
  *
- * Never throws: it runs on startup and on every settings render, neither of
- * which may be derailed by the license server.
+ * Never throws: it runs on startup, on a timer and whenever the settings screen
+ * is built, none of which may be derailed by the license server.
+ *
+ * @param force Skip the throttle — for the settings screen being opened, where
+ * someone is waiting on the answer.
  */
 export async function checkSeatRegistration(
   host: SeatCheckHost,
-): Promise<DeviceRegistrationCheck> {
+  options: { force?: boolean } = {},
+): Promise<SeatCheckResult> {
   const manager = host.licenseManager
-  if (!manager) return 'unknown'
+  if (!manager) return { changed: false }
 
-  let result: DeviceRegistrationCheck
+  const before = manager.getState()
+
+  let state: LicenseState
   try {
-    result = await manager.verifyDeviceRegistration()
+    state = await manager.syncFromServer(options)
   } catch (error) {
-    host._log?.('warn', '[License] Device check failed', error)
-    return 'unknown'
+    host._log?.('warn', '[License] License sync failed', error)
+    return { state: before, changed: false }
   }
 
-  if (result !== 'released') return result
+  // Reached once per release: the sync leaves the state unlicensed, and the
+  // latch keeps every later one from asking again until the user re-activates.
+  if (before.status === 'active' && state.status !== 'active' && manager.isSeatReleased()) {
+    void showInfoModal(host.app, {
+      title: t('license.seatReleased.title', 'This device was released'),
+      message: t(
+        'license.seatReleased.message',
+        'This device is no longer registered to your license, so AI tasks have been turned off here.\nTo use them on this device again, open the plugin settings and activate your license code.',
+      ),
+      confirmText: t('license.seatReleased.close', 'OK'),
+    })
+  }
 
-  // Only ever reached once per release: the check leaves the state unlicensed,
-  // and every later call returns early on that.
-  void showInfoModal(host.app, {
-    title: t('license.seatReleased.title', 'This device was released'),
-    message: t(
-      'license.seatReleased.message',
-      'This device is no longer registered to your license, so AI tasks have been turned off here.\nTo use them on this device again, open the plugin settings and activate your license code.',
-    ),
-    confirmText: t('license.seatReleased.close', 'OK'),
-  })
-
-  return result
+  return { state, changed: before.status !== state.status }
 }
