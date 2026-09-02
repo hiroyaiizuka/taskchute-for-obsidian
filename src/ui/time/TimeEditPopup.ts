@@ -31,7 +31,10 @@ export default class TimeEditPopup implements TimePicker {
     saveBtn.type = 'button'
     saveBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-save')
     applyIcon(saveBtn, 'check')
-    saveBtn.setAttribute('aria-label', 'Save')
+    saveBtn.setAttribute(
+      'aria-label',
+      options.tv ? options.tv('forms.save', 'Save') : 'Save',
+    )
     container.appendChild(saveBtn)
 
     // Cancel button
@@ -39,7 +42,10 @@ export default class TimeEditPopup implements TimePicker {
     cancelBtn.type = 'button'
     cancelBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-cancel')
     applyIcon(cancelBtn, 'x')
-    cancelBtn.setAttribute('aria-label', 'Cancel')
+    cancelBtn.setAttribute(
+      'aria-label',
+      options.tv ? options.tv('forms.cancel', 'Cancel') : 'Cancel',
+    )
     container.appendChild(cancelBtn)
 
     // Reset button (clear time)
@@ -47,7 +53,10 @@ export default class TimeEditPopup implements TimePicker {
     resetBtn.type = 'button'
     resetBtn.classList.add('taskchute-time-popup-btn', 'taskchute-time-popup-btn-reset')
     applyIcon(resetBtn, 'rotate-ccw')
-    resetBtn.setAttribute('aria-label', 'Reset')
+    resetBtn.setAttribute(
+      'aria-label',
+      options.tv ? options.tv('forms.reset', 'Reset') : 'Reset',
+    )
     container.appendChild(resetBtn)
 
     // Position below anchor

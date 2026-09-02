@@ -678,7 +678,7 @@ describe('AI mode UI', () => {
     )
     expect(select).not.toBeNull()
     expect(select?.options[1]?.textContent).toContain('Publish')
-    expect(modal.textContent).toContain('秘密情報を含めないでください')
+    expect(modal.textContent).toContain("don't include secrets")
     if (!select) throw new Error('recipe select missing')
     select.value = recipe.path
     select.dispatchEvent(new Event('change', { bubbles: true }))

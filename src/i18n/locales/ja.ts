@@ -109,6 +109,8 @@ export const ja = {
         "Windowsの.cmd/.bat/.ps1 shimは手動CLIパスに使用できません。空欄で自動検出するか、実体の実行ファイル／パッケージentrypointを指定してください。",
       retentionName: "実行ログの保持期間（日）",
       retentionDesc: "この日数より古い実行ログノートは自動的に削除されます。",
+      previousRuntimeShutdownFailed:
+        "前回のAIランタイムを安全に停止できませんでした。AIタスクは無効のままです。もう一度お試しください。",
     },
     taskCreation: {
       heading: "タスク作成",
@@ -458,6 +460,18 @@ export const ja = {
       taskRemovedFromTodayWithTitle: "「{title}」を一覧から削除しました。",
       taskMoveCleared: "タスク「{title}」の移動先を解除しました",
       routineDetached: "ルーチンを外しました",
+      routineScheduleUpdated: "ルーチンの予定を更新しました",
+    },
+    errors: {
+      unknown: "不明なエラー",
+      reminderUpdateFailed: "リマインダーの更新に失敗しました",
+    },
+    messages: {
+      reminderCleared: "リマインダーを解除しました",
+      reminderSet: "{time} にリマインダーを設定しました",
+    },
+    recipes: {
+      openRecipe: "レシピを開く",
     },
     restoreModal: {
       heading: "{date} の削除済みタスクを復元",
@@ -490,6 +504,7 @@ export const ja = {
       routineAssigned: "ルーチンタスク",
       routineSet: "ルーチンタスクに設定",
       toggleRoutine: "有効/無効を切り替え",
+      reminderAtTime: "{time} にリマインダー",
     },
     moveCalendar: {
       prevMonth: "前の月へ",
@@ -630,6 +645,7 @@ export const ja = {
       enabled: "有効:",
       startDateLabel: "開始日:",
       endDateLabel: "終了日:",
+      datePlaceholder: "年/月/日",
       startDateFormat: "開始日は {format} 形式で指定してください",
       endDateFormat: "終了日は {format} 形式で指定してください",
       endBeforeStart: "終了日は開始日以降で指定してください",
@@ -695,6 +711,7 @@ export const ja = {
       minute: "分",
       cancel: "キャンセル",
       save: "保存",
+      reset: "リセット",
     },
     calendar: {
       export: {
@@ -759,6 +776,7 @@ export const ja = {
       routineMonthdayNth: "{day}日",
       routineMonthdayLast: "最終日",
       routineMonthdayUnset: "日付未指定",
+      untitledTask: "無題のタスク",
     },
     validator: {
       invalidChars: "使用できない文字が含まれています: {chars}",
@@ -867,6 +885,8 @@ export const ja = {
     labels: {
       yearOption: "{year}年",
       tooltipNoData: "データなし",
+      heatmapLegendLess: "少ない",
+      heatmapLegendMore: "多い",
       openTaskList: "↗︎ 開く",
       openTaskListAria: "{date}のタスク一覧を開く",
       totalTasks: "総タスク",
@@ -1195,10 +1215,12 @@ export const ja = {
       enabledLabel: '有効:',
       startDateLabel: '開始日:',
       endDateLabel: '終了日:',
+      datePlaceholder: '年/月/日',
       weekdaysLabel: '曜日（複数選択可）:',
       monthWeekLabel: '第:',
       monthWeeksLabel: '週（複数選択可）:',
       monthWeekdaysLabel: '曜日（複数選択可）:',
+      monthlySettings: '月次設定:',
       monthlyDateSettings: '月次（日付）設定:',
       monthDaysLabel: '日付（複数選択可）:',
       saveButton: '保存',

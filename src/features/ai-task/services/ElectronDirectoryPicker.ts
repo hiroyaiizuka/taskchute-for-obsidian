@@ -55,7 +55,7 @@ export class ElectronDirectoryPicker {
   async selectDirectory(defaultPath?: string): Promise<string | null> {
     return this.open(
       ['openDirectory', 'createDirectory'],
-      t('taskChuteView.aiTask.picker.selectDirectory', 'ワーキングディレクトリを選択'),
+      t('taskChuteView.aiTask.picker.selectDirectory', 'Select working directory'),
       defaultPath,
     )
   }
@@ -66,7 +66,7 @@ export class ElectronDirectoryPicker {
   }): Promise<string | null> {
     return this.open(
       ['openFile'],
-      options?.title ?? t('taskChuteView.aiTask.picker.selectFile', 'ファイルを選択'),
+      options?.title ?? t('taskChuteView.aiTask.picker.selectFile', 'Select file'),
       options?.defaultPath,
     )
   }

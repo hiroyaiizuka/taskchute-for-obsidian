@@ -6,6 +6,7 @@ import TaskTimeController, {
 } from '../../../src/ui/time/TaskTimeController'
 import type { TaskData, TaskInstance } from '../../../src/types'
 import { Notice } from 'obsidian'
+import { t } from '../../../src/i18n'
 import { SectionConfigService } from '../../../src/services/SectionConfigService'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */
@@ -70,7 +71,7 @@ describe('TaskSettingsTooltipController', () => {
   })
 
   const createHost = (overrides: Partial<TaskSettingsTooltipHost> = {}): TaskSettingsTooltipHost => ({
-    tv: (_key, fallback) => fallback,
+    tv: (key, fallback, vars) => t(`taskChuteView.${key}`, fallback, vars),
     resetTaskToIdle: jest.fn().mockResolvedValue(undefined),
     showScheduledTimeEditModal: jest.fn().mockResolvedValue(undefined),
     showTaskMoveDatePicker: jest.fn(),
@@ -116,7 +117,7 @@ const createTimeController = () => {
   const saveRunningTasksState = jest.fn().mockResolvedValue(undefined)
   const removeTaskLog = jest.fn().mockResolvedValue(undefined)
   const host: TaskTimeControllerHost = {
-    tv: (_key, fallback) => fallback,
+    tv: (key, fallback, vars) => t(`taskChuteView.${key}`, fallback, vars),
     app: {
       vault: {
         getAbstractFileByPath: jest.fn(() => null),
@@ -377,7 +378,7 @@ const createTimeController = () => {
       controller.show(instance, anchor)
 
       const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
-      expect(tooltip.textContent).not.toContain('レシピ')
+      expect(tooltip.textContent).not.toMatch(/recipe/i)
     })
 
     test('shows set recipe when linked recipe is no longer available', () => {
@@ -399,9 +400,9 @@ const createTimeController = () => {
 
       controller.show(instance, anchor)
 
-      expect(queryTooltipItem('レシピを設定')).toBeTruthy()
+      expect(queryTooltipItem('Set recipe')).toBeTruthy()
       const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
-      expect(tooltip.textContent).not.toContain('レシピを変更')
+      expect(tooltip.textContent).not.toContain('Change or remove recipe')
     })
 
     test('shows change recipe when linked recipe is available', () => {
@@ -423,7 +424,7 @@ const createTimeController = () => {
 
       controller.show(instance, anchor)
 
-      expect(queryTooltipItem('レシピを変更')).toBeTruthy()
+      expect(queryTooltipItem('Change or remove recipe')).toBeTruthy()
     })
   })
 

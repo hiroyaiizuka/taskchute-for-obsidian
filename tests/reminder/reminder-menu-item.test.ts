@@ -6,6 +6,7 @@ import TaskSettingsTooltipController, {
   TaskSettingsTooltipHost,
 } from '../../src/ui/task/TaskSettingsTooltipController';
 import type { TaskInstance } from '../../src/types';
+import { t } from '../../src/i18n';
 
 // Mock Obsidian's createEl method on HTMLElement
 const mockCreateEl = function (
@@ -48,7 +49,8 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
     document.body.innerHTML = '';
 
     mockHost = {
-      tv: jest.fn((key: string, fallback: string) => fallback),
+      tv: jest.fn((key: string, fallback: string, vars?: Record<string, string | number>) =>
+        t(`taskChuteView.${key}`, fallback, vars),),
       resetTaskToIdle: jest.fn(),
       showScheduledTimeEditModal: jest.fn(),
       showTaskMoveDatePicker: jest.fn(),
@@ -106,8 +108,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
       expect(reminderItem).toBeDefined();
     });
@@ -131,8 +132,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       (reminderItem as HTMLElement)?.click();
@@ -147,8 +147,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       (reminderItem as HTMLElement)?.click();
@@ -165,8 +164,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       // Should not have "clear" text when no reminder is set
@@ -182,8 +180,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       // Should indicate current setting with time
@@ -198,8 +195,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       expect(reminderItem?.textContent).toContain('09:55');
@@ -213,8 +209,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       // Should show "set" text, not a time
@@ -230,8 +225,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
       const items = tooltip?.querySelectorAll('.tooltip-item');
       const reminderItem = Array.from(items || []).find(
         (item) =>
-          item.textContent?.includes('リマインダー') ||
-          item.textContent?.includes('Reminder')
+          /reminder/i.test(item.textContent ?? '')
       );
 
       expect(reminderItem?.textContent).toMatch(/設定|Set/i);

@@ -296,7 +296,7 @@ export default class RoutineController {
       const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
       const checkbox = option.createEl('input', { type: 'checkbox', value: String(day) })
       option.createSpan( {
-        text: this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        text: this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
         cls: 'routine-monthday-option__label',
       })
       monthdayCheckboxes.push(checkbox)
@@ -812,9 +812,7 @@ export default class RoutineController {
   ): HTMLInputElement {
     const wrapper = container.createDiv( { cls: 'form-input-icon-wrapper' })
     const localeCode = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US'
-    const placeholder = getCurrentLocale() === 'ja'
-      ? this.tv('forms.datePlaceholderJa', '年/月/日')
-      : this.tv('forms.datePlaceholderEn', 'YYYY-MM-DD')
+    const placeholder = this.tv('forms.datePlaceholder', 'YYYY-MM-DD')
     const displayInput = wrapper.createEl('input', {
       type: 'text',
       cls: 'form-input--date form-input--bare',
@@ -1304,7 +1302,7 @@ export default class RoutineController {
     const labels = monthdays.map((day) =>
       day === 'last'
         ? this.tv('labels.routineMonthdayLast', 'Last day')
-        : this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        : this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
     )
     return labels.join(joiner)
   }

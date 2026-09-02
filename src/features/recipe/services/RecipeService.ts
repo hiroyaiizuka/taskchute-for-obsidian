@@ -254,7 +254,7 @@ export class RecipeService {
       frontmatter.recipe = createRecipeReferenceLink(normalizedRecipePath)
       return frontmatter
     })
-    new Notice(t('recipes.select.notices.assigned', 'レシピを設定しました'))
+    new Notice(t('recipes.select.notices.assigned', 'Recipe set'))
   }
 
   async unassignRecipeFromTask(taskPath: string): Promise<void> {
@@ -265,7 +265,7 @@ export class RecipeService {
     await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
       delete frontmatter.recipe
     })
-    new Notice(t('recipes.select.notices.unassigned', 'レシピを解除しました'))
+    new Notice(t('recipes.select.notices.unassigned', 'Recipe removed'))
   }
 
   private async unlinkRecipeFromTasks(recipePath: string): Promise<void> {

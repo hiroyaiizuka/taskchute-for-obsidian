@@ -969,9 +969,7 @@ export default class RoutineEditModal extends Modal {
   ): HTMLInputElement {
     const wrapper = container.createDiv( { cls: "form-input-icon-wrapper" })
     const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
-    const placeholder = getCurrentLocale() === "ja"
-      ? this.tv("fields.datePlaceholderJa", "年/月/日")
-      : this.tv("fields.datePlaceholderEn", "YYYY-MM-DD")
+    const placeholder = this.tv("fields.datePlaceholder", "YYYY-MM-DD")
     const displayInput = wrapper.createEl("input", {
       type: "text",
       cls: "form-input--date form-input--bare",

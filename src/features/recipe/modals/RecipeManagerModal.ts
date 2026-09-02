@@ -94,7 +94,7 @@ export default class RecipeManagerModal extends Modal {
       this.render()
     } catch (error) {
       console.error('[RecipeManagerModal] Failed to load recipes', error)
-      new Notice(t('recipes.manager.notices.loadFailed', 'レシピ管理画面の読み込みに失敗しました'))
+      new Notice(t('recipes.manager.notices.loadFailed', 'Failed to load recipe manager'))
     }
   }
 
@@ -115,13 +115,13 @@ export default class RecipeManagerModal extends Modal {
 
   private renderList(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.manager.listTitle', 'レシピ一覧'))
+    this.renderHeader(t('recipes.manager.listTitle', 'Recipes'))
 
     if (this.recipes.length > 0) {
       const toolbar = this.contentEl.createDiv( { cls: 'recipe-list-toolbar' })
       const search = toolbar.createEl('input', {
         cls: 'form-input recipe-search-input',
-        attr: { type: 'search', placeholder: t('recipes.manager.searchPlaceholder', 'レシピを検索') },
+        attr: { type: 'search', placeholder: t('recipes.manager.searchPlaceholder', 'Search recipes') },
       })
       search.value = this.searchQuery
       search.addEventListener('input', () => {
@@ -130,7 +130,7 @@ export default class RecipeManagerModal extends Modal {
       })
       const createButton = toolbar.createEl('button', {
         cls: 'form-button create',
-        text: t('recipes.manager.createButton', '新規'),
+        text: t('recipes.manager.createButton', 'New'),
         attr: { type: 'button' },
       })
       createButton.addEventListener('click', () => {
@@ -166,7 +166,7 @@ export default class RecipeManagerModal extends Modal {
       return
     }
     if (recipes.length === 0) {
-      list.createDiv( { cls: 'recipe-empty-state', text: t('recipes.manager.noMatches', '一致するレシピがありません') })
+      list.createDiv( { cls: 'recipe-empty-state', text: t('recipes.manager.noMatches', 'No matching recipes') })
       return
     }
     recipes.forEach((recipe) => {
@@ -184,8 +184,8 @@ export default class RecipeManagerModal extends Modal {
       cls: 'recipe-source-open-button',
       attr: {
         type: 'button',
-        title: t('recipes.manager.openSource', 'レシピ原本を開く'),
-        'aria-label': t('recipes.manager.openSource', 'レシピ原本を開く'),
+        title: t('recipes.manager.openSource', 'Open recipe source'),
+        'aria-label': t('recipes.manager.openSource', 'Open recipe source'),
       },
     })
     this.appendOpenSourceIcon(openSourceButton)
@@ -196,7 +196,7 @@ export default class RecipeManagerModal extends Modal {
     })
     main.createDiv( {
       cls: 'recipe-card-meta',
-      text: t('recipes.manager.cardMeta', '{steps} 手順・{quality} 品質基準 / 使用中: {usages} タスク', {
+      text: t('recipes.manager.cardMeta', '{steps} steps · {quality} quality checks / used by {usages} tasks', {
         steps: recipe.steps.length,
         quality: recipe.qualityChecks?.length ?? 0,
         usages: usages.length,
@@ -206,12 +206,12 @@ export default class RecipeManagerModal extends Modal {
       || recipe.steps.slice(0, 3).map((step) => step.text).join(' / ')
     main.createDiv({
       cls: 'recipe-card-preview',
-      text: preview || t('recipes.manager.emptyPreview', 'レシピ内容なし'),
+      text: preview || t('recipes.manager.emptyPreview', 'No recipe content'),
     })
     const actions = card.createDiv( { cls: 'recipe-card-actions' })
     const editButton = actions.createEl('button', {
       cls: 'form-button cancel recipe-card-edit-button',
-      text: t('recipes.manager.editButton', '編集'),
+      text: t('recipes.manager.editButton', 'Edit'),
       attr: { type: 'button' },
     })
     editButton.addEventListener('click', () => {
@@ -224,8 +224,8 @@ export default class RecipeManagerModal extends Modal {
       cls: 'recipe-card-delete-button',
       attr: {
         type: 'button',
-        title: t('recipes.manager.deleteRecipe', 'レシピを削除'),
-        'aria-label': t('recipes.manager.deleteRecipe', 'レシピを削除'),
+        title: t('recipes.manager.deleteRecipe', 'Delete recipe'),
+        'aria-label': t('recipes.manager.deleteRecipe', 'Delete recipe'),
       },
     })
     this.appendTrashIcon(deleteButton)
@@ -241,7 +241,7 @@ export default class RecipeManagerModal extends Modal {
     const recipe = this.editing
 
     this.renderHeader(
-      recipe ? t('recipes.manager.editTitle', 'レシピ編集') : t('recipes.manager.createTitle', 'レシピ新規作成'),
+      recipe ? t('recipes.manager.editTitle', 'Edit recipe') : t('recipes.manager.createTitle', 'Create recipe'),
     )
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
@@ -257,14 +257,14 @@ export default class RecipeManagerModal extends Modal {
     let saveButton: HTMLButtonElement | undefined
     createModalFooter(form, [
       {
-        text: t('common.cancel', 'キャンセル'),
+        text: t('common.cancel', 'Cancel'),
         role: 'cancel',
         onClick: () => {
           void this.requestLeaveEdit()
         },
       },
       {
-        text: t('recipes.manager.saveButton', '保存'),
+        text: t('recipes.manager.saveButton', 'Save'),
         role: 'primary',
         type: 'submit',
         ref: (button) => {
@@ -305,10 +305,10 @@ export default class RecipeManagerModal extends Modal {
 
   private confirmDiscardChanges(): Promise<boolean> {
     return showConfirmModal(this.app, {
-      title: t('recipes.manager.discardTitle', '未保存の変更'),
-      message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
-      confirmText: t('recipes.manager.discardButton', '破棄'),
-      cancelText: t('common.cancel', 'キャンセル'),
+      title: t('recipes.manager.discardTitle', 'Unsaved changes'),
+      message: t('recipes.manager.discardMessage', 'Discard your unsaved changes?'),
+      confirmText: t('recipes.manager.discardButton', 'Discard'),
+      cancelText: t('common.cancel', 'Cancel'),
       destructive: true,
     })
   }
@@ -374,35 +374,35 @@ export default class RecipeManagerModal extends Modal {
       this.forceClose()
     } catch (error) {
       console.error('[RecipeManagerModal] Failed to open recipe source', error)
-      new Notice(t('recipes.manager.notices.openSourceFailed', 'レシピ原本を開けませんでした'))
+      new Notice(t('recipes.manager.notices.openSourceFailed', 'Failed to open recipe source'))
     }
   }
 
   private async saveCurrentRecipe(path: string | undefined, value: RecipeEditorValue): Promise<void> {
     try {
       await this.service.saveRecipe({ path, ...value })
-      new Notice(t('recipes.manager.notices.saved', 'レシピを保存しました'))
+      new Notice(t('recipes.manager.notices.saved', 'Recipe saved'))
       this.directEditFromRecipePath = false
       this.mode = 'list'
       this.editing = null
       await this.reload()
     } catch (error) {
       console.error('[RecipeManagerModal] Failed to save recipe', error)
-      new Notice(error instanceof Error ? error.message : t('recipes.manager.notices.saveFailed', 'レシピの保存に失敗しました'))
+      new Notice(error instanceof Error ? error.message : t('recipes.manager.notices.saveFailed', 'Failed to save recipe'))
     }
   }
 
   private async deleteCurrentRecipe(recipe: Recipe): Promise<void> {
     try {
       await this.service.deleteRecipe(recipe.path)
-      new Notice(t('recipes.manager.notices.deleted', 'レシピを削除しました'))
+      new Notice(t('recipes.manager.notices.deleted', 'Recipe deleted'))
       this.mode = 'list'
       this.editing = null
       await this.notifyRecipesChanged()
       await this.reload()
     } catch (error) {
       console.error('[RecipeManagerModal] Failed to delete recipe', error)
-      new Notice(t('recipes.manager.notices.deleteFailed', 'レシピの削除に失敗しました'))
+      new Notice(t('recipes.manager.notices.deleteFailed', 'Failed to delete recipe'))
     }
   }
 
@@ -416,16 +416,16 @@ export default class RecipeManagerModal extends Modal {
 
   private async confirmDeleteRecipe(recipe: Recipe): Promise<void> {
     const confirmed = await showConfirmModal(this.app, {
-      title: t('routineManager.confirm.heading', '確認'),
-      message: t('recipes.manager.deleteConfirmTitle', '「{title}」を削除しますか？', {
+      title: t('routineManager.confirm.heading', 'Confirm'),
+      message: t('recipes.manager.deleteConfirmTitle', 'Delete "{title}"?', {
         title: recipe.title,
       }),
       description: t(
         'recipes.manager.deleteConfirmMessage',
-        '紐付いているタスクからも解除されます。',
+        'Linked tasks will also be unassigned.',
       ),
-      confirmText: t('common.delete', '削除'),
-      cancelText: t('common.cancel', 'キャンセル'),
+      confirmText: t('common.delete', 'Delete'),
+      cancelText: t('common.cancel', 'Cancel'),
       destructive: true,
     })
     if (!confirmed) return

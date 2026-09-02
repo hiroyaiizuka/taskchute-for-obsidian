@@ -6,6 +6,7 @@ import {
   ReminderIconRendererOptions,
 } from '../../src/features/reminder/ui/ReminderIconRenderer';
 import type { TaskInstance } from '../../src/types';
+import { t } from '../../src/i18n';
 
 // Mock Obsidian's createEl and createSvg
 const mockCreateEl = function (
@@ -70,7 +71,8 @@ describe('ReminderIconRenderer', () => {
     container.createSvg = createSvgStub;
 
     options = {
-      tv: jest.fn((key: string, fallback: string) => fallback),
+      tv: jest.fn((key: string, fallback: string, vars?: Record<string, string | number>) =>
+        t(`taskChuteView.${key}`, fallback, vars),),
     };
     renderer = new ReminderIconRenderer(options);
   });

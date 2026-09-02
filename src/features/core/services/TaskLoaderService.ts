@@ -314,7 +314,7 @@ export async function loadTasksForContext(context: TaskLoaderHost): Promise<void
     context.renderTaskList()
   } catch (error) {
     console.error('Failed to load tasks', error)
-    new Notice(t('taskChuteView.notices.taskLoadFailed', 'タスクの読み込みに失敗しました'))
+    new Notice(t('taskChuteView.notices.taskLoadFailed', 'Failed to load tasks'))
   }
 }
 

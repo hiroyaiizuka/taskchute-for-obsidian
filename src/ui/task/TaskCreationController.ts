@@ -858,7 +858,7 @@ export default class TaskCreationController {
       this.host.recipeService
     ) {
       const recipeField = buildField(
-        this.host.tv("addTask.aiRecipeLabel", "レシピ（任意）"),
+        this.host.tv("addTask.aiRecipeLabel", "Recipe (optional)"),
       )
       recipeSelect = doc.win.createEl("select")
       recipeSelect.className = "form-input ai-task-recipe-select"
@@ -866,7 +866,7 @@ export default class TaskCreationController {
       noneOption.value = ""
       noneOption.textContent = this.host.tv(
         "addTask.aiRecipeNone",
-        "レシピなし",
+        "No recipe",
       )
       recipeSelect.appendChild(noneOption)
       let pendingInitialOption: HTMLOptionElement | null = null
@@ -883,7 +883,7 @@ export default class TaskCreationController {
       disclosure.className = "ai-task-field-description"
       disclosure.textContent = this.host.tv(
         "addTask.aiRecipeDisclosure",
-        "選択したレシピの完了基準・手順・品質基準・制約は、実行時にClaude Code/Codexへ送信されます。秘密情報を含めないでください。",
+        "The selected recipe's definition of done, steps, quality checks, and constraints are sent to the selected CLI at run time; don't include secrets.",
       )
       recipeField.appendChild(disclosure)
 
@@ -892,7 +892,7 @@ export default class TaskCreationController {
       const detailsSummary = doc.win.createEl("summary")
       detailsSummary.textContent = this.host.tv(
         "addTask.aiRecipePreview",
-        "内容を確認",
+        "Review recipe content",
       )
       recipeDetails.appendChild(detailsSummary)
       const detailsBody = doc.win.createEl("pre")
@@ -907,16 +907,16 @@ export default class TaskCreationController {
         detailsBody.textContent = recipe
           ? [
               recipe.goal
-                ? `${this.host.tv("recipes.manager.goalLabel", "完了基準")}\n${recipe.goal}`
+                ? `${this.host.tv("recipes.manager.goalLabel", "Definition of done")}\n${recipe.goal}`
                 : "",
               recipe.steps.length > 0
-                ? `${this.host.tv("recipes.manager.stepsLabel", "手順チェックリスト")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${this.host.tv("recipes.manager.stepsLabel", "Steps")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.qualityChecks.length > 0
-                ? `${this.host.tv("recipes.manager.qualityChecksLabel", "品質基準チェックリスト")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${this.host.tv("recipes.manager.qualityChecksLabel", "Quality checks")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.constraints.length > 0
-                ? `${this.host.tv("recipes.manager.constraintsLabel", "制約・ルール")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${this.host.tv("recipes.manager.constraintsLabel", "Constraints and rules")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
             ].filter(Boolean).join("\n\n")
           : ""
@@ -933,11 +933,11 @@ export default class TaskCreationController {
           option.value = recipe.path
           const summaryParts = [
             recipe.goal.trim().length > 0
-              ? this.host.tv("addTask.aiRecipeHasGoal", "ゴールあり")
+              ? this.host.tv("addTask.aiRecipeHasGoal", "Has definition of done")
               : null,
-            `${this.host.tv("recipes.manager.stepsLabel", "手順")} ${recipe.steps.length}`,
-            `${this.host.tv("recipes.manager.qualityChecksLabel", "品質")} ${recipe.qualityChecks.length}`,
-            `${this.host.tv("recipes.manager.constraintsLabel", "制約")} ${recipe.constraints.length}`,
+            `${this.host.tv("recipes.manager.stepsLabel", "Steps")} ${recipe.steps.length}`,
+            `${this.host.tv("recipes.manager.qualityChecksLabel", "Quality checks")} ${recipe.qualityChecks.length}`,
+            `${this.host.tv("recipes.manager.constraintsLabel", "Constraints and rules")} ${recipe.constraints.length}`,
           ].filter((value): value is string => value !== null)
           option.textContent = `${recipe.title} — ${summaryParts.join(" / ")}`
           recipeSelect.appendChild(option)
@@ -948,7 +948,7 @@ export default class TaskCreationController {
         ) {
           const broken = doc.win.createEl("option")
           broken.value = initialRecipePath
-          broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "見つかりません")})`
+          broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "Not found")})`
           recipeSelect.appendChild(broken)
         }
         recipeSelect.value = initialRecipePath ?? ""

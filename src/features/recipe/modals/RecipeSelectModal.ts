@@ -109,13 +109,13 @@ export class RecipeSelectModal extends Modal {
 
   private renderSelect(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.select.title', 'レシピを設定'))
+    this.renderHeader(t('recipes.select.title', 'Set recipe'))
 
     if (this.recipes.length > 0) {
       const titleGroup = this.contentEl.createDiv( { cls: 'form-group recipe-select-name-group' })
       titleGroup.createEl('label', {
         cls: 'form-label',
-        text: t('recipes.select.nameLabel', 'レシピ名:'),
+        text: t('recipes.select.nameLabel', 'Recipe name:'),
         attr: { for: this.searchInputId },
       })
       this.searchInput = this.contentEl.createEl('input', {
@@ -128,7 +128,7 @@ export class RecipeSelectModal extends Modal {
           'aria-autocomplete': 'list',
           'aria-expanded': 'false',
           'aria-controls': this.suggestionsId,
-          placeholder: t('recipes.manager.searchPlaceholder', 'レシピを検索'),
+          placeholder: t('recipes.manager.searchPlaceholder', 'Search recipes'),
         },
       })
       titleGroup.appendChild(this.searchInput)
@@ -147,7 +147,7 @@ export class RecipeSelectModal extends Modal {
       this.renderInlineCreateFields()
       const createButton = this.contentEl.createEl('button', {
         cls: 'form-button cancel recipe-select-create-new-button',
-        text: t('recipes.select.createNew', '新しいレシピを作る'),
+        text: t('recipes.select.createNew', 'Create a new recipe'),
         attr: { type: 'button' },
       })
       createButton.addEventListener('click', () => this.enterCreateMode())
@@ -224,7 +224,7 @@ export class RecipeSelectModal extends Modal {
 
   private renderCreate(): void {
     if (!this.contentEl) return
-    this.renderHeader(t('recipes.manager.createTitle', 'レシピ新規作成'))
+    this.renderHeader(t('recipes.manager.createTitle', 'Create recipe'))
 
     const form = this.contentEl.createEl('form', { cls: 'task-form recipe-edit-form' })
     this.createEditor = new RecipeEditorForm(form, { title: this.createInitialTitle })
@@ -232,14 +232,14 @@ export class RecipeSelectModal extends Modal {
     let saveButton: HTMLButtonElement | undefined
     createModalFooter(form, [
       {
-        text: t('common.cancel', 'キャンセル'),
+        text: t('common.cancel', 'Cancel'),
         role: 'cancel',
         onClick: () => {
           void this.requestLeaveCreate()
         },
       },
       {
-        text: t('recipes.manager.saveButton', '保存'),
+        text: t('recipes.manager.saveButton', 'Save'),
         role: 'primary',
         type: 'submit',
         ref: (button) => {
@@ -269,7 +269,7 @@ export class RecipeSelectModal extends Modal {
       ...(this.options.instance.task.recipePath
         ? [
             {
-              text: t('recipes.select.clear', 'レシピを解除'),
+              text: t('recipes.select.clear', 'Remove recipe'),
               role: 'secondary' as const,
               cls: 'recipe-select-clear-button',
               ref: (button: HTMLButtonElement) => {
@@ -285,9 +285,9 @@ export class RecipeSelectModal extends Modal {
             },
           ]
         : []),
-      { text: t('common.cancel', 'キャンセル'), role: 'cancel', onClick: () => this.close() },
+      { text: t('common.cancel', 'Cancel'), role: 'cancel', onClick: () => this.close() },
       {
-        text: t('recipes.manager.saveButton', '保存'),
+        text: t('recipes.manager.saveButton', 'Save'),
         role: 'primary',
         cls: 'recipe-select-save-button',
         ref: (button) => {
@@ -449,10 +449,10 @@ export class RecipeSelectModal extends Modal {
 
   private confirmDiscardChanges(): Promise<boolean> {
     return showConfirmModal(this.app, {
-      title: t('recipes.manager.discardTitle', '未保存の変更'),
-      message: t('recipes.manager.discardMessage', '未保存の変更を破棄しますか？'),
-      confirmText: t('recipes.manager.discardButton', '破棄'),
-      cancelText: t('common.cancel', 'キャンセル'),
+      title: t('recipes.manager.discardTitle', 'Unsaved changes'),
+      message: t('recipes.manager.discardMessage', 'Discard your unsaved changes?'),
+      confirmText: t('recipes.manager.discardButton', 'Discard'),
+      cancelText: t('common.cancel', 'Cancel'),
       destructive: true,
     })
   }
@@ -481,7 +481,7 @@ export class RecipeSelectModal extends Modal {
       this.render()
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to load recipes', error)
-      new Notice(t('recipes.select.notices.loadFailed', 'レシピ一覧の読み込みに失敗しました'))
+      new Notice(t('recipes.select.notices.loadFailed', 'Failed to load recipes'))
       this.forceClose()
     }
   }
@@ -491,7 +491,7 @@ export class RecipeSelectModal extends Modal {
       await this.options.service.assignRecipeToTask(this.options.instance.task.path, recipe.path)
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to assign recipe', error)
-      new Notice(t('recipes.select.notices.assignFailed', 'レシピの設定に失敗しました'))
+      new Notice(t('recipes.select.notices.assignFailed', 'Failed to set recipe'))
       return false
     }
 
@@ -509,7 +509,7 @@ export class RecipeSelectModal extends Modal {
       await this.options.service.unassignRecipeFromTask(this.options.instance.task.path)
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to unassign recipe', error)
-      new Notice(t('recipes.select.notices.unassignFailed', 'レシピの解除に失敗しました'))
+      new Notice(t('recipes.select.notices.unassignFailed', 'Failed to remove recipe'))
       return
     }
 
@@ -534,7 +534,7 @@ export class RecipeSelectModal extends Modal {
       this.render()
     } catch (error) {
       console.error('[RecipeSelectModal] Failed to create recipe', error)
-      new Notice(error instanceof Error ? error.message : t('recipes.select.notices.createFailed', 'レシピの作成に失敗しました'))
+      new Notice(error instanceof Error ? error.message : t('recipes.select.notices.createFailed', 'Failed to create recipe'))
     }
   }
 }

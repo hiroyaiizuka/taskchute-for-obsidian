@@ -113,7 +113,7 @@ export default class NavigationRoutineRenderer {
             weekSet.push(converted)
           }
         }
-        const weekLabel = this.formatWeekList(weekSet) ?? this.host.tv('labels.routineWeekLabel', 'Week {week}', { week: 1 })
+        const weekLabel = this.formatWeekList(weekSet) ?? this.host.tv('labels.routineWeekNth', 'Week {week}', { week: 1 })
 
         const weekdaySet = this.normalizeWeekdayArray(
           task.routine_weekdays ?? (typeof task.routine_weekday === 'number' ? [task.routine_weekday] : undefined),
@@ -221,7 +221,7 @@ export default class NavigationRoutineRenderer {
     const labels = weeks.map((week) =>
       week === 'last'
         ? this.host.tv('labels.routineWeekLast', 'Last')
-        : this.host.tv('labels.routineWeekLabel', 'Week {week}', { week }),
+        : this.host.tv('labels.routineWeekNth', 'Week {week}', { week }),
     )
     return labels.join(joiner)
   }

@@ -113,6 +113,8 @@ export const en = {
         "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
       retentionName: "Run log retention (days)",
       retentionDesc: "Run log notes older than this many days are deleted automatically.",
+      previousRuntimeShutdownFailed:
+        "The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.",
     },
     taskCreation: {
       heading: "Task creation",
@@ -462,6 +464,18 @@ export const en = {
       taskRemovedFromTodayWithTitle: 'Removed "{title}" from the list.',
       taskMoveCleared: 'Cleared destination for "{title}"',
       routineDetached: "Detached from routine",
+      routineScheduleUpdated: "Routine schedule updated",
+    },
+    errors: {
+      unknown: "Unknown error",
+      reminderUpdateFailed: "Failed to update reminder",
+    },
+    messages: {
+      reminderCleared: "Reminder cleared",
+      reminderSet: "Reminder set for {time}",
+    },
+    recipes: {
+      openRecipe: "Open recipe",
     },
     restoreModal: {
       heading: "Restore deleted tasks for {date}",
@@ -494,6 +508,7 @@ export const en = {
       routineAssigned: "Routine task",
       routineSet: "Set as routine",
       toggleRoutine: "Toggle enabled state",
+      reminderAtTime: "Reminder at {time}",
     },
     moveCalendar: {
       prevMonth: "Previous month",
@@ -634,6 +649,7 @@ export const en = {
       enabled: "Enabled:",
       startDateLabel: "Start date:",
       endDateLabel: "End date:",
+      datePlaceholder: DATE_FORMAT_DISPLAY,
       startDateFormat: "Start date must use {format} format.",
       endDateFormat: "End date must use {format} format.",
       endBeforeStart: "End date must be on or after the start date.",
@@ -699,6 +715,7 @@ export const en = {
       minute: "M",
       cancel: "Cancel",
       save: "Save",
+      reset: "Reset",
     },
     calendar: {
       export: {
@@ -763,6 +780,7 @@ export const en = {
       routineMonthdayNth: 'Day {day}',
       routineMonthdayLast: 'Last day',
       routineMonthdayUnset: 'No date set',
+      untitledTask: 'Untitled task',
     },
     validator: {
       invalidChars: "Task name contains invalid characters: {chars}",
@@ -869,6 +887,8 @@ export const en = {
     labels: {
       yearOption: "{year}",
       tooltipNoData: "No data",
+      heatmapLegendLess: "Less",
+      heatmapLegendMore: "More",
       openTaskList: "Open ↗",
       openTaskListAria: "Open task list for {date}",
       totalTasks: "Total tasks",
@@ -1197,10 +1217,12 @@ export const en = {
       enabledLabel: 'Enabled:',
       startDateLabel: 'Start date:',
       endDateLabel: 'End date:',
+      datePlaceholder: DATE_FORMAT_DISPLAY,
       weekdaysLabel: 'Weekdays (multi-select):',
       monthWeekLabel: 'Week:',
       monthWeeksLabel: 'Weeks (multi-select):',
       monthWeekdaysLabel: 'Weekdays (multi-select):',
+      monthlySettings: 'Monthly settings:',
       monthlyDateSettings: 'Monthly date settings:',
       monthDaysLabel: 'Dates (multi-select):',
       saveButton: 'Save',

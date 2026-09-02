@@ -1,7 +1,8 @@
 import NavigationController from '../../src/ui/navigation/NavigationController';
+import { t } from '../../src/i18n';
 
 type NavigationViewStub = {
-  tv: (key: string, fallback: string) => string;
+  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string;
   app: {
     setting: {
       open: jest.Mock<void, []>;
@@ -71,7 +72,9 @@ describe('NavigationController', () => {
     );
 
     const view: NavigationViewStub = {
-      tv: jest.fn((_, fallback) => fallback),
+      tv: jest.fn((key: string, fallback: string, vars?: Record<string, string | number>) =>
+        t(`taskChuteView.${key}`, fallback, vars),
+      ),
       app: {
         setting: {
           open: jest.fn(),
@@ -141,11 +144,11 @@ describe('NavigationController', () => {
       'settings',
     ]);
     expect(Array.from(container.querySelectorAll('.navigation-nav-label')).map((item) => item.textContent)).toEqual([
-      'ルーチン',
-      'デビュー',
-      'ログ',
-      'プロジェクト',
-      '設定',
+      'Routine',
+      'Review',
+      'Log',
+      'Projects',
+      'Settings',
     ]);
 
     navItems[0].dispatchEvent(new Event('click'));
@@ -168,7 +171,7 @@ describe('NavigationController', () => {
       'projects',
       'settings',
     ]);
-    expect(Array.from(container.querySelectorAll('.navigation-nav-label')).map((item) => item.textContent)).toContain('レシピ');
+    expect(Array.from(container.querySelectorAll('.navigation-nav-label')).map((item) => item.textContent)).toContain('Recipes');
   });
 
   test('initializeNavigationEventListeners connects overlay handler', () => {
