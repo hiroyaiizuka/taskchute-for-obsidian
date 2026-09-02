@@ -16,6 +16,7 @@
 import { TFile } from 'obsidian'
 import { listFilesInFolder } from '../../../utils/vaultFiles'
 import type { AiResultEvent, AiRunRecord, AiStreamEvent } from '../types'
+import { formatAiResultSummary } from './AiResultSummary'
 
 /** Maximum stderr lines preserved at the end of a run log note */
 export const STDERR_TAIL_LIMIT = 50
@@ -141,12 +142,7 @@ function composeInitLine(event: Extract<AiStreamEvent, { kind: 'init' }>): strin
 }
 
 function composeResultLine(event: AiResultEvent): string {
-  const label = event.subtype ?? (event.isError ? 'error' : 'success')
-  const details: string[] = []
-  if (event.totalCostUsd !== undefined) details.push(`cost $${event.totalCostUsd}`)
-  if (event.numTurns !== undefined) details.push(`${event.numTurns} turns`)
-  const suffix = details.length > 0 ? ` (${details.join(', ')})` : ''
-  return `- [result] ${label}${suffix}`
+  return `- [result] ${formatAiResultSummary(event)}`
 }
 
 function composeTranscript(events: AiStreamEvent[]): string[] {

@@ -37,9 +37,16 @@ describe('parseClaudeLine', () => {
     ])
   })
 
-  test('treats system events with other subtypes as raw', () => {
-    const line = JSON.stringify({ type: 'system', subtype: 'compact' })
-    expect(parseClaudeLine(line)).toEqual([{ kind: 'raw', text: line }])
+  test('reduces system events with other subtypes to a short marker', () => {
+    const line = JSON.stringify({
+      type: 'system',
+      subtype: 'api_retry',
+      attempt: 1,
+      error: 'overloaded',
+    })
+    expect(parseClaudeLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] system/api_retry' },
+    ])
   })
 
   test('parses assistant text blocks', () => {
@@ -78,20 +85,43 @@ describe('parseClaudeLine', () => {
     ])
   })
 
-  test('treats an assistant event without recognizable content as raw', () => {
+  test('treats an assistant event with a malformed message as raw', () => {
     const noMessage = JSON.stringify({ type: 'assistant' })
     expect(parseClaudeLine(noMessage)).toEqual([{ kind: 'raw', text: noMessage }])
 
     const nullMessage = JSON.stringify({ type: 'assistant', message: null })
     expect(parseClaudeLine(nullMessage)).toEqual([{ kind: 'raw', text: nullMessage }])
 
-    const unknownBlocks = JSON.stringify({
+    const contentNotArray = JSON.stringify({
       type: 'assistant',
-      message: { content: [{ type: 'thinking', thinking: 'hmm' }] },
+      message: { content: 'oops' },
     })
-    expect(parseClaudeLine(unknownBlocks)).toEqual([
-      { kind: 'raw', text: unknownBlocks },
+    expect(parseClaudeLine(contentNotArray)).toEqual([
+      { kind: 'raw', text: contentNotArray },
     ])
+  })
+
+  // Claude emits one of these every turn. Dumping the line raw buried the run
+  // pane under the block's signed base64 payload.
+  test('emits nothing for an assistant message holding only thinking blocks', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'thinking', thinking: '', signature: 'EuoCCqgBCBEYAipAy8Em' },
+        ],
+      },
+      session_id: '34f4fad3-b521-434d-98c3-d25e4f974c67',
+    })
+    expect(parseClaudeLine(line)).toEqual([])
+  })
+
+  test('emits nothing for a user message carrying no tool_result blocks', () => {
+    const line = JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'text', text: 'echoed prompt' }] },
+    })
+    expect(parseClaudeLine(line)).toEqual([])
   })
 
   test('parses user tool_result blocks with string content', () => {
@@ -167,9 +197,11 @@ describe('parseClaudeLine', () => {
     ])
   })
 
-  test('returns raw for unknown event types', () => {
+  test('reduces unknown event types to a short marker', () => {
     const line = JSON.stringify({ type: 'stream_event', payload: 1 })
-    expect(parseClaudeLine(line)).toEqual([{ kind: 'raw', text: line }])
+    expect(parseClaudeLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] stream_event' },
+    ])
   })
 
   test('never throws on hostile shapes', () => {
@@ -278,12 +310,14 @@ describe('parseCodexLine', () => {
     ])
   })
 
-  test('falls back to raw for completed items of unknown type', () => {
+  test('reduces completed items of unknown type to a short marker', () => {
     const line = JSON.stringify({
       type: 'item.completed',
       item: { item_type: 'todo_list', items: [] },
     })
-    expect(parseCodexLine(line)).toEqual([{ kind: 'raw', text: line }])
+    expect(parseCodexLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] item.completed/todo_list' },
+    ])
   })
 
   test('parses turn.completed as a success result', () => {
@@ -313,9 +347,11 @@ describe('parseCodexLine', () => {
     ])
   })
 
-  test('returns raw for unknown event types', () => {
+  test('reduces unknown event types to a short marker', () => {
     const line = JSON.stringify({ id: '1', msg: { type: 'agent_message' } })
-    expect(parseCodexLine(line)).toEqual([{ kind: 'raw', text: line }])
+    expect(parseCodexLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] unknown' },
+    ])
   })
 
   test('never throws on hostile shapes', () => {
@@ -472,11 +508,8 @@ describe('event text capping', () => {
     expect(event.text.length).toBeLessThanOrEqual(EVENT_TEXT_LIMIT + 64)
   })
 
-  test('caps raw fallback events for unrecognized giant lines', () => {
-    const line = JSON.stringify({
-      type: 'mystery',
-      payload: 'p'.repeat(EVENT_TEXT_LIMIT * 2),
-    })
+  test('caps raw fallback events for giant unparseable lines', () => {
+    const line = `not json ${'p'.repeat(EVENT_TEXT_LIMIT * 2)}`
     const claudeEvents = parseClaudeLine(line)
     expect(claudeEvents).toHaveLength(1)
     const claudeEvent = claudeEvents[0]
@@ -489,6 +522,30 @@ describe('event text capping', () => {
     const codexEvent = codexEvents[0]
     if (codexEvent.kind !== 'raw') throw new Error('expected raw')
     expect(codexEvent.text.length).toBeLessThanOrEqual(EVENT_TEXT_LIMIT + 64)
+  })
+
+  // The marker never carries the payload, so an oversized unknown line is
+  // bounded by construction rather than by the text cap.
+  test('keeps the unhandled marker short for giant unknown lines', () => {
+    const line = JSON.stringify({
+      type: 'mystery',
+      payload: 'p'.repeat(EVENT_TEXT_LIMIT * 2),
+    })
+    expect(parseClaudeLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] mystery' },
+    ])
+    expect(parseCodexLine(line)).toEqual([
+      { kind: 'raw', text: '[unhandled] mystery' },
+    ])
+  })
+
+  test('caps an absurd type name inside the unhandled marker', () => {
+    const line = JSON.stringify({ type: 't'.repeat(EVENT_TEXT_LIMIT) })
+    const events = parseClaudeLine(line)
+    expect(events).toHaveLength(1)
+    const event = events[0]
+    if (event.kind !== 'raw') throw new Error('expected raw')
+    expect(event.text.length).toBeLessThanOrEqual(EVENT_FIELD_LIMIT + 32)
   })
 
   test('leaves text at exactly EVENT_TEXT_LIMIT untouched', () => {
@@ -564,7 +621,7 @@ describe('session id extraction', () => {
     ])
     const unknownJson = JSON.stringify({ type: 'session.snapshot', data: 1 })
     expect(parseCodexLine(unknownJson)).toEqual([
-      { kind: 'raw', text: unknownJson },
+      { kind: 'raw', text: '[unhandled] session.snapshot' },
     ])
   })
 })

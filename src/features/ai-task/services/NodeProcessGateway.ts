@@ -22,6 +22,7 @@ import { Platform } from 'obsidian'
 
 import { stableTimeoutSource } from '../../../utils/stableTimer'
 import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
+import { isPtyPlatformSupported } from './ptyPlatform'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -1407,8 +1408,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   isPtySupported(): boolean {
-    const platform = this.getPlatform()
-    return platform === 'darwin' || platform === 'linux'
+    return isPtyPlatformSupported(this.getPlatform())
   }
 
   buildPtyCommand(request: PtyCommandRequest): PtyCommand {

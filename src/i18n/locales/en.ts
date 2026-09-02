@@ -98,7 +98,9 @@ export const en = {
         "Run tasks with the Claude or Codex CLI inside the AI run pane (desktop only).",
       runModeName: "Run mode",
       runModeDesc:
-        "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
+        "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead.",
+      runModeFixedDesc:
+        "Conversation mode. This platform has no pseudoterminal the plugin can drive, so runs stream parsed events and take follow-up input instead of embedding the interactive CLI.",
       runModeTerminal: "Terminal (interactive)",
       runModeHeadless: "Conversation (cross-platform)",
       claudePathName: "Claude CLI path (advanced fallback)",

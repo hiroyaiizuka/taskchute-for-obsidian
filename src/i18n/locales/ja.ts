@@ -94,7 +94,9 @@ export const ja = {
         "AI CLI（Claude Code / Codex）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。",
       runModeName: "実行モード",
       runModeDesc:
-        "ターミナルはmacOS / Linuxで対話型CLIを埋め込みます。会話モードは全デスクトップOSで解析済みイベントとフォローアップ入力に対応します。ネイティブConPTYを同梱していないため、Windowsでは自動的に会話モードを使用します。",
+        "ターミナルは対話型CLIをそのまま埋め込みます。会話モードは解析済みイベントを流し、フォローアップ入力を受け付けます。",
+      runModeFixedDesc:
+        "会話モードで実行します。このプラットフォームには本プラグインから扱える疑似端末がないため、対話型CLIを埋め込む代わりに、解析済みイベントの表示とフォローアップ入力で動作します。",
       runModeTerminal: "ターミナル（対話型）",
       runModeHeadless: "会話モード（全OS対応）",
       claudePathName: "Claude Code CLIパス（詳細・予備）",

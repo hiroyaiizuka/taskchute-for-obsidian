@@ -160,6 +160,55 @@ describe('AiRunPaneController', () => {
     ).toBe(true)
   })
 
+  /**
+   * The CLI's terminating `result` message repeats the final assistant text.
+   * Rendering it as body text printed every answer twice in the pane, so the
+   * row now shows the same summary the log note carries.
+   */
+  test('summarizes a result event instead of repeating the answer', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.events.push({ kind: 'assistant-text', text: 'The answer is 42.' })
+    run.events.push({
+      kind: 'result',
+      subtype: 'success',
+      isError: false,
+      totalCostUsd: 0.01,
+      numTurns: 2,
+      text: 'The answer is 42.',
+    })
+    manager.emit(run)
+    flushEventFrame()
+
+    const events = container.querySelectorAll('.ai-run-pane__event')
+    expect(events).toHaveLength(2)
+    expect(events[0].textContent).toBe('The answer is 42.')
+    expect(events[1].textContent).toBe('success (cost $0.01, 2 turns)')
+  })
+
+  test('keeps the body of an error result, which nothing else carries', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.events.push({
+      kind: 'result',
+      subtype: 'error_during_execution',
+      isError: true,
+      text: 'the CLI ran out of credits',
+    })
+    manager.emit(run)
+    flushEventFrame()
+
+    const events = container.querySelectorAll('.ai-run-pane__event')
+    expect(events).toHaveLength(1)
+    expect(events[0].textContent).toBe(
+      'error_during_execution\nthe CLI ran out of credits',
+    )
+  })
+
   test('appends only new events on repeated notifications', () => {
     controller.mount(container)
     const run = createRun()
