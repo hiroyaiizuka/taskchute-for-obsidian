@@ -1,5 +1,6 @@
 import { t } from '../../../i18n'
 import { applyIcon } from '../../../ui/icons'
+import RecipeReorderPointerDrag, { appendRecipeDragHandleIcon } from './RecipeReorderPointerDrag'
 
 let recipeEditorFormId = 0
 
@@ -45,7 +46,16 @@ export class RecipeEditorForm {
   private readonly stepsList: HTMLElement
   private readonly qualityList: HTMLElement
   private errorEl: HTMLElement
-  private dragged: { kind: ChecklistKind; index: number } | null = null
+  private readonly pointerDrag = new RecipeReorderPointerDrag({
+    rowSelector: '.recipe-step-row',
+    draggingClass: 'recipe-run-step--dragging',
+    dropBeforeClass: 'recipe-run-step--drop-before',
+    dropAfterClass: 'recipe-run-step--drop-after',
+    ghostClass: 'recipe-reorder-drag-ghost',
+    onReorder: (kind, fromIndex, toIndex) => {
+      this.reorder(kind as ChecklistKind, fromIndex, toIndex)
+    },
+  })
 
   constructor(
     private readonly container: HTMLElement,
@@ -215,6 +225,17 @@ export class RecipeEditorForm {
     })
   }
 
+  /**
+   * Abandons a reorder in flight and removes its ghost.
+   *
+   * The ghost is parented to `body` so it can follow the pointer, which means
+   * closing the dialog mid-drag -- Escape, most easily -- would strand it on
+   * screen with no pointer events left to clean it up.
+   */
+  destroy(): void {
+    this.pointerDrag.cancel()
+  }
+
   focus(): void {
     if (this.titleInput) {
       this.titleInput.focus()
@@ -235,33 +256,20 @@ export class RecipeEditorForm {
       const row = list.createDiv({ cls: rowClass })
       row.setAttribute('data-recipe-list-kind', kind)
       row.setAttribute('data-recipe-item-index', String(index))
-      row.addEventListener('dragover', (event) => {
-        if (!this.dragged || this.dragged.kind !== kind || this.dragged.index === index) return
-        event.preventDefault()
-        row.classList.add('recipe-run-step--drop-target')
-      })
-      row.addEventListener('dragleave', () => row.classList.remove('recipe-run-step--drop-target'))
-      row.addEventListener('drop', (event) => {
-        event.preventDefault()
-        row.classList.remove('recipe-run-step--drop-target')
-        if (!this.dragged || this.dragged.kind !== kind) return
-        const fromIndex = this.dragged.index
-        this.dragged = null
-        this.reorder(kind, fromIndex, index)
-      })
+      this.pointerDrag.registerRow(row, kind, index)
 
       const handleClass = kind === 'steps' ? 'recipe-step-drag-handle' : 'recipe-quality-drag-handle'
       const handle = row.createEl('button', {
         cls: `recipe-list-drag-handle ${handleClass}`,
         attr: {
           type: 'button',
-          draggable: 'true',
           title: t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
           'aria-label': t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
           'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
         },
       })
-      this.appendDragHandleIcon(handle)
+      appendRecipeDragHandleIcon(handle)
+      this.pointerDrag.attachHandle(handle, row)
       handle.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -273,18 +281,6 @@ export class RecipeEditorForm {
         if (targetIndex < 0 || targetIndex >= values.length) return
         this.reorder(kind, index, targetIndex)
         this.getList(kind).querySelectorAll<HTMLButtonElement>('.recipe-list-drag-handle')[targetIndex]?.focus()
-      })
-      handle.addEventListener('dragstart', (event) => {
-        this.dragged = { kind, index }
-        row.classList.add('recipe-run-step--dragging')
-        event.dataTransfer?.setData('text/plain', `${kind}:${index}`)
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-      })
-      handle.addEventListener('dragend', () => {
-        this.dragged = null
-        row.classList.remove('recipe-run-step--dragging')
-        list.querySelectorAll('.recipe-run-step--drop-target')
-          .forEach((element) => element.classList.remove('recipe-run-step--drop-target'))
       })
 
       const isQuality = kind === 'quality'
@@ -444,24 +440,5 @@ export class RecipeEditorForm {
 
   private normalizeLines(values: string[]): string[] {
     return values.map((value) => value.trim()).filter((value) => value.length > 0)
-  }
-
-  private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = createSvg('svg')
-    svg.setAttribute('viewBox', '0 0 12 16')
-    svg.setAttribute('width', '12')
-    svg.setAttribute('height', '16')
-    svg.setAttribute('aria-hidden', 'true')
-    svg.classList.add('recipe-step-drag-handle-icon')
-    ;[
-      ['2', '2'], ['8', '2'], ['2', '8'], ['8', '8'], ['2', '14'], ['8', '14'],
-    ].forEach(([cx, cy]) => {
-      const circle = createSvg('circle')
-      circle.setAttribute('cx', cx)
-      circle.setAttribute('cy', cy)
-      circle.setAttribute('r', '1.5')
-      svg.appendChild(circle)
-    })
-    container.appendChild(svg)
   }
 }

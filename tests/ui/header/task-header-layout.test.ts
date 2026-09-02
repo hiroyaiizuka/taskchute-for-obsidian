@@ -151,7 +151,7 @@ describe('TaskChute header layout', () => {
     expect(lastSegment).toMatch(/border-radius:\s*0\s+6px\s+6px\s+0;/)
     expect(active).toMatch(/background:\s*color-mix\(/)
     expect(active).toMatch(/box-shadow:\s*none;/)
-    expect(active).toMatch(/z-index:\s*1;/)
+    expect(active).toMatch(/z-index:\s*var\(--tc-z-raised\);/)
     expect(activeFrame).toMatch(
       /border:\s*1px\s+solid\s+var\(--ai-board-view-active-border\);/,
     )

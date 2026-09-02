@@ -14,6 +14,33 @@ const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
 }
 
+function pointerEvent(type: string, clientX: number, clientY: number): PointerEvent {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    pointerId: 1,
+    isPrimary: true,
+  })
+}
+
+/**
+ * Reordering runs on Pointer Events, so rows carry no listeners: the drop
+ * target is whatever `elementFromPoint` reports, which the test has to declare.
+ * The move clears the 6px threshold that separates a drag from a tap.
+ */
+function dragHandleOntoRow(handle: HTMLElement, targetRow: HTMLElement): void {
+  const hitTest = jest.spyOn(document, 'elementFromPoint').mockReturnValue(targetRow)
+  try {
+    handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    handle.dispatchEvent(pointerEvent('pointermove', 0, 40))
+    handle.dispatchEvent(pointerEvent('pointerup', 0, 40))
+  } finally {
+    hitTest.mockRestore()
+  }
+}
+
 function ensureCreateEl(): void {
   const proto = HTMLElement.prototype as unknown as {
     createEl?: CreateEl
@@ -122,8 +149,7 @@ describe('recipe UI helpers', () => {
     inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
     const handles = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')
     const rows = container.querySelectorAll<HTMLElement>('.recipe-steps-list .recipe-step-row')
-    handles[0].dispatchEvent(new Event('dragstart', { bubbles: true }))
-    rows[1].dispatchEvent(new Event('drop', { bubbles: true }))
+    dragHandleOntoRow(handles[0], rows[1])
 
     expect(editor.getValue()).toEqual({
       title: '公開準備',
@@ -134,6 +160,156 @@ describe('recipe UI helpers', () => {
       ],
       qualityChecks: [{ id: 'quality-a', text: 'リンク確認' }],
       constraints: ['個人情報を含めない'],
+    })
+  })
+
+  describe('checklist reordering by pointer', () => {
+    function createEditor(): { container: HTMLElement; editor: RecipeEditorForm } {
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const editor = new RecipeEditorForm(container, {
+        title: '公開準備',
+        steps: [
+          { id: 'step-a', text: '下書き' },
+          { id: 'step-b', text: '公開' },
+        ],
+        qualityChecks: [{ id: 'quality-a', text: 'リンク確認' }],
+      })
+      return { container, editor }
+    }
+
+    const stepTexts = (container: HTMLElement): string[] =>
+      Array.from(container.querySelectorAll<HTMLInputElement>('.recipe-step-input'))
+        .map((input) => input.value)
+        .filter((value) => value.length > 0)
+
+    test('the grips carry no draggable attribute -- iPadOS never fires dragstart', () => {
+      const { container } = createEditor()
+
+      const grips = container.querySelectorAll('.recipe-list-drag-handle')
+      expect(grips.length).toBeGreaterThan(0)
+      grips.forEach((grip) => {
+        expect(grip.getAttribute('draggable')).toBeNull()
+      })
+    })
+
+    test('a press that never clears the threshold leaves the order alone', () => {
+      const { container } = createEditor()
+      const handle = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+      const rows = container.querySelectorAll<HTMLElement>('.recipe-steps-list .recipe-step-row')
+      const hitTest = jest.spyOn(document, 'elementFromPoint').mockReturnValue(rows[1])
+
+      handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      handle.dispatchEvent(pointerEvent('pointermove', 0, 3))
+      handle.dispatchEvent(pointerEvent('pointerup', 0, 3))
+      hitTest.mockRestore()
+
+      expect(stepTexts(container)).toEqual(['下書き', '公開'])
+      expect(document.querySelector('.recipe-reorder-drag-ghost')).toBeNull()
+    })
+
+    test('pointercancel abandons the drag and removes the ghost', () => {
+      const { container } = createEditor()
+      const handle = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+      const rows = container.querySelectorAll<HTMLElement>('.recipe-steps-list .recipe-step-row')
+      const hitTest = jest.spyOn(document, 'elementFromPoint').mockReturnValue(rows[1])
+
+      handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      handle.dispatchEvent(pointerEvent('pointermove', 0, 40))
+      expect(document.querySelector('.recipe-reorder-drag-ghost')).not.toBeNull()
+
+      handle.dispatchEvent(pointerEvent('pointercancel', 0, 40))
+      hitTest.mockRestore()
+
+      expect(stepTexts(container)).toEqual(['下書き', '公開'])
+      expect(document.querySelector('.recipe-reorder-drag-ghost')).toBeNull()
+      expect(rows[0].classList.contains('recipe-run-step--dragging')).toBe(false)
+      expect(rows[1].classList.contains('recipe-run-step--drop-after')).toBe(false)
+    })
+
+    test('the accent line marks the edge the row will land against', () => {
+      const { container } = createEditor()
+      const handles = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')
+      const rows = container.querySelectorAll<HTMLElement>('.recipe-steps-list .recipe-step-row')
+
+      // Dragging the first row down: it comes to rest below the row it is over.
+      const downwards = jest.spyOn(document, 'elementFromPoint').mockReturnValue(rows[1])
+      handles[0].dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      handles[0].dispatchEvent(pointerEvent('pointermove', 0, 40))
+      expect(rows[1].classList.contains('recipe-run-step--drop-after')).toBe(true)
+      expect(rows[1].classList.contains('recipe-run-step--drop-before')).toBe(false)
+      handles[0].dispatchEvent(pointerEvent('pointercancel', 0, 40))
+      downwards.mockRestore()
+
+      // Dragging the second row up: it comes to rest above the row it is over.
+      const upwards = jest.spyOn(document, 'elementFromPoint').mockReturnValue(rows[0])
+      handles[1].dispatchEvent(pointerEvent('pointerdown', 0, 40))
+      handles[1].dispatchEvent(pointerEvent('pointermove', 0, 0))
+      expect(rows[0].classList.contains('recipe-run-step--drop-before')).toBe(true)
+      expect(rows[0].classList.contains('recipe-run-step--drop-after')).toBe(false)
+      handles[1].dispatchEvent(pointerEvent('pointercancel', 0, 0))
+      upwards.mockRestore()
+
+      expect(container.querySelector('.recipe-run-step--drop-before')).toBeNull()
+      expect(container.querySelector('.recipe-run-step--drop-after')).toBeNull()
+    })
+
+    test('the grip drops both tooltip sources while dragging', () => {
+      const { container } = createEditor()
+      const handle = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+      const label = handle.getAttribute('title')
+      expect(label).toBeTruthy()
+      expect(handle.getAttribute('aria-label')).toBe(label)
+
+      handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      handle.dispatchEvent(pointerEvent('pointermove', 0, 40))
+
+      // The pointer stays on the grip for the whole drag, so both the browser's
+      // `title` tooltip and Obsidian's `aria-label` one would hang over the rows
+      // being aimed at. Neither can be stacked out of the way: the browser draws
+      // its own outside the page, and Obsidian's sits far below the popover.
+      expect(handle.getAttribute('title')).toBeNull()
+      expect(handle.getAttribute('aria-label')).toBeNull()
+      // The clone brings the row's other tooltip sources along too -- the remove
+      // button's included -- and decoration should never raise one.
+      expect(
+        document
+          .querySelector('.recipe-reorder-drag-ghost')
+          ?.querySelector('[title], [aria-label]'),
+      ).toBeNull()
+
+      handle.dispatchEvent(pointerEvent('pointercancel', 0, 40))
+
+      expect(handle.getAttribute('title')).toBe(label)
+      expect(handle.getAttribute('aria-label')).toBe(label)
+    })
+
+    test('tearing down the form mid-drag takes the ghost with it', () => {
+      const { container, editor } = createEditor()
+      const handle = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+
+      handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      handle.dispatchEvent(pointerEvent('pointermove', 0, 40))
+      expect(document.querySelector('.recipe-reorder-drag-ghost')).not.toBeNull()
+
+      // Escape closes the dialog: the row and its grip go away, so no further
+      // pointer event will ever arrive to clean up after the drag.
+      editor.destroy()
+      container.remove()
+
+      expect(document.querySelector('.recipe-reorder-drag-ghost')).toBeNull()
+    })
+
+    test('a step will not drop onto a quality check row', () => {
+      const { container } = createEditor()
+      const handle = container.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+      const qualityRow = container.querySelector<HTMLElement>(
+        '.recipe-quality-checks-list .recipe-step-row',
+      )
+
+      dragHandleOntoRow(handle, qualityRow as HTMLElement)
+
+      expect(stepTexts(container)).toEqual(['下書き', '公開'])
     })
   })
 
@@ -573,8 +749,7 @@ describe('recipe UI helpers', () => {
 
     const handles = Array.from(document.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle'))
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.recipe-step-row'))
-    handles[0]?.dispatchEvent(new Event('dragstart', { bubbles: true }))
-    rows[1]?.dispatchEvent(new Event('drop', { bubbles: true }))
+    dragHandleOntoRow(handles[0], rows[1])
     expect(Array.from(document.querySelectorAll<HTMLInputElement>('.recipe-step-input')).map((input) => input.value)).toEqual([
       '散歩する',
       '筋トレをする',
@@ -638,6 +813,47 @@ describe('recipe UI helpers', () => {
     expect(container.querySelector('.recipe-task-badge')).toBeNull()
   })
 
+  test('closing the run popover mid-drag takes the ghost with it', async () => {
+    const anchor = document.createElement('button')
+    document.body.appendChild(anchor)
+    const popover = new RecipeRunPopover({
+      service: {
+        loadRecipe: jest.fn(async () => ({
+          path: 'TaskChute/Recipes/A.md',
+          title: 'aaa',
+          file: {},
+          steps: [
+            { id: 'step-1-a', text: 'a' },
+            { id: 'step-2-b', text: 'b' },
+          ],
+        })),
+        saveRecipe: jest.fn(),
+      } as never,
+      getDateKey: () => '2026-05-04',
+      getProgress: () => undefined,
+      setProgress: jest.fn(),
+      openRecipeEditor: jest.fn(),
+      onProgressChanged: jest.fn(),
+    })
+
+    await popover.show({
+      instanceId: 'TaskChute/Task/A.md_2026-05-04_111_aaa',
+      task: { path: 'TaskChute/Task/A.md', recipePath: 'TaskChute/Recipes/A.md' },
+    } as never, anchor)
+
+    const handle = document.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle')[0]
+    handle.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    handle.dispatchEvent(pointerEvent('pointermove', 0, 40))
+    expect(document.querySelector('.recipe-reorder-drag-ghost')).not.toBeNull()
+
+    // Escape takes the popover -- and the grip -- away, so no pointerup or
+    // pointercancel will ever arrive to end the drag.
+    popover.close()
+
+    expect(document.querySelector('.recipe-reorder-drag-ghost')).toBeNull()
+    anchor.remove()
+  })
+
   test('run popover stores drag ordering only in daily progress state without saving recipe source', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
@@ -683,8 +899,7 @@ describe('recipe UI helpers', () => {
 
     const handles = Array.from(document.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle'))
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.recipe-run-step'))
-    handles[0]?.dispatchEvent(new Event('dragstart', { bubbles: true }))
-    rows[1]?.dispatchEvent(new Event('drop', { bubbles: true }))
+    dragHandleOntoRow(handles[0], rows[1])
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(saveRecipe).not.toHaveBeenCalled()
@@ -1157,8 +1372,7 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.recipe-edit-form .recipe-danger-button')).toBeNull()
     const handles = Array.from(document.querySelectorAll<HTMLButtonElement>('.recipe-step-drag-handle'))
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.recipe-step-row'))
-    handles[0]?.dispatchEvent(new Event('dragstart', { bubbles: true }))
-    rows[1]?.dispatchEvent(new Event('drop', { bubbles: true }))
+    dragHandleOntoRow(handles[0], rows[1])
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     document.querySelector<HTMLFormElement>('.recipe-edit-form')?.dispatchEvent(

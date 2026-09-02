@@ -79,12 +79,18 @@ export class RecipeSelectModal extends Modal {
 
   onClose(): void {
     this.hideSuggestions()
+    this.inlineEditor?.destroy()
+    this.createEditor?.destroy()
     this.inlineEditor = null
     this.createEditor = null
     this.contentEl.empty()
   }
 
   private render(): void {
+    // Re-rendering discards the forms, so a reorder still in flight has to go
+    // with them -- its ghost is on `body` and would otherwise be orphaned.
+    this.inlineEditor?.destroy()
+    this.createEditor?.destroy()
     this.inlineEditor = null
     this.createEditor = null
     this.saveButton = null

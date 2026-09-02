@@ -69,6 +69,14 @@ const lastPaintingRuleIndex = (css: string, selectorStart: string): number => {
   return found
 }
 
+/** Resolves one of the `--tc-z-*` stacking tokens back to its number. */
+const layerToken = (css: string, token: string): number => {
+  const match = new RegExp(`^\\s*${token}:\\s*(-?\\d+);`, 'm').exec(css)
+  expect(match).not.toBeNull()
+
+  return Number((match as RegExpExecArray)[1])
+}
+
 describe('style regressions', () => {
   test('AI runs participates in vertical layout so the task list remains scrollable', () => {
     const css = styles()
@@ -531,6 +539,49 @@ describe('style regressions', () => {
 
     const touchActionRule = readRule(styles(), '.taskchute-container button,')
     expect(touchActionRule).not.toContain('drag-handle')
+  })
+
+  test('the recipe grips claim the whole gesture too', () => {
+    // The recipe checklists reorder on Pointer Events for the same reason the
+    // task list does, so their grips need the same gesture ownership.
+    const gripRule = readRule(styles(), '.recipe-list-drag-handle,')
+
+    expect(gripRule).toMatch(/touch-action:\s*none;/)
+    expect(gripRule).toMatch(/user-select:\s*none;/)
+    expect(gripRule).toMatch(/-webkit-touch-callout:\s*none;/)
+  })
+
+  test('the recipe drop indicator is an accent line on the landing edge', () => {
+    // A background wash said "something lands here" without saying where.
+    // The rows are rounded, so a border or an inset shadow on the row itself
+    // bends the line around the corner radius. The indicator is its own
+    // zero-height element instead.
+    const css = styles()
+    const before = readRule(css, '.recipe-run-step--drop-before::after {')
+    const after = readRule(css, '.recipe-run-step--drop-after::after {')
+
+    for (const line of [before, after]) {
+      expect(line).toMatch(/position:\s*absolute;/)
+      expect(line).toMatch(/height:\s*0;/)
+      expect(line).toMatch(/border-top:\s*2px solid var\(--interactive-accent\);/)
+    }
+    expect(before).toMatch(/top:\s*0;/)
+    expect(after).toMatch(/bottom:\s*0;/)
+  })
+
+  test('the recipe reorder ghost stays out of its own hit test', () => {
+    // `elementFromPoint` has to report the row underneath, not the clone that
+    // is following the pointer.
+    const ghostRule = readRule(styles(), '.recipe-reorder-drag-ghost {')
+
+    expect(ghostRule).toMatch(/position:\s*fixed;/)
+    expect(ghostRule).toMatch(/pointer-events:\s*none;/)
+    // The run popover sits on --tc-z-popover; anything lower hides the ghost
+    // behind the list it was dragged out of.
+    expect(ghostRule).toMatch(/z-index:\s*var\(--tc-z-drag-ghost\);/)
+    expect(layerToken(styles(), '--tc-z-drag-ghost')).toBeGreaterThan(
+      layerToken(styles(), '--tc-z-popover'),
+    )
   })
 
   test('mobile touch-action covers non-button tap targets', () => {

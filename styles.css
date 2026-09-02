@@ -26,6 +26,33 @@
      `applyIcon()` / `createIconSpan()`. Individual call sites override it by
      redeclaring the property on the icon host. */
   --taskchute-icon-size: 18px;
+
+  /* Stacking order, low to high. Every z-index the plugin sets comes from this
+     list, so the layering can be read in one place rather than inferred from
+     bare numbers scattered across the sheet -- which is how a drag ghost ended
+     up sliding underneath the popover it was dragged out of. Values are the
+     ones already in use; the names say what each level is for.
+
+     Obsidian's own `--layer-*` variables are deliberately not used here: they
+     top out around 100, far below the 10000-band this sheet already occupies,
+     so borrowing them silently buries whatever they are applied to. */
+  --tc-z-behind: -1;
+  --tc-z-raised: 1;
+  --tc-z-sticky: 2;
+  --tc-z-nav-overlay: 999;
+  --tc-z-panel: 1000;
+  --tc-z-confirm-overlay: 1100;
+  --tc-z-suggestion: 1200;
+  --tc-z-menu: 1300;
+  --tc-z-menu-nested: 1350;
+  --tc-z-sheet-overlay: 9998;
+  --tc-z-sheet: 9999;
+  --tc-z-popover: 10000;
+  --tc-z-popover-nested: 10001;
+  --tc-z-popover-top: 10020;
+  /* Above every popover: a ghost follows the pointer across the whole window
+     and is parented to `body`, so it has to clear whatever it is dragged over. */
+  --tc-z-drag-ghost: 10030;
 }
 
 /* Obsidian publishes every one of its own variables -- `--size-*`, `--icon-*`,
@@ -92,7 +119,7 @@ body.is-phone {
 /* ===== Time Edit Popup ===== */
 .taskchute-time-popup {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
   left: var(--time-popup-left, 0);
   top: var(--time-popup-top, 0);
   background: var(--background-primary);
@@ -517,7 +544,7 @@ body.is-phone {
   box-shadow: var(--tc-shadow-popup);
   max-height: min(320px, 60vh);
   overflow-y: auto;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
 }
 
 .taskchute-autocomplete-suggestions .suggestion-item {
@@ -844,7 +871,7 @@ body.is-phone {
 
 .ai-working-directory-select__menu {
   position: absolute;
-  z-index: 1300;
+  z-index: var(--tc-z-menu);
   top: calc(100% + 4px);
   right: 0;
   left: 0;
@@ -1010,7 +1037,7 @@ body.is-phone {
 
 .ai-model-select__menu {
   position: absolute;
-  z-index: 1350;
+  z-index: var(--tc-z-menu-nested);
   top: calc(100% + 4px);
   right: 0;
   left: 0;
@@ -1367,7 +1394,7 @@ body.is-phone {
 /* 日付ピッカー */
 .taskchute-date-picker {
   position: absolute;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
 }
 
 /* 右クリックメニュー / 時間帯メニュー共通の枠 */
@@ -1378,7 +1405,7 @@ body.is-phone {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-sm);
   padding: 4px 0;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
   box-shadow: var(--tc-shadow-popup);
   min-width: 150px;
 }
@@ -1617,7 +1644,7 @@ body.is-phone {
 /* カレンダー入力 */
 .taskchute-calendar-input {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
   left: var(--calendar-input-left, 0);
   top: var(--calendar-input-top, 0);
 }
@@ -1626,14 +1653,14 @@ body.is-phone {
   position: fixed;
   opacity: 0.01;
   pointer-events: auto;
-  z-index: 10001;
+  z-index: var(--tc-z-popover-nested);
   left: var(--inline-picker-left, 0);
   top: var(--inline-picker-top, 0);
 }
 
 .taskchute-move-calendar {
   position: fixed;
-  z-index: 10020;
+  z-index: var(--tc-z-popover-top);
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-lg);
@@ -1857,7 +1884,7 @@ body.is-phone {
 /* ツールチップ */
 .taskchute-tooltip {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-sm);
@@ -1885,7 +1912,7 @@ body.is-phone {
 /* インライン入力 */
 .taskchute-inline-input {
   position: absolute;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-sm);
@@ -1933,7 +1960,7 @@ body.is-phone {
 /* Additional styles for guideline compliance */
 .taskchute-input-absolute {
   position: absolute;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
 }
 
 .taskchute-menu-option {
@@ -2759,7 +2786,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 /* Heatmap Tooltip */
 .heatmap-tooltip {
   position: absolute;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-sm);
@@ -2942,7 +2969,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   width: 100%;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.3);
-  z-index: 999;
+  z-index: var(--tc-z-nav-overlay);
   transition: opacity 0.3s ease;
 }
 
@@ -2966,7 +2993,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   background: var(--background-primary);
   border-right: 1px solid var(--background-modifier-border);
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
   transition: transform 0.3s ease;
   overflow-y: auto;
 }
@@ -3296,7 +3323,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 .task-item-drag-ghost--floating {
   top: 0;
   left: 0;
-  z-index: var(--layer-modal);
+  z-index: var(--tc-z-drag-ghost);
   opacity: 0.85;
   border-radius: var(--tc-radius-sm);
   box-shadow: var(--shadow-l);
@@ -3336,7 +3363,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   border-radius: var(--tc-radius-sm);
   font-size: 12px;
   white-space: nowrap;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
   pointer-events: none;
 }
 
@@ -3883,7 +3910,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   padding: 4px 0 11px;
   min-width: 140px;
   font-size: 13px;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
 }
 
 .taskchute-settings-divider {
@@ -4622,7 +4649,7 @@ body.is-phone .taskchute-modal .modal-button-container {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: var(--tc-z-panel);
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--tc-radius-lg);
@@ -4845,7 +4872,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 .routine-table__row--head > .routine-table__cell {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: var(--tc-z-sticky);
   background: var(--background-primary);
   font-weight: 600;
   font-size: 0.88em;
@@ -5550,7 +5577,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 
 .recipe-run-popover {
   position: fixed;
-  z-index: 10000;
+  z-index: var(--tc-z-popover);
   left: var(--taskchute-tooltip-left, 0);
   top: var(--taskchute-tooltip-top, 0);
   width: min(360px, calc(100vw - 20px));
@@ -5714,12 +5741,63 @@ body.is-phone .taskchute-modal .modal-button-container {
   padding: 2px 4px;
 }
 
-.recipe-run-step--drop-target {
-  background: var(--background-modifier-hover);
+/* A wash over the hovered row said "something lands here" without saying where.
+   The accent line sits on the edge the dragged row will actually come to rest
+   against: below the row when it is travelling down, above it when travelling
+   up.
+
+   The line is its own zero-height element rather than a border or an inset
+   shadow on the row: the row is rounded, and both of those bend the line
+   around the corner radius instead of ruling straight across. Absolute
+   positioning also keeps it out of the flow, so nothing shifts while the
+   indicator is being read. */
+.recipe-run-step--drop-before,
+.recipe-run-step--drop-after {
+  position: relative;
+}
+
+.recipe-run-step--drop-before::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  border-top: 2px solid var(--interactive-accent);
+  pointer-events: none;
+}
+
+.recipe-run-step--drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  border-top: 2px solid var(--interactive-accent);
+  pointer-events: none;
 }
 
 .recipe-run-step--dragging {
   opacity: 0.55;
+}
+
+/* The row that follows the pointer during a reorder. The native drag image is
+   gone with the HTML5 path, so this clone is the one the user actually sees;
+   `pointer-events: none` is what keeps `elementFromPoint` reporting the row
+   underneath rather than the ghost itself. */
+.recipe-reorder-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* The ghost is parented to `body` so it can follow the pointer anywhere, so
+     it has to clear the run popover it is dragged inside. */
+  z-index: var(--tc-z-drag-ghost);
+  pointer-events: none;
+  opacity: 0.85;
+  border-radius: var(--tc-radius-sm);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-l);
 }
 
 .recipe-run-step input[type="checkbox"] {
@@ -5740,6 +5818,14 @@ body.is-phone .taskchute-modal .modal-button-container {
 
 .recipe-list-drag-handle,
 .recipe-step-drag-handle {
+  /* The grip owns the gesture outright: anything short of `none` lets iOS
+     claim the vertical pan, and the checklist scrolls out from under the
+     finger before the drag can start (see RecipeReorderPointerDrag). The two
+     WebKit properties suppress the long-press callout and the text selection
+     that would otherwise fire mid-drag. */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
   width: 18px;
   height: 24px;
   padding: 0;
@@ -5997,7 +6083,7 @@ body.is-phone .taskchute-modal .modal-button-container {
 }
 
 .recipe-delete-confirm-overlay {
-  z-index: 1100;
+  z-index: var(--tc-z-confirm-overlay);
 }
 
 .recipe-delete-confirm-modal {
@@ -6526,7 +6612,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0);
-  z-index: 9998;
+  z-index: var(--tc-z-sheet-overlay);
   transition: background 0.3s ease;
 }
 
@@ -6543,7 +6629,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   background: var(--background-primary);
   border-radius: 16px 16px 0;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
-  z-index: 9999;
+  z-index: var(--tc-z-sheet);
   padding: 16px 16px 32px;
   transform: translateY(100%);
   transition: transform 0.3s ease;
@@ -6643,7 +6729,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   background: var(--background-modifier-hover);
   border-radius: var(--tc-radius-lg);
   pointer-events: none;
-  z-index: -1;
+  z-index: var(--tc-z-behind);
 }
 
 /* Buttons container */
@@ -6814,7 +6900,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .obsidian-task-link-suggestions {
   position: absolute;
-  z-index: 1200;
+  z-index: var(--tc-z-suggestion);
   top: calc(100% + 4px);
   right: 0;
   left: 0;
@@ -7903,7 +7989,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 .ai-board-view-switch__segment.is-active {
-  z-index: 1;
+  z-index: var(--tc-z-raised);
   border-left-color: transparent;
   background: color-mix(
     in srgb,
