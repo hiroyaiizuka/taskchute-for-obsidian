@@ -1062,6 +1062,7 @@ export const en = {
       internal: "The license service returned an unexpected error. Try again later.",
       network: "Could not reach the license service. Check your connection and try again.",
       malformed: "The license request was rejected. Please report this as a bug.",
+      no_activation_code: "Enter your activation code first.",
       untrustedToken:
         "The license service returned a token this version cannot verify. Please update the plugin.",
       withCode: "{message} (code: {code})",

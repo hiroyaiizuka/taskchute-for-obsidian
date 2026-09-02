@@ -29,12 +29,14 @@ const FALLBACKS: Record<string, string> = {
   internal: 'The license service returned an unexpected error. Try again later.',
   network: 'Could not reach the license service. Check your connection and try again.',
   malformed: 'The license request was rejected. Please report this as a bug.',
+  no_activation_code: 'Enter your activation code first.',
 }
 
 /** Codes for the failures the client itself decides, which have no server code. */
 const CLIENT_CODES = {
   network: 'network_unreachable',
   malformed: 'bad_request',
+  noCode: 'no_activation_code',
   untrustedToken: 'untrusted_token',
 } as const
 
@@ -65,6 +67,7 @@ function withCode(message: string, code: string): string {
 export function apiFailureCode(failure: LicenseApiFailure): string {
   if (failure.kind === 'network') return CLIENT_CODES.network
   if (failure.kind === 'malformed') return `${CLIENT_CODES.malformed}_${failure.status}`
+  if (failure.kind === 'no-code') return CLIENT_CODES.noCode
 
   return failure.code
 }
@@ -89,6 +92,8 @@ export function describeApiFailure(failure: LicenseApiFailure): string {
 function apiFailureMessage(failure: LicenseApiFailure): string {
   if (failure.kind === 'network') return messageForCode('network')
   if (failure.kind === 'malformed') return messageForCode('malformed')
+  // Not a bug to report: the user simply has nothing entered to act with.
+  if (failure.kind === 'no-code') return messageForCode(CLIENT_CODES.noCode)
 
   if (failure.code === 'deactivation_limit_reached') {
     return messageForCode(failure.code, { retryAt: formatRetryAt(failure.details?.retry_after_at) })

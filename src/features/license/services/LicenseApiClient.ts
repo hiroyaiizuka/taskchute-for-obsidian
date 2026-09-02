@@ -89,6 +89,8 @@ export type LicenseApiFailure =
   | { ok: false; kind: 'api'; code: LicenseErrorCode; status: number; message?: string; details?: LicenseErrorDetails }
   /** A 400 without `ok`: the request shape was wrong, i.e. a bug in this plugin. */
   | { ok: false; kind: 'malformed'; status: number }
+  /** No activation code to send, so no request was made. The user has to enter one. */
+  | { ok: false; kind: 'no-code' }
   /** The request never got an answer. Not an entitlement signal. */
   | { ok: false; kind: 'network' }
 
@@ -105,6 +107,8 @@ export interface LicenseErrorDetails {
 export function isTransientFailure(failure: LicenseApiFailure): boolean {
   if (failure.kind === 'network') return true
   if (failure.kind === 'malformed') return false
+  // Retrying changes nothing: only the user typing a code does.
+  if (failure.kind === 'no-code') return false
 
   return failure.status === 429 || failure.status >= 500
 }

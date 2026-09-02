@@ -212,12 +212,19 @@ export class LicenseManager {
     return 'released'
   }
 
-  async listDevices(): Promise<
+  /**
+   * @param explicitCode A code that is not (yet) stored, e.g. the one the user
+   * just typed and that the API rejected with device_limit_reached. Without it
+   * the seat list is unreachable from the very screen that has to free a seat.
+   */
+  async listDevices(
+    explicitCode?: string,
+  ): Promise<
     { ok: true; devices: DeviceView[]; maxDevices: number } | { ok: false; failure: LicenseApiFailure }
   > {
-    const code = this.deps.getCode()
+    const code = explicitCode ?? this.deps.getCode()
     if (code === undefined || code.length === 0) {
-      return { ok: false, failure: { ok: false, kind: 'malformed', status: 0 } }
+      return { ok: false, failure: { ok: false, kind: 'no-code' } }
     }
 
     const result = await this.deps.client.listDevices(code)
@@ -226,12 +233,14 @@ export class LicenseManager {
     return { ok: true, devices: result.data.devices, maxDevices: result.data.max_devices }
   }
 
+  /** @param explicitCode See listDevices: the code behind a 409 is not stored. */
   async deactivateDevice(
     deviceId: string,
+    explicitCode?: string,
   ): Promise<{ ok: true; devicesUsed: number } | { ok: false; failure: LicenseApiFailure }> {
-    const code = this.deps.getCode()
+    const code = explicitCode ?? this.deps.getCode()
     if (code === undefined || code.length === 0) {
-      return { ok: false, failure: { ok: false, kind: 'malformed', status: 0 } }
+      return { ok: false, failure: { ok: false, kind: 'no-code' } }
     }
 
     const result = await this.deps.client.deactivateDevice(code, deviceId)
