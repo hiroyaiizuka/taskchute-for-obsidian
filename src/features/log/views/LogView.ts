@@ -271,12 +271,12 @@ export class LogView {
 
     // Legend outside of scroll area, centered
     const legend = layout.createDiv( { cls: 'heatmap-legend' });
-    legend.createSpan( { cls: 'legend-label', text: 'Less' });
+    legend.createSpan( { cls: 'legend-label', text: this.tv('labels.heatmapLegendLess', 'Less') });
     const legendScale = legend.createDiv( { cls: 'legend-scale' });
     for (let level = 0; level <= 4; level++) {
       legendScale.createDiv( { cls: 'legend-cell', attr: { 'data-level': String(level) } });
     }
-    legend.createSpan( { cls: 'legend-label', text: 'More' });
+    legend.createSpan( { cls: 'legend-label', text: this.tv('labels.heatmapLegendMore', 'More') });
 
     this.dayDetailContainer = layout.createDiv( {
       cls: 'heatmap-detail-section',
@@ -320,12 +320,12 @@ export class LogView {
 
     // Legend outside of scroll area, centered
     const legend = layout.createDiv( { cls: 'heatmap-legend' });
-    legend.createSpan( { cls: 'legend-label', text: 'Less' });
+    legend.createSpan( { cls: 'legend-label', text: this.tv('labels.heatmapLegendLess', 'Less') });
     const legendScale = legend.createDiv( { cls: 'legend-scale' });
     for (let level = 0; level <= 4; level++) {
       legendScale.createDiv( { cls: 'legend-cell', attr: { 'data-level': String(level) } });
     }
-    legend.createSpan( { cls: 'legend-label', text: 'More' });
+    legend.createSpan( { cls: 'legend-label', text: this.tv('labels.heatmapLegendMore', 'More') });
 
     this.dayDetailContainer = layout.createDiv( {
       cls: 'heatmap-detail-section',

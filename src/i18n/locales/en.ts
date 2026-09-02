@@ -715,6 +715,7 @@ export const en = {
       minute: "M",
       cancel: "Cancel",
       save: "Save",
+      reset: "Reset",
     },
     calendar: {
       export: {
@@ -886,6 +887,8 @@ export const en = {
     labels: {
       yearOption: "{year}",
       tooltipNoData: "No data",
+      heatmapLegendLess: "Less",
+      heatmapLegendMore: "More",
       openTaskList: "Open ↗",
       openTaskListAria: "Open task list for {date}",
       totalTasks: "Total tasks",

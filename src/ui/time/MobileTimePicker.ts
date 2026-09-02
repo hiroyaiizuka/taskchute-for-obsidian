@@ -119,7 +119,10 @@ export class MobileTimePicker implements TimePicker {
       'taskchute-mobile-time-picker-btn-reset',
     )
     applyIcon(resetBtn, 'rotate-ccw')
-    resetBtn.setAttribute('aria-label', 'Reset')
+    resetBtn.setAttribute(
+      'aria-label',
+      options.tv ? options.tv('forms.reset', 'Reset') : 'Reset',
+    )
     resetBtn.addEventListener('click', this.handleReset)
     buttonsContainer.appendChild(resetBtn)
 

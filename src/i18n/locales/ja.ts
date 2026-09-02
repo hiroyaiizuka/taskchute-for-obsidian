@@ -711,6 +711,7 @@ export const ja = {
       minute: "分",
       cancel: "キャンセル",
       save: "保存",
+      reset: "リセット",
     },
     calendar: {
       export: {
@@ -884,6 +885,8 @@ export const ja = {
     labels: {
       yearOption: "{year}年",
       tooltipNoData: "データなし",
+      heatmapLegendLess: "少ない",
+      heatmapLegendMore: "多い",
       openTaskList: "↗︎ 開く",
       openTaskListAria: "{date}のタスク一覧を開く",
       totalTasks: "総タスク",
