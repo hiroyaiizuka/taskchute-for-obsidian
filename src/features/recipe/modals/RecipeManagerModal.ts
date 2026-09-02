@@ -72,6 +72,7 @@ export default class RecipeManagerModal extends Modal {
   }
 
   onClose(): void {
+    this.activeEditor?.destroy()
     this.activeEditor = null
     this.contentEl.empty()
   }
@@ -98,7 +99,10 @@ export default class RecipeManagerModal extends Modal {
   }
 
   private render(): void {
-        this.activeEditor = null
+    // Re-rendering discards the form, so a reorder still in flight has to go
+    // with it -- its ghost is on `body` and would otherwise be orphaned.
+    this.activeEditor?.destroy()
+    this.activeEditor = null
     this.contentEl.empty()
     if (this.mode === 'edit') {
       this.renderEdit()
