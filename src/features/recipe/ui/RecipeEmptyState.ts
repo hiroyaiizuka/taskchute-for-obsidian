@@ -11,15 +11,15 @@ export function renderRecipeEmptyState(container: HTMLElement, options: RecipeEm
   const empty = container.createDiv( { cls: 'recipe-empty-create-state' })
   empty.createDiv( {
     cls: 'recipe-empty-create-title',
-    text: options.title ?? t('recipes.empty.title', 'レシピがありません。'),
+    text: options.title ?? t('recipes.empty.title', 'No recipes yet.'),
   })
   empty.createDiv( {
     cls: 'recipe-empty-create-message',
-    text: options.message ?? t('recipes.empty.message', 'このモーダルで作成しますか？'),
+    text: options.message ?? t('recipes.empty.message', 'Create one in this modal?'),
   })
   const createButton = empty.createEl('button', {
     cls: 'form-button create recipe-empty-create-button',
-    text: options.buttonText ?? t('recipes.empty.createButton', 'レシピを作成'),
+    text: options.buttonText ?? t('recipes.empty.createButton', 'Create recipe'),
     attr: { type: 'button' },
   })
   createButton.addEventListener('click', options.onCreate)

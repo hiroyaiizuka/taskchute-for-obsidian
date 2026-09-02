@@ -76,7 +76,7 @@ export class RecipeEditorForm {
       const titleGroup = container.createDiv({ cls: 'form-group' })
       titleGroup.createEl('label', {
         cls: 'form-label',
-        text: t('recipes.manager.nameLabel', 'レシピ名'),
+        text: t('recipes.manager.nameLabel', 'Recipe name'),
         attr: { for: `${this.fieldIdPrefix}-title` },
       })
       this.titleInput = titleGroup.createEl('input', {
@@ -85,7 +85,7 @@ export class RecipeEditorForm {
           type: 'text',
           id: `${this.fieldIdPrefix}-title`,
           autocomplete: 'off',
-          placeholder: t('recipes.manager.namePlaceholder', 'タスクを迷わず実行できる名前'),
+          placeholder: t('recipes.manager.namePlaceholder', 'A name that makes the task easy to start'),
         },
       })
       this.titleInput.value = this.initialValue.title
@@ -95,19 +95,19 @@ export class RecipeEditorForm {
     const goalGroup = container.createDiv({ cls: 'form-group recipe-goal-group' })
     goalGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.goalLabel', '完了基準'),
+      text: t('recipes.manager.goalLabel', 'Definition of done'),
       attr: { for: `${this.fieldIdPrefix}-goal` },
     })
     goalGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.goalDescription', 'どうなったら、このタスクを完了にできるかを記述します。'),
+      text: t('recipes.manager.goalDescription', 'Describe what must be true before this task is complete.'),
     })
     this.goalInput = goalGroup.createEl('textarea', {
       cls: 'form-input recipe-goal-input',
       attr: {
         rows: '3',
         id: `${this.fieldIdPrefix}-goal`,
-        placeholder: t('recipes.manager.goalPlaceholder', '例: 公開前レビューを通過し、URLを共有できている'),
+        placeholder: t('recipes.manager.goalPlaceholder', 'For example, the review is approved and the published URL is shared'),
       },
     })
     this.goalInput.value = this.initialValue.goal
@@ -116,11 +116,11 @@ export class RecipeEditorForm {
     const stepsGroup = container.createDiv({ cls: 'form-group recipe-checklist-group recipe-steps-group' })
     stepsGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.stepsLabel', '手順'),
+      text: t('recipes.manager.stepsLabel', 'Steps'),
     })
     stepsGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.stepsDescription', '実行する順番に並べます。実行時にチェックできます。'),
+      text: t('recipes.manager.stepsDescription', 'Put the procedure in execution order. Check items while working.'),
     })
     this.stepsList = stepsGroup.createDiv({ cls: 'recipe-steps-list' })
     this.renderChecklist('steps')
@@ -129,11 +129,11 @@ export class RecipeEditorForm {
     const qualityGroup = container.createDiv({ cls: 'form-group recipe-checklist-group recipe-quality-group' })
     qualityGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.qualityChecksLabel', '品質基準'),
+      text: t('recipes.manager.qualityChecksLabel', 'Quality checks'),
     })
     qualityGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.qualityChecksDescription', '完了前に満たしているか確認する品質チェックです。'),
+      text: t('recipes.manager.qualityChecksDescription', 'Checks that must pass before completion.'),
     })
     this.qualityList = qualityGroup.createDiv({ cls: 'recipe-quality-checks-list' })
     this.renderChecklist('quality')
@@ -142,19 +142,19 @@ export class RecipeEditorForm {
     const constraintsGroup = container.createDiv({ cls: 'form-group recipe-constraints-group' })
     constraintsGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.constraintsLabel', '制約・ルール'),
+      text: t('recipes.manager.constraintsLabel', 'Constraints and rules'),
       attr: { for: `${this.fieldIdPrefix}-constraints` },
     })
     constraintsGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.constraintsDescription', '必ず守るルールを1行に1つ入力します。'),
+      text: t('recipes.manager.constraintsDescription', 'Enter one rule per line. These rules must always be followed.'),
     })
     this.constraintsInput = constraintsGroup.createEl('textarea', {
       cls: 'form-input recipe-constraints-input',
       attr: {
         rows: '4',
         id: `${this.fieldIdPrefix}-constraints`,
-        placeholder: t('recipes.manager.constraintsPlaceholder', '例: 顧客データを外部サービスへ送信しない'),
+        placeholder: t('recipes.manager.constraintsPlaceholder', 'For example, do not send customer data to external services'),
       },
     })
     this.constraintsInput.value = this.initialValue.constraints.join('\n')
@@ -182,7 +182,7 @@ export class RecipeEditorForm {
     let invalidTarget: HTMLElement | null = null
     this.clearInvalidState()
     if (!value.title) {
-      message = t('recipes.manager.validation.nameRequired', 'レシピ名を入力してください。')
+      message = t('recipes.manager.validation.nameRequired', 'Enter a recipe name.')
       invalidTarget = this.titleInput
     } else if (
       !value.goal
@@ -192,7 +192,7 @@ export class RecipeEditorForm {
     ) {
       message = t(
         'recipes.manager.validation.contentRequired',
-        '完了基準・手順・品質基準・制約のいずれかを入力してください。',
+        'Enter a definition of done, step, quality check, or constraint.',
       )
       invalidTarget = this.goalInput
     }
@@ -263,8 +263,8 @@ export class RecipeEditorForm {
         cls: `recipe-list-drag-handle ${handleClass}`,
         attr: {
           type: 'button',
-          title: t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
-          'aria-label': t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
+          title: t('recipes.manager.reorderStep', 'Drag to reorder'),
+          'aria-label': t('recipes.manager.reorderStep', 'Drag to reorder'),
           'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
         },
       })
@@ -289,11 +289,11 @@ export class RecipeEditorForm {
         attr: {
           type: 'text',
           'aria-label': isQuality
-            ? t('recipes.manager.qualityCheckPlaceholder', '品質基準')
-            : t('recipes.manager.stepPlaceholder', '手順'),
+            ? t('recipes.manager.qualityCheckPlaceholder', 'Quality check')
+            : t('recipes.manager.stepPlaceholder', 'Step'),
           placeholder: isQuality
-            ? t('recipes.manager.qualityCheckPlaceholder', '品質基準')
-            : t('recipes.manager.stepPlaceholder', '手順'),
+            ? t('recipes.manager.qualityCheckPlaceholder', 'Quality check')
+            : t('recipes.manager.stepPlaceholder', 'Step'),
         },
       })
       input.value = value.text
@@ -307,11 +307,11 @@ export class RecipeEditorForm {
         attr: {
           type: 'button',
           title: isQuality
-            ? t('recipes.manager.removeQualityCheck', '品質基準を削除')
-            : t('recipes.manager.removeStep', '手順を削除'),
+            ? t('recipes.manager.removeQualityCheck', 'Remove quality check')
+            : t('recipes.manager.removeStep', 'Remove step'),
           'aria-label': isQuality
-            ? t('recipes.manager.removeQualityCheck', '品質基準を削除')
-            : t('recipes.manager.removeStep', '手順を削除'),
+            ? t('recipes.manager.removeQualityCheck', 'Remove quality check')
+            : t('recipes.manager.removeStep', 'Remove step'),
         },
       })
       applyIcon(remove, 'x')
@@ -330,8 +330,8 @@ export class RecipeEditorForm {
     const button = container.createEl('button', {
       cls: `form-button cancel recipe-add-step-button ${isQuality ? 'recipe-add-quality-check-button' : ''}`,
       text: isQuality
-        ? t('recipes.manager.addQualityCheck', '+ 品質基準を追加')
-        : t('recipes.manager.addStep', '+ 手順を追加'),
+        ? t('recipes.manager.addQualityCheck', '+ add quality check')
+        : t('recipes.manager.addStep', '+ add step'),
       attr: { type: 'button' },
     })
     button.addEventListener('click', () => {

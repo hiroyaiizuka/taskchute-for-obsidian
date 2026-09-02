@@ -60,12 +60,11 @@ export class ReminderIconRenderer {
 
   /**
    * Build tooltip text showing reminder time.
-   * Shows "HH:mm にリマインダー" format.
    */
   private buildTooltipText(reminderTime: string): string {
     return this.options.tv(
       'tooltips.reminderAtTime',
-      `${reminderTime} にリマインダー`,
+      "Reminder at {time}",
       { time: reminderTime }
     );
   }

@@ -159,8 +159,8 @@ export default class TaskSettingsTooltipController {
       ? this.host.hasRecipeAssigned(inst)
       : Boolean(inst.task.recipePath)
     const label = hasRecipe
-      ? this.host.tv('buttons.manageRecipe', '🍽 レシピを変更・解除')
-      : this.host.tv('buttons.setRecipe', '🍽 レシピを設定')
+      ? this.host.tv('buttons.manageRecipe', '🍽 Change or remove recipe')
+      : this.host.tv('buttons.setRecipe', '🍽 Set recipe')
     const item = tooltip.createDiv( {
       cls: 'tooltip-item',
       text: label,
@@ -203,11 +203,11 @@ export default class TaskSettingsTooltipController {
 
     let label: string
     if (hasReminder) {
-      label = this.host.tv('buttons.reminderSet', `⏰ リマインダー (${reminderTime})`, {
+      label = this.host.tv('buttons.reminderSet', "⏰ Reminder ({time})", {
         time: reminderTime,
       })
     } else {
-      label = this.host.tv('buttons.setReminder', '⏰ リマインダーを設定')
+      label = this.host.tv('buttons.setReminder', '⏰ Set reminder')
     }
 
     const item = tooltip.createDiv( {

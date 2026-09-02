@@ -2569,7 +2569,7 @@ export class TaskChuteView
       new Notice(
         this.tv(
           "calendar.export.disabled",
-          "Googleカレンダー連携は設定で有効化してください",
+          "Enable Google Calendar integration in settings",
         ),
       )
       return
@@ -2592,13 +2592,13 @@ export class TaskChuteView
       )
       const url = this.googleCalendarService.buildEventUrl(event)
       this.googleCalendarService.open(url)
-      new Notice(this.tv("calendar.export.opened", "ブラウザでGoogleカレンダーを開きました"))
+      new Notice(this.tv("calendar.export.opened", "Opened Google Calendar in your browser"))
     } catch (error) {
       console.error("[TaskChuteView] Failed to open calendar export for created task", error)
       new Notice(
         this.tv(
           "calendar.export.cannotOpen",
-          "プレビューを作成できません。開始時刻と所要時間を確認してください。",
+          "Cannot create preview. Check start time and duration.",
         ),
       )
     }
@@ -4039,7 +4039,7 @@ export class TaskChuteView
       new Notice(
         this.tv(
           "calendar.export.disabled",
-          "Googleカレンダー連携は設定で有効化してください",
+          "Enable Google Calendar integration in settings",
         ),
       )
       return

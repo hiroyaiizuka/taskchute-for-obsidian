@@ -296,7 +296,7 @@ export default class RoutineController {
       const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
       const checkbox = option.createEl('input', { type: 'checkbox', value: String(day) })
       option.createSpan( {
-        text: this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        text: this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
         cls: 'routine-monthday-option__label',
       })
       monthdayCheckboxes.push(checkbox)
@@ -1302,7 +1302,7 @@ export default class RoutineController {
     const labels = monthdays.map((day) =>
       day === 'last'
         ? this.tv('labels.routineMonthdayLast', 'Last day')
-        : this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        : this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
     )
     return labels.join(joiner)
   }

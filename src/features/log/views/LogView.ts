@@ -124,7 +124,7 @@ export class LogView {
 
     const loading = this.container.createDiv( {
       cls: 'heatmap-loading',
-      text: this.tv('header.loading', 'データを読み込み中...'),
+      text: this.tv('header.loading', 'Loading data...'),
     })
 
     try {
@@ -140,7 +140,7 @@ export class LogView {
       console.error('Failed to render heatmap', error)
       loading.remove()
       new Notice(
-        this.tv('notices.loadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
+        this.tv('notices.loadFailure', "Failed to load data for {year}", {
           year: this.currentYear,
         }),
       )
@@ -151,7 +151,7 @@ export class LogView {
   private createHeader(): void {
     const header = this.container.createDiv( { cls: 'taskchute-log-header' })
     header.createEl('h2', {
-      text: this.tv('header.title', 'タスク実行ログ'),
+      text: this.tv('header.title', 'Task execution log'),
       cls: 'log-title',
     });
 
@@ -162,7 +162,7 @@ export class LogView {
     for (let year = currentYear + 1; year >= 2020; year -= 1) {
       const option = yearSelector.createEl('option', {
         value: String(year),
-        text: this.tv('labels.yearOption', `${year}年`, { year }),
+        text: this.tv('labels.yearOption', "{year}", { year }),
       })
       if (year === this.currentYear) {
         option.selected = true
@@ -171,9 +171,9 @@ export class LogView {
 
     const restoreButton = controls.createEl('button', {
       cls: 'restore-button',
-      text: this.tv('header.restoreButton', '🔄 データを復元'),
+      text: this.tv('header.restoreButton', '🔄 Restore data'),
       attr: {
-        title: this.tv('header.restoreTooltip', 'バックアップからログデータを復元'),
+        title: this.tv('header.restoreTooltip', 'Restore log data from backup'),
       },
     })
 
@@ -186,7 +186,7 @@ export class LogView {
         const target = event.currentTarget as HTMLSelectElement
         this.currentYear = Number.parseInt(target.value, 10)
         await this.reloadCurrentYear(
-          this.tv('header.loading', 'データを読み込み中...'),
+          this.tv('header.loading', 'Loading data...'),
           false,
         )
       })()
@@ -228,7 +228,7 @@ export class LogView {
       this.renderHeatmap()
       if (showSuccessNotice) {
         new Notice(
-          this.tv('notices.reloadSuccess', `${this.currentYear}年のデータを更新しました`, {
+          this.tv('notices.reloadSuccess', "Updated data for {year}", {
             year: this.currentYear,
           }),
         )
@@ -237,7 +237,7 @@ export class LogView {
       console.error('Failed to reload heatmap', error)
       loading.remove()
       new Notice(
-        this.tv('notices.reloadFailure', `${this.currentYear}年のデータ読み込みに失敗しました`, {
+        this.tv('notices.reloadFailure', "Failed to load data for {year}", {
           year: this.currentYear,
         }),
       )
@@ -306,7 +306,7 @@ export class LogView {
     const gridSection = layout.createDiv( { cls: 'heatmap-grid-section' });
     gridSection.createDiv( {
       cls: 'heatmap-error',
-      text: this.tv('notices.yearUnavailable', `${year}年のデータは利用できません`, {
+      text: this.tv('notices.yearUnavailable', "No data available for {year}", {
         year,
       }),
     });
@@ -315,7 +315,7 @@ export class LogView {
 
     grid.querySelectorAll<HTMLElement>('.heatmap-cell').forEach((cell) => {
       delete cell.dataset.level;
-      cell.dataset.tooltip = this.tv('labels.tooltipNoData', 'データなし');
+      cell.dataset.tooltip = this.tv('labels.tooltipNoData', 'No data');
     });
 
     // Legend outside of scroll area, centered
@@ -375,7 +375,7 @@ export class LogView {
           'aria-label',
           this.tv(
             'labels.openTaskListAria',
-            `${this.getAccessibleLabel(dateString)}を表示`,
+            "Open task list for {date}",
             { date: this.getAccessibleLabel(dateString) },
           ),
         );
@@ -536,13 +536,13 @@ export class LogView {
       case 'placeholder':
         this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
-          text: this.tv('labels.selectDate', '日付を選択してください'),
+          text: this.tv('labels.selectDate', 'Select a date'),
         });
         break;
       case 'loading':
         this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-loading',
-          text: this.tv('labels.loadingDate', `${state.dateKey} のデータを読み込み中...`, {
+          text: this.tv('labels.loadingDate', "Loading data for {date}...", {
             date: state.dateKey,
           }),
         });
@@ -550,13 +550,13 @@ export class LogView {
       case 'future':
         this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
-          text: this.tv('labels.futureDate', '未来の日付です。記録はまだありません。'),
+          text: this.tv('labels.futureDate', 'This is a future date. No records yet.'),
         });
         break;
       case 'error':
         this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-error',
-          text: this.tv('notices.loadFailedGeneric', 'データの読み込みに失敗しました。'),
+          text: this.tv('notices.loadFailedGeneric', 'Failed to load data.'),
         });
         break;
       case 'success':
@@ -565,7 +565,7 @@ export class LogView {
       default:
         this.dayDetailContainer.createDiv( {
           cls: 'heatmap-detail-placeholder',
-          text: this.tv('labels.selectDatePrompt', '日付を選択してください'),
+          text: this.tv('labels.selectDatePrompt', 'Select a date'),
         });
     }
   }
@@ -585,11 +585,11 @@ export class LogView {
 
     const openButton = heading.createEl('button', {
       cls: 'heatmap-detail-open-button',
-      text: this.tv('labels.openTaskList', '↗︎ 開く'),
+      text: this.tv('labels.openTaskList', 'Open ↗'),
       attr: {
         'aria-label': this.tv(
           'labels.openTaskListAria',
-          `${this.getAccessibleLabel(detail.date)}のタスク一覧を開く`,
+          "Open task list for {date}",
           { date: this.getAccessibleLabel(detail.date) },
         ),
       },
@@ -604,18 +604,18 @@ export class LogView {
 
     this.createSummaryItem(
       summary,
-      this.tv('labels.totalTasks', '総タスク'),
+      this.tv('labels.totalTasks', 'Total tasks'),
       String(detail.summary.totalTasks),
     );
     this.createSummaryItem(
       summary,
-      this.tv('labels.completedTasks', '完了'),
+      this.tv('labels.completedTasks', 'Completed'),
       String(detail.summary.completedTasks),
     );
     if (detail.executions.length === 0) {
       this.dayDetailContainer.createDiv( {
         cls: 'heatmap-detail-empty',
-        text: this.tv('labels.noEntries', 'この日に記録された実行ログはありません。'),
+        text: this.tv('labels.noEntries', 'No execution logs recorded for this day.'),
       });
       return;
     }
@@ -627,14 +627,14 @@ export class LogView {
     const headerRow = thead.createEl('tr');
     const columns: Array<{ label: string; cls?: string }> = [
       {
-        label: this.tv('labels.tableHeaders.taskNameWithCount', `タスク名 (${detail.executions.length})`, {
+        label: this.tv('labels.tableHeaders.taskNameWithCount', "Task name ({count})", {
           count: detail.executions.length,
         }),
       },
-      { label: this.tv('labels.tableHeaders.executionTime', '実行時間') },
-      { label: this.tv('labels.tableHeaders.focus', '集中度'), cls: 'heatmap-col-focus' },
-      { label: this.tv('labels.tableHeaders.energy', '元気度'), cls: 'heatmap-col-energy' },
-      { label: this.tv('labels.tableHeaders.comment', 'コメント') },
+      { label: this.tv('labels.tableHeaders.executionTime', 'Execution time') },
+      { label: this.tv('labels.tableHeaders.focus', 'Focus'), cls: 'heatmap-col-focus' },
+      { label: this.tv('labels.tableHeaders.energy', 'Energy'), cls: 'heatmap-col-energy' },
+      { label: this.tv('labels.tableHeaders.comment', 'Comment') },
     ];
     columns.forEach((col) => {
       headerRow.createEl('th', { text: col.label, cls: col.cls, attr: { scope: 'col' } });
@@ -712,7 +712,7 @@ export class LogView {
 
   private formatMinutesValue(totalMinutes: number): string {
     if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) {
-      return this.tv('durations.zeroMinutes', '0分');
+      return this.tv('durations.zeroMinutes', '0 minutes');
     }
     const minutes = Math.round(totalMinutes);
     const hours = Math.floor(minutes / 60);
@@ -742,7 +742,7 @@ export class LogView {
 
   private formatDuration(durationSec: number | undefined): string {
     if (!durationSec || durationSec <= 0) {
-      return this.tv('durations.lessThanMinute', '1分未満');
+      return this.tv('durations.lessThanMinute', 'Under 1 minute');
     }
     const minutes = Math.max(1, Math.round(durationSec / 60));
     const hours = Math.floor(minutes / 60);
@@ -819,7 +819,7 @@ export class LogView {
     });
 
     if (!stats || stats.totalTasks === 0) {
-      return this.tv('summaries.noTasks', `${formatted}\nタスクなし`, {
+      return this.tv('summaries.noTasks', "{formatted}\nNo tasks", {
         formatted,
       });
     }
@@ -827,7 +827,7 @@ export class LogView {
     const rate = Math.round((stats.completionRate ?? 0) * 100);
     return this.tv(
       'summaries.stats',
-      `${formatted}\n総タスク: ${stats.totalTasks}\n完了: ${stats.completedTasks}\n先送り: ${stats.procrastinatedTasks}\n完了率: ${rate}%`,
+      "{formatted}\nTotal tasks: {total}\nCompleted: {completed}\nDeferred: {deferred}\nCompletion rate: {rate}%",
       {
         formatted,
         total: stats.totalTasks,
@@ -840,16 +840,16 @@ export class LogView {
 
   private formatHoursMinutes(hours: number, minutes: number): string {
     if (minutes > 0) {
-      return this.tv('durations.hoursAndMinutes', `${hours}時間${minutes}分`, {
+      return this.tv('durations.hoursAndMinutes', "{hours}h {minutes}m", {
         hours,
         minutes,
       });
     }
-    return this.tv('durations.hoursOnly', `${hours}時間`, { hours });
+    return this.tv('durations.hoursOnly', "{hours}h", { hours });
   }
 
   private formatMinutesOnly(minutes: number): string {
-    return this.tv('durations.minutesOnly', `${minutes}分`, { minutes });
+    return this.tv('durations.minutesOnly', "{minutes}m", { minutes });
   }
 
   private addCellEventListeners(cell: HTMLElement, dateKey: string): void {
@@ -977,7 +977,7 @@ export class LogView {
       {
         onRestore: async (monthKey: string, backupPath: string) => {
           await restoreService.restoreFromBackup(monthKey, backupPath)
-          new Notice(this.tv('restore.success', 'ログデータを復元しました'))
+          new Notice(this.tv('restore.success', 'Log data restored successfully'))
         },
         getPreview: async (backupPath: string, targetDate?: string) => {
           return restoreService.getBackupPreview(backupPath, targetDate)

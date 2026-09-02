@@ -477,7 +477,7 @@ export class BackupRestoreService {
 
     // Build executions list with time info
     const executions: TaskExecutionPreview[] = sortedEntries.map((entry) => ({
-      taskName: entry.taskTitle ?? entry.taskName ?? t('logView.restore.unknownTaskName', '(不明)'),
+      taskName: entry.taskTitle ?? entry.taskName ?? t('logView.restore.unknownTaskName', '(Unknown)'),
       startTime: entry.startTime ?? '-',
       endTime: entry.stopTime ?? '-',
     }))

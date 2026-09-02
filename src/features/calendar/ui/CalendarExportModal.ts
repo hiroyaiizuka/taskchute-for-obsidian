@@ -51,7 +51,7 @@ export class CalendarExportModal extends Modal {
 
     // 標準タイトルをそのまま利用
     this.titleEl.setText(
-      this.opts.tv("calendar.export.title", "Googleカレンダーに登録"),
+      this.opts.tv("calendar.export.title", "Register to Google Calendar"),
     )
 
     this.noteBody = await this.loadNoteBody()
@@ -59,11 +59,11 @@ export class CalendarExportModal extends Modal {
     const displayTitle = this.opts.getDisplayTitle(this.opts.instance)
 
     new Setting(contentEl)
-      .setName(this.opts.tv("calendar.export.task", "タスク"))
+      .setName(this.opts.tv("calendar.export.task", "Task"))
       .setDesc(displayTitle)
 
     const dateSetting = new Setting(contentEl)
-      .setName(this.opts.tv("calendar.export.date", "日付"))
+      .setName(this.opts.tv("calendar.export.date", "Date"))
 
     if (this.opts.isRoutine) {
       this.dateEl = dateSetting.descEl
@@ -84,13 +84,13 @@ export class CalendarExportModal extends Modal {
 
     if (this.opts.isRoutine) {
       const recurrenceSetting = new Setting(contentEl)
-        .setName(this.opts.tv("calendar.export.recurrence", "繰り返し"))
-        .setDesc(this.opts.tv("calendar.export.recurrenceNone", "単発イベントとして登録します"))
+        .setName(this.opts.tv("calendar.export.recurrence", "Recurrence"))
+        .setDesc(this.opts.tv("calendar.export.recurrenceNone", "Register as a one-time event"))
       this.recurrenceEl = recurrenceSetting.descEl
     }
 
     new Setting(contentEl)
-      .setName(this.opts.tv("calendar.export.startTime", "開始時刻"))
+      .setName(this.opts.tv("calendar.export.startTime", "Start time"))
       .addText((text) => {
         text.setPlaceholder("09:00")
         text.onChange(() => {
@@ -100,7 +100,7 @@ export class CalendarExportModal extends Modal {
       })
 
     new Setting(contentEl)
-      .setName(this.opts.tv("calendar.export.duration", "所要時間（分）"))
+      .setName(this.opts.tv("calendar.export.duration", "Duration (minutes)"))
       .addText((text) => {
         text.inputEl.type = "number"
         text.inputEl.min = "1"
@@ -112,13 +112,13 @@ export class CalendarExportModal extends Modal {
       })
 
     new Setting(contentEl)
-      .setName(this.opts.tv("calendar.export.details", "説明プレビュー"))
+      .setName(this.opts.tv("calendar.export.details", "Description preview"))
       .addTextArea((area) => {
         area.inputEl.rows = 6
         area.setPlaceholder(
           this.opts.tv(
             "calendar.export.detailsPlaceholder",
-            "Obsidianのパスや本文がここに表示されます"
+            "Obsidian path and note body will appear here"
           ),
         )
         area.setDisabled(true)
@@ -129,12 +129,12 @@ export class CalendarExportModal extends Modal {
 
     createModalFooter(contentEl, [
       {
-        text: this.opts.tv("common.cancel", "キャンセル"),
+        text: this.opts.tv("common.cancel", "Cancel"),
         role: "cancel",
         onClick: () => this.close(),
       },
       {
-        text: this.opts.tv("calendar.export.open", "カレンダーを開く"),
+        text: this.opts.tv("calendar.export.open", "Open calendar"),
         role: "primary",
         onClick: () => {
           void this.handleOpen()
@@ -240,7 +240,7 @@ export class CalendarExportModal extends Modal {
       new Notice(
         this.opts.tv(
           "calendar.export.cannotOpen",
-          "プレビューを作成できません。開始時刻と所要時間を確認してください。"
+          "Cannot create preview. Check start time and duration."
         ),
       )
       return
@@ -271,7 +271,7 @@ export class CalendarExportModal extends Modal {
     new Notice(
       this.opts.tv(
         "calendar.export.opened",
-        "ブラウザでGoogleカレンダーを開きました"
+        "Opened Google Calendar in your browser"
       ),
     )
   }
@@ -287,13 +287,13 @@ export class CalendarExportModal extends Modal {
     if (!preview.recurrenceRule) {
       return this.opts.tv(
         "calendar.export.recurrenceNone",
-        "単発イベントとして登録します"
+        "Register as a one-time event"
       )
     }
 
     const rule = preview.recurrenceRule
     if (rule.startsWith("FREQ=DAILY")) {
-      return this.opts.tv("calendar.export.recurrenceDaily", "毎日繰り返します")
+      return this.opts.tv("calendar.export.recurrenceDaily", "Repeats daily")
     }
     if (rule.startsWith("FREQ=WEEKLY")) {
       const match = rule.match(/BYDAY=([^;]+)/)
@@ -301,25 +301,25 @@ export class CalendarExportModal extends Modal {
       const labels = days.map((d) => this.dayCodeToLabel(d)).join(", ")
       return this.opts.tv(
         "calendar.export.recurrenceWeekly",
-        "毎週: {days}",
+        "Repeats weekly: {days}",
         { days: labels || "不明" },
       )
     }
     if (rule.startsWith("FREQ=MONTHLY")) {
-      return this.opts.tv("calendar.export.recurrenceMonthly", "毎月のルーチンとして登録します")
+      return this.opts.tv("calendar.export.recurrenceMonthly", "Registers as a monthly routine")
     }
-    return this.opts.tv("calendar.export.recurrenceOther", "繰り返しイベントとして登録します")
+    return this.opts.tv("calendar.export.recurrenceOther", "Registers as a recurring event")
   }
 
   private dayCodeToLabel(code: string): string {
     const map: Record<string, string> = {
-      SU: this.opts.tv("labels.weekdays.sundayShort", "日"),
-      MO: this.opts.tv("labels.weekdays.mondayShort", "月"),
-      TU: this.opts.tv("labels.weekdays.tuesdayShort", "火"),
-      WE: this.opts.tv("labels.weekdays.wednesdayShort", "水"),
-      TH: this.opts.tv("labels.weekdays.thursdayShort", "木"),
-      FR: this.opts.tv("labels.weekdays.fridayShort", "金"),
-      SA: this.opts.tv("labels.weekdays.saturdayShort", "土"),
+      SU: this.opts.tv("labels.weekdays.sundayShort", "Sun"),
+      MO: this.opts.tv("labels.weekdays.mondayShort", "Mon"),
+      TU: this.opts.tv("labels.weekdays.tuesdayShort", "Tue"),
+      WE: this.opts.tv("labels.weekdays.wednesdayShort", "Wed"),
+      TH: this.opts.tv("labels.weekdays.thursdayShort", "Thu"),
+      FR: this.opts.tv("labels.weekdays.fridayShort", "Fri"),
+      SA: this.opts.tv("labels.weekdays.saturdayShort", "Sat"),
     }
     return map[code] ?? code
   }

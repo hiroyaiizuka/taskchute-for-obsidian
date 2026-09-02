@@ -321,7 +321,7 @@ export class MobileTimePicker implements TimePicker {
       const selectedMinutes = this.selectedHour * 60 + this.selectedMinute
       if (selectedMinutes > nowMinutes) {
         const message = this.options.tv
-          ? this.options.tv('forms.timeNotFuture', '未来の時刻は設定できません')
+          ? this.options.tv('forms.timeNotFuture', 'Time cannot be in the future')
           : 'Time cannot be in the future'
         new Notice(message)
         return

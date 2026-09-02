@@ -85,7 +85,7 @@ export class RecipeRunPopover {
     } catch (error) {
       if (token !== this.showToken) return
       console.error('[RecipeRunPopover] Failed to load recipe', error)
-      new Notice(t('recipes.run.notices.loadFailed', 'レシピを読み込めませんでした'))
+      new Notice(t('recipes.run.notices.loadFailed', 'Failed to load recipe'))
       return
     }
     if (token !== this.showToken) return
@@ -147,8 +147,8 @@ export class RecipeRunPopover {
         cls: 'recipe-run-edit-button',
         attr: {
           type: 'button',
-          title: t('recipes.run.editRecipe', 'レシピを編集'),
-          'aria-label': t('recipes.run.editRecipe', 'レシピを編集'),
+          title: t('recipes.run.editRecipe', 'Edit recipe'),
+          'aria-label': t('recipes.run.editRecipe', 'Edit recipe'),
         },
       })
       this.appendEditIcon(editButton)
@@ -163,7 +163,7 @@ export class RecipeRunPopover {
         const goalSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-goal' })
         goalSection.createDiv({
           cls: 'recipe-run-context-title',
-          text: t('recipes.run.goalLabel', '完了基準'),
+          text: t('recipes.run.goalLabel', 'Definition of done'),
         })
         goalSection.createDiv({ cls: 'recipe-run-context-text', text: recipe.goal.trim() })
       }
@@ -180,8 +180,8 @@ export class RecipeRunPopover {
         sectionHeader.createDiv({
           cls: 'recipe-run-section-title',
           text: kind === 'steps'
-            ? t('recipes.run.stepsLabel', '手順')
-            : t('recipes.run.qualityChecksLabel', '品質基準'),
+            ? t('recipes.run.stepsLabel', 'Steps')
+            : t('recipes.run.qualityChecksLabel', 'Quality checks'),
         })
         sectionHeader.createSpan({
           cls: 'recipe-run-section-summary',
@@ -227,8 +227,8 @@ export class RecipeRunPopover {
           list.createDiv({
             cls: 'recipe-empty-state',
             text: kind === 'steps'
-              ? t('recipes.run.emptySteps', '手順がありません')
-              : t('recipes.run.emptyQualityChecks', '品質基準がありません'),
+              ? t('recipes.run.emptySteps', 'No steps')
+              : t('recipes.run.emptyQualityChecks', 'No quality checks'),
           })
         }
         displayItems.forEach((item, index) => {
@@ -241,8 +241,8 @@ export class RecipeRunPopover {
             cls: 'recipe-step-drag-handle',
             attr: {
               type: 'button',
-              title: t('recipes.run.reorderStep', 'ドラッグして並び替え'),
-              'aria-label': t('recipes.run.reorderStep', 'ドラッグして並び替え'),
+              title: t('recipes.run.reorderStep', 'Drag to reorder'),
+              'aria-label': t('recipes.run.reorderStep', 'Drag to reorder'),
               'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
             },
           })
@@ -317,7 +317,7 @@ export class RecipeRunPopover {
       if (recipe.steps.length === 0 && (recipe.qualityChecks?.length ?? 0) === 0) {
         popover.createDiv({
           cls: 'recipe-empty-state',
-          text: t('recipes.run.emptyChecklists', 'チェックリストがありません'),
+          text: t('recipes.run.emptyChecklists', 'No checklists'),
         })
       }
 
@@ -325,7 +325,7 @@ export class RecipeRunPopover {
         const constraintsSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-constraints' })
         constraintsSection.createDiv({
           cls: 'recipe-run-context-title',
-          text: t('recipes.run.constraintsLabel', '制約・ルール'),
+          text: t('recipes.run.constraintsLabel', 'Constraints and rules'),
         })
         const constraintsList = constraintsSection.createEl('ul', { cls: 'recipe-run-constraints-list' })
         recipe.constraints.forEach((constraint) => {
