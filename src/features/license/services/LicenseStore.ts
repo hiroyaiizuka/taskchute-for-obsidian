@@ -5,13 +5,21 @@
  * carries the entitlement to a new machine, which then activates itself.
  *
  * Everything device-bound — the device id, the token signed against it, and the
- * last known server time — lives in Obsidian's device-local storage. This is a
- * deliberate deviation from the API's SPEC 11-1, which assumes both go in
- * data.json: with Obsidian Sync that file is shared, so a synced token would
- * arrive on a second machine bound to the first machine's device id and fail
- * verification with `device-mismatch` forever.
+ * last known server time — lives in device-local storage. This is a deliberate
+ * deviation from the API's SPEC 11-1, which assumes both go in data.json: with
+ * Obsidian Sync that file is shared, so a synced token would arrive on a second
+ * machine bound to the first machine's device id and fail verification with
+ * `device-mismatch` forever.
  *
- * Follows the precedent set by AiCustomModelStore.
+ * The storage is the raw `window.localStorage`, *not* Obsidian's
+ * `App#saveLocalStorage`. The latter prefixes every key with the vault's app
+ * id, which would make each vault on one machine present a different device id
+ * and consume a seat of its own. The raw store is shared by every vault of one
+ * Obsidian install, which is as close to "one machine" as the plugin sandbox
+ * gets — the same approach DeviceIdentityService already takes for the
+ * execution log. Older installs kept their state in the vault-scoped store, so
+ * a legacy bridge can be passed in and is read once to adopt its device id
+ * (see `read`).
  */
 import type { LicenseSummary } from './LicenseApiClient'
 
@@ -41,10 +49,45 @@ export interface LicenseDeviceState {
   seatReleasedAt?: number
 }
 
-/** Duck-typed App#loadLocalStorage / App#saveLocalStorage bridge. */
+/**
+ * Key/value storage for the device state. Shaped after Obsidian's
+ * `App#loadLocalStorage` / `App#saveLocalStorage` so the App object itself can
+ * still be passed as the legacy bridge.
+ */
 export interface LicenseStorageBridge {
   loadLocalStorage?: (key: string) => unknown
   saveLocalStorage?: (key: string, value: unknown) => void
+}
+
+/** Written and removed only to find out whether the store accepts writes. */
+const STORAGE_PROBE_KEY = 'taskchute-plus.license-storage-probe'
+
+/**
+ * The vault-independent store, or undefined where it cannot be used.
+ *
+ * Undefined has to stay distinguishable from "empty": a bridge that silently
+ * drops writes would hand out a fresh device id on every launch and burn a seat
+ * each time, so the caller falls back to the vault-scoped store instead.
+ */
+export function createDeviceLocalStorageBridge(): LicenseStorageBridge | undefined {
+  try {
+    const storage = window.localStorage
+    if (!storage) return undefined
+
+    // Presence is not permission: private modes and hardened setups expose the
+    // object and throw on write.
+    storage.setItem(STORAGE_PROBE_KEY, '1')
+    storage.removeItem(STORAGE_PROBE_KEY)
+
+    return {
+      loadLocalStorage: (key) => storage.getItem(key) ?? undefined,
+      saveLocalStorage: (key, value) => {
+        storage.setItem(key, JSON.stringify(value))
+      },
+    }
+  } catch {
+    return undefined
+  }
 }
 
 const DEVICE_ID_PREFIX = 'DEVICE-'
@@ -91,10 +134,63 @@ function readPositiveInt(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
+/**
+ * One store's state, or undefined when it holds nothing usable.
+ *
+ * A record without a valid device id is treated as absent in full: whatever
+ * token sits beside it is signed against an id this device can no longer
+ * present, so it could never verify.
+ */
+function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined {
+  let raw: unknown
+  try {
+    raw = bridge.loadLocalStorage?.(LICENSE_DEVICE_STATE_STORAGE_KEY)
+  } catch {
+    return undefined
+  }
+
+  // The raw store hands back the JSON text; Obsidian's App parses it for us.
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw) as unknown
+    } catch {
+      return undefined
+    }
+  }
+
+  if (typeof raw !== 'object' || raw === null) return undefined
+
+  const record = raw as Record<string, unknown>
+  if (!isValidDeviceId(record['deviceId'])) return undefined
+
+  const token = typeof record['token'] === 'string' ? record['token'] : undefined
+  const expiresAt = readPositiveInt(record['expiresAt'])
+  const lastServerTimeSec = readPositiveInt(record['lastServerTimeSec'])
+  const license = readLicenseSummary(record['license'])
+  const seatReleasedAt = readPositiveInt(record['seatReleasedAt'])
+
+  return {
+    deviceId: record['deviceId'],
+    ...(token !== undefined ? { token } : {}),
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
+    ...(license !== undefined ? { license } : {}),
+    ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
+  }
+}
+
 export class LicenseStore {
   private state: LicenseDeviceState
 
-  constructor(private readonly bridge: LicenseStorageBridge) {
+  /**
+   * `legacy` is the store an older version of the plugin wrote to (the
+   * vault-scoped one). It is only ever read, and only when `bridge` holds
+   * nothing usable.
+   */
+  constructor(
+    private readonly bridge: LicenseStorageBridge,
+    private readonly legacy?: LicenseStorageBridge,
+  ) {
     this.state = this.read()
     // Persist immediately so a freshly generated device id survives a crash
     // before the first activation; otherwise a seat could be claimed under an
@@ -180,41 +276,24 @@ export class LicenseStore {
     return now < lastSeen - toleranceSec
   }
 
+  /**
+   * The stored state, migrating from the legacy store when this one is empty.
+   *
+   * Adopting the legacy device id rather than minting a new one keeps the seat
+   * this vault already holds. Where several vaults on one machine each hold a
+   * seat, whichever launches first wins the machine's id and the others fall in
+   * behind it; their old seats stay until the user releases them from the
+   * device list. The legacy entry is left in place — it is never written again,
+   * and it costs nothing to leave a way back if this store is ever wiped.
+   */
   private read(): LicenseDeviceState {
-    let raw: unknown
-    try {
-      raw = this.bridge.loadLocalStorage?.(LICENSE_DEVICE_STATE_STORAGE_KEY)
-    } catch {
-      raw = undefined
-    }
+    const current = readState(this.bridge)
+    if (current) return current
 
-    // Obsidian returns the parsed value, but older vaults may hold a string.
-    if (typeof raw === 'string') {
-      try {
-        raw = JSON.parse(raw) as unknown
-      } catch {
-        raw = undefined
-      }
-    }
+    const migrated = this.legacy ? readState(this.legacy) : undefined
+    if (migrated) return migrated
 
-    const record =
-      typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
-
-    const deviceId = isValidDeviceId(record['deviceId']) ? record['deviceId'] : generateDeviceId()
-    const token = typeof record['token'] === 'string' ? record['token'] : undefined
-    const expiresAt = readPositiveInt(record['expiresAt'])
-    const lastServerTimeSec = readPositiveInt(record['lastServerTimeSec'])
-    const license = readLicenseSummary(record['license'])
-    const seatReleasedAt = readPositiveInt(record['seatReleasedAt'])
-
-    return {
-      deviceId,
-      ...(token !== undefined ? { token } : {}),
-      ...(expiresAt !== undefined ? { expiresAt } : {}),
-      ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
-      ...(license !== undefined ? { license } : {}),
-      ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
-    }
+    return { deviceId: generateDeviceId() }
   }
 
   private write(): void {

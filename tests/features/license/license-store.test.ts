@@ -1,4 +1,5 @@
 import {
+  createDeviceLocalStorageBridge,
   generateDeviceId,
   LICENSE_DEVICE_STATE_STORAGE_KEY,
   LicenseStore,
@@ -193,5 +194,110 @@ describe('LicenseStore', () => {
 
       expect(store.getState().lastServerTimeSec).toBe(2_000_000_000)
     })
+  })
+})
+
+describe('createDeviceLocalStorageBridge', () => {
+  const realStorage = window.localStorage
+
+  afterEach(() => {
+    Object.defineProperty(window, 'localStorage', {
+      value: realStorage,
+      configurable: true,
+    })
+    realStorage.clear()
+  })
+
+  test('stores the state under an unprefixed key', () => {
+    const bridge = createDeviceLocalStorageBridge()
+    const store = new LicenseStore(bridge!)
+
+    // Unprefixed is the whole point: Obsidian's App#saveLocalStorage would put
+    // the vault's app id in front of it and give each vault its own seat.
+    const raw = window.localStorage.getItem(LICENSE_DEVICE_STATE_STORAGE_KEY)
+    expect(JSON.parse(raw ?? '{}')).toMatchObject({ deviceId: store.getDeviceId() })
+  })
+
+  test('gives every vault on the machine the same device id', () => {
+    // Two vaults are two LicenseStore instances over one browser storage.
+    const first = new LicenseStore(createDeviceLocalStorageBridge()!)
+    const second = new LicenseStore(createDeviceLocalStorageBridge()!)
+
+    expect(second.getDeviceId()).toBe(first.getDeviceId())
+  })
+
+  test('reports storage that refuses writes as unusable', () => {
+    // Handing back a bridge that drops writes would mint a new device id — and
+    // burn a seat — on every launch, so it has to be distinguishable.
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('denied')
+        },
+        removeItem: () => undefined,
+      },
+      configurable: true,
+    })
+
+    expect(createDeviceLocalStorageBridge()).toBeUndefined()
+  })
+
+  test('reports a missing storage as unusable', () => {
+    Object.defineProperty(window, 'localStorage', { value: undefined, configurable: true })
+
+    expect(createDeviceLocalStorageBridge()).toBeUndefined()
+  })
+})
+
+describe('LicenseStore migration from the vault-scoped store', () => {
+  test('adopts the legacy device id so the seat is kept', () => {
+    const legacy = createBridge({ deviceId: 'DEVICE-LEGACY01', token: 't', expiresAt: 99 })
+    const bridge = createBridge()
+
+    const store = new LicenseStore(bridge, legacy)
+
+    expect(store.getDeviceId()).toBe('DEVICE-LEGACY01')
+    expect(store.getState().token).toBe('t')
+    // Copied across on construction, so the next launch reads it from the
+    // shared store whether or not the legacy entry still exists.
+    expect(bridge.store.get(LICENSE_DEVICE_STATE_STORAGE_KEY)).toMatchObject({
+      deviceId: 'DEVICE-LEGACY01',
+      token: 't',
+    })
+  })
+
+  test('leaves the legacy entry alone once migrated', () => {
+    const legacy = createBridge({ deviceId: 'DEVICE-LEGACY01' })
+    const store = new LicenseStore(createBridge(), legacy)
+
+    store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+
+    expect(legacy.store.get(LICENSE_DEVICE_STATE_STORAGE_KEY)).toEqual({
+      deviceId: 'DEVICE-LEGACY01',
+    })
+  })
+
+  test('ignores the legacy store once this machine has an id', () => {
+    // The second vault to launch finds the machine id already set and falls in
+    // behind it rather than dragging its own seat across.
+    const bridge = createBridge({ deviceId: 'DEVICE-MACHINE01' })
+    const legacy = createBridge({ deviceId: 'DEVICE-LEGACY01' })
+
+    expect(new LicenseStore(bridge, legacy).getDeviceId()).toBe('DEVICE-MACHINE01')
+  })
+
+  test('falls through to a fresh id when neither store has one', () => {
+    const store = new LicenseStore(createBridge(), createBridge('not json'))
+
+    expect(store.getDeviceId()).toMatch(/^DEVICE-[0-9A-F]+$/)
+  })
+
+  test('drops a token whose device id did not survive', () => {
+    // The token is signed against an id this device can no longer present, so
+    // keeping it would only produce a device-mismatch on the next call.
+    const store = new LicenseStore(createBridge({ deviceId: 'short', token: 't' }))
+
+    expect(store.getState().token).toBeUndefined()
   })
 })
