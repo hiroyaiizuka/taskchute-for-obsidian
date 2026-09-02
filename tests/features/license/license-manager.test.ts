@@ -360,8 +360,43 @@ describe('device management', () => {
   test('does not call the API without a stored code', async () => {
     const { manager, client } = createHarness()
 
-    expect((await manager.listDevices()).ok).toBe(false)
+    const result = await manager.listDevices()
+
+    expect(result).toEqual({ ok: false, failure: { ok: false, kind: 'no-code' } })
     expect(client.listDevices).not.toHaveBeenCalled()
+    expect(await manager.deactivateDevice('DEVICE-OTHER')).toEqual({
+      ok: false,
+      failure: { ok: false, kind: 'no-code' },
+    })
+    expect(client.deactivateDevice).not.toHaveBeenCalled()
+  })
+
+  test('releases a seat with a code that is not stored yet', async () => {
+    // Activation only stores the code on success, so the seat list a 409 puts
+    // on screen has to carry the typed code or it cannot free anything.
+    const { manager, client } = createHarness()
+    client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 2 } })
+
+    const result = await manager.deactivateDevice('DEVICE-OTHER', 'TCP-0000-0000-0000-0001')
+
+    expect(result).toEqual({ ok: true, devicesUsed: 2 })
+    expect(client.deactivateDevice).toHaveBeenCalledWith(
+      'TCP-0000-0000-0000-0001',
+      'DEVICE-OTHER',
+    )
+  })
+
+  test('lists devices with a code that is not stored yet', async () => {
+    const { manager, client } = createHarness()
+    client.listDevices.mockResolvedValue({
+      ok: true,
+      data: { devices: [], max_devices: 3 },
+    })
+
+    const result = await manager.listDevices('TCP-0000-0000-0000-0001')
+
+    expect(result).toEqual({ ok: true, devices: [], maxDevices: 3 })
+    expect(client.listDevices).toHaveBeenCalledWith('TCP-0000-0000-0000-0001')
   })
 })
 

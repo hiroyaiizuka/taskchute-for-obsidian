@@ -201,6 +201,9 @@ function activationRows(
           if (!failure) return undefined
           const view = new DeviceListView(deviceListHost(setting), manager, {
             initialDevices: failure.devices,
+            // The rejected activation stored nothing, so the list has to carry
+            // the typed code or releasing a seat would have none to send.
+            code: form.currentCode(ctx.plugin.settings.licenseCode),
             onChanged: () => {
               form.clearError()
               ctx.refreshDomState()

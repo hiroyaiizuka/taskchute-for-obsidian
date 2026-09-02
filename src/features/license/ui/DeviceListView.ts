@@ -25,6 +25,13 @@ export interface DeviceListViewOptions {
    */
   initialDevices?: DeviceView[]
   initialMaxDevices?: number
+  /**
+   * The activation code to act with, for a list shown before the code is
+   * stored. Activation stores the code only on success, so the 409 that sends
+   * the user here leaves nothing behind and a release would have no code to
+   * send. Omit when the license is already active: the stored code is used.
+   */
+  code?: string
   /** Called after a successful release, so callers can refresh their own UI. */
   onChanged?: () => void
 }
@@ -86,7 +93,7 @@ export class DeviceListView {
   private async load(): Promise<void> {
     this.setStatus(t('license.devices.loading', 'Loading devices…'))
 
-    const result = await this.manager.listDevices()
+    const result = await this.manager.listDevices(this.options.code)
     if (this.disposed) return
 
     if (!result.ok) {
@@ -187,7 +194,7 @@ export class DeviceListView {
     this.busyDeviceId = deviceId
     this.render()
 
-    const result = await this.manager.deactivateDevice(deviceId)
+    const result = await this.manager.deactivateDevice(deviceId, this.options.code)
     if (this.disposed) return
     this.busyDeviceId = undefined
 

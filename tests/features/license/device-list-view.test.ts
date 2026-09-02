@@ -10,7 +10,7 @@ function fakeManager(): LicenseManager {
   return {
     getDeviceId: () => 'DEVICE-0001',
     listDevices: jest.fn().mockResolvedValue({ ok: true, devices: [], maxDevices: 3 }),
-    deactivateDevice: jest.fn(),
+    deactivateDevice: jest.fn().mockResolvedValue({ ok: true, devicesUsed: 0 }),
   } as unknown as LicenseManager
 }
 
@@ -46,6 +46,25 @@ describe('DeviceListView', () => {
     const status = host.querySelector('.taskchute-license-devices__status')
     expect(status?.classList.contains('taskchute-license-devices__status--error')).toBe(true)
     expect(status?.textContent).toContain('network_unreachable')
+  })
+
+  test('releases with the code it was given, before that code is stored', async () => {
+    // The 409 that sends the user here stored nothing, so the view is the only
+    // place the typed code still exists.
+    const manager = fakeManager()
+    const host = document.createElement('div')
+
+    new DeviceListView(host, manager, {
+      initialDevices: [{ device_id: 'DEVICE-OTHER', last_seen_at: 0 }],
+      code: 'TCP-0000-0000-0000-0001',
+    })
+    host.querySelector<HTMLButtonElement>('.taskchute-license-devices__row button')?.click()
+    await Promise.resolve()
+
+    expect(manager.deactivateDevice).toHaveBeenCalledWith(
+      'DEVICE-OTHER',
+      'TCP-0000-0000-0000-0001',
+    )
   })
 
   test('mounting again after a dispose leaves a single list', () => {
