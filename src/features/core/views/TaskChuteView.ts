@@ -3520,7 +3520,7 @@ export class TaskChuteView
       } else {
         const file = inst.task.file
         if (!file) {
-          new Notice(this.tv('errors.taskFileNotFound', 'Task file not found'))
+          new Notice(this.tv('notices.taskFileMissing', 'Task file not found'))
           return
         }
 

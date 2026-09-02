@@ -812,9 +812,7 @@ export default class RoutineController {
   ): HTMLInputElement {
     const wrapper = container.createDiv( { cls: 'form-input-icon-wrapper' })
     const localeCode = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US'
-    const placeholder = getCurrentLocale() === 'ja'
-      ? this.tv('forms.datePlaceholderJa', '年/月/日')
-      : this.tv('forms.datePlaceholderEn', 'YYYY-MM-DD')
+    const placeholder = this.tv('forms.datePlaceholder', 'YYYY-MM-DD')
     const displayInput = wrapper.createEl('input', {
       type: 'text',
       cls: 'form-input--date form-input--bare',
