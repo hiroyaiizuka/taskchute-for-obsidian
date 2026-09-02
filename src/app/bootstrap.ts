@@ -7,6 +7,7 @@ import { createCommandRegistrar } from "../commands/registerTaskCommands"
 import type { CommandRegistrar } from "../types/Commands"
 import { RibbonManager } from "./ribbon/RibbonManager"
 import { LocaleCoordinator } from "./locale/LocaleCoordinator"
+import { initializeLocaleManager } from "../i18n"
 import { ensureRequiredFolders, initializeServices } from "./serviceFactory"
 import { DEFAULT_SETTINGS } from "../settings"
 import type { TaskChuteSettings } from "../types"
@@ -160,6 +161,13 @@ export async function bootstrapPlugin(
   } catch (error) {
     plugin._log?.("warn", "[TaskChute] Failed to initialize license manager:", error)
   }
+
+  // Also before the settings tab, and for the same reason: that first read
+  // resolves every label through t(), so the locale has to be settled or the
+  // whole pane is captured in English no matter what Obsidian's language is.
+  // LocaleCoordinator re-runs this below once the listeners it notifies exist;
+  // repeating it with the same override is a no-op.
+  initializeLocaleManager(plugin.settings.languageOverride ?? "auto")
 
   try {
     plugin.addSettingTab(new TaskChuteSettingTab(plugin.app, plugin))
