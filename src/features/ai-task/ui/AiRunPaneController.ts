@@ -2577,9 +2577,20 @@ export class AiRunPaneController {
     if (pinned) this.scrollToBottom(view.body)
   }
 
+  /**
+   * One node per event, ALWAYS — renderEvents' in-place elision patch pairs
+   * each appended event with exactly one node. An event with nothing to say
+   * therefore becomes an empty node that the stylesheet collapses, never a
+   * skipped one.
+   */
   private appendEventElement(body: HTMLElement, event: AiStreamEvent): HTMLElement {
+    const isError =
+      (event.kind === 'result' || event.kind === 'tool-result') &&
+      event.isError === true
     return body.createDiv({
-      cls: `ai-run-pane__event ai-run-pane__event--${event.kind}`,
+      cls:
+        `ai-run-pane__event ai-run-pane__event--${event.kind}` +
+        (isError ? ' is-error' : ''),
       text: this.formatEventText(event),
     })
   }
@@ -2597,12 +2608,11 @@ export class AiRunPaneController {
 
   private formatEventText(event: AiStreamEvent): string {
     switch (event.kind) {
-      case 'init': {
-        const details = [event.model, event.sessionId]
-          .filter((part): part is string => typeof part === 'string' && part.length > 0)
-          .join(' · ')
-        return details.length > 0 ? details : 'init'
-      }
+      case 'init':
+        // The session id belongs to resume plumbing, not to a reader, and a
+        // follow-up restarts the CLI so it repeated on every turn — codex,
+        // which sends no model, printed a bare UUID and nothing else.
+        return event.model ?? ''
       case 'assistant-text':
         return event.text
       case 'user-text':
@@ -2617,9 +2627,15 @@ export class AiRunPaneController {
         // every answer twice. Errors are the exception: nothing else carries
         // their body.
         const summary = formatAiResultSummary(event)
-        return event.isError === true && event.text !== undefined
-          ? `${summary}\n${event.text}`
-          : summary
+        if (event.isError === true) {
+          return event.text === undefined ? summary : `${summary}\n${event.text}`
+        }
+        // A successful turn is worth a row only when it reports something the
+        // run pane does not already show. Codex sends neither figure, so its
+        // `turn.completed` was a bare protocol word between every exchange.
+        const hasFigures =
+          event.totalCostUsd !== undefined || event.numTurns !== undefined
+        return hasFigures ? summary : ''
       }
       case 'stderr':
         return event.text
