@@ -60,6 +60,9 @@ describe('AI run pane drag resize', () => {
   const handle = (): HTMLElement =>
     container.querySelector('.ai-pane-resizer') as HTMLElement
 
+  const collapseButton = (): HTMLElement =>
+    container.querySelector('.ai-run-pane__collapse') as HTMLElement
+
   /** jsdom has no PointerEvent; a MouseEvent carrying pointerId is enough. */
   const pointer = (type: string, clientY: number): Event => {
     const event = new MouseEvent(type, { clientY, bubbles: true, button: 0 })
@@ -270,6 +273,42 @@ describe('AI run pane drag resize', () => {
     expect(container.classList.contains('ai-pane-container--collapsed')).toBe(
       false,
     )
+  })
+
+  test('collapsing drops the dragged height, expanding restores it', () => {
+    controller.mount(container)
+    manager.emit({
+      id: 'run-1',
+      taskPath: 'TASKS/ai-sample.md',
+      taskName: 'AI sample',
+      host: 'claude',
+      mode: 'headless',
+      status: 'running',
+      startedAt: Date.now(),
+      events: [],
+    })
+    drag(-300)
+    expect(container.classList.contains('ai-pane-container--sized')).toBe(true)
+    expect(heightProperty()).toBe('70.00%')
+    saveLocalStorage.mockClear()
+
+    // A pane collapsed to its header row must not keep the 70% box it was
+    // dragged to — that box would sit empty above the task list.
+    collapseButton().click()
+    expect(container.classList.contains('ai-pane-container--sized')).toBe(false)
+
+    // The ratio is dropped from the layout, not forgotten: nothing is
+    // re-persisted, and the custom property still carries the dragged value.
+    expect(saveLocalStorage).not.toHaveBeenCalledWith(
+      AI_PANE_HEIGHT_RATIO_STORAGE_KEY,
+      null,
+    )
+    expect(stored.get(AI_PANE_HEIGHT_RATIO_STORAGE_KEY)).toBe(0.7)
+    expect(heightProperty()).toBe('70.00%')
+
+    collapseButton().click()
+    expect(container.classList.contains('ai-pane-container--sized')).toBe(true)
+    expect(heightProperty()).toBe('70.00%')
   })
 
   test('the PTY grid follows the dragged height', () => {
