@@ -455,6 +455,29 @@ export class LicenseManager {
     return { ok: true, devicesUsed: result.data.devices_used }
   }
 
+  /**
+   * Give this device's licence up locally, without asking the server.
+   *
+   * The way out of the one state the seat list cannot fix: an active token
+   * with no code behind it. The token lives in device-local storage and the
+   * code in the synced vault settings, so a vault whose data.json never
+   * carried the code — activated in another vault on this machine, or restored
+   * from elsewhere — is licensed but unable to act: every request needs the
+   * code, and the active screen has no field to enter one. Dropping the token
+   * returns the screen to the activation form, which is the field.
+   *
+   * Not a seat release: nothing is sent, so the server still counts this
+   * device. That is deliberate — the device id is kept, so re-entering the code
+   * here reuses the very same seat rather than spending another one. A user who
+   * does not come back can release the seat from any other machine's list.
+   */
+  signOutLocally(): void {
+    this.deps.store.clearToken()
+    // A list drawn from this belongs to a licence this device no longer holds.
+    this.deviceSnapshot = undefined
+    this.setState({ status: 'unlicensed' })
+  }
+
   private async doRefresh(force: boolean): Promise<void> {
     // Undefined once this device gave up its seat, which is what stops a
     // refresh from handing it straight back.

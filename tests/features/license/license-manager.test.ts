@@ -450,6 +450,50 @@ describe('device management', () => {
   })
 })
 
+describe('signOutLocally', () => {
+  /**
+   * The token is device-local and the code is in the synced vault settings, so
+   * a vault can hold a working token and no code — activated from another vault
+   * on this machine, say. Nothing that talks to the server works then, and the
+   * screen an active licence draws has no field to enter a code into. Dropping
+   * the token is the only way back to that field.
+   */
+  test('drops the token so the code can be entered again', () => {
+    const { manager, store } = createHarness()
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    expect(manager.isActive()).toBe(true)
+
+    manager.signOutLocally()
+
+    expect(manager.isActive()).toBe(false)
+    expect(store.getState().token).toBeUndefined()
+  })
+
+  test('keeps the device id, so coming back reuses the same seat', async () => {
+    const { manager, store, client, code } = createHarness()
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    manager.initialize()
+    const deviceId = manager.getDeviceId()
+
+    manager.signOutLocally()
+
+    // Not a seat release: nothing was sent, and the latch a real release sets
+    // would refuse the very code the user is about to type.
+    expect(manager.isSeatReleased()).toBe(false)
+    expect(manager.getDeviceId()).toBe(deviceId)
+
+    client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
+    await manager.activate('TCP-0000-0000-0000-0001')
+
+    expect(client.issueToken).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId, code: 'TCP-0000-0000-0000-0001' }),
+    )
+    expect(manager.isActive()).toBe(true)
+    expect(code.value).toBe('TCP-0000-0000-0000-0001')
+  })
+})
+
 describe('verifyDeviceRegistration', () => {
   function deviceList(...deviceIds: string[]) {
     return {
