@@ -146,9 +146,20 @@ const CODEX_PATH_NAME = 'Codex CLI path (advanced fallback)'
 describe('TaskChute AI task settings section', () => {
   const createAiTaskManagerMock = createAiTaskManager as jest.Mock
 
+  // The run-mode row only offers a choice where a pseudoterminal exists, so
+  // every test that is not about that branch runs as macOS.
+  beforeEach(() => {
+    Platform.isMacOS = true
+    Platform.isLinux = false
+    Platform.isWin = false
+  })
+
   afterEach(() => {
     jest.clearAllMocks()
     mockApp.workspace.getLeavesOfType.mockReturnValue([])
+    delete (Platform as Partial<typeof Platform>).isMacOS
+    delete (Platform as Partial<typeof Platform>).isLinux
+    delete (Platform as Partial<typeof Platform>).isWin
   })
 
   test('is disabled by default with a 30-day retention', () => {
@@ -165,6 +176,31 @@ describe('TaskChute AI task settings section', () => {
     expect(findByKey(items, 'aiTaskLogRetentionDays')?.control.type).toBe(
       'number',
     )
+  })
+
+  /**
+   * resolveRunMode() degrades every run to the conversation pipeline where no
+   * pseudoterminal exists, so offering "Terminal (interactive)" there named a
+   * mode the platform could never enter. The row becomes an explanation, and
+   * the stored value is left alone so moving the vault to a Mac restores it.
+   */
+  test('replaces the run mode choice with a note where no pseudoterminal exists', () => {
+    Platform.isMacOS = false
+    Platform.isLinux = false
+    Platform.isWin = true
+
+    const { tab, plugin } = createTab()
+    plugin.settings.aiTaskRunMode = 'terminal'
+
+    const items = tab.getSettingDefinitions()
+    expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
+
+    const row = findByName(items, 'Run mode')
+    expect(row).toBeDefined()
+    expect(row?.control).toBeUndefined()
+    expect(row?.desc).toContain('Conversation mode')
+    // Left untouched: the choice survives a move to a supported platform.
+    expect(plugin.settings.aiTaskRunMode).toBe('terminal')
   })
 
   /**

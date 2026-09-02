@@ -103,6 +103,7 @@ import {
   type AiRunChangeType,
   type AiShellSessionOptions,
 } from '../services/AiTaskManager'
+import { formatAiResultSummary } from '../services/AiResultSummary'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import {
   formatWorkspacePathForTerminal,
@@ -2610,8 +2611,16 @@ export class AiRunPaneController {
         return this.formatToolUse(event.toolName, event.input)
       case 'tool-result':
         return event.text ?? ''
-      case 'result':
-        return event.text ?? event.subtype ?? 'result'
+      case 'result': {
+        // `event.text` is the CLI's copy of the final assistant message, which
+        // already arrived as an assistant-text event; rendering it here showed
+        // every answer twice. Errors are the exception: nothing else carries
+        // their body.
+        const summary = formatAiResultSummary(event)
+        return event.isError === true && event.text !== undefined
+          ? `${summary}\n${event.text}`
+          : summary
+      }
       case 'stderr':
         return event.text
       case 'raw':

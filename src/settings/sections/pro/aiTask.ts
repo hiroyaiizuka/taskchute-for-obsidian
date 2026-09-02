@@ -1,7 +1,8 @@
 import { Notice } from "obsidian"
-import type { Setting, SettingDefinitionRender } from "obsidian"
+import type { Setting, SettingDefinition, SettingDefinitionRender } from "obsidian"
 import { t } from "../../../i18n"
 import { ElectronDirectoryPicker } from "../../../features/ai-task/services/ElectronDirectoryPicker"
+import { isTerminalModeSupportedHere } from "../../../features/ai-task/services/ptyPlatform"
 import type { TaskChuteSettings } from "../../../types"
 import { DEFAULT_SETTINGS } from "../../defaults"
 import { clampedNumber, choice } from "../../controlHandlers"
@@ -152,6 +153,48 @@ function cliPathRow(
 }
 
 /**
+ * The run-mode row, or the note that replaces it.
+ *
+ * Terminal mode needs a pseudoterminal the plugin can drive through an
+ * external command, which exists only on macOS and Linux; elsewhere
+ * `resolveRunMode()` degrades every run to the conversation pipeline no matter
+ * what this setting holds. Offering the choice there showed "Terminal
+ * (interactive)" to Windows users whose runs were never going to be terminal
+ * runs, so the row becomes a plain explanation instead. The stored value is
+ * left untouched: carrying the vault to a Mac restores the original choice.
+ */
+function runModeRow(): SettingDefinition<keyof TaskChuteSettings> {
+  if (!isTerminalModeSupportedHere()) {
+    return {
+      name: t("settings.aiTask.runModeName", "Run mode"),
+      desc: t(
+        "settings.aiTask.runModeFixedDesc",
+        "Conversation mode. This platform has no pseudoterminal the plugin can drive, so runs stream parsed events and take follow-up input instead of embedding the interactive CLI.",
+      ),
+    }
+  }
+  return {
+    name: t("settings.aiTask.runModeName", "Run mode"),
+    desc: t(
+      "settings.aiTask.runModeDesc",
+      "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead.",
+    ),
+    control: {
+      type: "dropdown",
+      key: "aiTaskRunMode",
+      defaultValue: "terminal",
+      options: {
+        terminal: t("settings.aiTask.runModeTerminal", "Terminal (interactive)"),
+        headless: t(
+          "settings.aiTask.runModeHeadless",
+          "Conversation (cross-platform)",
+        ),
+      },
+    },
+  }
+}
+
+/**
  * Everything a Pro license unlocks. Only reached from the Pro page, which has
  * already checked entitlement.
  */
@@ -176,28 +219,7 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
               defaultValue: false,
             },
           },
-          {
-            name: t("settings.aiTask.runModeName", "Run mode"),
-            desc: t(
-              "settings.aiTask.runModeDesc",
-              "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
-            ),
-            control: {
-              type: "dropdown",
-              key: "aiTaskRunMode",
-              defaultValue: "terminal",
-              options: {
-                terminal: t(
-                  "settings.aiTask.runModeTerminal",
-                  "Terminal (interactive)",
-                ),
-                headless: t(
-                  "settings.aiTask.runModeHeadless",
-                  "Conversation (cross-platform)",
-                ),
-              },
-            },
-          },
+          runModeRow(),
           ...paths.map((path) => cliPathRow(ctx, path)),
           {
             name: t("settings.aiTask.retentionName", "Run log retention (days)"),
