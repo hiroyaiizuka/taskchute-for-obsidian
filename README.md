@@ -2,6 +2,8 @@
 
 [English](./README.md) | [日本語](./README.ja.md)
 
+📖 **Documentation:** https://obsidian.levers.co.jp/
+
 **Execute tasks, don't just organize them.**
 
 TaskChute Plus is an Obsidian plugin focused on execution-first task management:
