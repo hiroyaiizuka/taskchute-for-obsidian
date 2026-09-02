@@ -85,6 +85,14 @@ export const en = {
       statusActive: "Active",
       statusInactive: "Not activated",
       licenseIdName: "License ID",
+      signOutName: "Sign out on this device",
+      signOutDesc:
+        "This vault has no license code stored, so devices cannot be managed from here. Sign out to enter your code again. The seat stays with this device, so re-entering the same code costs no extra device.",
+      signOut: "Sign out",
+      signOutConfirmTitle: "Sign out on this device?",
+      signOutConfirmBody:
+        "AI tasks stop working on this device until you enter your license code again.",
+      signedOut: "Signed out on this device.",
       devicesName: "Devices",
       devicesValue: "{used} of {max} in use",
       activated: "License activated.",

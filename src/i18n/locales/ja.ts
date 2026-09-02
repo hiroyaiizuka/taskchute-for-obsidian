@@ -81,6 +81,14 @@ export const ja = {
       statusActive: "有効",
       statusInactive: "未アクティベート",
       licenseIdName: "ライセンスID",
+      signOutName: "この端末のライセンスを解除",
+      signOutDesc:
+        "この保管庫にはライセンスコードが保存されていないため、ここから端末を管理できません。解除するとコードを入力し直せます。この端末の枠はそのまま残るので、同じコードを入れ直しても台数は増えません。",
+      signOut: "解除する",
+      signOutConfirmTitle: "この端末のライセンスを解除しますか？",
+      signOutConfirmBody:
+        "ライセンスコードを入力し直すまで、この端末ではAIタスクを利用できなくなります。",
+      signedOut: "この端末のライセンスを解除しました。",
       devicesName: "端末",
       devicesValue: "{max}台中{used}台を使用中",
       activated: "ライセンスを有効化しました。",
