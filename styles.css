@@ -7777,6 +7777,16 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   color: var(--text-normal);
 }
 
+/*
+ * Every event gets a node so the pane's incremental append stays 1:1 with the
+ * event buffer; the ones carrying nothing readable (a session-id-only init, a
+ * codex turn.completed, an empty tool result) are folded away here rather than
+ * left as 2px gaps.
+ */
+.ai-run-pane__event:empty {
+  display: none;
+}
+
 .ai-run-pane__event--init {
   color: var(--text-muted);
   font-style: italic;
@@ -7791,7 +7801,12 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 .ai-run-pane__event--result {
-  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Keeps a failure legible now that a result no longer carries any weight. */
+.ai-run-pane__event.is-error {
+  color: var(--text-error);
 }
 
 .ai-run-pane__event--stderr {

@@ -165,6 +165,51 @@ describe('AiRunPaneController', () => {
    * Rendering it as body text printed every answer twice in the pane, so the
    * row now shows the same summary the log note carries.
    */
+  /**
+   * The metadata rows outnumbered the conversation on a two-turn codex run:
+   * a follow-up restarts the CLI, so the session-id-only init and the figure-
+   * less `turn.completed` repeated around every exchange. They still occupy a
+   * node each — renderEvents pairs appended events with nodes one for one —
+   * but the node is empty, and the stylesheet folds it away.
+   */
+  test('empties the rows that carry nothing a reader can use', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.events.push({ kind: 'init', sessionId: '01a06111-2a69-7a63-b438' })
+    run.events.push({ kind: 'assistant-text', text: 'Ready.' })
+    run.events.push({ kind: 'result', subtype: 'turn.completed', isError: false })
+    run.events.push({ kind: 'tool-result', text: undefined })
+    manager.emit(run)
+    flushEventFrame()
+
+    const events = container.querySelectorAll('.ai-run-pane__event')
+    expect(events).toHaveLength(4)
+    expect(events[0].textContent).toBe('')
+    expect(events[1].textContent).toBe('Ready.')
+    expect(events[2].textContent).toBe('')
+    expect(events[3].textContent).toBe('')
+  })
+
+  test('keeps the model on an init row, without the session id', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.events.push({
+      kind: 'init',
+      model: 'claude-opus-5[1m]',
+      sessionId: '77ecf074-36ce-417a-811d-6768fda26607',
+    })
+    manager.emit(run)
+    flushEventFrame()
+
+    const events = container.querySelectorAll('.ai-run-pane__event')
+    expect(events).toHaveLength(1)
+    expect(events[0].textContent).toBe('claude-opus-5[1m]')
+  })
+
   test('summarizes a result event instead of repeating the answer', () => {
     controller.mount(container)
     const run = createRun()
@@ -207,6 +252,24 @@ describe('AiRunPaneController', () => {
     expect(events[0].textContent).toBe(
       'error_during_execution\nthe CLI ran out of credits',
     )
+    // A result carries no weight of its own any more, so the failure needs the
+    // class to stay legible.
+    expect(events[0].classList.contains('is-error')).toBe(true)
+  })
+
+  test('marks a failed tool result too, and leaves successes unmarked', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.events.push({ kind: 'tool-result', text: 'exit 1', isError: true })
+    run.events.push({ kind: 'tool-result', text: 'exit 0', isError: false })
+    manager.emit(run)
+    flushEventFrame()
+
+    const events = container.querySelectorAll('.ai-run-pane__event')
+    expect(events[0].classList.contains('is-error')).toBe(true)
+    expect(events[1].classList.contains('is-error')).toBe(false)
   })
 
   test('appends only new events on repeated notifications', () => {
