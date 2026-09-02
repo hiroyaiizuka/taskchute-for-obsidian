@@ -962,14 +962,15 @@ export class AiRunPaneController {
     this.paneHeightRatio = next
     if (next === null) {
       container.style.removeProperty(PANE_HEIGHT_PROPERTY)
-      container.classList.remove(SIZED_CONTAINER_CLASS)
     } else {
       container.style.setProperty(
         PANE_HEIGHT_PROPERTY,
         `${(next * 100).toFixed(2)}%`,
       )
-      container.classList.add(SIZED_CONTAINER_CLASS)
     }
+    // The --sized class itself is owned by updateContainerChrome, which also
+    // gates it on the pane not being collapsed.
+    this.updateContainerChrome()
     if (persist) {
       this.host.saveLocalStorage?.(AI_PANE_HEIGHT_RATIO_STORAGE_KEY, next)
     }
@@ -2338,6 +2339,15 @@ export class AiRunPaneController {
    * pane height in styles.css) exactly while some panel displays a terminal
    * run on screen, the expanded class exactly while the expanded pane is on
    * screen.
+   *
+   * Every class that gives the container a height — including the dragged
+   * one — drops while the pane is collapsed, so a collapsed pane shrinks to
+   * its header row instead of leaving the box it was dragged to as empty
+   * space above the task list. The ratio itself survives in
+   * `paneHeightRatio` and in storage, so expanding restores the same height.
+   * (--sized only needs the collapse gate: a hidden container is
+   * `display: none`, and keeping the class there preserves the height across
+   * a hidden→revealed cycle.)
    */
   private updateContainerChrome(): void {
     const container = this.containerEl
@@ -2354,6 +2364,10 @@ export class AiRunPaneController {
       anyTerminalOnScreen && visible,
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
+    container.classList.toggle(
+      SIZED_CONTAINER_CLASS,
+      this.paneHeightRatio !== null && !this.isCollapsed(),
+    )
     container.classList.toggle(VISIBLE_CONTAINER_CLASS, paneVisible)
     container.classList.toggle(
       COLLAPSED_CONTAINER_CLASS,

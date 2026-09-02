@@ -111,9 +111,13 @@ describe('style regressions', () => {
     expect(dragging).toMatch(/color-mix\(in srgb, var\(--interactive-accent\)/)
     expect(dragging).not.toMatch(/background:\s*var\(--interactive-accent\);/)
     // The handle sits inside the container so it inherits --visible; it must
-    // still disappear when the pane is collapsed to its header row.
+    // still disappear when the pane is collapsed to its header row. It keeps
+    // its 6px box while doing so, so the collapsed header is separated from
+    // the task list by the same gap it has while expanded — `display: none`
+    // would close that gap and butt the header against the last task row.
     const collapsed = readRule(css, '.ai-pane-container--collapsed .ai-pane-resizer {')
-    expect(collapsed).toMatch(/display:\s*none;/)
+    expect(collapsed).toMatch(/visibility:\s*hidden;/)
+    expect(collapsed).not.toMatch(/display:\s*none;/)
   })
 
   test('a drag-resized AI pane height beats the terminal share but loses to expanded', () => {

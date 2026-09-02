@@ -7017,9 +7017,13 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   outline: none;
 }
 
-/* Nothing to resize while the pane is collapsed to its header row. */
+/* Nothing to resize while the pane is collapsed to its header row — but the
+   handle keeps its 6px box rather than being removed from the layout, so the
+   collapsed header stays separated from the task list by the same gap it has
+   while expanded. `visibility` (not `display`) also takes the grip, the hover
+   states, the resize cursor and the tab stop out along with it. */
 .ai-pane-container--collapsed .ai-pane-resizer {
-  display: none;
+  visibility: hidden;
 }
 
 .ai-run-pane {
