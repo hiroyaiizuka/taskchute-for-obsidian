@@ -5,6 +5,7 @@ import { licensePurchaseUrl } from "../../../features/license/config"
 import type { LicenseManager } from "../../../features/license/services/LicenseManager"
 import { formatLicenseId } from "../../../features/license/token/primitives"
 import { DeviceListView } from "../../../features/license/ui/DeviceListView"
+import { checkSeatRegistration } from "../../../features/license/ui/notifySeatReleased"
 import {
   describeActivationFailure,
   describeApiFailure,
@@ -29,6 +30,27 @@ import { LicenseActivationState } from "./licenseActivationState"
 function deviceListHost(setting: Setting): HTMLElement {
   setting.settingEl.addClass("taskchute-license-devices-item")
   return setting.controlEl
+}
+
+/**
+ * Re-ask the server whether this device is licensed, because the Pro page is
+ * being shown.
+ *
+ * A row's render callback is the seam for that: the page's `items` are built
+ * with the rest of the tab's definitions, long before anyone navigates into it,
+ * and only these callbacks run at the moment it is drawn. Both shapes of the
+ * page call it, since "is my license working again?" matters most to someone
+ * looking at the activation form.
+ *
+ * Not forced: arriving at the settings tab has already forced one, and a forced
+ * sync here would re-run on every redraw of the page — including the redraw a
+ * changed answer causes. Throttled, the page reuses an answer at most a minute
+ * old and a redraw settles.
+ */
+function syncOnShown(ctx: SectionContext): void {
+  void checkSeatRegistration(ctx.plugin).then((result) => {
+    if (result.changed) ctx.update()
+  })
 }
 
 /**
@@ -80,6 +102,9 @@ function codeRow(
     // A failure belongs under the field it was typed into.
     desc: form.errorDesc,
     render: (setting) => {
+      // The activation form is drawn only on the Pro page, so this row being
+      // rendered is that page being shown.
+      syncOnShown(ctx)
       setting.settingEl.addClass("taskchute-license-code-item")
       // A failure is not a description: it reads as one unless it is coloured
       // like the error it is.
@@ -96,7 +121,7 @@ function codeRow(
           )
           // Re-seeded on every render: the row is rebuilt whenever activation
           // starts or fails, and the draft must survive that.
-          .setValue(form.currentCode(ctx.plugin.settings.licenseCode))
+          .setValue(form.currentCode(manager.getStoredCode()))
           .onChange((value) => {
             form.code = value
           })
@@ -146,7 +171,7 @@ async function activate(
   ctx.update()
 
   const result = await manager.activate(
-    form.currentCode(ctx.plugin.settings.licenseCode),
+    form.currentCode(manager.getStoredCode()),
   )
 
   if (result.ok) {
@@ -203,7 +228,7 @@ function activationRows(
             initialDevices: failure.devices,
             // The rejected activation stored nothing, so the list has to carry
             // the typed code or releasing a seat would have none to send.
-            code: form.currentCode(ctx.plugin.settings.licenseCode),
+            code: form.currentCode(manager.getStoredCode()),
             onChanged: () => {
               form.clearError()
               ctx.refreshDomState()
@@ -237,7 +262,9 @@ function activeLicenseRows(
   // The code the user actually typed, not the id derived from it: that is what
   // they hold, what support asks for, and what they would re-enter elsewhere.
   // The id is the fallback for a licence activated before the code was stored.
-  const stored = ctx.plugin.settings.licenseCode
+  // Read through the manager so a device that gave up its seat does not show a
+  // code it can no longer use.
+  const stored = manager.getStoredCode()
   const identity =
     stored !== undefined && stored.length > 0
       ? { name: t("settings.license.codeName", "License code"), value: stored }
@@ -266,6 +293,9 @@ function activeLicenseRows(
     // other seat, so there is no separate sign-out control.
     name: "",
     render: (setting) => {
+      // Same seam as the activation form: the seat list is only ever drawn on
+      // the Pro page, so mounting it is that page being shown.
+      syncOnShown(ctx)
       const view = new DeviceListView(deviceListHost(setting), manager, {
         onChanged: () => {
           // Seat counts come from the server, so a release has to re-read the

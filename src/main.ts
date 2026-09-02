@@ -133,17 +133,14 @@ export default class TaskChutePlusPlugin extends Plugin {
       }),
     )
 
+    // One call: the seat check and the token refresh have to happen in that
+    // order, and syncFromServer is what guarantees it. Renewing first would
+    // re-register this device id and hand back a seat released elsewhere before
+    // anything had the chance to notice it was gone.
     const refresh = () => {
-      void manager
-        .refreshIfNeeded()
-        .catch((error) => {
-          this._log('warn', '[License] Refresh failed', error)
-        })
-        // A seat released from another machine leaves this device's token valid
-        // for the rest of its life, so the refresh alone would never notice.
-        // Runs after it so a token just renewed is checked against the list it
-        // renewed from, not the one before.
-        .then(() => checkSeatRegistration(this))
+      void checkSeatRegistration(this).catch((error) => {
+        this._log('warn', '[License] Refresh failed', error)
+      })
     }
 
     this.app.workspace.onLayoutReady(refresh)

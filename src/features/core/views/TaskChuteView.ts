@@ -19,6 +19,7 @@ import { TaskLoaderService } from "../../../features/core/services/TaskLoaderSer
 import type { TaskLoaderHost } from "../../../features/core/services/TaskLoaderService"
 import { TaskCreationService } from "../../../features/core/services/TaskCreationService"
 import { TaskReuseService } from "../../../features/core/services/TaskReuseService"
+import { checkSeatRegistration } from "../../license/ui/notifySeatReleased"
 import { getCurrentLocale, t } from "../../../i18n"
 import { TASKCHUTE_NAME } from "../../../constants"
 import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
@@ -782,6 +783,14 @@ export class TaskChuteView
     this.setupAccentContrast()
     this.navigationController.initializeNavigationEventListeners()
     this.setupEventListeners()
+
+    // Settle entitlement against the server now that the view is up. Opening
+    // the task list is the most common way into the plugin, and this is the
+    // screen the AI task affordances appear on — so it is where a seat released
+    // from another machine would otherwise stay invisible until a restart.
+    // Deliberately not awaited: the list must not wait on the license server,
+    // and a change re-renders through the license listener in main.ts.
+    void checkSeatRegistration(this.plugin)
   }
 
   private getContentContainer(): HTMLElement {

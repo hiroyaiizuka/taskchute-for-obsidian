@@ -41,10 +41,15 @@ export interface LicenseDeviceState {
   /** Last known seat/expiry figures, for display while offline. */
   license?: LicenseSummary
   /**
-   * When this device was found missing from the license's device list, in unix
-   * seconds. Set only by a real server answer; while it is present the token is
-   * never renewed automatically, so a seat released elsewhere is not silently
-   * retaken on the next refresh.
+   * When this device gave up its seat, in unix seconds — whether the user
+   * released it from here or another device released it for them.
+   *
+   * The activation code itself cannot be thrown away: it lives in data.json,
+   * which Obsidian Sync shares, so deleting it would strip the license from
+   * every other machine too. This is the device-local half of throwing it away.
+   * While it is set the stored code is treated as absent — no refresh, no
+   * device check, and an empty field in settings — so nothing on this machine
+   * quietly retakes the seat. Only an explicit activation lifts it.
    */
   seatReleasedAt?: number
 }
@@ -243,8 +248,8 @@ export class LicenseStore {
   }
 
   /**
-   * Record that the server no longer lists this device. Drops the token like
-   * clearToken(), and latches the reason so no background refresh claims the
+   * Record that this device no longer holds a seat. Drops the token like
+   * clearToken(), and latches the fact so nothing on this machine claims the
    * seat back — only an explicit activation may do that.
    */
   markSeatReleased(now: number): void {

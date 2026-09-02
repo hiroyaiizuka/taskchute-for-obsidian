@@ -33,6 +33,27 @@ export class TaskChuteSettingTab extends PluginSettingTab {
    * discard the edit that triggered it.
    */
   private readonly boundaryDraft = new SectionBoundaryDraft()
+  /**
+   * Whether the next definition build is someone arriving at the screen rather
+   * than a rebuild of it.
+   *
+   * There is no "opened" hook to use: display() is not called for a tab that
+   * returns definitions, and getSettingDefinitions() serves the search index,
+   * every control change and every update() alike. hide() is the one event that
+   * separates visits, so it arms this; the first build of all is armed too,
+   * because that one happens as the plugin loads and its answer is what the
+   * screen shows moments later.
+   */
+  private licenseSyncDue = true
+  /**
+   * Set while the rebuild below is one this tab asked for.
+   *
+   * update() runs getSettingDefinitions() again, so a sync that redraws would
+   * start a sync that redraws. One piece of news is worth exactly one redraw,
+   * and this is what holds it to that — a comparison would not: it only ends
+   * the loop if the manager already agrees with the answer it just gave.
+   */
+  private licenseSyncSuppressed = false
 
   private readonly ctx: SectionContext
   private readonly modules: SectionModule[]
@@ -79,16 +100,30 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    // Obsidian calls this on every display(), which makes it the hook for
-    // "the settings screen was opened" — the moment someone is most likely to
-    // wonder why the AI settings are still there after releasing this device
-    // elsewhere. The manager throttles the request, so the extra calls a
-    // rebuild makes cost nothing.
-    void checkSeatRegistration(this.plugin).then((result) => {
-      // The runtime is torn down by the license listener in main.ts; only the
-      // definitions this tab drew from the old state still need replacing.
-      if (result === "released") this.update()
-    })
+    // Arriving at the screen is the moment someone is most likely to wonder
+    // whether they are still Pro — after activating on another machine, or
+    // after releasing this device from one. Settle it against the server, and
+    // skip the throttle for the arrival itself; the rebuilds that follow it
+    // take the throttled path, so a burst of control changes costs nothing.
+    if (!this.licenseSyncSuppressed) {
+      const force = this.licenseSyncDue
+      this.licenseSyncDue = false
+
+      void checkSeatRegistration(this.plugin, { force }).then((result) => {
+        // The runtime is torn down by the license listener in main.ts; only the
+        // definitions this tab drew from the old state still need replacing.
+        // Any change, not just a released seat: an activation that landed
+        // elsewhere leaves this screen just as wrong.
+        if (!result.changed) return
+
+        this.licenseSyncSuppressed = true
+        try {
+          this.update()
+        } finally {
+          this.licenseSyncSuppressed = false
+        }
+      })
+    }
 
     return this.modules.flatMap((module) => module.items(this.ctx))
   }
@@ -100,6 +135,8 @@ export class TaskChuteSettingTab extends PluginSettingTab {
   hide(): void {
     this.boundaryDraft.reseed(this.plugin.settings.customSections)
     this.licenseForm.reset()
+    // The next build is a fresh visit rather than a rebuild of this one.
+    this.licenseSyncDue = true
     super.hide()
   }
 

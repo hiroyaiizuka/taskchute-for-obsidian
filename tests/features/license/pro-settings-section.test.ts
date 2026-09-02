@@ -38,11 +38,16 @@ function fakeManager(
     isActive: () => false,
     getDeviceId: () => 'DEVICE-0001',
     getLicenseSummary: () => undefined,
+    // What the screen may show and act with, which is not simply
+    // settings.licenseCode: a device that gave up its seat has none.
+    getStoredCode: () => undefined,
+    isSeatReleased: () => false,
     activate: jest.fn(),
     listDevices: jest.fn(),
     deactivateDevice: jest.fn(),
     refreshIfNeeded: jest.fn().mockResolvedValue(undefined),
     verifyDeviceRegistration: jest.fn().mockResolvedValue('unknown'),
+    syncFromServer: jest.fn().mockResolvedValue({ status: 'unlicensed' }),
     onChange: jest.fn(() => () => undefined),
     ...overrides,
   } as unknown as LicenseManager
@@ -55,11 +60,15 @@ const ACTIVE_SUMMARY = {
   expires_at: null,
 }
 
-function activeManager(): LicenseManager {
+function activeManager(storedCode?: string): LicenseManager {
   return fakeManager({
     getState: () => ({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
     isActive: () => true,
     getLicenseSummary: () => ACTIVE_SUMMARY,
+    getStoredCode: () => storedCode,
+    syncFromServer: jest
+      .fn()
+      .mockResolvedValue({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
   })
 }
 
@@ -357,11 +366,25 @@ describe('Pro settings section', () => {
     test('shows the code that was entered, not the id derived from it', () => {
       // What the user holds and would re-enter elsewhere is the code; the id
       // means nothing to them.
-      const items = proItems(activeManager(), 'TCP-AAAA-BBBB-CCCC-DDDD')
+      const items = proItems(
+        activeManager('TCP-AAAA-BBBB-CCCC-DDDD'),
+        'TCP-AAAA-BBBB-CCCC-DDDD',
+      )
 
       expect(names(items)).toContain('License code')
       expect(names(items)).not.toContain('License ID')
       expect(descs(items)).toContain('TCP-AAAA-BBBB-CCCC-DDDD')
+    })
+
+    test('falls back to the license id once this device gave up its seat', () => {
+      // The code is still in data.json — it has to be, other machines share it
+      // — but this device may no longer use it, so showing it here would be
+      // offering something that does nothing.
+      const items = proItems(activeManager(), 'TCP-AAAA-BBBB-CCCC-DDDD')
+
+      expect(names(items)).not.toContain('License code')
+      expect(descs(items)).not.toContain('TCP-AAAA-BBBB-CCCC-DDDD')
+      expect(names(items)).toContain('License ID')
     })
 
     test('drops the status and expiry rows', () => {
@@ -483,5 +506,31 @@ describe('Pro settings section', () => {
     expect(descs(items).some((desc) => desc.includes('unexpected error'))).toBe(
       true,
     )
+  })
+})
+
+describe('when the Pro page is shown', () => {
+  // The page's items are built with the rest of the tab's definitions, long
+  // before anyone navigates into it. A row's render callback is the only thing
+  // that runs at the moment the page is actually drawn, which makes it the hook
+  // for "check whether this device is still licensed".
+  test('the activation form re-asks the server', () => {
+    const manager = fakeManager()
+    const row = codeItem(manager)
+    ;(manager.syncFromServer as jest.Mock).mockClear()
+
+    invokeRender(row)
+
+    expect(manager.syncFromServer).toHaveBeenCalled()
+  })
+
+  test('the seat list re-asks the server', () => {
+    const manager = activeManager()
+    const row = deviceItem(manager)
+    ;(manager.syncFromServer as jest.Mock).mockClear()
+
+    invokeRender(row)
+
+    expect(manager.syncFromServer).toHaveBeenCalled()
   })
 })

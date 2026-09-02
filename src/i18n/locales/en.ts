@@ -1099,6 +1099,8 @@ export const en = {
       release: "Release",
       releasing: "Releasing…",
       released: "Device released.",
+      refresh: "Refresh",
+      refreshing: "Refreshing…",
     },
     seatReleased: {
       title: "This device was released",
