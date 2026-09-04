@@ -21,12 +21,19 @@ function createBridge(initial?: unknown): LicenseStorageBridge & { store: Map<st
 
 const SUMMARY = { license_id: 'L1', max_devices: 3, devices_used: 1, expires_at: null }
 
+/**
+ * A freshly minted id is a v4 UUID. Ids already stored by older versions keep
+ * whatever shape they had — the `DEVICE-…` fixtures below cover that, and it
+ * matters: a new id is a new seat.
+ */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
 describe('generateDeviceId', () => {
   test('produces an id inside the API length constraint', () => {
     const id = generateDeviceId()
     expect(id.length).toBeGreaterThanOrEqual(8)
     expect(id.length).toBeLessThanOrEqual(64)
-    expect(id).toMatch(/^DEVICE-[0-9A-F]+$/)
+    expect(id).toMatch(UUID_V4)
   })
 
   test('does not repeat', () => {
@@ -77,7 +84,7 @@ describe('LicenseStore', () => {
   ])('replaces %s with a fresh device id', (_label, stored) => {
     const store = new LicenseStore(createBridge(stored))
 
-    expect(store.getDeviceId()).toMatch(/^DEVICE-[0-9A-F]+$/)
+    expect(store.getDeviceId()).toMatch(UUID_V4)
     expect(store.getState().token).toBeUndefined()
   })
 
@@ -93,6 +100,58 @@ describe('LicenseStore', () => {
     expect(state.token).toBeUndefined()
     expect(state.expiresAt).toBeUndefined()
     expect(state.license).toBeUndefined()
+  })
+
+  describe('refresh secret', () => {
+    test('round-trips beside the token', () => {
+      const bridge = createBridge()
+      new LicenseStore(bridge).saveToken(
+        'TCPT1.a.b',
+        1787604800,
+        SUMMARY,
+        1787000000,
+        'generation-1',
+      )
+
+      expect(new LicenseStore(bridge).getState().refreshSecret).toBe('generation-1')
+    })
+
+    test('is kept when a response carries none', () => {
+      // A server that has not rolled rotation out yet. Dropping the secret would
+      // force a code re-entry for no reason.
+      const store = new LicenseStore(createBridge())
+      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+
+      store.saveToken('TCPT1.c.d', 2, SUMMARY, 1787000001)
+
+      expect(store.getState().refreshSecret).toBe('generation-1')
+    })
+
+    test('goes away with the token', () => {
+      // It is what lets this machine renew unattended, so a device that has just
+      // been told it is unlicensed must not keep one.
+      const store = new LicenseStore(createBridge())
+      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+
+      store.clearToken()
+
+      expect(store.getState().refreshSecret).toBeUndefined()
+    })
+
+    test('goes away when the seat is released', () => {
+      const store = new LicenseStore(createBridge())
+      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+
+      store.markSeatReleased(1787100000)
+
+      expect(store.getState().refreshSecret).toBeUndefined()
+    })
+
+    test('ignores a stored value with the wrong type', () => {
+      const bridge = createBridge({ deviceId: 'DEVICE-00000001', refreshSecret: 42 })
+
+      expect(new LicenseStore(bridge).getState().refreshSecret).toBeUndefined()
+    })
   })
 
   test('clearToken keeps the device id so re-activation reuses the seat', () => {
@@ -163,7 +222,7 @@ describe('LicenseStore', () => {
 
     const store = new LicenseStore(bridge)
     expect(() => store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000)).not.toThrow()
-    expect(store.getDeviceId()).toMatch(/^DEVICE-/)
+    expect(store.getDeviceId()).toMatch(UUID_V4)
   })
 
   describe('clock rollback detection', () => {
@@ -290,7 +349,7 @@ describe('LicenseStore migration from the vault-scoped store', () => {
   test('falls through to a fresh id when neither store has one', () => {
     const store = new LicenseStore(createBridge(), createBridge('not json'))
 
-    expect(store.getDeviceId()).toMatch(/^DEVICE-[0-9A-F]+$/)
+    expect(store.getDeviceId()).toMatch(UUID_V4)
   })
 
   test('drops a token whose device id did not survive', () => {

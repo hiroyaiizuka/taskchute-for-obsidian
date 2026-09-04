@@ -23,6 +23,14 @@ export type LicenseErrorCode =
   | 'license_revoked'
   | 'license_expired'
   | 'license_suspended'
+  /**
+   * The refresh secret we presented is no longer the current generation:
+   * another machine claiming this seat renewed first. Not a network failure —
+   * the server said no — so it may revoke entitlement here.
+   */
+  | 'stale_secret'
+  /** Too many code re-activations over a live secret. A seat being fought over. */
+  | 'reset_limit_reached'
   | 'device_limit_reached'
   | 'device_not_found'
   | 'deactivation_limit_reached'
@@ -36,6 +44,8 @@ const LICENSE_ERROR_CODES: readonly string[] = [
   'license_revoked',
   'license_expired',
   'license_suspended',
+  'stale_secret',
+  'reset_limit_reached',
   'device_limit_reached',
   'device_not_found',
   'deactivation_limit_reached',
@@ -64,6 +74,11 @@ export interface IssueTokenResponse {
   token: string
   /** Unix seconds. Also used as the last known server time. */
   expires_at: number
+  /**
+   * The secret that buys the next token. Null from a server that predates
+   * rotation, or when this client said it cannot store one.
+   */
+  refresh_secret?: string | null
   license: LicenseSummary
 }
 
@@ -77,7 +92,14 @@ export interface DeactivateDeviceResponse {
 }
 
 export interface IssueTokenRequest {
-  code: string
+  /**
+   * Only needed to activate or to take a seat back. A renewal presents the
+   * refresh secret instead, which is what keeps the code off the wire on the
+   * roughly weekly request every licensed device makes.
+   */
+  code?: string
+  /** The current generation, when this device holds one. */
+  refreshSecret?: string
   deviceId: string
   label?: string
   platform?: string
@@ -134,8 +156,13 @@ export class LicenseApiClient {
    */
   async issueToken(request: IssueTokenRequest): Promise<LicenseApiResult<IssueTokenResponse>> {
     return this.send<IssueTokenResponse>('POST', '/v1/token', {
-      code: request.code,
+      ...(request.code !== undefined ? { code: request.code } : {}),
+      ...(request.refreshSecret !== undefined ? { refresh_secret: request.refreshSecret } : {}),
       device_id: request.deviceId,
+      // Declared rather than inferred: the server must not hand a secret to a
+      // client that would drop it, because the next code-based renewal would
+      // then look like someone taking the seat back and spend a reset.
+      refresh_secret_supported: true,
       ...(request.label !== undefined ? { label: request.label } : {}),
       ...(request.platform !== undefined ? { platform: request.platform } : {}),
       ...(request.pluginVersion !== undefined ? { plugin_version: request.pluginVersion } : {}),

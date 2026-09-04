@@ -55,7 +55,43 @@ describe('LicenseApiClient', () => {
       device_id: 'DEVICE-0001',
       platform: 'macos',
       plugin_version: '2.0.1',
+      // Declared on every request: the server must not hand a refresh secret to
+      // a build that would drop it.
+      refresh_secret_supported: true,
     })
+  })
+
+  test('renews with the refresh secret instead of the code', async () => {
+    respond(200, {
+      token: 'TCPT1.a.b',
+      expires_at: 1787604800,
+      refresh_secret: 'next-generation',
+      license: { license_id: 'L', max_devices: 3, devices_used: 1, expires_at: null },
+    })
+
+    const result = await client.issueToken({
+      refreshSecret: 'this-generation',
+      deviceId: 'DEVICE-0001',
+    })
+
+    // The code stays off the wire on the request every licensed device repeats.
+    expect(JSON.parse(requestUrlMock.mock.calls[0][0].body)).toEqual({
+      refresh_secret: 'this-generation',
+      device_id: 'DEVICE-0001',
+      refresh_secret_supported: true,
+    })
+    expect(result).toMatchObject({ ok: true, data: { refresh_secret: 'next-generation' } })
+  })
+
+  test('reports stale_secret as a stable api failure', async () => {
+    respond(401, { ok: false, error: 'stale_secret', message: '登録が最新ではありません' })
+
+    const result = await client.issueToken({
+      refreshSecret: 'overtaken',
+      deviceId: 'DEVICE-0001',
+    })
+
+    expect(result).toMatchObject({ ok: false, kind: 'api', code: 'stale_secret', status: 401 })
   })
 
   test('omits optional fields the caller did not supply', async () => {
