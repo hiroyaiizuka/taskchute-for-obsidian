@@ -154,6 +154,21 @@ export class LicenseManager {
     return code !== undefined && code.length > 0 ? code : undefined
   }
 
+  /**
+   * The refresh secret this device may renew with, or undefined once it has
+   * given up its seat.
+   *
+   * Preferred over the code for renewals: it proves this machine is the current
+   * holder of the seat rather than merely someone who knows the code, and it
+   * keeps the code off a request that repeats for as long as the license lives.
+   */
+  private usableSecret(): string | undefined {
+    if (this.deps.store.isSeatReleased()) return undefined
+
+    const secret = this.deps.store.getState().refreshSecret
+    return secret !== undefined && secret.length > 0 ? secret : undefined
+  }
+
   onChange(listener: LicenseChangeListener): () => void {
     this.listeners.add(listener)
     return () => {
@@ -169,7 +184,10 @@ export class LicenseManager {
       return { ok: false, failure: { kind: 'invalid-input' } }
     }
 
-    const result = await this.requestToken(rawCode.trim())
+    // Deliberately without the stored secret: entering the code is how someone
+    // takes a seat back, and presenting a secret alongside would renew the very
+    // generation the server is being asked to replace.
+    const result = await this.requestToken({ code: rawCode.trim() })
     if (result.ok) {
       await this.deps.setCode(rawCode.trim())
     }
@@ -265,11 +283,22 @@ export class LicenseManager {
     // Not active, which offline evidence alone cannot undo — the token may have
     // simply expired while the machine was away, or the license may have been
     // un-suspended since. Only the server can say. A device that gave up its
-    // seat has no usable code, so this can never retake one.
+    // seat has neither a usable secret nor code, so this can never retake one.
+    //
+    // The secret goes first, and not only to keep the code off the wire: a
+    // release performed while this machine was away has already discarded the
+    // secret server-side, so presenting it is what turns "my token expired" into
+    // "my seat is gone" instead of silently registering the device again.
+    const secret = this.usableSecret()
+    if (secret !== undefined) {
+      await this.requestToken({ refreshSecret: secret })
+      return this.state
+    }
+
     const code = this.usableCode()
     if (code === undefined || code === this.rejectedCode) return this.state
 
-    await this.requestToken(code)
+    await this.requestToken({ code })
 
     return this.state
   }
@@ -479,14 +508,25 @@ export class LicenseManager {
   }
 
   private async doRefresh(force: boolean): Promise<void> {
-    // Undefined once this device gave up its seat, which is what stops a
+    // Both undefined once this device gave up its seat, which is what stops a
     // refresh from handing it straight back.
+    //
+    // The secret is preferred; the code is the fallback for an install that
+    // last renewed before rotation existed and so has no secret yet. That
+    // fallback is what migrates it: the response carries the first generation.
+    const secret = this.usableSecret()
+    if (secret !== undefined) {
+      if (!force && !this.needsRefresh()) return
+      await this.requestToken({ refreshSecret: secret })
+      return
+    }
+
     const code = this.usableCode()
     if (code === undefined) return
 
     if (!force && !this.needsRefresh()) return
 
-    await this.requestToken(code)
+    await this.requestToken({ code })
   }
 
   private needsRefresh(): boolean {
@@ -498,9 +538,21 @@ export class LicenseManager {
     return expiresAt - this.now() <= LICENSE_REFRESH_THRESHOLD_SEC
   }
 
-  private async requestToken(code: string): Promise<ActivationResult> {
+  /**
+   * Buy a token, with whichever credential this device holds.
+   *
+   * Exactly one of the two is passed. The secret is the ordinary renewal; the
+   * code is activation, and the only thing that can take a seat back once the
+   * secret has gone stale.
+   */
+  private async requestToken(
+    credentials: { code: string; refreshSecret?: undefined } | { refreshSecret: string; code?: undefined },
+  ): Promise<ActivationResult> {
     const result = await this.deps.client.issueToken({
-      code,
+      ...(credentials.code !== undefined ? { code: credentials.code } : {}),
+      ...(credentials.refreshSecret !== undefined
+        ? { refreshSecret: credentials.refreshSecret }
+        : {}),
       deviceId: this.getDeviceId(),
       ...(this.deps.deviceLabel !== undefined ? { label: this.deps.deviceLabel } : {}),
       ...(this.deps.platform !== undefined ? { platform: this.deps.platform } : {}),
@@ -508,10 +560,10 @@ export class LicenseManager {
     })
 
     if (!result.ok) {
-      return { ok: false, failure: this.handleFailure(code, result) }
+      return { ok: false, failure: this.handleFailure(credentials.code, result) }
     }
 
-    const { token, expires_at: expiresAt, license } = result.data
+    const { token, expires_at: expiresAt, refresh_secret: refreshSecret, license } = result.data
     const verification = verifyToken(LICENSE_PUBLIC_KEY, token, {
       productId: LICENSE_PRODUCT_ID,
       now: this.now(),
@@ -527,17 +579,29 @@ export class LicenseManager {
     }
 
     // Only activate() gets this far while the latch is on — every other path
-    // reads the code through usableCode(), which returns nothing — so a new
-    // token here is always the user deliberately asking for the seat back.
+    // reads its credential through usableCode() / usableSecret(), which return
+    // nothing — so a new token here is always the user deliberately asking for
+    // the seat back.
     this.rejectedCode = undefined
     this.deps.store.clearSeatReleased()
-    this.deps.store.saveToken(token, expiresAt, license, this.now())
+    this.deps.store.saveToken(
+      token,
+      expiresAt,
+      license,
+      this.now(),
+      // Absent from a server that has not rolled rotation out; the stored one
+      // then stays, which is what keeps this release working against both.
+      ...(typeof refreshSecret === 'string' && refreshSecret.length > 0 ? [refreshSecret] : []),
+    )
     this.setState({ status: 'active', token: verification.token, license })
 
     return { ok: true, state: this.state }
   }
 
-  private handleFailure(code: string, failure: LicenseApiFailure): ActivationFailure {
+  private handleFailure(
+    code: string | undefined,
+    failure: LicenseApiFailure,
+  ): ActivationFailure {
     if (failure.kind !== 'api') {
       // Could not reach the server, or sent a malformed request. Neither says
       // anything about entitlement, so an unexpired token keeps working.
@@ -547,6 +611,22 @@ export class LicenseManager {
 
     if (failure.code === 'device_limit_reached') {
       return { kind: 'device-limit', devices: failure.details?.devices ?? [] }
+    }
+
+    if (failure.code === 'stale_secret') {
+      // Another machine presenting this device id renewed first, or the seat was
+      // released while we were away. Either way the server has answered, so this
+      // is not the offline case an unexpired token is allowed to ride out.
+      //
+      // Latched like a release rather than merely cleared: the code still sits
+      // in the synced data.json, and without the latch the next sync would spend
+      // it re-taking the seat — starting the tug-of-war over from this side and
+      // burning one of the license's resets each lap. Only the user entering the
+      // code again lifts it, which is the deliberate act that should cost one.
+      this.deps.log?.('warn', '[License] Refresh secret is no longer current')
+      this.deps.store.markSeatReleased(this.now())
+      this.setState({ status: 'unlicensed' })
+      return failure
     }
 
     if (BLOCKING_ERROR_CODES.includes(failure.code)) {
@@ -561,9 +641,19 @@ export class LicenseManager {
       // license may be reinstated, but a string that is not a code never
       // becomes one, and every settings visit would otherwise spend a request
       // re-learning that.
-      this.rejectedCode = code
+      if (code !== undefined) this.rejectedCode = code
       this.deps.store.clearToken()
       this.setState({ status: 'unlicensed' })
+      return failure
+    }
+
+    if (failure.code === 'reset_limit_reached') {
+      // The seat is being fought over and the server has stopped handing it
+      // back until someone looks at it. Entitlement is left exactly as it was:
+      // this only ever arrives from activate(), where the user is watching and
+      // the message tells them to get in touch, and an already-active device
+      // that happens to hit it should not be knocked offline by the answer.
+      this.deps.log?.('warn', '[License] Activation refused: too many resets')
       return failure
     }
 

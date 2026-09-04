@@ -31,6 +31,21 @@ export interface LicenseDeviceState {
   deviceId: string
   /** The signed auth token, or undefined before the first activation. */
   token?: string
+  /**
+   * The one-shot secret that buys the next token, or undefined before the first
+   * activation.
+   *
+   * This is what makes a copied device state stop working. Every issue replaces
+   * it server-side, so a second machine presenting the same value is refused —
+   * whoever refreshes first keeps the seat and the other is told `stale_secret`.
+   * It is not a counter: there is no "used N times", only "is this the current
+   * generation", which is why copying it to ten machines still leaves one.
+   *
+   * Kept beside the token rather than in settings on purpose. data.json is
+   * synced, and a shared secret would have every machine fighting over one
+   * generation; this file is device-local, which is the granularity a seat has.
+   */
+  refreshSecret?: string
   /** Token expiry in unix seconds, as reported by the server. */
   expiresAt?: number
   /**
@@ -95,23 +110,58 @@ export function createDeviceLocalStorageBridge(): LicenseStorageBridge | undefin
   }
 }
 
-const DEVICE_ID_PREFIX = 'DEVICE-'
-/** 20 hex characters keeps the whole id at 27 chars, inside the API's 8–64. */
-const DEVICE_ID_RANDOM_BYTES = 10
-
+/**
+ * A fresh device id: a v4 UUID, 36 characters, inside the API's 8–64.
+ *
+ * Only ever called once per device — an existing id is read back verbatim, so
+ * changing the shape here does not disturb installs already holding one
+ * (`isValidDeviceId` checks length, not format). Which matters: a new id is a
+ * new seat, and re-minting would spend one on every launch.
+ *
+ * The id identifies a seat; it does not authorize anything. Entitlement rests
+ * on the signed token and the refresh secret, so a weaker id from the fallback
+ * path below costs nothing beyond a slightly higher chance of collision.
+ */
 export function generateDeviceId(): string {
-  const bytes = new Uint8Array(DEVICE_ID_RANDOM_BYTES)
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return uuidV4FromBytes(randomBytes(16))
+}
+
+/** 16 random bytes, degrading to Math.random only where Web Crypto is absent. */
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length)
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     crypto.getRandomValues(bytes)
-  } else {
-    // Obsidian always provides Web Crypto; this only guards exotic hosts, where
-    // a weaker id costs nothing (it identifies a seat, it does not authorize).
-    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+    return bytes
   }
+
+  // Obsidian always provides Web Crypto; this only guards exotic hosts.
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+
+  return bytes
+}
+
+/**
+ * Format 16 bytes as a v4 UUID. Only reached where `crypto.randomUUID` is
+ * missing, which is why it is written out rather than pulled from a dependency.
+ */
+function uuidV4FromBytes(bytes: Uint8Array): string {
+  // Version and variant bits, per RFC 4122 section 4.4
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
 
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 
-  return `${DEVICE_ID_PREFIX}${hex.toUpperCase()}`
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-')
 }
 
 function isValidDeviceId(value: unknown): value is string {
@@ -169,6 +219,10 @@ function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined
   if (!isValidDeviceId(record['deviceId'])) return undefined
 
   const token = typeof record['token'] === 'string' ? record['token'] : undefined
+  const refreshSecret =
+    typeof record['refreshSecret'] === 'string' && record['refreshSecret'].length > 0
+      ? record['refreshSecret']
+      : undefined
   const expiresAt = readPositiveInt(record['expiresAt'])
   const lastServerTimeSec = readPositiveInt(record['lastServerTimeSec'])
   const license = readLicenseSummary(record['license'])
@@ -177,6 +231,7 @@ function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined
   return {
     deviceId: record['deviceId'],
     ...(token !== undefined ? { token } : {}),
+    ...(refreshSecret !== undefined ? { refreshSecret } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
     ...(license !== undefined ? { license } : {}),
@@ -216,13 +271,28 @@ export class LicenseStore {
    * Record a successful token issue or refresh. `now` is passed in rather than
    * read from the clock here, so the rollback watermark and the manager's
    * expiry checks can never disagree about what time it is.
+   *
+   * `refreshSecret` is the generation that buys the *next* token; the one this
+   * response was bought with is already spent server-side. Writing it in the
+   * same pass as the token is what keeps the pair consistent — a token stored
+   * without its successor secret would work until expiry and then strand the
+   * device on an activation form.
    */
-  saveToken(token: string, expiresAt: number, license: LicenseSummary, now: number): void {
+  saveToken(
+    token: string,
+    expiresAt: number,
+    license: LicenseSummary,
+    now: number,
+    refreshSecret?: string,
+  ): void {
     this.state = {
       ...this.state,
       token,
       expiresAt,
       license,
+      // Absent from a server that has not rolled the secret out yet, in which
+      // case the old one stays: dropping it would force a code re-entry.
+      ...(refreshSecret !== undefined ? { refreshSecret } : {}),
       // Any successful response proves the clock was at least this far along,
       // which is what the rollback check compares against. Never moves back.
       lastServerTimeSec: Math.max(this.state.lastServerTimeSec ?? 0, now),
@@ -236,7 +306,13 @@ export class LicenseStore {
     this.write()
   }
 
-  /** Drop the token but keep the device id, so re-activation reuses the seat. */
+  /**
+   * Drop the token but keep the device id, so re-activation reuses the seat.
+   *
+   * The refresh secret goes with it. It is the thing that lets this machine
+   * renew without asking anyone, so leaving it behind would let a device that
+   * has just been told it is unlicensed quietly buy itself another week.
+   */
   clearToken(): void {
     const { deviceId, lastServerTimeSec, seatReleasedAt } = this.state
     this.state = {

@@ -835,3 +835,174 @@ describe('the seat list snapshot', () => {
     expect(client.listDevices).toHaveBeenCalledTimes(2)
   })
 })
+
+/**
+ * The refresh secret is what stops a copied device state from being worth
+ * copying. A duplicate presents the same value, and only the first one through
+ * gets the next generation — everyone else is told the seat has moved on.
+ */
+describe('refresh secret rotation', () => {
+  const CODE = 'TCP-0000-0000-0000-0001'
+
+  function stale() {
+    return {
+      ok: false as const,
+      kind: 'api' as const,
+      code: 'stale_secret' as const,
+      status: 401,
+    }
+  }
+
+  test('stores the secret the server hands back', async () => {
+    const { manager, store, client } = createHarness()
+    client.issueToken.mockResolvedValue({
+      ok: true,
+      data: {
+        token: tokenFor(store),
+        expires_at: NOW + 7 * DAY,
+        refresh_secret: 'generation-1',
+        license: SUMMARY,
+      },
+    })
+
+    await manager.activate(CODE)
+
+    expect(store.getState().refreshSecret).toBe('generation-1')
+  })
+
+  test('renews with the secret and without the code', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'generation-1')
+    manager.initialize()
+    client.issueToken.mockResolvedValue({
+      ok: true,
+      data: {
+        token: tokenFor(store),
+        expires_at: NOW + 7 * DAY,
+        refresh_secret: 'generation-2',
+        license: SUMMARY,
+      },
+    })
+
+    await manager.refreshIfNeeded()
+
+    const request = client.issueToken.mock.calls[0][0]
+    expect(request.refreshSecret).toBe('generation-1')
+    expect(request.code).toBeUndefined()
+    expect(store.getState().refreshSecret).toBe('generation-2')
+  })
+
+  test('falls back to the code when no secret has been issued yet', async () => {
+    // An install that last renewed before rotation existed. The response is
+    // what migrates it.
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW)
+    manager.initialize()
+    client.issueToken.mockResolvedValue({
+      ok: true,
+      data: {
+        token: tokenFor(store),
+        expires_at: NOW + 7 * DAY,
+        refresh_secret: 'generation-1',
+        license: SUMMARY,
+      },
+    })
+
+    await manager.refreshIfNeeded()
+
+    expect(client.issueToken.mock.calls[0][0].code).toBe(CODE)
+    expect(store.getState().refreshSecret).toBe('generation-1')
+  })
+
+  test('a stale secret revokes entitlement here and latches the code off', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    expect(manager.initialize().status).toBe('active')
+    client.issueToken.mockResolvedValue(stale())
+
+    await manager.refreshIfNeeded()
+
+    expect(manager.getState()).toEqual({ status: 'unlicensed' })
+    // Latched, not merely cleared: the code still sits in the synced data.json,
+    // and without this the next sync would spend it re-taking the seat.
+    expect(manager.isSeatReleased()).toBe(true)
+    expect(manager.getStoredCode()).toBeUndefined()
+    expect(store.getState().refreshSecret).toBeUndefined()
+  })
+
+  test('the latch stops a sync from quietly retaking the seat', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    manager.initialize()
+    client.issueToken.mockResolvedValue(stale())
+    await manager.refreshIfNeeded()
+    client.issueToken.mockClear()
+
+    await manager.syncFromServer({ force: true })
+
+    expect(client.issueToken).not.toHaveBeenCalled()
+    expect(manager.isActive()).toBe(false)
+  })
+
+  test('re-entering the code lifts the latch and takes the seat back', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    manager.initialize()
+    client.issueToken.mockResolvedValue(stale())
+    await manager.refreshIfNeeded()
+
+    client.issueToken.mockResolvedValue({
+      ok: true,
+      data: {
+        token: tokenFor(store),
+        expires_at: NOW + 7 * DAY,
+        refresh_secret: 'generation-fresh',
+        license: SUMMARY,
+      },
+    })
+    const result = await manager.activate(CODE)
+
+    expect(result.ok).toBe(true)
+    expect(manager.isActive()).toBe(true)
+    expect(manager.isSeatReleased()).toBe(false)
+    // Activation must not present the secret it is asking to have replaced.
+    expect(client.issueToken.mock.calls.at(-1)?.[0].refreshSecret).toBeUndefined()
+  })
+
+  test.each([
+    ['an unreachable server', { ok: false, kind: 'network' }],
+    // The server does answer, but about load rather than entitlement. Dropping
+    // the secret here would turn a busy minute into a code re-entry.
+    ['a rate limit', { ok: false, kind: 'api', code: 'rate_limited', status: 429 }],
+    ['a server error', { ok: false, kind: 'api', code: 'internal', status: 500 }],
+  ])('keeps the secret and the token through %s', async (_label, failure) => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'generation-1')
+    manager.initialize()
+    client.issueToken.mockResolvedValue(failure)
+
+    await manager.refreshIfNeeded()
+
+    // Being unable to ask is not an answer: this is the whole point of SPEC 11-4.
+    expect(manager.isActive()).toBe(true)
+    expect(store.getState().refreshSecret).toBe('generation-1')
+  })
+
+  test('a refused reset is reported without knocking this device offline', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW, 'generation-1')
+    manager.initialize()
+    client.issueToken.mockResolvedValue({
+      ok: false,
+      kind: 'api',
+      code: 'reset_limit_reached',
+      status: 409,
+      details: { retry_after_at: NOW + 30 * DAY },
+    })
+
+    const result = await manager.activate(CODE)
+
+    expect(result).toMatchObject({ ok: false, failure: { code: 'reset_limit_reached' } })
+    expect(manager.isActive()).toBe(true)
+  })
+})

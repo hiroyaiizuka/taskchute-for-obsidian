@@ -19,6 +19,10 @@ const FALLBACKS: Record<string, string> = {
   license_revoked: 'This license has been revoked. Please contact support.',
   license_expired: 'This license has expired. Please renew it to keep using AI tasks.',
   license_suspended: 'This license is suspended. Please contact support.',
+  stale_secret:
+    'This device is no longer the one registered to your license. Enter your activation code again to use it here.',
+  reset_limit_reached:
+    'This license has been re-registered on too many devices recently. Please contact support.',
   device_limit_reached:
     'You have reached the maximum number of devices. Release one to activate this device.',
   device_not_found: 'That device is no longer registered.',
@@ -95,7 +99,7 @@ function apiFailureMessage(failure: LicenseApiFailure): string {
   // Not a bug to report: the user simply has nothing entered to act with.
   if (failure.kind === 'no-code') return messageForCode(CLIENT_CODES.noCode)
 
-  if (failure.code === 'deactivation_limit_reached') {
+  if (failure.code === 'deactivation_limit_reached' || failure.code === 'reset_limit_reached') {
     return messageForCode(failure.code, { retryAt: formatRetryAt(failure.details?.retry_after_at) })
   }
 
