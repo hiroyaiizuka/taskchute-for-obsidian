@@ -21,7 +21,7 @@ import { signTestToken } from './signTestToken'
 
 const NOW = 1_787_000_000
 const DAY = 24 * 60 * 60
-const SUMMARY = { license_id: 'TESTLICENSE00001', max_devices: 3, devices_used: 1, expires_at: null }
+const SUMMARY = { max_devices: 3, devices_used: 1, expires_at: null }
 
 function createBridge(): LicenseStorageBridge {
   const store = new Map<string, unknown>()
@@ -90,7 +90,12 @@ describe('initialize', () => {
 
   test('activates from a stored token without any network call', () => {
     const { manager, store, client } = createHarness()
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
 
     const state = manager.initialize()
 
@@ -100,7 +105,12 @@ describe('initialize', () => {
 
   test('rejects an expired stored token', () => {
     const { manager, store } = createHarness()
-    store.saveToken(tokenFor(store, { expiresAt: NOW - DAY }), NOW - DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW - DAY }),
+      expiresAt: NOW - DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
 
     expect(manager.initialize()).toEqual({ status: 'unlicensed' })
   })
@@ -112,7 +122,7 @@ describe('initialize', () => {
       issuedAt: NOW - DAY,
       expiresAt: NOW + 7 * DAY,
     })
-    store.saveToken(foreign, NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({ token: foreign, expiresAt: NOW + 7 * DAY, license: SUMMARY, now: NOW })
 
     // This is what a data.json synced from another machine would look like.
     expect(manager.initialize()).toEqual({ status: 'unlicensed' })
@@ -121,12 +131,12 @@ describe('initialize', () => {
   test('refuses a valid token when the local clock has been wound back', () => {
     const store = new LicenseStore(createBridge())
     // Saved 30 days "ago" by the server's reckoning, then the clock moved back.
-    store.saveToken(
-      tokenFor(store, { expiresAt: NOW + 40 * DAY }),
-      NOW + 40 * DAY,
-      SUMMARY,
-      NOW + 30 * DAY,
-    )
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW + 40 * DAY }),
+      expiresAt: NOW + 40 * DAY,
+      license: SUMMARY,
+      now: NOW + 30 * DAY,
+    })
 
     const manager = new LicenseManager({
       client: {} as unknown as LicenseApiClient,
@@ -207,7 +217,12 @@ describe('activate', () => {
     'blocks and clears the token on %s',
     async (code) => {
       const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-      store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+      store.saveToken({
+        token: tokenFor(store),
+        expiresAt: NOW + 7 * DAY,
+        license: SUMMARY,
+        now: NOW,
+      })
       manager.initialize()
       expect(manager.isActive()).toBe(true)
 
@@ -223,7 +238,12 @@ describe('activate', () => {
 describe('refreshIfNeeded', () => {
   test('does nothing while the token has plenty of life left', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store, { expiresAt: NOW + 7 * DAY }), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW + 7 * DAY }),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
 
     await manager.refreshIfNeeded()
@@ -233,7 +253,12 @@ describe('refreshIfNeeded', () => {
 
   test('renews once the token is inside the refresh window', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store, { expiresAt: NOW + 3600 }), NOW + 3600, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW + 3600 }),
+      expiresAt: NOW + 3600,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
 
@@ -268,7 +293,12 @@ describe('refreshIfNeeded', () => {
     ['an upstream outage', { ok: false, kind: 'api', code: 'upstream_unavailable', status: 502 }],
   ])('keeps working through %s', async (_label, failure) => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store, { expiresAt: NOW + 3600 }), NOW + 3600, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW + 3600 }),
+      expiresAt: NOW + 3600,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue(failure)
 
@@ -281,7 +311,12 @@ describe('refreshIfNeeded', () => {
 
   test('clears a code the server does not recognize', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue({
       ok: false,
@@ -300,7 +335,12 @@ describe('refreshIfNeeded', () => {
 describe('device management', () => {
   test('releasing another device leaves this one licensed', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 1 } })
 
@@ -312,7 +352,12 @@ describe('device management', () => {
 
   test('releasing this device drops the local token and stops using the code', async () => {
     const { manager, store, client, code } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
 
@@ -333,7 +378,12 @@ describe('device management', () => {
     // Whichever end the release came from, this device must stop acting on the
     // code and must not show it as something the user can still use here.
     const { manager, store, client, code } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockResolvedValue({
       ok: true,
@@ -351,7 +401,12 @@ describe('device management', () => {
     // The latch has to reach every path that reads the stored code, or the
     // seat list would keep loading and a refresh would retake the seat.
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
 
@@ -375,7 +430,12 @@ describe('device management', () => {
 
   test('a release is not undone by the next refresh', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
     client.issueToken.mockResolvedValue(issued(tokenFor(store), NOW + 7 * DAY))
@@ -396,7 +456,12 @@ describe('device management', () => {
       code: 'TCP-0000-0000-0000-0001',
       failSetCode: true,
     })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
 
@@ -460,7 +525,12 @@ describe('signOutLocally', () => {
    */
   test('drops the token so the code can be entered again', () => {
     const { manager, store } = createHarness()
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     expect(manager.isActive()).toBe(true)
 
@@ -472,7 +542,12 @@ describe('signOutLocally', () => {
 
   test('keeps the device id, so coming back reuses the same seat', async () => {
     const { manager, store, client, code } = createHarness()
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     const deviceId = manager.getDeviceId()
 
@@ -507,7 +582,12 @@ describe('verifyDeviceRegistration', () => {
 
   function activeHarness(): Harness {
     const harness = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    harness.store.saveToken(tokenFor(harness.store), NOW + 7 * DAY, SUMMARY, NOW)
+    harness.store.saveToken({
+      token: tokenFor(harness.store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     harness.manager.initialize()
     return harness
   }
@@ -635,7 +715,12 @@ describe('syncFromServer', () => {
     // and the list would then honestly report the device present — the release
     // would disappear without a trace.
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
 
     const calls: string[] = []
@@ -658,7 +743,12 @@ describe('syncFromServer', () => {
 
   test('does not renew a token for a seat that is gone', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockResolvedValue({
       ok: true,
@@ -676,7 +766,12 @@ describe('syncFromServer', () => {
     // that from a revoked license, so the screen would keep saying "not
     // activated" until something asked.
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store, { expiresAt: NOW - DAY }), NOW - DAY, SUMMARY, NOW - 2 * DAY)
+    store.saveToken({
+      token: tokenFor(store, { expiresAt: NOW - DAY }),
+      expiresAt: NOW - DAY,
+      license: SUMMARY,
+      now: NOW - 2 * DAY,
+    })
     manager.initialize()
     expect(manager.isActive()).toBe(false)
 
@@ -691,7 +786,12 @@ describe('syncFromServer', () => {
 
   test('leaves a released device alone', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.deactivateDevice.mockResolvedValue({ ok: true, data: { devices_used: 0 } })
     await manager.deactivateDevice(manager.getDeviceId())
@@ -724,7 +824,12 @@ describe('syncFromServer', () => {
 
   test('throttles unless forced', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockResolvedValue({
       ok: true,
@@ -743,7 +848,12 @@ describe('syncFromServer', () => {
 
   test('never rejects, whatever the server does', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockRejectedValue(new Error('offline'))
 
@@ -757,7 +867,12 @@ describe('the seat list snapshot', () => {
     // Opening the Pro screen asks the same question twice at once. Two requests
     // could come back disagreeing; one cannot.
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
 
     let resolveList: (value: unknown) => void = () => undefined
@@ -785,7 +900,12 @@ describe('the seat list snapshot', () => {
 
   test('tells watchers about a list they did not ask for', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockResolvedValue({
       ok: true,
@@ -804,7 +924,12 @@ describe('the seat list snapshot', () => {
 
   test('drops a released seat without re-fetching', async () => {
     const { manager, store, client } = createHarness({ code: 'TCP-0000-0000-0000-0001' })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.listDevices.mockResolvedValue({
       ok: true,
@@ -872,7 +997,13 @@ describe('refresh secret rotation', () => {
 
   test('renews with the secret and without the code', async () => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'generation-1')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'generation-1',
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue({
       ok: true,
@@ -896,7 +1027,12 @@ describe('refresh secret rotation', () => {
     // An install that last renewed before rotation existed. The response is
     // what migrates it.
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW)
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue({
       ok: true,
@@ -914,9 +1050,112 @@ describe('refresh secret rotation', () => {
     expect(store.getState().refreshSecret).toBe('generation-1')
   })
 
+  test('stores the generation the server hands back', async () => {
+    const { manager, store, client } = createHarness()
+    client.issueToken.mockResolvedValue({
+      ok: true,
+      data: {
+        token: tokenFor(store),
+        expires_at: NOW + 7 * DAY,
+        refresh_secret: 'generation-1',
+        secret_generation: 1,
+        license: SUMMARY,
+      },
+    })
+
+    await manager.activate(CODE)
+
+    expect(store.getState().secretGeneration).toBe(1)
+  })
+
+  test('a sibling vault renewing first is not a lost seat', async () => {
+    // Both vaults of an install share one record, so the generation that
+    // replaced ours is already in it. Latching here would take the whole
+    // machine offline over another vault's success.
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'generation-1',
+      secretGeneration: 1,
+    })
+    expect(manager.initialize().status).toBe('active')
+
+    client.issueToken
+      .mockImplementationOnce(() => {
+        // The sibling's renewal lands while this request is in flight.
+        store.saveToken({
+          token: tokenFor(store),
+          expiresAt: NOW + 7 * DAY,
+          license: SUMMARY,
+          now: NOW,
+          refreshSecret: 'generation-2',
+          secretGeneration: 2,
+        })
+        return Promise.resolve(stale())
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          token: tokenFor(store),
+          expires_at: NOW + 7 * DAY,
+          refresh_secret: 'generation-3',
+          secret_generation: 3,
+          license: SUMMARY,
+        },
+      })
+
+    await manager.refreshIfNeeded()
+
+    expect(manager.getState().status).toBe('active')
+    expect(manager.isSeatReleased()).toBe(false)
+    expect(client.issueToken.mock.calls[1][0].refreshSecret).toBe('generation-2')
+    expect(store.getState().refreshSecret).toBe('generation-3')
+  })
+
+  test('gives up after one retry rather than chasing the record', async () => {
+    const { manager, store, client } = createHarness({ code: CODE })
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'generation-1',
+      secretGeneration: 1,
+    })
+    manager.initialize()
+
+    let generation = 1
+    client.issueToken.mockImplementation(() => {
+      generation += 1
+      store.saveToken({
+        token: tokenFor(store),
+        expiresAt: NOW + 7 * DAY,
+        license: SUMMARY,
+        now: NOW,
+        refreshSecret: `generation-${generation}`,
+        secretGeneration: generation,
+      })
+      return Promise.resolve(stale())
+    })
+
+    await manager.refreshIfNeeded()
+
+    expect(client.issueToken).toHaveBeenCalledTimes(2)
+    expect(manager.isSeatReleased()).toBe(true)
+  })
+
   test('a stale secret revokes entitlement here and latches the code off', async () => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'overtaken',
+    })
     expect(manager.initialize().status).toBe('active')
     client.issueToken.mockResolvedValue(stale())
 
@@ -932,7 +1171,13 @@ describe('refresh secret rotation', () => {
 
   test('the latch stops a sync from quietly retaking the seat', async () => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'overtaken',
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue(stale())
     await manager.refreshIfNeeded()
@@ -946,7 +1191,13 @@ describe('refresh secret rotation', () => {
 
   test('re-entering the code lifts the latch and takes the seat back', async () => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'overtaken')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'overtaken',
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue(stale())
     await manager.refreshIfNeeded()
@@ -977,7 +1228,13 @@ describe('refresh secret rotation', () => {
     ['a server error', { ok: false, kind: 'api', code: 'internal', status: 500 }],
   ])('keeps the secret and the token through %s', async (_label, failure) => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + DAY / 2, SUMMARY, NOW, 'generation-1')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + DAY / 2,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'generation-1',
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue(failure)
 
@@ -990,7 +1247,13 @@ describe('refresh secret rotation', () => {
 
   test('a refused reset is reported without knocking this device offline', async () => {
     const { manager, store, client } = createHarness({ code: CODE })
-    store.saveToken(tokenFor(store), NOW + 7 * DAY, SUMMARY, NOW, 'generation-1')
+    store.saveToken({
+      token: tokenFor(store),
+      expiresAt: NOW + 7 * DAY,
+      license: SUMMARY,
+      now: NOW,
+      refreshSecret: 'generation-1',
+    })
     manager.initialize()
     client.issueToken.mockResolvedValue({
       ok: false,

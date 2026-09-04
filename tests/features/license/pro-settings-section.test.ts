@@ -65,7 +65,6 @@ function fakeManager(
 const CODE = 'TCP-AAAA-BBBB-CCCC-DDDD'
 
 const ACTIVE_SUMMARY = {
-  license_id: '8F3K2M9QX7RD4WPZ',
   max_devices: 3,
   devices_used: 2,
   expires_at: null,
@@ -393,20 +392,18 @@ describe('Pro settings section', () => {
       expect(descs(items)).toContain('TCP-AAAA-BBBB-CCCC-DDDD')
     })
 
-    test('falls back to the license id when there is no usable code', () => {
+    test('shows nothing in place of a code this device may not use', () => {
       // The code may still be in data.json — it has to be, other machines share
       // it — but this device may no longer use it, so showing it here would be
-      // offering something that does nothing.
+      // offering something that does nothing. The licence id used to stand in;
+      // the server no longer sends one, and it named nothing the user could act
+      // on. What is left is the way out.
       const items = proItems(activeManager(), CODE)
 
       expect(names(items)).not.toContain('License code')
       expect(descs(items)).not.toContain('TCP-AAAA-BBBB-CCCC-DDDD')
-      expect(names(items)).toContain('License ID')
-
-      const licenseId = items.find(
-        (item) => 'name' in item && item.name === 'License ID',
-      )
-      expect((licenseId as { desc: string }).desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
+      expect(names(items)).not.toContain('License ID')
+      expect(names(items)).toContain('Sign out on this device')
     })
 
     test('drops the status and expiry rows', () => {

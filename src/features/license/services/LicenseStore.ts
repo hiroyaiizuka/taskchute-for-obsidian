@@ -1,25 +1,23 @@
 /**
  * Persistence for license state, split across two stores on purpose.
  *
- * The activation code lives in settings (data.json) so that a synced vault
- * carries the entitlement to a new machine, which then activates itself.
+ * The activation code lives in settings (data.json) so a synced vault carries
+ * the entitlement to a new machine. Everything device-bound — device id, token,
+ * last known server time — lives in device-local storage instead. This departs
+ * from the API's SPEC 11-1, which puts both in data.json: Obsidian Sync shares
+ * that file, so a synced token would reach a second machine bound to the first
+ * machine's device id and fail with `device-mismatch` forever.
  *
- * Everything device-bound — the device id, the token signed against it, and the
- * last known server time — lives in device-local storage. This is a deliberate
- * deviation from the API's SPEC 11-1, which assumes both go in data.json: with
- * Obsidian Sync that file is shared, so a synced token would arrive on a second
- * machine bound to the first machine's device id and fail verification with
- * `device-mismatch` forever.
+ * The store is raw `window.localStorage`, not Obsidian's `App#saveLocalStorage`
+ * — the latter prefixes keys with the vault's app id, so each vault on one
+ * machine would present its own device id and take a seat of its own. A legacy
+ * bridge for that vault-scoped store can be passed in, and is read once at
+ * construction.
  *
- * The storage is the raw `window.localStorage`, *not* Obsidian's
- * `App#saveLocalStorage`. The latter prefixes every key with the vault's app
- * id, which would make each vault on one machine present a different device id
- * and consume a seat of its own. The raw store is shared by every vault of one
- * Obsidian install, which is as close to "one machine" as the plugin sandbox
- * gets — the same approach DeviceIdentityService already takes for the
- * execution log. Older installs kept their state in the vault-scoped store, so
- * a legacy bridge can be passed in and is read once to adopt its device id
- * (see `read`).
+ * Every vault of one install therefore shares one record, so nothing here
+ * caches it: each operation re-reads, applies its change, and writes back. A
+ * cached copy would restore a refresh secret the server has already replaced
+ * and strand the whole machine on `stale_secret`.
  */
 import type { LicenseSummary } from './LicenseApiClient'
 
@@ -35,17 +33,23 @@ export interface LicenseDeviceState {
    * The one-shot secret that buys the next token, or undefined before the first
    * activation.
    *
-   * This is what makes a copied device state stop working. Every issue replaces
-   * it server-side, so a second machine presenting the same value is refused —
-   * whoever refreshes first keeps the seat and the other is told `stale_secret`.
-   * It is not a counter: there is no "used N times", only "is this the current
-   * generation", which is why copying it to ten machines still leaves one.
-   *
-   * Kept beside the token rather than in settings on purpose. data.json is
-   * synced, and a shared secret would have every machine fighting over one
-   * generation; this file is device-local, which is the granularity a seat has.
+   * Every issue replaces it server-side, which is what makes a copied device
+   * state stop working: whoever refreshes first keeps the seat and the other is
+   * told `stale_secret`. Device-local rather than in the synced data.json,
+   * because a seat is per device.
    */
   refreshSecret?: string
+  /**
+   * Where `refreshSecret` sits in the server's order of issues. Absent before
+   * the first activation, and from a server that predates the number.
+   *
+   * Two vaults of one install share this record, and inside the server's grace
+   * window both can spend the same generation and succeed. The response that
+   * arrives second is not necessarily the one the server treats as current, and
+   * the secrets are indistinguishable — so the record keeps the highest
+   * generation rather than the latest write.
+   */
+  secretGeneration?: number
   /** Token expiry in unix seconds, as reported by the server. */
   expiresAt?: number
   /**
@@ -56,18 +60,64 @@ export interface LicenseDeviceState {
   /** Last known seat/expiry figures, for display while offline. */
   license?: LicenseSummary
   /**
-   * When this device gave up its seat, in unix seconds — whether the user
-   * released it from here or another device released it for them.
+   * When this device gave up its seat, in unix seconds — released from here or
+   * by another device. The canonical explanation of the latch; other code that
+   * sets or reads it points back here.
    *
-   * The activation code itself cannot be thrown away: it lives in data.json,
-   * which Obsidian Sync shares, so deleting it would strip the license from
-   * every other machine too. This is the device-local half of throwing it away.
-   * While it is set the stored code is treated as absent — no refresh, no
-   * device check, and an empty field in settings — so nothing on this machine
-   * quietly retakes the seat. Only an explicit activation lifts it.
+   * The activation code itself cannot be thrown away: data.json is shared by
+   * Obsidian Sync, so deleting it would strip the license from every other
+   * machine. This is the device-local half of throwing it away. While it is set
+   * the stored code reads as absent — no refresh, no device check, an empty
+   * field in settings — so nothing here quietly retakes the seat. Only an
+   * explicit activation lifts it.
    */
   seatReleasedAt?: number
 }
+
+/** A token the server just issued, and what the record needs to file it. */
+export interface SaveTokenInput {
+  token: string
+  expiresAt: number
+  license: LicenseSummary
+  /**
+   * Server-confirmed time, passed in so the rollback watermark and the
+   * manager's expiry checks cannot disagree about the clock.
+   */
+  now: number
+  /** The generation that buys the next token. Absent from an older server. */
+  refreshSecret?: string
+  /** Where that secret sits in the server's order. Absent from an older server. */
+  secretGeneration?: number
+  /**
+   * Whether this response outranks the record whatever its generation says.
+   *
+   * True only for an activation: the user asked for it, only one can be in
+   * flight, and a seat rebuilt from scratch starts counting again, so refusing
+   * it as "older" would strand the machine on a discarded secret. A renewal is
+   * never authoritative — that is what the generation orders.
+   */
+  authoritative?: boolean
+}
+
+/**
+ * Whether a response should be written, or has already been overtaken.
+ *
+ * The comparison is strict: an equal generation is the same issue arriving
+ * twice, and rewriting it would only risk undoing a concurrent one.
+ */
+function outranksRecord(input: SaveTokenInput, record: LicenseDeviceState): boolean {
+  if (input.authoritative === true) return true
+
+  // No order to respect: a server that predates the number, or a record written
+  // by a build that did not keep it. Falls back to last-write-wins.
+  if (input.secretGeneration === undefined) return true
+  if (record.secretGeneration === undefined) return true
+
+  return input.secretGeneration > record.secretGeneration
+}
+
+/** How many times a write will re-assert itself against an older one. */
+const REPAIR_ATTEMPTS = 2
 
 /**
  * Key/value storage for the device state. Shaped after Obsidian's
@@ -86,8 +136,8 @@ const STORAGE_PROBE_KEY = 'taskchute-plus.license-storage-probe'
  * The vault-independent store, or undefined where it cannot be used.
  *
  * Undefined has to stay distinguishable from "empty": a bridge that silently
- * drops writes would hand out a fresh device id on every launch and burn a seat
- * each time, so the caller falls back to the vault-scoped store instead.
+ * drops writes would mint a new device id — a new seat — on every launch, so
+ * the caller falls back to the vault-scoped store instead.
  */
 export function createDeviceLocalStorageBridge(): LicenseStorageBridge | undefined {
   try {
@@ -113,14 +163,11 @@ export function createDeviceLocalStorageBridge(): LicenseStorageBridge | undefin
 /**
  * A fresh device id: a v4 UUID, 36 characters, inside the API's 8–64.
  *
- * Only ever called once per device — an existing id is read back verbatim, so
- * changing the shape here does not disturb installs already holding one
- * (`isValidDeviceId` checks length, not format). Which matters: a new id is a
- * new seat, and re-minting would spend one on every launch.
- *
- * The id identifies a seat; it does not authorize anything. Entitlement rests
- * on the signed token and the refresh secret, so a weaker id from the fallback
- * path below costs nothing beyond a slightly higher chance of collision.
+ * A new id is a new seat, so this runs once per device and never again — an
+ * existing id is read back verbatim, and `isValidDeviceId` checks length rather
+ * than format so the shape can change without disturbing installs holding one.
+ * The id only names a seat; entitlement rests on the token and the refresh
+ * secret, so the weaker fallback below costs nothing but collision odds.
  */
 export function generateDeviceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -144,10 +191,7 @@ function randomBytes(length: number): Uint8Array {
   return bytes
 }
 
-/**
- * Format 16 bytes as a v4 UUID. Only reached where `crypto.randomUUID` is
- * missing, which is why it is written out rather than pulled from a dependency.
- */
+/** Format 16 bytes as a v4 UUID, for hosts without `crypto.randomUUID`. */
 function uuidV4FromBytes(bytes: Uint8Array): string {
   // Version and variant bits, per RFC 4122 section 4.4
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40
@@ -168,17 +212,20 @@ function isValidDeviceId(value: unknown): value is string {
   return typeof value === 'string' && value.length >= 8 && value.length <= 64
 }
 
+/**
+ * Reads only the fields still in use. A record written by an older build also
+ * carries `license_id`; it is left where it is rather than required, so an
+ * install that predates its removal keeps its cached seat figures.
+ */
 function readLicenseSummary(value: unknown): LicenseSummary | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const record = value as Record<string, unknown>
-  if (typeof record['license_id'] !== 'string') return undefined
   if (typeof record['max_devices'] !== 'number') return undefined
   if (typeof record['devices_used'] !== 'number') return undefined
 
   const expiresAt = record['expires_at']
 
   return {
-    license_id: record['license_id'],
     max_devices: record['max_devices'],
     devices_used: record['devices_used'],
     expires_at: typeof expiresAt === 'number' ? expiresAt : null,
@@ -192,9 +239,8 @@ function readPositiveInt(value: unknown): number | undefined {
 /**
  * One store's state, or undefined when it holds nothing usable.
  *
- * A record without a valid device id is treated as absent in full: whatever
- * token sits beside it is signed against an id this device can no longer
- * present, so it could never verify.
+ * A record without a valid device id is discarded whole: any token beside it is
+ * signed against an id this device can no longer present.
  */
 function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined {
   let raw: unknown
@@ -223,6 +269,7 @@ function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined
     typeof record['refreshSecret'] === 'string' && record['refreshSecret'].length > 0
       ? record['refreshSecret']
       : undefined
+  const secretGeneration = readPositiveInt(record['secretGeneration'])
   const expiresAt = readPositiveInt(record['expiresAt'])
   const lastServerTimeSec = readPositiveInt(record['lastServerTimeSec'])
   const license = readLicenseSummary(record['license'])
@@ -232,6 +279,7 @@ function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined
     deviceId: record['deviceId'],
     ...(token !== undefined ? { token } : {}),
     ...(refreshSecret !== undefined ? { refreshSecret } : {}),
+    ...(secretGeneration !== undefined ? { secretGeneration } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
     ...(license !== undefined ? { license } : {}),
@@ -240,7 +288,15 @@ function readState(bridge: LicenseStorageBridge): LicenseDeviceState | undefined
 }
 
 export class LicenseStore {
-  private state: LicenseDeviceState
+  /**
+   * The id to present when the record is gone — cleared storage, or a write
+   * that never landed. Minted or migrated once, at construction.
+   *
+   * A fallback, never an override: an id in the record always wins. Minting one
+   * mid-session would spend a second seat, and two vaults doing so on a fresh
+   * install would disagree forever, holding a seat each.
+   */
+  private readonly sessionDeviceId: string
 
   /**
    * `legacy` is the store an older version of the plugin wrote to (the
@@ -249,101 +305,112 @@ export class LicenseStore {
    */
   constructor(
     private readonly bridge: LicenseStorageBridge,
-    private readonly legacy?: LicenseStorageBridge,
+    legacy?: LicenseStorageBridge,
   ) {
-    this.state = this.read()
-    // Persist immediately so a freshly generated device id survives a crash
-    // before the first activation; otherwise a seat could be claimed under an
-    // id this device would never present again.
-    this.write()
+    const stored = readState(this.bridge)
+    const initial = stored ?? (legacy ? readState(legacy) : undefined) ?? {
+      deviceId: generateDeviceId(),
+    }
+    this.sessionDeviceId = initial.deviceId
+
+    // Persist a migrated or fresh id right away, so it survives a crash before
+    // the first activation. An id already in the record needs no rewrite —
+    // that would clobber whatever a sibling vault wrote in between.
+    if (stored === undefined) this.writeRecord(initial)
   }
 
   /** Stable for the lifetime of this device, created on first access. */
   getDeviceId(): string {
-    return this.state.deviceId
+    return this.read().deviceId
   }
 
   getState(): Readonly<LicenseDeviceState> {
-    return this.state
+    return this.read()
   }
 
   /**
-   * Record a successful token issue or refresh. `now` is passed in rather than
-   * read from the clock here, so the rollback watermark and the manager's
-   * expiry checks can never disagree about what time it is.
+   * Record a successful token issue or refresh.
    *
-   * `refreshSecret` is the generation that buys the *next* token; the one this
-   * response was bought with is already spent server-side. Writing it in the
-   * same pass as the token is what keeps the pair consistent — a token stored
-   * without its successor secret would work until expiry and then strand the
-   * device on an activation form.
+   * `refreshSecret` is the generation that buys the *next* token; storing it in
+   * the same pass as the token keeps the pair consistent. A response the record
+   * has already moved past is dropped rather than written (see `outranksRecord`);
+   * callers need not check, since the value that won is in the record either way.
    */
-  saveToken(
-    token: string,
-    expiresAt: number,
-    license: LicenseSummary,
-    now: number,
-    refreshSecret?: string,
-  ): void {
-    this.state = {
-      ...this.state,
-      token,
-      expiresAt,
-      license,
+  saveToken(input: SaveTokenInput): void {
+    const current = this.read()
+    if (!outranksRecord(input, current)) return
+
+    const next: LicenseDeviceState = {
+      ...current,
+      token: input.token,
+      expiresAt: input.expiresAt,
+      license: input.license,
       // Absent from a server that has not rolled the secret out yet, in which
       // case the old one stays: dropping it would force a code re-entry.
-      ...(refreshSecret !== undefined ? { refreshSecret } : {}),
-      // Any successful response proves the clock was at least this far along,
-      // which is what the rollback check compares against. Never moves back.
-      lastServerTimeSec: Math.max(this.state.lastServerTimeSec ?? 0, now),
+      ...(input.refreshSecret !== undefined ? { refreshSecret: input.refreshSecret } : {}),
+      ...(input.secretGeneration !== undefined
+        ? { secretGeneration: input.secretGeneration }
+        : {}),
+      // The watermark the rollback check compares against. Never moves back,
+      // and the floor is the record's value, not one read hours ago.
+      lastServerTimeSec: Math.max(current.lastServerTimeSec ?? 0, input.now),
     }
-    this.write()
+
+    this.writeRecord(next)
+    this.repairOlderWrite(next)
   }
 
-  /** Update the cached seat figures without touching the token. */
-  saveLicenseSummary(license: LicenseSummary): void {
-    this.state = { ...this.state, license }
-    this.write()
+  /**
+   * Put `next` back if a lower generation has since overwritten it.
+   *
+   * The read-modify-write is not atomic, so sibling vaults can interleave and
+   * one can land an older record last. Every writer checking after itself makes
+   * them converge, since both aim at the same maximum. Bounded, because a
+   * *higher* generation means someone else's answer is the one to keep.
+   */
+  private repairOlderWrite(next: LicenseDeviceState): void {
+    const generation = next.secretGeneration
+    // Nothing to order by: a server without the number leaves last-write-wins.
+    if (generation === undefined) return
+
+    for (let attempt = 0; attempt < REPAIR_ATTEMPTS; attempt++) {
+      const stored = this.read().secretGeneration
+      if (stored !== undefined && stored >= generation) return
+
+      this.writeRecord(next)
+    }
   }
 
   /**
    * Drop the token but keep the device id, so re-activation reuses the seat.
    *
-   * The refresh secret goes with it. It is the thing that lets this machine
-   * renew without asking anyone, so leaving it behind would let a device that
-   * has just been told it is unlicensed quietly buy itself another week.
+   * The refresh secret goes with it: it renews without asking anyone, so
+   * leaving it behind would let a device just told it is unlicensed buy itself
+   * another week.
    */
   clearToken(): void {
-    const { deviceId, lastServerTimeSec, seatReleasedAt } = this.state
-    this.state = {
-      deviceId,
-      ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
-      ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
-    }
-    this.write()
+    this.writeRecord(withoutToken(this.read()))
   }
 
   /**
    * Record that this device no longer holds a seat. Drops the token like
-   * clearToken(), and latches the fact so nothing on this machine claims the
-   * seat back — only an explicit activation may do that.
+   * clearToken(), and latches `seatReleasedAt` so nothing here claims the seat
+   * back until an explicit activation.
    */
   markSeatReleased(now: number): void {
-    this.clearToken()
-    this.state = { ...this.state, seatReleasedAt: now }
-    this.write()
+    this.writeRecord({ ...withoutToken(this.read()), seatReleasedAt: now })
   }
 
   /** Lift the latch. Only a successful token request has the right to do this. */
   clearSeatReleased(): void {
-    if (this.state.seatReleasedAt === undefined) return
-    const { seatReleasedAt: _removed, ...rest } = this.state
-    this.state = rest
-    this.write()
+    const { seatReleasedAt, ...rest } = this.read()
+    if (seatReleasedAt === undefined) return
+
+    this.writeRecord(rest)
   }
 
   isSeatReleased(): boolean {
-    return this.state.seatReleasedAt !== undefined
+    return this.read().seatReleasedAt !== undefined
   }
 
   /**
@@ -351,38 +418,40 @@ export class LicenseStore {
    * confirmed time to make offline expiry meaningless.
    */
   isClockRolledBack(now: number, toleranceSec: number): boolean {
-    const lastSeen = this.state.lastServerTimeSec
+    const lastSeen = this.read().lastServerTimeSec
     if (lastSeen === undefined) return false
 
     return now < lastSeen - toleranceSec
   }
 
   /**
-   * The stored state, migrating from the legacy store when this one is empty.
+   * The record as it stands now — the only state this class has.
    *
-   * Adopting the legacy device id rather than minting a new one keeps the seat
-   * this vault already holds. Where several vaults on one machine each hold a
-   * seat, whichever launches first wins the machine's id and the others fall in
-   * behind it; their old seats stay until the user releases them from the
-   * device list. The legacy entry is left in place — it is never written again,
-   * and it costs nothing to leave a way back if this store is ever wiped.
+   * The legacy store is not consulted here: reading it a second time could
+   * resurrect a token this device has given up. A missing record falls back to
+   * the session id rather than a new one, which would be a new seat.
    */
   private read(): LicenseDeviceState {
-    const current = readState(this.bridge)
-    if (current) return current
-
-    const migrated = this.legacy ? readState(this.legacy) : undefined
-    if (migrated) return migrated
-
-    return { deviceId: generateDeviceId() }
+    return readState(this.bridge) ?? { deviceId: this.sessionDeviceId }
   }
 
-  private write(): void {
+  private writeRecord(state: LicenseDeviceState): void {
     try {
-      this.bridge.saveLocalStorage?.(LICENSE_DEVICE_STATE_STORAGE_KEY, this.state)
+      this.bridge.saveLocalStorage?.(LICENSE_DEVICE_STATE_STORAGE_KEY, state)
     } catch {
       // Storage is best-effort: losing it costs one re-activation, not access.
     }
+  }
+}
+
+/** Everything a token was bought with, gone; everything about the seat, kept. */
+function withoutToken(state: LicenseDeviceState): LicenseDeviceState {
+  const { deviceId, lastServerTimeSec, seatReleasedAt } = state
+
+  return {
+    deviceId,
+    ...(lastServerTimeSec !== undefined ? { lastServerTimeSec } : {}),
+    ...(seatReleasedAt !== undefined ? { seatReleasedAt } : {}),
   }
 }
 

@@ -5,9 +5,8 @@
  * field is Japanese prose and would leak into an English UI. The server text is
  * kept only as a last resort for a code this build does not recognize.
  *
- * Every message carries its code. The prose is what the user acts on, but the
- * code is what support asks for and what a bug report has to contain, and a
- * failure that reaches the screen without one leaves both sides guessing.
+ * Every message carries its code — the prose is what the user acts on, but the
+ * code is what support asks for and what a bug report has to contain.
  */
 import { t } from '../../../i18n'
 import type { ActivationFailure } from '../services/LicenseManager'
@@ -55,9 +54,8 @@ function messageForCode(code: string, vars?: Record<string, string>): string {
 }
 
 /**
- * The message the user reads, with the code that identifies the failure.
- *
- * The code goes last and in parentheses so it never gets in the way of the
+ * The message the user reads, with the code that identifies the failure. The
+ * code goes last and in parentheses so it never gets in the way of the
  * instruction, which is the part most users need.
  */
 function withCode(message: string, code: string): string {

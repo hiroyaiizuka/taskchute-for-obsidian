@@ -124,8 +124,8 @@ export const DEFAULT_LEEWAY_SEC = 300
  * Verify an auth token. Performs no network I/O.
  *
  * Expiry depends on the local clock, hence the leeway. A large deliberate
- * rollback is not defensible here: the caller compares against the last known
- * server time instead (see LicenseStore / SPEC 11-5).
+ * rollback is the caller's to catch, against the last known server time
+ * (see LicenseStore / SPEC 11-5).
  */
 export function verifyToken(
   publicKeyB64: string,

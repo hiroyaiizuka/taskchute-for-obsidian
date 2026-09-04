@@ -7,7 +7,6 @@ import type {
 import { getCurrentLocale, t } from "../../../i18n"
 import { licensePurchaseUrl } from "../../../features/license/config"
 import type { LicenseManager } from "../../../features/license/services/LicenseManager"
-import { formatLicenseId } from "../../../features/license/token/primitives"
 import { DeviceListView } from "../../../features/license/ui/DeviceListView"
 import { checkSeatRegistration } from "../../../features/license/ui/notifySeatReleased"
 import {
@@ -316,46 +315,37 @@ function activeLicenseRows(
   manager: LicenseManager,
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
-  const summary = manager.getLicenseSummary()
   // Two sections rather than a single card: the licence is a fact to read once,
   // the seats are a list to act on, and a heading over each says which is which.
   // No status or expiry rows — the page header already says "Active".
   const rows: SettingDefinitionItem[] = []
 
-  // The code the user actually typed, not the id derived from it: that is what
-  // they hold, what support asks for, and what they would re-enter elsewhere.
-  // The id is the fallback for a licence activated before the code was stored.
-  // Read through the manager so a device that gave up its seat does not show a
-  // code it can no longer use.
+  // The code the user actually typed: what they hold, what support asks for,
+  // and what they would re-enter elsewhere. Read through the manager so a
+  // device that gave up its seat does not show a code it can no longer use.
+  //
+  // Nothing stands in for it. The licence id used to, but the server no longer
+  // sends one — and a value the user can neither act on nor quote to support
+  // was never the point. This device is identified in the seat list below.
   const stored = manager.getStoredCode()
-  const identity =
-    stored !== undefined && stored.length > 0
-      ? { name: t("settings.license.codeName", "License code"), value: stored }
-      : summary
-        ? {
-            name: t("settings.license.licenseIdName", "License ID"),
-            value: formatLicenseId(summary.license_id),
-          }
-        : undefined
+  const code = stored !== undefined && stored.length > 0 ? stored : undefined
 
-  // No code here means no request can be made: the seat list, its refresh and
-  // every release need one. The list would show nothing but a permanent
-  // no_activation_code, so it is replaced by the one action that does work.
-  const codeless = stored === undefined || stored.length === 0
+  rows.push({
+    type: "group",
+    heading: t("settings.license.heading", "License"),
+    cls: "taskchute-license-identity",
+    items:
+      code !== undefined
+        ? [{ name: t("settings.license.codeName", "License code"), desc: code }]
+        : // Nothing to name the licence with, so the section carries the one
+          // action that still works instead.
+          [signOutRow(ctx, manager, applyLicenseChange)],
+  })
 
-  if (identity) {
-    rows.push({
-      type: "group",
-      heading: t("settings.license.heading", "License"),
-      cls: "taskchute-license-identity",
-      items: [
-        { name: identity.name, desc: identity.value },
-        ...(codeless ? [signOutRow(ctx, manager, applyLicenseChange)] : []),
-      ],
-    })
-  }
-
-  if (codeless) return rows
+  // No code means no request can be made: the seat list, its refresh and every
+  // release need one. The list would show nothing but a permanent
+  // no_activation_code, so it is left out entirely.
+  if (code === undefined) return rows
 
   rows.push({
     type: "group",
