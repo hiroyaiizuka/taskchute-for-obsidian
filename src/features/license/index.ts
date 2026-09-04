@@ -37,11 +37,9 @@ function describePlatform(): string | undefined {
 }
 
 /**
- * The machine's hostname, or undefined off desktop.
- *
- * Mobile has no Node runtime, so the label falls back to the platform name.
- * A label only helps the user pick a seat to release; being wrong about it is
- * cosmetic, so every failure path degrades quietly.
+ * The machine's hostname, or undefined off desktop (mobile has no Node runtime,
+ * so the label falls back to the platform name). A label only helps the user
+ * pick a seat to release, so every failure path degrades quietly.
  */
 function readHostname(): string | undefined {
   // Written without optional chaining on purpose: the plugin review rule only
@@ -74,11 +72,9 @@ function cleanPart(value: unknown): string | undefined {
 /**
  * The machine's name as a seat label.
  *
- * A seat is one machine, so the machine name is the whole label — the vault
- * name used to be appended, but every vault on a machine now shares one seat
- * and one device id, which would leave whichever vault refreshed its token last
- * naming the seat for all of them. Kept pure and separate from the platform
- * lookups so the formatting can be tested directly.
+ * A seat is one machine, so the machine name is the whole label. The vault name
+ * used to be appended, but every vault now shares one seat, which left whichever
+ * refreshed last naming it for all of them. Kept pure so it can be tested.
  */
 export function formatDeviceLabel(host: unknown): string | undefined {
   const cleaned = cleanPart(host)
@@ -96,14 +92,11 @@ export function describeDeviceLabel(): string | undefined {
 export function createLicenseManager(plugin: LicensePluginLike): LicenseManager {
   const log = (level: string, ...args: unknown[]) => plugin._log?.(level, ...args)
 
-  // The device state is kept out of the vault-scoped store so that every vault
-  // on one machine shares a single seat; plugin.app is passed only so installs
-  // written by an older version can be migrated. Where the raw store is
-  // unusable the vault-scoped one remains better than no persistence at all —
-  // it costs extra seats, losing the id costs one on every launch.
-  //
-  // App exposes loadLocalStorage/saveLocalStorage but does not declare them in
-  // the public typings; the same cast is used by AiCustomModelStore's callers.
+  // The device state is kept out of the vault-scoped store so every vault on
+  // one machine shares a seat; plugin.app is passed only to migrate installs
+  // written by an older version. Where the raw store is unusable the
+  // vault-scoped one still beats no persistence: it costs extra seats, while
+  // losing the id costs one on every launch.
   const deviceStorage = createDeviceLocalStorageBridge()
   const store = deviceStorage
     ? new LicenseStore(deviceStorage, plugin.app)

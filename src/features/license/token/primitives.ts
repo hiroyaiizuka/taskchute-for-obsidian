@@ -27,9 +27,9 @@ export function utf8Decode(bytes: Uint8Array): string | null {
 }
 
 /**
- * Decode base64url (RFC 4648 section 5, unpadded). Returns null on malformed
- * input because tokens are untrusted external data, not a configuration error.
- * Standard base64 `+/` is accepted too, to absorb copy-paste mix-ups.
+ * Decode base64url (RFC 4648 section 5, unpadded). Null on malformed input:
+ * tokens are untrusted data, not a configuration error. Standard base64 `+/`
+ * is accepted too, to absorb copy-paste mix-ups.
  */
 export function decodeBase64Url(input: string): Uint8Array | null {
   const normalized = input.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '')
@@ -55,9 +55,9 @@ export const PUBLIC_KEY_BYTES = 32
 export const SIGNATURE_BYTES = 64
 
 /**
- * Turn a base64url key back into bytes. Throws on a bad length because the
- * public key is a build-time constant, not user input: failing loudly during
- * development beats silently rejecting every token in production.
+ * Turn a base64url key back into bytes. Throws on a bad length: the public key
+ * is a build-time constant, so failing loudly in development beats silently
+ * rejecting every token in production.
  */
 export function importKey(keyB64: string, expectedBytes: number): Uint8Array {
   const bytes = decodeBase64Url(keyB64.trim())
@@ -70,9 +70,4 @@ export function importKey(keyB64: string, expectedBytes: number): Uint8Array {
     )
   }
   return bytes
-}
-
-/** Format an id for display in 4-character groups (e.g. 8F3K-2M9Q-X7RD-4WPZ). */
-export function formatLicenseId(licenseId: string): string {
-  return (licenseId.match(/.{1,4}/g) ?? [licenseId]).join('-')
 }

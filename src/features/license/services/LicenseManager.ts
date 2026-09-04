@@ -133,15 +133,8 @@ export class LicenseManager {
 
   /**
    * The activation code this device may act with, or undefined once it has
-   * given up its seat.
-   *
-   * The code cannot simply be deleted: it lives in data.json, which Obsidian
-   * Sync shares, so removing it would take the license away from every other
-   * machine as well. Hiding it behind the device-local latch throws it away
-   * where it has to be thrown away — on this machine — and leaves the others
-   * untouched. Everything downstream then follows for free: no refresh, no
-   * device check, an empty field in settings, and no way back except the user
-   * entering the code again.
+   * given up its seat (see `LicenseDeviceState.seatReleasedAt` for why the code
+   * is latched off rather than deleted).
    */
   getStoredCode(): string | undefined {
     return this.usableCode()
@@ -158,9 +151,9 @@ export class LicenseManager {
    * The refresh secret this device may renew with, or undefined once it has
    * given up its seat.
    *
-   * Preferred over the code for renewals: it proves this machine is the current
-   * holder of the seat rather than merely someone who knows the code, and it
-   * keeps the code off a request that repeats for as long as the license lives.
+   * Preferred over the code for renewals: it proves this machine currently holds
+   * the seat rather than merely knowing the code, and keeps the code off a
+   * request that repeats for as long as the license lives.
    */
   private usableSecret(): string | undefined {
     if (this.deps.store.isSeatReleased()) return undefined
@@ -217,14 +210,12 @@ export class LicenseManager {
    * Settle this device's entitlement against the server and report the result.
    *
    * The single entry point for "am I still Pro?", used on startup, on the
-   * background timer, and when the settings screen is opened. Returns the state
-   * afterwards so a caller that drew the old one can compare and redraw.
+   * background timer and when the settings screen opens. Returns the state
+   * afterwards so a caller that drew the old one can redraw. Never throws:
+   * every failure inside leaves entitlement exactly as it was.
    *
-   * Never throws and never rejects: every failure inside leaves entitlement
-   * exactly as it was, because being unable to ask is not an answer.
-   *
-   * @param options.force Skip the throttle. For the settings screen being
-   * opened, which is a deliberate act by someone waiting to see the answer.
+   * @param options.force Skip the throttle, for the settings screen being
+   * opened with someone waiting on the answer.
    */
   async syncFromServer(options: { force?: boolean } = {}): Promise<LicenseState> {
     if (this.syncInFlight) return this.syncInFlight
@@ -261,14 +252,10 @@ export class LicenseManager {
   }
 
   private async settleAgainstServer(): Promise<LicenseState> {
-    // The seat question comes first. Issuing a token re-registers this device
-    // id, so a refresh that ran ahead of the check would hand the seat straight
-    // back and the list would then honestly report the device present — a
-    // release made from another machine would vanish without a trace.
-    //
-    // Forced because this method's own throttle already decided the call was
-    // due; letting the check's floor veto it again is how a sync a minute after
-    // startup came to do nothing at all.
+    // The seat question comes first: issuing a token re-registers this device
+    // id, so a refresh running ahead of the check would hand the seat back and
+    // a release made from another machine would vanish without a trace. Forced
+    // because this method's own throttle already decided the call was due.
     if ((await this.verifyDeviceRegistration({ force: true })) === 'released') {
       return this.state
     }
@@ -280,15 +267,11 @@ export class LicenseManager {
       return this.state
     }
 
-    // Not active, which offline evidence alone cannot undo — the token may have
-    // simply expired while the machine was away, or the license may have been
-    // un-suspended since. Only the server can say. A device that gave up its
-    // seat has neither a usable secret nor code, so this can never retake one.
-    //
-    // The secret goes first, and not only to keep the code off the wire: a
-    // release performed while this machine was away has already discarded the
-    // secret server-side, so presenting it is what turns "my token expired" into
-    // "my seat is gone" instead of silently registering the device again.
+    // Not active, which only the server can undo: the token may have expired
+    // while the machine was away, or the license may have been un-suspended.
+    // The secret goes first because a release performed meanwhile has already
+    // discarded it server-side — presenting it is what turns "my token expired"
+    // into "my seat is gone" rather than silently registering the device again.
     const secret = this.usableSecret()
     if (secret !== undefined) {
       await this.requestToken({ refreshSecret: secret })
@@ -306,11 +289,10 @@ export class LicenseManager {
   /**
    * Ask the server whether this device still holds a seat.
    *
-   * Offline verification cannot notice a seat released from another machine:
-   * the stored token stays valid for the rest of its 7-day life, and a refresh
-   * would simply claim the seat again under the same device id. So the device
-   * list is the only thing that can tell us, and only a real answer counts —
-   * every failure returns `unknown` and leaves entitlement alone.
+   * Offline verification cannot notice a seat released from another machine —
+   * the stored token stays valid for its 7-day life — so the device list is the
+   * only thing that can tell us. Only a real answer counts: every failure
+   * returns `unknown` and leaves entitlement alone.
    */
   async verifyDeviceRegistration(
     options: { force?: boolean } = {},
@@ -356,11 +338,8 @@ export class LicenseManager {
     // this very screen, say. Acting on a stale reading would clobber it.
     if (this.state.status !== 'active') return 'unknown'
 
-    // Drops the token and, with it, the code — device-locally. The value in
-    // settings is left alone because data.json is synced and clearing it would
-    // strip the license from every other machine that shares it; the latch
-    // makes it unreadable here, which is what "throw the code away" means on
-    // the one device that lost its seat.
+    // Latches the code off device-locally, leaving the synced settings value
+    // alone (see `LicenseDeviceState.seatReleasedAt`).
     this.deps.store.markSeatReleased(this.now())
     this.setState({ status: 'unlicensed' })
 
@@ -399,11 +378,10 @@ export class LicenseManager {
       return { ok: false, failure: { ok: false, kind: 'no-code' } }
     }
 
-    // Opening the Pro screen asks this question twice at once — the sync, to
-    // find out whether this device still holds a seat, and the list the screen
-    // draws. One request answers both, and answers them identically, which a
-    // second request would not guarantee. Only for the stored code: an explicit
-    // one belongs to a different license than the one being coalesced.
+    // Opening the Pro screen asks this twice at once — the sync's seat check and
+    // the list it draws — so one request answers both, and answers them
+    // identically. Only for the stored code: an explicit one belongs to a
+    // different license than the one being coalesced.
     if (explicitCode === undefined && this.deviceListInFlight) {
       return this.deviceListInFlight
     }
@@ -472,10 +450,8 @@ export class LicenseManager {
     // cryptographically, but the seat is gone and no refresh will succeed.
     //
     // The same latch as a release from another machine, and for the same
-    // reason: the code has to stop working here — otherwise the next refresh
-    // would issue a fresh token under the same device id and silently retake
-    // the seat the user just gave up — while staying readable on every other
-    // machine that shares data.json through Obsidian Sync.
+    // reason: without it the next refresh would issue a fresh token under this
+    // device id and silently retake the seat the user just gave up.
     if (deviceId === this.getDeviceId()) {
       this.deps.store.markSeatReleased(this.now())
       this.setState({ status: 'unlicensed' })
@@ -487,18 +463,13 @@ export class LicenseManager {
   /**
    * Give this device's licence up locally, without asking the server.
    *
-   * The way out of the one state the seat list cannot fix: an active token
-   * with no code behind it. The token lives in device-local storage and the
-   * code in the synced vault settings, so a vault whose data.json never
-   * carried the code — activated in another vault on this machine, or restored
-   * from elsewhere — is licensed but unable to act: every request needs the
-   * code, and the active screen has no field to enter one. Dropping the token
-   * returns the screen to the activation form, which is the field.
+   * The way out of the one state the seat list cannot fix: an active token with
+   * no code behind it, which happens to a vault whose data.json never carried
+   * the code. Every request needs the code and the active screen has no field
+   * for one, so dropping the token returns it to the activation form.
    *
-   * Not a seat release: nothing is sent, so the server still counts this
-   * device. That is deliberate — the device id is kept, so re-entering the code
-   * here reuses the very same seat rather than spending another one. A user who
-   * does not come back can release the seat from any other machine's list.
+   * Not a seat release — nothing is sent, and the device id is kept, so
+   * re-entering the code reuses the same seat instead of spending another.
    */
   signOutLocally(): void {
     this.deps.store.clearToken()
@@ -508,12 +479,10 @@ export class LicenseManager {
   }
 
   private async doRefresh(force: boolean): Promise<void> {
-    // Both undefined once this device gave up its seat, which is what stops a
-    // refresh from handing it straight back.
-    //
-    // The secret is preferred; the code is the fallback for an install that
-    // last renewed before rotation existed and so has no secret yet. That
-    // fallback is what migrates it: the response carries the first generation.
+    // Both undefined once this device gave up its seat, which stops a refresh
+    // from handing it back. The secret is preferred; the code is the fallback
+    // for an install that last renewed before rotation existed, and is what
+    // migrates it — the response carries the first generation.
     const secret = this.usableSecret()
     if (secret !== undefined) {
       if (!force && !this.needsRefresh()) return
@@ -547,6 +516,7 @@ export class LicenseManager {
    */
   private async requestToken(
     credentials: { code: string; refreshSecret?: undefined } | { refreshSecret: string; code?: undefined },
+    options: { allowSiblingRetry?: boolean } = {},
   ): Promise<ActivationResult> {
     const result = await this.deps.client.issueToken({
       ...(credentials.code !== undefined ? { code: credentials.code } : {}),
@@ -560,10 +530,32 @@ export class LicenseManager {
     })
 
     if (!result.ok) {
+      // A sibling vault renewed while this request was in flight. It shares this
+      // machine's record, so the generation that replaced ours is already in it
+      // — and latching would take the whole install offline over another
+      // vault's success. Pick the record up and go once more instead.
+      const current = this.usableSecret()
+      if (
+        options.allowSiblingRetry !== false &&
+        result.kind === 'api' &&
+        result.code === 'stale_secret' &&
+        credentials.refreshSecret !== undefined &&
+        current !== undefined &&
+        current !== credentials.refreshSecret
+      ) {
+        return this.requestToken({ refreshSecret: current }, { allowSiblingRetry: false })
+      }
+
       return { ok: false, failure: this.handleFailure(credentials.code, result) }
     }
 
-    const { token, expires_at: expiresAt, refresh_secret: refreshSecret, license } = result.data
+    const {
+      token,
+      expires_at: expiresAt,
+      refresh_secret: refreshSecret,
+      secret_generation: secretGeneration,
+      license,
+    } = result.data
     const verification = verifyToken(LICENSE_PUBLIC_KEY, token, {
       productId: LICENSE_PRODUCT_ID,
       now: this.now(),
@@ -578,21 +570,25 @@ export class LicenseManager {
       return { ok: false, failure: { kind: 'untrusted-token', reason: verification.error } }
     }
 
-    // Only activate() gets this far while the latch is on — every other path
-    // reads its credential through usableCode() / usableSecret(), which return
-    // nothing — so a new token here is always the user deliberately asking for
-    // the seat back.
+    // Only activate() gets this far while the latch is on, since every other
+    // path reads its credential through usableCode() / usableSecret(). So a new
+    // token here is always the user deliberately asking for the seat back.
     this.rejectedCode = undefined
     this.deps.store.clearSeatReleased()
-    this.deps.store.saveToken(
+    this.deps.store.saveToken({
       token,
       expiresAt,
       license,
-      this.now(),
+      now: this.now(),
       // Absent from a server that has not rolled rotation out; the stored one
       // then stays, which is what keeps this release working against both.
-      ...(typeof refreshSecret === 'string' && refreshSecret.length > 0 ? [refreshSecret] : []),
-    )
+      ...(typeof refreshSecret === 'string' && refreshSecret.length > 0 ? { refreshSecret } : {}),
+      ...(typeof secretGeneration === 'number' ? { secretGeneration } : {}),
+      // An activation outranks whatever the record holds: it is the user's
+      // deliberate act, and it may legitimately reset the count by rebuilding
+      // the seat. A renewal takes its turn by generation instead.
+      authoritative: credentials.code !== undefined,
+    })
     this.setState({ status: 'active', token: verification.token, license })
 
     return { ok: true, state: this.state }
@@ -614,15 +610,14 @@ export class LicenseManager {
     }
 
     if (failure.code === 'stale_secret') {
-      // Another machine presenting this device id renewed first, or the seat was
-      // released while we were away. Either way the server has answered, so this
-      // is not the offline case an unexpired token is allowed to ride out.
+      // Another machine renewed first, or the seat was released while we were
+      // away. Either way the server has answered, so this is not the offline
+      // case an unexpired token may ride out. (A sibling vault of this install
+      // looks identical from here; requestToken rules that out before now.)
       //
-      // Latched like a release rather than merely cleared: the code still sits
-      // in the synced data.json, and without the latch the next sync would spend
-      // it re-taking the seat — starting the tug-of-war over from this side and
-      // burning one of the license's resets each lap. Only the user entering the
-      // code again lifts it, which is the deliberate act that should cost one.
+      // Latched rather than merely cleared: without it the next sync would
+      // spend the still-synced code re-taking the seat, burning one of the
+      // license's resets each lap. Only the user re-entering it lifts the latch.
       this.deps.log?.('warn', '[License] Refresh secret is no longer current')
       this.deps.store.markSeatReleased(this.now())
       this.setState({ status: 'unlicensed' })
@@ -636,11 +631,9 @@ export class LicenseManager {
     }
 
     if (failure.code === 'invalid_code' || failure.code === 'malformed_code') {
-      // The stored code is not a license at all; the token cannot be renewed.
-      // Remembered so the periodic sync stops asking: a revoked or suspended
-      // license may be reinstated, but a string that is not a code never
-      // becomes one, and every settings visit would otherwise spend a request
-      // re-learning that.
+      // The stored code is not a license at all. Remembered so the periodic
+      // sync stops asking: a revoked license may be reinstated, but a string
+      // that is not a code never becomes one.
       if (code !== undefined) this.rejectedCode = code
       this.deps.store.clearToken()
       this.setState({ status: 'unlicensed' })

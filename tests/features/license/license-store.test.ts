@@ -4,6 +4,7 @@ import {
   LICENSE_DEVICE_STATE_STORAGE_KEY,
   LicenseStore,
   type LicenseStorageBridge,
+  type SaveTokenInput,
 } from '../../../src/features/license/services/LicenseStore'
 
 function createBridge(initial?: unknown): LicenseStorageBridge & { store: Map<string, unknown> } {
@@ -19,7 +20,7 @@ function createBridge(initial?: unknown): LicenseStorageBridge & { store: Map<st
   }
 }
 
-const SUMMARY = { license_id: 'L1', max_devices: 3, devices_used: 1, expires_at: null }
+const SUMMARY = { max_devices: 3, devices_used: 1, expires_at: null }
 
 /**
  * A freshly minted id is a v4 UUID. Ids already stored by older versions keep
@@ -60,7 +61,12 @@ describe('LicenseStore', () => {
 
   test('saves and reloads a token', () => {
     const bridge = createBridge()
-    new LicenseStore(bridge).saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+    new LicenseStore(bridge).saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+    })
 
     const reloaded = new LicenseStore(bridge).getState()
     expect(reloaded.token).toBe('TCPT1.a.b')
@@ -93,7 +99,7 @@ describe('LicenseStore', () => {
       deviceId: 'DEVICE-00000001',
       token: 123,
       expiresAt: 'soon',
-      license: { license_id: 'L1' },
+      license: { max_devices: 'three' },
     })
 
     const state = new LicenseStore(bridge).getState()
@@ -105,13 +111,13 @@ describe('LicenseStore', () => {
   describe('refresh secret', () => {
     test('round-trips beside the token', () => {
       const bridge = createBridge()
-      new LicenseStore(bridge).saveToken(
-        'TCPT1.a.b',
-        1787604800,
-        SUMMARY,
-        1787000000,
-        'generation-1',
-      )
+      new LicenseStore(bridge).saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1787604800,
+        license: SUMMARY,
+        now: 1787000000,
+        refreshSecret: 'generation-1',
+      })
 
       expect(new LicenseStore(bridge).getState().refreshSecret).toBe('generation-1')
     })
@@ -120,9 +126,15 @@ describe('LicenseStore', () => {
       // A server that has not rolled rotation out yet. Dropping the secret would
       // force a code re-entry for no reason.
       const store = new LicenseStore(createBridge())
-      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+      store.saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1,
+        license: SUMMARY,
+        now: 1787000000,
+        refreshSecret: 'generation-1',
+      })
 
-      store.saveToken('TCPT1.c.d', 2, SUMMARY, 1787000001)
+      store.saveToken({ token: 'TCPT1.c.d', expiresAt: 2, license: SUMMARY, now: 1787000001 })
 
       expect(store.getState().refreshSecret).toBe('generation-1')
     })
@@ -131,7 +143,13 @@ describe('LicenseStore', () => {
       // It is what lets this machine renew unattended, so a device that has just
       // been told it is unlicensed must not keep one.
       const store = new LicenseStore(createBridge())
-      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+      store.saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1,
+        license: SUMMARY,
+        now: 1787000000,
+        refreshSecret: 'generation-1',
+      })
 
       store.clearToken()
 
@@ -140,7 +158,13 @@ describe('LicenseStore', () => {
 
     test('goes away when the seat is released', () => {
       const store = new LicenseStore(createBridge())
-      store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000, 'generation-1')
+      store.saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1,
+        license: SUMMARY,
+        now: 1787000000,
+        refreshSecret: 'generation-1',
+      })
 
       store.markSeatReleased(1787100000)
 
@@ -154,11 +178,121 @@ describe('LicenseStore', () => {
     })
   })
 
+  /**
+   * Two vaults can spend the same generation inside the server's grace window
+   * and both succeed. The response that lands second is not necessarily the one
+   * the server kept, so the record follows the highest generation rather than
+   * the last write.
+   */
+  describe('secret generation', () => {
+    function issue(generation: number, extra: Partial<SaveTokenInput> = {}): SaveTokenInput {
+      return {
+        token: `token-${generation}`,
+        expiresAt: 1787604800,
+        license: SUMMARY,
+        now: 1787000000,
+        refreshSecret: `secret-${generation}`,
+        secretGeneration: generation,
+        ...extra,
+      }
+    }
+
+    test('keeps the highest generation whatever order the responses arrive in', () => {
+      const store = new LicenseStore(createBridge())
+      store.saveToken(issue(3))
+
+      store.saveToken(issue(2))
+
+      expect(store.getState().secretGeneration).toBe(3)
+      expect(store.getState().refreshSecret).toBe('secret-3')
+      expect(store.getState().token).toBe('token-3')
+    })
+
+    test('ignores the same generation arriving twice', () => {
+      const store = new LicenseStore(createBridge())
+      store.saveToken(issue(2))
+
+      store.saveToken(issue(2, { token: 'later' }))
+
+      expect(store.getState().token).toBe('token-2')
+    })
+
+    test('an activation applies even when its generation is lower', () => {
+      // The seat can be rebuilt from scratch, which starts the count again.
+      // Refusing that as "older" would leave the machine holding a secret the
+      // server has already thrown away.
+      const store = new LicenseStore(createBridge())
+      store.saveToken(issue(5))
+
+      store.saveToken(issue(1, { authoritative: true }))
+
+      expect(store.getState().secretGeneration).toBe(1)
+      expect(store.getState().refreshSecret).toBe('secret-1')
+    })
+
+    test('applies a response from a server that sends no generation', () => {
+      const store = new LicenseStore(createBridge())
+      store.saveToken(issue(3))
+
+      store.saveToken({
+        token: 'no-generation',
+        expiresAt: 1787604801,
+        license: SUMMARY,
+        now: 1787000001,
+        refreshSecret: 'plain',
+      })
+
+      expect(store.getState().token).toBe('no-generation')
+      expect(store.getState().refreshSecret).toBe('plain')
+    })
+
+    test('re-asserts its write when an older one lands on top', () => {
+      // The read-modify-write is not atomic, so a sibling vault can interleave
+      // and leave an older record last. Every writer checking after itself is
+      // what makes them converge on the same maximum.
+      const bridge = createBridge({ deviceId: 'DEVICE-00000001' })
+      const store = new LicenseStore(bridge)
+      const save = bridge.saveLocalStorage
+      let interfered = false
+
+      bridge.saveLocalStorage = (key: string, value: unknown) => {
+        save?.(key, value)
+        if (interfered) return
+
+        // The sibling's older write lands right on top of ours, once.
+        interfered = true
+        bridge.store.set(key, {
+          deviceId: 'DEVICE-00000001',
+          refreshSecret: 'secret-1',
+          secretGeneration: 1,
+        })
+      }
+
+      store.saveToken(issue(3))
+
+      expect(bridge.store.get(LICENSE_DEVICE_STATE_STORAGE_KEY)).toMatchObject({
+        secretGeneration: 3,
+        refreshSecret: 'secret-3',
+      })
+    })
+
+    test('ignores a stored value with the wrong type', () => {
+      const bridge = createBridge({ deviceId: 'DEVICE-00000001', secretGeneration: 'two' })
+
+      expect(new LicenseStore(bridge).getState().secretGeneration).toBeUndefined()
+    })
+  })
+
   test('clearToken keeps the device id so re-activation reuses the seat', () => {
     const bridge = createBridge()
     const store = new LicenseStore(bridge)
     const deviceId = store.getDeviceId()
-    store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+    store.saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+    })
 
     store.clearToken()
 
@@ -172,7 +306,12 @@ describe('LicenseStore', () => {
       const bridge = createBridge()
       const store = new LicenseStore(bridge)
       const deviceId = store.getDeviceId()
-      store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+      store.saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1787604800,
+        license: SUMMARY,
+        now: 1787000000,
+      })
 
       store.markSeatReleased(1787100000)
 
@@ -221,7 +360,12 @@ describe('LicenseStore', () => {
     }
 
     const store = new LicenseStore(bridge)
-    expect(() => store.saveToken('TCPT1.a.b', 1, SUMMARY, 1787000000)).not.toThrow()
+    expect(() => store.saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1,
+      license: SUMMARY,
+      now: 1787000000,
+    })).not.toThrow()
     expect(store.getDeviceId()).toMatch(UUID_V4)
   })
 
@@ -236,7 +380,12 @@ describe('LicenseStore', () => {
     test('flags a clock wound back past the tolerance', () => {
       const lastServerTime = 1_787_000_000
       const store = new LicenseStore(createBridge())
-      store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, lastServerTime)
+      store.saveToken({
+        token: 'TCPT1.a.b',
+        expiresAt: 1787604800,
+        license: SUMMARY,
+        now: lastServerTime,
+      })
 
       expect(store.isClockRolledBack(lastServerTime - TOLERANCE - 1, TOLERANCE)).toBe(true)
       expect(store.isClockRolledBack(lastServerTime - TOLERANCE + 1, TOLERANCE)).toBe(false)
@@ -246,13 +395,115 @@ describe('LicenseStore', () => {
 
     test('never lets the last known server time move backwards', () => {
       const store = new LicenseStore(createBridge())
-      store.saveToken('TCPT1.a.b', 1, SUMMARY, 2_000_000_000)
+      store.saveToken({ token: 'TCPT1.a.b', expiresAt: 1, license: SUMMARY, now: 2_000_000_000 })
 
       // A device whose clock is now wrong must not erase the earlier evidence.
-      store.saveToken('TCPT1.c.d', 2, SUMMARY, 1_000_000_000)
+      store.saveToken({ token: 'TCPT1.c.d', expiresAt: 2, license: SUMMARY, now: 1_000_000_000 })
 
       expect(store.getState().lastServerTimeSec).toBe(2_000_000_000)
     })
+  })
+})
+
+/**
+ * Two vaults open on one machine are two LicenseStore instances over one shared
+ * record. Nothing may be cached between them: a value read at launch is stale
+ * the moment the other vault renews, and writing it back would restore a
+ * refresh secret the server has already replaced.
+ */
+describe('LicenseStore with a sibling vault', () => {
+  test('reads the generation a sibling rotated to', () => {
+    const bridge = createBridge({ deviceId: 'DEVICE-00000001' })
+    const vaultA = new LicenseStore(bridge)
+    const vaultB = new LicenseStore(bridge)
+
+    vaultA.saveToken({
+      token: 'TCPT1.new',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+      refreshSecret: 'generation-2',
+    })
+
+    expect(vaultB.getState().refreshSecret).toBe('generation-2')
+    expect(vaultB.getState().expiresAt).toBe(1787604800)
+  })
+
+  test('a sibling write does not restore the secret it was holding', () => {
+    // Vault B was launched while the machine was latched, so its view says
+    // "released". The user then re-activates from vault A. B's next write must
+    // build on the record, not on what it read at launch — otherwise it drops
+    // the token A just bought and the machine is stranded on stale_secret.
+    const bridge = createBridge({ deviceId: 'DEVICE-00000001', seatReleasedAt: 1787000000 })
+    const vaultB = new LicenseStore(bridge)
+    const vaultA = new LicenseStore(bridge)
+
+    vaultA.saveToken({
+      token: 'TCPT1.new',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787100000,
+      refreshSecret: 'generation-2',
+    })
+    vaultA.clearSeatReleased()
+
+    vaultB.clearSeatReleased()
+
+    expect(vaultB.getState().token).toBe('TCPT1.new')
+    expect(vaultB.getState().refreshSecret).toBe('generation-2')
+  })
+
+  test('a sibling release takes the whole machine with it', () => {
+    // The inverse, and correct: one install holds one seat, so a release seen
+    // by either vault applies to both.
+    const bridge = createBridge({ deviceId: 'DEVICE-00000001' })
+    const vaultA = new LicenseStore(bridge)
+    const vaultB = new LicenseStore(bridge)
+    vaultA.saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+      refreshSecret: 'generation-1',
+    })
+
+    vaultB.markSeatReleased(1787100000)
+
+    expect(vaultA.isSeatReleased()).toBe(true)
+    expect(vaultA.getState().refreshSecret).toBeUndefined()
+  })
+
+  test('both vaults settle on one device id when neither found one', () => {
+    // The launch race on a fresh install: both read an empty record, both mint
+    // an id, and the second write wins. The first vault has to fall in behind
+    // it rather than keep presenting the id it minted, or the install holds two
+    // seats forever. Re-emptying the bridge is what makes A's read racy here.
+    const bridge = createBridge()
+    const vaultA = new LicenseStore(bridge)
+    bridge.store.clear()
+    const vaultB = new LicenseStore(bridge)
+
+    expect(vaultA.getDeviceId()).toBe(vaultB.getDeviceId())
+  })
+
+  test('keeps presenting its id when the record is wiped mid-session', () => {
+    // Storage cleared underneath a running vault. Minting a fresh id here would
+    // claim a second seat; the one this session has been presenting is the only
+    // safe answer.
+    const bridge = createBridge()
+    const store = new LicenseStore(bridge)
+    const deviceId = store.getDeviceId()
+
+    bridge.store.clear()
+
+    expect(store.getDeviceId()).toBe(deviceId)
+    store.saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+    })
+    expect(bridge.store.get(LICENSE_DEVICE_STATE_STORAGE_KEY)).toMatchObject({ deviceId })
   })
 })
 
@@ -330,7 +581,12 @@ describe('LicenseStore migration from the vault-scoped store', () => {
     const legacy = createBridge({ deviceId: 'DEVICE-LEGACY01' })
     const store = new LicenseStore(createBridge(), legacy)
 
-    store.saveToken('TCPT1.a.b', 1787604800, SUMMARY, 1787000000)
+    store.saveToken({
+      token: 'TCPT1.a.b',
+      expiresAt: 1787604800,
+      license: SUMMARY,
+      now: 1787000000,
+    })
 
     expect(legacy.store.get(LICENSE_DEVICE_STATE_STORAGE_KEY)).toEqual({
       deviceId: 'DEVICE-LEGACY01',

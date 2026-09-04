@@ -5,11 +5,9 @@
  * vault changes the device id, leaving the old device holding a seat forever
  * (SPEC 11-3).
  *
- * One renderer serves both entry points. The API answers a 409
- * device_limit_reached with a `details.devices` array in exactly the shape of
- * the list endpoint, so an activation failure can seed the same view with the
- * devices it already carries — no second request, and the list appears in the
- * same beat as the error that sent the user there.
+ * One renderer serves both entry points: a 409 device_limit_reached carries
+ * `details.devices` in exactly the shape of the list endpoint, so an activation
+ * failure seeds the same view without a second request.
  */
 import { Notice } from 'obsidian'
 
@@ -26,10 +24,9 @@ export interface DeviceListViewOptions {
   initialDevices?: DeviceView[]
   initialMaxDevices?: number
   /**
-   * The activation code to act with, for a list shown before the code is
-   * stored. Activation stores the code only on success, so the 409 that sends
-   * the user here leaves nothing behind and a release would have no code to
-   * send. Omit when the license is already active: the stored code is used.
+   * The activation code to act with, for a list shown before the code is stored.
+   * Activation stores it only on success, so the 409 that sends the user here
+   * leaves nothing behind. Omit when active: the stored code is used.
    */
   code?: string
   /** Called after a successful release, so callers can refresh their own UI. */
@@ -126,11 +123,9 @@ export class DeviceListView {
   }
 
   /**
-   * Stop touching the DOM. The settings tab rebuilds its whole container on
-   * every display(), so an in-flight request must not write into the old tree.
-   *
-   * The tree this view owns goes with it: a host that is reused across renders
-   * would otherwise accumulate one dead list per pass.
+   * Stop touching the DOM. The settings tab rebuilds its container on every
+   * display(), so an in-flight request must not write into the old tree, and
+   * the tree this view owns goes with it rather than accumulating per pass.
    */
   dispose(): void {
     this.disposed = true
@@ -140,11 +135,8 @@ export class DeviceListView {
 
   /**
    * Re-ask the server for both halves of what this screen shows: whether this
-   * device is still licensed, and which seats the license holds.
-   *
-   * One request covers both — the manager coalesces the seat list it fetches to
-   * answer the first question with the one this list needs — so the two can
-   * never come back disagreeing with each other.
+   * device is still licensed, and which seats the license holds. The manager
+   * coalesces them into one request, so they cannot come back disagreeing.
    */
   private async refresh(): Promise<void> {
     if (this.refreshing || this.busyDeviceId !== undefined) return

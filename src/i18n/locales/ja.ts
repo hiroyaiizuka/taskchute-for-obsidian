@@ -80,7 +80,6 @@ export const ja = {
       statusName: "状態",
       statusActive: "有効",
       statusInactive: "未アクティベート",
-      licenseIdName: "ライセンスID",
       signOutName: "この端末のライセンスを解除",
       signOutDesc:
         "この保管庫にはライセンスコードが保存されていないため、ここから端末を管理できません。解除するとコードを入力し直せます。この端末の枠はそのまま残るので、同じコードを入れ直しても台数は増えません。",
