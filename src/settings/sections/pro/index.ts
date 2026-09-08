@@ -2,11 +2,9 @@ import type { SettingDefinitionItem } from "obsidian"
 import { t } from "../../../i18n"
 import { syncAiTaskManagerToLicense } from "../../../features/ai-task/licenseGate"
 import {
-  ProUnlockState,
   isProLicenseActive,
   isProSectionSupported,
-  isProSectionVisible,
-} from "../../proUnlockState"
+} from "../../proSection"
 import type { AiTaskToggleGuard } from "../../services/aiTaskLifecycle"
 import { notifyAiTaskSettingsChanged } from "../../services/viewNotifications"
 import type { SectionContext, SectionModule } from "../../types"
@@ -37,7 +35,6 @@ async function applyLicenseChange(ctx: SectionContext): Promise<void> {
  * settings while remaining reachable from search.
  */
 export function proSection(
-  unlock: ProUnlockState,
   form: LicenseActivationState,
   guard: AiTaskToggleGuard,
 ): SectionModule {
@@ -45,7 +42,7 @@ export function proSection(
 
   return {
     items: (ctx) => {
-      // Not merely hidden behind the page's `visible` predicate: a page's
+      // Dropped from the definitions entirely rather than hidden: a page's
       // contents still reach the settings search, and there is nothing here
       // for a platform that cannot run what the license unlocks.
       if (!isProSectionSupported()) return []
@@ -77,7 +74,6 @@ export function proSection(
         {
           type: "page",
           name: t("settings.pro.heading", "Pro settings"),
-          visible: () => isProSectionVisible(ctx, unlock),
           displayValue: () =>
             isProLicenseActive(ctx)
               ? t("settings.license.statusActive", "Active")

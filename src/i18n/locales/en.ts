@@ -17,7 +17,6 @@ export const en = {
     heading: "TaskChute file paths",
     version: {
       name: "Version",
-      proUnlocked: "Pro settings are now visible.",
     },
     storage: {
       baseLocationName: "Default storage location",
