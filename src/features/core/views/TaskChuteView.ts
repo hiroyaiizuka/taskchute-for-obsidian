@@ -103,6 +103,7 @@ import type {
 export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view'
 
 const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
+const terminalFallbackNotified = new WeakSet<object>()
 
 export interface AmbientAiTaskRunResult {
   satisfiedPaths: string[]
@@ -920,6 +921,9 @@ export class TaskChuteView
             cols: size.cols,
             rows: size.rows,
           })
+      if (mode === 'terminal' && record.mode === 'headless') {
+        this.notifyTerminalFallback(manager)
+      }
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
       return record
@@ -1926,6 +1930,19 @@ export class TaskChuteView
     await Promise.all(recoveries)
   }
 
+  /** Once per manager: terminal mode fell back to conversation (Windows). */
+  private notifyTerminalFallback(manager: AiTaskManager): void {
+    const reason = manager.getTerminalUnavailableReason?.()
+    if (reason === undefined || terminalFallbackNotified.has(manager)) return
+    terminalFallbackNotified.add(manager)
+    new Notice(
+      `${this.tv(
+        "aiTask.notices.terminalFallback",
+        "The embedded terminal is not available on this computer, so the AI run uses conversation mode.",
+      )}\n(${reason})`,
+    )
+  }
+
   private notifyAiRunError(error: unknown): void {
     if (error instanceof AiBinaryNotFoundError) {
       new Notice(
@@ -1976,7 +1993,10 @@ export class TaskChuteView
     this.aiRunPaneController = new AiRunPaneController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       manager,
-      createTerminalAdapter: () => createTerminalViewAdapter(),
+      createTerminalAdapter: () =>
+        createTerminalViewAdapter({
+          windowsPty: manager.getTerminalWindowsPty?.(),
+        }),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
       onInterruptedTaskRun: () => {

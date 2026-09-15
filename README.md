@@ -120,7 +120,7 @@ The task row then shows a run button; while a run is active it becomes a stop co
 
 - **Terminal (interactive)** — the default experience described above. In terminal mode the `## Prompt` section is optional: without one, the CLI simply opens as a plain interactive session.
 - **Headless (parsed events)** — the previous behavior, selectable via `TaskChute settings` → `AI task` → `Run mode`: the CLI runs non-interactively, parsed stream events render as text in the pane, and a composer bar sends resume-based follow-up prompts. Headless runs require a `## Prompt` section.
-- **Windows** currently has no terminal support and always runs headless, regardless of the setting.
+- **Windows** runs terminal mode inside a Windows pseudo console (ConPTY) hosted by the built-in Windows PowerShell, so nothing extra has to be installed. It needs Windows 10 version 1809 or later. The first terminal run checks that the pseudo console works on the machine; where it cannot (an older build, or PowerShell locked down by policy), runs use headless mode instead and a notice says why. On Windows the pane does not offer plain shell sessions, and a terminal session ends when the CLI exits.
 
 Task-note frontmatter is read-only for this feature: the plugin never edits your task notes.
 

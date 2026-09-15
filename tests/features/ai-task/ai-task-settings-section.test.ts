@@ -185,9 +185,10 @@ describe('TaskChute AI task settings section', () => {
    * the stored value is left alone so moving the vault to a Mac restores it.
    */
   test('replaces the run mode choice with a note where no pseudoterminal exists', () => {
+    // A desktop OS that is neither macOS, Linux, nor Windows.
     Platform.isMacOS = false
     Platform.isLinux = false
-    Platform.isWin = true
+    Platform.isWin = false
 
     const { tab, plugin } = createTab()
     plugin.settings.aiTaskRunMode = 'terminal'
@@ -201,6 +202,20 @@ describe('TaskChute AI task settings section', () => {
     expect(row?.desc).toContain('Conversation mode')
     // Left untouched: the choice survives a move to a supported platform.
     expect(plugin.settings.aiTaskRunMode).toBe('terminal')
+  })
+
+  test('offers the run mode choice on Windows and explains the conversation fallback', () => {
+    Platform.isMacOS = false
+    Platform.isLinux = false
+    Platform.isWin = true
+
+    const { tab } = createTab()
+
+    const items = tab.getSettingDefinitions()
+    expect(findByKey(items, 'aiTaskRunMode')?.control.type).toBe('dropdown')
+    const row = findByName(items, 'Run mode')
+    expect(row?.desc).toContain('Windows 10 1809')
+    expect(row?.desc).toContain('conversation mode')
   })
 
   /**

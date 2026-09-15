@@ -691,4 +691,88 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     expect(FitAddonStub.instances[0].fitCount).toBe(1)
     expect(TerminalStub.instances).toHaveLength(1)
   })
+
+  describe('Windows pseudo console sessions', () => {
+    function keyEvent(
+      init: KeyboardEventInit & { type?: string },
+    ): KeyboardEvent {
+      return new KeyboardEvent(init.type ?? 'keydown', { cancelable: true, ...init })
+    }
+
+    function recordingTerminal(): RecordingTerminal & {
+      customKeyEventHandler: ((event: KeyboardEvent) => boolean) | null
+      selectionText: string
+      clearSelectionCount: number
+    } {
+      return lastTerminal() as ReturnType<typeof recordingTerminal>
+    }
+
+    test('sessions outside ConPTY get neither windowsPty nor the clipboard keys', () => {
+      createTerminalViewAdapter().open(document.body.createDiv(), 80, 24)
+
+      const terminal = recordingTerminal()
+      expect(terminal.options).not.toHaveProperty('windowsPty')
+      expect(terminal.customKeyEventHandler).toBeNull()
+    })
+
+    test('hands xterm the ConPTY build so wrapping matches the pseudo console', () => {
+      createTerminalViewAdapter({
+        windowsPty: { backend: 'conpty', buildNumber: 22631 },
+      }).open(document.body.createDiv(), 80, 24)
+
+      expect(recordingTerminal().options.windowsPty).toEqual({
+        backend: 'conpty',
+        buildNumber: 22631,
+      })
+    })
+
+    test('Ctrl+V is left to the browser paste instead of sending ^V', () => {
+      createTerminalViewAdapter({ windowsPty: { backend: 'conpty' } }).open(
+        document.body.createDiv(),
+        80,
+        24,
+      )
+      const handler = recordingTerminal().customKeyEventHandler
+      if (!handler) throw new Error('no key handler attached')
+
+      const paste = keyEvent({ key: 'v', code: 'KeyV', ctrlKey: true })
+      expect(handler(paste)).toBe(false)
+      expect(paste.defaultPrevented).toBe(false)
+      expect(handler(keyEvent({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true }))).toBe(false)
+      expect(handler(keyEvent({ key: 'a', code: 'KeyA', ctrlKey: true }))).toBe(true)
+      expect(handler(keyEvent({ key: 'Enter', code: 'Enter' }))).toBe(true)
+    })
+
+    test('Ctrl+C interrupts without a selection and copies with one', async () => {
+      const writeText = jest.fn(async () => undefined)
+      Object.defineProperty(window.navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      })
+      try {
+        createTerminalViewAdapter({ windowsPty: { backend: 'conpty' } }).open(
+          document.body.createDiv(),
+          80,
+          24,
+        )
+        const terminal = recordingTerminal()
+        const handler = terminal.customKeyEventHandler
+        if (!handler) throw new Error('no key handler attached')
+
+        expect(handler(keyEvent({ key: 'c', code: 'KeyC', ctrlKey: true }))).toBe(true)
+        expect(writeText).not.toHaveBeenCalled()
+
+        terminal.selectionText = 'selected output'
+        const copy = keyEvent({ key: 'c', code: 'KeyC', ctrlKey: true })
+        expect(handler(copy)).toBe(false)
+
+        expect(copy.defaultPrevented).toBe(true)
+        expect(writeText).toHaveBeenCalledWith('selected output')
+        expect(terminal.clearSelectionCount).toBe(1)
+        expect(handler(keyEvent({ key: 'c', code: 'KeyC', ctrlKey: true }))).toBe(true)
+      } finally {
+        Reflect.deleteProperty(window.navigator, 'clipboard')
+      }
+    })
+  })
 })

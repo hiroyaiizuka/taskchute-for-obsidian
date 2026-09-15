@@ -20,6 +20,10 @@ import type {
 } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type { AiRunExitOutcome } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
 import {
+  encodeConPtyInputFrame,
+  encodeConPtyResizeFrame,
+} from '../../../../src/features/ai-task/services/windows/ConPtyControlFrames'
+import {
   FIXTURES_DIR,
   createRecordingGraceTimer,
   createSpyGateway,
@@ -642,4 +646,122 @@ describe('TerminalDispatcher live relay (real gateway, passthrough PTY)', () => 
 
     expect(outcome.status).toBe('stopped')
   }, 20_000)
+})
+
+describe('TerminalDispatcher over the ConPTY transport', () => {
+  function startConPtyRun(request: Partial<TerminalRunRequest> = {}) {
+    const gateway = createSpyGateway()
+    gateway.getPtyTransport = () => 'conpty'
+    gateway.ptyMock.mockImplementation(() => ({
+      command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      args: ['-NoLogo', '-Command', 'loader'],
+      env: { TASKCHUTE_CONPTY_MODE: 'session', NO_COLOR: 'host-only' },
+    }))
+    const writeControl = jest.fn<void, [Uint8Array]>()
+    const writeStdin = jest.fn()
+    let stderrCb: (text: string) => void = () => undefined
+    let exitCb: (code: number | null, signal: string | null) => void = () => undefined
+    gateway.spawnMock.mockReturnValue({
+      pid: 5151,
+      onStdout: () => undefined,
+      onStderr: (callback) => {
+        stderrCb = callback
+      },
+      onExit: (callback) => {
+        exitCb = callback
+      },
+      kill: jest.fn(),
+      writeStdin,
+      writeControl,
+    })
+    const outcomes: AiRunExitOutcome[] = []
+    const dispatcher = new TerminalDispatcher(gateway, createRecordingGraceTimer())
+    const handle = dispatcher.start(
+      { ...BASE_REQUEST, ...request },
+      { onData: jest.fn(), onExit: (outcome) => outcomes.push(outcome) },
+    )
+    return {
+      gateway,
+      handle,
+      writeControl,
+      writeStdin,
+      outcomes,
+      emitStderr: (text: string) => stderrCb(text),
+      exit: (code: number | null, signal: string | null) => exitCb(code, signal),
+    }
+  }
+
+  test('launches the CLI directly even for shell-backed requests', () => {
+    const run = startConPtyRun({
+      binaryPath: 'C:\\nodejs\\node.exe',
+      binaryArgsPrefix: ['C:\\npm\\claude\\cli.js'],
+      launchInShell: true,
+    })
+
+    expect(run.gateway.ptyMock).toHaveBeenCalledWith({
+      binaryPath: 'C:\\nodejs\\node.exe',
+      args: [
+        'C:\\npm\\claude\\cli.js',
+        '--dangerously-skip-permissions',
+        '--',
+        'do the thing',
+      ],
+      rows: 30,
+      cols: 100,
+      transcriptPath: '/tmp/transcript.txt',
+    })
+  })
+
+  test('spawns the host with a control pipe, a closed stdin, and its env over the session env', () => {
+    const run = startConPtyRun()
+
+    const request = run.gateway.spawnMock.mock.calls[0][0]
+    expect(request.stdinMode).toBe('ignore')
+    expect(request.controlPipe).toBe(true)
+    expect(request.cwd).toBe('/work/dir')
+    expect(request.env).toMatchObject({
+      BASE_ENV_MARKER: 'yes',
+      TERM: 'xterm-256color',
+      TASKCHUTE_CONPTY_MODE: 'session',
+    })
+  })
+
+  test('frames keystrokes onto the control pipe instead of stdin', () => {
+    const run = startConPtyRun()
+
+    run.handle.write('/model\r')
+    run.handle.write('')
+
+    expect(run.writeStdin).not.toHaveBeenCalled()
+    expect(run.writeControl.mock.calls).toEqual([[encodeConPtyInputFrame('/model\r')]])
+  })
+
+  test('frames resizes onto the control pipe without touching the POSIX resize path', () => {
+    const run = startConPtyRun()
+
+    resizeOf(run.handle)(132, 41)
+    resizeOf(run.handle)(0, 41)
+
+    expect(run.gateway.resizePtyMock).not.toHaveBeenCalled()
+    expect(run.writeControl.mock.calls).toEqual([[encodeConPtyResizeFrame(132, 41)]])
+  })
+
+  test('drops input and resizes after the host exits', () => {
+    const run = startConPtyRun()
+
+    run.exit(0, null)
+    run.handle.write('late')
+    resizeOf(run.handle)(90, 20)
+
+    expect(run.writeControl).not.toHaveBeenCalled()
+  })
+
+  test("reads the CLI's exit code from the host's sentinel", () => {
+    const run = startConPtyRun()
+
+    run.emitStderr('__TASKCHUTE_AI_EXIT__3221225786\n')
+    run.exit(0, null)
+
+    expect(run.outcomes[0]).toMatchObject({ status: 'failed', exitCode: 3221225786 })
+  })
 })

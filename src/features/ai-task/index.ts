@@ -164,8 +164,12 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     createAiTaskTerminalRendererLeaseIdentity(
       rendererLeaseGenerationStore,
     )
+  // The broker relies on POSIX process groups; ConPTY sessions stay renderer-owned.
+  const conpty = gateway.getPtyTransport() === 'conpty'
+  const windowsBuildNumber = gateway.getWindowsBuildNumber()
+  let loggedTerminalUnavailable = false
   const terminalDispatcher: AiTerminalDispatcher =
-    gateway.isPtySupported() && brokerIdentity !== undefined
+    !conpty && gateway.isPtySupported() && brokerIdentity !== undefined
       ? new BrokerTerminalDispatcher(
           gateway,
           new TerminalSessionBrokerClient({
@@ -187,6 +191,24 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     terminal: {
       dispatcher: terminalDispatcher,
       isSupported: () => gateway.isPtySupported(),
+      ensureSupported: async () => {
+        await gateway.ensurePtyCapability()
+        const reason = gateway.getPtyUnavailableReason()
+        if (reason !== undefined && !loggedTerminalUnavailable) {
+          loggedTerminalUnavailable = true
+          log('warn', '[AiTask] Terminal mode unavailable; using conversation mode', reason)
+        }
+      },
+      getUnavailableReason: () => gateway.getPtyUnavailableReason(),
+      shellSessionsSupported: !conpty,
+      ...(conpty
+        ? {
+            windowsPty: {
+              backend: 'conpty' as const,
+              ...(windowsBuildNumber === null ? {} : { buildNumber: windowsBuildNumber }),
+            },
+          }
+        : {}),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
       // Plain shell sessions (U2 split panels) spawn the user's login shell.
@@ -198,8 +220,7 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       getRecipeFolderPath: () => recipeService.getRecipeFolderPath(),
       loadRecipe: (path) => recipeService.loadRecipe(path),
     }),
-    // Terminal is the default experience. Without a bundled Windows ConPTY
-    // native runtime, win32 uses the cross-platform conversation pipeline.
+    // Terminal is the default everywhere; resolveRunMode falls back where it cannot run.
     getRunMode: (): AiRunMode =>
       plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
     sessionState,

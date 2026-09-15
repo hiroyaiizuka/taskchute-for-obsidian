@@ -2,9 +2,8 @@
  * AI Task - PTY platform predicate
  *
  * The single place that answers "can this OS host an embedded terminal?".
- * Terminal mode wraps the CLI in the POSIX `script(1)` utility to obtain a
- * real tty; Windows ships no equivalent an external command can drive, so
- * runs there always fall back to the conversation pipeline.
+ * macOS/Linux use `script(1)`, Windows the ConPTY host; whether a Windows
+ * machine can actually run it is decided by NodeProcessGateway's probe.
  *
  * Deliberately a standalone module with no imports: NodeProcessGateway owns
  * the runtime behaviour but pulls in Node builtins, while the settings tab
@@ -16,7 +15,7 @@
 import { Platform } from 'obsidian'
 
 export function isPtyPlatformSupported(platform: string): boolean {
-  return platform === 'darwin' || platform === 'linux'
+  return platform === 'darwin' || platform === 'linux' || platform === 'win32'
 }
 
 /**
@@ -26,5 +25,9 @@ export function isPtyPlatformSupported(platform: string): boolean {
  */
 export function isTerminalModeSupportedHere(): boolean {
   if (!Platform.isDesktop) return false
-  return Platform.isMacOS === true || Platform.isLinux === true
+  return (
+    Platform.isMacOS === true ||
+    Platform.isLinux === true ||
+    Platform.isWin === true
+  )
 }

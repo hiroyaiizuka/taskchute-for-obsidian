@@ -1,6 +1,7 @@
 import { TFile } from 'obsidian'
 import {
   AiPromptNotFoundError,
+  AiShellUnavailableError,
   AiTaskManager,
   AiTerminalFollowUpError,
   TERMINAL_DATA_BUFFER_LIMIT,
@@ -466,6 +467,106 @@ describe('AiTaskManager terminal mode routing', () => {
 
     expect(record.mode).toBe('headless')
     expect(record.instanceId).toBe('inst-7')
+  })
+})
+
+/** Windows settles terminal support asynchronously (the ConPTY probe). */
+describe('AiTaskManager runtime terminal capability', () => {
+  function terminalDepsOf(
+    harness: ReturnType<typeof createTerminalHarness>,
+  ): NonNullable<AiTaskManagerDeps['terminal']> {
+    const terminal = harness.deps.terminal
+    if (!terminal) throw new Error('harness has no terminal deps')
+    return terminal
+  }
+
+  test('waits for the capability check before choosing terminal mode', async () => {
+    const harness = createTerminalHarness({ runMode: 'terminal' })
+    let supported = false
+    harness.isSupported.mockImplementation(() => supported)
+    const ensureSupported = jest.fn(async () => {
+      supported = true
+    })
+    terminalDepsOf(harness).ensureSupported = ensureSupported
+
+    const record = await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
+
+    expect(ensureSupported).toHaveBeenCalledTimes(1)
+    expect(record.mode).toBe('terminal')
+    expect(harness.terminal.runs).toHaveLength(1)
+  })
+
+  test('falls back to conversation mode and exposes why when the check fails', async () => {
+    const harness = createTerminalHarness({ runMode: 'terminal', supported: false })
+    const terminal = terminalDepsOf(harness)
+    terminal.ensureSupported = jest.fn(async () => undefined)
+    terminal.getUnavailableReason = () => 'the ConPTY probe exited with code 65'
+
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.mode).toBe('headless')
+    expect(harness.headless.runs).toHaveLength(1)
+    expect(harness.manager.getTerminalUnavailableReason()).toBe(
+      'the ConPTY probe exited with code 65',
+    )
+  })
+
+  test('reports no unavailable reason while terminals work', () => {
+    const harness = createTerminalHarness({ supported: true })
+    terminalDepsOf(harness).getUnavailableReason = () => 'stale reason'
+
+    expect(harness.manager.getTerminalUnavailableReason()).toBeUndefined()
+  })
+
+  test('headless requests never pay for the capability check', async () => {
+    const harness = createTerminalHarness({ runMode: 'headless' })
+    const ensureSupported = jest.fn(async () => undefined)
+    terminalDepsOf(harness).ensureSupported = ensureSupported
+
+    await harness.manager.startRun(makeTaskFile())
+
+    expect(ensureSupported).not.toHaveBeenCalled()
+  })
+
+  test('a throwing capability check still starts the run in conversation mode', async () => {
+    const harness = createTerminalHarness({ runMode: 'terminal', supported: false })
+    terminalDepsOf(harness).ensureSupported = jest.fn(async () => {
+      throw new Error('probe crashed')
+    })
+
+    const record = await harness.manager.startRun(makeTaskFile())
+
+    expect(record.mode).toBe('headless')
+  })
+
+  test('keeps shell sessions unavailable where terminals host AI runs only', () => {
+    const harness = createTerminalHarness({ supported: true })
+    const terminal = terminalDepsOf(harness)
+    terminal.getShellPath = () => 'C:\\Windows\\System32\\cmd.exe'
+    terminal.shellSessionsSupported = false
+
+    expect(harness.manager.supportsShellSessions()).toBe(false)
+    expect(() => harness.manager.startShellSession()).toThrow(AiShellUnavailableError)
+    expect(harness.terminal.runs).toHaveLength(0)
+  })
+
+  test('offers shell sessions where the terminal can host a login shell', () => {
+    const harness = createTerminalHarness({ supported: true })
+    terminalDepsOf(harness).getShellPath = () => '/bin/zsh'
+
+    expect(harness.manager.supportsShellSessions()).toBe(true)
+  })
+
+  test("exposes the terminal's windowsPty hint for the xterm view", () => {
+    const harness = createTerminalHarness()
+    expect(harness.manager.getTerminalWindowsPty()).toBeUndefined()
+
+    terminalDepsOf(harness).windowsPty = { backend: 'conpty', buildNumber: 22631 }
+
+    expect(harness.manager.getTerminalWindowsPty()).toEqual({
+      backend: 'conpty',
+      buildNumber: 22631,
+    })
   })
 })
 

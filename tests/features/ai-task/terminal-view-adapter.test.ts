@@ -11,7 +11,10 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { createTerminalViewAdapter } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+import {
+  createTerminalViewAdapter,
+  resolveWindowsClipboardKey,
+} from '../../../src/features/ai-task/ui/TerminalViewAdapter'
 
 const repoRoot = join(__dirname, '..', '..', '..')
 
@@ -133,5 +136,28 @@ describe('TerminalViewAdapter module', () => {
     adapter.dispose()
     // dispose is idempotent
     adapter.dispose()
+  })
+})
+
+describe('resolveWindowsClipboardKey', () => {
+  const base = { type: 'keydown', key: '', code: '', ctrlKey: false, altKey: false, metaKey: false }
+
+  test('maps Ctrl+V to paste, with or without Shift, on any keyboard layout', () => {
+    expect(resolveWindowsClipboardKey({ ...base, key: 'v', code: 'KeyV', ctrlKey: true }, false)).toBe('paste')
+    expect(resolveWindowsClipboardKey({ ...base, key: 'V', code: 'KeyV', ctrlKey: true }, false)).toBe('paste')
+    expect(resolveWindowsClipboardKey({ ...base, key: 'м', code: 'KeyV', ctrlKey: true }, false)).toBe('paste')
+  })
+
+  test('maps Ctrl+C to copy only while text is selected', () => {
+    const ctrlC = { ...base, key: 'c', code: 'KeyC', ctrlKey: true }
+    expect(resolveWindowsClipboardKey(ctrlC, true)).toBe('copy')
+    expect(resolveWindowsClipboardKey(ctrlC, false)).toBeNull()
+  })
+
+  test('leaves every other combination to xterm', () => {
+    expect(resolveWindowsClipboardKey({ ...base, key: 'v', code: 'KeyV' }, true)).toBeNull()
+    expect(resolveWindowsClipboardKey({ ...base, key: 'v', code: 'KeyV', ctrlKey: true, altKey: true }, false)).toBeNull()
+    expect(resolveWindowsClipboardKey({ ...base, key: 'c', code: 'KeyC', ctrlKey: true, metaKey: true }, true)).toBeNull()
+    expect(resolveWindowsClipboardKey({ ...base, key: 'x', code: 'KeyX', ctrlKey: true }, true)).toBeNull()
   })
 })

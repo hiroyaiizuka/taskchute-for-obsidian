@@ -101,7 +101,7 @@ export const ja = {
         "AI CLI（Claude Code / Codex）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。",
       runModeName: "実行モード",
       runModeDesc:
-        "ターミナルは対話型CLIをそのまま埋め込みます。会話モードは解析済みイベントを流し、フォローアップ入力を受け付けます。",
+        "ターミナルは対話型CLIをそのまま埋め込みます。会話モードは解析済みイベントを流し、フォローアップ入力を受け付けます。Windowsのターミナルには Windows 10 1809 以降と PowerShell が必要で、利用できない環境では会話モードで実行します。",
       runModeFixedDesc:
         "会話モードで実行します。このプラットフォームには本プラグインから扱える疑似端末がないため、対話型CLIを埋め込む代わりに、解析済みイベントの表示とフォローアップ入力で動作します。",
       runModeTerminal: "ターミナル（対話型）",
@@ -357,6 +357,7 @@ export const ja = {
         sessionUnavailable: "この実行には再開できるセッションがありません。",
         splitTooNarrow: "ペインの幅が狭すぎるため分割できません。",
         shellUnavailable: "このプラットフォームではターミナルセッションを利用できません。",
+        terminalFallback: "このコンピューターでは埋め込みターミナルを利用できないため、会話モードでAIを実行します。",
         shellStartFailed: "ターミナルセッションの起動に失敗しました: {message}",
         fileOpenFailed: "ファイルを開くか保存できませんでした: {message}",
       },
