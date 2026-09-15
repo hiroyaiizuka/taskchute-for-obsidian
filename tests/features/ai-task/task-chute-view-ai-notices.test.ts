@@ -262,6 +262,35 @@ describe('TaskChuteView AI run notices', () => {
     expect(noticeMessages()).toEqual([])
     expect(view.renderTaskList).toHaveBeenCalled()
   })
+
+  test('announces a terminal-to-conversation fallback once, with the reason', async () => {
+    const { manager, internals } = setUp()
+    Object.assign(manager, {
+      getTerminalUnavailableReason: () => 'the ConPTY probe exited with code 65',
+    })
+    manager.startRun.mockResolvedValue(makeRecord({ mode: 'headless' }))
+
+    await internals.startAiRun(makeInstance())
+    await internals.startAiRun(makeInstance())
+
+    const messages = noticeMessages()
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('conversation mode')
+    expect(messages[0]).toContain('the ConPTY probe exited with code 65')
+    expect(manager.startRun).toHaveBeenCalledTimes(2)
+  })
+
+  test('stays quiet when the run started in the terminal it asked for', async () => {
+    const { manager, internals } = setUp()
+    Object.assign(manager, {
+      getTerminalUnavailableReason: () => 'stale reason',
+    })
+    manager.startRun.mockResolvedValueOnce(makeRecord({ mode: 'terminal' }))
+
+    await internals.startAiRun(makeInstance())
+
+    expect(noticeMessages()).toEqual([])
+  })
 })
 
 describe('TaskChuteView AI pane lifecycle on settings changes', () => {

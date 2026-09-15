@@ -23,6 +23,17 @@ import { Platform } from 'obsidian'
 import { stableTimeoutSource } from '../../../utils/stableTimer'
 import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
 import { isPtyPlatformSupported } from './ptyPlatform'
+import { encodeConPtyInputFrame } from './windows/ConPtyControlFrames'
+import {
+  buildConPtyHostEnv,
+  CONPTY_HOST_POWERSHELL_ARGS,
+  CONPTY_PROBE_INPUT,
+  CONPTY_PROBE_OK_MARKER,
+  getWindowsPowerShellPath,
+  MIN_CONPTY_WINDOWS_BUILD,
+  parseWindowsBuildNumber,
+} from './windows/ConPtyHostSource'
+import { buildWindowsCommandLine } from './windows/WindowsCommandLine'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -56,6 +67,8 @@ export interface SpawnProcessRequest {
   cwd?: string
   env?: Record<string, string | undefined>
   stdinMode?: StdinMode
+  /** Open stdio 3 and expose writeControl (the ConPTY host's input channel). */
+  controlPipe?: boolean
 }
 
 export interface ProcessLaunchError {
@@ -77,6 +90,8 @@ export interface SpawnedProcessHandle {
    * spawned with stdinMode 'pipe'; a safe no-op once the child has exited.
    */
   writeStdin?(data: string): void
+  /** Present ONLY with controlPipe; a safe no-op once the child has exited. */
+  writeControl?(data: Uint8Array): void
 }
 
 export interface ExecCaptureResult {
@@ -100,7 +115,15 @@ export interface PtyCommandRequest {
 export interface PtyCommand {
   command: string
   args: string[]
+  /** Wrapper env layered over the session env. */
+  env?: Record<string, string>
 }
+
+/** `script`: keys on stdin. `conpty`: keys and resizes as frames on stdio 3. */
+export type PtyTransport = 'script' | 'conpty'
+
+/** Includes PowerShell's Add-Type compile. */
+export const CONPTY_PROBE_TIMEOUT_MS = 30_000
 
 /** Thrown by buildPtyCommand on platforms without a `script` PTY wrapper */
 export class TerminalUnsupportedError extends Error {
@@ -156,12 +179,18 @@ export interface ProcessGateway {
    * a failed capture preserves the last successful value.
    */
   refreshLoginShellPath?(): Promise<void>
-  /** Whether buildPtyCommand can produce a PTY wrapper on this platform */
+  /** On Windows, false until ensurePtyCapability() has proven ConPTY. */
   isPtySupported(): boolean
+  /** Runs the Windows ConPTY probe once; a no-op elsewhere. Never rejects. */
+  ensurePtyCapability?(): Promise<void>
+  getPtyUnavailableReason?(): string | undefined
+  /** Absent means `script`. */
+  getPtyTransport?(): PtyTransport
+  getWindowsBuildNumber?(): number | null
   /**
-   * Wrap a binary invocation in the OS `script` utility so the child gets a
-   * real TTY (interactive TUIs render and accept input). Throws a typed
-   * TerminalUnsupportedError where no wrapper exists (win32).
+   * Wrap a binary invocation so the child gets a real TTY (interactive TUIs
+   * render and accept input): `script` on macOS/Linux, the ConPTY host on
+   * Windows. Throws a typed TerminalUnsupportedError where no wrapper exists.
    */
   buildPtyCommand(request: PtyCommandRequest): PtyCommand
   /** Best-effort resize of a live `script` PTY; false while its tty is unavailable */
@@ -180,7 +209,7 @@ interface NodeReadableLike {
 }
 
 interface NodeWritableLike {
-  write(data: string): boolean
+  write(data: string | Uint8Array): boolean
   on(event: 'error', listener: (error: unknown) => void): void
 }
 
@@ -189,6 +218,7 @@ interface NodeChildProcessLike {
   stdin: NodeWritableLike | null
   stdout: NodeReadableLike | null
   stderr: NodeReadableLike | null
+  stdio?: ReadonlyArray<unknown>
   on(event: 'close', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'exit', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'error', listener: (error: unknown) => void): void
@@ -204,7 +234,7 @@ interface ChildProcessModuleLike {
       env?: Record<string, string | undefined>
       detached?: boolean
       windowsHide?: boolean
-      stdio?: ['ignore' | 'pipe', 'pipe', 'pipe']
+      stdio?: Array<'ignore' | 'pipe'>
     },
   ): NodeChildProcessLike
   execFileSync?(
@@ -220,6 +250,7 @@ interface ChildProcessModuleLike {
 
 interface OsModuleLike {
   tmpdir(): string
+  release(): string
 }
 
 interface FsModuleLike {
@@ -328,6 +359,15 @@ function decodeChunk(chunk: unknown): string {
     return (chunk as { toString(encoding: string): string }).toString('utf8')
   }
   return String(chunk)
+}
+
+function getControlStream(child: NodeChildProcessLike | null): NodeWritableLike | null {
+  const stream = child?.stdio?.[3]
+  if (stream === null || typeof stream !== 'object') return null
+  const candidate = stream as Partial<NodeWritableLike>
+  return typeof candidate.write === 'function' && typeof candidate.on === 'function'
+    ? (stream as NodeWritableLike)
+    : null
 }
 
 function toProcessLaunchError(error: unknown): ProcessLaunchError {
@@ -809,6 +849,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   private loginShellPathPrimed: Promise<void> | null = null
   private loginShellPathRefresh: Promise<void> | null = null
   private tempFileSequence = 0
+  /** The ConPTY probe runs once; its verdict is final for the session. */
+  private conPtyProbe: Promise<void> | null = null
+  private conPtyVerdict: { supported: boolean; reason?: string } | null = null
   /**
    * Only processes spawned directly by this renderer gateway are registered.
    * Broker-owned PTYs are spawned inside TerminalSessionBrokerSource and
@@ -971,7 +1014,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // keep it attached and use the Windows tree-stop path instead.
         detached: this.getPlatform() !== 'win32',
         windowsHide: true,
-        stdio: [stdinMode, 'pipe', 'pipe'],
+        stdio: request.controlPipe
+          ? [stdinMode, 'pipe', 'pipe', 'pipe']
+          : [stdinMode, 'pipe', 'pipe'],
       })
     } catch (error) {
       launchError = toProcessLaunchError(error)
@@ -1022,9 +1067,22 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // "write EPIPE" exception in the renderer, so swallow it here.
         child.stdin?.on('error', () => undefined)
       }
+      // Same async EPIPE race as stdin.
+      getControlStream(child)?.on('error', () => undefined)
     }
 
     const failedChild = child === null
+    const controlStream = request.controlPipe ? getControlStream(child) : null
+    const writeControl = request.controlPipe
+      ? (data: Uint8Array): void => {
+          if (controlStream === null || exited) return
+          try {
+            controlStream.write(data)
+          } catch {
+            // The pipe already closed; drop the frame.
+          }
+        }
+      : undefined
     const knownDescendantPids = new Map<number, string | null>()
     const writeStdin =
       stdinMode === 'pipe'
@@ -1041,6 +1099,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return {
       pid: child?.pid,
       writeStdin,
+      ...(writeControl === undefined ? {} : { writeControl }),
       onStdout: (callback) => {
         stdoutCallbacks.push(callback)
       },
@@ -1408,13 +1467,125 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   isPtySupported(): boolean {
-    return isPtyPlatformSupported(this.getPlatform())
+    const platform = this.getPlatform()
+    if (!isPtyPlatformSupported(platform)) return false
+    if (platform !== 'win32') return true
+    return this.conPtyVerdict?.supported === true
+  }
+
+  getPtyTransport(): PtyTransport {
+    return this.getPlatform() === 'win32' ? 'conpty' : 'script'
+  }
+
+  getWindowsBuildNumber(): number | null {
+    if (this.getPlatform() !== 'win32') return null
+    try {
+      return parseWindowsBuildNumber(loadOsModule().release())
+    } catch {
+      return null
+    }
+  }
+
+  ensurePtyCapability(): Promise<void> {
+    if (this.getPlatform() !== 'win32') return Promise.resolve()
+    this.conPtyProbe ??= this.probeConPty().then((verdict) => {
+      this.conPtyVerdict = verdict
+    })
+    return this.conPtyProbe
+  }
+
+  getPtyUnavailableReason(): string | undefined {
+    return this.conPtyVerdict?.supported === false
+      ? this.conPtyVerdict.reason
+      : undefined
+  }
+
+  /**
+   * Run the host in probe mode: checks the build, PowerShell language mode,
+   * Add-Type, the control pipe, and output relayed through a pseudo console.
+   */
+  private probeConPty(): Promise<{ supported: boolean; reason?: string }> {
+    const build = this.getWindowsBuildNumber()
+    if (build === null || build < MIN_CONPTY_WINDOWS_BUILD) {
+      return Promise.resolve({
+        supported: false,
+        reason: `Windows build ${build ?? 'unknown'} has no ConPTY (needs ${MIN_CONPTY_WINDOWS_BUILD} or later)`,
+      })
+    }
+    return new Promise((resolve) => {
+      let settled = false
+      let stdout = ''
+      let stderr = ''
+      const settle = (verdict: { supported: boolean; reason?: string }): void => {
+        if (settled) return
+        settled = true
+        resolve(verdict)
+      }
+      try {
+        const env = { ...this.getBaseEnv(), ...buildConPtyHostEnv({ probe: true }) }
+        const handle = this.spawnProcess({
+          command: getWindowsPowerShellPath(env),
+          args: [...CONPTY_HOST_POWERSHELL_ARGS],
+          env,
+          controlPipe: true,
+        })
+        const timerId = stableTimeoutSource.setTimeout(() => {
+          settle({ supported: false, reason: 'the ConPTY probe timed out' })
+          handle.kill('SIGKILL')
+        }, CONPTY_PROBE_TIMEOUT_MS)
+        handle.onStdout((text) => {
+          if (stdout.length < 4096) stdout += text
+        })
+        handle.onStderr((text) => {
+          if (stderr.length < 4096) stderr += text
+        })
+        handle.onExit((code) => {
+          stableTimeoutSource.clearTimeout(timerId)
+          if (code === 0 && stdout.includes(CONPTY_PROBE_OK_MARKER)) {
+            settle({ supported: true })
+            return
+          }
+          const detail = stderr.trim().split(/\r?\n/u)[0] ?? ''
+          settle({
+            supported: false,
+            reason:
+              `the ConPTY probe exited with code ${code ?? 'unknown'}` +
+              (detail.length > 0 ? `: ${detail}` : ''),
+          })
+        })
+        handle.writeControl?.(encodeConPtyInputFrame(CONPTY_PROBE_INPUT))
+      } catch (error) {
+        settle({
+          supported: false,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })
   }
 
   buildPtyCommand(request: PtyCommandRequest): PtyCommand {
     const rows = sanitizeDimension(request.rows, 24)
     const cols = sanitizeDimension(request.cols, 80)
     const platform = this.getPlatform()
+
+    if (platform === 'win32') {
+      // Batch files would need cmd.exe; BinaryLocator resolves shims to node.exe.
+      if (/\.(?:bat|cmd)$/iu.test(request.binaryPath)) {
+        throw new Error(
+          `Terminal mode cannot launch a batch file directly: ${request.binaryPath}`,
+        )
+      }
+      return {
+        command: getWindowsPowerShellPath(process.env),
+        args: [...CONPTY_HOST_POWERSHELL_ARGS],
+        env: buildConPtyHostEnv({
+          commandLine: buildWindowsCommandLine(request.binaryPath, request.args),
+          cols,
+          rows,
+          transcriptPath: request.transcriptPath,
+        }),
+      }
+    }
     const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
     const ptyPreamble =
       `tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; ${sttyPreamble}`

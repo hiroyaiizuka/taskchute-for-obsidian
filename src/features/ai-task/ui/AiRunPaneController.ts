@@ -166,6 +166,8 @@ export interface AiRunPaneManagerLike {
    * surface the shell-unavailable notice instead of spawning.
    */
   startShellSession?(options?: AiShellSessionOptions): AiRunRecord
+  /** False hides the split and + controls (Windows). Absent keeps them. */
+  supportsShellSessions?(): boolean
   /**
    * Single-provider registration used by the manager to read a terminal
    * run's live xterm buffer when its log note is composed at run exit; the
@@ -1091,28 +1093,35 @@ export class AiRunPaneController {
       }
     })
 
-    const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
-    const addButton = tabstrip.createEl('button', {
-      cls: 'ai-run-pane__add',
-      attr: { 'aria-label': addLabel, title: addLabel },
-    })
-    setIcon(addButton, 'plus')
-    addButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.handleNewShell(panel)
-    })
+    // Both controls only spawn shell sessions.
+    const shellSessionsSupported =
+      this.host.manager.supportsShellSessions?.() !== false
+    if (shellSessionsSupported) {
+      const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
+      const addButton = tabstrip.createEl('button', {
+        cls: 'ai-run-pane__add',
+        attr: { 'aria-label': addLabel, title: addLabel },
+      })
+      setIcon(addButton, 'plus')
+      addButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.handleNewShell(panel)
+      })
+    }
 
     const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
-    const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
-    const splitButton = actions.createEl('button', {
-      cls: 'ai-run-pane__split',
-      attr: { 'aria-label': splitLabel, title: splitLabel },
-    })
-    setIcon(splitButton, 'columns-2')
-    splitButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.handleSplit(panel)
-    })
+    if (shellSessionsSupported) {
+      const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
+      const splitButton = actions.createEl('button', {
+        cls: 'ai-run-pane__split',
+        attr: { 'aria-label': splitLabel, title: splitLabel },
+      })
+      setIcon(splitButton, 'columns-2')
+      splitButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.handleSplit(panel)
+      })
+    }
     panel.bodiesEl = el.createDiv({ cls: 'ai-run-pane__bodies' })
 
     const afterIndex = afterPanel ? this.panels.indexOf(afterPanel) : -1

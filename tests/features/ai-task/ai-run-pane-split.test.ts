@@ -258,6 +258,17 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('split button', () => {
+    test('draws neither split nor + where the manager cannot host shell sessions', () => {
+      Object.assign(manager, { supportsShellSessions: () => false })
+      controller.mount(container)
+      manager.emit(createRun())
+
+      expect(splitButton()).toBeNull()
+      expect(container.querySelector('.ai-run-pane__add')).toBeNull()
+      expect(container.querySelector('.ai-run-pane__expand')).not.toBeNull()
+      expect(container.querySelector('.ai-run-pane__actions')).not.toBeNull()
+    })
+
     test('keeps split local to the panel and expand global in the AI Runs header', () => {
       controller.mount(container)
       manager.emit(createRun())

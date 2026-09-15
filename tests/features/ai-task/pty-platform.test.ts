@@ -13,13 +13,13 @@ import {
 } from '../../../src/features/ai-task/services/ptyPlatform'
 
 describe('isPtyPlatformSupported', () => {
-  test('accepts the platforms that ship script(1)', () => {
+  test('accepts the platforms that ship script(1) or ConPTY', () => {
     expect(isPtyPlatformSupported('darwin')).toBe(true)
     expect(isPtyPlatformSupported('linux')).toBe(true)
+    expect(isPtyPlatformSupported('win32')).toBe(true)
   })
 
-  test('rejects Windows and anything unrecognized', () => {
-    expect(isPtyPlatformSupported('win32')).toBe(false)
+  test('rejects anything unrecognized', () => {
     expect(isPtyPlatformSupported('freebsd')).toBe(false)
     expect(isPtyPlatformSupported('')).toBe(false)
   })
@@ -30,12 +30,14 @@ describe('isTerminalModeSupportedHere', () => {
     isDesktop: Platform.isDesktop,
     isMacOS: Platform.isMacOS,
     isLinux: Platform.isLinux,
+    isWin: Platform.isWin,
   }
 
   afterEach(() => {
     Platform.isDesktop = original.isDesktop
     Platform.isMacOS = original.isMacOS
     Platform.isLinux = original.isLinux
+    Platform.isWin = original.isWin
   })
 
   test('agrees with the string predicate on every desktop platform', () => {
@@ -43,6 +45,7 @@ describe('isTerminalModeSupportedHere', () => {
 
     Platform.isMacOS = true
     Platform.isLinux = false
+    Platform.isWin = false
     expect(isTerminalModeSupportedHere()).toBe(isPtyPlatformSupported('darwin'))
 
     Platform.isMacOS = false
@@ -50,13 +53,18 @@ describe('isTerminalModeSupportedHere', () => {
     expect(isTerminalModeSupportedHere()).toBe(isPtyPlatformSupported('linux'))
 
     Platform.isLinux = false
+    Platform.isWin = true
     expect(isTerminalModeSupportedHere()).toBe(isPtyPlatformSupported('win32'))
+
+    Platform.isWin = false
+    expect(isTerminalModeSupportedHere()).toBe(isPtyPlatformSupported('freebsd'))
   })
 
   test('refuses mobile even when the OS family would qualify', () => {
     Platform.isDesktop = false
     Platform.isMacOS = true
     Platform.isLinux = false
+    Platform.isWin = false
     expect(isTerminalModeSupportedHere()).toBe(false)
   })
 })

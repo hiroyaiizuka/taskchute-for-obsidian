@@ -105,7 +105,7 @@ export const en = {
         "Run tasks with the Claude or Codex CLI inside the AI run pane (desktop only).",
       runModeName: "Run mode",
       runModeDesc:
-        "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead.",
+        "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead. On Windows the terminal needs Windows 10 1809 or later with PowerShell; where it cannot run, runs use conversation mode.",
       runModeFixedDesc:
         "Conversation mode. This platform has no pseudoterminal the plugin can drive, so runs stream parsed events and take follow-up input instead of embedding the interactive CLI.",
       runModeTerminal: "Terminal (interactive)",
@@ -361,6 +361,8 @@ export const en = {
         sessionUnavailable: "This run has no session to resume.",
         splitTooNarrow: "The pane is too narrow to split.",
         shellUnavailable: "Terminal sessions are not available on this platform.",
+        terminalFallback:
+          "The embedded terminal is not available on this computer, so the AI run uses conversation mode.",
         shellStartFailed: "Failed to start terminal session: {message}",
         fileOpenFailed: "Could not open or save the file: {message}",
       },

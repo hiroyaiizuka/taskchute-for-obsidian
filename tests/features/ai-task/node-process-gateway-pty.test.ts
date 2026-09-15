@@ -2,12 +2,21 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import {
+  CONPTY_PROBE_TIMEOUT_MS,
   MAX_TRANSCRIPT_READ_BYTES,
   NodeProcessGateway,
   TERMINAL_EXIT_SENTINEL,
   TRANSCRIPT_TRUNCATED_MARKER,
   TerminalUnsupportedError,
+  type SpawnProcessRequest,
+  type SpawnedProcessHandle,
 } from '../../../src/features/ai-task/services/NodeProcessGateway'
+import { encodeConPtyInputFrame } from '../../../src/features/ai-task/services/windows/ConPtyControlFrames'
+import {
+  CONPTY_HOST_POWERSHELL_ARGS,
+  CONPTY_PROBE_INPUT,
+  CONPTY_PROBE_OK_MARKER,
+} from '../../../src/features/ai-task/services/windows/ConPtyHostSource'
 
 /** POSIX single-quote escaping, mirrored here from first principles */
 function posixQuote(value: string): string {
@@ -150,27 +159,220 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(fallback.args[1]).toContain('stty rows 24 cols 80')
   })
 
-  test('win32: throws a typed TerminalUnsupportedError', () => {
-    setPlatform('win32')
-    const gateway = new NodeProcessGateway()
+  test('win32: runs the ConPTY host with the session in its environment, never in PowerShell text', () => {
+    const gateway = new NodeProcessGateway(undefined, 'win32')
+
+    const command = gateway.buildPtyCommand({
+      ...BASE_REQUEST,
+      binaryPath: 'C:\\Program Files\\Claude\\claude.exe',
+      args: ['--flag', 'say "hi"; $(danger)'],
+    })
+
+    expect(command.command).toMatch(
+      /\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/,
+    )
+    expect(command.args).toEqual([...CONPTY_HOST_POWERSHELL_ARGS])
+    expect(command.env).toMatchObject({
+      TASKCHUTE_CONPTY_MODE: 'session',
+      TASKCHUTE_CONPTY_COMMAND_LINE:
+        '"C:\\Program Files\\Claude\\claude.exe" "--flag" "say \\"hi\\"; $(danger)"',
+      TASKCHUTE_CONPTY_COLS: '80',
+      TASKCHUTE_CONPTY_ROWS: '24',
+      TASKCHUTE_CONPTY_TRANSCRIPT: '/tmp/transcript.txt',
+    })
+    expect(command.env?.TASKCHUTE_CONPTY_HOST).toMatch(/^[A-Za-z0-9+/]+=*$/)
+    expect(command.args.join(' ')).not.toContain('claude.exe')
+    expect(command.args.join(' ')).not.toContain('danger')
+  })
+
+  test('win32: sanitizes the grid the host starts the pseudo console with', () => {
+    const gateway = new NodeProcessGateway(undefined, 'win32')
+
+    const command = gateway.buildPtyCommand({ ...BASE_REQUEST, rows: 30.9, cols: -5 })
+
+    expect(command.env?.TASKCHUTE_CONPTY_ROWS).toBe('30')
+    expect(command.env?.TASKCHUTE_CONPTY_COLS).toBe('80')
+  })
+
+  test('win32: refuses to hand a batch file to CreateProcess', () => {
+    const gateway = new NodeProcessGateway(undefined, 'win32')
+
+    expect(() =>
+      gateway.buildPtyCommand({ ...BASE_REQUEST, binaryPath: 'C:\\npm\\claude.CMD' }),
+    ).toThrow('batch file')
+  })
+
+  test('throws a typed TerminalUnsupportedError on a platform without a wrapper', () => {
+    const gateway = new NodeProcessGateway(undefined, 'freebsd')
 
     expect(() => gateway.buildPtyCommand(BASE_REQUEST)).toThrow(TerminalUnsupportedError)
   })
 })
 
+describe('NodeProcessGateway.getPtyTransport', () => {
+  test('is script on POSIX and conpty on Windows', () => {
+    expect(new NodeProcessGateway(undefined, 'darwin').getPtyTransport()).toBe('script')
+    expect(new NodeProcessGateway(undefined, 'linux').getPtyTransport()).toBe('script')
+    expect(new NodeProcessGateway(undefined, 'win32').getPtyTransport()).toBe('conpty')
+  })
+})
+
 describe('NodeProcessGateway.isPtySupported', () => {
-  test('is true on darwin and linux', () => {
+  test('is true on darwin and linux without a probe', async () => {
     const gateway = new NodeProcessGateway()
     setPlatform('darwin')
     expect(gateway.isPtySupported()).toBe(true)
     setPlatform('linux')
     expect(gateway.isPtySupported()).toBe(true)
+    const spawn = jest.spyOn(gateway, 'spawnProcess')
+    await gateway.ensurePtyCapability()
+    expect(spawn).not.toHaveBeenCalled()
   })
 
-  test('is false on win32', () => {
-    const gateway = new NodeProcessGateway()
-    setPlatform('win32')
+  test('is false on unrecognized platforms', () => {
+    expect(new NodeProcessGateway(undefined, 'freebsd').isPtySupported()).toBe(false)
+  })
+})
+
+describe('NodeProcessGateway ConPTY probe (win32)', () => {
+  interface FakeProbeProcess {
+    handle: SpawnedProcessHandle
+    controlWrites: Uint8Array[]
+    emitStdout(text: string): void
+    emitStderr(text: string): void
+    exit(code: number | null): void
+  }
+
+  function fakeProbeProcess(): FakeProbeProcess {
+    const stdout: Array<(text: string) => void> = []
+    const stderr: Array<(text: string) => void> = []
+    const exits: Array<(code: number | null, signal: string | null) => void> = []
+    const controlWrites: Uint8Array[] = []
+    return {
+      controlWrites,
+      handle: {
+        pid: 777,
+        onStdout: (callback) => stdout.push(callback),
+        onStderr: (callback) => stderr.push(callback),
+        onExit: (callback) => exits.push(callback),
+        kill: jest.fn(),
+        writeControl: (data) => controlWrites.push(data),
+      },
+      emitStdout: (text) => stdout.forEach((callback) => callback(text)),
+      emitStderr: (text) => stderr.forEach((callback) => callback(text)),
+      exit: (code) => exits.forEach((callback) => callback(code, null)),
+    }
+  }
+
+  function probeGateway(build: number | null): {
+    gateway: NodeProcessGateway
+    spawn: jest.SpyInstance
+    host: FakeProbeProcess
+  } {
+    const gateway = new NodeProcessGateway(undefined, 'win32')
+    jest.spyOn(gateway, 'getWindowsBuildNumber').mockReturnValue(build)
+    jest.spyOn(gateway, 'getBaseEnv').mockReturnValue({ SystemRoot: 'C:\\Windows' })
+    const host = fakeProbeProcess()
+    const spawn = jest.spyOn(gateway, 'spawnProcess').mockReturnValue(host.handle)
+    return { gateway, spawn, host }
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  test('stays unsupported before the probe has run', () => {
+    const { gateway, spawn } = probeGateway(22631)
+
     expect(gateway.isPtySupported()).toBe(false)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  test('becomes supported when the host relays the probe through a pseudo console', async () => {
+    const { gateway, spawn, host } = probeGateway(22631)
+
+    const settled = gateway.ensurePtyCapability()
+    host.emitStdout(`${CONPTY_PROBE_OK_MARKER}\n`)
+    host.exit(0)
+    await settled
+
+    expect(gateway.isPtySupported()).toBe(true)
+    expect(gateway.getPtyUnavailableReason()).toBeUndefined()
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const request = spawn.mock.calls[0][0] as SpawnProcessRequest
+    expect(request.command).toBe(
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    )
+    expect(request.args).toEqual([...CONPTY_HOST_POWERSHELL_ARGS])
+    expect(request.controlPipe).toBe(true)
+    expect(request.stdinMode).toBeUndefined()
+    expect(request.env?.TASKCHUTE_CONPTY_MODE).toBe('probe')
+    expect(host.controlWrites).toEqual([encodeConPtyInputFrame(CONPTY_PROBE_INPUT)])
+  })
+
+  test('probes once and reuses the verdict', async () => {
+    const { gateway, spawn, host } = probeGateway(22631)
+
+    const first = gateway.ensurePtyCapability()
+    const second = gateway.ensurePtyCapability()
+    host.emitStdout(CONPTY_PROBE_OK_MARKER)
+    host.exit(0)
+    await Promise.all([first, second])
+    await gateway.ensurePtyCapability()
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  test('stays unsupported with the host error when the probe fails', async () => {
+    const { gateway, host } = probeGateway(22631)
+
+    const settled = gateway.ensurePtyCapability()
+    host.emitStderr('TaskChute ConPTY host: the control pipe was not inherited\r\n__TASKCHUTE_AI_EXIT__70\n')
+    host.exit(70)
+    await settled
+
+    expect(gateway.isPtySupported()).toBe(false)
+    expect(gateway.getPtyUnavailableReason()).toBe(
+      'the ConPTY probe exited with code 70: TaskChute ConPTY host: the control pipe was not inherited',
+    )
+  })
+
+  test('a zero exit without the OK marker is not success', async () => {
+    const { gateway, host } = probeGateway(22631)
+
+    const settled = gateway.ensurePtyCapability()
+    host.emitStdout('TASKCHUTE_CONPTY_PROBE_OUTPUT\n')
+    host.exit(0)
+    await settled
+
+    expect(gateway.isPtySupported()).toBe(false)
+  })
+
+  test('skips the host entirely on a build without ConPTY', async () => {
+    const { gateway, spawn } = probeGateway(17134)
+
+    await gateway.ensurePtyCapability()
+
+    expect(spawn).not.toHaveBeenCalled()
+    expect(gateway.isPtySupported()).toBe(false)
+    expect(gateway.getPtyUnavailableReason()).toContain('17134')
+  })
+
+  test('gives up and kills the host when the probe hangs', async () => {
+    jest.useFakeTimers()
+    const { gateway, host } = probeGateway(22631)
+
+    const settled = gateway.ensurePtyCapability()
+    jest.advanceTimersByTime(CONPTY_PROBE_TIMEOUT_MS)
+    await settled
+
+    expect(host.handle.kill).toHaveBeenCalledWith('SIGKILL')
+    expect(gateway.isPtySupported()).toBe(false)
+    expect(gateway.getPtyUnavailableReason()).toContain('timed out')
+  })
+
+  test('reads the build number from the OS release only on Windows', () => {
+    expect(new NodeProcessGateway(undefined, 'darwin').getWindowsBuildNumber()).toBeNull()
   })
 })
 
@@ -301,6 +503,57 @@ describe('NodeProcessGateway stdin modes', () => {
 
     expect(exit.code).toBe(0)
     expect(stdout).toBe('got:ping')
+  }, 15_000)
+
+  test('default spawn exposes no control writer', async () => {
+    const gateway = new NodeProcessGateway()
+    const handle = gateway.spawnProcess({
+      command: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      env: gateway.getBaseEnv(),
+    })
+
+    expect(handle.writeControl).toBeUndefined()
+    await new Promise<void>((resolve) => {
+      handle.onExit(() => resolve())
+    })
+  }, 15_000)
+
+  test('controlPipe provides a writer whose bytes reach the child on descriptor 3', async () => {
+    const gateway = new NodeProcessGateway()
+    const childScript = [
+      "const net = require('net')",
+      'const control = new net.Socket({ fd: 3, readable: true, writable: false })',
+      'let buf = Buffer.alloc(0)',
+      "control.on('data', (d) => {",
+      '  buf = Buffer.concat([buf, d])',
+      '  if (buf.length >= 4) {',
+      "    process.stdout.write('got:' + buf.toString('hex'))",
+      '    process.exit(0)',
+      '  }',
+      '})',
+    ].join('\n')
+    const handle = gateway.spawnProcess({
+      command: process.execPath,
+      args: ['-e', childScript],
+      env: gateway.getBaseEnv(),
+      controlPipe: true,
+    })
+
+    let stdout = ''
+    handle.onStdout((text) => {
+      stdout += text
+    })
+    expect(typeof handle.writeControl).toBe('function')
+    handle.writeControl?.(Uint8Array.from([0x00, 0x01, 0xfe, 0xff]))
+
+    const exit = await new Promise<{ code: number | null }>((resolve) => {
+      handle.onExit((code) => resolve({ code }))
+    })
+
+    expect(exit.code).toBe(0)
+    expect(stdout).toBe('got:0001feff')
+    expect(() => handle.writeControl?.(Uint8Array.from([1]))).not.toThrow()
   }, 15_000)
 
   test('writeStdin after exit is a safe no-op', async () => {

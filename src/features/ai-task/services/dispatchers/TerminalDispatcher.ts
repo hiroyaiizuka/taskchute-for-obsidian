@@ -24,6 +24,9 @@
  * headless SIGTERM -> SIGKILL group-kill semantics for the wrapper pipeline;
  * the CLI itself sits in `script`'s own session and dies via the PTY SIGHUP
  * raised when the wrapper exits (see the gateway's spawn comment).
+ *
+ * Windows (`conpty` transport): no login shell, so the session ends with the
+ * CLI; keys and resizes go as frames on the control pipe.
  */
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
@@ -31,6 +34,10 @@ import { stableTimeoutSource } from '../../../../utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
 import type { ProcessLaunchError } from '../NodeProcessGateway'
 import { buildTerminalArgs } from '../TerminalArguments'
+import {
+  encodeConPtyInputFrame,
+  encodeConPtyResizeFrame,
+} from '../windows/ConPtyControlFrames'
 import { STOP_GRACE_MS } from './Dispatcher'
 import type { AiGraceTimer, AiRunExitOutcome } from './Dispatcher'
 import { buildTerminalShellLaunch } from './TerminalShellBootstrap'
@@ -175,10 +182,11 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
   ) {}
 
   start(request: TerminalRunRequest, callbacks: TerminalRunCallbacks): TerminalRunHandle {
+    const conpty = this.gateway.getPtyTransport?.() === 'conpty'
     const args = buildTerminalArgs(request.extraArgs, request.prompt)
     const binaryArgsPrefix = request.binaryArgsPrefix ?? []
     const executableArgs = [...binaryArgsPrefix, ...args]
-    const shellLaunch = request.launchInShell
+    const shellLaunch = request.launchInShell && !conpty
       ? buildTerminalShellLaunch(
           quoteCheckedShellPath(this.gateway.getShellPath()),
           request.binaryPath,
@@ -197,16 +205,29 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       transcriptPath: request.transcriptPath,
     })
 
-    const handle = this.gateway.spawnProcess({
-      command: ptyCommand.command,
-      args: ptyCommand.args,
-      cwd: request.cwd,
-      env: buildTerminalEnv({
-        ...this.gateway.getBaseEnv(),
-        ...(request.envPatch ?? {}),
-      }),
-      stdinMode: 'pipe',
+    const terminalEnv = buildTerminalEnv({
+      ...this.gateway.getBaseEnv(),
+      ...(request.envPatch ?? {}),
     })
+    const handle = this.gateway.spawnProcess(
+      conpty
+        ? {
+            command: ptyCommand.command,
+            args: ptyCommand.args,
+            cwd: request.cwd,
+            env: { ...terminalEnv, ...(ptyCommand.env ?? {}) },
+            // PowerShell may consume a redirected stdin.
+            stdinMode: 'ignore',
+            controlPipe: true,
+          }
+        : {
+            command: ptyCommand.command,
+            args: ptyCommand.args,
+            cwd: request.cwd,
+            env: terminalEnv,
+            stdinMode: 'pipe',
+          },
+    )
 
     let stopRequested = false
     let exited = false
@@ -281,10 +302,19 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       pid: handle.pid,
       write: (data) => {
         if (exited) return
+        if (conpty) {
+          if (data.length > 0) handle.writeControl?.(encodeConPtyInputFrame(data))
+          return
+        }
         handle.writeStdin?.(data)
       },
       resize: (cols, rows) => {
         if (exited) return
+        if (conpty) {
+          const frame = encodeConPtyResizeFrame(cols, rows)
+          if (frame !== null) handle.writeControl?.(frame)
+          return
+        }
         const normalizedCols = normalizeResizeDimension(cols)
         const normalizedRows = normalizeResizeDimension(rows)
         if (normalizedCols === null || normalizedRows === null) return

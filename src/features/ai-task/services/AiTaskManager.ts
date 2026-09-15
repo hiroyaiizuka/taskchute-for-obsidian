@@ -190,8 +190,8 @@ export class AiTerminalFollowUpError extends Error {
 
 /**
  * Thrown by startShellSession when plain shell sessions cannot run here:
- * terminal capabilities are absent, the platform has no PTY wrapper
- * (win32), or the deps expose no shell path.
+ * terminal capabilities are absent, the terminal hosts AI runs only
+ * (Windows ConPTY), or the deps expose no shell path.
  */
 export class AiShellUnavailableError extends Error {
   constructor() {
@@ -247,11 +247,17 @@ export interface AiTaskManagerDeps {
   }
   /**
    * Terminal-mode capabilities. When absent (or isSupported() is false,
-   * e.g. win32) every run is forced to headless mode.
+   * e.g. Windows without a working ConPTY) every run is forced to headless.
    */
   terminal?: {
     dispatcher: AiTerminalDispatcher
     isSupported(): boolean
+    /** Settles isSupported() (the Windows ConPTY probe). Never rejects. */
+    ensureSupported?(): Promise<void>
+    getUnavailableReason?(): string | undefined
+    /** False on Windows, where ConPTY hosts AI runs only. Absent = true. */
+    shellSessionsSupported?: boolean
+    windowsPty?: { backend: 'conpty'; buildNumber?: number }
     /** Gateway helper: unique transcript path in the OS temp directory */
     makeTempFilePath(prefix: string): string
     /** Gateway helper: consume the transcript file at run end */
@@ -653,7 +659,8 @@ export class AiTaskManager {
    * `options.mode` (or the settings accessor) picks between an interactive
    * terminal (PTY) session and the headless stream-json pipeline; terminal
    * mode degrades to the conversation/headless pipeline where no PTY wrapper
-   * exists (currently win32); follow-up input remains available there.
+   * can run (e.g. a failed Windows ConPTY probe); follow-up input remains
+   * available there.
    * A missing or empty '## Prompt' section only rejects for headless runs —
    * a terminal session simply opens the CLI as a plain REPL (the user types
    * the prompt into the terminal).
@@ -774,6 +781,8 @@ export class AiTaskManager {
     if (!config) throw new AiTaskNotConfiguredError(taskPath)
 
     const content = await this.deps.app.vault.cachedRead(file)
+    this.throwIfDisposed()
+    await this.ensureTerminalSupportSettled(requestedMode)
     this.throwIfDisposed()
     const mode = this.resolveRunMode(requestedMode)
     const extractedPrompt = extractPromptSection(content, cache?.headings)
@@ -1126,6 +1135,27 @@ export class AiTaskManager {
     }
   }
 
+  /** Whether startShellSession can run here (drives the pane's split and +). */
+  supportsShellSessions(): boolean {
+    const terminal = this.deps.terminal
+    return (
+      terminal !== undefined &&
+      terminal.shellSessionsSupported !== false &&
+      terminal.isSupported() &&
+      typeof terminal.getShellPath === 'function'
+    )
+  }
+
+  getTerminalWindowsPty(): { backend: 'conpty'; buildNumber?: number } | undefined {
+    return this.deps.terminal?.windowsPty
+  }
+
+  getTerminalUnavailableReason(): string | undefined {
+    const terminal = this.deps.terminal
+    if (!terminal || terminal.isSupported()) return undefined
+    return terminal.getUnavailableReason?.()
+  }
+
   /**
    * Start a plain login-shell terminal session (host 'shell'). Synchronous
    * by design — no note read and no binary resolution happen — so the split
@@ -1138,8 +1168,8 @@ export class AiTaskManager {
     this.throwIfDisposed()
     const terminal = this.deps.terminal
     if (
+      !this.supportsShellSessions() ||
       !terminal ||
-      !terminal.isSupported() ||
       typeof terminal.getShellPath !== 'function'
     ) {
       throw new AiShellUnavailableError()
@@ -2897,10 +2927,22 @@ export class AiTaskManager {
     }
   }
 
+  /** Waits for the Windows ConPTY probe before resolveRunMode; headless skips it. */
+  private async ensureTerminalSupportSettled(requested?: AiRunMode): Promise<void> {
+    const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'
+    const terminal = this.deps.terminal
+    if (mode !== 'terminal' || !terminal?.ensureSupported) return
+    try {
+      await terminal.ensureSupported()
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Terminal capability check failed', error)
+    }
+  }
+
   /**
    * Effective run mode: an explicit request wins over the settings accessor;
    * terminal degrades to the conversation/headless pipeline when the
-   * capability is missing or the platform lacks a PTY wrapper (win32).
+   * capability is missing or unproven (Windows without a working ConPTY).
    */
   private resolveRunMode(requested?: AiRunMode): AiRunMode {
     const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'

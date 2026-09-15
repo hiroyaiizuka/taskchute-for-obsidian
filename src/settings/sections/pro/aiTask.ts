@@ -155,13 +155,10 @@ function cliPathRow(
 /**
  * The run-mode row, or the note that replaces it.
  *
- * Terminal mode needs a pseudoterminal the plugin can drive through an
- * external command, which exists only on macOS and Linux; elsewhere
- * `resolveRunMode()` degrades every run to the conversation pipeline no matter
- * what this setting holds. Offering the choice there showed "Terminal
- * (interactive)" to Windows users whose runs were never going to be terminal
- * runs, so the row becomes a plain explanation instead. The stored value is
- * left untouched: carrying the vault to a Mac restores the original choice.
+ * Terminal mode needs a pseudoterminal the plugin can drive (macOS, Linux,
+ * Windows); elsewhere `resolveRunMode()` degrades every run to the
+ * conversation pipeline, so the row becomes a plain explanation instead. The
+ * stored value is left untouched so moving the vault restores the choice.
  */
 function runModeRow(): SettingDefinition<keyof TaskChuteSettings> {
   if (!isTerminalModeSupportedHere()) {
@@ -177,7 +174,7 @@ function runModeRow(): SettingDefinition<keyof TaskChuteSettings> {
     name: t("settings.aiTask.runModeName", "Run mode"),
     desc: t(
       "settings.aiTask.runModeDesc",
-      "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead.",
+      "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead. On Windows the terminal needs Windows 10 1809 or later with PowerShell; where it cannot run, runs use conversation mode.",
     ),
     control: {
       type: "dropdown",
