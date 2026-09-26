@@ -1,8 +1,8 @@
 import { Notice, TFile } from 'obsidian'
-import { TaskCreationService } from '../../src/features/core/services/TaskCreationService'
-import { readAiTaskConfig } from '../../src/features/ai-task/services/AiTaskFrontmatterReader'
-import { extractPromptSection } from '../../src/features/ai-task/services/PromptExtractor'
-import type { TaskChutePluginLike } from '../../src/types'
+import { TaskCreationService } from '@/features/core/services/TaskCreationService'
+import { readAiTaskConfig } from '@/features/ai-task/services/AiTaskFrontmatterReader'
+import { extractPromptSection } from '@/features/ai-task/services/PromptExtractor'
+import type { TaskChutePluginLike } from '@/types'
 import { parse as parseYaml } from 'yaml'
 
 jest.mock('obsidian', () => {

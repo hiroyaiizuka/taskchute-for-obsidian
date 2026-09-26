@@ -1,10 +1,10 @@
 import { Notice, TFile } from 'obsidian'
-import { t } from '../../../i18n'
-import type { TaskChutePluginLike } from '../../../types'
-import { TaskIdManager, extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
-import { getScheduledTime } from '../../../utils/fieldMigration'
-import { SectionConfigService } from '../../../services/SectionConfigService'
+import { t } from '@/i18n'
+import type { TaskChutePluginLike } from '@/types'
+import { TaskIdManager, extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
+import { getEffectiveDeletedAt } from '@/services/dayState/conflictResolver'
+import { getScheduledTime } from '@/utils/fieldMigration'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 export interface ReuseTaskAtDateOptions {
   slotKey?: string

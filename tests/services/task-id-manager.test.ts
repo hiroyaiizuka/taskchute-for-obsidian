@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
-import { TaskIdManager, TASK_ID_FRONTMATTER_KEY } from '../../src/services/TaskIdManager'
-import type { TaskChutePluginLike } from '../../src/types'
+import { TaskIdManager, TASK_ID_FRONTMATTER_KEY } from '@/services/TaskIdManager'
+import type { TaskChutePluginLike } from '@/types'
 
 describe('TaskIdManager', () => {
   const createFile = (path: string): TFile => {

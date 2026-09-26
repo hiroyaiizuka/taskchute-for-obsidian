@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { TaskData } from '../../src/types';
+import { TaskData } from '@/types';
 
 describe('TaskData reminder_time field', () => {
   describe('type definition', () => {

@@ -1,0 +1,6 @@
+# Revisions that only reformat or move code. `git blame` skips these with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub picks the file up automatically.
+
+# refactor: route internal imports through the @/ alias
+a086272bf6c281e21a11afb9508a9ced31fecf5c

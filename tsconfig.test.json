@@ -1,6 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // `paths` replaces the parent's map rather than merging into it, so `@/*`
+    // has to be repeated here alongside the tests-only alias.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@tests/*": ["./tests/*"]
+    },
     "types": ["jest", "node"],
     "noEmit": true,
     "esModuleInterop": true,

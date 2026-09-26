@@ -7,7 +7,7 @@
  * adapter degrades to `null` outside that capability boundary.
  */
 
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 
 // Electron is a runtime external in the Obsidian renderer. Keeping the loader
 // injectable makes Jest and future capability fallbacks deterministic.

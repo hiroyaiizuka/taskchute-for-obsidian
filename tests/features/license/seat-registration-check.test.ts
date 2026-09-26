@@ -6,17 +6,17 @@
  */
 import type { App } from 'obsidian'
 
-import { checkSeatRegistration } from '../../../src/features/license/ui/notifySeatReleased'
+import { checkSeatRegistration } from '@/features/license/ui/notifySeatReleased'
 import type {
   LicenseManager,
   LicenseState,
-} from '../../../src/features/license/services/LicenseManager'
+} from '@/features/license/services/LicenseManager'
 
-jest.mock('../../../src/ui/modals/ConfirmModal', () => ({
+jest.mock('@/ui/modals/ConfirmModal', () => ({
   showInfoModal: jest.fn(() => Promise.resolve()),
 }))
 
-const { showInfoModal } = require('../../../src/ui/modals/ConfirmModal') as {
+const { showInfoModal } = require('@/ui/modals/ConfirmModal') as {
   showInfoModal: jest.Mock
 }
 

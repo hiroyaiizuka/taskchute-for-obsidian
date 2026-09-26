@@ -1,8 +1,8 @@
 import { Notice } from 'obsidian'
-import TaskTimeController, { TaskTimeControllerHost } from '../../../src/ui/time/TaskTimeController'
-import type { TaskInstance } from '../../../src/types'
-import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
-import { SectionConfigService } from '../../../src/services/SectionConfigService'
+import TaskTimeController, { TaskTimeControllerHost } from '@/ui/time/TaskTimeController'
+import type { TaskInstance } from '@/types'
+import TimeEditPopup from '@/ui/time/TimeEditPopup'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -14,7 +14,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/ui/time/TimeEditPopup', () => {
+jest.mock('@/ui/time/TimeEditPopup', () => {
   const showMock = jest.fn()
   const ctor = jest.fn().mockImplementation(() => {
     return { show: showMock, close: jest.fn() }
@@ -26,7 +26,7 @@ jest.mock('../../../src/ui/time/TimeEditPopup', () => {
   }
 })
 
-jest.mock('../../../src/ui/modals/ScheduledTimeModal', () => {
+jest.mock('@/ui/modals/ScheduledTimeModal', () => {
   const ctor = jest.fn().mockImplementation((options) => {
     return {
       open: jest.fn(),
@@ -94,7 +94,7 @@ describe('Retrospective time entry', () => {
   beforeEach(() => {
     ;(Notice as unknown as jest.Mock).mockClear()
     ;(TimeEditPopup as unknown as jest.Mock).mockClear()
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     _showMock.mockClear()
   })
 
@@ -117,7 +117,7 @@ describe('Retrospective time entry', () => {
 
     controller.showStartTimePopup(inst, anchor)
 
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     expect(_showMock).toHaveBeenCalledTimes(1)
     const options = _showMock.mock.calls[0][0]
     expect(options.viewDate).toBeDefined()

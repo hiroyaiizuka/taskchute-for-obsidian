@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import {
   BROKER_TEST_TIMEOUT_MS,
   isAlive,

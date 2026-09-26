@@ -1,7 +1,7 @@
 /**
  * Tests for mergeOrders and mergeDuplicatedInstances extracted functions in conflictResolver.
  */
-import { mergeOrders, mergeDuplicatedInstances } from '../../src/services/dayState/conflictResolver'
+import { mergeOrders, mergeDuplicatedInstances } from '@/services/dayState/conflictResolver'
 
 describe('mergeOrders', () => {
   it('returns local orders when remote is empty', () => {

@@ -7,8 +7,8 @@
  */
 import type { App } from 'obsidian'
 
-import { t } from '../../../i18n'
-import { showInfoModal } from '../../../ui/modals/ConfirmModal'
+import { t } from '@/i18n'
+import { showInfoModal } from '@/ui/modals/ConfirmModal'
 import type { LicenseManager, LicenseState } from '../services/LicenseManager'
 
 export interface SeatCheckHost {

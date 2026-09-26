@@ -2,9 +2,9 @@ import { Notice, TFile } from 'obsidian'
 import TaskCreationController, {
   TaskCreationControllerHost,
   DeletedTaskRestoreCandidate,
-} from '../../../src/ui/task/TaskCreationController'
-import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
-import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
+} from '@/ui/task/TaskCreationController'
+import { TaskNameAutocomplete } from '@/ui/components/TaskNameAutocomplete'
+import type { TaskNameValidator, TaskChutePluginLike } from '@/types'
 import type { App } from 'obsidian'
 
 jest.mock('obsidian', () => {
@@ -16,7 +16,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/ui/components/TaskNameAutocomplete', () => ({
+jest.mock('@/ui/components/TaskNameAutocomplete', () => ({
   TaskNameAutocomplete: jest.fn().mockImplementation(() => ({
     initialize: jest.fn().mockResolvedValue(undefined),
     destroy: jest.fn(),

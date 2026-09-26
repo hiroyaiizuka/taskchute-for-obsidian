@@ -1,9 +1,9 @@
 import { Notice } from 'obsidian'
-import TaskTimeController, { TaskTimeControllerHost } from '../../../src/ui/time/TaskTimeController'
-import type { TaskInstance } from '../../../src/types'
-import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
-import ScheduledTimeModal from '../../../src/ui/modals/ScheduledTimeModal'
-import { SectionConfigService } from '../../../src/services/SectionConfigService'
+import TaskTimeController, { TaskTimeControllerHost } from '@/ui/time/TaskTimeController'
+import type { TaskInstance } from '@/types'
+import TimeEditPopup from '@/ui/time/TimeEditPopup'
+import ScheduledTimeModal from '@/ui/modals/ScheduledTimeModal'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -15,7 +15,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/ui/time/TimeEditPopup', () => {
+jest.mock('@/ui/time/TimeEditPopup', () => {
   const showMock = jest.fn()
   const ctor = jest.fn().mockImplementation(() => {
     return { show: showMock, close: jest.fn() }
@@ -27,7 +27,7 @@ jest.mock('../../../src/ui/time/TimeEditPopup', () => {
   }
 })
 
-jest.mock('../../../src/ui/modals/ScheduledTimeModal', () => {
+jest.mock('@/ui/modals/ScheduledTimeModal', () => {
   const ctor = jest.fn().mockImplementation((options) => {
     return {
       open: jest.fn(),
@@ -92,7 +92,7 @@ describe('TaskTimeController', () => {
   beforeEach(() => {
     ;(Notice as unknown as jest.Mock).mockClear()
     ;(TimeEditPopup as unknown as jest.Mock).mockClear()
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     _showMock.mockClear()
     ;(ScheduledTimeModal as unknown as jest.Mock).mockClear()
   })
@@ -157,7 +157,7 @@ describe('TaskTimeController', () => {
     controller.showStartTimePopup(instance, anchor)
 
     expect((TimeEditPopup as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     expect(_showMock).toHaveBeenCalledTimes(1)
     const options = _showMock.mock.calls[0][0]
     expect(options.anchor).toBe(anchor)
@@ -186,7 +186,7 @@ describe('TaskTimeController', () => {
 
       controller.showStartTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('10:00')
 
@@ -484,7 +484,7 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('10:00')
 
@@ -515,7 +515,7 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('09:00')
 
@@ -547,7 +547,7 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     const options = _showMock.mock.calls[0][0]
     options.onSave('09:00')
 
@@ -583,7 +583,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // 12:00 resolves to next-day (Oct 2 12:00), which is future at Oct 2 10:00
       options.onSave('12:00')
@@ -623,7 +623,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('09:00')
 
@@ -666,7 +666,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('01:00')
 
@@ -702,7 +702,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('11:00')
 
@@ -736,7 +736,7 @@ describe('TaskTimeController', () => {
 
     controller.showStopTimePopup(instance, anchor)
 
-    const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+    const { _showMock } = require('@/ui/time/TimeEditPopup')
     const showOptions = _showMock.mock.calls[0][0]
     // validationDate should be Oct 1 (startTime date), not Oct 2 (stopTime date)
     expect(showOptions.validationDate.getDate()).toBe(1)
@@ -772,7 +772,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // Edit stop to 22:30 — resolveStopTimeDate should auto-select same-day
       options.onSave('22:30')
@@ -821,7 +821,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       // Edit stop to 22:30 — both Oct 1 22:30 and Oct 2 22:30 are past
       options.onSave('22:30')
@@ -866,7 +866,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('22:30')
 
@@ -934,7 +934,7 @@ describe('TaskTimeController', () => {
 
       controller.showStopTimePopup(instance, anchor)
 
-      const { _showMock } = require('../../../src/ui/time/TimeEditPopup')
+      const { _showMock } = require('@/ui/time/TimeEditPopup')
       const options = _showMock.mock.calls[0][0]
       options.onSave('11:00')
 

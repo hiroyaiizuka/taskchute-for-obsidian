@@ -1,4 +1,4 @@
-import type { TaskInstance } from '../../types'
+import type { TaskInstance } from '@/types'
 
 export interface TaskSelectionControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

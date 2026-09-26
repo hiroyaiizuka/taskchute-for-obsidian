@@ -1,12 +1,12 @@
 import { App } from "obsidian"
-import { VIEW_TYPE_TASKCHUTE } from "../../types"
+import { VIEW_TYPE_TASKCHUTE } from "@/types"
 
 /**
  * The AI variant lives with the feature, because a background license refresh
  * has to send the same notification without going through the settings tab.
  * Re-exported so section modules keep a single import for view notifications.
  */
-export { notifyAiTaskSettingsChanged } from "../../features/ai-task/notifyAiTaskSettingsChanged"
+export { notifyAiTaskSettingsChanged } from "@/features/ai-task/notifyAiTaskSettingsChanged"
 
 /**
  * Settings changes that open TaskChute views have to react to.

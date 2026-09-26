@@ -2,10 +2,10 @@ import type { App } from 'obsidian'
 import { Notice, TFile } from 'obsidian'
 import RoutineController, {
   RoutineControllerHost,
-} from '../../../src/features/routine/controllers/RoutineController'
-import type { RoutineTaskShape } from '../../../src/types/routine'
-import type { TaskChutePluginLike } from '../../../src/types'
-import { initializeLocaleManager, setLocaleOverride, t } from '../../../src/i18n'
+} from '@/features/routine/controllers/RoutineController'
+import type { RoutineTaskShape } from '@/types/routine'
+import type { TaskChutePluginLike } from '@/types'
+import { initializeLocaleManager, setLocaleOverride, t } from '@/i18n'
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc

@@ -13,8 +13,8 @@
  */
 import TaskHeaderController, {
   TaskHeaderControllerHost,
-} from '../../../src/ui/header/TaskHeaderController'
-import type { AiTaskBoardView } from '../../../src/features/ai-task/types'
+} from '@/ui/header/TaskHeaderController'
+import type { AiTaskBoardView } from '@/features/ai-task/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -24,8 +24,8 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/i18n', () => {
-  const actual = jest.requireActual('../../../src/i18n')
+jest.mock('@/i18n', () => {
+  const actual = jest.requireActual('@/i18n')
   return {
     ...actual,
     getCurrentLocale: () => 'en',

@@ -2,7 +2,7 @@ import { Platform } from 'obsidian'
 import TaskHeaderController, {
   TaskHeaderControllerHost,
   TaskHeaderControllerDependencies,
-} from '../../../src/ui/header/TaskHeaderController'
+} from '@/ui/header/TaskHeaderController'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -12,8 +12,8 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/i18n', () => {
-  const actual = jest.requireActual('../../../src/i18n')
+jest.mock('@/i18n', () => {
+  const actual = jest.requireActual('@/i18n')
   return {
     ...actual,
     getCurrentLocale: () => 'en',

@@ -6,9 +6,9 @@
  */
 
 import { App, Modal } from 'obsidian';
-import { t } from '../../../i18n';
-import { createElCompat } from '../../../ui/components/domCompat';
-import { createModalFooter } from '../../../ui/components/modalFooter';
+import { t } from '@/i18n';
+import { createElCompat } from '@/ui/components/domCompat';
+import { createModalFooter } from '@/ui/components/modalFooter';
 
 export interface ReminderNotificationModalOptions {
   taskName: string;

@@ -1,8 +1,8 @@
 import { Modal, Notice, TFile } from 'obsidian'
-import { t } from '../../i18n'
+import { t } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
-import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
-import type { TaskInstance } from '../../types'
+import { getScheduledTime, setScheduledTime } from '@/utils/fieldMigration'
+import type { TaskInstance } from '@/types'
 
 export interface ScheduledTimeModalHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

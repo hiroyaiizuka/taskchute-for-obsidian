@@ -1,15 +1,15 @@
 import { App, Notice, TFile } from 'obsidian'
-import { t } from '../../../i18n'
-import { generateTaskId } from '../../../services/TaskIdManager'
-import type { AiTaskHost } from '../../ai-task/types'
+import { t } from '@/i18n'
+import { generateTaskId } from '@/services/TaskIdManager'
+import type { AiTaskHost } from '@/features/ai-task/types'
 import {
   EXACT_PROMPT_END_MARKER,
   EXACT_PROMPT_START_MARKER,
-} from '../../ai-task/services/PromptExtractor'
+} from '@/features/ai-task/services/PromptExtractor'
 import {
   TaskRecipeAssignmentService,
   createRecipeReferenceLink,
-} from '../../recipe/services/TaskRecipeAssignmentService'
+} from '@/features/recipe/services/TaskRecipeAssignmentService'
 
 interface PluginLike {
   app: App

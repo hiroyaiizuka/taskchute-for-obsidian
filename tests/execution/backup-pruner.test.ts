@@ -1,6 +1,6 @@
 import { TFile, TFolder } from 'obsidian'
-import type { TaskChutePluginLike } from '../../src/types'
-import { BackupPruner } from '../../src/features/log/services/BackupPruner'
+import type { TaskChutePluginLike } from '@/types'
+import { BackupPruner } from '@/features/log/services/BackupPruner'
 
 const DAY = 24 * 60 * 60 * 1000
 

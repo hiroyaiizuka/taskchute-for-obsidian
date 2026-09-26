@@ -1,7 +1,7 @@
-import { t } from "../../../i18n"
-import { DEFAULT_SETTINGS } from "../../defaults"
-import { clampedNumber, toggle } from "../../controlHandlers"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import { DEFAULT_SETTINGS } from "@/settings/defaults"
+import { clampedNumber, toggle } from "@/settings/controlHandlers"
+import type { SectionModule } from "@/settings/types"
 
 /** The key is dotted because the setting itself is nested. */
 const GOOGLE_CALENDAR_KEY = "googleCalendar.enabled"

@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
-import DayStatePersistenceService from '../../src/services/DayStatePersistenceService'
-import type { TaskChutePluginLike } from '../../src/types'
+import DayStatePersistenceService from '@/services/DayStatePersistenceService'
+import type { TaskChutePluginLike } from '@/types'
 
 describe('DayStatePersistenceService.renameTaskPath', () => {
   const createPlugin = () => {

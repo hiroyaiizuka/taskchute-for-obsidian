@@ -8,9 +8,9 @@
  */
 import TaskListRenderer, {
   TaskListRendererHost,
-} from '../../../src/ui/tasklist/TaskListRenderer'
-import TaskDragController from '../../../src/ui/tasklist/TaskDragController'
-import type { TaskInstance } from '../../../src/types'
+} from '@/ui/tasklist/TaskListRenderer'
+import TaskDragController from '@/ui/tasklist/TaskDragController'
+import type { TaskInstance } from '@/types'
 
 const SLOT = '8:00-12:00'
 

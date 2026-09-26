@@ -1,7 +1,7 @@
 import {
   ElectronDirectoryPicker,
   type ElectronModuleLoader,
-} from '../../../src/features/ai-task/services/ElectronDirectoryPicker'
+} from '@/features/ai-task/services/ElectronDirectoryPicker'
 
 interface DialogHarness {
   picker: ElectronDirectoryPicker

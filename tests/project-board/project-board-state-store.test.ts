@@ -1,5 +1,5 @@
-import type { TaskChutePluginLike, ProjectBoardState } from '../../src/types'
-import { ProjectBoardStateStore } from '../../src/services/projects'
+import type { TaskChutePluginLike, ProjectBoardState } from '@/types'
+import { ProjectBoardStateStore } from '@/services/projects'
 
 function createPlugin(options?: {
   exists?: (path: string) => Promise<boolean>

@@ -1,7 +1,7 @@
 import type { SettingDefinitionAction, SettingDefinitionList } from 'obsidian';
 import { Notice, mockApp } from 'obsidian';
-import { TaskChuteSettingTab } from '../../src/settings/SettingsTab';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+import { TaskChuteSettingTab } from '@/settings/SettingsTab';
+import { SectionConfigService } from '@/services/SectionConfigService';
 import { flatten } from './definitionHelpers';
 
 function createTab() {

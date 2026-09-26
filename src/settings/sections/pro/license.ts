@@ -4,17 +4,17 @@ import type {
   SettingDefinitionItem,
   SettingDefinitionRender,
 } from "obsidian"
-import { getCurrentLocale, t } from "../../../i18n"
-import { licensePurchaseUrl } from "../../../features/license/config"
-import type { LicenseManager } from "../../../features/license/services/LicenseManager"
-import { DeviceListView } from "../../../features/license/ui/DeviceListView"
-import { checkSeatRegistration } from "../../../features/license/ui/notifySeatReleased"
+import { getCurrentLocale, t } from "@/i18n"
+import { licensePurchaseUrl } from "@/features/license/config"
+import type { LicenseManager } from "@/features/license/services/LicenseManager"
+import { DeviceListView } from "@/features/license/ui/DeviceListView"
+import { checkSeatRegistration } from "@/features/license/ui/notifySeatReleased"
 import {
   describeActivationFailure,
   describeApiFailure,
-} from "../../../features/license/ui/licenseMessages"
-import { showConfirmModal, showInfoModal } from "../../../ui/modals/ConfirmModal"
-import type { SectionContext } from "../../types"
+} from "@/features/license/ui/licenseMessages"
+import { showConfirmModal, showInfoModal } from "@/ui/modals/ConfirmModal"
+import type { SectionContext } from "@/settings/types"
 import { LicenseActivationState } from "./licenseActivationState"
 
 /**

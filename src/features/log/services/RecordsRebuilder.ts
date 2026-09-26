@@ -1,20 +1,20 @@
 import { normalizePath, TFile, TFolder } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
+import type { TaskChutePluginLike } from '@/types'
 import type {
   DailySummaryEntry,
   TaskLogEntry,
   TaskLogSnapshot,
   TaskLogSnapshotMeta,
-} from '../../../types/ExecutionLog'
-import { SnapshotConflictError, SnapshotCorruptedError } from '../../../types/ExecutionLog'
+} from '@/types/ExecutionLog'
+import { SnapshotConflictError, SnapshotCorruptedError } from '@/types/ExecutionLog'
 import {
   createEmptyTaskLogSnapshot,
   isExecutionLogEntryCompleted,
   minutesFromLogEntries,
   parseCursorSnapshotRevision,
   parseTaskLogSnapshot,
-} from '../../../utils/executionLogUtils'
-import { computeExecutionInstanceKey } from '../../../utils/logKeys'
+} from '@/utils/executionLogUtils'
+import { computeExecutionInstanceKey } from '@/utils/logKeys'
 import { computeRecordsHash, RECORDS_VERSION, RecordsEntry } from './RecordsWriter'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'

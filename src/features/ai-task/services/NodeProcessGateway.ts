@@ -20,7 +20,7 @@ import {
 } from './WorkspaceFileService'
 import { Platform } from 'obsidian'
 
-import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
 import { isPtyPlatformSupported } from './ptyPlatform'
 import { encodeConPtyInputFrame } from './windows/ConPtyControlFrames'

@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian';
-import { ExecutionLogService } from '../../src/features/log/services/ExecutionLogService';
-import { DEVICE_ID_STORAGE_KEY } from '../../src/services/DeviceIdentityService';
-import type { TaskInstance, TaskChutePluginLike } from '../../src/types';
+import { ExecutionLogService } from '@/features/log/services/ExecutionLogService';
+import { DEVICE_ID_STORAGE_KEY } from '@/services/DeviceIdentityService';
+import type { TaskInstance, TaskChutePluginLike } from '@/types';
 
 type StoredLogFile = {
   taskExecutions: Record<string, unknown[]>;

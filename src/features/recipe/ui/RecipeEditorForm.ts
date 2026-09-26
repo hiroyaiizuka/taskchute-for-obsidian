@@ -1,5 +1,5 @@
-import { t } from '../../../i18n'
-import { applyIcon } from '../../../ui/icons'
+import { t } from '@/i18n'
+import { applyIcon } from '@/ui/icons'
 import RecipeReorderPointerDrag, { appendRecipeDragHandleIcon } from './RecipeReorderPointerDrag'
 
 let recipeEditorFormId = 0

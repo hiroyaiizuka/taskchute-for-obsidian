@@ -1,8 +1,8 @@
 import { Notice, TFile } from 'obsidian'
-import TaskMutationService, { TaskMutationHost } from '../../src/features/core/services/TaskMutationService'
-import { TaskInstance, TaskData, HiddenRoutine, DeletedInstance } from '../../src/types'
-import type DayStateStoreService from '../../src/services/DayStateStoreService'
-import { SectionConfigService } from '../../src/services/SectionConfigService'
+import TaskMutationService, { TaskMutationHost } from '@/features/core/services/TaskMutationService'
+import { TaskInstance, TaskData, HiddenRoutine, DeletedInstance } from '@/types'
+import type DayStateStoreService from '@/services/DayStateStoreService'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

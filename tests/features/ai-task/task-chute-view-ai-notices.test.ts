@@ -6,14 +6,14 @@
  *     open (mount on enable, clean unmount + unsubscribe on disable)
  */
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
+import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
-} from '../../../src/features/ai-task/services/AiTaskManager'
-import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
-import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
+} from '@/features/ai-task/services/AiTaskManager'
+import { AiBinaryNotFoundError } from '@/features/ai-task/services/BinaryLocator'
+import type { AiRunRecord } from '@/features/ai-task/types'
+import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
 const TASK_PATH = 'TASKS/ai-task.md'
 

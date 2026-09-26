@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { ClaudeCodeDispatcher } from '../../../../src/features/ai-task/services/dispatchers/ClaudeCodeDispatcher'
-import { STOP_GRACE_MS } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { ClaudeCodeDispatcher } from '@/features/ai-task/services/dispatchers/ClaudeCodeDispatcher'
+import { STOP_GRACE_MS } from '@/features/ai-task/services/dispatchers/Dispatcher'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 import {
   FIXTURES_DIR,
   createRecordingGraceTimer,

@@ -1,7 +1,7 @@
 import {
   formatActivationCode,
   normalizeCode,
-} from '../../../src/features/license/token/code'
+} from '@/features/license/token/code'
 
 const CANONICAL = '8F3K2M9QX7RD4WPZ'
 

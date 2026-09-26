@@ -3,7 +3,7 @@ import {
   formatRgb,
   parseRgbFunction,
   type Rgb,
-} from '../../utils/color'
+} from '@/utils/color'
 
 export const TASK_ACCENT_PROPERTY = '--tc-task-accent'
 

@@ -1,13 +1,13 @@
 import { App, Notice, WorkspaceLeaf } from 'obsidian'
-import type { TaskChutePluginLike } from '../../types'
-import RoutineManagerModal from '../../features/routine/modals/RoutineManagerModal'
+import type { TaskChutePluginLike } from '@/types'
+import RoutineManagerModal from '@/features/routine/modals/RoutineManagerModal'
 import NavigationLogController from './NavigationLogController'
 import NavigationReviewController from './NavigationReviewController'
 import NavigationRoutineController from './NavigationRoutineController'
 import NavigationSettingsController from './NavigationSettingsController'
-import { VIEW_TYPE_PROJECT_BOARD } from '../../types'
-import type { RoutineTaskShape } from '../../types/routine'
-import RecipeManagerModal from '../../features/recipe/modals/RecipeManagerModal'
+import { VIEW_TYPE_PROJECT_BOARD } from '@/types'
+import type { RoutineTaskShape } from '@/types/routine'
+import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
 
 export interface NavigationSectionHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

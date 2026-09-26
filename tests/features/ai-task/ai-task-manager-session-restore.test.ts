@@ -5,20 +5,20 @@ import {
   AiTaskManager,
   INTERRUPTED_RUN_ERROR_MESSAGE,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import {
   AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
   AiRunSessionStateStore,
   type AiRunSessionSnapshot,
-} from '../../../src/features/ai-task/services/AiRunSessionStateStore'
+} from '@/features/ai-task/services/AiRunSessionStateStore'
 import type {
   AiRunCallbacks,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
 import type {
   TerminalRunCallbacks,
   TerminalRunHandle,
-} from '../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 
 function restoredSnapshot(
   overrides: Partial<AiRunSessionSnapshot> = {},

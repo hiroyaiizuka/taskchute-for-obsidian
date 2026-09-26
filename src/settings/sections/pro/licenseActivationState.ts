@@ -1,4 +1,4 @@
-import type { ActivationFailure } from "../../../features/license/services/LicenseManager"
+import type { ActivationFailure } from "@/features/license/services/LicenseManager"
 
 /**
  * The activation form between renders.

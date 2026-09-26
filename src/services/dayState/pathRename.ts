@@ -1,4 +1,4 @@
-import { DayState, HiddenRoutine, MonthlyDayStateFile, RecipeProgressEntry, SlotOverrideEntry } from '../../types'
+import { DayState, HiddenRoutine, MonthlyDayStateFile, RecipeProgressEntry, SlotOverrideEntry } from '@/types'
 
 const isString = (value: unknown): value is string => typeof value === 'string'
 

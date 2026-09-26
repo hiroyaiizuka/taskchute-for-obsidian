@@ -4,10 +4,10 @@ import { gunzipSync } from 'zlib'
 import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
-} from '../../../../src/features/ai-task/services/broker-source/EmbeddedProgramSource'
-import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
-import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionGuardSource'
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+} from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
+import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
+import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 
 /**
  * Every one of these programs ships as the single `-e` argument of a spawned

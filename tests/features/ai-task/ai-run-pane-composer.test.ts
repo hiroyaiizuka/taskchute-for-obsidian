@@ -6,14 +6,14 @@
  *   - failures surface as a Notice and never throw out of the handler
  */
 import { Notice } from 'obsidian'
-import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
+import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
 import {
   AiRunAlreadyActiveError,
   AiSessionUnavailableError,
-} from '../../../src/features/ai-task/services/AiTaskManager'
-import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
-import type { AiRunRecord, AiRunStatus } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/services/AiTaskManager'
+import { AiBinaryNotFoundError } from '@/features/ai-task/services/BinaryLocator'
+import type { AiRunRecord, AiRunStatus } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord) => void
 

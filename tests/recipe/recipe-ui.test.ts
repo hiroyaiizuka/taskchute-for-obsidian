@@ -1,12 +1,12 @@
-import { renderRecipeEmptyState } from '../../src/features/recipe/ui/RecipeEmptyState'
-import { RecipeIconRenderer } from '../../src/features/recipe/ui/RecipeIconRenderer'
-import { RecipeRunPopover } from '../../src/features/recipe/ui/RecipeRunPopover'
-import RecipeManagerModal from '../../src/features/recipe/modals/RecipeManagerModal'
-import { RecipeSelectModal } from '../../src/features/recipe/modals/RecipeSelectModal'
-import { RecipeEditorForm } from '../../src/features/recipe/ui/RecipeEditorForm'
-import { setLocaleOverride } from '../../src/i18n'
+import { renderRecipeEmptyState } from '@/features/recipe/ui/RecipeEmptyState'
+import { RecipeIconRenderer } from '@/features/recipe/ui/RecipeIconRenderer'
+import { RecipeRunPopover } from '@/features/recipe/ui/RecipeRunPopover'
+import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
+import { RecipeSelectModal } from '@/features/recipe/modals/RecipeSelectModal'
+import { RecipeEditorForm } from '@/features/recipe/ui/RecipeEditorForm'
+import { setLocaleOverride } from '@/i18n'
 import { Notice, TFile } from 'obsidian'
-import * as confirmModalModule from '../../src/ui/modals/ConfirmModal'
+import * as confirmModalModule from '@/ui/modals/ConfirmModal'
 
 type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 

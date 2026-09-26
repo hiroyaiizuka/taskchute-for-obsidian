@@ -1,8 +1,8 @@
-import TaskMutationService, { TaskMutationHost } from '../../src/features/core/services/TaskMutationService';
-import type { DayState, TaskData, TaskInstance, DeletedInstance } from '../../src/types';
-import type DayStateStoreService from '../../src/services/DayStateStoreService';
+import TaskMutationService, { TaskMutationHost } from '@/features/core/services/TaskMutationService';
+import type { DayState, TaskData, TaskInstance, DeletedInstance } from '@/types';
+import type DayStateStoreService from '@/services/DayStateStoreService';
 import { createRoutineLoadContext } from '../utils/taskViewTestUtils';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+import { SectionConfigService } from '@/services/SectionConfigService';
 
 function createDayState(partial?: Partial<DayState>): DayState {
   return {

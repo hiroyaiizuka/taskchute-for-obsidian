@@ -1,6 +1,6 @@
 import { App, Modal, type WorkspaceLeaf } from 'obsidian'
-import type { TaskChutePluginLike } from '../../types'
-import { LogView } from '../../features/log/views/LogView'
+import type { TaskChutePluginLike } from '@/types'
+import { LogView } from '@/features/log/views/LogView'
 
 export interface NavigationLogHost {
   plugin: TaskChutePluginLike

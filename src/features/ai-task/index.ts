@@ -9,7 +9,7 @@
  */
 
 import type { App } from 'obsidian'
-import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '../../types'
+import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '@/types'
 import { evaluateAiTaskAvailability } from './availability'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'

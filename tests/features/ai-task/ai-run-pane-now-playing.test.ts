@@ -18,28 +18,28 @@ import {
   AiRunPaneController,
   AI_PANE_EXPANDED_STORAGE_KEY,
   AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
-} from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
+} from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
 import {
   AiTaskManager,
   type AiRunChangeType,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiTerminalDispatcher,
   TerminalRunCallbacks,
   TerminalRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type {
   AiDispatcher,
   AiRunExitOutcome,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
 import type {
   FileEditorAdapterLike,
   FileEditorOpenOptions,
-} from '../../../src/features/ai-task/ui/FileEditorAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/ui/FileEditorAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void

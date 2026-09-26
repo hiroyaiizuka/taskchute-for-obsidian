@@ -14,7 +14,7 @@ import { join } from 'path'
 import {
   createTerminalViewAdapter,
   resolveWindowsClipboardKey,
-} from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+} from '@/features/ai-task/ui/TerminalViewAdapter'
 
 const repoRoot = join(__dirname, '..', '..', '..')
 

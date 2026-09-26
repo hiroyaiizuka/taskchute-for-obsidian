@@ -5,7 +5,7 @@
  * behavior that feeds into ReminderSystemManager.buildTodaySchedules.
  */
 
-import { normalizeReminderTime } from '../../src/features/reminder/services/ReminderFrontmatterService';
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService';
 
 describe('buildReminderSchedules View-layer normalization', () => {
   // Simulates the filter+map logic from buildReminderSchedules

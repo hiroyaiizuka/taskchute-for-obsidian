@@ -1,11 +1,11 @@
 import { Platform } from 'obsidian'
-import { TaskInstance } from '../../types'
+import { TaskInstance } from '@/types'
 import TaskItemActionController from './TaskItemActionController'
 import TaskRowController from './TaskRowController'
-import type { RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
-import { AiTaskRowRenderer } from '../../features/ai-task/ui/AiTaskRowRenderer'
-import { matchesAiTaskBoardView } from '../../features/ai-task/services/BoardViewFilter'
-import type { AiTaskBoardView } from '../../features/ai-task/types'
+import type { RecipeProgressSummary } from '@/features/recipe/ui/RecipeIconRenderer'
+import { AiTaskRowRenderer } from '@/features/ai-task/ui/AiTaskRowRenderer'
+import { matchesAiTaskBoardView } from '@/features/ai-task/services/BoardViewFilter'
+import type { AiTaskBoardView } from '@/features/ai-task/types'
 import TaskListPointerDrag, { type DragPointer } from './TaskListPointerDrag'
 
 export type TaskListRendererHost = {

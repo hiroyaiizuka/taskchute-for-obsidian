@@ -7,7 +7,7 @@
  * nothing in the stream is ever lost, and the parsers never throw.
  */
 
-import type { AiStreamEvent } from '../../types'
+import type { AiStreamEvent } from '@/features/ai-task/types'
 
 /**
  * Maximum characters of text stored per event. Longer payloads keep the tail

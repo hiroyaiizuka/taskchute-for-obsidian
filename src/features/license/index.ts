@@ -9,7 +9,7 @@
 import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
 
-import type { TaskChuteSettings } from '../../types'
+import type { TaskChuteSettings } from '@/types'
 import { LicenseApiClient } from './services/LicenseApiClient'
 import { LicenseManager } from './services/LicenseManager'
 import { createDeviceLocalStorageBridge, LicenseStore } from './services/LicenseStore'

@@ -2,7 +2,7 @@ import {
   initializeLocaleManager,
   setLocaleOverride,
   t,
-} from "../../src/i18n"
+} from "@/i18n"
 
 describe("calendar export i18n", () => {
   beforeAll(() => {

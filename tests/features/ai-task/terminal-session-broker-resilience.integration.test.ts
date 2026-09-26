@@ -20,12 +20,12 @@ import {
   getTerminalBrokerDescriptorPath,
   TerminalSessionBrokerClient,
   type TerminalBrokerSessionCallbacks,
-} from '../../../src/features/ai-task/services/TerminalSessionBroker'
-import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { buildTerminalBrokerSource } from '../../../src/features/ai-task/services/TerminalSessionBrokerSource'
-import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionGuardSource'
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
-import { describePosix, testWithBinaries } from '../../support/platform'
+} from '@/features/ai-task/services/TerminalSessionBroker'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
+import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
+import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { describePosix, testWithBinaries } from '@tests/support/platform'
 import { waitUntil, waitUntilAllGone } from './brokerTestUtils'
 
 function writeFileSync(

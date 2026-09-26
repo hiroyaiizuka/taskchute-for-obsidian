@@ -11,15 +11,15 @@ import {
   AI_RUN_EVENT_TAIL_LIMIT,
   DISPOSE_FORCE_KILL_MS,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiDispatcher,
   AiRunCallbacks,
   AiRunExitOutcome,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
-import type { AiBinaryResolution } from '../../../src/features/ai-task/services/BinaryLocator'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { AiRunRecord, AiStreamEvent } from '@/features/ai-task/types'
+import type { AiBinaryResolution } from '@/features/ai-task/services/BinaryLocator'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))

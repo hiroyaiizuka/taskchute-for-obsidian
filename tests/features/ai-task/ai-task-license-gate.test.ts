@@ -1,12 +1,12 @@
-import { syncAiTaskManagerToLicense } from '../../../src/features/ai-task/licenseGate'
-import { createAiTaskManager } from '../../../src/features/ai-task'
-import { disposeAiTaskManagerTracked } from '../../../src/features/ai-task/registerProcessCleanup'
+import { syncAiTaskManagerToLicense } from '@/features/ai-task/licenseGate'
+import { createAiTaskManager } from '@/features/ai-task'
+import { disposeAiTaskManagerTracked } from '@/features/ai-task/registerProcessCleanup'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
-jest.mock('../../../src/features/ai-task', () => ({
+jest.mock('@/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
 }))
-jest.mock('../../../src/features/ai-task/registerProcessCleanup', () => ({
+jest.mock('@/features/ai-task/registerProcessCleanup', () => ({
   disposeAiTaskManagerTracked: jest.fn(),
 }))
 

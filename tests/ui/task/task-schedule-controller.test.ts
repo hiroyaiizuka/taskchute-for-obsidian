@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
-import TaskScheduleController, { TaskScheduleControllerHost } from '../../../src/ui/task/TaskScheduleController'
-import type { TaskData, TaskInstance } from '../../../src/types'
+import TaskScheduleController, { TaskScheduleControllerHost } from '@/ui/task/TaskScheduleController'
+import type { TaskData, TaskInstance } from '@/types'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */
 type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {

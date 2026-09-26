@@ -1,10 +1,10 @@
 /** The host needs Windows, so these pin its contracts instead of running it. */
 import { gunzipSync } from 'zlib'
-import { TERMINAL_EXIT_SENTINEL } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { TERMINAL_EXIT_SENTINEL } from '@/features/ai-task/services/NodeProcessGateway'
 import {
   CONPTY_FRAME_INPUT,
   CONPTY_FRAME_RESIZE,
-} from '../../../../src/features/ai-task/services/windows/ConPtyControlFrames'
+} from '@/features/ai-task/services/windows/ConPtyControlFrames'
 import {
   buildConPtyHostEnv,
   CONPTY_CONSTRAINED_LANGUAGE_EXIT_CODE,
@@ -20,7 +20,7 @@ import {
   getEncodedConPtyHostSource,
   getWindowsPowerShellPath,
   parseWindowsBuildNumber,
-} from '../../../../src/features/ai-task/services/windows/ConPtyHostSource'
+} from '@/features/ai-task/services/windows/ConPtyHostSource'
 
 const WINDOWS_ENV_VALUE_LIMIT = 32_767
 

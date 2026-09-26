@@ -1,11 +1,11 @@
 import { App, Modal, Notice } from 'obsidian'
-import type { TaskInstance } from '../../../types'
+import type { TaskInstance } from '@/types'
 import { Recipe, RecipeService } from '../services/RecipeService'
 import { renderRecipeEmptyState } from '../ui/RecipeEmptyState'
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 import { RecipeEditorForm, RecipeEditorValue } from '../ui/RecipeEditorForm'
-import { showConfirmModal } from '../../../ui/modals/ConfirmModal'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { showConfirmModal } from '@/ui/modals/ConfirmModal'
+import { createModalFooter } from '@/ui/components/modalFooter'
 
 let recipeSelectModalId = 0
 

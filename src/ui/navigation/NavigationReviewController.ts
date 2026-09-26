@@ -1,6 +1,6 @@
-import { ReviewService } from '../../features/review/services/ReviewService'
+import { ReviewService } from '@/features/review/services/ReviewService'
 import type { WorkspaceLeaf, TFile } from 'obsidian'
-import type { TaskChutePluginLike } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
 
 export interface NavigationReviewHost {
   app: {

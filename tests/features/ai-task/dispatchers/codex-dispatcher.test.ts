@@ -1,8 +1,8 @@
 import * as path from 'path'
-import { CodexDispatcher } from '../../../../src/features/ai-task/services/dispatchers/CodexDispatcher'
-import { STOP_GRACE_MS } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import { EVENT_TEXT_LIMIT } from '../../../../src/features/ai-task/services/streams/StreamJsonParser'
-import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { CodexDispatcher } from '@/features/ai-task/services/dispatchers/CodexDispatcher'
+import { STOP_GRACE_MS } from '@/features/ai-task/services/dispatchers/Dispatcher'
+import { EVENT_TEXT_LIMIT } from '@/features/ai-task/services/streams/StreamJsonParser'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 import {
   FIXTURES_DIR,
   createRecordingGraceTimer,

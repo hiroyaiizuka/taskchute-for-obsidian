@@ -1,4 +1,4 @@
-import { TimerService } from '../../src/services/TimerService'
+import { TimerService } from '@/services/TimerService'
 
 type TimerWindow = Window & {
   setInterval: jest.Mock<number, [TimerHandler, number?]>

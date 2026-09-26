@@ -29,7 +29,7 @@
  */
 
 import type { TFile } from 'obsidian'
-import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
@@ -49,8 +49,8 @@ import type {
   WorkspaceFileVersion,
 } from './WorkspaceFileService'
 import type { AiBinaryResolution } from './BinaryLocator'
-import type { RecipeContextSnapshot } from '../../recipe/services/RecipeDelegationContextBuilder'
-import { buildRecipeDelegationPrompt } from '../../recipe/services/RecipeDelegationContextBuilder'
+import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDelegationContextBuilder'
+import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import {
   AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,

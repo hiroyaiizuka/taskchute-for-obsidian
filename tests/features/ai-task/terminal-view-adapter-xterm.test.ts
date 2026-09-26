@@ -31,7 +31,7 @@ import { Terminal } from '@xterm/xterm'
 import {
   createTerminalViewAdapter,
   type TerminalFilePathActivation,
-} from '../../../src/features/ai-task/ui/TerminalViewAdapter'
+} from '@/features/ai-task/ui/TerminalViewAdapter'
 
 interface RecordingLink {
   text: string

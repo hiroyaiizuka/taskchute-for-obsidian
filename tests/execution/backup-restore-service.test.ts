@@ -1,11 +1,11 @@
 import { TFile, TFolder } from 'obsidian'
-import type { TaskChutePluginLike } from '../../src/types'
-import { BackupRestoreService } from '../../src/features/log/services/BackupRestoreService'
-import { LogSnapshotWriter } from '../../src/features/log/services/LogSnapshotWriter'
-import { LogReconciler } from '../../src/features/log/services/LogReconciler'
-import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
-import { RecordsWriter } from '../../src/features/log/services/RecordsWriter'
-import { initializeLocaleManager, setLocaleOverride } from '../../src/i18n'
+import type { TaskChutePluginLike } from '@/types'
+import { BackupRestoreService } from '@/features/log/services/BackupRestoreService'
+import { LogSnapshotWriter } from '@/features/log/services/LogSnapshotWriter'
+import { LogReconciler } from '@/features/log/services/LogReconciler'
+import { MonthSyncCoordinator } from '@/features/log/services/MonthSyncCoordinator'
+import { RecordsWriter } from '@/features/log/services/RecordsWriter'
+import { initializeLocaleManager, setLocaleOverride } from '@/i18n'
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>

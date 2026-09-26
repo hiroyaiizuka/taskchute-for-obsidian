@@ -1,5 +1,5 @@
-import { PathService } from '../../../src/services/PathService'
-import type { TaskChuteSettings } from '../../../src/types'
+import { PathService } from '@/services/PathService'
+import type { TaskChuteSettings } from '@/types'
 import type { Plugin } from 'obsidian'
 
 function makePathService(settings: Partial<TaskChuteSettings>) {

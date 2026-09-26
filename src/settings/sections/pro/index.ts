@@ -1,15 +1,15 @@
 import type { SettingDefinitionItem } from "obsidian"
-import { t } from "../../../i18n"
-import { syncAiTaskManagerToLicense } from "../../../features/ai-task/licenseGate"
+import { t } from "@/i18n"
+import { syncAiTaskManagerToLicense } from "@/features/ai-task/licenseGate"
 import {
   ProUnlockState,
   isProLicenseActive,
   isProSectionSupported,
   isProSectionVisible,
-} from "../../proUnlockState"
-import type { AiTaskToggleGuard } from "../../services/aiTaskLifecycle"
-import { notifyAiTaskSettingsChanged } from "../../services/viewNotifications"
-import type { SectionContext, SectionModule } from "../../types"
+} from "@/settings/proUnlockState"
+import type { AiTaskToggleGuard } from "@/settings/services/aiTaskLifecycle"
+import { notifyAiTaskSettingsChanged } from "@/settings/services/viewNotifications"
+import type { SectionContext, SectionModule } from "@/settings/types"
 import { aiTaskSection } from "./aiTask"
 import { licenseRows } from "./license"
 import { LicenseActivationState } from "./licenseActivationState"

@@ -1,7 +1,7 @@
 import type { App } from 'obsidian'
 
-import { notifyAiTaskSettingsChanged } from '../../../src/features/ai-task/notifyAiTaskSettingsChanged'
-import { VIEW_TYPE_TASKCHUTE } from '../../../src/types'
+import { notifyAiTaskSettingsChanged } from '@/features/ai-task/notifyAiTaskSettingsChanged'
+import { VIEW_TYPE_TASKCHUTE } from '@/types'
 
 function makeApp(leaves: Array<{ view?: unknown }>): {
   app: App
