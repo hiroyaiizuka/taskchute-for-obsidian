@@ -6,7 +6,6 @@ import { TaskChuteViewController } from "./taskchute/TaskChuteViewController"
 import { createCommandRegistrar } from "../commands/registerTaskCommands"
 import type { CommandRegistrar } from "../types/Commands"
 import { RibbonManager } from "./ribbon/RibbonManager"
-import { LocaleCoordinator } from "./locale/LocaleCoordinator"
 import { initializeLocaleManager } from "../i18n"
 import { ensureRequiredFolders, initializeServices } from "./serviceFactory"
 import { DEFAULT_SETTINGS } from "../settings"
@@ -36,7 +35,9 @@ export async function prepareSettings(
   if (!settings.slotKeys) settings.slotKeys = {}
   if (typeof settings.useOrderBasedSort !== "boolean")
     settings.useOrderBasedSort = true
-  if (!settings.languageOverride) settings.languageOverride = "auto"
+  // Retired setting: the plugin now always follows Obsidian's language.
+  // Dropped so it stops being written back to data.json.
+  Reflect.deleteProperty(settings, "languageOverride")
   if (typeof settings.showTaskCreationAdvancedSettings !== "boolean") {
     settings.showTaskCreationAdvancedSettings = false
   }
@@ -165,9 +166,7 @@ export async function bootstrapPlugin(
   // Also before the settings tab, and for the same reason: that first read
   // resolves every label through t(), so the locale has to be settled or the
   // whole pane is captured in English no matter what Obsidian's language is.
-  // LocaleCoordinator re-runs this below once the listeners it notifies exist;
-  // repeating it with the same override is a no-op.
-  initializeLocaleManager(plugin.settings.languageOverride ?? "auto")
+  initializeLocaleManager()
 
   try {
     plugin.addSettingTab(new TaskChuteSettingTab(plugin.app, plugin))
@@ -194,13 +193,6 @@ export async function bootstrapPlugin(
     (icon, title, callback) => plugin.addRibbonIcon(icon, title, callback),
     () => viewController.activateView(),
   )
-  const localeCoordinator = new LocaleCoordinator({
-    commandRegistrar,
-    ribbonManager,
-    viewController,
-  })
-
-  localeCoordinator.initialize(plugin.settings.languageOverride ?? "auto")
   ribbonManager.initialize()
   commandRegistrar.initialize()
 
@@ -242,7 +234,6 @@ export async function bootstrapPlugin(
     viewController,
     commandRegistrar,
     ribbonManager,
-    localeCoordinator,
     reminderManager,
     aiTaskManager,
   })

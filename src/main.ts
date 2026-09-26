@@ -4,7 +4,6 @@ import type { TaskChuteSettings } from "./types"
 import type { PathService } from "./services/PathService"
 import type { RoutineAliasService } from "./features/routine/services/RoutineAliasService"
 import type DayStatePersistenceService from "./services/DayStatePersistenceService"
-import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
@@ -35,7 +34,6 @@ export default class TaskChutePlusPlugin extends Plugin {
   dayStateService!: DayStatePersistenceService
   globalTimerInterval?: ReturnType<Window['setInterval']> | null
   private viewController!: TaskChuteViewController
-  private localeCoordinator?: LocaleCoordinatorHandle
   /** Reminder manager for notification scheduling (exposed for TaskChuteView) */
   reminderManager?: ReminderSystemManager
   /** AI task run manager (present only when enabled on desktop and licensed) */
@@ -90,7 +88,6 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     const context: PluginContext = await bootstrapPlugin(this)
     this.viewController = context.viewController
-    this.localeCoordinator = context.localeCoordinator
     this.reminderManager = context.reminderManager
     registerAiTaskAppShutdownCleanup(this)
     const ambientScheduler = createAiTaskAmbientScheduler(
@@ -160,8 +157,6 @@ export default class TaskChutePlusPlugin extends Plugin {
       window.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
-
-    this.localeCoordinator?.dispose()
 
     // Dispose reminder system
     this.reminderManager?.dispose()

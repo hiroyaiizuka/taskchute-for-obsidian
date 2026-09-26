@@ -1,9 +1,7 @@
-import type { App, Command } from "obsidian";
+import type { Command } from "obsidian";
 
 export interface CommandHost {
-  manifest: { id: string };
   addCommand(command: Command): Command;
-  app: App;
   showSettingsModal(): void;
 }
 
@@ -19,5 +17,4 @@ export interface ViewActions {
 
 export interface CommandRegistrar {
   initialize(): void;
-  relocalize(): void;
 }

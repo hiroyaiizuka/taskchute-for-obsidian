@@ -18,7 +18,8 @@ import {
   isProSectionVisible,
 } from '@/settings/proUnlockState'
 import type { SectionContext } from '@/settings/types'
-import { setLocaleOverride, t } from '@/i18n'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import type { LicenseManager } from '@/features/license/services/LicenseManager'
 import { flatten, isVisible, pageNamed } from '@tests/settings/definitionHelpers'
 
@@ -286,13 +287,13 @@ describe('Pro settings section', () => {
     })
 
     test('sends Japanese users to the Japanese purchase page', () => {
-      setLocaleOverride('ja')
+      setObsidianLanguage('ja')
       try {
         expect(openPurchasePage(fakeManager())).toBe(
           'https://obsidian.levers.co.jp/ja/howto/pro-license',
         )
       } finally {
-        setLocaleOverride('en')
+        setObsidianLanguage('en')
       }
     })
 

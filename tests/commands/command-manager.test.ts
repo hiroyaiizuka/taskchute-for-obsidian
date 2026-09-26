@@ -1,8 +1,8 @@
 import { createCommandRegistrar } from '@/commands/registerTaskCommands';
 import type { CommandRegistrar, CommandHost } from '@/types/Commands';
-import type { App, Command } from 'obsidian';
+import type { Command } from 'obsidian';
 import type { TaskChuteViewController } from '@/app/taskchute/TaskChuteViewController';
-import { initializeLocaleManager } from '@/i18n';
+import { setObsidianLanguage } from '@tests/utils/locale';
 
 describe('CommandRegistrar', () => {
   const viewControllerMock: jest.Mocked<TaskChuteViewController> = {
@@ -15,25 +15,19 @@ describe('CommandRegistrar', () => {
     triggerDeleteSelectedTask: jest.fn(async () => {}),
     triggerResetSelectedTask: jest.fn(async () => {}),
     reorganizeIdleTasks: jest.fn(() => {}),
-    applyLocaleToActiveView: jest.fn(() => {}),
   } as unknown as jest.Mocked<TaskChuteViewController>;
 
   const addCommand = jest.fn((command: Command) => command);
-  const removeCommand = jest.fn();
   const showSettingsModal = jest.fn();
 
-  const appMock = { commands: { removeCommand } } as unknown as App;
-
   const hostMock: CommandHost = {
-    manifest: { id: 'taskchute-plus' },
     addCommand,
-    app: appMock,
     showSettingsModal,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    initializeLocaleManager('en');
+    setObsidianLanguage('en');
   });
 
   it('registers expected commands', async () => {
@@ -79,16 +73,5 @@ describe('CommandRegistrar', () => {
     const reset = addCommand.mock.calls[6][0];
     reset.checkCallback?.(false);
     expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
-  });
-
-  it('relocalizes commands on request', () => {
-    const registrar: CommandRegistrar = createCommandRegistrar(hostMock, viewControllerMock);
-    registrar.initialize();
-    jest.clearAllMocks();
-
-    registrar.relocalize();
-
-    expect(removeCommand).toHaveBeenCalledTimes(7);
-    expect(addCommand).toHaveBeenCalledTimes(7);
   });
 });

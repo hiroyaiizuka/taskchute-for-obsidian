@@ -11,16 +11,10 @@ describe('registerTaskCommands checkCallback', () => {
     const registeredCommands: Record<string, Command> = {}
 
     const host: CommandHost = {
-      manifest: { id: 'taskchute-plus' },
       addCommand: jest.fn((cmd: Command) => {
         registeredCommands[cmd.id] = cmd
         return cmd
       }),
-      app: {
-        commands: {
-          removeCommand: jest.fn(),
-        },
-      } as unknown as CommandHost['app'],
       showSettingsModal: jest.fn(),
     }
 

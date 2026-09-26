@@ -4,7 +4,7 @@ import { RecipeRunPopover } from '@/features/recipe/ui/RecipeRunPopover'
 import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
 import { RecipeSelectModal } from '@/features/recipe/modals/RecipeSelectModal'
 import { RecipeEditorForm } from '@/features/recipe/ui/RecipeEditorForm'
-import { setLocaleOverride } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import { Notice, TFile } from 'obsidian'
 import * as confirmModalModule from '@/ui/modals/ConfirmModal'
 
@@ -66,12 +66,12 @@ function createRecipeFolderLookup(files: Map<string, RecipeFileEntry>) {
 describe('recipe UI helpers', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     ;(Notice as unknown as jest.Mock).mockClear?.()
   })
 
   afterEach(() => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
   })
 
   test('empty state offers in-modal creation', () => {
@@ -91,7 +91,7 @@ describe('recipe UI helpers', () => {
   })
 
   test('recipe empty state uses english locale strings', () => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     const container = document.createElement('div')
 
     renderRecipeEmptyState(container, { onCreate: jest.fn() })
@@ -1707,12 +1707,12 @@ describe('recipe UI helpers', () => {
 describe('recipe v2 accessibility and guarded editing', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
   })
 
   afterEach(() => {
     jest.restoreAllMocks()
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
   })
 
   test('editor exposes validation errors and focuses the first invalid field', () => {

@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
 
   useOrderBasedSort: true,
   slotKeys: {},
-  languageOverride: 'auto',
   aiRobotButtonEnabled: false,
   recipeFeatureEnabled: false,
   showTaskCreationAdvancedSettings: false,

@@ -1,7 +1,7 @@
 import { App } from 'obsidian'
 import { BackupRestoreModal, BackupRestoreModalCallbacks } from '@/features/log/modals/BackupRestoreModal'
 import type { BackupEntry, BackupPreview } from '@/features/log/services/BackupRestoreService'
-import { initializeLocaleManager, setLocaleOverride } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 
 // Add Obsidian-specific methods to HTMLElement
 function addObsidianMethods(el: HTMLElement): void {
@@ -74,6 +74,7 @@ jest.mock('obsidian', () => {
     App: MockApp,
     Modal,
     Notice: jest.fn(),
+    getLanguage: jest.fn(() => 'en'),
     setIcon: jest.fn((element: HTMLElement, iconId: string) => {
       element.setAttribute('data-icon', iconId)
     }),
@@ -159,12 +160,12 @@ describe('BackupRestoreModal', () => {
   let callbacks: BackupRestoreModalCallbacks
 
   beforeAll(() => {
-    initializeLocaleManager('ja')
+    setObsidianLanguage('ja')
   })
 
   beforeEach(() => {
     document.body.innerHTML = ''
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     callbacks = createMockCallbacks()
     modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks, mockTv)
   })
@@ -477,7 +478,7 @@ describe('BackupRestoreModal', () => {
 
   describe('i18n date formatting', () => {
     test('renders month/date labels in English locale without Japanese date tokens', async () => {
-      setLocaleOverride('en')
+      setObsidianLanguage('en')
       modal = new BackupRestoreModal(new App(), createMockBackups(), callbacks, mockTv)
       modal.open()
 

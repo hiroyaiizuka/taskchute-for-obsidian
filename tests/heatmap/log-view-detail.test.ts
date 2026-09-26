@@ -1,4 +1,4 @@
-import { initializeLocaleManager } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import { LogView } from '@/features/log/views/LogView'
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '@/types'
 
@@ -41,7 +41,7 @@ describe('LogView heatmap detail panel', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]> | null = null
 
 beforeAll(() => {
-  initializeLocaleManager('ja')
+  setObsidianLanguage('ja')
 })
 
   beforeEach(() => {

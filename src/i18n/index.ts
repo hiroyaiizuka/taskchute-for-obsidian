@@ -3,13 +3,10 @@ import { en } from "./locales/en"
 import { ja } from "./locales/ja"
 
 export type LocaleKey = "en" | "ja"
-export type LanguageOverride = "auto" | LocaleKey
 
 type TranslationTree = typeof en
 
 type TranslationDictionaries = Record<LocaleKey, TranslationTree>
-
-type Listener = (locale: LocaleKey) => void
 
 type Variables = Record<string, string | number>
 
@@ -57,54 +54,18 @@ export function applyVariables(message: string, vars?: Variables): string {
   }, message)
 }
 
+// The plugin always speaks Obsidian's language. Obsidian only changes language
+// across a restart, so the locale is read once at load and never changes while
+// the plugin is running — there is nothing to re-localize.
 class LocaleManager {
   private current: LocaleKey = "en"
-  private override: LanguageOverride = "auto"
-  private listeners: Set<Listener> = new Set()
 
-  initialize(override: LanguageOverride = "auto"): void {
-    this.override = override
-    const detected = this.resolveLocale(override)
-    this.setLocale(detected, false)
+  initialize(): void {
+    this.current = normalizeLocale(getLanguage())
   }
 
   getLocale(): LocaleKey {
     return this.current
-  }
-
-  getOverride(): LanguageOverride {
-    return this.override
-  }
-
-  detectObsidianLocale(): LocaleKey {
-    return normalizeLocale(getLanguage())
-  }
-
-  resolveLocale(override: LanguageOverride): LocaleKey {
-    if (override === "auto") {
-      return this.detectObsidianLocale()
-    }
-    return override
-  }
-
-  setOverride(override: LanguageOverride): void {
-    this.override = override
-    const resolved = this.resolveLocale(override)
-    this.setLocale(resolved)
-  }
-
-  setLocale(locale: LocaleKey, emit: boolean = true): void {
-    if (this.current === locale) return
-    this.current = locale
-    if (emit) {
-      this.listeners.forEach((listener) => {
-        try {
-          listener(locale)
-        } catch (error) {
-          console.warn("Locale listener failed", error)
-        }
-      })
-    }
   }
 
   translate(key: string, vars?: Variables, fallback?: string): string {
@@ -116,27 +77,12 @@ class LocaleManager {
     }
     return applyVariables(raw, vars)
   }
-
-  onChange(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
 }
 
 export const localeManager = new LocaleManager()
 
-export function initializeLocaleManager(override: LanguageOverride): void {
-  localeManager.initialize(override)
-}
-
-export function setLocaleOverride(override: LanguageOverride): void {
-  localeManager.setOverride(override)
-}
-
-export function onLocaleChange(listener: Listener): () => void {
-  return localeManager.onChange(listener)
+export function initializeLocaleManager(): void {
+  localeManager.initialize()
 }
 
 export function t(key: string, fallback?: string, vars?: Variables): string {

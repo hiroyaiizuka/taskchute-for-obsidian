@@ -34,7 +34,6 @@ export interface TaskChuteSettings {
   // General
   useOrderBasedSort: boolean
   slotKeys: Record<string, string>
-  languageOverride?: "auto" | "en" | "ja"
 
   // UI/Features
   aiRobotButtonEnabled?: boolean // default false; show robot button if true
