@@ -42,37 +42,8 @@ const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
 )
 
 describe('TaskCreationController', () => {
-  beforeAll(() => {
-    const proto = HTMLElement.prototype as unknown as {
-      createEl?: (
-        tag: string,
-        options?: { cls?: string; text?: string; attr?: Record<string, string>; type?: string },
-      ) => HTMLElement
-    }
-    if (!proto.createEl) {
-      proto.createEl = function (tag, options) {
-        const element = document.createElement(tag)
-        if (options?.cls) {
-          element.classList.add(...options.cls.split(' ').filter(Boolean))
-        }
-        if (options?.text) {
-          element.textContent = options.text
-        }
-        if (options?.attr) {
-          Object.entries(options.attr).forEach(([key, value]) => {
-            if (value !== undefined) {
-              element.setAttribute(key, value)
-            }
-          })
-        }
-        if (options?.type) {
-          (element as HTMLInputElement).type = options.type
-        }
-        this.appendChild(element)
-        return element
-      }
-    }
-  })
+  // createEl comes from tests/setup/obsidian-dom-globals.ts, which installs it
+  // on Node.prototype before any test body runs.
 
   const validator: TaskNameValidator = {
     INVALID_CHARS_PATTERN: /[\\/:]/g,

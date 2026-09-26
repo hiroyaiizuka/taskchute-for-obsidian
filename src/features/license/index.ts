@@ -9,7 +9,7 @@
 import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
 
-import type { TaskChuteSettings } from '@/types'
+import type { PluginLogFn, TaskChuteSettings } from '@/types'
 import { LicenseApiClient } from './services/LicenseApiClient'
 import { LicenseManager } from './services/LicenseManager'
 import { createDeviceLocalStorageBridge, LicenseStore } from './services/LicenseStore'
@@ -22,7 +22,7 @@ export interface LicensePluginLike {
   settings: TaskChuteSettings
   saveSettings: () => Promise<void>
   manifest?: { version?: string }
-  _log?: (level?: string, ...args: unknown[]) => void
+  _log?: PluginLogFn
 }
 
 /** Best-effort platform hint, shown to the user in the device list. */

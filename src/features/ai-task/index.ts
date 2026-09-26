@@ -9,7 +9,7 @@
  */
 
 import type { App } from 'obsidian'
-import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '@/types'
+import type { PathManagerLike, PluginLogFn, TaskChutePluginLike, TaskChuteSettings } from '@/types'
 import { evaluateAiTaskAvailability } from './availability'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
@@ -51,7 +51,7 @@ export interface AiTaskPluginLike {
    * ask whether the license is active, and tests fake it with a single method.
    */
   licenseManager?: { isActive: () => boolean }
-  _log?: (level?: string, ...args: unknown[]) => void
+  _log?: PluginLogFn
 }
 
 const DEFAULT_LOG_RETENTION_DAYS = 30

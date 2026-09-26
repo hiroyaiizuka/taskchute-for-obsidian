@@ -4,15 +4,13 @@
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES6",
-    "allowJs": true,
-    "noImplicitAny": true,
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"]
     },
     "importHelpers": true,
     "isolatedModules": true,
-    "strictNullChecks": true,
+    "strict": true,
     "lib": ["DOM", "ES2022"],
     "skipLibCheck": true
   },

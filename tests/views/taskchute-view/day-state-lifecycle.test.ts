@@ -254,13 +254,8 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     this.appendChild(svg as unknown as HTMLElement);
     return svg;
   }) as unknown as HTMLElement['createSvg'];
-  if (typeof (typed as { empty?: () => void }).empty !== 'function') {
-    (typed as { empty: () => void }).empty = function () {
-      while (this.firstChild) {
-        this.removeChild(this.firstChild);
-      }
-    };
-  }
+  // `empty` comes from tests/setup/obsidian-dom-globals.ts, which installs it
+  // on Node.prototype before any test body runs.
 }
 
 describe('TaskChuteView day-state lifecycle', () => {
@@ -1812,7 +1807,7 @@ describe('TaskChuteView moveNonRoutineSlotOverrideToDate', () => {
 describe('TaskChuteView loadTasksRefactored routines', () => {
   test('skips routines hidden via dayState hiddenRoutines', async () => {
     const { context, dayState, routinePath, load } = createRoutineLoadContext();
-    context.isInstanceHidden = jest.fn((instanceId: string, path: string) =>
+    context.isInstanceHidden = jest.fn<boolean, [string?, string?, string?]>((instanceId, path) =>
       dayState.hiddenRoutines.some((hidden: HiddenRoutine | string) => {
         if (typeof hidden === 'string') return hidden === path;
         if (!hidden) return false;
@@ -1832,7 +1827,7 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
 
   test('renders routine when hidden entry is instance-scoped and differs', async () => {
     const { context, dayState, routinePath, load } = createRoutineLoadContext();
-    context.isInstanceHidden = jest.fn((instanceId: string, path: string) =>
+    context.isInstanceHidden = jest.fn<boolean, [string?, string?, string?]>((instanceId, path) =>
       dayState.hiddenRoutines.some((hidden: HiddenRoutine | string) => {
         if (typeof hidden === 'string') return hidden === path;
         if (!hidden) return false;

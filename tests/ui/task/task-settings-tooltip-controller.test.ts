@@ -473,7 +473,7 @@ const createTimeController = () => {
         toJSON: () => ({}),
       } as DOMRect),
     })
-    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('task-settings-tooltip')) {
         return {
           top: 0,

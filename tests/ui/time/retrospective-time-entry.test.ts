@@ -65,7 +65,11 @@ describe('Retrospective time entry', () => {
       executionLogService: {
         saveTaskLog: jest.fn().mockResolvedValue(undefined),
       },
-      calculateCrossDayDuration: jest.fn((start: Date, stop: Date) => stop.getTime() - start.getTime()),
+      // Optional on purpose: TaskTimeController passes inst.startTime /
+      // inst.stopTime straight through, and either can be undefined.
+      calculateCrossDayDuration: jest.fn((start?: Date, stop?: Date) =>
+        start && stop ? stop.getTime() - start.getTime() : 0,
+      ),
       saveRunningTasksState: jest.fn().mockResolvedValue(undefined),
       stopInstance: jest.fn().mockResolvedValue(undefined),
       confirmStopNextDay: jest.fn().mockResolvedValue(true),

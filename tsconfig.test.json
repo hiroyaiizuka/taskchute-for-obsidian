@@ -9,8 +9,7 @@
     },
     "types": ["jest", "node"],
     "noEmit": true,
-    "esModuleInterop": true,
-    "allowJs": false
+    "esModuleInterop": true
   },
   "include": [
     "src/**/*.ts",
