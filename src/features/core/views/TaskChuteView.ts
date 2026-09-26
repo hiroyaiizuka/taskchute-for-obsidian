@@ -17,6 +17,7 @@ import DayStateStoreService from "@/services/DayStateStoreService"
 import TaskOrderManager from "@/features/core/services/TaskOrderManager"
 import { TaskLoaderService } from "@/features/core/services/TaskLoaderService"
 import type { TaskLoaderHost } from "@/features/core/services/TaskLoaderService"
+import type { RoutineTaskShape } from "@/types/routine"
 import { TaskCreationService } from "@/features/core/services/TaskCreationService"
 import { TaskReuseService } from "@/features/core/services/TaskReuseService"
 import { checkSeatRegistration } from "@/features/license/ui/notifySeatReleased"
@@ -3097,7 +3098,11 @@ export class TaskChuteView
     return this.taskOrderManager.calculateSimpleOrder(targetIndex, sameTasks)
   }
 
-  public showRoutineEditModal(task: TaskData, button?: HTMLElement): void {
+  // Mirrors RoutineController's parameter rather than narrowing it to TaskData:
+  // this is a pass-through, and the navigation hosts hand it routine shapes
+  // whose `file` may be absent. TaskData still satisfies RoutineTaskShape, so
+  // the task-list callers are unaffected.
+  public showRoutineEditModal(task: RoutineTaskShape, button?: HTMLElement): void {
     this.routineController.showRoutineEditModal(task, button)
   }
 

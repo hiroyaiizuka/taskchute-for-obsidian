@@ -34,63 +34,14 @@ type TestPlugin = {
 
 const flushMicrotasks = () => new Promise<void>((resolve) => { void Promise.resolve().then(() => resolve()) })
 
-const ensureObsidianDomHelpers = () => {
-  type ObsidianPrototype = typeof HTMLElement.prototype & {
-    empty?: () => void
-    createEl?: (
-      this: HTMLElement,
-      tag: string,
-      options?: { cls?: string | string[]; text?: string; attr?: Record<string, string> },
-    ) => HTMLElement
-    setAttr?: (this: HTMLElement, name: string, value: string) => void
-  }
-
-  const proto = HTMLElement.prototype as ObsidianPrototype
-  if (!proto.empty) {
-    proto.empty = function (this: HTMLElement) {
-      this.textContent = ''
-      this.innerHTML = ''
-    }
-  }
-  if (!proto.createEl) {
-    proto.createEl = (function (
-      this: HTMLElement,
-      tag: string,
-      options?: { cls?: string | string[]; text?: string; attr?: Record<string, string> },
-    ) {
-      const el = document.createElement(tag)
-      if (options?.cls) {
-        if (Array.isArray(options.cls)) {
-          el.className = options.cls.join(' ')
-        } else {
-          el.className = options.cls
-        }
-      }
-      if (options?.text) {
-        el.textContent = options.text
-      }
-      if (options?.attr) {
-        Object.entries(options.attr).forEach(([key, value]) => {
-          el.setAttribute(key, value)
-        })
-      }
-      this.appendChild(el)
-      return el
-    }) as unknown as HTMLElement['createEl']
-  }
-  if (!proto.setAttr) {
-    proto.setAttr = function (this: HTMLElement, name: string, value: string) {
-      this.setAttribute(name, value)
-    }
-  }
-}
+// empty / createEl / setAttr come from tests/setup/obsidian-dom-globals.ts,
+// which installs them on Node.prototype before any test body runs.
 
 describe('LogView heatmap detail panel', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]> | null = null
 
 beforeAll(() => {
   initializeLocaleManager('ja')
-  ensureObsidianDomHelpers()
 })
 
   beforeEach(() => {

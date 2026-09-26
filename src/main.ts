@@ -56,8 +56,11 @@ export default class TaskChutePlusPlugin extends Plugin {
   readonly aiTaskManagersPendingDisposal =
     getSharedAiTaskManagersPendingDisposal(this.app)
 
-  // Simple logger/notification wrapper
-  _log(level: keyof Console | undefined, ...args: unknown[]): void {
+  // Simple logger/notification wrapper.
+  // `level` stays as wide as PluginLogFn declares it: only "warn" and "error"
+  // are acted on, nothing indexes console[level], and narrowing it here would
+  // make the plugin unassignable to the host interfaces that take `this`.
+  _log(level?: string, ...args: unknown[]): void {
     try {
       if (level === "warn") {
         console.warn(...args)

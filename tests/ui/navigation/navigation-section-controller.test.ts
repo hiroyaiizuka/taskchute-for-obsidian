@@ -14,7 +14,6 @@ jest.mock('obsidian', () => {
   }
 })
 
-type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
 jest.mock('@/features/routine/modals/RoutineManagerModal')
 jest.mock('@/features/recipe/modals/RecipeManagerModal')
@@ -43,35 +42,8 @@ jest.mock('@/ui/navigation/NavigationSettingsController', () => ({
 }))
 jest.mock('@/ui/navigation/NavigationSettingsController')
 
-function ensurePrototypeAugmentations(): void {
-  const proto = HTMLElement.prototype as unknown as {
-    createEl?: CreateEl
-    empty?: () => void
-  }
-  if (!proto.createEl) {
-    proto.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
-      const element = document.createElement(tag)
-      if (options.cls) {
-        element.className = options.cls as string
-      }
-      if (options.text) {
-        element.textContent = options.text as string
-      }
-      if (options.attr) {
-        Object.entries(options.attr as Record<string, string>).forEach(([key, value]) => {
-          element.setAttribute(key, value)
-        })
-      }
-      this.appendChild(element)
-      return element
-    }
-  }
-  if (!proto.empty) {
-    proto.empty = function () {
-      this.innerHTML = ''
-    }
-  }
-}
+// createEl / empty come from tests/setup/obsidian-dom-globals.ts, which
+// installs them on Node.prototype before any test body runs.
 
 const MockedRoutineManagerModal = RoutineManagerModal as jest.MockedClass<typeof RoutineManagerModal>
 const MockedRecipeManagerModal = RecipeManagerModal as jest.MockedClass<typeof RecipeManagerModal>
@@ -223,7 +195,6 @@ describe('NavigationSectionController', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     document.body.innerHTML = ''
-    ensurePrototypeAugmentations()
     jest.spyOn(console, 'error').mockImplementation(() => {})
     jest.spyOn(console, 'warn').mockImplementation(() => {})
   })
