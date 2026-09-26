@@ -17,7 +17,7 @@ if (typeof globalThis.structuredClone !== "function") {
   let candidate;
   try {
     ({ structuredClone: candidate } = require("node:util"));
-  } catch (error) {
+  } catch {
     candidate = undefined;
   }
 
