@@ -1,4 +1,4 @@
-type StableTimerModule = typeof import('../../src/utils/stableTimer')
+type StableTimerModule = typeof import('@/utils/stableTimer')
 
 type TimerWindowMock = Window & {
   setInterval: jest.Mock<number, [TimerHandler, number?]>
@@ -13,7 +13,7 @@ const setActiveWindow = (win: Window): void => {
 
 const loadStableTimerModule = async (): Promise<StableTimerModule> => {
   jest.resetModules()
-  return import('../../src/utils/stableTimer')
+  return import('@/utils/stableTimer')
 }
 
 const createTimerWindow = (ids: { intervalId?: number; timeoutId?: number } = {}): TimerWindowMock => {

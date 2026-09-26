@@ -5,10 +5,10 @@ import {
   isAiTaskLicensed,
   isAiTaskSettingEnabled,
   type AiTaskAvailabilityHost,
-} from '../../../src/features/ai-task/availability'
+} from '@/features/ai-task/availability'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
-type AvailabilityModule = typeof import('../../../src/features/ai-task/availability')
+type AvailabilityModule = typeof import('@/features/ai-task/availability')
 
 function makeHost(
   overrides: Partial<AiTaskAvailabilityHost> = {},
@@ -45,7 +45,7 @@ describe('evaluateAiTaskAvailability', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: false, isMobile: true },
       }))
-      const mod = require('../../../src/features/ai-task/availability') as AvailabilityModule
+      const mod = require('@/features/ai-task/availability') as AvailabilityModule
       expect(mod.evaluateAiTaskAvailability(makeHost())).toEqual({
         available: false,
         reason: 'not-desktop',
@@ -59,7 +59,7 @@ describe('evaluateAiTaskAvailability', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: undefined,
       }))
-      const mod = require('../../../src/features/ai-task/availability') as AvailabilityModule
+      const mod = require('@/features/ai-task/availability') as AvailabilityModule
       expect(mod.evaluateAiTaskAvailability(makeHost())).toEqual({
         available: false,
         reason: 'not-desktop',

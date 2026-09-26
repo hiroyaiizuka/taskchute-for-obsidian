@@ -1,8 +1,8 @@
 import { TFile } from 'obsidian';
-import { loadTasksRefactored } from '../../src/features/core/helpers';
-import DayStateStoreService from '../../src/services/DayStateStoreService';
-import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
-import { isDeleted as isDeletedEntry } from '../../src/services/dayState/conflictResolver';
+import { loadTasksRefactored } from '@/features/core/helpers';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import { TaskLoaderService } from '@/features/core/services/TaskLoaderService';
+import { isDeleted as isDeletedEntry } from '@/services/dayState/conflictResolver';
 import {
   DayState,
   TaskData,
@@ -10,8 +10,8 @@ import {
   HiddenRoutine,
   DuplicatedInstance,
   DeletedInstance,
-} from '../../src/types';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+} from '@/types';
+import { SectionConfigService } from '@/services/SectionConfigService';
 
 const DEFAULT_ROUTINE_METADATA = {
   isRoutine: true,

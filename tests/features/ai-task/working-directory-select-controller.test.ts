@@ -1,10 +1,10 @@
 import { setIcon } from 'obsidian'
-import { WorkingDirectoryHistory } from '../../../src/features/ai-task/services/WorkingDirectoryHistory'
-import type { ElectronDirectoryPicker } from '../../../src/features/ai-task/services/ElectronDirectoryPicker'
+import { WorkingDirectoryHistory } from '@/features/ai-task/services/WorkingDirectoryHistory'
+import type { ElectronDirectoryPicker } from '@/features/ai-task/services/ElectronDirectoryPicker'
 import {
   WorkingDirectorySelectController,
   type WorkingDirectorySelectLabels,
-} from '../../../src/features/ai-task/ui/WorkingDirectorySelectController'
+} from '@/features/ai-task/ui/WorkingDirectorySelectController'
 
 const labels: WorkingDirectorySelectLabels = {
   browse: 'フォルダを選択',

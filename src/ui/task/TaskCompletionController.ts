@@ -1,10 +1,10 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian'
-import { t } from '../../i18n'
+import { t } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
-import { ProjectNoteSyncService } from '../../features/project/services/ProjectNoteSyncService'
-import type { TaskInstance, PathManagerLike } from '../../types'
-import type { TaskLogEntry } from '../../types/ExecutionLog'
-import { parseTaskLogSnapshot } from '../../utils/executionLogUtils'
+import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
+import type { TaskInstance, PathManagerLike } from '@/types'
+import type { TaskLogEntry } from '@/types/ExecutionLog'
+import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 export interface TaskCompletionControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

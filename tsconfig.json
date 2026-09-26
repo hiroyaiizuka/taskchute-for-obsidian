@@ -7,6 +7,9 @@
     "allowJs": true,
     "noImplicitAny": true,
     "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "importHelpers": true,
     "isolatedModules": true,
     "strictNullChecks": true,

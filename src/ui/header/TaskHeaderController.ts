@@ -4,9 +4,9 @@ import TaskMoveCalendar, {
   TaskMoveCalendarFactory,
   TaskMoveCalendarHandle,
 } from '../components/TaskMoveCalendar'
-import { getCurrentLocale } from '../../i18n'
-import type { TaskChutePluginLike } from '../../types'
-import type { AiTaskBoardView } from '../../features/ai-task/types'
+import { getCurrentLocale } from '@/i18n'
+import type { TaskChutePluginLike } from '@/types'
+import type { AiTaskBoardView } from '@/features/ai-task/types'
 
 export interface TaskHeaderControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

@@ -1,7 +1,7 @@
-import { ClaudeCodeDispatcher } from '../../../../src/features/ai-task/services/dispatchers/ClaudeCodeDispatcher'
-import { STOP_GRACE_MS } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import { TerminalDispatcher } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
-import type { NodeKillSignal } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { ClaudeCodeDispatcher } from '@/features/ai-task/services/dispatchers/ClaudeCodeDispatcher'
+import { STOP_GRACE_MS } from '@/features/ai-task/services/dispatchers/Dispatcher'
+import { TerminalDispatcher } from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
+import type { NodeKillSignal } from '@/features/ai-task/services/NodeProcessGateway'
 import { createSpyGateway } from './dispatcherTestUtils'
 
 type PopoutWindow = Window & {

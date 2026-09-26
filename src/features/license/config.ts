@@ -1,4 +1,4 @@
-import type { LocaleKey } from '../../i18n'
+import type { LocaleKey } from '@/i18n'
 
 /**
  * Build-time constants for the license feature.

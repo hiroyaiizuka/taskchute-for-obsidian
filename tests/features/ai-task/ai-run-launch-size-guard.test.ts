@@ -3,7 +3,7 @@ import {
   AiRunLaunchTooLargeError,
   assertAiRunLaunchSize,
   estimateAiRunLaunchSize,
-} from '../../../src/features/ai-task/services/AiRunLaunchSizeGuard'
+} from '@/features/ai-task/services/AiRunLaunchSizeGuard'
 
 describe('AI run launch-size preflight', () => {
   const base = {

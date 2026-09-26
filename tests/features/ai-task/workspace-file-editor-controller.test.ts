@@ -1,13 +1,13 @@
 import type {
   FileEditorAdapterLike,
   FileEditorOpenOptions,
-} from '../../../src/features/ai-task/ui/FileEditorAdapter'
+} from '@/features/ai-task/ui/FileEditorAdapter'
 import {
   getWorkspaceFileTabIcon,
   WorkspaceFileEditorController,
   type WorkspaceFileDocument,
   type WorkspaceFileEditorHost,
-} from '../../../src/features/ai-task/ui/WorkspaceFileEditorController'
+} from '@/features/ai-task/ui/WorkspaceFileEditorController'
 
 class FakeFileEditorAdapter implements FileEditorAdapterLike {
   document = ''

@@ -1,6 +1,6 @@
 import 'obsidian'
-import type { LocaleKey } from "../../i18n"
-import { getCurrentLocale, t } from "../../i18n"
+import type { LocaleKey } from "@/i18n"
+import { getCurrentLocale, t } from "@/i18n"
 import { applyIcon } from "../icons"
 
 export interface TaskMoveCalendarOptions {

@@ -3,7 +3,7 @@
  * one machine — every vault on it shares a device id — so the label names the
  * machine and nothing else.
  */
-import { formatDeviceLabel } from '../../../src/features/license'
+import { formatDeviceLabel } from '@/features/license'
 
 describe('formatDeviceLabel', () => {
   test('names the machine', () => {

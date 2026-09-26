@@ -1,5 +1,5 @@
 import { App } from 'obsidian'
-import { showDisambiguateStopTimeDateModal } from '../../../src/ui/modals/DisambiguateStopTimeDateModal'
+import { showDisambiguateStopTimeDateModal } from '@/ui/modals/DisambiguateStopTimeDateModal'
 
 jest.mock('obsidian', () => {
   class MockApp {}

@@ -1,7 +1,7 @@
-import { t } from "../../../i18n"
-import { toggle } from "../../controlHandlers"
-import { rerenderTaskLists } from "../../services/viewNotifications"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import { toggle } from "@/settings/controlHandlers"
+import { rerenderTaskLists } from "@/settings/services/viewNotifications"
+import type { SectionModule } from "@/settings/types"
 
 export const timeSlotsSection: SectionModule = {
   items: () => [

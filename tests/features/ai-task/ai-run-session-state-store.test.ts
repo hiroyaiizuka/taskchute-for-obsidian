@@ -8,7 +8,7 @@ import {
   AiRunSessionStateStore,
   type AiRunSessionSnapshot,
   type AiRunSessionTimer,
-} from '../../../src/features/ai-task/services/AiRunSessionStateStore'
+} from '@/features/ai-task/services/AiRunSessionStateStore'
 
 function createSnapshot(overrides: Partial<AiRunSessionSnapshot> = {}): AiRunSessionSnapshot {
   return {

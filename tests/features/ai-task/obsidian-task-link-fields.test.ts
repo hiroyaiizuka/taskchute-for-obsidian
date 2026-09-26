@@ -4,7 +4,7 @@
 
 import { TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { createObsidianTaskLinkFields } from '../../../src/features/ai-task/ui/ObsidianTaskLinkFields'
+import { createObsidianTaskLinkFields } from '@/features/ai-task/ui/ObsidianTaskLinkFields'
 
 jest.mock('obsidian')
 

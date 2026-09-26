@@ -30,7 +30,7 @@
  */
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
-import { stableTimeoutSource } from '../../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
 import type { ProcessLaunchError } from '../NodeProcessGateway'
 import { buildTerminalArgs } from '../TerminalArguments'

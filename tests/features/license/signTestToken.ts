@@ -7,8 +7,8 @@
  */
 import { ed25519 } from '@noble/curves/ed25519'
 
-import { GOLDEN_PUBLIC_KEY } from '../../../src/features/license/token/goldenVector'
-import { TOKEN_KEY_ORDER, TOKEN_PREFIX } from '../../../src/features/license/token/token'
+import { GOLDEN_PUBLIC_KEY } from '@/features/license/token/goldenVector'
+import { TOKEN_KEY_ORDER, TOKEN_PREFIX } from '@/features/license/token/token'
 
 /** The 32-byte sequence 0x00..0x1F, matching GOLDEN_PUBLIC_KEY. */
 const TEST_PRIVATE_KEY = new Uint8Array(32).map((_, index) => index)

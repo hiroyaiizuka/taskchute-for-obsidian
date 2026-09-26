@@ -5,7 +5,7 @@ import {
   LicenseStore,
   type LicenseStorageBridge,
   type SaveTokenInput,
-} from '../../../src/features/license/services/LicenseStore'
+} from '@/features/license/services/LicenseStore'
 
 function createBridge(initial?: unknown): LicenseStorageBridge & { store: Map<string, unknown> } {
   const store = new Map<string, unknown>()

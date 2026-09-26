@@ -1,13 +1,13 @@
 import { normalizePath, TFile } from 'obsidian'
 
-import type { TaskChutePluginLike } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
 import {
   ProjectBoardItem,
   ProjectBoardStatus,
   ProjectFolderUnsetError,
-} from '../../types'
-import { ensureFrontmatterObject } from '../../utils/frontmatter'
-import { listFilesInFolder } from '../../utils/vaultFiles'
+} from '@/types'
+import { ensureFrontmatterObject } from '@/utils/frontmatter'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 
 const DEFAULT_STATUS: ProjectBoardStatus = 'todo'
 

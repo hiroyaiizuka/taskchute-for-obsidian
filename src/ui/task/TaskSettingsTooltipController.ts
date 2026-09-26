@@ -1,6 +1,6 @@
 import 'obsidian'
-import type { TaskInstance } from '../../types'
-import { normalizeReminderTime } from '../../features/reminder/services/ReminderFrontmatterService'
+import type { TaskInstance } from '@/types'
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService'
 
 export interface TaskSettingsTooltipHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

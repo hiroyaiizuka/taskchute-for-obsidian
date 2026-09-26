@@ -9,8 +9,8 @@ import {
   createEmptyTaskLogSnapshot,
   isExecutionLogEntryCompleted,
   minutesFromLogEntries,
-} from '../../src/utils/executionLogUtils'
-import type { TaskLogEntry } from '../../src/types/ExecutionLog'
+} from '@/utils/executionLogUtils'
+import type { TaskLogEntry } from '@/types/ExecutionLog'
 
 describe('parseTaskLogSnapshot', () => {
   describe('basic parsing', () => {

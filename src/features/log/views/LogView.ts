@@ -1,8 +1,8 @@
 import { App, Notice, TFile, WorkspaceLeaf, normalizePath } from 'obsidian'
 
-import { getCurrentLocale, t } from '../../../i18n'
+import { getCurrentLocale, t } from '@/i18n'
 
-import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '../../../types'
+import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '@/types'
 import { HeatmapService } from '../services/HeatmapService'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import { BackupRestoreService } from '../services/BackupRestoreService'

@@ -1,7 +1,7 @@
 import { Notice, Platform } from 'obsidian'
-import type { TaskInstance } from '../../types'
-import { ReminderIconRenderer } from '../../features/reminder/ui/ReminderIconRenderer'
-import { RecipeIconRenderer, type RecipeProgressSummary } from '../../features/recipe/ui/RecipeIconRenderer'
+import type { TaskInstance } from '@/types'
+import { ReminderIconRenderer } from '@/features/reminder/ui/ReminderIconRenderer'
+import { RecipeIconRenderer, type RecipeProgressSummary } from '@/features/recipe/ui/RecipeIconRenderer'
 
 export interface TaskRowControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

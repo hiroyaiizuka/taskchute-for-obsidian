@@ -4,7 +4,7 @@ import {
   buildReasoningArgs,
   CUSTOM_AI_MODEL_VALUE,
   getAvailableReasoningModes,
-} from '../../../src/features/ai-task/config/AiTaskAdvancedOptions'
+} from '@/features/ai-task/config/AiTaskAdvancedOptions'
 
 describe('AI task advanced options', () => {
   test('exposes only verified current model IDs', () => {

@@ -8,7 +8,7 @@
  */
 
 import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
-import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 
 export const AI_RUN_SESSION_STATE_STORAGE_KEY =
   'taskchute-plus.ai-run-session-state.v1'

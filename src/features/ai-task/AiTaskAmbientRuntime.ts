@@ -1,5 +1,5 @@
-import type { TaskChutePluginLike } from '../../types'
-import type { TaskChuteViewController } from '../../app/taskchute/TaskChuteViewController'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskChuteViewController } from '@/app/taskchute/TaskChuteViewController'
 import { isAiTaskFeatureAvailable } from './availability'
 import {
   findAiTaskAmbientCandidates,

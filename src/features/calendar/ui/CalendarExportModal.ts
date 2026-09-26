@@ -2,12 +2,12 @@ import { App, Modal, Notice, Setting } from "obsidian"
 import type {
   GoogleCalendarSettings,
   TaskInstance,
-} from "../../../types"
+} from "@/types"
 import {
   GoogleCalendarService,
   CalendarEventBuildResult,
 } from "../services/GoogleCalendarService"
-import { createModalFooter } from "../../../ui/components/modalFooter"
+import { createModalFooter } from "@/ui/components/modalFooter"
 
 export interface CalendarExportModalOptions {
   app: App

@@ -4,9 +4,9 @@
 import {
   ReminderIconRenderer,
   ReminderIconRendererOptions,
-} from '../../src/features/reminder/ui/ReminderIconRenderer';
-import type { TaskInstance } from '../../src/types';
-import { t } from '../../src/i18n';
+} from '@/features/reminder/ui/ReminderIconRenderer';
+import type { TaskInstance } from '@/types';
+import { t } from '@/i18n';
 
 // Mock Obsidian's createEl and createSvg
 const mockCreateEl = function (

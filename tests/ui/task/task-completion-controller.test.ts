@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian'
-import TaskCompletionController, { TaskCompletionControllerHost } from '../../../src/ui/task/TaskCompletionController'
-import type { TaskInstance } from '../../../src/types'
-import { ProjectNoteSyncService } from '../../../src/features/project/services/ProjectNoteSyncService'
+import TaskCompletionController, { TaskCompletionControllerHost } from '@/ui/task/TaskCompletionController'
+import type { TaskInstance } from '@/types'
+import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -26,7 +26,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/features/project/services/ProjectNoteSyncService', () => {
+jest.mock('@/features/project/services/ProjectNoteSyncService', () => {
   return {
     ProjectNoteSyncService: jest.fn().mockImplementation(() => ({
       getProjectNotePath: jest.fn().mockResolvedValue('Projects/Note.md'),

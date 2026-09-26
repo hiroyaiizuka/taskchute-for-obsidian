@@ -1,6 +1,6 @@
 import { TFile, WorkspaceLeaf, Notice } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import { t } from '../../../i18n'
+import type { TaskChutePluginLike } from '@/types'
+import { t } from '@/i18n'
 
 export class ReviewService {
   private readonly plugin: TaskChutePluginLike;

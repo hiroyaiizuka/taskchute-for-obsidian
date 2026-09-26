@@ -15,17 +15,17 @@
 import { TFile } from 'obsidian'
 import TaskCreationController, {
   TaskCreationControllerHost,
-} from '../../../src/ui/task/TaskCreationController'
+} from '@/ui/task/TaskCreationController'
 import type {
   TaskInstance,
   TaskNameValidator,
   TaskChutePluginLike,
-} from '../../../src/types'
+} from '@/types'
 import type { App } from 'obsidian'
-import { en } from '../../../src/i18n/locales/en'
-import { ja } from '../../../src/i18n/locales/ja'
-import type { Recipe } from '../../../src/features/recipe/types'
-import { createFakeLicenseManager } from '../../features/license/fakeLicenseManager'
+import { en } from '@/i18n/locales/en'
+import { ja } from '@/i18n/locales/ja'
+import type { Recipe } from '@/features/recipe/types'
+import { createFakeLicenseManager } from '@tests/features/license/fakeLicenseManager'
 
 jest.mock('obsidian', () => {
   const Actual = jest.requireActual('obsidian')
@@ -44,7 +44,7 @@ const mockPlatformState = (require('obsidian') as {
   Platform: { isDesktop: boolean; isMobile: boolean }
 }).Platform
 
-jest.mock('../../../src/ui/components/TaskNameAutocomplete', () => ({
+jest.mock('@/ui/components/TaskNameAutocomplete', () => ({
   TaskNameAutocomplete: jest.fn().mockImplementation(() => ({
     initialize: jest.fn().mockResolvedValue(undefined),
     destroy: jest.fn(),

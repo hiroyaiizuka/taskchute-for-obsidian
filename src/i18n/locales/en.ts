@@ -1,4 +1,4 @@
-import { TERMINAL_NAME, DATE_FORMAT_DISPLAY, CLAUDE_CODE_NAME } from "../../constants"
+import { TERMINAL_NAME, DATE_FORMAT_DISPLAY, CLAUDE_CODE_NAME } from "@/constants"
 
 export const en = {
   common: {

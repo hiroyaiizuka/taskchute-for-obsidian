@@ -8,7 +8,7 @@
  * Every message carries its code — the prose is what the user acts on, but the
  * code is what support asks for and what a bug report has to contain.
  */
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 import type { ActivationFailure } from '../services/LicenseManager'
 import type { LicenseApiFailure } from '../services/LicenseApiClient'
 

@@ -1,5 +1,5 @@
-import TaskKeyboardController from '../../../src/ui/task/TaskKeyboardController'
-import type TaskSelectionController from '../../../src/ui/task/TaskSelectionController'
+import TaskKeyboardController from '@/ui/task/TaskKeyboardController'
+import type TaskSelectionController from '@/ui/task/TaskSelectionController'
 
 describe('TaskKeyboardController', () => {
   const createController = () => {

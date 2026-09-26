@@ -15,11 +15,11 @@
  *     the exit-time log snapshot must read the live adapter, and the
  *     transcript fallback is a degraded TUI redraw stream
  */
-import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunChangeType } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunChangeType } from '@/features/ai-task/services/AiTaskManager'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void

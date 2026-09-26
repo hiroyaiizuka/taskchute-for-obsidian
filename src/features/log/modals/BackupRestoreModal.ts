@@ -1,8 +1,8 @@
 import { App, Modal } from 'obsidian'
 import type { BackupEntry, BackupPreview } from '../services/BackupRestoreService'
-import { getCurrentLocale } from '../../../i18n'
-import { applyIcon } from '../../../ui/icons'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { getCurrentLocale } from '@/i18n'
+import { applyIcon } from '@/ui/icons'
+import { createModalFooter } from '@/ui/components/modalFooter'
 
 const JA_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 const EN_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

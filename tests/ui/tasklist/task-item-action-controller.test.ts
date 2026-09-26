@@ -1,7 +1,7 @@
 import TaskItemActionController, {
   type TaskItemActionHost,
-} from '../../../src/ui/tasklist/TaskItemActionController'
-import type { TaskData, TaskInstance } from '../../../src/types'
+} from '@/ui/tasklist/TaskItemActionController'
+import type { TaskData, TaskInstance } from '@/types'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */
 type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {

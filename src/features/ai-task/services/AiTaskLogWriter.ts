@@ -14,7 +14,7 @@
  */
 
 import { TFile } from 'obsidian'
-import { listFilesInFolder } from '../../../utils/vaultFiles'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 import type { AiResultEvent, AiRunRecord, AiStreamEvent } from '../types'
 import { formatAiResultSummary } from './AiResultSummary'
 

@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian'
-import { t } from '../../i18n'
+import { t } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
-import type { TaskChutePluginLike } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
 
 export interface ProjectSettingsModalOptions {
   app: App

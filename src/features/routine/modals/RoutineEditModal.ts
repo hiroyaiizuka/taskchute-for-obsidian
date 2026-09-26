@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile } from 'obsidian'
 
-import { t, getCurrentLocale } from "../../../i18n"
-import { DATE_FORMAT_DISPLAY } from "../../../constants"
+import { t, getCurrentLocale } from "@/i18n"
+import { DATE_FORMAT_DISPLAY } from "@/constants"
 
 import {
   RoutineFrontmatter,
@@ -9,20 +9,20 @@ import {
   RoutineWeek,
   TaskChutePluginLike,
   RoutineType,
-} from "../../../types"
-import { TaskValidator } from "../../core/services/TaskValidator"
+} from "@/types"
+import { TaskValidator } from "@/features/core/services/TaskValidator"
 import {
   getScheduledTime,
   setScheduledTime,
-} from "../../../utils/fieldMigration"
-import { getToday } from "../../../utils/date"
+} from "@/utils/fieldMigration"
+import { getToday } from "@/utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
-import { attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
-import { createModalFooter } from "../../../ui/components/modalFooter"
+import { attachCalendarButtonIcon } from "@/ui/components/iconUtils"
+import { createModalFooter } from "@/ui/components/modalFooter"
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
-} from "../../ai-task/ui/ObsidianTaskLinkFields"
+} from "@/features/ai-task/ui/ObsidianTaskLinkFields"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown

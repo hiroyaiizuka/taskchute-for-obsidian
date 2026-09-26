@@ -1,5 +1,5 @@
 import { Platform } from 'obsidian'
-import type { TaskInstance } from '../../types'
+import type { TaskInstance } from '@/types'
 
 export interface TaskItemActionHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

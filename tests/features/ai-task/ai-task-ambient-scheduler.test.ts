@@ -1,12 +1,12 @@
-import type { AiTaskAmbientCandidate } from '../../../src/features/ai-task/services/AiTaskAmbientCandidateFinder'
+import type { AiTaskAmbientCandidate } from '@/features/ai-task/services/AiTaskAmbientCandidateFinder'
 import {
   AI_TASK_AMBIENT_CHECK_INTERVAL_MS,
   AI_TASK_AMBIENT_FAILURE_BACKOFF_STEPS_MS,
   AiTaskAmbientScheduler,
   type AiTaskAmbientEventTarget,
   type AiTaskAmbientTimerHost,
-} from '../../../src/features/ai-task/services/AiTaskAmbientScheduler'
-import { AiTaskAmbientScheduleStateStore } from '../../../src/features/ai-task/services/AiTaskAmbientScheduleStateStore'
+} from '@/features/ai-task/services/AiTaskAmbientScheduler'
+import { AiTaskAmbientScheduleStateStore } from '@/features/ai-task/services/AiTaskAmbientScheduleStateStore'
 
 const NOW = new Date(2026, 6, 15, 8, 0)
 

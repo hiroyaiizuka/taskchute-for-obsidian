@@ -1,8 +1,8 @@
-import { createCommandRegistrar } from '../../src/commands/registerTaskCommands';
-import type { CommandRegistrar, CommandHost } from '../../src/types/Commands';
+import { createCommandRegistrar } from '@/commands/registerTaskCommands';
+import type { CommandRegistrar, CommandHost } from '@/types/Commands';
 import type { App, Command } from 'obsidian';
-import type { TaskChuteViewController } from '../../src/app/taskchute/TaskChuteViewController';
-import { initializeLocaleManager } from '../../src/i18n';
+import type { TaskChuteViewController } from '@/app/taskchute/TaskChuteViewController';
+import { initializeLocaleManager } from '@/i18n';
 
 describe('CommandRegistrar', () => {
   const viewControllerMock: jest.Mocked<TaskChuteViewController> = {

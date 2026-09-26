@@ -1,5 +1,5 @@
-import TaskListRenderer, { TaskListRendererHost } from '../../../src/ui/tasklist/TaskListRenderer';
-import { TaskData, TaskInstance } from '../../../src/types';
+import TaskListRenderer, { TaskListRendererHost } from '@/ui/tasklist/TaskListRenderer';
+import { TaskData, TaskInstance } from '@/types';
 
 // JSDOM lacks DragEvent; provide a minimal polyfill
 if (typeof globalThis.DragEvent === 'undefined') {

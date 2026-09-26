@@ -1,13 +1,13 @@
 import { App, TAbstractFile, TFile, normalizePath, parseYaml } from 'obsidian'
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import {
   HeatmapDayDetail,
   HeatmapDayStats,
   HeatmapExecutionDetail,
   HeatmapYearData,
-} from '../../../types'
-import { computeExecutionInstanceKey } from '../../../utils/logKeys'
+} from '@/types'
+import { computeExecutionInstanceKey } from '@/utils/logKeys'
 
 type NormalizedSummary = { totalTasks: number; completedTasks: number }
 type DailySummaryMap = Record<string, NormalizedSummary>

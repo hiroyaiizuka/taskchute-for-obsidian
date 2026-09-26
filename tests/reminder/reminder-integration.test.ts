@@ -2,11 +2,11 @@
  * Tests for reminder system integration with plugin lifecycle.
  */
 
-import { ReminderSystemManager } from '../../src/features/reminder/services/ReminderSystemManager';
-import { EditDetector } from '../../src/features/reminder/services/EditDetector';
-import { ReminderService } from '../../src/features/reminder/services/ReminderService';
-import { NotificationService } from '../../src/features/reminder/services/NotificationService';
-import type { TaskChuteSettings } from '../../src/types';
+import { ReminderSystemManager } from '@/features/reminder/services/ReminderSystemManager';
+import { EditDetector } from '@/features/reminder/services/EditDetector';
+import { ReminderService } from '@/features/reminder/services/ReminderService';
+import { NotificationService } from '@/features/reminder/services/NotificationService';
+import type { TaskChuteSettings } from '@/types';
 import type { App } from 'obsidian';
 
 type IntervalTimerSource = {

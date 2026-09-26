@@ -7,10 +7,10 @@
  *   - the pane opens on the started run
  */
 import { TFile, WorkspaceLeaf } from 'obsidian'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
-import type { AiRunStartOptions } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
+import { TaskChuteView } from '@/features/core/views/TaskChuteView'
+import type { AiRunRecord } from '@/features/ai-task/types'
+import type { AiRunStartOptions } from '@/features/ai-task/services/AiTaskManager'
+import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
 const TASK_PATH = 'TASKS/ai-task.md'
 

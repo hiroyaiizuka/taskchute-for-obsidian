@@ -1,6 +1,6 @@
-import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
+import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunRecord, AiStreamEvent } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord) => void
 

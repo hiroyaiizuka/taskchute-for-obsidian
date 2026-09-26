@@ -1,22 +1,22 @@
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView';
+import { TaskChuteView } from '@/features/core/views/TaskChuteView';
 import {
   DayState,
   HiddenRoutine,
   TaskChutePluginLike,
   TaskData,
   TaskInstance,
-} from '../../../src/types';
+} from '@/types';
 import { WorkspaceLeaf, TFile } from 'obsidian';
-import DayStateStoreService from '../../../src/services/DayStateStoreService';
-import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal';
-import { ReviewService } from '../../../src/features/review/services/ReviewService';
-import { LogView } from '../../../src/features/log/views/LogView';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import RoutineManagerModal from '@/features/routine/modals/RoutineManagerModal';
+import { ReviewService } from '@/features/review/services/ReviewService';
+import { LogView } from '@/features/log/views/LogView';
 import {
   createExecutionLogContext,
   createNonRoutineLoadContext,
   createRoutineLoadContext,
-} from '../../utils/taskViewTestUtils';
-import { HeatmapService } from '../../../src/features/log/services/HeatmapService';
+} from '@tests/utils/taskViewTestUtils';
+import { HeatmapService } from '@/features/log/services/HeatmapService';
 // This suite automocks obsidian, but `Modal` has to keep its real behaviour:
 // the log dialog is a Modal now, and an automocked `open()` would never run
 // `onOpen`, so nothing would render. Everything else stays automocked.
@@ -24,7 +24,7 @@ jest.mock('obsidian', () => ({
   ...jest.createMockFromModule<Record<string, unknown>>('obsidian'),
   Modal: jest.requireActual('obsidian').Modal,
 }));
-jest.mock('../../../src/features/log/services/HeatmapService', () => {
+jest.mock('@/features/log/services/HeatmapService', () => {
   const updateDailyStats = jest.fn().mockResolvedValue(undefined);
   return {
     HeatmapService: jest.fn().mockImplementation(() => ({
@@ -32,8 +32,8 @@ jest.mock('../../../src/features/log/services/HeatmapService', () => {
     })),
   };
 });
-jest.mock('../../../src/features/routine/modals/RoutineManagerModal');
-jest.mock('../../../src/features/review/services/ReviewService', () => {
+jest.mock('@/features/routine/modals/RoutineManagerModal');
+jest.mock('@/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
   return {
@@ -43,7 +43,7 @@ jest.mock('../../../src/features/review/services/ReviewService', () => {
     })),
   }
 })
-jest.mock('../../../src/features/log/views/LogView', () => {
+jest.mock('@/features/log/views/LogView', () => {
   return {
     LogView: jest.fn().mockImplementation(() => ({
       render: jest.fn(),

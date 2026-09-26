@@ -1,6 +1,6 @@
-import { initializeLocaleManager } from '../../src/i18n'
-import { LogView } from '../../src/features/log/views/LogView'
-import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '../../src/types'
+import { initializeLocaleManager } from '@/i18n'
+import { LogView } from '@/features/log/views/LogView'
+import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '@/types'
 
 type TestVault = {
   getAbstractFileByPath: jest.Mock

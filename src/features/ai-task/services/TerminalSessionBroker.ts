@@ -21,7 +21,7 @@ import {
   sleepWithStableTimer,
   stableTimeoutSource,
   type StableTimeoutId,
-} from '../../../utils/stableTimer'
+} from '@/utils/stableTimer'
 
 export { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
 

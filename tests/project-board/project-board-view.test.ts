@@ -1,9 +1,9 @@
 import { WorkspaceLeaf, TFile } from 'obsidian'
 
-import ProjectBoardView from '../../src/ui/project/ProjectBoardView'
-import type { TaskChutePluginLike, ProjectBoardItem } from '../../src/types'
-import type { ProjectBoardService } from '../../src/services/projects'
-import { ProjectBoardStatus } from '../../src/types'
+import ProjectBoardView from '@/ui/project/ProjectBoardView'
+import type { TaskChutePluginLike, ProjectBoardItem } from '@/types'
+import type { ProjectBoardService } from '@/services/projects'
+import { ProjectBoardStatus } from '@/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

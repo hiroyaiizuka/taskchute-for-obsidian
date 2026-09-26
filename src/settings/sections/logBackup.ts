@@ -1,4 +1,4 @@
-import { t } from "../../i18n"
+import { t } from "@/i18n"
 import { DEFAULT_SETTINGS } from "../defaults"
 import { clampedNumber } from "../controlHandlers"
 import type { SectionModule } from "../types"

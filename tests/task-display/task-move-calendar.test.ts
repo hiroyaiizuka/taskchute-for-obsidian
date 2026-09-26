@@ -1,4 +1,4 @@
-import TaskMoveCalendar from "../../src/ui/components/TaskMoveCalendar"
+import TaskMoveCalendar from "@/ui/components/TaskMoveCalendar"
 
 interface CreateElOptions {
   cls?: string;

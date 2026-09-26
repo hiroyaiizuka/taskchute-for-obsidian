@@ -1,5 +1,5 @@
-import DayStateStoreService from '../../../services/DayStateStoreService';
-import { DayState, TaskInstance } from '../../../types';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import { DayState, TaskInstance } from '@/types';
 
 export interface TaskOrderManagerOptions {
   dayStateManager: DayStateStoreService;

@@ -1,5 +1,5 @@
-import NavigationController from '../../src/ui/navigation/NavigationController';
-import { t } from '../../src/i18n';
+import NavigationController from '@/ui/navigation/NavigationController';
+import { t } from '@/i18n';
 
 type NavigationViewStub = {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string;

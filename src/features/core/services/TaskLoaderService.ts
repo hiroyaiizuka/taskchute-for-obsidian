@@ -1,8 +1,8 @@
 import { Notice, TFile, TAbstractFile } from 'obsidian'
 import type { App, CachedMetadata } from 'obsidian'
-import RoutineService from '../../routine/services/RoutineService'
-import { getScheduledTime } from '../../../utils/fieldMigration'
-import { normalizeReminderTime } from '../../reminder/services/ReminderFrontmatterService'
+import RoutineService from '@/features/routine/services/RoutineService'
+import { getScheduledTime } from '@/utils/fieldMigration'
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService'
 import {
   DayState,
   DeletedInstance,
@@ -11,18 +11,18 @@ import {
   RoutineFrontmatter,
   TaskData,
   TaskInstance,
-} from '../../../types'
-import type { RoutineWeek, RoutineMonthday } from '../../../types/TaskFields'
-import DayStateStoreService from '../../../services/DayStateStoreService'
-import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '../../../services/dayState/conflictResolver'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
-import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
-import { t } from '../../../i18n'
-import { listFilesInFolder } from '../../../utils/vaultFiles'
-import { resolveTaskDisplayTitle } from '../../../utils/taskDisplayTitle'
-import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
-import { readObsidianTaskLinkConfig } from '../../ai-task/services/ObsidianTaskLinkConfig'
+} from '@/types'
+import type { RoutineWeek, RoutineMonthday } from '@/types/TaskFields'
+import DayStateStoreService from '@/services/DayStateStoreService'
+import { extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from '@/services/dayState/conflictResolver'
+import type { SectionConfigService } from '@/services/SectionConfigService'
+import { normalizeRecipeReference } from '@/features/recipe/services/RecipeService'
+import { t } from '@/i18n'
+import { listFilesInFolder } from '@/utils/vaultFiles'
+import { resolveTaskDisplayTitle } from '@/utils/taskDisplayTitle'
+import { readAiTaskConfig } from '@/features/ai-task/services/AiTaskFrontmatterReader'
+import { readObsidianTaskLinkConfig } from '@/features/ai-task/services/ObsidianTaskLinkConfig'
 
 interface TaskFrontmatterWithLegacy extends RoutineFrontmatter {
   estimatedMinutes?: number

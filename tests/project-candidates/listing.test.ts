@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
-import type { TaskChutePluginLike, TaskChuteSettings } from '../../src/types'
-import ProjectController from '../../src/ui/project/ProjectController'
+import type { TaskChutePluginLike, TaskChuteSettings } from '@/types'
+import ProjectController from '@/ui/project/ProjectController'
 
 function createFile(path: string): TFile {
   const file = new TFile()

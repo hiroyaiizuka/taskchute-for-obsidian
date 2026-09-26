@@ -7,8 +7,8 @@
  * 3. onTaskComplete is called when a task is completed
  */
 
-import { ReminderSystemManager } from '../../src/features/reminder/services/ReminderSystemManager';
-import type { TaskChuteSettings } from '../../src/types';
+import { ReminderSystemManager } from '@/features/reminder/services/ReminderSystemManager';
+import type { TaskChuteSettings } from '@/types';
 import type { App } from 'obsidian';
 
 // Mock createEl for testing

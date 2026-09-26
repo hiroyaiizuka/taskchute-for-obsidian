@@ -3,8 +3,8 @@
  * reuses across renders, so tearing it down has to leave that container as it
  * was found. A view that only stops writing would pile one dead list per pass.
  */
-import { DeviceListView } from '../../../src/features/license/ui/DeviceListView'
-import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
+import { DeviceListView } from '@/features/license/ui/DeviceListView'
+import type { LicenseManager } from '@/features/license/services/LicenseManager'
 
 function fakeManager(overrides: Record<string, unknown> = {}): LicenseManager {
   return {

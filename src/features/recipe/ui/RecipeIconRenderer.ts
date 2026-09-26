@@ -1,4 +1,4 @@
-import type { TaskInstance } from '../../../types'
+import type { TaskInstance } from '@/types'
 import { appendRecipeFileIcon } from './RecipeFileIcon'
 
 export interface RecipeProgressSummary {

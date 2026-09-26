@@ -1,20 +1,20 @@
 import { Notice } from "obsidian"
 import type { Setting, SettingDefinition, SettingDefinitionRender } from "obsidian"
-import { t } from "../../../i18n"
-import { ElectronDirectoryPicker } from "../../../features/ai-task/services/ElectronDirectoryPicker"
-import { isTerminalModeSupportedHere } from "../../../features/ai-task/services/ptyPlatform"
-import type { TaskChuteSettings } from "../../../types"
-import { DEFAULT_SETTINGS } from "../../defaults"
-import { clampedNumber, choice } from "../../controlHandlers"
+import { t } from "@/i18n"
+import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
+import { isTerminalModeSupportedHere } from "@/features/ai-task/services/ptyPlatform"
+import type { TaskChuteSettings } from "@/types"
+import { DEFAULT_SETTINGS } from "@/settings/defaults"
+import { clampedNumber, choice } from "@/settings/controlHandlers"
 import {
   AiTaskToggleGuard,
   handleAiTaskEnabledToggle,
-} from "../../services/aiTaskLifecycle"
+} from "@/settings/services/aiTaskLifecycle"
 import type {
   AnyControlHandler,
   SectionContext,
   SectionModule,
-} from "../../types"
+} from "@/settings/types"
 
 type AiTaskRunMode = NonNullable<TaskChuteSettings["aiTaskRunMode"]>
 

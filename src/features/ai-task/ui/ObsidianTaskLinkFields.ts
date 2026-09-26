@@ -3,9 +3,9 @@ import type { App } from 'obsidian'
 import type {
   ObsidianTaskLinkConfig,
   ObsidianTaskMatchType,
-} from '../../../types/TaskFields'
-import { resolveTaskDisplayTitle } from '../../../utils/taskDisplayTitle'
-import { listFilesInFolder } from '../../../utils/vaultFiles'
+} from '@/types/TaskFields'
+import { resolveTaskDisplayTitle } from '@/utils/taskDisplayTitle'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 
 export interface ObsidianTaskLinkFieldsOptions {
   parent: HTMLElement

@@ -1,7 +1,7 @@
-import { t } from "../../../i18n"
-import { toggle } from "../../controlHandlers"
-import { notifyRecipeFeatureSettingsChanged } from "../../services/viewNotifications"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import { toggle } from "@/settings/controlHandlers"
+import { notifyRecipeFeatureSettingsChanged } from "@/settings/services/viewNotifications"
+import type { SectionModule } from "@/settings/types"
 
 export const recipeSection: SectionModule = {
   items: () => [

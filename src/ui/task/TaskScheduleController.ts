@@ -4,7 +4,7 @@ import TaskMoveCalendar, {
   TaskMoveCalendarHandle,
   TaskMoveCalendarOptions,
 } from '../components/TaskMoveCalendar'
-import type { TaskInstance, TaskData } from '../../types'
+import type { TaskInstance, TaskData } from '@/types'
 
 export interface TaskScheduleControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

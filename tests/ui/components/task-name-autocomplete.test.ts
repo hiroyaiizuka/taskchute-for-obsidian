@@ -1,4 +1,4 @@
-import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
+import { TaskNameAutocomplete } from '@/ui/components/TaskNameAutocomplete'
 
 
 describe('TaskNameAutocomplete popout scroll handling', () => {

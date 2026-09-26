@@ -1,28 +1,28 @@
 import * as path from 'path'
-import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 import type {
   PtyCommand,
   PtyCommandRequest,
-} from '../../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/NodeProcessGateway'
 import {
   TerminalDispatcher,
   buildTerminalEnv,
-} from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 import {
   FISH_TERMINAL_BOOTSTRAP,
   POSIX_TERMINAL_BOOTSTRAP,
   TERMINAL_ARGV_BOOTSTRAP_ARG_ZERO,
   buildTerminalShellLaunch,
-} from '../../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
+} from '@/features/ai-task/services/dispatchers/TerminalShellBootstrap'
 import type {
   TerminalRunHandle,
   TerminalRunRequest,
-} from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
-import type { AiRunExitOutcome } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
+import type { AiRunExitOutcome } from '@/features/ai-task/services/dispatchers/Dispatcher'
 import {
   encodeConPtyInputFrame,
   encodeConPtyResizeFrame,
-} from '../../../../src/features/ai-task/services/windows/ConPtyControlFrames'
+} from '@/features/ai-task/services/windows/ConPtyControlFrames'
 import {
   FIXTURES_DIR,
   createRecordingGraceTimer,

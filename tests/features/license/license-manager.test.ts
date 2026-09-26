@@ -3,9 +3,9 @@
  * keeps working: a failed request must never revoke access, and a refused one
  * must never be mistaken for a failed one.
  */
-import { GOLDEN_PUBLIC_KEY } from '../../../src/features/license/token/goldenVector'
+import { GOLDEN_PUBLIC_KEY } from '@/features/license/token/goldenVector'
 
-jest.mock('../../../src/features/license/config', () => ({
+jest.mock('@/features/license/config', () => ({
   ...jest.requireActual<Record<string, unknown>>('../../../src/features/license/config'),
   LICENSE_PUBLIC_KEY: GOLDEN_PUBLIC_KEY,
 }))
@@ -14,9 +14,9 @@ import type {
   IssueTokenResponse,
   LicenseApiClient,
   LicenseApiResult,
-} from '../../../src/features/license/services/LicenseApiClient'
-import { LicenseManager } from '../../../src/features/license/services/LicenseManager'
-import { LicenseStore, type LicenseStorageBridge } from '../../../src/features/license/services/LicenseStore'
+} from '@/features/license/services/LicenseApiClient'
+import { LicenseManager } from '@/features/license/services/LicenseManager'
+import { LicenseStore, type LicenseStorageBridge } from '@/features/license/services/LicenseStore'
 import { signTestToken } from './signTestToken'
 
 const NOW = 1_787_000_000
