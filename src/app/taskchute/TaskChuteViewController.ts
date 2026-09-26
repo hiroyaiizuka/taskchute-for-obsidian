@@ -253,16 +253,4 @@ export class TaskChuteViewController {
     }
     view.reorganizeIdleTasks();
   }
-
-  applyLocaleToActiveView(): void {
-    const view = this.getView();
-    const viewWithLocale = view as TaskChuteView & { applyLocale?: () => void };
-    if (viewWithLocale && typeof viewWithLocale.applyLocale === "function") {
-      try {
-        viewWithLocale.applyLocale();
-      } catch (error) {
-        console.warn("Failed to apply locale to TaskChuteView", error);
-      }
-    }
-  }
 }

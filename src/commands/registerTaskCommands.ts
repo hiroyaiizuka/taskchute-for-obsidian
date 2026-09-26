@@ -22,8 +22,6 @@ function isConditional(def: AnyCommandDefinition): def is ConditionalCommandDefi
 }
 
 class CommandRegistrarImpl implements CommandRegistrar {
-  private readonly allCommands: AnyCommandDefinition[] = [];
-
   constructor(
     private readonly host: CommandHost,
     private readonly view: ViewActions,
@@ -107,18 +105,6 @@ class CommandRegistrarImpl implements CommandRegistrar {
     definitions.forEach((definition) => this.registerLocalizedCommand(definition));
   }
 
-  relocalize(): void {
-    const baseId = this.host.manifest.id;
-    for (const def of this.allCommands) {
-      try {
-        this.host.app.commands.removeCommand(`${baseId}:${def.id}`);
-      } catch (error) {
-        console.warn("Failed to remove command for relocalization", error);
-      }
-      this.registerLocalizedCommand(def);
-    }
-  }
-
   private hasOwnBlockingModal(): boolean {
     // Every dialog is an Obsidian `Modal` now, so `.modal` covers them all —
     // including the comment, log and AI ones that the old overlay-class check
@@ -140,9 +126,6 @@ class CommandRegistrarImpl implements CommandRegistrar {
   }
 
   private registerLocalizedCommand(definition: AnyCommandDefinition): void {
-    if (!this.allCommands.includes(definition)) {
-      this.allCommands.push(definition);
-    }
     if (isConditional(definition)) {
       this.host.addCommand({
         id: definition.id,

@@ -4,7 +4,8 @@ import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
 import { ProUnlockState, isProSectionVisible } from '../../src/settings/proUnlockState'
 import { versionSection } from '../../src/settings/sections/version'
 import type { SectionContext } from '../../src/settings/types'
-import { initializeLocaleManager, setLocaleOverride, t } from '../../src/i18n'
+import { t } from '../../src/i18n'
+import { setObsidianLanguage } from '../utils/locale'
 import { findByName } from './definitionHelpers'
 
 function createContext(version: string): SectionContext & {
@@ -29,11 +30,11 @@ function createContext(version: string): SectionContext & {
 
 describe('TaskChute settings version display', () => {
   beforeAll(() => {
-    initializeLocaleManager('en')
+    setObsidianLanguage('en')
   })
 
   afterEach(() => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     jest.clearAllMocks()
   })
 
@@ -46,7 +47,7 @@ describe('TaskChute settings version display', () => {
   })
 
   test('uses the localized label', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const ctx = createContext('1.7.11')
 
     const items = versionSection(new ProUnlockState()).items(ctx)

@@ -1,20 +1,17 @@
-import {
-  initializeLocaleManager,
-  setLocaleOverride,
-  t,
-} from "../../src/i18n"
+import { t } from "../../src/i18n"
+import { setObsidianLanguage } from "../utils/locale"
 
 describe("calendar export i18n", () => {
   beforeAll(() => {
-    initializeLocaleManager("en")
+    setObsidianLanguage("en")
   })
 
   afterEach(() => {
-    setLocaleOverride("en")
+    setObsidianLanguage("en")
   })
 
   it("returns English strings for calendar export", () => {
-    setLocaleOverride("en")
+    setObsidianLanguage("en")
     expect(t("taskChuteView.calendar.export.title")).toBe(
       "Register to Google Calendar",
     )
@@ -24,7 +21,7 @@ describe("calendar export i18n", () => {
   })
 
   it("returns Japanese strings for calendar export", () => {
-    setLocaleOverride("ja")
+    setObsidianLanguage("ja")
     expect(t("taskChuteView.calendar.export.title")).toBe(
       "Googleカレンダーに登録",
     )
@@ -34,7 +31,7 @@ describe("calendar export i18n", () => {
   })
 
   it("returns English strings for task view recipe actions", () => {
-    setLocaleOverride("en")
+    setObsidianLanguage("en")
 
     expect(t("taskChuteView.buttons.setRecipe", "fallback")).toBe("🍽 Set recipe")
     expect(t("taskChuteView.buttons.changeRecipe", "fallback")).toBe("🍽 Change recipe")
@@ -45,11 +42,11 @@ describe("calendar export i18n", () => {
   })
 
   it("returns localized strings for recipe settings", () => {
-    setLocaleOverride("en")
+    setObsidianLanguage("en")
     expect(t("settings.recipe.heading", "fallback")).toBe("Recipes")
     expect(t("settings.recipe.enable", "fallback")).toBe("Enable recipe feature")
 
-    setLocaleOverride("ja")
+    setObsidianLanguage("ja")
     expect(t("settings.recipe.heading", "fallback")).toBe("レシピ")
     expect(t("settings.recipe.enable", "fallback")).toBe("レシピ機能を有効化")
   })

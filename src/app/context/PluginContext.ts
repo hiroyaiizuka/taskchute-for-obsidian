@@ -8,11 +8,7 @@ import type { ReminderSystemManager } from "../../features/reminder/services/Rem
 import type { AiTaskManager } from "../../features/ai-task/services/AiTaskManager";
 
 export interface RibbonController {
-  updateLabel(): void;
-}
-
-export interface LocaleCoordinatorHandle {
-  dispose(): void;
+  initialize(): void;
 }
 
 export interface PluginContext {
@@ -22,7 +18,6 @@ export interface PluginContext {
   viewController: TaskChuteViewController;
   commandRegistrar: CommandRegistrar;
   ribbonManager: RibbonController;
-  localeCoordinator: LocaleCoordinatorHandle;
   reminderManager?: ReminderSystemManager;
   /** Present only when the AI task feature is enabled on desktop */
   aiTaskManager?: AiTaskManager;

@@ -5,7 +5,7 @@ import { LogSnapshotWriter } from '../../src/features/log/services/LogSnapshotWr
 import { LogReconciler } from '../../src/features/log/services/LogReconciler'
 import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
 import { RecordsWriter } from '../../src/features/log/services/RecordsWriter'
-import { initializeLocaleManager, setLocaleOverride } from '../../src/i18n'
+import { setObsidianLanguage } from '../utils/locale'
 
 interface FolderNode extends TFolder {
   children: Array<TFolder | TFile>
@@ -867,8 +867,7 @@ describe('BackupRestoreService', () => {
 
   describe('formatRelativeTime', () => {
     beforeEach(() => {
-      initializeLocaleManager('en')
-      setLocaleOverride('en')
+      setObsidianLanguage('en')
     })
 
     test('formats hours correctly', () => {
@@ -896,7 +895,7 @@ describe('BackupRestoreService', () => {
     test('uses logView.restore translation keys for ja locale', () => {
       const { plugin } = createRestoreContext()
       const service = new BackupRestoreService(plugin)
-      setLocaleOverride('ja')
+      setObsidianLanguage('ja')
 
       const now = new Date('2026-03-18T12:00:00.000Z')
       const twoHoursAgo = new Date('2026-03-18T10:00:00.000Z')

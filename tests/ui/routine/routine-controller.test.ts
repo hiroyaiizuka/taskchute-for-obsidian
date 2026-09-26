@@ -5,7 +5,8 @@ import RoutineController, {
 } from '../../../src/features/routine/controllers/RoutineController'
 import type { RoutineTaskShape } from '../../../src/types/routine'
 import type { TaskChutePluginLike } from '../../../src/types'
-import { initializeLocaleManager, setLocaleOverride, t } from '../../../src/i18n'
+import { t } from '../../../src/i18n'
+import { setObsidianLanguage } from '../../utils/locale'
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -93,8 +94,7 @@ describe('RoutineController', () => {
   })
 
   beforeEach(() => {
-    initializeLocaleManager('en')
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     noticeMock.mockClear()
     document.body.innerHTML = ''
   })
@@ -314,7 +314,7 @@ describe('RoutineController', () => {
   })
 
   it('uses en-US locale for native date inputs when locale is English', () => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -329,7 +329,7 @@ describe('RoutineController', () => {
   })
 
   it('uses ja-JP locale for native date inputs when locale is Japanese', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -344,7 +344,7 @@ describe('RoutineController', () => {
   })
 
   it('shows English end-date placeholder when locale is English', () => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -358,7 +358,7 @@ describe('RoutineController', () => {
   })
 
   it('shows Japanese end-date placeholder when locale is Japanese', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
