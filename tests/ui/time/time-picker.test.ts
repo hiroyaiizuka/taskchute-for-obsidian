@@ -15,8 +15,8 @@ jest.mock('obsidian', () => ({
   }),
 }))
 
-import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
-import { MobileTimePicker } from '../../../src/ui/time/MobileTimePicker'
+import TimeEditPopup from '@/ui/time/TimeEditPopup'
+import { MobileTimePicker } from '@/ui/time/MobileTimePicker'
 
 describe('TimeEditPopup', () => {
   let popup: TimeEditPopup

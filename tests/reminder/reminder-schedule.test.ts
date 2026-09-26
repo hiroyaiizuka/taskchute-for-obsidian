@@ -5,7 +5,7 @@ import {
   ReminderSchedule,
   ReminderScheduleManager,
   calculateReminderTime,
-} from '../../src/features/reminder/services/ReminderScheduleManager';
+} from '@/features/reminder/services/ReminderScheduleManager';
 
 describe('ReminderScheduleManager', () => {
   describe('calculateReminderTime', () => {

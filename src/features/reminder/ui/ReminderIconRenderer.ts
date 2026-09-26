@@ -7,7 +7,7 @@ import 'obsidian'
  * Clicking the icon opens the ReminderSettingsModal.
  */
 
-import type { TaskInstance } from '../../../types';
+import type { TaskInstance } from '@/types';
 import { normalizeReminderTime } from '../services/ReminderFrontmatterService';
 
 export interface ReminderIconRendererOptions {

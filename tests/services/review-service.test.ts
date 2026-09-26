@@ -1,5 +1,5 @@
-import { ReviewService } from '../../src/features/review/services/ReviewService'
-import type { TaskChutePluginLike } from '../../src/types'
+import { ReviewService } from '@/features/review/services/ReviewService'
+import type { TaskChutePluginLike } from '@/types'
 import type { TFile, WorkspaceLeaf } from 'obsidian'
 
 const { TFile: TFileMock } = jest.requireMock('obsidian')

@@ -1,5 +1,5 @@
 import { Notice, Platform } from 'obsidian'
-import type { RecipeProgressEntry, TaskInstance } from '../../../types'
+import type { RecipeProgressEntry, TaskInstance } from '@/types'
 import {
   Recipe,
   RecipeQualityCheck,
@@ -7,7 +7,7 @@ import {
   RecipeStep,
   createRecipeProgressKeyForInstance,
 } from '../services/RecipeService'
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 import RecipeReorderPointerDrag, { appendRecipeDragHandleIcon } from './RecipeReorderPointerDrag'
 
 let recipeRunPopoverId = 0

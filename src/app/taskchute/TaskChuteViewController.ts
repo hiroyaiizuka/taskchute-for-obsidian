@@ -1,14 +1,14 @@
 import { Notice } from 'obsidian'
 ;
 
-import { t } from "../../i18n";
-import { VIEW_TYPE_TASKCHUTE } from "../../types";
+import { t } from "@/i18n";
+import { VIEW_TYPE_TASKCHUTE } from "@/types";
 
-import type { TaskChutePluginLike } from "../../types";
+import type { TaskChutePluginLike } from "@/types";
 import type {
   AmbientAiTaskStartedRun,
   TaskChuteView,
-} from "../../features/core/views/TaskChuteView";
+} from "@/features/core/views/TaskChuteView";
 
 export interface TaskChuteBackgroundViewSession {
   view: TaskChuteView

@@ -1,6 +1,6 @@
 import { Notice, TFile } from 'obsidian'
-import { TaskReuseService } from '../../src/features/core/services/TaskReuseService'
-import type { TaskChutePluginLike } from '../../src/types'
+import { TaskReuseService } from '@/features/core/services/TaskReuseService'
+import type { TaskChutePluginLike } from '@/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

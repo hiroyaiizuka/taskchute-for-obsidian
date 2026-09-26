@@ -1,8 +1,8 @@
-import { createAiTaskManager, type AiTaskPluginLike } from '../../../src/features/ai-task'
-import type { TaskChuteSettings } from '../../../src/types'
+import { createAiTaskManager, type AiTaskPluginLike } from '@/features/ai-task'
+import type { TaskChuteSettings } from '@/types'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
-type FactoryModule = typeof import('../../../src/features/ai-task')
+type FactoryModule = typeof import('@/features/ai-task')
 
 function makePlugin(settings: Partial<TaskChuteSettings> = {}): AiTaskPluginLike {
   return {
@@ -48,7 +48,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: undefined,
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       expect(mod.createAiTaskManager(makePlugin({ aiTaskEnabled: true }))).toBeUndefined()
     })
   })
@@ -59,7 +59,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: false, isMobile: true },
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       expect(mod.createAiTaskManager(makePlugin())).toBeUndefined()
     })
   })
@@ -70,7 +70,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       ;(plugin as { licenseManager?: unknown }).licenseManager = createFakeLicenseManager(false)
       expect(mod.createAiTaskManager(plugin)).toBeUndefined()
@@ -83,7 +83,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       delete (plugin as { licenseManager?: unknown }).licenseManager
       // Fails closed: a bootstrap failure must not hand out the paid feature.
@@ -97,7 +97,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       const manager = mod.createAiTaskManager(makePlugin())
       expect(manager).toBeDefined()
       expect(typeof manager?.startRun).toBe('function')
@@ -115,7 +115,7 @@ describe('createAiTaskManager gating', () => {
         Platform: { isDesktop: true, isMobile: false },
       }))
       jest.doMock(
-        '../../../src/features/ai-task/services/TerminalSessionBroker',
+        '@/features/ai-task/services/TerminalSessionBroker',
         () => ({
           TerminalSessionBrokerClient: class {
             constructor(options: Record<string, unknown>) {
@@ -139,10 +139,10 @@ describe('createAiTaskManager gating', () => {
           },
         }),
       )
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       const runtimeLease = require(
-        '../../../src/features/ai-task/services/AiTaskRuntimeLease'
-      ) as typeof import('../../../src/features/ai-task/services/AiTaskRuntimeLease')
+        '@/features/ai-task/services/AiTaskRuntimeLease'
+      ) as typeof import('@/features/ai-task/services/AiTaskRuntimeLease')
       const plugin = makePlugin()
       let persistedGeneration: unknown = 41
       ;(plugin.app.vault as unknown as Record<string, unknown>)['adapter'] = {
@@ -196,7 +196,7 @@ describe('createAiTaskManager gating', () => {
         ...jest.requireActual<Record<string, unknown>>('obsidian'),
         Platform: { isDesktop: true, isMobile: false },
       }))
-      const mod = require('../../../src/features/ai-task') as FactoryModule
+      const mod = require('@/features/ai-task') as FactoryModule
       const plugin = makePlugin()
       delete (plugin.pathManager as Record<string, unknown>)['getAiLogsPath']
       expect(mod.createAiTaskManager(plugin)).toBeUndefined()

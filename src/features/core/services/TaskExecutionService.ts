@@ -1,7 +1,7 @@
 import { Notice, App, TFile } from 'obsidian'
-import { HeatmapService } from '../../log/services/HeatmapService'
-import type { TaskInstance, TaskChutePluginLike } from '../../../types'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
+import { HeatmapService } from '@/features/log/services/HeatmapService'
+import type { TaskInstance, TaskChutePluginLike } from '@/types'
+import type { SectionConfigService } from '@/services/SectionConfigService'
 
 export interface CrossDayStartPayload {
   instance: TaskInstance

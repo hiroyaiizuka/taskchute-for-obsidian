@@ -1,9 +1,9 @@
 import { WorkspaceLeaf, TFile } from 'obsidian'
 
-import ProjectBoardView from '../../src/ui/project/ProjectBoardView'
-import type { TaskChutePluginLike, ProjectBoardItem } from '../../src/types'
-import type { ProjectBoardService } from '../../src/services/projects'
-import { ProjectBoardStatus } from '../../src/types'
+import ProjectBoardView from '@/ui/project/ProjectBoardView'
+import type { TaskChutePluginLike, ProjectBoardItem } from '@/types'
+import type { ProjectBoardService } from '@/services/projects'
+import { ProjectBoardStatus } from '@/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')
@@ -110,7 +110,10 @@ describe('ProjectBoardView', () => {
       attachCreateEl(node)
       this.appendChild(node)
       return node
-    }) as unknown as HTMLElement['createEl']
+      // Cast to the property being assigned, not to HTMLElement['createEl']:
+      // `typed.createEl` is the intersection of obsidian's generic overload and
+      // the string-tag stub above, and only the intersection accepts both.
+    }) as unknown as typeof typed.createEl
     typed.addClass = function (this: HTMLElement, cls: string) {
       this.classList.add(cls)
     }

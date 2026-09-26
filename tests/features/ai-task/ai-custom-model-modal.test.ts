@@ -1,9 +1,9 @@
 import { setIcon } from 'obsidian'
-import { AiCustomModelStore } from '../../../src/features/ai-task/models/AiCustomModelStore'
+import { AiCustomModelStore } from '@/features/ai-task/models/AiCustomModelStore'
 import {
   AiCustomModelModal,
   type AiCustomModelModalLabels,
-} from '../../../src/features/ai-task/ui/AiCustomModelModal'
+} from '@/features/ai-task/ui/AiCustomModelModal'
 
 const labels: AiCustomModelModalLabels = {
   addTitle: 'カスタムモデルを追加',

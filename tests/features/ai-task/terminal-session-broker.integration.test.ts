@@ -15,9 +15,9 @@ import {
   getTerminalBrokerDescriptorPath,
   TerminalSessionBrokerClient,
   type TerminalBrokerSessionCallbacks,
-} from '../../../src/features/ai-task/services/TerminalSessionBroker'
-import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { describePosix, testWithBinaries } from '../../support/platform'
+} from '@/features/ai-task/services/TerminalSessionBroker'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
+import { describePosix, testWithBinaries } from '@tests/support/platform'
 import {
   deferred,
   ownerPidFiles,

@@ -1,11 +1,11 @@
 import type { SettingDefinitionAction } from 'obsidian'
 import { Notice, Platform, mockApp } from 'obsidian'
-import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
-import { ProUnlockState, isProSectionVisible } from '../../src/settings/proUnlockState'
-import { versionSection } from '../../src/settings/sections/version'
-import type { SectionContext } from '../../src/settings/types'
-import { t } from '../../src/i18n'
-import { setObsidianLanguage } from '../utils/locale'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { ProUnlockState, isProSectionVisible } from '@/settings/proUnlockState'
+import { versionSection } from '@/settings/sections/version'
+import type { SectionContext } from '@/settings/types'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import { findByName } from './definitionHelpers'
 
 function createContext(version: string): SectionContext & {

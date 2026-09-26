@@ -2,9 +2,9 @@ import {
   AI_PANE_EXPANDED_STORAGE_KEY,
   AI_PANE_HEIGHT_RATIO_STORAGE_KEY,
   AiRunPaneController,
-} from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord) => void
 

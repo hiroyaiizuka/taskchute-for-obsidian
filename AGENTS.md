@@ -141,6 +141,17 @@ npm run test:integration # Jest, *.integration.test.ts only (real processes, PTY
 - Release artifacts must end up at the top level of the plugin folder in the vault
   (`main.js`, `manifest.json`, `styles.css`).
 
+### Import paths
+
+- `@/*` maps to `src/*`, and `@tests/*` to `tests/*` in the test project. Declared as
+  `paths` in `tsconfig.json` / `tsconfig.test.json` and mirrored in `jest.config.js`
+  `moduleNameMapper`. esbuild reads the tsconfig itself, so there is nothing to configure
+  in `esbuild.config.mjs`.
+- Within one tree, `./sibling` and `../neighbour` stay relative; two levels up or more
+  uses the alias. Crossing between `src/` and `tests/` always uses the alias. Keeping the
+  one-level hop relative is what lets a whole feature folder be moved without editing its
+  insides. `no-restricted-imports` enforces this for both trees.
+
 ### Source layout
 
 - `features/core/views/TaskChuteView.ts` – main view lifecycle and UI orchestration

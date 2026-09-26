@@ -1,8 +1,8 @@
 import { Platform } from "obsidian"
-import { t } from "../../../i18n"
-import { TERMINAL_NAME } from "../../../constants"
-import { toggle } from "../../controlHandlers"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import { TERMINAL_NAME } from "@/constants"
+import { toggle } from "@/settings/controlHandlers"
+import type { SectionModule } from "@/settings/types"
 
 export const externalToolsSection: SectionModule = {
   /**

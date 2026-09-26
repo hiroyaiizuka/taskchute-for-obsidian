@@ -1,10 +1,10 @@
 
 import { App, Notice, TFile } from 'obsidian'
-import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
-import { getToday } from '../../utils/date'
-import { resolveTargetDateOnDisable } from '../../features/routine/utils/RoutineFrontmatterUtils'
-import { listFilesInFolder } from '../../utils/vaultFiles'
-import type { RoutineTaskShape } from '../../types/routine'
+import { getScheduledTime, setScheduledTime } from '@/utils/fieldMigration'
+import { getToday } from '@/utils/date'
+import { resolveTargetDateOnDisable } from '@/features/routine/utils/RoutineFrontmatterUtils'
+import { listFilesInFolder } from '@/utils/vaultFiles'
+import type { RoutineTaskShape } from '@/types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
 
 interface TaskChuteViewLike {

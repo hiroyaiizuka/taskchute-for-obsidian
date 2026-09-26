@@ -1,5 +1,5 @@
-import { t } from "../../i18n"
-import type { LocationMode } from "../../types"
+import { t } from "@/i18n"
+import type { LocationMode } from "@/types"
 import { choice, validateVaultPath, vaultPath } from "../controlHandlers"
 import type { SectionContext, SectionModule } from "../types"
 

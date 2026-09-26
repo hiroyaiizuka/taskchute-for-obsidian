@@ -5,7 +5,7 @@ import {
   EVENTS_PER_LINE_LIMIT,
   parseClaudeLine,
   parseCodexLine,
-} from '../../../src/features/ai-task/services/streams/StreamJsonParser'
+} from '@/features/ai-task/services/streams/StreamJsonParser'
 
 describe('parseClaudeLine', () => {
   test('returns no events for blank lines', () => {

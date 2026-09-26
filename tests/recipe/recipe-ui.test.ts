@@ -1,14 +1,13 @@
-import { renderRecipeEmptyState } from '../../src/features/recipe/ui/RecipeEmptyState'
-import { RecipeIconRenderer } from '../../src/features/recipe/ui/RecipeIconRenderer'
-import { RecipeRunPopover } from '../../src/features/recipe/ui/RecipeRunPopover'
-import RecipeManagerModal from '../../src/features/recipe/modals/RecipeManagerModal'
-import { RecipeSelectModal } from '../../src/features/recipe/modals/RecipeSelectModal'
-import { RecipeEditorForm } from '../../src/features/recipe/ui/RecipeEditorForm'
-import { setObsidianLanguage } from '../utils/locale'
+import { renderRecipeEmptyState } from '@/features/recipe/ui/RecipeEmptyState'
+import { RecipeIconRenderer } from '@/features/recipe/ui/RecipeIconRenderer'
+import { RecipeRunPopover } from '@/features/recipe/ui/RecipeRunPopover'
+import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
+import { RecipeSelectModal } from '@/features/recipe/modals/RecipeSelectModal'
+import { RecipeEditorForm } from '@/features/recipe/ui/RecipeEditorForm'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import { Notice, TFile } from 'obsidian'
-import * as confirmModalModule from '../../src/ui/modals/ConfirmModal'
+import * as confirmModalModule from '@/ui/modals/ConfirmModal'
 
-type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -41,35 +40,8 @@ function dragHandleOntoRow(handle: HTMLElement, targetRow: HTMLElement): void {
   }
 }
 
-function ensureCreateEl(): void {
-  const proto = HTMLElement.prototype as unknown as {
-    createEl?: CreateEl
-    empty?: () => void
-  }
-  if (!proto.createEl) {
-    proto.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
-      const element = document.createElement(tag)
-      if (options.cls) {
-        element.className = options.cls as string
-      }
-      if (options.text) {
-        element.textContent = options.text as string
-      }
-      if (options.attr) {
-        Object.entries(options.attr as Record<string, string>).forEach(([key, value]) => {
-          element.setAttribute(key, value)
-        })
-      }
-      this.appendChild(element)
-      return element
-    }
-  }
-  if (!proto.empty) {
-    proto.empty = function () {
-      this.innerHTML = ''
-    }
-  }
-}
+// createEl / empty come from tests/setup/obsidian-dom-globals.ts, which
+// installs them on Node.prototype before any test body runs.
 
 type RecipeFileEntry = {
   file: TFile
@@ -95,7 +67,6 @@ describe('recipe UI helpers', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     setObsidianLanguage('ja')
-    ensureCreateEl()
     ;(Notice as unknown as jest.Mock).mockClear?.()
   })
 
@@ -1199,7 +1170,7 @@ describe('recipe UI helpers', () => {
         toJSON: () => ({}),
       } as DOMRect),
     })
-    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('recipe-run-popover')) {
         return {
           top: 0,
@@ -1737,7 +1708,6 @@ describe('recipe v2 accessibility and guarded editing', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     setObsidianLanguage('ja')
-    ensureCreateEl()
   })
 
   afterEach(() => {

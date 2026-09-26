@@ -1,5 +1,5 @@
 import { Notice } from 'obsidian'
-import { TaskInstance } from '../../types'
+import { TaskInstance } from '@/types'
 import type { DragPointer } from './TaskListPointerDrag'
 
 /**

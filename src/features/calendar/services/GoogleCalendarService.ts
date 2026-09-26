@@ -1,9 +1,9 @@
 import { App } from 'obsidian'
-import type { GoogleCalendarSettings, TaskInstance } from "../../../types"
-import { ensureFrontmatterObject } from "../../../utils/frontmatter"
-import { isTimeString } from "../../../types/TaskFields"
-import type { SectionConfigService } from "../../../services/SectionConfigService"
-import { t } from "../../../i18n"
+import type { GoogleCalendarSettings, TaskInstance } from "@/types"
+import { ensureFrontmatterObject } from "@/utils/frontmatter"
+import { isTimeString } from "@/types/TaskFields"
+import type { SectionConfigService } from "@/services/SectionConfigService"
+import { t } from "@/i18n"
 
 const MAX_DESCRIPTION_LENGTH = 2000
 

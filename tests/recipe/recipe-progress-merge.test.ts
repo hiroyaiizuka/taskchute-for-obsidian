@@ -1,4 +1,4 @@
-import { mergeRecipeProgress } from '../../src/services/dayState/conflictResolver'
+import { mergeRecipeProgress } from '@/services/dayState/conflictResolver'
 
 describe('mergeRecipeProgress', () => {
   test('keeps newer progress for same task recipe key', () => {

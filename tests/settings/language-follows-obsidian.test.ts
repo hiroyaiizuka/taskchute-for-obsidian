@@ -1,7 +1,7 @@
-import { prepareSettings } from '../../src/app/bootstrap'
-import { getCurrentLocale } from '../../src/i18n'
-import type { TaskChutePlugin } from '../../src/types'
-import { setObsidianLanguage } from '../utils/locale'
+import { prepareSettings } from '@/app/bootstrap'
+import { getCurrentLocale } from '@/i18n'
+import type { TaskChutePlugin } from '@/types'
+import { setObsidianLanguage } from '@tests/utils/locale'
 
 function makePlugin(loaded: Record<string, unknown> | undefined): TaskChutePlugin {
   return {

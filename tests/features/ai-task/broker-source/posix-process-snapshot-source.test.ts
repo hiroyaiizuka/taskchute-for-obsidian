@@ -1,9 +1,9 @@
 import { createContext, runInContext } from 'vm'
 
-import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '../../../../src/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
-import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
-import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionGuardSource'
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '@/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
+import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
+import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import {
   DARWIN_PS_AXO_TEXT,
   DESCENDANT_TREE_TEXT,

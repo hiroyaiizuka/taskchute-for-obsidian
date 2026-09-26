@@ -14,24 +14,24 @@
  * pane-registered snapshot provider is consulted before the tab teardown.
  */
 import { TFile } from 'obsidian'
-import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
+import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
 import {
   AiTaskManager,
   type AiRunChangeType,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiTerminalDispatcher,
   TerminalRunCallbacks,
   TerminalRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type {
   AiDispatcher,
   AiRunExitOutcome,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void

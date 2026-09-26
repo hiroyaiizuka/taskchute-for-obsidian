@@ -1,6 +1,6 @@
 import { Notice, TFile } from 'obsidian'
-import type { TaskInstance } from '../../../src/types'
-import ScheduledTimeModal from '../../../src/ui/modals/ScheduledTimeModal'
+import type { TaskInstance } from '@/types'
+import ScheduledTimeModal from '@/ui/modals/ScheduledTimeModal'
 
 // The shared mock builds Obsidian's real modal markup, so this suite no longer
 // needs a hand-rolled Modal with DOM-helper shims.
@@ -15,7 +15,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/utils/fieldMigration', () => {
+jest.mock('@/utils/fieldMigration', () => {
   return {
     getScheduledTime: jest.fn(() => '08:30'),
     setScheduledTime: jest.fn(),

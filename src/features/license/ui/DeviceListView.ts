@@ -11,7 +11,7 @@
  */
 import { Notice } from 'obsidian'
 
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 import type { DeviceView } from '../services/LicenseApiClient'
 import type { LicenseManager } from '../services/LicenseManager'
 import { describeApiFailure } from './licenseMessages'

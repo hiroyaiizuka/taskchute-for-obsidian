@@ -1,5 +1,5 @@
-import { createCommandRegistrar } from '../../src/commands/registerTaskCommands'
-import type { CommandHost, ViewActions } from '../../src/types/Commands'
+import { createCommandRegistrar } from '@/commands/registerTaskCommands'
+import type { CommandHost, ViewActions } from '@/types/Commands'
 import type { Command } from 'obsidian'
 
 const setActiveDocument = (doc: Document): void => {

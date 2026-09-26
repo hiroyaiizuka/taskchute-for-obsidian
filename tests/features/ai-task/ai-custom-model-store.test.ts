@@ -3,7 +3,7 @@ import {
   AI_MODEL_ID_SAFE_PATTERN,
   AiCustomModelStore,
   isSafeAiModelId,
-} from '../../../src/features/ai-task/models/AiCustomModelStore'
+} from '@/features/ai-task/models/AiCustomModelStore'
 
 describe('AiCustomModelStore', () => {
   test.each([

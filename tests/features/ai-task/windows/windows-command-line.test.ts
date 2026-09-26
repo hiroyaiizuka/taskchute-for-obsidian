@@ -1,12 +1,12 @@
 /** Round-trips quoted tokens through a reference CommandLineToArgvW parser. */
 import {
   estimateAiRunLaunchSize,
-} from '../../../../src/features/ai-task/services/AiRunLaunchSizeGuard'
+} from '@/features/ai-task/services/AiRunLaunchSizeGuard'
 import {
   buildWindowsCommandLine,
   quoteWindowsArgument,
   quoteWindowsProgram,
-} from '../../../../src/features/ai-task/services/windows/WindowsCommandLine'
+} from '@/features/ai-task/services/windows/WindowsCommandLine'
 
 /** CommandLineToArgvW (post-2008 CRT rules) for everything after argv[0]. */
 function parseWindowsArguments(commandLine: string): string[] {

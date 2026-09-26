@@ -2,7 +2,7 @@ import {
   parkTooltipSources,
   restoreTooltipSources,
   stripTooltipSources,
-} from '../../../ui/tooltipSources'
+} from '@/ui/tooltipSources'
 
 /** The slice of a pointer position the drop math reads. */
 interface DragPoint {

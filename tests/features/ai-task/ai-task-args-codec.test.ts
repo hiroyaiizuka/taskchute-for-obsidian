@@ -1,7 +1,7 @@
 import {
   AI_EXEC_MODE_VARIANTS,
   decodeAiTaskArgs,
-} from '../../../src/features/ai-task/config/AiTaskArgsCodec'
+} from '@/features/ai-task/config/AiTaskArgsCodec'
 
 const selectable = (...modelIds: string[]) => (modelId: string): boolean =>
   modelIds.includes(modelId)

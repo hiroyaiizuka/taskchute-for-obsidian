@@ -4,8 +4,8 @@
 
 import { Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import RoutineEditModal from '../../src/features/routine/modals/RoutineEditModal'
-import type { RoutineFrontmatter, TaskChutePluginLike } from '../../src/types'
+import RoutineEditModal from '@/features/routine/modals/RoutineEditModal'
+import type { RoutineFrontmatter, TaskChutePluginLike } from '@/types'
 
 // Automocking obsidian would strip `Modal.open()` of its behaviour, and the
 // routine editor is a Modal now. Keep the rest automocked.

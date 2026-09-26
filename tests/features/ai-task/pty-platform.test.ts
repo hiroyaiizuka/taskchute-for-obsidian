@@ -10,7 +10,7 @@ import { Platform } from 'obsidian'
 import {
   isPtyPlatformSupported,
   isTerminalModeSupportedHere,
-} from '../../../src/features/ai-task/services/ptyPlatform'
+} from '@/features/ai-task/services/ptyPlatform'
 
 describe('isPtyPlatformSupported', () => {
   test('accepts the platforms that ship script(1) or ConPTY', () => {

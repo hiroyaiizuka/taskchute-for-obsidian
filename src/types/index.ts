@@ -84,6 +84,16 @@ export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
 export const VIEW_TYPE_PROJECT_BOARD = "taskchute-project-board" as const
 
 /**
+ * Calling convention for `plugin._log?.(...)`.
+ *
+ * Every host interface that accepts the plugin needs this member, and hand
+ * copying it is what let the declarations drift apart: under strictFunctionTypes
+ * a host whose parameter is wider than the implementation's makes the plugin
+ * itself unassignable to that host. One alias keeps them in step.
+ */
+export type PluginLogFn = (level?: string, ...args: unknown[]) => void
+
+/**
  * Obsidian 1.13 added `settings?: unknown` to Plugin and tells subclasses to
  * declare a concrete type for it, which is what TaskChutePluginAugment does.
  * Intersecting instead of replacing would leave both declarations visible, and
@@ -115,7 +125,7 @@ type TaskChutePluginAugment = {
     callback: () => void | Promise<void>,
   ): HTMLElement
   addCommand(command: Command): Command
-  _log?(level?: string, ...args: unknown[]): void
+  _log?: PluginLogFn
   _notify?(message: string, timeout?: number): void
 }
 

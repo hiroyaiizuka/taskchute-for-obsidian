@@ -7,9 +7,9 @@
  */
 import type { SettingDefinitionItem, SettingDefinitionRender } from 'obsidian'
 import { Notice, Platform, Setting, mockApp } from 'obsidian'
-import { DEFAULT_SETTINGS } from '../../../src/settings'
-import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
-import { createAiTaskManager } from '../../../src/features/ai-task'
+import { DEFAULT_SETTINGS } from '@/settings'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { createAiTaskManager } from '@/features/ai-task'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 import {
   findByKey,
@@ -17,15 +17,15 @@ import {
   flatten,
   headings,
   pageNamed,
-} from '../../settings/definitionHelpers'
+} from '@tests/settings/definitionHelpers'
 
-jest.mock('../../../src/features/ai-task', () => ({
+jest.mock('@/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
 }))
 
 const selectFileMock = jest.fn<Promise<string | null>, [unknown?]>()
 jest.mock(
-  '../../../src/features/ai-task/services/ElectronDirectoryPicker',
+  '@/features/ai-task/services/ElectronDirectoryPicker',
   () => ({
     ElectronDirectoryPicker: jest.fn(() => ({ selectFile: selectFileMock })),
   }),

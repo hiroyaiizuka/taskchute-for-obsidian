@@ -1,7 +1,7 @@
 import { TFile, TFolder, normalizePath } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogSnapshot, TaskLogEntry, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
-import { SnapshotCorruptedError } from '../../../types/ExecutionLog'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskLogSnapshot, TaskLogEntry, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
+import { SnapshotCorruptedError } from '@/types/ExecutionLog'
 import {
   LOG_BACKUP_FOLDER,
   LOG_BACKUP_LEGACY_FOLDER,
@@ -12,9 +12,9 @@ import {
 } from '../constants'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { RecordsWriter } from './RecordsWriter'
-import { parseCursorSnapshotRevision, parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
+import { parseCursorSnapshotRevision, parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 
 export interface BackupEntry {
   path: string

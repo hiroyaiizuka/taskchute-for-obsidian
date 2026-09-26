@@ -1,5 +1,5 @@
-import { t } from "../../../i18n"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import type { SectionModule } from "@/settings/types"
 import { externalToolsSection } from "./externalTools"
 import { recipeSection } from "./recipe"
 import { sectionCustomizationSection } from "./sectionCustomization"

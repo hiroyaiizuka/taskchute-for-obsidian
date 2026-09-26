@@ -1,9 +1,9 @@
-import NavigationSectionController, { NavigationSectionHost } from '../../../src/ui/navigation/NavigationSectionController'
-import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal'
-import { ReviewService } from '../../../src/features/review/services/ReviewService'
-import { LogView } from '../../../src/features/log/views/LogView'
-import NavigationSettingsController from '../../../src/ui/navigation/NavigationSettingsController'
-import RecipeManagerModal from '../../../src/features/recipe/modals/RecipeManagerModal'
+import NavigationSectionController, { NavigationSectionHost } from '@/ui/navigation/NavigationSectionController'
+import RoutineManagerModal from '@/features/routine/modals/RoutineManagerModal'
+import { ReviewService } from '@/features/review/services/ReviewService'
+import { LogView } from '@/features/log/views/LogView'
+import NavigationSettingsController from '@/ui/navigation/NavigationSettingsController'
+import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
 jest.mock('obsidian', () => {
@@ -14,11 +14,10 @@ jest.mock('obsidian', () => {
   }
 })
 
-type CreateEl = (tag: string, options?: Record<string, unknown>) => HTMLElement
 
-jest.mock('../../../src/features/routine/modals/RoutineManagerModal')
-jest.mock('../../../src/features/recipe/modals/RecipeManagerModal')
-jest.mock('../../../src/features/review/services/ReviewService', () => {
+jest.mock('@/features/routine/modals/RoutineManagerModal')
+jest.mock('@/features/recipe/modals/RecipeManagerModal')
+jest.mock('@/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
   return {
@@ -28,50 +27,23 @@ jest.mock('../../../src/features/review/services/ReviewService', () => {
     })),
   }
 })
-jest.mock('../../../src/features/log/views/LogView', () => {
+jest.mock('@/features/log/views/LogView', () => {
   return {
     LogView: jest.fn().mockImplementation(() => ({
       render: jest.fn().mockResolvedValue(undefined),
     })),
   }
 })
-jest.mock('../../../src/ui/navigation/NavigationSettingsController', () => ({
+jest.mock('@/ui/navigation/NavigationSettingsController', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     openSettings: jest.fn(),
   })),
 }))
-jest.mock('../../../src/ui/navigation/NavigationSettingsController')
+jest.mock('@/ui/navigation/NavigationSettingsController')
 
-function ensurePrototypeAugmentations(): void {
-  const proto = HTMLElement.prototype as unknown as {
-    createEl?: CreateEl
-    empty?: () => void
-  }
-  if (!proto.createEl) {
-    proto.createEl = function (this: HTMLElement, tag: string, options: Record<string, unknown> = {}) {
-      const element = document.createElement(tag)
-      if (options.cls) {
-        element.className = options.cls as string
-      }
-      if (options.text) {
-        element.textContent = options.text as string
-      }
-      if (options.attr) {
-        Object.entries(options.attr as Record<string, string>).forEach(([key, value]) => {
-          element.setAttribute(key, value)
-        })
-      }
-      this.appendChild(element)
-      return element
-    }
-  }
-  if (!proto.empty) {
-    proto.empty = function () {
-      this.innerHTML = ''
-    }
-  }
-}
+// createEl / empty come from tests/setup/obsidian-dom-globals.ts, which
+// installs them on Node.prototype before any test body runs.
 
 const MockedRoutineManagerModal = RoutineManagerModal as jest.MockedClass<typeof RoutineManagerModal>
 const MockedRecipeManagerModal = RecipeManagerModal as jest.MockedClass<typeof RecipeManagerModal>
@@ -223,7 +195,6 @@ describe('NavigationSectionController', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     document.body.innerHTML = ''
-    ensurePrototypeAugmentations()
     jest.spyOn(console, 'error').mockImplementation(() => {})
     jest.spyOn(console, 'warn').mockImplementation(() => {})
   })

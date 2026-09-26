@@ -2,7 +2,7 @@ import {
   isDateString,
   isTimeString,
   isUUIDString,
-} from '../src/types/TaskFields';
+} from '@/types/TaskFields';
 
 describe('TaskFields Type System', () => {
   describe('Type Guards', () => {

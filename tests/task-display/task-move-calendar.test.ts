@@ -1,4 +1,4 @@
-import TaskMoveCalendar from "../../src/ui/components/TaskMoveCalendar"
+import TaskMoveCalendar from "@/ui/components/TaskMoveCalendar"
 
 interface CreateElOptions {
   cls?: string;
@@ -224,7 +224,7 @@ describe("TaskMoveCalendar", () => {
         toJSON: () => ({}),
       } as DOMRect),
     })
-    const rectSpy = jest.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains("taskchute-move-calendar")) {
         return {
           top: 0,

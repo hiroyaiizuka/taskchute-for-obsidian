@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian'
-import TaskCompletionController, { TaskCompletionControllerHost } from '../../../src/ui/task/TaskCompletionController'
-import type { TaskInstance } from '../../../src/types'
-import { ProjectNoteSyncService } from '../../../src/features/project/services/ProjectNoteSyncService'
+import TaskCompletionController, { TaskCompletionControllerHost } from '@/ui/task/TaskCompletionController'
+import type { TaskInstance } from '@/types'
+import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -26,7 +26,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/features/project/services/ProjectNoteSyncService', () => {
+jest.mock('@/features/project/services/ProjectNoteSyncService', () => {
   return {
     ProjectNoteSyncService: jest.fn().mockImplementation(() => ({
       getProjectNotePath: jest.fn().mockResolvedValue('Projects/Note.md'),
@@ -36,37 +36,8 @@ jest.mock('../../../src/features/project/services/ProjectNoteSyncService', () =>
 })
 
 describe('TaskCompletionController', () => {
-  beforeAll(() => {
-    const proto = HTMLElement.prototype as unknown as {
-      createEl?: (
-        tag: string,
-        options?: { cls?: string; text?: string; attr?: Record<string, string>; type?: string },
-      ) => HTMLElement
-    }
-    if (!proto.createEl) {
-      proto.createEl = function (tag, options) {
-        const element = document.createElement(tag)
-        if (options?.cls) {
-          element.classList.add(...options.cls.split(' ').filter(Boolean))
-        }
-        if (options?.text) {
-          element.textContent = options.text
-        }
-        if (options?.attr) {
-          Object.entries(options.attr).forEach(([key, value]) => {
-            if (value !== undefined) {
-              element.setAttribute(key, value)
-            }
-          })
-        }
-        if (options?.type) {
-          (element as HTMLInputElement).type = options.type
-        }
-        this.appendChild(element)
-        return element
-      }
-    }
-  })
+  // createEl comes from tests/setup/obsidian-dom-globals.ts, which installs it
+  // on Node.prototype before any test body runs.
 
   const createHost = () => {
     const storage = new Map<string, string>()

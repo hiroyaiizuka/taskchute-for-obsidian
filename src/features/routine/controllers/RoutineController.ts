@@ -1,27 +1,27 @@
 import { Modal, Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { getCurrentLocale, t } from '../../../i18n'
-import { DATE_FORMAT_DISPLAY } from '../../../constants'
+import { getCurrentLocale, t } from '@/i18n'
+import { DATE_FORMAT_DISPLAY } from '@/constants'
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils'
-import { TaskValidator } from '../../core/services/TaskValidator'
-import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
-import type { RoutineMonthday, RoutineWeek } from '../../../types/TaskFields'
-import type { RoutineTaskShape } from '../../../types/routine'
-import { setScheduledTime } from '../../../utils/fieldMigration'
-import { attachCalendarButtonIcon } from '../../../ui/components/iconUtils'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { TaskValidator } from '@/features/core/services/TaskValidator'
+import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '@/types'
+import type { RoutineMonthday, RoutineWeek } from '@/types/TaskFields'
+import type { RoutineTaskShape } from '@/types/routine'
+import { setScheduledTime } from '@/utils/fieldMigration'
+import { attachCalendarButtonIcon } from '@/ui/components/iconUtils'
+import { createModalFooter } from '@/ui/components/modalFooter'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
   deriveMonthlySelection,
   deriveMonthlyDateSelection,
 } from '../modals/RoutineModal'
-import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
+import { readAiTaskConfig } from '@/features/ai-task/services/AiTaskFrontmatterReader'
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
-} from '../../ai-task/ui/ObsidianTaskLinkFields'
-import type { ObsidianTaskLinkConfig } from '../../../types/TaskFields'
+} from '@/features/ai-task/ui/ObsidianTaskLinkFields'
+import type { ObsidianTaskLinkConfig } from '@/types/TaskFields'
 
 type CreateOptions = {
   cls?: string

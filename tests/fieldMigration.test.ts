@@ -1,7 +1,7 @@
 import {
   getScheduledTime,
   setScheduledTime,
-} from '../src/utils/fieldMigration';
+} from '@/utils/fieldMigration';
 
 describe('Field Migration Utilities', () => {
   describe('getScheduledTime', () => {

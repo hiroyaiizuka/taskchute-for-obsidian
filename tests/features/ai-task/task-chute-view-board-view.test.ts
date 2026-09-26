@@ -13,8 +13,8 @@ import { WorkspaceLeaf } from 'obsidian'
 import {
   TaskChuteView,
   AI_TASK_BOARD_VIEW_STORAGE_KEY,
-} from '../../../src/features/core/views/TaskChuteView'
-import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
+} from '@/features/core/views/TaskChuteView'
+import type { TaskChutePluginLike, TaskInstance } from '@/types'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 interface LocalStorageMocks {

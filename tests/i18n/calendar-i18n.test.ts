@@ -1,5 +1,5 @@
-import { t } from "../../src/i18n"
-import { setObsidianLanguage } from "../utils/locale"
+import { t } from "@/i18n"
+import { setObsidianLanguage } from "@tests/utils/locale"
 
 describe("calendar export i18n", () => {
   beforeAll(() => {

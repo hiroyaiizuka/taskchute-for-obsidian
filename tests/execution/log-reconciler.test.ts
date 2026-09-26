@@ -1,5 +1,5 @@
-import { LogReconciler } from '../../src/features/log/services/LogReconciler'
-import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
+import { LogReconciler } from '@/features/log/services/LogReconciler'
+import { MonthSyncCoordinator } from '@/features/log/services/MonthSyncCoordinator'
 import { createPluginStub, seedDeltaFile, seedSnapshot } from './logTestUtils'
 
 describe('LogReconciler', () => {

@@ -10,13 +10,13 @@ import {
   TerminalUnsupportedError,
   type SpawnProcessRequest,
   type SpawnedProcessHandle,
-} from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { encodeConPtyInputFrame } from '../../../src/features/ai-task/services/windows/ConPtyControlFrames'
+} from '@/features/ai-task/services/NodeProcessGateway'
+import { encodeConPtyInputFrame } from '@/features/ai-task/services/windows/ConPtyControlFrames'
 import {
   CONPTY_HOST_POWERSHELL_ARGS,
   CONPTY_PROBE_INPUT,
   CONPTY_PROBE_OK_MARKER,
-} from '../../../src/features/ai-task/services/windows/ConPtyHostSource'
+} from '@/features/ai-task/services/windows/ConPtyHostSource'
 
 /** POSIX single-quote escaping, mirrored here from first principles */
 function posixQuote(value: string): string {

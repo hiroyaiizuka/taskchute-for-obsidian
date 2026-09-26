@@ -1,11 +1,11 @@
 import { requestUrl } from 'obsidian'
 
-import { LICENSE_ISSUE_RETRY_BACKOFF_MS } from '../../../src/features/license/config'
+import { LICENSE_ISSUE_RETRY_BACKOFF_MS } from '@/features/license/config'
 import {
   isTransientFailure,
   LicenseApiClient,
   type LicenseApiFailure,
-} from '../../../src/features/license/services/LicenseApiClient'
+} from '@/features/license/services/LicenseApiClient'
 
 const requestUrlMock = requestUrl as unknown as jest.Mock
 

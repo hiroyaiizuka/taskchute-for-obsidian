@@ -1,7 +1,7 @@
 import { Notice, TFile, normalizePath } from 'obsidian'
-import type { TaskChutePluginLike, TaskInstance } from '../../../types'
-import { t } from '../../../i18n'
-import { listFilesInFolder } from '../../../utils/vaultFiles'
+import type { TaskChutePluginLike, TaskInstance } from '@/types'
+import { t } from '@/i18n'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 import { RecipeDocumentCodec } from './RecipeDocumentCodec'
 import {
   createRecipeReferenceLink,

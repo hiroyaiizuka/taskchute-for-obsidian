@@ -1,4 +1,4 @@
-import { resolveStopTimeDate, ResolveStopTimeDateParams } from '../../src/utils/resolveStopTimeDate'
+import { resolveStopTimeDate, ResolveStopTimeDateParams } from '@/utils/resolveStopTimeDate'
 
 describe('resolveStopTimeDate', () => {
   // Helper: create a Date at a specific day/time

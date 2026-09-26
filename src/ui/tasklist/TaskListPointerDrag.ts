@@ -1,4 +1,4 @@
-import type { TaskInstance } from '../../types'
+import type { TaskInstance } from '@/types'
 
 /**
  * The slice of an event the drop math actually reads. `DragEvent` satisfies it,

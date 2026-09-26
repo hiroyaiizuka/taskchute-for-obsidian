@@ -1,9 +1,9 @@
 import { normalizePath, TFile } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
-import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '../../../types/ExecutionLog'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
+import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '@/types/ExecutionLog'
 import { LOG_BACKUP_FOLDER, LEGACY_REVISION } from '../constants'
-import { parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
+import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 export interface SnapshotWriteOptions {
   existingFile?: TFile | null

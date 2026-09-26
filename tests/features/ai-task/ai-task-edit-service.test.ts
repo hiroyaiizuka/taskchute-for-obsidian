@@ -4,13 +4,13 @@ import { parse as parseYaml } from 'yaml'
 import {
   AiTaskEditService,
   AiTaskPromptMarkersError,
-} from '../../../src/features/ai-task/services/AiTaskEditService'
+} from '@/features/ai-task/services/AiTaskEditService'
 import {
   EXACT_PROMPT_END_MARKER,
   EXACT_PROMPT_START_MARKER,
   extractPromptSection,
-} from '../../../src/features/ai-task/services/PromptExtractor'
-import { TaskRecipeAssignmentService } from '../../../src/features/recipe/services/TaskRecipeAssignmentService'
+} from '@/features/ai-task/services/PromptExtractor'
+import { TaskRecipeAssignmentService } from '@/features/recipe/services/TaskRecipeAssignmentService'
 
 function makeFile(path = 'TaskChute/Task/AI Review.md'): TFile {
   const file = new TFile()

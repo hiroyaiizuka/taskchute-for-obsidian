@@ -1,5 +1,5 @@
 import { getLanguage } from 'obsidian'
-import { initializeLocaleManager, type LocaleKey } from '../../src/i18n'
+import { initializeLocaleManager, type LocaleKey } from '@/i18n'
 
 /**
  * Loads the plugin's locale as if Obsidian were running in `locale`.

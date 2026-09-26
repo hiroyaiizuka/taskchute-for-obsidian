@@ -1,14 +1,14 @@
 import { normalizePath, TFile, TFolder } from 'obsidian'
 ;
-import type { TaskChutePluginLike } from '../../../types';
-import type { TaskInstance } from '../../../types';
-import { DeviceIdentityService } from '../../../services/DeviceIdentityService';
+import type { TaskChutePluginLike } from '@/types';
+import type { TaskInstance } from '@/types';
+import { DeviceIdentityService } from '@/services/DeviceIdentityService';
 import {
   createEmptyTaskLogSnapshot,
   parseTaskLogSnapshot,
-} from '../../../utils/executionLogUtils';
-import { listFilesInFolder } from '../../../utils/vaultFiles';
-import type { TaskLogEntry } from '../../../types/ExecutionLog';
+} from '@/utils/executionLogUtils';
+import { listFilesInFolder } from '@/utils/vaultFiles';
+import type { TaskLogEntry } from '@/types/ExecutionLog';
 import {
   ExecutionLogDeltaWriter,
   type ExecutionLogDeltaOperation,

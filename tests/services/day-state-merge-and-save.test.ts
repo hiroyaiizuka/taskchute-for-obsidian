@@ -3,8 +3,8 @@
  * Verifies that local DayState changes are merged with on-disk data before saving.
  */
 import { TFile } from 'obsidian'
-import DayStatePersistenceService from '../../src/services/DayStatePersistenceService'
-import type { DayState, TaskChutePluginLike } from '../../src/types'
+import DayStatePersistenceService from '@/services/DayStatePersistenceService'
+import type { DayState, TaskChutePluginLike } from '@/types'
 
 function createEmptyDayState(): DayState {
   return {

@@ -5,7 +5,7 @@ import type {
   AiCustomModelStore,
 } from '../models/AiCustomModelStore'
 import type { AiTaskHost } from '../types'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { createModalFooter } from '@/ui/components/modalFooter'
 
 export interface AiCustomModelModalLabels {
   addTitle: string

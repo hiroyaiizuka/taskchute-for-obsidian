@@ -11,32 +11,32 @@ import type {
 } from 'obsidian'
 import { Setting, SettingGroup, mockApp } from 'obsidian'
 
-import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
 import {
   PRO_SECTION_UNLOCK_CLICKS,
   ProUnlockState,
   isProSectionVisible,
-} from '../../../src/settings/proUnlockState'
-import type { SectionContext } from '../../../src/settings/types'
-import { t } from '../../../src/i18n'
-import { setObsidianLanguage } from '../../utils/locale'
-import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
-import { flatten, isVisible, pageNamed } from '../../settings/definitionHelpers'
+} from '@/settings/proUnlockState'
+import type { SectionContext } from '@/settings/types'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
+import type { LicenseManager } from '@/features/license/services/LicenseManager'
+import { flatten, isVisible, pageNamed } from '@tests/settings/definitionHelpers'
 
-jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
+jest.mock('@/features/license/ui/DeviceListView', () => ({
   DeviceListView: jest.fn().mockImplementation(() => ({ dispose: jest.fn() })),
 }))
 
-jest.mock('../../../src/ui/modals/ConfirmModal', () => ({
+jest.mock('@/ui/modals/ConfirmModal', () => ({
   showConfirmModal: jest.fn().mockResolvedValue(true),
   showInfoModal: jest.fn().mockResolvedValue(undefined),
 }))
 
-const { DeviceListView } = require('../../../src/features/license/ui/DeviceListView') as {
+const { DeviceListView } = require('@/features/license/ui/DeviceListView') as {
   DeviceListView: jest.Mock
 }
 
-const { showConfirmModal } = require('../../../src/ui/modals/ConfirmModal') as {
+const { showConfirmModal } = require('@/ui/modals/ConfirmModal') as {
   showConfirmModal: jest.Mock
 }
 

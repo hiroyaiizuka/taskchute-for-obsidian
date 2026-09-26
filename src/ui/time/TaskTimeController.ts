@@ -1,10 +1,10 @@
 import { Notice } from 'obsidian'
 import type { App } from 'obsidian'
-import type { TaskInstance } from '../../types'
-import type { SectionConfigService } from '../../services/SectionConfigService'
+import type { TaskInstance } from '@/types'
+import type { SectionConfigService } from '@/services/SectionConfigService'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
 import { createTimePicker } from './TimePickerFactory'
-import { resolveStopTimeDate } from '../../utils/resolveStopTimeDate'
+import { resolveStopTimeDate } from '@/utils/resolveStopTimeDate'
 
 export interface TaskTimeControllerHost {
   tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string

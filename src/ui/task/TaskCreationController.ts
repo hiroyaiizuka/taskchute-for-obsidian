@@ -1,6 +1,6 @@
 import { App, Notice } from 'obsidian'
 import type { TFile } from "obsidian"
-import { t } from "../../i18n"
+import { t } from "@/i18n"
 import {
   TaskNameAutocomplete,
   TaskNameSelectionDetail,
@@ -10,16 +10,16 @@ import { createNameModal } from "../components/NameModal"
 import type {
   CreateTaskFileAiTaskOptions,
   TaskCreationService,
-} from "../../features/core/services/TaskCreationService"
-import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
-import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
-import { isAiTaskFeatureAvailable } from "../../features/ai-task/availability"
-import type { AiTaskHost } from "../../features/ai-task/types"
-import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
+} from "@/features/core/services/TaskCreationService"
+import type { TaskReuseService } from "@/features/core/services/TaskReuseService"
+import { normalizeReminderTime } from "@/features/reminder/services/ReminderFrontmatterService"
+import { isAiTaskFeatureAvailable } from "@/features/ai-task/availability"
+import type { AiTaskHost } from "@/features/ai-task/types"
+import { buildTerminalArgs } from "@/features/ai-task/services/TerminalArguments"
 import type {
   AiTaskEditService,
   AiTaskEditValue,
-} from "../../features/ai-task/services/AiTaskEditService"
+} from "@/features/ai-task/services/AiTaskEditService"
 import {
   AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
@@ -27,32 +27,32 @@ import {
   getAvailableReasoningModes,
   type AiReasoningBudget,
   type AiReasoningMode,
-} from "../../features/ai-task/config/AiTaskAdvancedOptions"
+} from "@/features/ai-task/config/AiTaskAdvancedOptions"
 import {
   AI_EXEC_MODE_VARIANTS,
   decodeAiTaskArgs,
-} from "../../features/ai-task/config/AiTaskArgsCodec"
+} from "@/features/ai-task/config/AiTaskArgsCodec"
 import type {
   TaskChutePluginLike,
   TaskNameValidator,
   DeletedInstance,
   TaskInstance,
-} from "../../types"
-import { addMinutesToTime } from "../../utils/date"
+} from "@/types"
+import { addMinutesToTime } from "@/utils/date"
 import {
   WorkingDirectoryHistory,
   normalizeDirectoryPath,
   normalizeDirectoryPathForComparison,
-} from "../../features/ai-task/services/WorkingDirectoryHistory"
-import { ElectronDirectoryPicker } from "../../features/ai-task/services/ElectronDirectoryPicker"
-import { WorkingDirectorySelectController } from "../../features/ai-task/ui/WorkingDirectorySelectController"
+} from "@/features/ai-task/services/WorkingDirectoryHistory"
+import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
+import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingDirectorySelectController"
 import {
   AI_MODEL_ID_SAFE_PATTERN,
   AiCustomModelStore,
-} from "../../features/ai-task/models/AiCustomModelStore"
-import { AiModelSelectController } from "../../features/ai-task/ui/AiModelSelectController"
-import type { Recipe, RecipeService } from "../../features/recipe/services/RecipeService"
-import { normalizeRecipeReference } from "../../features/recipe/services/RecipeService"
+} from "@/features/ai-task/models/AiCustomModelStore"
+import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
+import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
+import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
 export interface DeletedTaskRestoreCandidate {
   entry: DeletedInstance

@@ -20,11 +20,11 @@ import {
   SPLIT_MIN_PANEL_WIDTH_PX,
   TERMINAL_FALLBACK_COLS,
   TERMINAL_FALLBACK_ROWS,
-} from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunChangeType } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunChangeType } from '@/features/ai-task/services/AiTaskManager'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void

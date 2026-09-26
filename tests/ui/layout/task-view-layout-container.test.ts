@@ -1,4 +1,4 @@
-import TaskViewLayout from '../../../src/ui/layout/TaskViewLayout'
+import TaskViewLayout from '@/ui/layout/TaskViewLayout'
 
 describe('TaskViewLayout responsive container boundary', () => {
   test('marks the whole view as the header container-query boundary', () => {

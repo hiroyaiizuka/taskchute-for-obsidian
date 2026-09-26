@@ -1,7 +1,7 @@
 import { Notice, TFile } from 'obsidian'
-import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '../../types'
+import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '@/types'
 import ProjectSettingsModal from '../modals/ProjectSettingsModal'
-import { listFilesInFolder } from '../../utils/vaultFiles'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 
 export interface ProjectControllerHost {
   app: TaskChutePluginLike['app']

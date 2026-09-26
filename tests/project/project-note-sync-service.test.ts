@@ -1,6 +1,6 @@
 import type { App } from 'obsidian'
-import type { PathManagerLike } from '../../src/types'
-import { ProjectNoteSyncService } from '../../src/features/project/services/ProjectNoteSyncService'
+import type { PathManagerLike } from '@/types'
+import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 
 describe('ProjectNoteSyncService', () => {
   const createService = () => new ProjectNoteSyncService(

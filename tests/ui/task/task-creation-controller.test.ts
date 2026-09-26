@@ -2,9 +2,9 @@ import { Notice, TFile } from 'obsidian'
 import TaskCreationController, {
   TaskCreationControllerHost,
   DeletedTaskRestoreCandidate,
-} from '../../../src/ui/task/TaskCreationController'
-import { TaskNameAutocomplete } from '../../../src/ui/components/TaskNameAutocomplete'
-import type { TaskNameValidator, TaskChutePluginLike } from '../../../src/types'
+} from '@/ui/task/TaskCreationController'
+import { TaskNameAutocomplete } from '@/ui/components/TaskNameAutocomplete'
+import type { TaskNameValidator, TaskChutePluginLike } from '@/types'
 import type { App } from 'obsidian'
 
 jest.mock('obsidian', () => {
@@ -16,7 +16,7 @@ jest.mock('obsidian', () => {
   }
 })
 
-jest.mock('../../../src/ui/components/TaskNameAutocomplete', () => ({
+jest.mock('@/ui/components/TaskNameAutocomplete', () => ({
   TaskNameAutocomplete: jest.fn().mockImplementation(() => ({
     initialize: jest.fn().mockResolvedValue(undefined),
     destroy: jest.fn(),
@@ -42,37 +42,8 @@ const createTimeoutWindow = (timeoutId: number): TimeoutWindow => (
 )
 
 describe('TaskCreationController', () => {
-  beforeAll(() => {
-    const proto = HTMLElement.prototype as unknown as {
-      createEl?: (
-        tag: string,
-        options?: { cls?: string; text?: string; attr?: Record<string, string>; type?: string },
-      ) => HTMLElement
-    }
-    if (!proto.createEl) {
-      proto.createEl = function (tag, options) {
-        const element = document.createElement(tag)
-        if (options?.cls) {
-          element.classList.add(...options.cls.split(' ').filter(Boolean))
-        }
-        if (options?.text) {
-          element.textContent = options.text
-        }
-        if (options?.attr) {
-          Object.entries(options.attr).forEach(([key, value]) => {
-            if (value !== undefined) {
-              element.setAttribute(key, value)
-            }
-          })
-        }
-        if (options?.type) {
-          (element as HTMLInputElement).type = options.type
-        }
-        this.appendChild(element)
-        return element
-      }
-    }
-  })
+  // createEl comes from tests/setup/obsidian-dom-globals.ts, which installs it
+  // on Node.prototype before any test body runs.
 
   const validator: TaskNameValidator = {
     INVALID_CHARS_PATTERN: /[\\/:]/g,

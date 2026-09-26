@@ -1,6 +1,6 @@
 import type { App } from 'obsidian'
 
-import { listFilesInFolder } from '../../../utils/vaultFiles'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 
 /**
  * Collect working-directory candidates from every AI task note in the

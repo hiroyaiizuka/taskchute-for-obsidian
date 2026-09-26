@@ -15,7 +15,7 @@
  * the exec argv (see sanitizeExecExtraArgs below).
  */
 
-import type { AiStreamEvent } from '../../types'
+import type { AiStreamEvent } from '@/features/ai-task/types'
 import { parseCodexLine } from '../streams/StreamJsonParser'
 import { HeadlessCliDispatcher } from './Dispatcher'
 import type { AiRunRequest } from './Dispatcher'

@@ -1,13 +1,13 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { NodeProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 import {
   MAX_WORKSPACE_FILE_BYTES,
   WorkspaceFileVersionConflictError,
   WorkspaceFileService,
   type WorkspaceEntry,
-} from '../../../src/features/ai-task/services/WorkspaceFileService'
+} from '@/features/ai-task/services/WorkspaceFileService'
 
 describe('WorkspaceFileService', () => {
   let sandbox: string

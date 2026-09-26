@@ -1,8 +1,8 @@
 import { Notice } from "obsidian"
 ;
 
-import { t } from "../../i18n";
-import type { TaskChutePluginLike } from "../../types";
+import { t } from "@/i18n";
+import type { TaskChutePluginLike } from "@/types";
 
 export function openSettingsModal(plugin: TaskChutePluginLike): void {
   const settingApi = plugin.app.setting;

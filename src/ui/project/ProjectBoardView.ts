@@ -1,14 +1,14 @@
 import { EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
-import type { TaskChutePluginLike } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
 import { applyIcon } from '../icons'
 import {
   ProjectBoardItem,
   ProjectBoardStatus,
   ProjectFolderUnsetError,
-} from '../../types'
-import { ProjectBoardService } from '../../services/projects'
-import { t } from '../../i18n'
+} from '@/types'
+import { ProjectBoardService } from '@/services/projects'
+import { t } from '@/i18n'
 import { createNameModal } from '../components/NameModal'
 
 function formatDateStamp(date: Date = new Date()): string {

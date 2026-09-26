@@ -1,7 +1,7 @@
 import { normalizePath } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogEntry } from '../../../types/ExecutionLog'
-import { DeviceIdentityService } from '../../../services/DeviceIdentityService'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskLogEntry } from '@/types/ExecutionLog'
+import { DeviceIdentityService } from '@/services/DeviceIdentityService'
 import { LOG_INBOX_FOLDER } from '../constants'
 
 export type ExecutionLogDeltaOperation = 'upsert' | 'delete' | 'summary'

@@ -1,5 +1,5 @@
 import { Menu, type App } from 'obsidian'
-import type { TaskInstance } from '../../types'
+import type { TaskInstance } from '@/types'
 
 type AsyncValue<T> = Promise<T> | T
 

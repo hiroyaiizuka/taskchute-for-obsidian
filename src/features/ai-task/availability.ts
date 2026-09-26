@@ -16,7 +16,7 @@
  */
 
 import { Platform } from 'obsidian'
-import type { PathManagerLike, TaskChuteSettings } from '../../types'
+import type { PathManagerLike, TaskChuteSettings } from '@/types'
 
 /**
  * Structural host. Both AiTaskPluginLike and TaskChutePluginLike satisfy it,

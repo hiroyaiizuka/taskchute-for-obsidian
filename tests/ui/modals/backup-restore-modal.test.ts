@@ -1,7 +1,7 @@
 import { App } from 'obsidian'
-import { BackupRestoreModal, BackupRestoreModalCallbacks } from '../../../src/features/log/modals/BackupRestoreModal'
-import type { BackupEntry, BackupPreview } from '../../../src/features/log/services/BackupRestoreService'
-import { setObsidianLanguage } from '../../utils/locale'
+import { BackupRestoreModal, BackupRestoreModalCallbacks } from '@/features/log/modals/BackupRestoreModal'
+import type { BackupEntry, BackupPreview } from '@/features/log/services/BackupRestoreService'
+import { setObsidianLanguage } from '@tests/utils/locale'
 
 // Add Obsidian-specific methods to HTMLElement
 function addObsidianMethods(el: HTMLElement): void {

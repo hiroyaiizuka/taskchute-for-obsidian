@@ -1,13 +1,13 @@
 import TaskSettingsTooltipController, {
   type TaskSettingsTooltipHost,
-} from '../../../src/ui/task/TaskSettingsTooltipController'
+} from '@/ui/task/TaskSettingsTooltipController'
 import TaskTimeController, {
   type TaskTimeControllerHost,
-} from '../../../src/ui/time/TaskTimeController'
-import type { TaskData, TaskInstance } from '../../../src/types'
+} from '@/ui/time/TaskTimeController'
+import type { TaskData, TaskInstance } from '@/types'
 import { Notice } from 'obsidian'
-import { t } from '../../../src/i18n'
-import { SectionConfigService } from '../../../src/services/SectionConfigService'
+import { t } from '@/i18n'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */
 type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
@@ -473,7 +473,7 @@ const createTimeController = () => {
         toJSON: () => ({}),
       } as DOMRect),
     })
-    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('task-settings-tooltip')) {
         return {
           top: 0,

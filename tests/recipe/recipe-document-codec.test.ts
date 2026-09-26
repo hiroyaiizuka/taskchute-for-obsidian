@@ -3,7 +3,7 @@ import {
   RecipeDocumentCorruptError,
   RecipeDocumentInputError,
   RecipeMigrationNeedsReviewError,
-} from '../../src/features/recipe/services/RecipeDocumentCodec'
+} from '@/features/recipe/services/RecipeDocumentCodec'
 
 const codec = new RecipeDocumentCodec()
 

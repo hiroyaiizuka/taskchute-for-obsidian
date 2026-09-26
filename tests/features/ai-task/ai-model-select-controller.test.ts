@@ -1,10 +1,10 @@
 import { setIcon } from 'obsidian'
-import { AiCustomModelStore } from '../../../src/features/ai-task/models/AiCustomModelStore'
+import { AiCustomModelStore } from '@/features/ai-task/models/AiCustomModelStore'
 import {
   AiModelSelectController,
   type AiModelSelectLabels,
-} from '../../../src/features/ai-task/ui/AiModelSelectController'
-import type { AiTaskHost } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/ui/AiModelSelectController'
+import type { AiTaskHost } from '@/features/ai-task/types'
 
 function rect(top: number, bottom: number): DOMRect {
   return {

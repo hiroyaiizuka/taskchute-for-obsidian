@@ -1,6 +1,6 @@
-import { prepareSettings } from '../../../src/app/bootstrap'
-import { DEFAULT_SETTINGS } from '../../../src/settings'
-import type { TaskChutePlugin } from '../../../src/types'
+import { prepareSettings } from '@/app/bootstrap'
+import { DEFAULT_SETTINGS } from '@/settings'
+import type { TaskChutePlugin } from '@/types'
 
 function makePlugin(loaded: Record<string, unknown> | undefined): TaskChutePlugin {
   return {

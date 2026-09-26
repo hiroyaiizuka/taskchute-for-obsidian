@@ -6,10 +6,10 @@ import {
   HiddenRoutine,
   DeletedInstance,
   SlotOverrideEntry,
-} from '../../../types'
-import type DayStateStoreService from '../../../services/DayStateStoreService'
-import { isHidden as isHiddenEntry } from '../../../services/dayState/conflictResolver'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
+} from '@/types'
+import type DayStateStoreService from '@/services/DayStateStoreService'
+import { isHidden as isHiddenEntry } from '@/services/dayState/conflictResolver'
+import type { SectionConfigService } from '@/services/SectionConfigService'
 
 type HiddenRoutineEntry = HiddenRoutine | string
 

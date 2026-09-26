@@ -17,7 +17,7 @@ if (typeof globalThis.structuredClone !== "function") {
   let candidate;
   try {
     ({ structuredClone: candidate } = require("node:util"));
-  } catch (error) {
+  } catch {
     candidate = undefined;
   }
 
@@ -103,6 +103,59 @@ const obsidianmdRecommendedRules = {
   "obsidianmd/ui/sentence-case": ["error", { enforceCamelCaseLower: true }],
 };
 
+// `paths` carries the obsidianmd recommended config's HTTP-client and `moment`
+// bans verbatim. `patterns` is this repo's own addition: internal imports go
+// through the `@/` alias (tsconfig `paths`, mirrored in jest.config.js), so a
+// file keeps resolving after it moves. One level up stays relative, which is
+// what lets a whole feature folder be relocated without touching its insides.
+// Shared between the src and test blocks below -- rule options do not merge, so
+// a second block declaring this rule would silently drop the bans above.
+const restrictedImports = [
+  "error",
+  {
+    paths: [
+      {
+        name: "axios",
+        message: "Use the built-in `requestUrl` function instead of `axios`.",
+      },
+      {
+        name: "superagent",
+        message: "Use the built-in `requestUrl` function instead of `superagent`.",
+      },
+      {
+        name: "got",
+        message: "Use the built-in `requestUrl` function instead of `got`.",
+      },
+      {
+        name: "ofetch",
+        message: "Use the built-in `requestUrl` function instead of `ofetch`.",
+      },
+      {
+        name: "ky",
+        message: "Use the built-in `requestUrl` function instead of `ky`.",
+      },
+      {
+        name: "node-fetch",
+        message: "Use the built-in `requestUrl` function instead of `node-fetch`.",
+      },
+      {
+        name: "moment",
+        message: "The 'moment' package is bundled with Obsidian. Please import it from 'obsidian' instead.",
+      },
+    ],
+    patterns: [
+      {
+        // gitignore syntax: `**` crosses `/`, so `../../**` covers every depth
+        // from two upwards. `../src/**` closes the one gap that leaves -- a file
+        // sitting directly in `tests/` reaching one level up into `src/`.
+        group: ["../../**", "../src/**"],
+        message:
+          "Import through the `@/` alias (`@tests/` for test helpers) instead of a parent-relative path. Only `./sibling` and `../neighbour` stay relative.",
+      },
+    ],
+  },
+];
+
 // General rules from obsidianmd recommended config
 const obsidianmdGeneralRules = {
   "no-unused-vars": "off",
@@ -129,37 +182,7 @@ const obsidianmdGeneralRules = {
       message: "Prefer `App#saveLocalStorage` / `App#loadLocalStorage` functions to write / read localStorage data that's unique to a vault."
     }
   ],
-  "no-restricted-imports": [
-    "error",
-    {
-      name: "axios",
-      message: "Use the built-in `requestUrl` function instead of `axios`.",
-    },
-    {
-      name: "superagent",
-      message: "Use the built-in `requestUrl` function instead of `superagent`.",
-    },
-    {
-      name: "got",
-      message: "Use the built-in `requestUrl` function instead of `got`.",
-    },
-    {
-      name: "ofetch",
-      message: "Use the built-in `requestUrl` function instead of `ofetch`.",
-    },
-    {
-      name: "ky",
-      message: "Use the built-in `requestUrl` function instead of `ky`.",
-    },
-    {
-      name: "node-fetch",
-      message: "Use the built-in `requestUrl` function instead of `node-fetch`.",
-    },
-    {
-      name: "moment",
-      message: "The 'moment' package is bundled with Obsidian. Please import it from 'obsidian' instead.",
-    },
-  ],
+  "no-restricted-imports": restrictedImports,
   "no-alert": "error",
   "no-undef": "error",
   "@typescript-eslint/ban-ts-comment": "off",
@@ -348,6 +371,10 @@ export default [
       globals: { ...sharedGlobals, ...jestGlobals },
     },
     rules: {
+      // This block does not spread obsidianmdGeneralRules, so the shared import
+      // restrictions have to be named here too. 227 test files reach into
+      // `src/`; without this the alias would hold in src and rot in tests.
+      "no-restricted-imports": restrictedImports,
       // Relax some rules for test files - tests often need flexible mocking
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",

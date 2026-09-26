@@ -11,7 +11,7 @@
  */
 
 import { setIcon } from 'obsidian'
-import type { TaskInstance } from '../../../types'
+import type { TaskInstance } from '@/types'
 import { readAiTaskConfig } from '../services/AiTaskFrontmatterReader'
 import { readObsidianTaskLinkConfig } from '../services/ObsidianTaskLinkConfig'
 

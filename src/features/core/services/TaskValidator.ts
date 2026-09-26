@@ -1,5 +1,5 @@
-import { t } from '../../../i18n';
-import { getScheduledTime } from '../../../utils/fieldMigration';
+import { t } from '@/i18n';
+import { getScheduledTime } from '@/utils/fieldMigration';
 
 export interface ValidationWarning {
   code: string;

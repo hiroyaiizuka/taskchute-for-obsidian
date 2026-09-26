@@ -1,6 +1,6 @@
 import type { App, TFile } from 'obsidian'
-import type { CreateTaskFileAiTaskOptions } from '../../core/services/TaskCreationService'
-import { getScheduledTime } from '../../../utils/fieldMigration'
+import type { CreateTaskFileAiTaskOptions } from '@/features/core/services/TaskCreationService'
+import { getScheduledTime } from '@/utils/fieldMigration'
 import type { AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import {
@@ -8,11 +8,11 @@ import {
   EXACT_PROMPT_START_MARKER,
   extractPromptSection,
 } from './PromptExtractor'
-import { normalizeRecipeReference } from '../../recipe/services/RecipeService'
+import { normalizeRecipeReference } from '@/features/recipe/services/RecipeService'
 import {
   TaskRecipeAssignmentService,
   createRecipeReferenceLink,
-} from '../../recipe/services/TaskRecipeAssignmentService'
+} from '@/features/recipe/services/TaskRecipeAssignmentService'
 
 export interface AiTaskEditValue {
   file: TFile
