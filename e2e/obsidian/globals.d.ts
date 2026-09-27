@@ -18,6 +18,7 @@ interface E2EObsidianApp {
   plugins: {
     isEnabled(): boolean
     plugins: Record<string, unknown>
+    disablePlugin(id: string): Promise<void>
   }
   commands: {
     commands: Record<string, E2ECommand>

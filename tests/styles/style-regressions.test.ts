@@ -347,6 +347,39 @@ describe('style regressions', () => {
     expect(hiddenRule).toMatch(/display:\s*none;/)
   })
 
+  // #105: a bare `.is-hidden { display: none }` also matched Obsidian's own
+  // `.is-hidden` elements and broke switching between stacked tabs. Every
+  // rule has to pin `is-hidden` to one of the plugin's own classes.
+  test('never styles is-hidden on its own', () => {
+    const css = styles().replace(/\/\*[\s\S]*?\*\//g, '')
+    const preludes = [...css.matchAll(/([^{}]+)\{/g)].map((match) => match[1])
+    const bare = preludes
+      .flatMap((prelude) => prelude.split(','))
+      .map((selector) => selector.trim())
+      .filter((selector) => /(?:^|[\s>+~])\.is-hidden(?![\w-])/.test(selector))
+
+    expect(bare).toEqual([])
+  })
+
+  test('hides the elements the plugin marks is-hidden', () => {
+    const css = styles()
+
+    // The idle task row hides its arrow and end time.
+    const timeRule = readRule(css, '.task-time-arrow.is-hidden')
+    expect(timeRule).toContain('.task-time-stop.is-hidden')
+    expect(timeRule).toMatch(/display:\s*none;/)
+
+    // RoutineController's inline form uses these group classes.
+    const routineRule = readRule(css, '.routine-form__weekly.is-hidden')
+    expect(routineRule).toContain('.routine-weekly-group.is-hidden')
+    expect(routineRule).toContain('.routine-monthly-group.is-hidden')
+
+    // CalendarExportModal toggles the recurrence setting's info block.
+    expect(readRule(css, '.taskchute-calendar-export-modal .setting-item-info.is-hidden')).toMatch(
+      /display:\s*none;/,
+    )
+  })
+
   test('routine edit monthly heading stays hidden over generic form labels', () => {
     const css = styles()
     const lastFormLabelRuleIndex = css.lastIndexOf('.form-label {')
