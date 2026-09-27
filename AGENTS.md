@@ -16,7 +16,8 @@
   kept apart on purpose, because running them together starves the integration suites of
   processes and makes them fail spuriously.
 - After any change to TaskChute Plus, run the on-device E2E pass with the
-  `obsidian-e2e-tester` skill and confirm PASS before reporting the work as done.
+  `obsidian-e2e-tester` skill (`.claude/skills/obsidian-e2e-tester/`, which runs
+  `npm run test:e2e`) and confirm PASS before reporting the work as done.
 - Where documents go:
   - Requirements and specs → `.kiro/steering/`
   - Scratch notes and implementation checklists → `tmp/`
@@ -104,6 +105,7 @@ npm run dev    # esbuild --watch
 npm run build  # production bundle
 npm run test:unit        # Jest (ts-jest, jsdom)
 npm run test:integration # Jest, *.integration.test.ts only (real processes, PTYs, sockets)
+npm run test:e2e         # Playwright against a real Obsidian desktop app (e2e/, Linux x64)
 ```
 
 - The Husky pre-commit hook runs only `eslint` on staged files via `lint-staged`.
