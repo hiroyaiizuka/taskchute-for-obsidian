@@ -395,4 +395,20 @@ export default [
       "obsidianmd/ui/sentence-case": "off",
     },
   },
+  // On-device E2E suite: plain Node driving Obsidian through Playwright. It
+  // never ships in main.js, so none of the plugin-review rules apply.
+  {
+    files: ["e2e/**/*.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        project: ["./e2e/tsconfig.json"],
+        tsconfigRootDir,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+    },
+  },
 ];
