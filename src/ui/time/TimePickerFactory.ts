@@ -1,6 +1,7 @@
 import { Platform } from 'obsidian'
 import TimeEditPopup from './TimeEditPopup'
 import { MobileTimePicker } from './MobileTimePicker'
+import type { ScopedTranslator } from '@/i18n'
 
 /**
  * Common options for time pickers
@@ -10,7 +11,7 @@ export interface TimePickerOptions {
   currentValue: string
   viewDate: Date
   validationDate?: Date
-  tv?: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv?: ScopedTranslator<'taskChuteView'>
   onSave: (value: string) => void
   onCancel: () => void
 }

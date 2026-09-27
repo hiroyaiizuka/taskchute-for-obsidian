@@ -1,6 +1,6 @@
 import { App, Notice, TFile, WorkspaceLeaf, normalizePath } from 'obsidian'
 
-import { getCurrentLocale, t } from '@/i18n'
+import { getCurrentLocale, t, type ScopedKey, type Variables } from '@/i18n'
 
 import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '@/types'
 import { HeatmapService } from '../services/HeatmapService'
@@ -89,9 +89,9 @@ export class LogView {
   }
 
   private tv(
-    key: string,
+    key: ScopedKey<"logView">,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`logView.${key}`, fallback, vars)
   }

@@ -21,7 +21,7 @@ import type { RoutineTaskShape } from "@/types/routine"
 import { TaskCreationService } from "@/features/core/services/TaskCreationService"
 import { TaskReuseService } from "@/features/core/services/TaskReuseService"
 import { checkSeatRegistration } from "@/features/license/ui/notifySeatReleased"
-import { getCurrentLocale, t } from "@/i18n"
+import { getCurrentLocale, t, type ScopedKey, type Variables } from "@/i18n"
 import { TASKCHUTE_NAME } from "@/constants"
 import TaskReloadCoordinator from "@/features/core/services/TaskReloadCoordinator"
 import type {
@@ -250,9 +250,9 @@ export class TaskChuteView
   }
 
   public tv(
-    key: string,
+    key: ScopedKey<"taskChuteView">,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`taskChuteView.${key}`, fallback, vars)
   }
@@ -2106,8 +2106,8 @@ export class TaskChuteView
         'forms.confirmStopNextDayMessage',
         'The stop time you entered is earlier than the start time. Save it as next day?',
       ),
-      confirmText: this.tv('common.yes', 'Yes'),
-      cancelText: this.tv('common.no', 'No'),
+      confirmText: t('common.yes', 'Yes'),
+      cancelText: t('common.no', 'No'),
     })
   }
 

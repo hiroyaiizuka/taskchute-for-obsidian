@@ -7,12 +7,13 @@ import { AiTaskRowRenderer } from '@/features/ai-task/ui/AiTaskRowRenderer'
 import { matchesAiTaskBoardView } from '@/features/ai-task/services/BoardViewFilter'
 import type { AiTaskBoardView } from '@/features/ai-task/types'
 import TaskListPointerDrag, { type DragPointer } from './TaskListPointerDrag'
+import type { ScopedTranslator } from '@/i18n'
 
 export type TaskListRendererHost = {
   taskList: HTMLElement
   taskInstances: TaskInstance[]
   currentDate: Date
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: {
     workspace: {
       openLinkText: (path: string, sourcePath: string, newLeaf?: boolean) => Promise<void> | void

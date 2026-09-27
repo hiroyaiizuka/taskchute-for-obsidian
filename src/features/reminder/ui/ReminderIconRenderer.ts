@@ -9,9 +9,10 @@ import 'obsidian'
 
 import type { TaskInstance } from '@/types';
 import { normalizeReminderTime } from '../services/ReminderFrontmatterService';
+import type { ScopedTranslator } from '@/i18n';
 
 export interface ReminderIconRendererOptions {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string;
+  tv: ScopedTranslator<'taskChuteView'>;
   /** Optional click handler - when provided, icon becomes clickable */
   onClick?: (inst: TaskInstance) => void;
 }

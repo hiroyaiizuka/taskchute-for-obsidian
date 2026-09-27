@@ -1,10 +1,11 @@
 import { Menu, type App } from 'obsidian'
 import type { TaskInstance } from '@/types'
+import type { ScopedTranslator } from '@/i18n'
 
 type AsyncValue<T> = Promise<T> | T
 
 export interface TaskContextMenuHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: App
   startInstance: (inst: TaskInstance) => AsyncValue<void>
   stopInstance: (inst: TaskInstance) => AsyncValue<void>

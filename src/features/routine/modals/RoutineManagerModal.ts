@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 ;
 
-import { t } from '@/i18n';
+import { t, type ScopedKey, type Variables } from '@/i18n';
 
 import {
   RoutineFrontmatter,
@@ -107,9 +107,9 @@ export class RoutineManagerModal extends Modal {
   }
 
   private tv(
-    key: string,
+    key: ScopedKey<'routineManager'>,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`routineManager.${key}`, fallback, vars);
   }

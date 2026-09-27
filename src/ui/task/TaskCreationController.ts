@@ -1,6 +1,6 @@
 import { App, Notice } from 'obsidian'
 import type { TFile } from "obsidian"
-import { t } from "@/i18n"
+import { t, type ScopedKey, type ScopedTranslator } from "@/i18n"
 import {
   TaskNameAutocomplete,
   TaskNameSelectionDetail,
@@ -72,11 +72,7 @@ interface TaskCreationAdvancedOptions {
 }
 
 export interface TaskCreationControllerHost {
-  tv: (
-    key: string,
-    fallback: string,
-    vars?: Record<string, string | number>,
-  ) => string
+  tv: ScopedTranslator<"taskChuteView">
   getTaskNameValidator: () => TaskNameValidator
   taskCreationService: TaskCreationService
   aiTaskEditService: AiTaskEditService
@@ -116,7 +112,7 @@ type TaskType = "human" | "ai"
 const AI_AGENT_CARDS: ReadonlyArray<{
   host: AiTaskHost
   icon: string
-  labelKey: string
+  labelKey: ScopedKey<"taskChuteView">
   labelFallback: string
 }> = [
   {
@@ -221,7 +217,7 @@ export default class TaskCreationController {
       placeholder: this.host.tv("addTask.namePlaceholder", "Enter task name"),
       submitText: this.host.tv("buttons.save", "Save"),
       cancelText: t("common.cancel", "Cancel"),
-      closeLabel: this.host.tv("common.close", "Close"),
+      closeLabel: t("common.close", "Close"),
       app: this.host.app,
     })
 
@@ -907,16 +903,16 @@ export default class TaskCreationController {
         detailsBody.textContent = recipe
           ? [
               recipe.goal
-                ? `${this.host.tv("recipes.manager.goalLabel", "Definition of done")}\n${recipe.goal}`
+                ? `${t("recipes.manager.goalLabel", "Definition of done")}\n${recipe.goal}`
                 : "",
               recipe.steps.length > 0
-                ? `${this.host.tv("recipes.manager.stepsLabel", "Steps")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.stepsLabel", "Steps")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.qualityChecks.length > 0
-                ? `${this.host.tv("recipes.manager.qualityChecksLabel", "Quality checks")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.qualityChecksLabel", "Quality checks")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.constraints.length > 0
-                ? `${this.host.tv("recipes.manager.constraintsLabel", "Constraints and rules")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.constraintsLabel", "Constraints and rules")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
             ].filter(Boolean).join("\n\n")
           : ""
@@ -935,9 +931,9 @@ export default class TaskCreationController {
             recipe.goal.trim().length > 0
               ? this.host.tv("addTask.aiRecipeHasGoal", "Has definition of done")
               : null,
-            `${this.host.tv("recipes.manager.stepsLabel", "Steps")} ${recipe.steps.length}`,
-            `${this.host.tv("recipes.manager.qualityChecksLabel", "Quality checks")} ${recipe.qualityChecks.length}`,
-            `${this.host.tv("recipes.manager.constraintsLabel", "Constraints and rules")} ${recipe.constraints.length}`,
+            `${t("recipes.manager.stepsLabel", "Steps")} ${recipe.steps.length}`,
+            `${t("recipes.manager.qualityChecksLabel", "Quality checks")} ${recipe.qualityChecks.length}`,
+            `${t("recipes.manager.constraintsLabel", "Constraints and rules")} ${recipe.constraints.length}`,
           ].filter((value): value is string => value !== null)
           option.textContent = `${recipe.title} — ${summaryParts.join(" / ")}`
           recipeSelect.appendChild(option)
@@ -1189,7 +1185,7 @@ export default class TaskCreationController {
     const reasoningBudgetLabel = (budget: AiReasoningBudget): string => {
       const definitions: Record<
         AiReasoningBudget,
-        { key: string; fallback: string }
+        { key: ScopedKey<"taskChuteView">; fallback: string }
       > = {
         low: { key: "addTask.aiReasoningLow", fallback: "Low" },
         medium: { key: "addTask.aiReasoningMedium", fallback: "Medium" },
@@ -1477,7 +1473,7 @@ export default class TaskCreationController {
       cancel: t("common.cancel", "Cancel"),
       add: this.host.tv("addTask.aiCustomModelAdd", "Add"),
       save: this.host.tv("buttons.save", "Save"),
-      close: this.host.tv("common.close", "Close"),
+      close: t("common.close", "Close"),
       invalidId: this.host.tv(
         "addTask.aiCustomModelInvalidId",
         "Use 1-100 characters: letters, numbers, dot, underscore, colon, slash, or hyphen; start with a letter or number.",

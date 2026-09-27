@@ -2,11 +2,12 @@ import { Notice, TFile } from 'obsidian'
 import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '@/types'
 import ProjectSettingsModal from '../modals/ProjectSettingsModal'
 import { listFilesInFolder } from '@/utils/vaultFiles'
+import { t, type ScopedTranslator } from '@/i18n'
 
 export interface ProjectControllerHost {
   app: TaskChutePluginLike['app']
   plugin: TaskChutePluginLike
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getInstanceDisplayTitle: (inst: TaskInstance) => string
   renderTaskList: () => void
   getTaskListElement: () => HTMLElement | null | undefined
@@ -84,7 +85,7 @@ export default class ProjectController {
       const projectsFolder = this.host.plugin.pathManager.getProjectFolderPath()
       if (!projectsFolder) {
         new Notice(
-          this.host.tv(
+          t(
             'notices.projectFolderUnset',
             'Project files location is not set. Open settings to choose a folder.',
           ),

@@ -1,16 +1,16 @@
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
 import type { CommandHost, ViewActions, CommandRegistrar } from "../types/Commands";
 
 interface LocalizedCommandDefinition {
   id: string;
-  nameKey: string;
+  nameKey: TranslationKey;
   fallback: string;
   callback: () => void | Promise<void>;
 }
 
 interface ConditionalCommandDefinition {
   id: string;
-  nameKey: string;
+  nameKey: TranslationKey;
   fallback: string;
   checkCallback: (checking: boolean) => boolean | void;
 }

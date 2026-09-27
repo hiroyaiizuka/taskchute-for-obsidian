@@ -8,9 +8,10 @@ import NavigationSettingsController from './NavigationSettingsController'
 import { VIEW_TYPE_PROJECT_BOARD } from '@/types'
 import type { RoutineTaskShape } from '@/types/routine'
 import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
+import { t, type ScopedTranslator } from '@/i18n'
 
 export interface NavigationSectionHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: App
   plugin: TaskChutePluginLike
   navigationState: { selectedSection: NavigationSection | null; isOpen: boolean }
@@ -81,7 +82,7 @@ export default class NavigationSectionController {
       new NavigationSettingsController({
         app: this.host.app,
         pluginId: this.host.plugin.manifest?.id ?? 'taskchute-plus',
-        notifyFailure: (message) => new Notice(this.host.tv('settings.openFailed', message)),
+        notifyFailure: (message) => new Notice(t('settings.openFailed', message)),
       })
   }
 
@@ -128,7 +129,7 @@ export default class NavigationSectionController {
       this.callbacks.closeNavigation()
       return
     }
-    const sectionKey = section as string
+    const sectionKey = section as NavigationSection
     const label = this.host.tv(`navigation.${sectionKey}`, sectionKey)
     new Notice(this.host.tv('notices.sectionWip', '{section} is under construction', { section: label }))
   }
@@ -144,7 +145,7 @@ export default class NavigationSectionController {
     if (!leaf) {
       console.error('[Navigation] No workspace leaf available')
       new Notice(
-        this.host.tv('projectBoard.errors.genericTitle', 'Unable to load projects'),
+        t('projectBoard.errors.genericTitle', 'Unable to load projects'),
       )
       return
     }
@@ -157,7 +158,7 @@ export default class NavigationSectionController {
     }).catch((error: unknown) => {
       console.error('[Navigation] Failed to open project board view:', error)
       new Notice(
-        this.host.tv('projectBoard.errors.genericTitle', 'Unable to load projects'),
+        t('projectBoard.errors.genericTitle', 'Unable to load projects'),
       )
     })
   }

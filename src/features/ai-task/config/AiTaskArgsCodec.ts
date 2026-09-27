@@ -1,4 +1,5 @@
 import type { AiTaskHost } from '../types'
+import type { ScopedKey } from '@/i18n'
 import {
   AI_REASONING_BUDGETS,
   type AiReasoningBudget,
@@ -8,7 +9,7 @@ import {
 /** One execution-mode choice and the argv tokens persisted for it. */
 export interface AiExecModeVariant {
   id: string
-  labelKey: string
+  labelKey: ScopedKey<'taskChuteView'>
   labelFallback: string
   tokens: readonly string[]
 }

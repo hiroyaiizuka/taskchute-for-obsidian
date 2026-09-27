@@ -8,7 +8,29 @@ type TranslationTree = typeof en
 
 type TranslationDictionaries = Record<LocaleKey, TranslationTree>
 
-type Variables = Record<string, string | number>
+export type Variables = Record<string, string | number>
+
+// Every dot path from the root of the English dictionary to a string leaf.
+type Leaves<T, P extends string = ""> = {
+  [K in keyof T & string]: T[K] extends string
+    ? `${P}${K}`
+    : Leaves<T[K], `${P}${K}.`>
+}[keyof T & string]
+
+export type TranslationKey = Leaves<TranslationTree>
+
+// The keys under one namespace, with the namespace prefix stripped — what a
+// scoped helper such as TaskChuteView#tv accepts.
+export type ScopedKey<NS extends string> =
+  TranslationKey extends infer K
+    ? K extends `${NS}.${infer Rest}` ? Rest : never
+    : never
+
+export type ScopedTranslator<NS extends string> = (
+  key: ScopedKey<NS>,
+  fallback: string,
+  vars?: Variables,
+) => string
 
 const DICTIONARIES: TranslationDictionaries = {
   en,
@@ -45,7 +67,7 @@ function resolveKeyPath(tree: TranslationTree, key: string): unknown {
   return current
 }
 
-export function applyVariables(message: string, vars?: Variables): string {
+function applyVariables(message: string, vars?: Variables): string {
   if (!vars) return message
   return Object.keys(vars).reduce((acc, variable) => {
     const value = String(vars[variable])
@@ -68,7 +90,7 @@ class LocaleManager {
     return this.current
   }
 
-  translate(key: string, vars?: Variables, fallback?: string): string {
+  translate(key: TranslationKey, fallback?: string, vars?: Variables): string {
     const primary = resolveKeyPath(DICTIONARIES[this.current], key)
     const fallbackEn = resolveKeyPath(DICTIONARIES.en, key)
     const raw = primary ?? fallbackEn ?? fallback ?? key
@@ -85,23 +107,10 @@ export function initializeLocaleManager(): void {
   localeManager.initialize()
 }
 
-export function t(key: string, fallback?: string, vars?: Variables): string {
-  return localeManager.translate(key, vars, fallback)
+export function t(key: TranslationKey, fallback?: string, vars?: Variables): string {
+  return localeManager.translate(key, fallback, vars)
 }
 
 export function getCurrentLocale(): LocaleKey {
   return localeManager.getLocale()
-}
-
-export function translateInline(
-  variants: Partial<Record<LocaleKey, string>>,
-  fallback?: string,
-  vars?: Variables,
-): string {
-  const locale = localeManager.getLocale()
-  const raw = variants[locale] ?? variants.ja ?? variants.en ?? fallback
-  if (typeof raw !== "string") {
-    return typeof fallback === "string" ? fallback : ""
-  }
-  return applyVariables(raw, vars)
 }

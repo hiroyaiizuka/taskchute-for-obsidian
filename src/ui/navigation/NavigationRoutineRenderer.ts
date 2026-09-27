@@ -1,10 +1,11 @@
 import type { RoutineTaskShape } from '@/types/routine'
 import type { TFile } from 'obsidian'
+import type { ScopedTranslator } from '@/i18n'
 
 export type RoutineTaskWithFile = RoutineTaskShape & { file: TFile }
 
 export interface RoutineListHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getWeekdayNames: () => string[]
 }
 

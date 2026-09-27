@@ -123,6 +123,7 @@ import type { FileEditorAdapterFactory } from './FileEditorAdapter'
 import { AI_PANE_MAX_HEIGHT_RATIO, AiPaneResizer } from './AiPaneResizer'
 import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
 import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -182,7 +183,7 @@ export interface AiRunPaneManagerLike {
 }
 
 export interface AiRunPaneControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   manager: AiRunPaneManagerLike
   /** Adapter factory; tests substitute a fake so jsdom never loads xterm */
   createTerminalAdapter: TerminalViewAdapterFactory
