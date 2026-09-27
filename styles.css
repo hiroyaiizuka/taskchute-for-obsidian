@@ -215,6 +215,9 @@ body.is-phone {
 .taskchute-calendar-export-modal .setting-item .setting-item-description:empty {
   display: none;
 }
+.taskchute-calendar-export-modal .setting-item-info.is-hidden {
+  display: none;
+}
 .taskchute-calendar-export-modal .setting-item.is-hidden {
   display: none;
   border-top: 0;
@@ -1573,10 +1576,6 @@ body.is-phone {
 
 .tc-accent-probe--background {
   color: var(--background-primary);
-}
-
-.is-hidden {
-  display: none;
 }
 
 /* ステータスバッジ */
@@ -3393,6 +3392,10 @@ body.is-phone .taskchute-modal .modal-button-container {
 .task-time-arrow {
   margin: 0 2px;
 }
+.task-time-arrow.is-hidden,
+.task-time-stop.is-hidden {
+  display: none;
+}
 .task-time-range.editable {
   cursor: pointer;
   text-decoration: none;
@@ -4617,7 +4620,9 @@ body.is-phone .taskchute-modal .modal-button-container {
 .routine-form__monthly.is-hidden,
 .routine-form__monthly-date.is-hidden,
 .routine-monthly-date-group.is-hidden,
-.routine-monthly-group__heading.is-hidden {
+.routine-monthly-group__heading.is-hidden,
+.routine-weekly-group.is-hidden,
+.routine-monthly-group.is-hidden {
   display: none;
 }
 
