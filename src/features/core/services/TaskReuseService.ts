@@ -28,7 +28,7 @@ export class TaskReuseService {
     const file = this.plugin.app.vault.getAbstractFileByPath(path)
     if (!(file instanceof TFile)) {
       throw new Error(
-        t('addTask.reuseFileMissing', 'Task file not found: {path}', { path }),
+        t('taskChuteView.addTask.reuseFileMissing', 'Task file not found: {path}', { path }),
       )
     }
 
@@ -38,7 +38,7 @@ export class TaskReuseService {
     const instanceId = await this.recordDuplicateForDate(file, dateStr, normalizedOptions)
 
     new Notice(
-      t('addTask.reuseSuccess', 'Reused "{name}" for {date}', {
+      t('taskChuteView.addTask.reuseSuccess', 'Reused "{name}" for {date}', {
         name: file.basename,
         date: dateStr,
       }),

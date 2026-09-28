@@ -1,6 +1,6 @@
 import { Modal, Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { getCurrentLocale, t } from '@/i18n'
+import { getCurrentLocale, t, type ScopedKey, type ScopedTranslator, type Variables } from '@/i18n'
 import { DATE_FORMAT_DISPLAY } from '@/constants'
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils'
 import { TaskValidator } from '@/features/core/services/TaskValidator'
@@ -65,7 +65,7 @@ class RoutineEditDialog extends Modal {
 export interface RoutineControllerHost {
   app: App
   plugin: TaskChutePluginLike
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getWeekdayNames: () => string[]
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
   getCurrentDate: () => Date
@@ -392,8 +392,6 @@ export default class RoutineController {
         initialValue: task.frontmatter?.obsidian_sync,
         excludePath: task.path,
         taskFolderPath: this.host.plugin.pathManager.getTaskFolderPath(),
-        translate: (key, fallback) =>
-          this.tv(`obsidianLink.${key}`, fallback),
       })
     }
 
@@ -801,7 +799,7 @@ export default class RoutineController {
     }
   }
 
-  private tv(key: string, fallback: string, vars?: Record<string, string | number>): string {
+  private tv(key: ScopedKey<'taskChuteView'>, fallback: string, vars?: Variables): string {
     return this.host.tv(key, fallback, vars)
   }
 

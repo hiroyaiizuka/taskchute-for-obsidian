@@ -47,7 +47,6 @@ describe('ObsidianTaskLinkFields', () => {
       taskFolderPath: 'TASKS',
       excludePath: currentAi.path,
       initialValue: { enabled: true, taskTitle: '', matchType: 'exact' },
-      translate: (_key, fallback) => fallback,
     })
 
     const input = document.querySelector<HTMLInputElement>(

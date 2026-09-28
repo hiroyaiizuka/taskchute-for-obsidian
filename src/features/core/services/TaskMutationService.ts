@@ -10,6 +10,7 @@ import {
 import type DayStateStoreService from '@/services/DayStateStoreService'
 import { isHidden as isHiddenEntry } from '@/services/dayState/conflictResolver'
 import type { SectionConfigService } from '@/services/SectionConfigService'
+import type { ScopedTranslator } from '@/i18n'
 
 type HiddenRoutineEntry = HiddenRoutine | string
 
@@ -45,7 +46,7 @@ interface MutationDayState {
 }
 
 export interface TaskMutationHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: Pick<App, 'vault' | 'fileManager'>
   plugin: {
     settings: { slotKeys?: Record<string, string> }

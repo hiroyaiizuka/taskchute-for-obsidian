@@ -354,7 +354,7 @@ export class TaskNameAutocomplete {
       if (match.suggestion.type === 'project') {
         const badge = this.doc.win.createSpan();
         badge.className = 'suggestion-badge';
-        badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
+        badge.textContent = t('taskChuteView.addTask.suggestionTemplateBadge', 'Template');
         title.appendChild(badge);
       }
 

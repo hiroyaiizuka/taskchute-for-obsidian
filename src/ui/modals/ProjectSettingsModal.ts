@@ -1,11 +1,11 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian'
-import { t } from '@/i18n'
+import { t, type ScopedTranslator } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
 import type { TaskChutePluginLike } from '@/types'
 
 export interface ProjectSettingsModalOptions {
   app: App
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   plugin: TaskChutePluginLike
   displayTitle: string
   projectFiles: TFile[]

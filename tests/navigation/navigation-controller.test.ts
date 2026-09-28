@@ -1,8 +1,8 @@
 import NavigationController from '@/ui/navigation/NavigationController';
-import { t } from '@/i18n';
+import { t, type ScopedKey, type ScopedTranslator, type Variables } from '@/i18n';
 
 type NavigationViewStub = {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string;
+  tv: ScopedTranslator<'taskChuteView'>;
   app: {
     setting: {
       open: jest.Mock<void, []>;
@@ -72,7 +72,7 @@ describe('NavigationController', () => {
     );
 
     const view: NavigationViewStub = {
-      tv: jest.fn((key: string, fallback: string, vars?: Record<string, string | number>) =>
+      tv: jest.fn((key: ScopedKey<'taskChuteView'>, fallback: string, vars?: Variables) =>
         t(`taskChuteView.${key}`, fallback, vars),
       ),
       app: {

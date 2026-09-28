@@ -1,5 +1,5 @@
 import { App, Modal, Notice, Setting, TFile } from 'obsidian'
-import { t } from '@/i18n'
+import { t, type ScopedKey, type ScopedTranslator } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
 import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 import type { TaskInstance, PathManagerLike } from '@/types'
@@ -7,7 +7,7 @@ import type { TaskLogEntry } from '@/types/ExecutionLog'
 import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 export interface TaskCompletionControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   renderTaskList: () => void
   getInstanceDisplayTitle: (inst: TaskInstance) => string
   calculateCrossDayDuration: (start?: Date, stop?: Date) => number
@@ -136,7 +136,7 @@ export default class TaskCompletionController {
   /** A star picker living in the control slot of a standard setting row. */
   private createRatingGroup(
     container: HTMLElement,
-    options: { labelKey: string; fallback: string; initial: number },
+    options: { labelKey: ScopedKey<'taskChuteView'>; fallback: string; initial: number },
   ): HTMLElement {
     const setting = new Setting(container).setName(
       this.host.tv(options.labelKey, options.fallback),

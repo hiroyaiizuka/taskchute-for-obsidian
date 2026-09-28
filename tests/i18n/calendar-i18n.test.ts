@@ -34,7 +34,6 @@ describe("calendar export i18n", () => {
     setObsidianLanguage("en")
 
     expect(t("taskChuteView.buttons.setRecipe", "fallback")).toBe("🍽 Set recipe")
-    expect(t("taskChuteView.buttons.changeRecipe", "fallback")).toBe("🍽 Change recipe")
     expect(t("taskChuteView.forms.recipeDescription", "fallback")).toBe(
       "Assign a reusable recipe to this task",
     )

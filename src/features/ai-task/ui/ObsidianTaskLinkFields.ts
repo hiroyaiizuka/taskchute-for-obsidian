@@ -6,6 +6,7 @@ import type {
 } from '@/types/TaskFields'
 import { resolveTaskDisplayTitle } from '@/utils/taskDisplayTitle'
 import { listFilesInFolder } from '@/utils/vaultFiles'
+import { t } from '@/i18n'
 
 export interface ObsidianTaskLinkFieldsOptions {
   parent: HTMLElement
@@ -14,7 +15,6 @@ export interface ObsidianTaskLinkFieldsOptions {
   initialValue?: unknown
   excludePath?: string
   taskFolderPath?: string
-  translate: (key: string, fallback: string) => string
 }
 
 export interface ObsidianTaskLinkFieldsController {
@@ -36,7 +36,7 @@ let fieldSequence = 0
 export function createObsidianTaskLinkFields(
   options: ObsidianTaskLinkFieldsOptions,
 ): ObsidianTaskLinkFieldsController {
-  const { parent, doc, app, translate } = options
+  const { parent, doc, app } = options
   const initial = normalizeInitialValue(options.initialValue)
   const root = doc.win.createEl('section')
   root.className = 'form-group obsidian-task-link-fields'
@@ -48,7 +48,7 @@ export function createObsidianTaskLinkFields(
   headingIcon.className = 'obsidian-task-link-heading-icon'
   setIcon(headingIcon, 'link-2')
   const headingText = doc.win.createSpan()
-  headingText.textContent = translate('heading', 'Obsidian integration')
+  headingText.textContent = t('obsidianLink.heading', 'Obsidian integration')
   heading.append(headingIcon, headingText)
   root.appendChild(heading)
 
@@ -59,7 +59,7 @@ export function createObsidianTaskLinkFields(
   enabled.className = 'obsidian-task-link-enabled'
   enabled.checked = initial.enabled
   const enabledText = doc.win.createSpan()
-  enabledText.textContent = translate('enabled', 'Link with Obsidian')
+  enabledText.textContent = t('obsidianLink.enabled', 'Link with Obsidian')
   enabledLabel.append(enabled, enabledText)
   root.appendChild(enabledLabel)
 
@@ -69,7 +69,7 @@ export function createObsidianTaskLinkFields(
 
   const titleLabel = doc.win.createEl('label')
   titleLabel.className = 'form-label'
-  titleLabel.textContent = translate('taskTitle', 'Matching task name')
+  titleLabel.textContent = t('obsidianLink.taskTitle', 'Matching task name')
   details.appendChild(titleLabel)
 
   const autocomplete = doc.win.createDiv()
@@ -78,8 +78,7 @@ export function createObsidianTaskLinkFields(
   titleInput.type = 'text'
   titleInput.className = 'form-input obsidian-task-link-title'
   titleInput.autocomplete = 'off'
-  titleInput.placeholder = translate(
-    'taskTitlePlaceholder',
+  titleInput.placeholder = t('obsidianLink.taskTitlePlaceholder',
     'Enter or select a task name',
   )
   titleInput.value = initial.taskTitle
@@ -91,7 +90,7 @@ export function createObsidianTaskLinkFields(
 
   const matchLabel = doc.win.createDiv()
   matchLabel.className = 'form-label obsidian-task-link-match-label'
-  matchLabel.textContent = translate('matchType', 'Match type')
+  matchLabel.textContent = t('obsidianLink.matchType', 'Match type')
   details.appendChild(matchLabel)
 
   const matchOptions = doc.win.createDiv()
@@ -110,8 +109,8 @@ export function createObsidianTaskLinkFields(
     matchOptions.appendChild(label)
     radios.set(value, radio)
   }
-  addRadio('exact', translate('exact', 'Exact match'))
-  addRadio('contains', translate('contains', 'Partial match'))
+  addRadio('exact', t('obsidianLink.exact', 'Exact match'))
+  addRadio('contains', t('obsidianLink.contains', 'Partial match'))
   details.appendChild(matchOptions)
 
   const taskTitles = collectHumanTaskTitles(
@@ -222,7 +221,7 @@ export function createObsidianTaskLinkFields(
     },
     validate: () =>
       enabled.checked && titleInput.value.trim().length === 0
-        ? translate('taskTitleRequired', 'Enter a matching task name.')
+        ? t('obsidianLink.taskTitleRequired', 'Enter a matching task name.')
         : null,
     destroy: () => {
       doc.removeEventListener('mousedown', handleOutsidePointer, true)

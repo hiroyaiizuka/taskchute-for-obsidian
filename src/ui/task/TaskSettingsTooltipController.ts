@@ -1,9 +1,10 @@
 import 'obsidian'
 import type { TaskInstance } from '@/types'
 import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface TaskSettingsTooltipHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   resetTaskToIdle: (inst: TaskInstance) => Promise<void>
   showScheduledTimeEditModal: (inst: TaskInstance) => void | Promise<void>
   showTaskMoveDatePicker: (inst: TaskInstance, anchor: HTMLElement) => void

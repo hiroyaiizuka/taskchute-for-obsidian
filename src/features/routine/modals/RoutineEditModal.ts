@@ -1,6 +1,6 @@
 import { App, Modal, Notice, TFile } from 'obsidian'
 
-import { t, getCurrentLocale } from "@/i18n"
+import { t, getCurrentLocale, type ScopedKey, type Variables } from "@/i18n"
 import { DATE_FORMAT_DISPLAY } from "@/constants"
 
 import {
@@ -71,9 +71,9 @@ export default class RoutineEditModal extends Modal {
   }
 
   private tv(
-    key: string,
+    key: ScopedKey<'routineEdit'>,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`routineEdit.${key}`, fallback, vars)
   }
@@ -86,7 +86,7 @@ export default class RoutineEditModal extends Modal {
   }
 
   private getWeekOptions(): Array<{ value: RoutineWeek; label: string }> {
-    const keyMap: Record<string, string> = {
+    const keyMap: Record<string, ScopedKey<"routineEdit">> = {
       "1": "weekOptions.first",
       "2": "weekOptions.second",
       "3": "weekOptions.third",
@@ -400,8 +400,6 @@ export default class RoutineEditModal extends Modal {
         initialValue: frontmatter.obsidian_sync,
         excludePath: this.file.path,
         taskFolderPath: this.plugin.pathManager?.getTaskFolderPath?.(),
-        translate: (key, fallback) =>
-          this.tv(`obsidianLink.${key}`, fallback),
       })
     }
 

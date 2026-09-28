@@ -1,6 +1,7 @@
 import { Notice } from 'obsidian'
 import { TaskInstance } from '@/types'
 import type { DragPointer } from './TaskListPointerDrag'
+import type { ScopedTranslator } from '@/i18n'
 
 /**
  * What the placement math reads off the event. The list drags on Pointer
@@ -18,7 +19,7 @@ export interface TaskDragControllerHost {
   getStatePriority: (state: TaskInstance['state']) => number
   normalizeState: (state: TaskInstance['state']) => string
   moveTaskToSlot: (inst: TaskInstance, slot: string, stateInsertIndex?: number) => Promise<void> | void
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
 }
 
 /**

@@ -14,9 +14,10 @@ import { setIcon } from 'obsidian'
 import type { TaskInstance } from '@/types'
 import { readAiTaskConfig } from '../services/AiTaskFrontmatterReader'
 import { readObsidianTaskLinkConfig } from '../services/ObsidianTaskLinkConfig'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface AiTaskRowRendererHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   isAiTaskFeatureEnabled: () => boolean
   editAiTask: (inst: TaskInstance) => void
 }

@@ -1,7 +1,8 @@
 import type { TaskInstance } from '@/types'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface TaskSelectionControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getContainer: () => HTMLElement
   duplicateInstance: (inst: TaskInstance) => Promise<TaskInstance | void>
   deleteTask: (inst: TaskInstance) => Promise<void>

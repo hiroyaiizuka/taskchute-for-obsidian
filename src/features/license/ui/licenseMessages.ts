@@ -8,7 +8,7 @@
  * Every message carries its code — the prose is what the user acts on, but the
  * code is what support asks for and what a bug report has to contain.
  */
-import { t } from '@/i18n'
+import { t, type TranslationKey } from '@/i18n'
 import type { ActivationFailure } from '../services/LicenseManager'
 import type { LicenseApiFailure } from '../services/LicenseApiClient'
 
@@ -50,7 +50,9 @@ function formatRetryAt(retryAfterAt: number | undefined): string {
 }
 
 function messageForCode(code: string, vars?: Record<string, string>): string {
-  return t(`license.errors.${code}`, FALLBACKS[code] ?? FALLBACKS['internal'], vars)
+  // `code` comes from the server, so an unknown one is expected here; the
+  // lookup misses and the fallback below is what the user sees.
+  return t(`license.errors.${code}` as TranslationKey, FALLBACKS[code] ?? FALLBACKS['internal'], vars)
 }
 
 /**

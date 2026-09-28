@@ -6,7 +6,7 @@ import TaskSettingsTooltipController, {
   TaskSettingsTooltipHost,
 } from '@/ui/task/TaskSettingsTooltipController';
 import type { TaskInstance } from '@/types';
-import { t } from '@/i18n';
+import { t, type ScopedKey, type Variables } from '@/i18n';
 
 // Mock Obsidian's createEl method on HTMLElement
 const mockCreateEl = function (
@@ -49,7 +49,7 @@ describe('TaskSettingsTooltipController reminder menu item', () => {
     document.body.innerHTML = '';
 
     mockHost = {
-      tv: jest.fn((key: string, fallback: string, vars?: Record<string, string | number>) =>
+      tv: jest.fn((key: ScopedKey<'taskChuteView'>, fallback: string, vars?: Variables) =>
         t(`taskChuteView.${key}`, fallback, vars),),
       resetTaskToIdle: jest.fn(),
       showScheduledTimeEditModal: jest.fn(),

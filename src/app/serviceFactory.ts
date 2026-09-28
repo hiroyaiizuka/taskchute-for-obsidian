@@ -1,7 +1,7 @@
 import { Notice } from "obsidian"
 ;
 
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
 import { PathService } from "../services/PathService";
 import { RoutineAliasService } from "../features/routine/services/RoutineAliasService";
 import DayStatePersistenceService from "../services/DayStatePersistenceService";
@@ -31,7 +31,7 @@ export async function initializeServices(plugin: TaskChutePlugin): Promise<Initi
 
 export async function ensureRequiredFolders(pathManager: PathService): Promise<void> {
   const targets: Array<{
-    labelKey: string;
+    labelKey: TranslationKey;
     fallback: string;
     getter: () => string | null;
   }> = [
