@@ -26,6 +26,12 @@ export interface TaskScheduleControllerHost {
    * compensate if the structural task move fails.
    */
   moveRunningTaskToDate?: (inst: TaskInstance, dateStr: string) => Promise<number>
+  /**
+   * Called once the move has been written, before the reload. A linked AI
+   * routine uses it to move its partner to the same date (#183) and returns
+   * how many such tasks moved along, so one notice can cover them all.
+   */
+  onInstanceMoved?: (inst: TaskInstance, dateStr: string) => Promise<number>
   app: {
     vault: {
       getAbstractFileByPath: (path: string) => unknown
@@ -113,7 +119,16 @@ export default class TaskScheduleController {
     }
   }
 
-  async moveTaskToDate(inst: TaskInstance, dateStr: string): Promise<void> {
+  /**
+   * Moves `inst` to `dateStr` and resolves whether it moved. `quiet` skips
+   * the notice and the reload, for a task moved along with another one whose
+   * own move reports and reloads once for both.
+   */
+  async moveTaskToDate(
+    inst: TaskInstance,
+    dateStr: string,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> {
     const sourceDateKey = this.formatDateKey(this.host.getCurrentDate())
     let runningRecordMoved = false
     let structuralMoveCompleted = false
@@ -130,7 +145,7 @@ export default class TaskScheduleController {
         inst.state === 'running' &&
         dateStr === sourceDateKey
       ) {
-        return
+        return true
       }
 
       const isPastDate = this.isPastDateString(dateStr, this.host.getCurrentDate())
@@ -192,13 +207,21 @@ export default class TaskScheduleController {
       }
 
       structuralMoveCompleted = true
+      if (options.quiet) return true
+      const movedAlong = (await this.host.onInstanceMoved?.(inst, dateStr)) ?? 0
 
       new Notice(
-        this.host.tv('notices.taskMoveSuccess', 'Moved task to {date}', {
-          date: dateStr,
-        }),
+        movedAlong > 0
+          ? this.host.tv('notices.taskMoveSuccessMany', 'Moved {count} tasks to {date}', {
+              count: movedAlong + 1,
+              date: dateStr,
+            })
+          : this.host.tv('notices.taskMoveSuccess', 'Moved task to {date}', {
+              date: dateStr,
+            }),
       )
       await this.host.reloadTasksAndRestore()
+      return true
     } catch (error) {
       if (
         runningRecordMoved &&
@@ -221,6 +244,7 @@ export default class TaskScheduleController {
       }
       console.error('[TaskScheduleController] Failed to move task', error)
       new Notice(this.host.tv('notices.taskMoveFailed', 'Failed to move task'))
+      return false
     }
   }
 

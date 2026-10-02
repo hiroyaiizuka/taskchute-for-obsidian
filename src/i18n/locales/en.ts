@@ -377,6 +377,7 @@ export const en = {
       cannotPlaceAboveCompleted: "Cannot place above running or completed tasks",
       dropNotAllowedHere: "Cannot drop here",
       taskMoveSuccess: "Moved task to {date}",
+      taskMoveSuccessMany: "Moved {count} tasks to {date}",
       taskDuplicated: 'Duplicated "{title}"',
       routineSetSuccess: 'Set "{title}" as a routine task (starts at {time})',
       taskStarted: 'Started {name}',

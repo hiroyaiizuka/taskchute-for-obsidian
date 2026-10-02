@@ -44,7 +44,7 @@ export interface TaskTimeControllerHost {
    */
   onInstanceResetToIdle?: (
     inst: TaskInstance,
-    context: { wasRunning: boolean },
+    context: { wasRunning: boolean; previousState: TaskInstance['state'] },
   ) => void | Promise<void>
   /** Called when manual time editing transitions running -> done. */
   onInstanceStopped?: (inst: TaskInstance) => void | Promise<void>
@@ -279,13 +279,14 @@ export default class TaskTimeController {
   }
 
   async resetTaskToIdle(inst: TaskInstance): Promise<void> {
-    const wasRunning = inst.state === 'running'
+    const previousState = inst.state
+    const wasRunning = previousState === 'running'
     try {
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
       inst.state = 'idle'
       inst.startTime = undefined
       inst.stopTime = undefined
-      await this.host.onInstanceResetToIdle?.(inst, { wasRunning })
+      await this.host.onInstanceResetToIdle?.(inst, { wasRunning, previousState })
 
       if (inst.instanceId) {
         await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)
