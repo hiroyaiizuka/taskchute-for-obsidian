@@ -140,6 +140,7 @@ describe('TaskTimeController', () => {
 
     expect(onInstanceResetToIdle).toHaveBeenCalledWith(instance, {
       wasRunning: true,
+      previousState: 'running',
     })
   })
 

@@ -80,6 +80,7 @@ import { AiBinaryNotFoundError } from "@/features/ai-task/services/BinaryLocator
 import { readAiTaskConfig } from "@/features/ai-task/services/AiTaskFrontmatterReader"
 import { AiTaskEditService } from "@/features/ai-task/services/AiTaskEditService"
 import { AiTaskObsidianLinkCoordinator } from "@/features/ai-task/services/AiTaskObsidianLinkCoordinator"
+import { AiTaskLinkSync } from "@/features/ai-task/services/AiTaskLinkSync"
 import { readObsidianTaskLinkConfig } from "@/features/ai-task/services/ObsidianTaskLinkConfig"
 import { collectAiTaskWorkingDirectoryCandidates } from "@/features/ai-task/services/AiTaskWorkingDirectoryCandidates"
 import { matchesAiTaskBoardView } from "@/features/ai-task/services/BoardViewFilter"
@@ -94,6 +95,7 @@ import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
 import type {
   AiRunMode,
   AiRunRecord,
+  AiRunStatus,
   AiTaskBoardView,
 } from "@/features/ai-task/types"
 
@@ -127,6 +129,10 @@ class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
+
+
+/** Linked AI run exits already finished by one of the mounted leaves (#183). */
+const claimedLinkedAiRunExits = new Set<string>()
 
 export class TaskChuteView
   extends ItemView
@@ -168,6 +174,7 @@ export class TaskChuteView
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
   private readonly aiTaskObsidianLinkCoordinator: AiTaskObsidianLinkCoordinator
+  private readonly aiTaskLinkSync: AiTaskLinkSync
   public readonly recipeService: RecipeService
   private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
@@ -184,6 +191,11 @@ export class TaskChuteView
   // AI Task pane (mounted only while plugin.aiTaskManager exists)
   private aiPaneContainer: HTMLElement | null = null
   private aiRunPaneController: AiRunPaneController | null = null
+  /** Watches the AI manager for linked runs whose process ends on its own (#183). */
+  private linkedAiRunExitWatch: {
+    manager: AiTaskManager
+    dispose: () => void
+  } | null = null
   /** Selected board view (render-only filter); restored in the constructor */
   private aiTaskBoardView: AiTaskBoardView = 'mixed'
   /**
@@ -413,21 +425,24 @@ export class TaskChuteView
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
       saveScheduledTime: (inst, scheduledTime) =>
         this.updateTaskScheduledTime(inst, scheduledTime),
-      onInstanceResetToIdle: async (inst, { wasRunning }) => {
+      onInstanceResetToIdle: async (inst, { wasRunning, previousState }) => {
         // Resetting a running instance bypasses stopInstance, so stop the
         // coupled AI run here to keep play/stop coupling symmetric.
         if (wasRunning) {
           this.maybeStopAiRunForInstance(inst)
           await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
         }
+        await this.aiTaskLinkSync.afterResetToIdle(inst, previousState)
       },
       onInstanceStopped: async (inst) => {
         this.maybeStopAiRunForInstance(inst)
         await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+        await this.aiTaskLinkSync.afterStopped(inst)
       },
       onInstanceStarted: async (inst) => {
         this.maybeStartAiRunForInstance(inst)
         await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
+        await this.aiTaskLinkSync.afterStarted(inst)
       },
     })
     this.taskCreationController = new TaskCreationController({
@@ -498,6 +513,8 @@ export class TaskChuteView
         this.moveDuplicateInstanceToDate(inst, dateStr),
       moveNonRoutineSlotOverrideToDate: (inst, dateStr) =>
         this.moveNonRoutineSlotOverrideToDate(inst, dateStr),
+      onInstanceMoved: (inst, dateStr) =>
+        this.aiTaskLinkSync.afterMoved(inst, dateStr),
       moveRunningTaskToDate: async (inst, dateStr) => {
         return await this.runningTasksService.moveRunningTaskToDateStrict({
           targetDate: dateStr,
@@ -592,6 +609,18 @@ export class TaskChuteView
         if (stopped) this.maybeStopAiRunForInstance(target)
         return stopped
       },
+    })
+    this.aiTaskLinkSync = new AiTaskLinkSync({
+      getTaskInstances: () => [
+        ...this.taskInstances,
+        ...this.linkedAiTaskCandidates,
+      ],
+      startInstance: (inst) => this.startInstance(inst),
+      stopInstance: (inst) => this.stopInstance(inst),
+      resetToIdle: (inst) => this.resetTaskToIdle(inst),
+      deleteInstance: (inst) => this.deleteTask(inst),
+      moveToDate: (inst, dateStr) =>
+        this.taskScheduleController.moveTaskToDate(inst, dateStr, { quiet: true }),
     })
     this.taskViewLayout = new TaskViewLayout({
       renderHeader: (container) => this.taskHeaderController.render(container),
@@ -807,6 +836,7 @@ export class TaskChuteView
     this.isClosingOrClosed = true
     this.recipeRunPopover.close()
     this.unmountAiRunPane()
+    this.unwatchLinkedAiRunExits()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -825,6 +855,7 @@ export class TaskChuteView
     this.taskListElement = taskListElement
     this.aiPaneContainer = aiPaneContainer
     this.mountAiRunPane()
+    this.watchLinkedAiRunExits()
   }
 
   // ===========================================
@@ -1826,6 +1857,47 @@ export class TaskChuteView
     this.renderTaskList()
   }
 
+  /** True when one of these AI timers has a linked human task in this view. */
+  private isLinkedAiRunTarget(instances: readonly TaskInstance[]): boolean {
+    return instances.some((instance) => this.aiTaskLinkSync.partnerOf(instance) !== undefined)
+  }
+
+  /**
+   * A linked AI run that ends — interrupted, orphaned, or its process exiting
+   * on its own — completes its timer through the normal stop, which writes
+   * the completion log and finishes the linked human task as well (#183).
+   */
+  private async completeLinkedAiRunTimers(
+    instances: readonly TaskInstance[],
+  ): Promise<void> {
+    for (const instance of new Set(instances)) {
+      if (instance.state !== 'running') continue
+      this.invalidateAiStartAttempt(instance)
+      await this.stopInstance(instance)
+    }
+  }
+
+  /**
+   * Other mounted leaves hold their own TaskInstance objects for the timers
+   * one leaf completed above; mark them done locally until they reload.
+   */
+  private finishReconciledLinkedAiRunInstances(
+    instances: readonly TaskInstance[],
+  ): void {
+    const runningInstances = [...new Set(instances)].filter(
+      (instance) => instance.state === 'running',
+    )
+    if (runningInstances.length === 0) return
+    const stoppedAt = new Date()
+    for (const instance of runningInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'done'
+      instance.stopTime = stoppedAt
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+    this.renderTaskList()
+  }
+
   /**
    * Reconcile timers only after task loading has restored DayState. The
    * manager coordinates the durable mutation across all mounted views. Every
@@ -1848,17 +1920,22 @@ export class TaskChuteView
       // Do not consume the durable marker from a leaf that cannot see the
       // timer (for example, a leaf displaying another date).
       if (targets.length === 0) continue
+      // A run linked to a human task is finished, not reset: both sides of
+      // the pair end as done (#183). Unlinked runs keep going back to idle.
+      const linked = this.isLinkedAiRunTarget(targets)
       recoveries.push(manager
         .coordinateInterruptedTaskStateReconciliation(
           record.id,
           this.getAiRunRecoveryGeneration(record, targets),
-          () => this.resetInterruptedAiRunTimers(targets, record.taskPath),
+          () => linked
+            ? this.completeLinkedAiRunTimers(targets)
+            : this.resetInterruptedAiRunTimers(targets, record.taskPath),
         )
         .then((reconciled) => {
           if (!reconciled || this.plugin.aiTaskManager !== manager) return
-          this.idleReconciledAiRunInstances(
-            this.findRunningInstancesForAiRunRecovery(record),
-          )
+          const leftovers = this.findRunningInstancesForAiRunRecovery(record)
+          if (linked) this.finishReconciledLinkedAiRunInstances(leftovers)
+          else this.idleReconciledAiRunInstances(leftovers)
         })
         .catch((error: unknown) => {
           console.error(
@@ -1904,22 +1981,25 @@ export class TaskChuteView
         instanceId: representative.instanceId,
         timerStartedAt: representative.startTime?.getTime(),
       }
+      const linked = this.isLinkedAiRunTarget(instances)
       recoveries.push(manager
         .coordinateOrphanedTaskStateReconciliation(
           taskPath,
           owner,
-          () => this.resetInterruptedAiRunTimers(instances, taskPath),
+          () => linked
+            ? this.completeLinkedAiRunTimers(instances)
+            : this.resetInterruptedAiRunTimers(instances, taskPath),
         )
         .then((reconciled) => {
           if (!reconciled || this.plugin.aiTaskManager !== manager) return
-          this.idleReconciledAiRunInstances(
-            this.taskInstances.filter(
-              (instance) =>
-                instance.state === 'running' &&
-                instance.task?.path === taskPath &&
-                readAiTaskConfig(instance.task?.frontmatter) !== null,
-            ),
+          const leftovers = this.taskInstances.filter(
+            (instance) =>
+              instance.state === 'running' &&
+              instance.task?.path === taskPath &&
+              readAiTaskConfig(instance.task?.frontmatter) !== null,
           )
+          if (linked) this.finishReconciledLinkedAiRunInstances(leftovers)
+          else this.idleReconciledAiRunInstances(leftovers)
         })
         .catch((error: unknown) => {
           console.error(
@@ -2018,6 +2098,50 @@ export class TaskChuteView
     this.aiRunPaneController.mount(this.aiPaneContainer)
   }
 
+  /**
+   * When the process of a linked AI run ends on its own (succeeded or
+   * failed), finish its timer and the linked human task (#183). Unlinked
+   * runs are left alone: their timer keeps running until the user stops it.
+   * Subscribed apart from the AI Runs pane, which may be hidden.
+   */
+  private watchLinkedAiRunExits(): void {
+    const manager = this.plugin.aiTaskManager
+    if (this.linkedAiRunExitWatch?.manager === manager) return
+    this.unwatchLinkedAiRunExits()
+    if (!manager) return
+    const lastStatus = new Map<string, AiRunStatus>(
+      manager.getRuns().map((record) => [record.id, record.status]),
+    )
+    const dispose = manager.onChange((record, changeType) => {
+      if (changeType === 'persisted') return
+      const previous = lastStatus.get(record.id)
+      lastStatus.set(record.id, record.status)
+      if (record.host === 'shell') return
+      if (record.status !== 'succeeded' && record.status !== 'failed') return
+      if (previous !== 'starting' && previous !== 'running') return
+      void this.completeLinkedAiRunOnExit(record).catch((error: unknown) => {
+        console.error('[TaskChuteView] Failed to finish a linked AI run', error)
+      })
+    })
+    this.linkedAiRunExitWatch = { manager, dispose }
+  }
+
+  private unwatchLinkedAiRunExits(): void {
+    this.linkedAiRunExitWatch?.dispose()
+    this.linkedAiRunExitWatch = null
+  }
+
+  private async completeLinkedAiRunOnExit(record: AiRunRecord): Promise<void> {
+    const target = this.findRunningInstanceForAiRun(record)
+    if (!target || !this.aiTaskLinkSync.partnerOf(target)) return
+    // Every mounted leaf hears the same exit; the first that sees the timer
+    // finishes it.
+    const exitKey = `${record.id}:${record.endedAt ?? ''}`
+    if (claimedLinkedAiRunExits.has(exitKey)) return
+    claimedLinkedAiRunExits.add(exitKey)
+    await this.completeLinkedAiRunTimers([target])
+  }
+
   private unmountAiRunPane(): void {
     this.aiRunPaneController?.unmount()
     this.aiRunPaneController = null
@@ -2025,6 +2149,7 @@ export class TaskChuteView
 
   /** Mirror of onRecipeFeatureSettingsChanged for the AI Task feature toggle */
   public onAiTaskSettingsChanged(): void {
+    this.watchLinkedAiRunExits()
     if (this.plugin.aiTaskManager) {
       this.mountAiRunPane()
       void this.reconcileInterruptedAiRunTasks()
@@ -3215,6 +3340,7 @@ export class TaskChuteView
       await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(
         startedInstance,
       )
+      await this.aiTaskLinkSync.afterStarted(startedInstance)
     } finally {
       if (manager) {
         this.releasePreparedAiRunReservation(manager, reservation)
@@ -3232,6 +3358,7 @@ export class TaskChuteView
     if (stopped) {
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+      await this.aiTaskLinkSync.afterStopped(inst)
     }
     const viewDate = this.getViewDate()
     const today = new Date()
@@ -4034,6 +4161,8 @@ export class TaskChuteView
 
   private async deleteTask(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
+    // Found before the deletion takes `inst` out of the view.
+    const partner = this.aiTaskLinkSync.partnerOf(inst)
     const deleted = await this.taskMutationService.deleteTask(inst)
     // Deleting a running instance never goes through stopInstance, so stop
     // the coupled AI run here (otherwise it would keep running orphaned).
@@ -4041,6 +4170,7 @@ export class TaskChuteView
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
     }
+    if (deleted) await this.aiTaskLinkSync.afterDeleted(inst, partner)
   }
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
@@ -4123,6 +4253,7 @@ export class TaskChuteView
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
+    const partner = this.aiTaskLinkSync.partnerOf(inst)
     const deleted = await this.taskMutationService.deleteInstance(inst)
     // Same reasoning as deleteTask: a deleted running instance must not
     // leave its coupled AI run orphaned.
@@ -4130,6 +4261,7 @@ export class TaskChuteView
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
     }
+    if (deleted) await this.aiTaskLinkSync.afterDeleted(inst, partner)
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {

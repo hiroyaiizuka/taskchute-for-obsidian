@@ -374,6 +374,7 @@ export const ja = {
       cannotPlaceAboveCompleted: "完了済み・実行中タスクより上には配置できません",
       dropNotAllowedHere: "ここには配置できません",
       taskMoveSuccess: "タスクを{date}に移動しました",
+      taskMoveSuccessMany: "{count}件のタスクを{date}に移動しました",
       taskDuplicated: "「{title}」を複製しました",
       routineSetSuccess: "「{title}」をルーチンタスクに設定しました（{time}開始予定）",
       taskStarted: "開始: {name}",

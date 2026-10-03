@@ -1799,7 +1799,7 @@ describe('TaskChuteView reset-to-idle coupling', () => {
     expect(manager.stopRun).not.toHaveBeenCalled()
   })
 
-  test('resetting a running human source stops its linked AI and allows a later retrigger', async () => {
+  test('resetting a running human source resets its linked AI too and allows a later retrigger', async () => {
     const { manager, view, execution } = setUp()
     stubResetInternals(view)
     manager.startRun.mockResolvedValue(makeRecord({ taskPath: 'TASKS/linked-ai.md' }))
@@ -1810,12 +1810,14 @@ describe('TaskChuteView reset-to-idle coupling', () => {
     await view.startInstance(source)
     await asResetCapable(view).resetTaskToIdle(source)
 
-    expect(target.state).toBe('done')
+    // The linked pair moves together (#183): the AI run is stopped and its
+    // timer goes back to idle with the human task.
     expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
+    expect(target.state).toBe('idle')
+    expect(source.state).toBe('idle')
 
     // Resetting clears coordinator ownership, so the same source can trigger
-    // the link again when an idle target is available.
-    target.state = 'idle'
+    // the link again.
     await view.startInstance(source)
     expect(execution.startInstance.mock.calls.filter(([inst]) => inst === target)).toHaveLength(2)
   })
@@ -1877,7 +1879,7 @@ describe('TaskChuteView delete coupling', () => {
   })
 
   test('deleting a running human source stops its owned linked AI instance', async () => {
-    const { manager, view, execution } = setUp()
+    const { manager, view, execution, mutation } = setUp()
     manager.startRun.mockResolvedValue(makeRecord({ taskPath: 'TASKS/linked-ai.md' }))
     const source = makeHumanInstance('CEO review')
     const target = makeLinkedAiInstance('CEO review')
@@ -1888,6 +1890,155 @@ describe('TaskChuteView delete coupling', () => {
 
     expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
     expect(target.state).toBe('done')
+    // The pair is deleted together (#183).
+    expect(mutation.deleteTask).toHaveBeenCalledWith(target)
+  })
+})
+
+describe('TaskChuteView two-way link sync (#183)', () => {
+  const asCapable = (view: TaskChuteView) =>
+    view as unknown as {
+      resetTaskToIdle(inst: TaskInstance): Promise<void>
+      deleteTask(inst: TaskInstance): Promise<void>
+      handleAiRunStopAndClose(record: AiRunRecord): void
+      reconcileInterruptedAiRunTasks(): Promise<void>
+      watchLinkedAiRunExits(): void
+    }
+
+  const linkedPair = (state: TaskInstance['state']) => {
+    const source = makeHumanInstance('CEO review')
+    const target = makeLinkedAiInstance('CEO review')
+    source.state = state
+    target.state = state
+    return { source, target }
+  }
+
+  test('starting the AI task starts its human task too', async () => {
+    const { manager, view, execution } = setUp()
+    manager.startRun.mockResolvedValue(
+      makeRecord({ taskPath: 'TASKS/linked-ai.md', instanceId: 'linked-ai-1' }),
+    )
+    const { source, target } = linkedPair('idle')
+    view.taskInstances = [source, target]
+
+    await view.startInstance(target)
+
+    expect(execution.startInstance).toHaveBeenCalledWith(source)
+    expect(source.state).toBe('running')
+    expect(target.state).toBe('running')
+  })
+
+  test('stopping the AI task finishes its human task', async () => {
+    const { view } = setUp()
+    const { source, target } = linkedPair('running')
+    view.taskInstances = [source, target]
+
+    await view.stopInstance(target)
+
+    expect(target.state).toBe('done')
+    expect(source.state).toBe('done')
+  })
+
+  test('closing the AI run with × finishes the human task too', async () => {
+    const { view } = setUp()
+    const { source, target } = linkedPair('running')
+    view.taskInstances = [source, target]
+
+    asCapable(view).handleAiRunStopAndClose(
+      makeRecord({ instanceId: 'linked-ai-1', taskPath: 'TASKS/linked-ai.md' }),
+    )
+    await flushPromises()
+
+    expect(target.state).toBe('done')
+    expect(source.state).toBe('done')
+  })
+
+  test.each([
+    ['the AI task', 'target'],
+    ['the human task', 'source'],
+  ] as const)('resetting %s from done resets the other as well', async (_label, side) => {
+    const { view } = setUp()
+    stubResetInternals(view)
+    const pair = linkedPair('done')
+    view.taskInstances = [pair.source, pair.target]
+
+    await asCapable(view).resetTaskToIdle(pair[side])
+
+    expect(pair.source.state).toBe('idle')
+    expect(pair.target.state).toBe('idle')
+  })
+
+  test.each([
+    ['the AI task', 'target', 'source'],
+    ['the human task', 'source', 'target'],
+  ] as const)('deleting %s deletes the other as well', async (_label, side, other) => {
+    const { view, mutation } = setUp()
+    const pair = linkedPair('done')
+    view.taskInstances = [pair.source, pair.target]
+
+    await asCapable(view).deleteTask(pair[side])
+
+    expect(mutation.deleteTask).toHaveBeenCalledWith(pair[side])
+    expect(mutation.deleteTask).toHaveBeenCalledWith(pair[other])
+  })
+
+  test('an interrupted linked run finishes both tasks instead of resetting them', async () => {
+    const { manager, view, execution } = setUp()
+    const { source, target } = linkedPair('running')
+    view.taskInstances = [source, target]
+    manager.getRuns.mockReturnValue([
+      makeRecord({
+        status: 'interrupted',
+        instanceId: 'linked-ai-1',
+        taskPath: 'TASKS/linked-ai.md',
+      }),
+    ])
+    manager.claimInterruptedTaskStateReconciliation.mockReturnValue(true)
+
+    await asCapable(view).reconcileInterruptedAiRunTasks()
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(target, undefined)
+    expect(target.state).toBe('done')
+    expect(source.state).toBe('done')
+  })
+
+  test('a linked run whose process ends on its own finishes both tasks', async () => {
+    const { manager, view } = setUp()
+    const { source, target } = linkedPair('running')
+    view.taskInstances = [source, target]
+    asCapable(view).watchLinkedAiRunExits()
+    const listener = manager.onChange.mock.calls[0]?.[0]
+    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
+    const record = makeRecord({
+      id: 'exit-run',
+      instanceId: 'linked-ai-1',
+      taskPath: 'TASKS/linked-ai.md',
+    })
+
+    listener(record)
+    listener({ ...record, status: 'succeeded', endedAt: Date.now() })
+    await flushPromises()
+
+    expect(target.state).toBe('done')
+    expect(source.state).toBe('done')
+  })
+
+  test('an unlinked run ending on its own leaves its timer running', async () => {
+    const { manager, view, execution } = setUp()
+    const inst = makeInstance()
+    inst.state = 'running'
+    view.taskInstances = [inst]
+    asCapable(view).watchLinkedAiRunExits()
+    const listener = manager.onChange.mock.calls[0]?.[0]
+    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
+    const record = makeRecord({ id: 'lonely-run', instanceId: 'inst-1' })
+
+    listener(record)
+    listener({ ...record, status: 'succeeded', endedAt: Date.now() })
+    await flushPromises()
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(inst.state).toBe('running')
   })
 })
 

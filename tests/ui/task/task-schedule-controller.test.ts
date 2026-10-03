@@ -93,6 +93,37 @@ describe('TaskScheduleController', () => {
     expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
   })
 
+  test('moveTaskToDate reports a task moved along with it in one notice', async () => {
+    const { Notice } = jest.requireMock<{ Notice: jest.Mock }>('obsidian')
+    const onInstanceMoved = jest.fn().mockResolvedValue(1)
+    const { host } = createHost({ onInstanceMoved })
+    const controller = new TaskScheduleController(host)
+    const instance = createInstance()
+
+    const moved = await controller.moveTaskToDate(instance, '2025-10-10')
+
+    expect(moved).toBe(true)
+    expect(onInstanceMoved).toHaveBeenCalledWith(instance, '2025-10-10')
+    expect(Notice).toHaveBeenCalledTimes(1)
+    expect(Notice).toHaveBeenCalledWith('Moved {count} tasks to {date}')
+    expect(host.reloadTasksAndRestore).toHaveBeenCalledTimes(1)
+  })
+
+  test('a quiet moveTaskToDate neither notifies, reloads, nor moves anything along', async () => {
+    const { Notice } = jest.requireMock<{ Notice: jest.Mock }>('obsidian')
+    const onInstanceMoved = jest.fn().mockResolvedValue(1)
+    const { host, fileManager } = createHost({ onInstanceMoved })
+    const controller = new TaskScheduleController(host)
+
+    const moved = await controller.moveTaskToDate(createInstance(), '2025-10-10', { quiet: true })
+
+    expect(moved).toBe(true)
+    expect(fileManager.processFrontMatter).toHaveBeenCalledTimes(1)
+    expect(onInstanceMoved).not.toHaveBeenCalled()
+    expect(Notice).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).not.toHaveBeenCalled()
+  })
+
   test('moveTaskToDate migrates a running-task record before structural move and reload', async () => {
     const moveRunningTaskToDate = jest.fn().mockResolvedValue(1)
     const { host, fileManager } = createHost({ moveRunningTaskToDate })
