@@ -1,4 +1,4 @@
-import { EventRef, ItemView, Notice, Platform, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
+import { EventRef, ItemView, Notice, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
 import {
   TaskData,
   TaskInstance,
@@ -94,6 +94,9 @@ import { getScheduledTime } from "@/utils/fieldMigration"
 import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
 import { CommentsController, canCommentWhileRunning } from "@/features/comments/CommentsController"
 import { preserveCommentFocus } from "@/features/comments/ui/commentDom"
+
+/** At or below this view width, comments are added and rewritten in a modal. */
+const COMMENTS_NARROW_WIDTH_PX = 600
 import type {
   AiRunMode,
   AiRunRecord,
@@ -2723,13 +2726,15 @@ export class TaskChuteView
         return inst ? this.getInstanceDisplayTitle(inst) : ""
       },
       getCommandTargetInstanceId: () => this.getCommentTargetInstanceId(),
-      isPhone: () => Platform.isPhone === true,
+      // The same width the prototype switched at: a phone, or a pane that narrow.
+      isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
       loadLocalStorage: (key) =>
         typeof app.loadLocalStorage === "function" ? app.loadLocalStorage(key) : null,
       saveLocalStorage: (key, value) => {
         if (typeof app.saveLocalStorage === "function") app.saveLocalStorage(key, value)
       },
       registerInterval: (id) => this.registerInterval(id),
+      registerCleanup: (cleanup) => this.registerManagedDisposer(cleanup),
     })
     this.commentsController.mountDay(dayBox, grip)
   }

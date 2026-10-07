@@ -41,11 +41,15 @@ export interface CommentsControllerHost {
   getInstanceTitle: (instanceId: string) => string
   /** Running human task for the "leave a comment" command, if any. */
   getCommandTargetInstanceId: () => string | null
-  /** Phones add and rewrite in a modal instead of in place. */
-  isPhone: () => boolean
+  /**
+   * Whether the view is narrow (a phone, or a narrow pane): adding and
+   * rewriting then happen in a modal instead of in place.
+   */
+  isNarrow: () => boolean
   loadLocalStorage: (key: string) => unknown
   saveLocalStorage: (key: string, value: unknown) => void
   registerInterval: (id: number) => void
+  registerCleanup: (cleanup: () => void) => void
 }
 
 interface EditingState {
@@ -93,7 +97,28 @@ export class CommentsController {
       getTaskListContainer: () => this.host.getTaskListContainer(),
     })
     this.host.registerInterval(window.setInterval(() => this.tickClocks(), NOW_TICK_MS))
+    this.watchWidth()
     this.renderDay()
+  }
+
+  /**
+   * Crossing the narrow width swaps in-place inputs for modals (and back):
+   * close what is open and draw again. Drafts are kept.
+   */
+  private watchWidth(): void {
+    const root = this.host.getRoot()
+    if (!root || typeof ResizeObserver === 'undefined') return
+    let narrow = this.host.isNarrow()
+    const observer = new ResizeObserver(() => {
+      const next = this.host.isNarrow()
+      if (next === narrow) return
+      narrow = next
+      this.composing.clear()
+      this.editing = null
+      this.host.rerender()
+    })
+    observer.observe(root)
+    this.host.registerCleanup(() => observer.disconnect())
   }
 
   // --- the day's box ---------------------------------------------------------
@@ -133,7 +158,7 @@ export class CommentsController {
       return
     }
     this.openInstanceId = inst.instanceId
-    if (this.host.isPhone()) {
+    if (this.host.isNarrow()) {
       this.host.rerender()
       return
     }
@@ -165,7 +190,7 @@ export class CommentsController {
     const instanceId = this.host.getCommandTargetInstanceId()
     if (instanceId) this.openInstanceId = instanceId
     const key = instanceId ?? DAY
-    if (this.host.isPhone()) {
+    if (this.host.isNarrow()) {
       this.host.rerender()
       this.openAddModal(key)
       return
@@ -192,7 +217,7 @@ export class CommentsController {
    * closes again when left empty; leaving it with unsaved text asks first.
    */
   private composer(key: string, placeholder: string): HTMLElement {
-    if (this.host.isPhone()) return this.tapComposer(key, placeholder)
+    if (this.host.isNarrow()) return this.tapComposer(key, placeholder)
     const open = this.composing.has(key) || Boolean(this.drafts.get(key))
     const box = createDiv({ cls: `taskchute-comment-composer${open ? ' is-open' : ''}` })
     const submit = (text: string) => void this.submit(key, text)
@@ -385,7 +410,7 @@ export class CommentsController {
     const shown = all ? comments : comments.slice(0, options.limit)
     const ul = wrapper.createEl('ul', { cls: 'taskchute-comment-list' })
     for (const comment of shown) {
-      if (this.editing?.id === comment.id && !this.host.isPhone()) {
+      if (this.editing?.id === comment.id && !this.host.isNarrow()) {
         ul.createEl('li', { cls: 'is-editing' }).appendChild(this.editor(comment))
         continue
       }
@@ -422,7 +447,7 @@ export class CommentsController {
   }
 
   private startEdit(comment: DayComment): void {
-    if (this.host.isPhone()) {
+    if (this.host.isNarrow()) {
       this.openEditModal(comment)
       return
     }

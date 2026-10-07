@@ -8710,6 +8710,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 /* Phones: the input is a tap target that opens a modal. */
 .taskchute-comment-tap {
+  /* A button that looks like the input: text from the left, not centred. */
+  display: block;
+  justify-content: flex-start;
   overflow: hidden;
   color: var(--text-faint);
   text-align: left;
@@ -8866,7 +8869,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .taskchute-comment-recap .taskchute-comment-list {
   max-height: 160px;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* Read-only rows have no hover background to bleed into, so no negative inset. */
+.taskchute-comment-list.is-readonly > li {
+  margin: 0;
+  padding: 2px 0;
 }
 
 /* --- phones: adding and rewriting in a modal --- */

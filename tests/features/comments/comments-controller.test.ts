@@ -48,6 +48,7 @@ async function setup(initial: DayState = emptyDay()) {
   const list = root.createDiv()
   const instances: TaskInstance[] = []
   const local = new Map<string, unknown>()
+  const narrow = { value: false }
 
   // eslint-disable-next-line prefer-const -- assigned after the host that refers to it
   let controller: CommentsController
@@ -71,14 +72,15 @@ async function setup(initial: DayState = emptyDay()) {
     rerender,
     getInstanceTitle: () => 'Write the plan',
     getCommandTargetInstanceId: () => instances.find(canCommentWhileRunning)?.instanceId ?? null,
-    isPhone: () => false,
+    isNarrow: () => narrow.value,
     loadLocalStorage: (key) => local.get(key) ?? null,
     saveLocalStorage: (key, value) => local.set(key, value),
     registerInterval: () => undefined,
+    registerCleanup: () => undefined,
   }
   controller = new CommentsController(host)
   controller.mountDay(dayBox, grip)
-  return { controller, store, root, dayBox, grip, list, instances, rerender }
+  return { controller, store, root, dayBox, grip, list, instances, rerender, narrow }
 }
 
 const flush = async () => {
@@ -245,6 +247,48 @@ describe('CommentsController', () => {
       await flush()
       expect(showConfirmModal).toHaveBeenCalledTimes(1)
       expect(dayBox.querySelector('textarea')!.value).toBe('half written')
+    })
+  })
+
+  describe('a narrow view (a phone, or a narrow pane)', () => {
+    it('makes the input a tap target that opens a modal for adding', async () => {
+      const { controller, dayBox, store, narrow } = await setup()
+      narrow.value = true
+      controller.renderDay()
+      expect(dayBox.querySelector('textarea')).toBeNull()
+      dayBox.querySelector<HTMLButtonElement>('.taskchute-comment-tap')!.click()
+      const modal = document.querySelector('.taskchute-comment-entry-modal')!
+      expect(modal.querySelector('.modal-title')?.textContent).toBe('Add a comment for today')
+      const text = modal.querySelector<HTMLTextAreaElement>('textarea')!
+      text.value = 'from the phone'
+      const add = Array.from(modal.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Add')!
+      add.click()
+      await flush()
+      expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['from the phone'])
+    })
+
+    it('rewrites a comment in a modal, not in place', async () => {
+      const { controller, dayBox, store, narrow } = await setup()
+      await store.addCommentTo(DATE, { text: 'draft' })
+      narrow.value = true
+      controller.renderDay()
+      dayBox.querySelector<HTMLElement>('.taskchute-comment-text')!.click()
+      expect(dayBox.querySelector('.taskchute-comment-editor')).toBeNull()
+      const modal = document.querySelector('.taskchute-comment-entry-modal')!
+      expect(modal.querySelector('.modal-title')?.textContent).toBe('Edit comment')
+      modal.querySelector<HTMLTextAreaElement>('textarea')!.value = 'final'
+      Array.from(modal.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Save')!.click()
+      expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['final'])
+    })
+
+    it("opens a running task's panel without focusing an input", async () => {
+      const { controller, instances, list, narrow } = await setup()
+      narrow.value = true
+      const running = instance({ instanceId: 'i-1' })
+      instances.push(running)
+      controller.togglePanel(running)
+      expect(list.querySelector('.taskchute-task-comments .taskchute-comment-tap')).not.toBeNull()
+      expect(document.querySelector('.taskchute-comment-entry-modal')).toBeNull()
     })
   })
 })
