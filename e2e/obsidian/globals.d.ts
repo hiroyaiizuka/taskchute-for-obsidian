@@ -14,6 +14,7 @@ interface E2EObsidianApp {
   workspace: {
     layoutReady: boolean
     getLeavesOfType(type: string): unknown[]
+    detachLeavesOfType(type: string): void
   }
   plugins: {
     isEnabled(): boolean
