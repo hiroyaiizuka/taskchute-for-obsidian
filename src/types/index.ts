@@ -275,6 +275,24 @@ export interface RecipeProgressEntry {
   updatedAt: number
 }
 
+/**
+ * A comment written while working: on the day itself, or on a running task
+ * instance. Kept one per entry with its time, any number per day.
+ */
+export interface DayComment {
+  /** Unique across devices. */
+  id: string
+  /** When it was written (epoch ms); the time shown beside it. */
+  at: number
+  text: string
+  /** Set for a comment on a task instance; absent for a comment on the day. */
+  instanceId?: string
+  /** Last add, rewrite, delete or restore (epoch ms). The newer one wins on merge. */
+  updatedAt: number
+  /** Set while deleted. Kept as a tombstone so the deletion reaches other devices. */
+  deletedAt?: number
+}
+
 export interface DayState {
   hiddenRoutines: HiddenRoutine[]
   deletedInstances: DeletedInstance[]
@@ -292,6 +310,8 @@ export interface DayState {
   ordersMeta?: Record<string, { order: number; updatedAt: number }>
   /** Per-day recipe execution progress, keyed by instanceId::recipePath */
   recipeProgress?: Record<string, RecipeProgressEntry>
+  /** Comments on the day and on its task instances. Absent in older files. */
+  comments?: DayComment[]
 }
 
 export interface MonthlyDayStateFile {

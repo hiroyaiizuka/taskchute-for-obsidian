@@ -2,7 +2,8 @@ import { App, Modal, Notice, Setting, TFile } from 'obsidian'
 import { t, type ScopedKey, type ScopedTranslator } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
 import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
-import type { TaskInstance, PathManagerLike } from '@/types'
+import type { DayComment, TaskInstance, PathManagerLike } from '@/types'
+import { formatCommentTime } from '@/features/comments/ui/commentDom'
 import type { TaskLogEntry } from '@/types/ExecutionLog'
 import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
@@ -17,6 +18,8 @@ export interface TaskCompletionControllerHost {
     pathManager: Pick<PathManagerLike, 'getLogDataPath' | 'ensureFolderExists' | 'getProjectFolderPath' | 'getTaskFolderPath' | 'getReviewDataPath' | 'getLogYearPath' | 'ensureYearFolder' | 'validatePath'>
   }
   appendCommentDelta?: (dateKey: string, entry: TaskLogEntry) => Promise<void>
+  /** Comments written while the task ran (#181), shown read-only at the top. */
+  getRunningComments?: (inst: TaskInstance) => DayComment[]
 }
 
 /**
@@ -51,6 +54,8 @@ export default class TaskCompletionController {
             title: displayTitle,
           }),
     )
+
+    this.renderRunningComments(contentEl, inst)
 
     if (inst.state === 'done' && typeof inst.actualTime === 'number') {
       const duration = this.formatDuration(inst.actualTime)
@@ -317,6 +322,23 @@ export default class TaskCompletionController {
       logFilePath: `${logDataPath}/${monthKey}-tasks.json`,
       logDataPath,
       dateKey,
+    }
+  }
+
+  /** The comments written while the task ran, read-only; nothing when there are none. */
+  private renderRunningComments(contentEl: HTMLElement, inst: TaskInstance): void {
+    const comments = this.host.getRunningComments?.(inst) ?? []
+    if (comments.length === 0) return
+    const recap = contentEl.createDiv({ cls: 'taskchute-comment-recap' })
+    recap.createDiv({
+      cls: 'taskchute-comment-recap__title',
+      text: this.host.tv('comments.recapTitle', 'Comments while working'),
+    })
+    const list = recap.createEl('ul', { cls: 'taskchute-comment-list is-readonly' })
+    for (const comment of comments) {
+      const item = list.createEl('li')
+      item.createEl('time', { text: formatCommentTime(comment.at) })
+      item.createSpan({ cls: 'taskchute-comment-text', text: comment.text })
     }
   }
 

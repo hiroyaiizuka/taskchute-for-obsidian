@@ -7,6 +7,7 @@ const COMMAND_IDS = [
   "taskchute-settings",
   "show-today-tasks",
   "reorganize-idle-tasks",
+  "leave-comment",
   "duplicate-selected-task",
   "delete-selected-task",
   "reset-selected-task",

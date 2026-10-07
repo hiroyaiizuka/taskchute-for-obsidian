@@ -57,6 +57,13 @@ class CommandRegistrarImpl implements CommandRegistrar {
         fallback: "Reorganize idle tasks to current slot",
         callback: () => this.view.reorganizeIdleTasks(),
       },
+      {
+        // No default hotkey (Obsidian's guidelines); users assign their own.
+        id: "leave-comment",
+        nameKey: "commands.leaveComment",
+        fallback: "Leave a comment",
+        callback: () => this.view.triggerLeaveComment(),
+      },
     ];
 
     const selectionCommands: ConditionalCommandDefinition[] = [

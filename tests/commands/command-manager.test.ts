@@ -15,6 +15,7 @@ describe('CommandRegistrar', () => {
     triggerDeleteSelectedTask: jest.fn(async () => {}),
     triggerResetSelectedTask: jest.fn(async () => {}),
     reorganizeIdleTasks: jest.fn(() => {}),
+    triggerLeaveComment: jest.fn(async () => {}),
   } as unknown as jest.Mocked<TaskChuteViewController>;
 
   const addCommand = jest.fn((command: Command) => command);
@@ -34,13 +35,14 @@ describe('CommandRegistrar', () => {
     const registrar: CommandRegistrar = createCommandRegistrar(hostMock, viewControllerMock);
     registrar.initialize();
 
-    expect(addCommand).toHaveBeenCalledTimes(7);
+    expect(addCommand).toHaveBeenCalledTimes(8);
     const ids = addCommand.mock.calls.map(([definition]) => definition.id);
     expect(ids).toEqual([
       'open-taskchute-view',
       'taskchute-settings',
       'show-today-tasks',
       'reorganize-idle-tasks',
+      'leave-comment',
       'duplicate-selected-task',
       'delete-selected-task',
       'reset-selected-task',
@@ -62,15 +64,19 @@ describe('CommandRegistrar', () => {
     await reorganize.callback?.();
     expect(viewControllerMock.reorganizeIdleTasks).toHaveBeenCalled();
 
-    const duplicate = addCommand.mock.calls[4][0];
+    const leaveComment = addCommand.mock.calls[4][0];
+    await leaveComment.callback?.();
+    expect(viewControllerMock.triggerLeaveComment).toHaveBeenCalled();
+
+    const duplicate = addCommand.mock.calls[5][0];
     duplicate.checkCallback?.(false);
     expect(viewControllerMock.triggerDuplicateSelectedTask).toHaveBeenCalled();
 
-    const remove = addCommand.mock.calls[5][0];
+    const remove = addCommand.mock.calls[6][0];
     remove.checkCallback?.(false);
     expect(viewControllerMock.triggerDeleteSelectedTask).toHaveBeenCalled();
 
-    const reset = addCommand.mock.calls[6][0];
+    const reset = addCommand.mock.calls[7][0];
     reset.checkCallback?.(false);
     expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
   });

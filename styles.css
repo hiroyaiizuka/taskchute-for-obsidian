@@ -8517,3 +8517,391 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 	box-shadow: var(--vscode-scrollbar-shadow, #000) 6px 0 6px -6px inset;
 }
 /* === end vendored @xterm/xterm css === */
+
+/* ===========================================
+   Comments while working (issue 181)
+   The day's comments sit between the header and the task list; a running
+   task's comments open in a panel under its row. Both lists show time and
+   text, newest first.
+   =========================================== */
+
+/* The day's box: sized by its content up to a cap (three comments, or a
+   height fixed by dragging the grip under it), scrolling past the cap. */
+.taskchute-day-comments {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: var(--tc-day-comments-max, none);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.taskchute-day-comments__entries {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding: 0 6px;
+}
+
+/* Same grip as the one between the task list and the AI runs pane. */
+.taskchute-day-comments-resizer {
+  position: relative;
+  flex-shrink: 0;
+  height: 6px;
+  margin-top: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 120ms ease;
+  touch-action: none;
+}
+
+.taskchute-day-comments-resizer::before {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+}
+
+.taskchute-day-comments-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: var(--background-modifier-border);
+  transition: background 120ms ease;
+}
+
+.taskchute-day-comments-resizer:hover::after,
+.taskchute-day-comments-resizer:focus-visible::after,
+.taskchute-day-comments-resizer.is-dragging::after {
+  background: var(--background-modifier-border-hover);
+}
+
+.taskchute-day-comments-resizer:hover,
+.taskchute-day-comments-resizer:focus-visible {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  outline: none;
+}
+
+.taskchute-day-comments-resizer.is-dragging {
+  background: color-mix(in srgb, var(--interactive-accent) 32%, transparent);
+  outline: none;
+}
+
+.taskchute-day-comments-resizer--hidden {
+  display: none;
+}
+
+/* With the grip hidden, the list keeps its usual gap below the input. */
+.taskchute-day-comments + .taskchute-day-comments-resizer--hidden + .task-list-container {
+  margin-top: 10px;
+}
+
+.taskchute-day-comments + .taskchute-day-comments-resizer + .task-list-container {
+  margin-top: 4px;
+}
+
+/* --- the input: one line, opening like X's composer when focused --- */
+.taskchute-comment-composer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.taskchute-comment-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: inherit;
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+  resize: none;
+  /* Grows with its text; set from the script as the text changes. */
+  height: var(--tc-comment-input-height, auto);
+}
+
+.taskchute-comment-input:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+  outline: none;
+}
+
+.taskchute-comment-composer__add {
+  flex: none;
+}
+
+.taskchute-comment-composer.is-open,
+.taskchute-comment-editor {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+}
+
+.taskchute-comment-composer.is-open .taskchute-comment-input,
+.taskchute-comment-editor .taskchute-comment-input {
+  min-height: 72px;
+  padding: 2px 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: var(--font-ui-medium);
+}
+
+/* The time a comment gets: above its text, so the text has the full width. */
+.taskchute-comment-composer__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.taskchute-comment-composer__now {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hint on the left, buttons on the right; on a narrow width the hint keeps one
+   line above the buttons instead of folding letter by letter. */
+.taskchute-comment-composer__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-comment-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.taskchute-comment-editor__actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.taskchute-comment-composer__foot .taskchute-comment-composer__add {
+  margin-left: auto;
+}
+
+/* Phones: the input is a tap target that opens a modal. */
+.taskchute-comment-tap {
+  /* A button that looks like the input: text from the left, not centred. */
+  display: block;
+  justify-content: flex-start;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+
+.taskchute-comment-tap.has-draft {
+  color: var(--text-normal);
+}
+
+/* --- the list --- */
+.taskchute-comment-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskchute-comment-list > li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+
+.taskchute-comment-list > li > time {
+  flex: none;
+  width: 36px;
+  padding-top: 1px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.taskchute-comment-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The whole row (time and text) is the click target: the text's ::after
+   stretches over it. */
+.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text {
+  cursor: text;
+}
+
+.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-s);
+}
+
+.taskchute-comment-list:not(.is-readonly) > li:hover {
+  background: var(--background-modifier-hover);
+}
+
+.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text:focus-visible {
+  outline: none;
+}
+
+.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text:focus-visible::after {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+/* A comment being rewritten spans the row, looking like the open input. */
+.taskchute-comment-list > li.is-editing {
+  display: block;
+  margin: 4px 0;
+  padding: 0;
+}
+
+.taskchute-comment-list > li.is-editing:hover {
+  background: none;
+}
+
+.taskchute-comment-toggle {
+  display: block;
+  min-width: 112px;
+  height: 24px;
+  margin: 8px auto 0;
+  padding: 0 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary);
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.taskchute-comment-empty {
+  margin: 8px 0 0;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* --- a running task's panel, under its row: told apart by its background --- */
+.taskchute-task-comments {
+  padding: 8px 12px 10px 56px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.taskchute-task-comments .taskchute-comment-entries {
+  margin-top: 8px;
+}
+
+@container taskchute-list (max-width: 520px) {
+  .taskchute-task-comments {
+    padding-left: 12px;
+  }
+}
+
+/* The running row's 💬 with its count. */
+.comment-button--running {
+  gap: 3px;
+  opacity: 0.8;
+}
+
+.comment-button__count {
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.comment-button--running.is-open {
+  opacity: 1;
+  background: var(--background-modifier-hover);
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+/* --- the completion modal: the comments written while it ran --- */
+.taskchute-comment-recap {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.taskchute-comment-recap__title {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+}
+
+.taskchute-comment-recap .taskchute-comment-list {
+  max-height: 160px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Read-only rows have no hover background to bleed into, so no negative inset. */
+.taskchute-comment-list.is-readonly > li {
+  margin: 0;
+  padding: 2px 0;
+}
+
+/* --- phones: adding and rewriting in a modal --- */
+.taskchute-comment-entry-modal__time {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.taskchute-comment-entry-modal__text {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+}
+
+/* --- the undo notice --- */
+.taskchute-undo-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.taskchute-undo-notice__button {
+  padding: 2px 8px;
+  font-size: var(--font-ui-small);
+}

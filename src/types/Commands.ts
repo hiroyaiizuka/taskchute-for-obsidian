@@ -13,6 +13,7 @@ export interface ViewActions {
   triggerResetSelectedTask(): Promise<void>;
   triggerShowTodayTasks(): Promise<void>;
   reorganizeIdleTasks(): void;
+  triggerLeaveComment(): Promise<void>;
 }
 
 export interface CommandRegistrar {

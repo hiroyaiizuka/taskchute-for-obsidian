@@ -8,6 +8,10 @@ export interface TaskViewLayoutRenderResult {
   topBarContainer: HTMLElement
   mainContainer: HTMLElement
   contentContainer: HTMLElement
+  /** The day's comments, between the header and the task list. */
+  dayCommentsContainer: HTMLElement
+  /** The grip under the day's comments that sets their height. */
+  dayCommentsResizer: HTMLElement
   taskListContainer: HTMLElement
   taskListElement: HTMLElement
   aiPaneContainer: HTMLElement
@@ -34,6 +38,13 @@ export default class TaskViewLayout {
 
     this.host.createNavigation(contentContainer)
 
+    const dayCommentsContainer = contentContainer.createDiv({
+      cls: 'taskchute-day-comments',
+    })
+    const dayCommentsResizer = contentContainer.createDiv({
+      cls: 'taskchute-day-comments-resizer taskchute-day-comments-resizer--hidden',
+    })
+
     const taskListContainer = contentContainer.createDiv( {
       cls: 'task-list-container',
     })
@@ -54,6 +65,8 @@ export default class TaskViewLayout {
       topBarContainer,
       mainContainer,
       contentContainer,
+      dayCommentsContainer,
+      dayCommentsResizer,
       taskListContainer,
       taskListElement,
       aiPaneContainer,

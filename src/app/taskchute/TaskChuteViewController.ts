@@ -245,6 +245,17 @@ export class TaskChuteViewController {
     await view.resetSelectedTask();
   }
 
+  /** Opens the comment input for the running task (or the day), bringing the view up first. */
+  async triggerLeaveComment(): Promise<void> {
+    const view = await this.getOrCreateView(["leaveComment"]);
+    if (!view) {
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
+      return;
+    }
+    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    view.leaveComment();
+  }
+
   reorganizeIdleTasks(): void {
     const view = this.getView();
     if (!view) {
