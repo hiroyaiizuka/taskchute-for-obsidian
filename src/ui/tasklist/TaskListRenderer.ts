@@ -62,6 +62,10 @@ export type TaskListRendererHost = {
    * AI Task feature disabled) means 'mixed' — everything renders.
    */
   getAiTaskBoardView?: () => AiTaskBoardView
+  /** Comments while working (#181): the running row's 💬 and the panel under it. */
+  getRunningComments?: (inst: TaskInstance) => { count: number; open: boolean } | null
+  toggleRunningComments?: (inst: TaskInstance) => void
+  renderRowComments?: (inst: TaskInstance) => HTMLElement | null
 }
 
 export default class TaskListRenderer {
@@ -110,6 +114,8 @@ export default class TaskListRenderer {
       showProjectModal: showProjectModalBound,
       showUnifiedProjectModal: showUnifiedProjectModalBound,
       openProjectInSplit: openProjectInSplitBound,
+      getRunningComments: (inst) => this.host.getRunningComments?.(inst) ?? null,
+      toggleRunningComments: (inst) => this.host.toggleRunningComments?.(inst),
     })
     this.rowController = new TaskRowController({
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
@@ -325,6 +331,8 @@ export default class TaskListRenderer {
     this.actions.renderRoutineButton(taskItem, inst)
     this.actions.renderSettingsButton(taskItem, inst)
     this.setupTaskItemEventListeners(taskItem, inst)
+    const comments = this.host.renderRowComments?.(inst)
+    if (comments) this.host.taskList.appendChild(comments)
   }
 
   private createDragHandle(taskItem: HTMLElement, inst: TaskInstance, slot: string, idx: number): void {

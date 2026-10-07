@@ -18,6 +18,9 @@ export interface TaskItemActionHost {
   showProjectModal?: (inst: TaskInstance) => Promise<void> | void
   showUnifiedProjectModal?: (inst: TaskInstance) => Promise<void> | void
   openProjectInSplit?: (projectPath: string) => Promise<void> | void
+  /** For a running task that takes comments: how many it has and whether its panel is open. */
+  getRunningComments?: (inst: TaskInstance) => { count: number; open: boolean } | null
+  toggleRunningComments?: (inst: TaskInstance) => void
 }
 
 export class TaskItemActionController {
@@ -131,6 +134,11 @@ export class TaskItemActionController {
   }
 
   renderCommentButton(taskItem: HTMLElement, inst: TaskInstance): void {
+    const running = this.host.getRunningComments?.(inst)
+    if (running) {
+      this.renderRunningCommentButton(taskItem, inst, running)
+      return
+    }
     const button = taskItem.createEl('button', {
       cls: 'comment-button',
       text: '💬',
@@ -159,6 +167,32 @@ export class TaskItemActionController {
           button.classList.add('no-comment')
         }
       }
+    })
+  }
+
+  /** A running task's 💬: the number of its comments, and it opens the panel under the row. */
+  private renderRunningCommentButton(
+    taskItem: HTMLElement,
+    inst: TaskInstance,
+    state: { count: number; open: boolean },
+  ): void {
+    const button = taskItem.createEl('button', {
+      cls: 'comment-button comment-button--running',
+      attr: {
+        'data-task-state': inst.state,
+        'aria-expanded': String(state.open),
+        title: this.host.tv('comments.buttonTitle', 'Comments'),
+      },
+    })
+    button.createSpan({ text: '💬' })
+    if (state.count > 0) {
+      button.createSpan({ cls: 'comment-button__count', text: String(state.count) })
+      button.classList.add('active')
+    }
+    if (state.open) button.classList.add('is-open')
+    this.registerTapEvent(button, (event) => {
+      event.stopPropagation()
+      this.host.toggleRunningComments?.(inst)
     })
   }
 

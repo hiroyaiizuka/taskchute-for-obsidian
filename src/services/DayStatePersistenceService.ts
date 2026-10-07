@@ -15,6 +15,7 @@ import {
   isDeleted as isDeletedEntry,
   isLegacyDeletionEntry,
 } from './dayState/conflictResolver';
+import { mergeDayComments, normalizeDayComments } from './dayState/comments';
 
 const DAY_STATE_VERSION = '1.0';
 const LOCAL_WRITE_TTL_MS = 5000;
@@ -346,6 +347,10 @@ export class DayStatePersistenceService {
         );
       }
     }
+    const comments = normalizeDayComments(record.comments);
+    if (comments) {
+      day.comments = comments;
+    }
 
     return day;
   }
@@ -413,6 +418,9 @@ export class DayStatePersistenceService {
     };
     if (state.recipeProgress && Object.keys(state.recipeProgress).length > 0) {
       comparable.recipeProgress = state.recipeProgress;
+    }
+    if (state.comments && state.comments.length > 0) {
+      comparable.comments = state.comments;
     }
     if (state.slotOverridesMeta && Object.keys(state.slotOverridesMeta).length > 0) {
       comparable.slotOverridesMeta = state.slotOverridesMeta;
@@ -732,6 +740,7 @@ export class DayStatePersistenceService {
         localDay.recipeProgress ?? {},
         remoteDay.recipeProgress ?? {},
       );
+      const commentsResult = mergeDayComments(localDay.comments, remoteDay.comments);
 
       const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
@@ -745,6 +754,9 @@ export class DayStatePersistenceService {
       if (Object.keys(recipeProgressResult.merged).length > 0) {
         mergedDay.recipeProgress = recipeProgressResult.merged;
       }
+      if (commentsResult.merged.length > 0) {
+        mergedDay.comments = commentsResult.merged;
+      }
 
       const mergedDiffersFromLocal = !this.areDayStatesEqual(mergedDay, localDay);
 
@@ -755,6 +767,7 @@ export class DayStatePersistenceService {
         slotResult.hasConflicts ||
         ordersResult.hasConflicts ||
         recipeProgressResult.hasConflicts ||
+        commentsResult.hasConflicts ||
         mergedDiffersFromLocal
       ) {
         hasChanges = true;
@@ -888,6 +901,7 @@ export class DayStatePersistenceService {
         localDay.recipeProgress ?? {},
         diskDay.recipeProgress ?? {},
       );
+      const commentsResult = mergeDayComments(localDay.comments, diskDay.comments);
 
       const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
@@ -900,6 +914,9 @@ export class DayStatePersistenceService {
       };
       if (Object.keys(recipeProgressResult.merged).length > 0) {
         mergedDay.recipeProgress = recipeProgressResult.merged;
+      }
+      if (commentsResult.merged.length > 0) {
+        mergedDay.comments = commentsResult.merged;
       }
       mergedMonthly.days[dateKey] = mergedDay;
     }

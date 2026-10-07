@@ -26,6 +26,7 @@ describe('registerTaskCommands checkCallback', () => {
       triggerResetSelectedTask: jest.fn().mockResolvedValue(undefined),
       triggerShowTodayTasks: jest.fn().mockResolvedValue(undefined),
       reorganizeIdleTasks: jest.fn(),
+      triggerLeaveComment: jest.fn().mockResolvedValue(undefined),
     }
 
     return { host, view, registeredCommands }
@@ -254,5 +255,17 @@ describe('registerTaskCommands checkCallback', () => {
       expect(cmd.callback).toBeDefined()
       expect(cmd.checkCallback).toBeUndefined()
     }
+  })
+
+  test('leave-comment works without the view being active and has no default hotkey', () => {
+    const { host, view, registeredCommands } = createMocks()
+    ;(view.isViewActive as jest.Mock).mockReturnValue(false)
+    createCommandRegistrar(host, view).initialize()
+    const cmd = registeredCommands['leave-comment']
+    expect(cmd).toBeDefined()
+    expect(cmd.hotkeys).toBeUndefined()
+    expect(cmd.checkCallback).toBeUndefined()
+    cmd.callback!()
+    expect(view.triggerLeaveComment).toHaveBeenCalledTimes(1)
   })
 })

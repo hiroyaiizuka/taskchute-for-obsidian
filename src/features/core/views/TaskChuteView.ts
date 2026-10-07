@@ -1,4 +1,4 @@
-import { EventRef, ItemView, Notice, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
+import { EventRef, ItemView, Notice, Platform, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
 import {
   TaskData,
   TaskInstance,
@@ -92,6 +92,8 @@ import type {
 import RoutineService from "@/features/routine/services/RoutineService"
 import { getScheduledTime } from "@/utils/fieldMigration"
 import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
+import { CommentsController, canCommentWhileRunning } from "@/features/comments/CommentsController"
+import { preserveCommentFocus } from "@/features/comments/ui/commentDom"
 import type {
   AiRunMode,
   AiRunRecord,
@@ -187,6 +189,9 @@ export class TaskChuteView
   public navigationPanel?: HTMLElement
   public navigationOverlay?: HTMLElement
   public navigationContent?: HTMLElement
+
+  // Comments while working (#181): the day's box and the running rows' panels
+  private commentsController: CommentsController | null = null
 
   // AI Task pane (mounted only while plugin.aiTaskManager exists)
   private aiPaneContainer: HTMLElement | null = null
@@ -537,6 +542,8 @@ export class TaskChuteView
       plugin: this.plugin,
       appendCommentDelta: (dateKey, entry) =>
         this.executionLogService.appendCommentDelta(dateKey, entry),
+      getRunningComments: (inst) =>
+        inst.instanceId ? this.commentsController?.commentsFor(inst.instanceId) ?? [] : [],
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -722,6 +729,9 @@ export class TaskChuteView
         void view.taskCreationController.showEditAiTaskModal(inst)
       },
       getAiTaskBoardView: () => view.getAiTaskBoardView(),
+      getRunningComments: (inst) => view.commentsController?.commentButton(inst) ?? null,
+      toggleRunningComments: (inst) => view.commentsController?.togglePanel(inst),
+      renderRowComments: (inst) => view.commentsController?.renderPanel(inst) ?? null,
     }
   }
 
@@ -851,9 +861,16 @@ export class TaskChuteView
   // ===========================================
 
   private setupUI(container: HTMLElement): void {
-    const { taskListElement, aiPaneContainer } = this.taskViewLayout.render(container)
+    const {
+      taskListElement,
+      taskListContainer,
+      aiPaneContainer,
+      dayCommentsContainer,
+      dayCommentsResizer,
+    } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
     this.aiPaneContainer = aiPaneContainer
+    this.mountComments(container, dayCommentsContainer, dayCommentsResizer, taskListContainer)
     this.mountAiRunPane()
     this.watchLinkedAiRunExits()
   }
@@ -2666,7 +2683,69 @@ export class TaskChuteView
   // ===========================================
 
   renderTaskList(): void {
-    this.taskListRenderer.render()
+    // Rebuilding replaces the comment inputs; keep the one being typed in.
+    preserveCommentFocus(this.taskListElement?.closest<HTMLElement>(".taskchute-view-root"), () => {
+      this.taskListRenderer.render()
+      this.commentsController?.renderDay()
+    })
+  }
+
+  private mountComments(
+    root: HTMLElement,
+    dayBox: HTMLElement,
+    grip: HTMLElement,
+    taskListContainer: HTMLElement,
+  ): void {
+    // Duck-typed like the board view persistence: App#saveLocalStorage exists
+    // at runtime, but test doubles (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+      loadLocalStorage?: (key: string) => unknown
+    }
+    this.commentsController = new CommentsController({
+      app: this.app,
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+      store: this.dayStateManager,
+      getDateKey: () => this.getCurrentDateString(),
+      isViewingToday: () => {
+        const today = new Date()
+        return (
+          today.getFullYear() === this.currentDate.getFullYear() &&
+          today.getMonth() === this.currentDate.getMonth() &&
+          today.getDate() === this.currentDate.getDate()
+        )
+      },
+      getRoot: () => root,
+      getTaskListContainer: () => taskListContainer,
+      rerender: () => this.renderTaskList(),
+      getInstanceTitle: (instanceId) => {
+        const inst = this.taskInstances.find((candidate) => candidate.instanceId === instanceId)
+        return inst ? this.getInstanceDisplayTitle(inst) : ""
+      },
+      getCommandTargetInstanceId: () => this.getCommentTargetInstanceId(),
+      isPhone: () => Platform.isPhone === true,
+      loadLocalStorage: (key) =>
+        typeof app.loadLocalStorage === "function" ? app.loadLocalStorage(key) : null,
+      saveLocalStorage: (key, value) => {
+        if (typeof app.saveLocalStorage === "function") app.saveLocalStorage(key, value)
+      },
+      registerInterval: (id) => this.registerInterval(id),
+    })
+    this.commentsController.mountDay(dayBox, grip)
+  }
+
+  /** For "leave a comment": the selected running task, else the one started last. */
+  private getCommentTargetInstanceId(): string | null {
+    const selected = this.taskSelectionController.getSelectedInstance()
+    if (selected && canCommentWhileRunning(selected)) return selected.instanceId
+    const running = this.taskInstances.filter(canCommentWhileRunning)
+    running.sort((a, b) => (b.startTime?.getTime() ?? 0) - (a.startTime?.getTime() ?? 0))
+    return running[0]?.instanceId ?? null
+  }
+
+  /** The "leave a comment" command. */
+  public leaveComment(): void {
+    this.commentsController?.leaveComment()
   }
 
   private isRecipeFeatureEnabled(): boolean {
