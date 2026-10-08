@@ -20,6 +20,9 @@ export interface TaskSettingsTooltipHost {
   openGoogleCalendarExport?: (inst: TaskInstance) => void
   isGoogleCalendarEnabled?: () => boolean
   showProjectModal?: (inst: TaskInstance) => void
+  /** Human ↔ AI (#182); only offered where the AI Task feature is available. */
+  showChangeTaskTypeModal?: (inst: TaskInstance) => void
+  isAiTaskFeatureEnabled?: () => boolean
 }
 
 export default class TaskSettingsTooltipController {
@@ -47,6 +50,7 @@ export default class TaskSettingsTooltipController {
     this.appendReset(inst, tooltip)
     this.appendProject(inst, tooltip)
     this.appendRecipe(inst, tooltip)
+    this.appendChangeType(inst, tooltip)
     this.appendStartTime(inst, tooltip)
     this.appendReminder(inst, tooltip)
     this.appendGoogleCalendar(inst, tooltip)
@@ -146,6 +150,28 @@ export default class TaskSettingsTooltipController {
       event.stopPropagation()
       tooltip.remove()
       this.host.showProjectModal!(inst)
+    })
+  }
+
+  private appendChangeType(inst: TaskInstance, tooltip: HTMLElement): void {
+    if (!this.host.showChangeTaskTypeModal || this.host.isAiTaskFeatureEnabled?.() !== true) {
+      return
+    }
+    const item = tooltip.createDiv({
+      cls: 'tooltip-item',
+      text: this.host.tv('changeType.menuItem', '🔁 Change task type'),
+    })
+    // A running task's timer and AI run move together; stop it first.
+    if (inst.state === 'running') {
+      item.classList.add('disabled')
+      item.setAttribute('title', this.host.tv('changeType.runningTitle', 'Stop the task to change its type'))
+      return
+    }
+    item.setAttribute('title', this.host.tv('changeType.menuItemTitle', 'Switch between a human task and an AI task'))
+    item.addEventListener('click', (event) => {
+      event.stopPropagation()
+      tooltip.remove()
+      this.host.showChangeTaskTypeModal!(inst)
     })
   }
 
