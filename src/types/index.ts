@@ -358,6 +358,8 @@ export interface DayStateServiceAPI {
   consumeLocalStateWrite?(path: string, content?: string, maxRecordedAt?: number): boolean
   /** Merge local DayState changes with on-disk data and save atomically per month */
   mergeAndSaveMonth?(monthKey: string, localDayStates: Map<string, DayState>): Promise<void>
+  /** Replace a month's day state with a backup's contents (restoring a backup set) */
+  restoreMonth?(monthKey: string, raw: string): Promise<void>
 }
 
 export interface RoutineAliasServiceLike {

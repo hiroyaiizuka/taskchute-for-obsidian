@@ -16,6 +16,13 @@ import {
   isLegacyDeletionEntry,
 } from './dayState/conflictResolver';
 import { mergeDayComments, normalizeDayComments } from './dayState/comments';
+import {
+  backupIntervalMillis,
+  latestBackupTime,
+  readIfExists,
+  tasksLogPath,
+  writeMonthBackupSet,
+} from '@/features/log/services/MonthBackupSet';
 
 const DAY_STATE_VERSION = '1.0';
 const LOCAL_WRITE_TTL_MS = 5000;
@@ -68,6 +75,9 @@ function parseIsoTimestamp(value?: string): number | undefined {
 }
 
 export class DayStatePersistenceService {
+  /** When this session last backed up each month's day state (epoch ms). */
+  private readonly lastBackupAt = new Map<string, number>();
+
   private plugin: TaskChutePluginLike;
   private cache: Map<string, MonthlyDayStateFile> = new Map();
   /** Content hashes of recent local writes, keyed by file path */
@@ -387,6 +397,9 @@ export class DayStatePersistenceService {
     const path = this.getStatePath(monthKey);
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
     const payload = JSON.stringify(month, null, 2);
+    if (file && file instanceof TFile) {
+      await this.backUpBeforeWrite(monthKey, file);
+    }
 
     this.recordLocalWrite(path, payload);
     try {
@@ -406,6 +419,40 @@ export class DayStatePersistenceService {
       throw error;
     }
     this.cache.set(monthKey, month);
+  }
+
+  /**
+   * Backs up the month as a set (this day state as it was before the write,
+   * and the execution log as it is now) once per backup interval, so comments
+   * written on a day nobody stops a task are backed up too. A failed backup
+   * never stops the write.
+   */
+  private async backUpBeforeWrite(monthKey: string, file: TFile): Promise<void> {
+    try {
+      const interval = backupIntervalMillis(this.plugin);
+      const now = Date.now();
+      const last = this.lastBackupAt.get(monthKey) ?? latestBackupTime(this.plugin, monthKey);
+      if (interval > 0 && last !== null && now - last < interval) return;
+      const previous = await this.plugin.app.vault.read(file);
+      if (!previous) return;
+      const tasks = await readIfExists(this.plugin, tasksLogPath(this.plugin, monthKey));
+      await writeMonthBackupSet(this.plugin, monthKey, { tasks, state: previous }, new Date(now));
+      this.lastBackupAt.set(monthKey, now);
+    } catch (error) {
+      console.warn('[DayStatePersistenceService] Failed to back up day state', monthKey, error);
+    }
+  }
+
+  /**
+   * Puts a month's day state back from a backup (the restore of a backup set).
+   * Replaces the month as a whole; the cache then holds the restored file.
+   */
+  async restoreMonth(monthKey: string, raw: string): Promise<void> {
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const month = this.normalizeMonthlyState(parsed);
+    this.ensureMetadata(month);
+    month.metadata.lastUpdated = new Date().toISOString();
+    await this.writeMonth(monthKey, month);
   }
 
   private toComparableDayState(state: DayState): DayState {

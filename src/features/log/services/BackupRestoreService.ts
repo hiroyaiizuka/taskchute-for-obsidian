@@ -1,5 +1,5 @@
 import { TFile, TFolder, normalizePath } from 'obsidian'
-import type { TaskChutePluginLike } from '@/types'
+import { VIEW_TYPE_TASKCHUTE, type TaskChutePluginLike } from '@/types'
 import type { TaskLogSnapshot, TaskLogEntry, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
 import { SnapshotCorruptedError } from '@/types/ExecutionLog'
 import {
@@ -14,6 +14,7 @@ import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { RecordsWriter } from './RecordsWriter'
 import { parseCursorSnapshotRevision, parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'
+import { isStateBackupPath, stateBackupPathFor } from './MonthBackupSet'
 import { t } from '@/i18n'
 
 export interface BackupEntry {
@@ -63,7 +64,59 @@ export class BackupRestoreService {
     return result
   }
 
+  /**
+   * Restores one backup set: the execution log and, when the set has it, the
+   * day state (comments and the rest) taken at the same moment. A set of a
+   * month with no execution log has only the day state.
+   */
   async restoreFromBackup(monthKey: string, backupPath: string): Promise<void> {
+    if (isStateBackupPath(backupPath)) {
+      await this.restoreDayState(monthKey, backupPath)
+      await this.reloadOpenTaskViews()
+      return
+    }
+    await this.restoreExecutionLog(monthKey, backupPath)
+    const statePath = stateBackupPathFor(backupPath)
+    if (await this.backupExists(statePath)) {
+      await this.restoreDayState(monthKey, statePath)
+    }
+    await this.reloadOpenTaskViews()
+  }
+
+  private async backupExists(path: string): Promise<boolean> {
+    const adapter = this.plugin.app.vault.adapter as { exists?: (path: string) => Promise<boolean> }
+    if (typeof adapter.exists === 'function') return adapter.exists(path)
+    return this.plugin.app.vault.getAbstractFileByPath(path) instanceof TFile
+  }
+
+  private async restoreDayState(monthKey: string, statePath: string): Promise<void> {
+    const raw = await this.plugin.app.vault.adapter.read(statePath)
+    const service = this.plugin.dayStateService
+    if (typeof service?.restoreMonth !== 'function') {
+      throw new Error('Day state restore is unavailable')
+    }
+    await service.restoreMonth(monthKey, raw)
+  }
+
+  /** Open TaskChute views reload so they show the restored day state. */
+  private async reloadOpenTaskViews(): Promise<void> {
+    const workspace = this.plugin.app.workspace as unknown as {
+      getLeavesOfType?: (type: string) => Array<{ view?: unknown }>
+    }
+    const leaves = typeof workspace?.getLeavesOfType === 'function' ? workspace.getLeavesOfType(VIEW_TYPE_TASKCHUTE) : []
+    for (const leaf of leaves) {
+      const view = leaf.view as {
+        reloadTasksAndRestore?: (options?: { clearDayStateCache?: 'all' }) => Promise<void>
+      } | undefined
+      try {
+        await view?.reloadTasksAndRestore?.({ clearDayStateCache: 'all' })
+      } catch (error) {
+        console.warn('[BackupRestoreService] Failed to reload a view after restore', error)
+      }
+    }
+  }
+
+  private async restoreExecutionLog(monthKey: string, backupPath: string): Promise<void> {
     await MonthSyncCoordinator.withMonthLock(monthKey, async () => {
       const adapter = this.plugin.app.vault.adapter
       const backupContent = await adapter.read(backupPath)
@@ -542,11 +595,23 @@ export class BackupRestoreService {
 
       const entries: BackupEntry[] = []
 
+      const taskBackupNames = new Set(
+        child.children
+          .filter((file): file is TFile => file instanceof TFile && file.extension === 'json' && !isStateBackupPath(file.path))
+          .map((file) => file.basename),
+      )
+
       for (const file of child.children) {
         if (!(file instanceof TFile)) continue
         if (file.extension !== 'json') continue
 
-        const timestamp = this.parseTimestampFromFilename(file.basename)
+        // A day-state half is restored with its execution-log half, so it is
+        // listed on its own only when the set has no execution log.
+        const isState = isStateBackupPath(file.path)
+        const stamp = isState ? file.basename.replace(/\.state$/u, '') : file.basename
+        if (isState && taskBackupNames.has(stamp)) continue
+
+        const timestamp = this.parseTimestampFromFilename(stamp)
         if (!timestamp) continue
 
         entries.push({

@@ -2,7 +2,8 @@ import { normalizePath, TFile } from 'obsidian'
 import type { TaskChutePluginLike } from '@/types'
 import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
 import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '@/types/ExecutionLog'
-import { LOG_BACKUP_FOLDER, LEGACY_REVISION } from '../constants'
+import { LEGACY_REVISION } from '../constants'
+import { dayStatePath, readIfExists, writeMonthBackupSet } from './MonthBackupSet'
 import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 export interface SnapshotWriteOptions {
@@ -177,20 +178,14 @@ export class LogSnapshotWriter {
     await this.plugin.app.vault.modify(file, payload)
   }
 
+  /**
+   * Backs up the month as a set: the execution log as it was before this
+   * write, and the month's day state (comments and the rest) as it is now.
+   */
   private async writeBackup(monthKey: string, contents: string): Promise<void> {
     try {
-      const logBase = this.plugin.pathManager.getLogDataPath()
-      const backupRoot = normalizePath(`${logBase}/${LOG_BACKUP_FOLDER}`)
-      await this.plugin.pathManager.ensureFolderExists(backupRoot)
-      const monthFolder = normalizePath(`${backupRoot}/${monthKey}`)
-      await this.plugin.pathManager.ensureFolderExists(monthFolder)
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const backupPath = normalizePath(`${monthFolder}/${timestamp}.json`)
-      const adapter = this.plugin.app.vault.adapter
-      if (adapter && typeof adapter.write === 'function') {
-        await adapter.write(backupPath, contents)
-      }
-      // ensure legacy folder is kept for backwards compatibility if it already exists
+      const state = await readIfExists(this.plugin, dayStatePath(this.plugin, monthKey))
+      await writeMonthBackupSet(this.plugin, monthKey, { tasks: contents, state })
     } catch (error) {
       console.warn('[LogSnapshotWriter] Failed to write backup', error)
     }
