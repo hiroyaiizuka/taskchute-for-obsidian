@@ -2,7 +2,8 @@ import { Notice, TFile } from 'obsidian'
 import { t } from '@/i18n'
 import type { TaskChutePluginLike } from '@/types'
 import { TaskIdManager, extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
-import { getEffectiveDeletedAt } from '@/services/dayState/conflictResolver'
+import { getEffectiveDeletedAt, isHidden } from '@/services/dayState/conflictResolver'
+import { baseInstanceId } from './TaskLoaderService'
 import { getScheduledTime } from '@/utils/fieldMigration'
 import { SectionConfigService } from '@/services/SectionConfigService'
 
@@ -64,6 +65,15 @@ export class TaskReuseService {
       dayState.deletedInstances = []
     }
 
+    // The task's own instance was taken off this day (a routine deleted for
+    // today, or moved away): bringing it back is enough, without a duplicate
+    // beside it. Read before the entries below are marked restored.
+    const ownInstanceWasHidden = dayState.hiddenRoutines.some((entry) => {
+      if (!entry) return false
+      if (typeof entry === 'string') return entry === file.path
+      return entry.path === file.path && !entry.instanceId && isHidden(entry)
+    })
+
     // パスレベルのhiddenRoutinesは復元済みとして記録（同期のため tombstone を残す）
     // インスタンス固有のhidden（instanceIdあり）は残す
     const now = Date.now()
@@ -100,6 +110,11 @@ export class TaskReuseService {
         return entry
       })
       .filter(Boolean)
+
+    if (ownInstanceWasHidden) {
+      await this.plugin.dayStateService.saveDay(date, dayState)
+      return baseInstanceId(file.path, dateStr)
+    }
 
     const timestamp = Date.now()
     const metadata = this.plugin.app.metadataCache.getFileCache(file)

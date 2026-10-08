@@ -143,7 +143,7 @@ describe('TaskReuseService', () => {
     })
   })
 
-  test('reuseTaskAtDate marks path-level hidden as restored and records duplicate', async () => {
+  test('reuseTaskAtDate brings back a hidden own instance without adding a duplicate beside it', async () => {
     const plugin = createPlugin()
     const dateService = plugin.dayStateService
     const dayState = await dateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
@@ -159,7 +159,8 @@ describe('TaskReuseService', () => {
       (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId,
     ) as { restoredAt?: number } | undefined
     expect(restoredEntry?.restoredAt).toBeGreaterThan(0)
-    expect(dayState.duplicatedInstances).toHaveLength(1)
+    // The routine's own instance for the day comes back; a duplicate would make two rows.
+    expect(dayState.duplicatedInstances).toHaveLength(0)
     expect(dateService.saveDay).toHaveBeenCalled()
   })
 
@@ -183,7 +184,7 @@ describe('TaskReuseService', () => {
       (entry) => typeof entry === 'object' && entry.path === 'TaskChute/Task/sample.md' && !entry.instanceId,
     ) as { restoredAt?: number } | undefined
     expect(pathLevelHidden?.restoredAt).toBeGreaterThan(0)
-    expect(dayState.duplicatedInstances).toHaveLength(1)
+    expect(dayState.duplicatedInstances).toHaveLength(0)
     expect(dateService.saveDay).toHaveBeenCalled()
   })
 
@@ -312,5 +313,58 @@ describe('TaskReuseService', () => {
 
     expect(restoredHidden?.restoredAt ?? 0).toBeGreaterThan(5000)
     expect(restoredDeleted?.restoredAt ?? 0).toBeGreaterThan(7000)
+  })
+
+  describe('bringing back a routine deleted for the day (one row, not two)', () => {
+    test("returns the own instance's id and keeps the temporary deletion restored", async () => {
+      const plugin = createPlugin()
+      const dayState = await plugin.dayStateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+      dayState.hiddenRoutines.push({ path: 'TaskChute/Task/sample.md', instanceId: null, hiddenAt: 10 })
+      dayState.deletedInstances.push({
+        instanceId: 'TaskChute/Task/sample.md_2025-11-07_base',
+        path: 'TaskChute/Task/sample.md',
+        deletionType: 'temporary',
+        deletedAt: 10,
+        timestamp: 10,
+      })
+
+      const result = await new TaskReuseService(plugin).reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+
+      expect(result.instanceId).toBe('TaskChute/Task/sample.md_2025-11-07_base')
+      expect(dayState.duplicatedInstances).toHaveLength(0)
+      expect((dayState.deletedInstances[0] as { restoredAt?: number }).restoredAt).toBeGreaterThan(10)
+    })
+
+    test('adds a duplicate as before when the own instance was not hidden', async () => {
+      const plugin = createPlugin()
+      const dayState = await plugin.dayStateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+      const result = await new TaskReuseService(plugin).reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+      expect(dayState.duplicatedInstances).toHaveLength(1)
+      expect(result.instanceId).toBe((dayState.duplicatedInstances[0] as { instanceId: string }).instanceId)
+    })
+
+    test('adds a duplicate when the hide was already undone (the own instance is showing)', async () => {
+      const plugin = createPlugin()
+      const dayState = await plugin.dayStateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+      dayState.hiddenRoutines.push({ path: 'TaskChute/Task/sample.md', instanceId: null, hiddenAt: 10, restoredAt: 20 })
+      await new TaskReuseService(plugin).reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+      expect(dayState.duplicatedInstances).toHaveLength(1)
+    })
+
+    test('a hide of a single duplicate (with an instance id) does not count as the own instance', async () => {
+      const plugin = createPlugin()
+      const dayState = await plugin.dayStateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+      dayState.hiddenRoutines.push({ path: 'TaskChute/Task/sample.md', instanceId: 'dup-1' })
+      await new TaskReuseService(plugin).reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+      expect(dayState.duplicatedInstances).toHaveLength(1)
+    })
+
+    test('an older plain-string hide entry counts as the own instance', async () => {
+      const plugin = createPlugin()
+      const dayState = await plugin.dayStateService.loadDay(plugin.dayStateService.getDateFromKey('2025-11-07'))
+      ;(dayState.hiddenRoutines as unknown[]).push('TaskChute/Task/sample.md')
+      await new TaskReuseService(plugin).reuseTaskAtDate('TaskChute/Task/sample.md', '2025-11-07')
+      expect(dayState.duplicatedInstances).toHaveLength(0)
+    })
   })
 })
