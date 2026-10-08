@@ -224,6 +224,52 @@ describe('CommentsController', () => {
     })
   })
 
+  describe('Esc in the input', () => {
+    it('is not undone by the refocus that follows adding a comment', async () => {
+      const { dayBox } = await setup()
+      const input = dayBox.querySelector('textarea')!
+      input.value = 'added'
+      input.dispatchEvent(new Event('input'))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      await Promise.resolve()
+      await Promise.resolve()
+      // Esc before the next frame, where adding schedules focus back into the input.
+      const current = dayBox.querySelector<HTMLTextAreaElement>('textarea')!
+      current.focus()
+      current.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      jest.runOnlyPendingTimers()
+      expect(document.activeElement).not.toBe(dayBox.querySelector('textarea'))
+    })
+
+    it('leaves an empty input, which then closes', async () => {
+      const { dayBox } = await setup()
+      dayBox.querySelector('textarea')!.dispatchEvent(new Event('focus'))
+      await flush()
+      const opened = dayBox.querySelector<HTMLTextAreaElement>('.taskchute-comment-composer.is-open textarea')!
+      opened.focus()
+      opened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(document.activeElement).not.toBe(opened)
+      jest.advanceTimersByTime(200)
+      expect(dayBox.querySelector('.taskchute-comment-composer.is-open')).toBeNull()
+    })
+
+    it('asks before throwing away unsaved text, and keeps it on cancel', async () => {
+      const { dayBox } = await setup()
+      dayBox.querySelector('textarea')!.dispatchEvent(new Event('focus'))
+      await flush()
+      const opened = dayBox.querySelector<HTMLTextAreaElement>('.taskchute-comment-composer.is-open textarea')!
+      opened.focus()
+      opened.value = 'half written'
+      opened.dispatchEvent(new Event('input'))
+      ;(showConfirmModal as jest.Mock).mockResolvedValue(false)
+      opened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      jest.advanceTimersByTime(200)
+      await flush()
+      expect(showConfirmModal).toHaveBeenCalledTimes(1)
+      expect(dayBox.querySelector('textarea')!.value).toBe('half written')
+    })
+  })
+
   describe('only one input or editor open at a time', () => {
     it('closes an empty input when another opens', async () => {
       const { controller, dayBox, instances } = await setup()
