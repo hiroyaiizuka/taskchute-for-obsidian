@@ -17,8 +17,8 @@ import {
 } from './dayState/conflictResolver';
 import { mergeDayComments, normalizeDayComments } from './dayState/comments';
 import {
-  backupIntervalMillis,
-  latestBackupTime,
+  type BackupClaim,
+  claimBackup,
   readIfExists,
   tasksLogPath,
   writeMonthBackupSet,
@@ -75,9 +75,6 @@ function parseIsoTimestamp(value?: string): number | undefined {
 }
 
 export class DayStatePersistenceService {
-  /** When this session last backed up each month's day state (epoch ms). */
-  private readonly lastBackupAt = new Map<string, number>();
-
   private plugin: TaskChutePluginLike;
   private cache: Map<string, MonthlyDayStateFile> = new Map();
   /** Content hashes of recent local writes, keyed by file path */
@@ -424,21 +421,25 @@ export class DayStatePersistenceService {
   /**
    * Backs up the month as a set (this day state as it was before the write,
    * and the execution log as it is now) once per backup interval, so comments
-   * written on a day nobody stops a task are backed up too. A failed backup
+   * written on a day nobody stops a task are backed up too. The interval is
+   * shared with the execution log's backups (`claimBackup`). A failed backup
    * never stops the write.
    */
   private async backUpBeforeWrite(monthKey: string, file: TFile): Promise<void> {
+    const now = Date.now();
+    let claim: BackupClaim | null = null;
     try {
-      const interval = backupIntervalMillis(this.plugin);
-      const now = Date.now();
-      const last = this.lastBackupAt.get(monthKey) ?? latestBackupTime(this.plugin, monthKey);
-      if (interval > 0 && last !== null && now - last < interval) return;
+      claim = claimBackup(this.plugin, monthKey, { now });
+      if (!claim) return;
       const previous = await this.plugin.app.vault.read(file);
-      if (!previous) return;
+      if (!previous) {
+        claim.release();
+        return;
+      }
       const tasks = await readIfExists(this.plugin, tasksLogPath(this.plugin, monthKey));
       await writeMonthBackupSet(this.plugin, monthKey, { tasks, state: previous }, new Date(now));
-      this.lastBackupAt.set(monthKey, now);
     } catch (error) {
+      claim?.release();
       console.warn('[DayStatePersistenceService] Failed to back up day state', monthKey, error);
     }
   }
