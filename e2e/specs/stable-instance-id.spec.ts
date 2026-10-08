@@ -113,10 +113,7 @@ test("done, reset, then run again the same day leaves one entry in the log", asy
   expect(readLogEntries(vaultDir, today, taskPath)).toHaveLength(1)
 })
 
-// Known bug, also on main before the stable id (about half of the runs): after
-// the routine is added back, reopening the view shows it gone although the
-// day state on disk has the deletion restored. Tracked separately.
-test.fixme("a routine deleted for today stays deleted after a reload, and comes back when added again", async ({ obsidian }) => {
+test("a routine deleted for today stays deleted after a reload, and comes back as one row when added again", async ({ obsidian }) => {
   const { page } = obsidian
   const routinePath = await createDailyRoutine(page, "Morning review")
   await openTaskChute(page)
@@ -137,11 +134,11 @@ test.fixme("a routine deleted for today stays deleted after a reload, and comes 
   await page.locator(".suggestion-item", { hasText: "Morning review" }).first().click()
   await page.locator(".modal-container").getByRole("button", { name: "Save" }).click()
   await expect(page.locator(".modal-container")).toHaveCount(0)
-  const afterReuse = await rowsOf(page, routinePath).count()
-  expect(afterReuse).toBeGreaterThanOrEqual(1)
+  // The routine's own instance comes back, with no duplicate beside it.
+  await expect(rowsOf(page, routinePath)).toHaveCount(1)
 
   await reopenView(page)
-  await expect(rowsOf(page, routinePath)).toHaveCount(afterReuse)
+  await expect(rowsOf(page, routinePath)).toHaveCount(1)
 })
 
 test("a task moved to tomorrow and back shows on today again and can be run", async ({ obsidian }) => {
