@@ -62,6 +62,10 @@ export const cursorAgent: AiAgentDefinition = {
     },
   },
   createDispatcher: (gateway) => new CursorDispatcher(gateway),
+  // Without it, the interactive CLI first asks whether to trust the folder
+  // and waits there; it works in the terminal too, not only with -p
+  // (verified on 2026.10.01).
+  terminalArgs: ['--trust'],
   execModes: [
     {
       id: 'default',

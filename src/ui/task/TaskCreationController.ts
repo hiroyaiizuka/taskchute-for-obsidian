@@ -1235,7 +1235,10 @@ export default class TaskCreationController {
           sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
             ? `${sanitizedPrompt.slice(0, AI_PREVIEW_PROMPT_HEAD_LIMIT)}…`
             : sanitizedPrompt
-        const previewArgs = buildTerminalArgs(baseArgs, head)
+        const previewArgs = buildTerminalArgs(
+          [...(getAiAgent(selectedHost).terminalArgs ?? []), ...baseArgs],
+          head,
+        )
         text = [
           command,
           ...previewArgs.slice(0, -1),

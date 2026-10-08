@@ -100,6 +100,12 @@ export interface AiAgentDefinition {
   windows: AiAgentWindowsInstall
   /** Runs the agent headlessly (stream of JSON lines) for one task run. */
   createDispatcher(gateway: ProcessGateway): AiDispatcher
+  /**
+   * Arguments the plugin always adds in front of a task's own when it runs
+   * the agent in the terminal (the headless runs add theirs in the
+   * dispatcher). Never written to the task note.
+   */
+  terminalArgs?: readonly string[]
   /** Execution-mode choices; the first, with no tokens, is the default. */
   execModes: readonly AiExecModeVariant[]
   /** Built-in model choices; more can be added per device. */

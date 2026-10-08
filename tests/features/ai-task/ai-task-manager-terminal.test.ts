@@ -256,6 +256,21 @@ describe('AiTaskManager terminal mode routing', () => {
     })
   })
 
+  test("Cursor in the terminal trusts the folder, so it does not stop at Cursor's first-run question", async () => {
+    const harness = createTerminalHarness({
+      frontmatter: { ai_task: true, ai_task_host: 'cursor', ai_task_args: '--force' },
+    })
+
+    await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
+
+    expect(harness.terminal.last.request).toEqual(
+      expect.objectContaining({
+        terminalFallbackCommand: 'cursor-agent',
+        extraArgs: ['--trust', '--force'],
+      }),
+    )
+  })
+
   test('renderer transition preserves a broker-owned terminal run', async () => {
     const harness = createTerminalHarness()
     harness.terminal.isPersistent = true
