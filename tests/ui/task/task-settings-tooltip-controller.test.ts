@@ -545,4 +545,42 @@ const createTimeController = () => {
     expect(instance.startTime).toBeUndefined()
     expect(document.querySelector('.task-settings-tooltip')).toBeNull()
   })
+
+  describe('change task type (#182)', () => {
+    const items = () => Array.from(document.querySelectorAll<HTMLElement>('.task-settings-tooltip .tooltip-item'))
+    const changeItem = () => items().find((item) => item.textContent?.includes('Change task type') || item.textContent?.includes('種別を変更'))
+
+    test('is offered where the AI Task feature is available, and opens the modal', () => {
+      const showChangeTaskTypeModal = jest.fn()
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal, isAiTaskFeatureEnabled: () => true }),
+      )
+      const instance = createInstance({ state: 'idle' })
+      controller.show(instance, document.body.appendChild(document.createElement('button')))
+      const item = changeItem()
+      expect(item).toBeDefined()
+      item!.click()
+      expect(showChangeTaskTypeModal).toHaveBeenCalledWith(instance)
+    })
+
+    test('is disabled while the task runs', () => {
+      const showChangeTaskTypeModal = jest.fn()
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal, isAiTaskFeatureEnabled: () => true }),
+      )
+      controller.show(createInstance({ state: 'running' }), document.body.appendChild(document.createElement('button')))
+      const item = changeItem()!
+      expect(item.classList.contains('disabled')).toBe(true)
+      item.click()
+      expect(showChangeTaskTypeModal).not.toHaveBeenCalled()
+    })
+
+    test('is not shown without the AI Task feature', () => {
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal: jest.fn(), isAiTaskFeatureEnabled: () => false }),
+      )
+      controller.show(createInstance({ state: 'idle' }), document.body.appendChild(document.createElement('button')))
+      expect(changeItem()).toBeUndefined()
+    })
+  })
 })

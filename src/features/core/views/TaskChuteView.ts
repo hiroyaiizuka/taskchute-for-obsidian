@@ -569,6 +569,10 @@ export class TaskChuteView
       isGoogleCalendarEnabled: () =>
         this.plugin.settings.googleCalendar?.enabled === true,
       showProjectModal: (inst) => this.projectController.showProjectModal(inst),
+      showChangeTaskTypeModal: (inst) => {
+        void this.taskCreationController.showChangeTaskTypeModal(inst)
+      },
+      isAiTaskFeatureEnabled: () => this.isAiTaskFeatureEnabled(),
     })
     this.taskHeaderController = new TaskHeaderController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),

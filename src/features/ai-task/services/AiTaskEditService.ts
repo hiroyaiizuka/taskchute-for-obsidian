@@ -36,6 +36,19 @@ const MANAGED_KEYS = new Set([
   '開始時刻',
 ])
 
+/**
+ * Keys that make a note an AI task. Turning it back into a human task drops
+ * these and nothing else: the start time, the routine, the recipe and the
+ * body (including its Prompt section, for switching back later) stay.
+ */
+const AI_ONLY_KEYS = new Set([
+  'ai_task',
+  'ai_task_host',
+  'ai_task_args',
+  'ai_task_cwd',
+  'obsidian_sync',
+])
+
 /** Error used to avoid a destructive write when marker structure is corrupt. */
 export class AiTaskPromptMarkersError extends Error {
   constructor(filePath: string) {
@@ -279,6 +292,56 @@ export class AiTaskEditService {
     }
   }
 
+  /**
+   * The values the type-change modal opens with. An AI task loads its own
+   * settings; a human task gets the defaults plus whatever Prompt section its
+   * body still holds from an earlier time as an AI task.
+   */
+  async loadForTypeChange(
+    file: TFile,
+    frontmatter: Record<string, unknown>,
+    taskName: string,
+  ): Promise<AiTaskEditValue> {
+    const asAi = await this.load(file, frontmatter, taskName)
+    if (asAi) return asAi
+    let content: string
+    try {
+      content = await this.app.vault.cachedRead(file)
+    } catch {
+      content = await this.app.vault.read(file)
+    }
+    const recipePath = normalizeRecipeReference(frontmatter.recipe)
+    return {
+      file,
+      taskName,
+      host: 'claude',
+      args: [],
+      prompt: extractPromptSection(content) ?? '',
+      scheduledTime: getScheduledTime(frontmatter),
+      ...(recipePath ? { recipePath } : {}),
+    }
+  }
+
+  /**
+   * Turns an AI task back into a human task: removes the AI keys from the
+   * frontmatter and leaves every other line, and the body, as they were.
+   */
+  async convertToHuman(file: TFile): Promise<void> {
+    const original = await this.app.vault.read(file)
+    const newline = lineEndingOf(original)
+    const lines = original.split(/\r?\n/u)
+    const endIndex = findFrontmatterEnd(lines)
+    if (endIndex < 0) return
+    const frontmatter = stripManagedFrontmatterLines(lines.slice(1, endIndex), AI_ONLY_KEYS)
+    const updated = [
+      lines[0],
+      ...frontmatter.lines,
+      lines[endIndex],
+      ...lines.slice(endIndex + 1),
+    ].join(newline)
+    await this.writeIfChanged(file, original, updated)
+  }
+
   async save(
     file: TFile,
     scheduledTime: string | undefined,
@@ -298,6 +361,11 @@ export class AiTaskEditService {
       resolvedRecipePath,
     )
     const updated = updatePrompt(withFrontmatter, aiTask.prompt, file.path)
+    await this.writeIfChanged(file, original, updated)
+  }
+
+  /** The one place this service writes: only the selected task note, only when it changed. */
+  private async writeIfChanged(file: TFile, original: string, updated: string): Promise<void> {
     if (updated === original) return
     await this.app.vault.modify(file, updated)
   }

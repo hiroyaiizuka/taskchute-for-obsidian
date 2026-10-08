@@ -6,12 +6,7 @@ import {
   type AiTaskAmbientCandidate,
 } from './services/AiTaskAmbientCandidateFinder'
 import { AiTaskAmbientScheduler } from './services/AiTaskAmbientScheduler'
-import { AiTaskAmbientScheduleStateStore } from './services/AiTaskAmbientScheduleStateStore'
-
-type LocalStorageApp = {
-  loadLocalStorage?: (key: string) => unknown
-  saveLocalStorage?: (key: string, value: unknown) => void
-}
+import { getSharedAiTaskAmbientScheduleStateStore } from './services/AiTaskAmbientScheduleStateStore'
 
 /**
  * Wire the plugin-owned scheduler to vault discovery and the existing
@@ -22,13 +17,7 @@ export function createAiTaskAmbientScheduler(
   plugin: TaskChutePluginLike,
   viewController: TaskChuteViewController,
 ): AiTaskAmbientScheduler {
-  const appStorage = plugin.app as unknown as LocalStorageApp
-  const stateStore = new AiTaskAmbientScheduleStateStore({
-    loadLocalStorage: (key) => appStorage.loadLocalStorage?.(key),
-    saveLocalStorage: (key, value) => {
-      appStorage.saveLocalStorage?.(key, value)
-    },
-  })
+  const stateStore = getSharedAiTaskAmbientScheduleStateStore(plugin.app)
 
   return new AiTaskAmbientScheduler({
     stateStore,

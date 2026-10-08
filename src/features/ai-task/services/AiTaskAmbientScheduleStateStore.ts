@@ -232,3 +232,29 @@ export class AiTaskAmbientScheduleStateStore {
     return removed
   }
 }
+
+type LocalStorageApp = {
+  loadLocalStorage?: (key: string) => unknown
+  saveLocalStorage?: (key: string, value: unknown) => void
+}
+
+const sharedStores = new WeakMap<object, AiTaskAmbientScheduleStateStore>()
+
+/**
+ * The one store per Obsidian app. The store keeps its state in memory once
+ * read, so the scheduler and anything else that marks a day as run (switching
+ * a task to AI) must share the same instance to see each other's writes.
+ */
+export function getSharedAiTaskAmbientScheduleStateStore(app: object): AiTaskAmbientScheduleStateStore {
+  const existing = sharedStores.get(app)
+  if (existing) return existing
+  const storage = app as LocalStorageApp
+  const store = new AiTaskAmbientScheduleStateStore({
+    loadLocalStorage: (key) => storage.loadLocalStorage?.(key),
+    saveLocalStorage: (key, value) => {
+      storage.saveLocalStorage?.(key, value)
+    },
+  })
+  sharedStores.set(app, store)
+  return store
+}

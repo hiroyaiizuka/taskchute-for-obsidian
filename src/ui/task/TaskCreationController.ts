@@ -14,6 +14,12 @@ import type {
 import type { TaskReuseService } from "@/features/core/services/TaskReuseService"
 import { normalizeReminderTime } from "@/features/reminder/services/ReminderFrontmatterService"
 import { isAiTaskFeatureAvailable } from "@/features/ai-task/availability"
+import {
+  formatAiTaskAmbientDateKey,
+  getSharedAiTaskAmbientScheduleStateStore,
+  resolveAiTaskAmbientIdentity,
+} from "@/features/ai-task/services/AiTaskAmbientScheduleStateStore"
+import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
 import type { AiTaskHost } from "@/features/ai-task/types"
 import { buildTerminalArgs } from "@/features/ai-task/services/TerminalArguments"
 import type {
@@ -164,6 +170,13 @@ interface AiTaskControlsInitialValue {
   scheduledTime?: string
   recipePath?: string
   lockTaskType?: boolean
+  /** The type selected when the modal opens; defaults to AI when there is an initial value. */
+  initialType?: TaskType
+}
+
+/** Opening the edit modal to change a task's type (#182): what it is now. */
+interface TypeChangeOptions {
+  currentType: TaskType
 }
 
 export default class TaskCreationController {
@@ -204,13 +217,51 @@ export default class TaskCreationController {
     }
   }
 
-  private showTaskModal(editTarget?: AiTaskEditValue): void {
+  /**
+   * ⚙️ → "Change task type" (#182): the edit modal with the human/AI selector
+   * shown, opened on the task's current type. A running task cannot change,
+   * since its timer and its AI run move together.
+   */
+  async showChangeTaskTypeModal(inst: TaskInstance): Promise<void> {
+    const file = inst.task.file
+    if (inst.state === "running") {
+      new Notice(
+        this.host.tv(
+          "changeType.runningNotice",
+          "Stop the task before changing its type.",
+        ),
+      )
+      return
+    }
+    if (!file) {
+      new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+      return
+    }
+    try {
+      const frontmatter = inst.task.frontmatter ?? {}
+      const target = await this.host.aiTaskEditService.loadForTypeChange(
+        file,
+        frontmatter,
+        inst.task.displayTitle ?? inst.task.name,
+      )
+      this.showTaskModal(target, {
+        currentType: frontmatter["ai_task"] === true ? "ai" : "human",
+      })
+    } catch (error) {
+      console.error("[TaskCreationController] Failed to load the task for a type change", error)
+      new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+    }
+  }
+
+  private showTaskModal(editTarget?: AiTaskEditValue, typeChange?: TypeChangeOptions): void {
     const context = this.host.getDocumentContext?.()
     const doc = context?.doc ?? document
     const win = context?.win ?? window
 
     const modal = createNameModal({
-      title: editTarget
+      title: typeChange && editTarget
+        ? this.host.tv("changeType.title", 'Change the type of "{title}"', { title: editTarget.taskName })
+        : editTarget
         ? this.host.tv("aiTask.editTitle", "Edit AI task settings")
         : this.host.tv("addTask.title", "Add new task"),
       label: this.host.tv("addTask.nameLabel", "Task name:"),
@@ -228,6 +279,9 @@ export default class TaskCreationController {
       nameInput.readOnly = true
       nameInput.classList.add("task-name-input--readonly")
     }
+    // Changing the type does not touch the name: the title already says
+    // which task it is, so the (read-only) name field stays out of the way.
+    if (typeChange) nameGroup.classList.add("task-name-group", "hidden")
 
     const modeGroup = doc.win.createDiv()
     modeGroup.className = "task-mode-group hidden"
@@ -310,7 +364,8 @@ export default class TaskCreationController {
           prompt: editTarget.prompt,
           scheduledTime: editTarget.scheduledTime,
           recipePath: editTarget.recipePath,
-          lockTaskType: true,
+          lockTaskType: !typeChange,
+          initialType: typeChange?.currentType ?? "ai",
         }
         : undefined,
     )
@@ -469,6 +524,23 @@ export default class TaskCreationController {
             return
           }
           saveButton.disabled = true
+          if (typeChange && !aiControls.isAiMode()) {
+            try {
+              if (typeChange.currentType === "ai") {
+                await this.host.aiTaskEditService.convertToHuman(editTarget.file)
+                await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+                new Notice(
+                  this.host.tv("changeType.toHuman", "Changed to a human task"),
+                )
+              }
+              close()
+            } catch (error) {
+              console.error("[TaskCreationController] Failed to change the task type", error)
+              saveButton.disabled = false
+              new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+            }
+            return
+          }
           try {
             await this.host.aiTaskEditService.save(
               editTarget.file,
@@ -476,9 +548,14 @@ export default class TaskCreationController {
               aiControls.getAiTaskOptions(),
             )
             aiControls.commit()
+            if (typeChange?.currentType === "human") {
+              this.skipAmbientRunToday(editTarget.file)
+            }
             await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
             new Notice(
-              this.host.tv("aiTask.editSaved", "AI task settings saved"),
+              typeChange?.currentType === "human"
+                ? this.host.tv("changeType.toAi", "Changed to an AI task")
+                : this.host.tv("aiTask.editSaved", "AI task settings saved"),
             )
             close()
           } catch (error) {
@@ -699,6 +776,25 @@ export default class TaskCreationController {
   }
 
   /**
+   * A task switched to AI today does not start on its own today, even when
+   * its start time has passed: saving should not set an AI run going behind
+   * the user's back. It starts by itself from its next due day; today it can
+   * still be started with ▶️. Marks today as already run for the scheduler.
+   */
+  private skipAmbientRunToday(file: TFile): void {
+    const frontmatter = this.host.app.metadataCache.getFileCache(file)?.frontmatter
+    const identity = resolveAiTaskAmbientIdentity({
+      taskId: frontmatter ? extractTaskIdFromFrontmatter(frontmatter) : undefined,
+      path: file.path,
+    })
+    if (!identity) return
+    getSharedAiTaskAmbientScheduleStateStore(this.host.plugin.app).markExecuted(
+      identity,
+      formatAiTaskAmbientDateKey(new Date()),
+    )
+  }
+
+  /**
    * Build the human/AI task-type selector and the AI-mode section of the
    * add-task modal (U3, ports the reference QuestCreateModal). Returns null
    * unless the AI Task feature is enabled on desktop — the human modal is
@@ -719,7 +815,7 @@ export default class TaskCreationController {
   ): AiTaskControls | null {
     if (!isAiTaskFeatureAvailable(this.host.plugin)) return null
 
-    let taskType: TaskType = initialValue ? "ai" : "human"
+    let taskType: TaskType = initialValue?.initialType ?? (initialValue ? "ai" : "human")
     let selectedHost: AiTaskHost = initialValue?.host ?? "claude"
     let reuseActive = false
     const storageApp = this.host.plugin.app as unknown as {
@@ -1320,7 +1416,7 @@ export default class TaskCreationController {
     reasoningBudgetSelect.addEventListener("change", refreshPreview)
     execModeSelect.addEventListener("change", refreshPreview)
 
-    selectTaskType(initialValue ? "ai" : "human")
+    selectTaskType(initialValue?.initialType ?? (initialValue ? "ai" : "human"))
     selectHost(initialValue?.host ?? "claude")
     if (decodedInitialArgs) {
       execModeSelect.value = decodedInitialArgs.execModeId

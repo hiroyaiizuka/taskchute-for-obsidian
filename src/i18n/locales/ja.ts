@@ -443,6 +443,16 @@ export const ja = {
       logHeading: "## ログ",
       noteNotFound: "プロジェクトノートが見つかりません: {path}",
     },
+    changeType: {
+      menuItem: "🔁 種別を変更",
+      menuItemTitle: "人間のタスクと AI タスクを切り替えます",
+      runningTitle: "種別を変えるには、タスクを止めてください",
+      title: "「{title}」の種別を変更",
+      runningNotice: "種別を変えるには、先にタスクを止めてください。",
+      failed: "タスクの種別を変更できませんでした。",
+      toHuman: "人間のタスクに変更しました",
+      toAi: "AI タスクに変更しました",
+    },
     comments: {
       dayPlaceholder: "今日のコメントを追加…",
       otherDayPlaceholder: "この日のコメントを追加…",

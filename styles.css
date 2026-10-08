@@ -598,6 +598,11 @@ body.is-phone {
   display: none;
 }
 
+/* The type-change modal names the task in its title instead. */
+.task-name-group.hidden {
+  display: none;
+}
+
 .task-mode-label {
   font-size: 13px;
   font-weight: 600;

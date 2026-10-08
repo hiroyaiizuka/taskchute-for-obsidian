@@ -12,7 +12,12 @@
  *     TaskCreationService.createTaskFile; human mode stays byte-identical
  *   - reuse/copy radios and autocomplete selection keep working in AI mode
  */
-import { TFile } from 'obsidian'
+import { Notice, TFile } from 'obsidian'
+import {
+  formatAiTaskAmbientDateKey,
+  getSharedAiTaskAmbientScheduleStateStore,
+  resolveAiTaskAmbientIdentity,
+} from '@/features/ai-task/services/AiTaskAmbientScheduleStateStore'
 import TaskCreationController, {
   TaskCreationControllerHost,
 } from '@/ui/task/TaskCreationController'
@@ -96,6 +101,8 @@ function createHost(
   const aiTaskEditService = {
     load: jest.fn().mockResolvedValue(null),
     save: jest.fn().mockResolvedValue(undefined),
+    loadForTypeChange: jest.fn(),
+    convertToHuman: jest.fn().mockResolvedValue(undefined),
   }
 
   const saveLocalStorage = jest.fn()
@@ -1697,5 +1704,111 @@ describe('human advanced block in AI mode (carried fix)', () => {
         aiTask: expect.objectContaining({ host: 'claude' }),
       }),
     )
+  })
+})
+
+describe('changing a task between human and AI (#182)', () => {
+  async function openTypeChange(host: TaskCreationControllerHost, inst: TaskInstance) {
+    await new TaskCreationController(host).showChangeTaskTypeModal(inst)
+    return document.querySelector<HTMLElement>('.modal-container')
+  }
+
+  const humanInstance = (file: TFile, state: TaskInstance['state'] = 'idle'): TaskInstance => ({
+    task: { file, frontmatter: { tags: ['task'] }, path: file.path, name: 'Write report', displayTitle: 'Write report' },
+    instanceId: 'human-instance',
+    state,
+    slotKey: '8:00-12:00',
+  })
+
+  test('an AI task opens on AI with the selector shown, and choosing human removes the AI settings', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    aiTaskEditService.loadForTypeChange.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openTypeChange(host, createAiTaskInstance(file))
+    if (!modal) throw new Error('modal did not open')
+    expect(modal.querySelector('.task-type-group')?.classList.contains('hidden')).toBe(false)
+    expect(typeButton(modal, 'ai').getAttribute('aria-pressed')).toBe('true')
+    // The name cannot change here; the title names the task instead of a name field.
+    expect(modal.querySelector('.modal-title')?.textContent).toBe('Change the type of "Existing AI task"')
+    expect(modal.querySelector('.task-name-group')?.classList.contains('hidden')).toBe(true)
+
+    typeButton(modal, 'human').click()
+    await submit(modal)
+
+    expect(aiTaskEditService.convertToHuman).toHaveBeenCalledWith(file)
+    expect(aiTaskEditService.save).not.toHaveBeenCalled()
+    expect(host.reloadTasksAndRestore).toHaveBeenCalled()
+  })
+
+  test('an AI task kept as AI saves its settings as the edit modal does', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    aiTaskEditService.loadForTypeChange.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openTypeChange(host, createAiTaskInstance(file))
+    if (!modal) throw new Error('modal did not open')
+    await submit(modal)
+    expect(aiTaskEditService.save).toHaveBeenCalled()
+    expect(aiTaskEditService.convertToHuman).not.toHaveBeenCalled()
+  })
+
+  test('a human task opens on human; choosing AI saves it as an AI task that does not start on its own today', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Write report.md'
+    aiTaskEditService.loadForTypeChange.mockResolvedValue({
+      file, taskName: 'Write report', host: 'claude', args: [], prompt: '', scheduledTime: '09:00',
+    })
+    const modal = await openTypeChange(host, humanInstance(file))
+    if (!modal) throw new Error('modal did not open')
+    expect(typeButton(modal, 'human').getAttribute('aria-pressed')).toBe('true')
+    expect(modal.querySelector('.ai-task-section')?.classList.contains('hidden')).toBe(true)
+
+    typeButton(modal, 'ai').click()
+    setPrompt(modal, 'Draft the report from yesterday\'s notes')
+    await submit(modal)
+
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '09:00',
+      expect.objectContaining({ host: 'claude', prompt: "Draft the report from yesterday's notes" }),
+    )
+    const identity = resolveAiTaskAmbientIdentity({ path: file.path })!
+    expect(
+      getSharedAiTaskAmbientScheduleStateStore(host.plugin.app).isExecuted(identity, formatAiTaskAmbientDateKey(new Date())),
+    ).toBe(true)
+  })
+
+  test('a human task kept as human changes nothing', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Write report.md'
+    aiTaskEditService.loadForTypeChange.mockResolvedValue({ file, taskName: 'Write report', host: 'claude', args: [], prompt: '' })
+    const modal = await openTypeChange(host, humanInstance(file))
+    if (!modal) throw new Error('modal did not open')
+    await submit(modal)
+    expect(aiTaskEditService.save).not.toHaveBeenCalled()
+    expect(aiTaskEditService.convertToHuman).not.toHaveBeenCalled()
+    expect(document.querySelector('.modal-container')).toBeNull()
+  })
+
+  test('a running task cannot change type', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Write report.md'
+    const modal = await openTypeChange(host, humanInstance(file, 'running'))
+    expect(modal).toBeNull()
+    expect(aiTaskEditService.loadForTypeChange).not.toHaveBeenCalled()
+    expect(Notice).toHaveBeenCalledWith('Stop the task before changing its type.')
+  })
+
+  test('the plain AI edit modal still keeps the selector hidden', async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openEditModal(host, createAiTaskInstance(file))
+    expect(modal.querySelector('.task-type-group')?.classList.contains('hidden')).toBe(true)
   })
 })

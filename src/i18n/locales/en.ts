@@ -446,6 +446,16 @@ export const en = {
       logHeading: "## log",
       noteNotFound: 'Project note not found: {path}',
     },
+    changeType: {
+      menuItem: "🔁 Change task type",
+      menuItemTitle: "Switch between a human task and an AI task",
+      runningTitle: "Stop the task to change its type",
+      title: 'Change the type of "{title}"',
+      runningNotice: "Stop the task before changing its type.",
+      failed: "Could not change the task type.",
+      toHuman: "Changed to a human task",
+      toAi: "Changed to an AI task",
+    },
     comments: {
       dayPlaceholder: "Add a comment for today…",
       otherDayPlaceholder: "Add a comment for this day…",
