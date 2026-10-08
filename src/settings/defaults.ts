@@ -24,6 +24,9 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   // Collapsible time slots
   collapsibleTimeSlots: false,
 
+  // The day's comments box (off until the user turns it on)
+  dayCommentsEnabled: false,
+
   // AI Task defaults
   aiTaskEnabled: false,
   aiTaskRunMode: 'terminal',

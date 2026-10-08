@@ -39,8 +39,28 @@ async function createTask(page: Page, title: string): Promise<string> {
   return taskPath
 }
 
+/** Turns on the day's comments box (off by default) the way the settings toggle does. */
+async function enableDayComments(page: Page) {
+  await page.evaluate(async (id) => {
+    const plugin = window.app.plugins.plugins[id] as { settings: Record<string, unknown>; saveSettings(): Promise<void> }
+    plugin.settings.dayCommentsEnabled = true
+    await plugin.saveSettings()
+  }, "taskchute-plus")
+}
+
+test("the day's comments box is off by default and appears once turned on", async ({ obsidian }) => {
+  const { page } = obsidian
+  await openTaskChute(page)
+  await expect(page.locator(".taskchute-day-comments")).toBeHidden()
+  await enableDayComments(page)
+  await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
+  await openTaskChute(page)
+  await expect(page.locator(".taskchute-day-comments textarea")).toBeVisible()
+})
+
 test("a comment on the day is kept in the day state and shown again after reopening", async ({ obsidian }) => {
   const { page, vaultDir } = obsidian
+  await enableDayComments(page)
   await openTaskChute(page)
   const today = await todayKey(page)
 

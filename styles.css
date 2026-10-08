@@ -8602,6 +8602,11 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   display: none;
 }
 
+/* Turned off in settings: the box takes no room at all. */
+.taskchute-day-comments--off {
+  display: none;
+}
+
 /* With the grip hidden, the list keeps its usual gap below the input. */
 .taskchute-day-comments + .taskchute-day-comments-resizer--hidden + .task-list-container {
   margin-top: 10px;
