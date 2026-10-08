@@ -8,8 +8,6 @@ import {
 const labels: AiCustomModelModalLabels = {
   addTitle: 'カスタムモデルを追加',
   editTitle: 'カスタムモデルを編集',
-  claudeAgent: 'Claude Code',
-  codexAgent: 'Codex',
   modelId: 'モデル ID',
   modelIdPlaceholder: 'provider/model-name',
   modelIdHelp: 'CLI に渡すモデル ID',

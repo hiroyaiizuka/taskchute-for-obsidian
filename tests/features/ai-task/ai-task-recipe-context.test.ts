@@ -69,7 +69,7 @@ describe('AiTaskManager Recipe v2 integration', () => {
           }),
         },
       },
-      dispatchers: { claude: dispatcher, codex: dispatcher },
+      dispatchers: { claude: dispatcher, codex: dispatcher, cursor: dispatcher },
       binaryLocator: { resolve: async () => '/bin/claude' },
       logWriter: {
         writeRunLog: async () => 'log.md',
@@ -140,7 +140,7 @@ describe('AiTaskManager Recipe v2 integration', () => {
           }),
         },
       },
-      dispatchers: { claude: dispatcher, codex: dispatcher },
+      dispatchers: { claude: dispatcher, codex: dispatcher, cursor: dispatcher },
       binaryLocator: { resolve: async () => '/bin/claude' },
       logWriter: {
         writeRunLog: async () => 'log.md',

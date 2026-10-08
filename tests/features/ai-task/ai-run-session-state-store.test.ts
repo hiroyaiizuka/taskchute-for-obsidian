@@ -9,6 +9,7 @@ import {
   type AiRunSessionSnapshot,
   type AiRunSessionTimer,
 } from '@/features/ai-task/services/AiRunSessionStateStore'
+import { AI_TASK_HOSTS } from '@/features/ai-task/types'
 
 function createSnapshot(overrides: Partial<AiRunSessionSnapshot> = {}): AiRunSessionSnapshot {
   return {
@@ -391,6 +392,27 @@ describe('AiRunSessionStateStore', () => {
       kind: 'elision',
       omittedCount: 101,
     })
+  })
+
+  test("restores runs of every agent and shell sessions, and drops an unknown host", () => {
+    const run = (id: string, host: string) =>
+      createSnapshot({ record: { ...createSnapshot().record, id, host } as AiRunSessionSnapshot['record'] })
+    const state = {
+      version: 1,
+      runs: [
+        ...AI_TASK_HOSTS.map((host) => run(`run-${host}`, host)),
+        run('run-shell', 'shell'),
+        run('run-unknown', 'not-an-agent'),
+      ],
+    }
+    const store = new AiRunSessionStateStore({
+      loadLocalStorage: () => state,
+      saveLocalStorage: () => undefined,
+    })
+
+    expect(store.load().map((snapshot) => snapshot.record.host).sort()).toEqual(
+      [...AI_TASK_HOSTS, 'shell'].sort(),
+    )
   })
 
   test('never evicts an old active run behind twelve newer finished runs', () => {

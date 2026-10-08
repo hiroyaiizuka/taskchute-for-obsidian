@@ -113,7 +113,7 @@ function createShellHarness(options: HarnessOptions = {}) {
         getFileCache: jest.fn(() => ({ frontmatter: { ai_task: true } })),
       },
     },
-    dispatchers: { claude: headless, codex: headless },
+    dispatchers: { claude: headless, codex: headless, cursor: headless },
     binaryLocator: { resolve: jest.fn(async () => '/bin/claude') },
     logWriter: { writeRunLog, writeTerminalRunLog, pruneOldLogs },
     terminal: withTerminal

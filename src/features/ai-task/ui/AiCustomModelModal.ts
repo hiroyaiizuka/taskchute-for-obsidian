@@ -5,13 +5,12 @@ import type {
   AiCustomModelStore,
 } from '../models/AiCustomModelStore'
 import type { AiTaskHost } from '../types'
+import { getAiAgent } from '../agents'
 import { createModalFooter } from '@/ui/components/modalFooter'
 
 export interface AiCustomModelModalLabels {
   addTitle: string
   editTitle: string
-  claudeAgent: string
-  codexAgent: string
   modelId: string
   modelIdPlaceholder: string
   modelIdHelp: string
@@ -34,6 +33,8 @@ export interface AiCustomModelModalLabels {
 export interface AiCustomModelModalOptions {
   app: App
   host: AiTaskHost
+  /** The agent's name as the UI shows it; its definition's name by default. */
+  agentName?: string
   store: AiCustomModelStore
   editModel?: AiCustomModel
   labels?: Partial<AiCustomModelModalLabels>
@@ -44,8 +45,6 @@ export interface AiCustomModelModalOptions {
 const DEFAULT_LABELS: AiCustomModelModalLabels = {
   addTitle: 'Add custom model',
   editTitle: 'Edit custom model',
-  claudeAgent: 'Claude Code',
-  codexAgent: 'Codex',
   modelId: 'Model ID',
   modelIdPlaceholder: 'provider/model-name',
   modelIdHelp: 'The model ID passed to the CLI',
@@ -109,9 +108,7 @@ export class AiCustomModelModal extends Modal {
     setIcon(agentIcon, 'bot')
     const agentText = this.doc.win.createSpan()
     agentText.textContent =
-      this.options.host === 'claude'
-        ? this.labels.claudeAgent
-        : this.labels.codexAgent
+      this.options.agentName ?? getAiAgent(this.options.host).label.fallback
     agent.append(agentIcon, agentText)
     content.appendChild(agent)
 

@@ -2,7 +2,7 @@ import {
   AI_MODEL_PRESETS,
   type AiModelPreset,
 } from '../config/AiTaskAdvancedOptions'
-import type { AiTaskHost } from '../types'
+import { AI_TASK_HOSTS, type AiTaskHost } from '../types'
 
 /** Device-local custom model catalog, deliberately separate from task notes. */
 export const AI_CUSTOM_MODEL_STORAGE_KEY =
@@ -25,10 +25,8 @@ export interface AiCustomModel {
   description?: string
 }
 
-export interface AiCustomModelsByHost {
-  claude: AiCustomModel[]
-  codex: AiCustomModel[]
-}
+/** Stored as `{ claude: [...], codex: [...] }`; an agent with nothing saved yet reads as empty. */
+export type AiCustomModelsByHost = Record<AiTaskHost, AiCustomModel[]>
 
 /** Duck-typed App#loadLocalStorage / App#saveLocalStorage bridge. */
 export interface AiCustomModelStorageBridge {
@@ -54,10 +52,10 @@ type BuiltInModelCatalog = Record<
   readonly Pick<AiModelPreset, 'id' | 'label'>[]
 >
 
-const AI_TASK_HOSTS: readonly AiTaskHost[] = ['claude', 'codex']
-
 function emptyState(): AiCustomModelsByHost {
-  return { claude: [], codex: [] }
+  const state = {} as AiCustomModelsByHost
+  for (const host of AI_TASK_HOSTS) state[host] = []
+  return state
 }
 
 function cloneModel(model: AiCustomModel): AiCustomModel {
@@ -124,10 +122,9 @@ export class AiCustomModelStore {
   }
 
   getState(): AiCustomModelsByHost {
-    return {
-      claude: this.getCustomModels('claude'),
-      codex: this.getCustomModels('codex'),
-    }
+    const state = emptyState()
+    for (const host of AI_TASK_HOSTS) state[host] = this.getCustomModels(host)
+    return state
   }
 
   hasModelId(host: AiTaskHost, modelId: string): boolean {

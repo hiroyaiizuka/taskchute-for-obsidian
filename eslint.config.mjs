@@ -318,6 +318,7 @@ export default [
           brands: [
             "Claude",
             "Codex",
+            "Cursor",
             "Google Calendar",
             "Linux",
             "Markdown",

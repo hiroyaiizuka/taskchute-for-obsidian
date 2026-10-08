@@ -70,6 +70,7 @@ export interface TaskChuteSettings {
   aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless
   aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
+  aiTaskCursorPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
 
   // License. The activation code lives here so a synced vault carries the

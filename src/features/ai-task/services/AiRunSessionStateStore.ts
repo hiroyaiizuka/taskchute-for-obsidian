@@ -7,7 +7,7 @@
  * this store owns bounded serializable UI/replay state, never the process.
  */
 
-import type { AiRunRecord, AiRunStatus, AiStreamEvent } from '../types'
+import { AI_TASK_HOSTS, type AiRunHost, type AiRunRecord, type AiRunStatus, type AiStreamEvent } from '../types'
 import { stableTimeoutSource } from '@/utils/stableTimer'
 
 export const AI_RUN_SESSION_STATE_STORAGE_KEY =
@@ -80,6 +80,11 @@ const VALID_STATUSES: ReadonlySet<AiRunStatus> = new Set([
 const defaultTimer: AiRunSessionTimer = {
   ...stableTimeoutSource,
   now: () => Date.now(),
+}
+
+/** Shell sessions and every agent's runs are restored; anything else is dropped. */
+function isRunHost(value: unknown): value is AiRunHost {
+  return value === 'shell' || AI_TASK_HOSTS.some((host) => host === value)
 }
 
 function boundedString(value: unknown, maxLength = AI_RUN_SESSION_EVENT_TEXT_LIMIT): string | undefined {
@@ -212,7 +217,7 @@ function normalizeRecord(value: unknown): AiRunRecord | null {
     taskName === undefined ||
     startedAt === undefined ||
     !VALID_STATUSES.has(status) ||
-    (host !== 'claude' && host !== 'codex' && host !== 'shell') ||
+    !isRunHost(host) ||
     (mode !== 'terminal' && mode !== 'headless')
   ) {
     return null

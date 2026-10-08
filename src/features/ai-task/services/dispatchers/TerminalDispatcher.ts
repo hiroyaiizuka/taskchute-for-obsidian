@@ -51,10 +51,13 @@ export interface TerminalRunRequest {
   binaryArgsPrefix?: string[]
   /** Launch-only environment delta from the validated CLI LaunchSpec. */
   envPatch?: Readonly<Record<string, string | undefined>>
-  /** Fixed `claude`/`codex` command resolved by the fresh login shell. */
-  terminalCommand?: 'claude' | 'codex'
+  /**
+   * The agent's fixed command name (its definition's `command`, never task
+   * text), resolved by the fresh login shell.
+   */
+  terminalCommand?: string
   /** Fixed fallback used only when the validated absolute path vanished. */
-  terminalFallbackCommand?: 'claude' | 'codex'
+  terminalFallbackCommand?: string
   /** Initial prompt submitted into the REPL; '' opens a plain REPL */
   prompt: string
   /** Working directory for the child process */

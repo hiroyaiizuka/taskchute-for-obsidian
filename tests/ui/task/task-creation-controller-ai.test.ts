@@ -12,6 +12,7 @@
  *     TaskCreationService.createTaskFile; human mode stays byte-identical
  *   - reuse/copy radios and autocomplete selection keep working in AI mode
  */
+import type { AiTaskHost } from '@/features/ai-task/types'
 import { Notice, TFile } from 'obsidian'
 import {
   formatAiTaskAmbientDateKey,
@@ -284,7 +285,7 @@ function typeButton(modal: HTMLElement, type: 'human' | 'ai'): HTMLButtonElement
   return button
 }
 
-function agentCard(modal: HTMLElement, hostId: 'claude' | 'codex'): HTMLButtonElement {
+function agentCard(modal: HTMLElement, hostId: AiTaskHost): HTMLButtonElement {
   const card = modal.querySelector<HTMLButtonElement>(
     `.ai-task-agent-card[data-ai-host="${hostId}"]`,
   )
@@ -719,17 +720,19 @@ describe('AI mode UI', () => {
     expect(section.classList.contains('hidden')).toBe(true)
   })
 
-  test('shows exactly two agent cards with Claude Code selected by default', () => {
+  test('shows the three agent cards with Claude Code selected by default', () => {
     const { host } = createHost()
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
 
     const cards = modal.querySelectorAll('.ai-task-agent-card')
-    expect(cards).toHaveLength(2)
+    expect(cards).toHaveLength(3)
     expect(agentCard(modal, 'claude').classList.contains('is-selected')).toBe(true)
     expect(agentCard(modal, 'codex').classList.contains('is-selected')).toBe(false)
+    expect(agentCard(modal, 'cursor').classList.contains('is-selected')).toBe(false)
     expect(agentCard(modal, 'claude').textContent).toContain('Claude Code')
     expect(agentCard(modal, 'codex').textContent).toContain('Codex')
+    expect(agentCard(modal, 'cursor').textContent).toContain('Cursor')
   })
 
   test('agent cards carry the reference icons (👑 Claude Code / 📜 Codex)', () => {

@@ -90,7 +90,7 @@ export const en = {
       heading: "AI task",
       enable: "Enable AI tasks",
       enableDesc:
-        "Run tasks with the Claude or Codex CLI inside the AI run pane (desktop only).",
+        "Run tasks with the Claude, Codex, or Cursor CLI inside the AI run pane (desktop only).",
       runModeName: "Run mode",
       runModeDesc:
         "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead. On Windows the terminal needs Windows 10 1809 or later with PowerShell; where it cannot run, runs use conversation mode.",
@@ -103,6 +103,9 @@ export const en = {
         "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
       codexPathName: "Codex CLI path (advanced fallback)",
       codexPathDesc:
+        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
+      cursorPathName: "Cursor CLI path (advanced fallback)",
+      cursorPathDesc:
         "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
       pathPlaceholder: "Auto-detect (recommended)",
       pathBrowse: "Browse",
@@ -525,6 +528,7 @@ export const en = {
       aiAgentLabel: '👑 Main agent',
       aiAgentClaude: CLAUDE_CODE_NAME,
       aiAgentCodex: 'Codex',
+      aiAgentCursor: 'Cursor',
       aiPromptLabel: 'Prompt (optional)',
       aiPromptPlaceholder: 'Review this pull request and point out improvements',
       aiCommandPreviewLabel: 'Command:',
