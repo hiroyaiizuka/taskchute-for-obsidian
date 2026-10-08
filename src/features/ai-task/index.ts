@@ -20,8 +20,7 @@ import {
 import { BinaryLocator } from './services/BinaryLocator'
 import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
-import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
-import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
+import { listAiAgents, mapAiAgents } from './agents'
 import {
   TerminalDispatcher,
   type AiTerminalDispatcher,
@@ -97,14 +96,14 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
   }
 
   const gateway = new NodeProcessGateway()
-  const binaryLocator = new BinaryLocator(gateway, () => ({
-    aiTaskClaudePath: plugin.settings.aiTaskClaudePath,
-    aiTaskCodexPath: plugin.settings.aiTaskCodexPath,
-  }))
-  const dispatchers: Record<AiTaskHost, AiDispatcher> = {
-    claude: new ClaudeCodeDispatcher(gateway),
-    codex: new CodexDispatcher(gateway),
-  }
+  const binaryLocator = new BinaryLocator(gateway, () =>
+    Object.fromEntries(
+      listAiAgents().map(({ pathSetting }) => [pathSetting.key, plugin.settings[pathSetting.key]]),
+    ),
+  )
+  const dispatchers: Record<AiTaskHost, AiDispatcher> = mapAiAgents((agent) =>
+    agent.createDispatcher(gateway),
+  )
   const logWriter = new AiTaskLogWriter({
     app: plugin.app,
     pathManager: {

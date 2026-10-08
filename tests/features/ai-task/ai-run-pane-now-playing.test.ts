@@ -1267,7 +1267,7 @@ describe('AiRunPaneController × + AiTaskManager persist ordering', () => {
           getFileCache: jest.fn(() => ({ frontmatter: { ai_task: true } })),
         },
       },
-      dispatchers: { claude: headlessDispatcher, codex: headlessDispatcher },
+      dispatchers: { claude: headlessDispatcher, codex: headlessDispatcher, cursor: headlessDispatcher },
       binaryLocator: { resolve: jest.fn(async () => '/bin/claude') },
       logWriter: {
         writeRunLog: jest.fn(async () => 'log.md'),

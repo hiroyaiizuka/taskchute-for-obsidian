@@ -3,6 +3,7 @@ import type { Setting, SettingDefinition, SettingDefinitionRender } from "obsidi
 import { t } from "@/i18n"
 import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
 import { isTerminalModeSupportedHere } from "@/features/ai-task/services/ptyPlatform"
+import { listAiAgents, type AiCliPathSettingKey } from "@/features/ai-task/agents"
 import type { TaskChuteSettings } from "@/types"
 import { DEFAULT_SETTINGS } from "@/settings/defaults"
 import { clampedNumber, choice } from "@/settings/controlHandlers"
@@ -28,36 +29,18 @@ function isUnsupportedWindowsCliShim(path: string): boolean {
 }
 
 interface CliPath {
-  key: "aiTaskClaudePath" | "aiTaskCodexPath"
+  key: AiCliPathSettingKey
   name: string
   desc: string
 }
 
+/** One CLI path row per agent, in the order the agents are listed. */
 function cliPaths(): CliPath[] {
-  return [
-    {
-      key: "aiTaskClaudePath",
-      name: t(
-        "settings.aiTask.claudePathName",
-        "Claude CLI path (advanced fallback)",
-      ),
-      desc: t(
-        "settings.aiTask.claudePathDesc",
-        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-      ),
-    },
-    {
-      key: "aiTaskCodexPath",
-      name: t(
-        "settings.aiTask.codexPathName",
-        "Codex CLI path (advanced fallback)",
-      ),
-      desc: t(
-        "settings.aiTask.codexPathDesc",
-        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-      ),
-    },
-  ]
+  return listAiAgents().map(({ pathSetting }) => ({
+    key: pathSetting.key,
+    name: t(pathSetting.name.key, pathSetting.name.fallback),
+    desc: t(pathSetting.desc.key, pathSetting.desc.fallback),
+  }))
 }
 
 function cliPathHandler(path: CliPath): AnyControlHandler {

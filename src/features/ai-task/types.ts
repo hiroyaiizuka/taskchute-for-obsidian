@@ -5,8 +5,13 @@
  * No runtime dependencies; safe to import from tests and every layer.
  */
 
-/** Supported headless CLI hosts */
-export type AiTaskHost = 'claude' | 'codex'
+/**
+ * The AI CLIs a task can run, in the order the UI lists them. Each has a
+ * definition in `agents/`. These are the `ai_task_host` values in task notes.
+ */
+export const AI_TASK_HOSTS = ['claude', 'codex', 'cursor'] as const
+
+export type AiTaskHost = (typeof AI_TASK_HOSTS)[number]
 
 /**
  * What a run record executes: one of the AI CLI hosts, or 'shell' for a

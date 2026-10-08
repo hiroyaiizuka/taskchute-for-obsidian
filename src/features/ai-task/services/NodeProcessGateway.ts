@@ -284,6 +284,7 @@ interface NodeFileHandleLike {
 
 interface NodeDirectoryEntryLike {
   name: string
+  isDirectory(): boolean
 }
 
 interface NodeStatsLike {
@@ -1301,6 +1302,16 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       return (await loadFsModule().promises.stat(path)).isFile()
     } catch {
       return false
+    }
+  }
+
+  /** Names of the folders directly inside `path`; empty when it cannot be read. */
+  async listDirectoryNames(path: string): Promise<string[]> {
+    try {
+      const entries = await loadFsModule().promises.readdir(path, { withFileTypes: true })
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    } catch {
+      return []
     }
   }
 

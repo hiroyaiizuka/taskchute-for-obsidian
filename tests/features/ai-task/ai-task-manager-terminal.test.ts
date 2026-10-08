@@ -173,7 +173,7 @@ function createTerminalHarness(options: HarnessOptions = {}) {
         })),
       },
     },
-    dispatchers: { claude: headless, codex: headless },
+    dispatchers: { claude: headless, codex: headless, cursor: headless },
     binaryLocator: { resolve: jest.fn(async () => '/bin/claude') },
     logWriter: withTerminalWriter
       ? { writeRunLog, writeTerminalRunLog, pruneOldLogs }

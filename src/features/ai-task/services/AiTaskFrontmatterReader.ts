@@ -6,14 +6,12 @@
  * this module never mutates its input and never writes back to the note.
  */
 
-import type { AiTaskConfig, AiTaskHost } from '../types'
-
-const VALID_HOSTS: readonly AiTaskHost[] = ['claude', 'codex']
+import { AI_TASK_HOSTS, type AiTaskConfig, type AiTaskHost } from '../types'
 
 function normalizeHost(value: unknown): AiTaskHost {
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase()
-    const match = VALID_HOSTS.find((host) => host === normalized)
+    const match = AI_TASK_HOSTS.find((host) => host === normalized)
     if (match) return match
   }
   return 'claude'

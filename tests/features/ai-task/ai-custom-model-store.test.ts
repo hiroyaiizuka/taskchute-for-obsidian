@@ -84,6 +84,7 @@ describe('AiCustomModelStore', () => {
           },
         ],
         codex: [],
+        cursor: [],
       },
     )
 

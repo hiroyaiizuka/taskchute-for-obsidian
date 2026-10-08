@@ -7,7 +7,7 @@ const selectable = (...modelIds: string[]) => (modelId: string): boolean =>
   modelIds.includes(modelId)
 
 describe('AI_EXEC_MODE_VARIANTS', () => {
-  test('exposes the persisted Claude and Codex execution-mode tokens', () => {
+  test('exposes the persisted Claude, Codex, and Cursor execution-mode tokens', () => {
     expect(AI_EXEC_MODE_VARIANTS).toEqual({
       claude: [
         {
@@ -46,6 +46,20 @@ describe('AI_EXEC_MODE_VARIANTS', () => {
             '--sandbox',
             'workspace-write',
           ],
+        },
+      ],
+      cursor: [
+        {
+          id: 'default',
+          labelKey: 'addTask.aiExecModeDefault',
+          labelFallback: 'Normal',
+          tokens: [],
+        },
+        {
+          id: 'auto',
+          labelKey: 'addTask.aiExecModeAuto',
+          labelFallback: 'Auto mode',
+          tokens: ['--force'],
         },
       ],
     })

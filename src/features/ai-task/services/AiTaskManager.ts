@@ -32,6 +32,7 @@ import type { TFile } from 'obsidian'
 import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
+import { getAiAgent } from '../agents'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
 import { capEventText } from './streams/StreamJsonParser'
@@ -913,9 +914,9 @@ export class AiTaskManager {
               ? {}
               : { envPatch: binaryEnvPatch }),
             ...(terminalCommand === host
-              ? { terminalCommand }
+              ? { terminalCommand: getAiAgent(host).command }
               : {}),
-            terminalFallbackCommand: host,
+            terminalFallbackCommand: getAiAgent(host).command,
             prompt,
             cwd,
             extraArgs,

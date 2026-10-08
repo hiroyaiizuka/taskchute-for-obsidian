@@ -21,6 +21,7 @@ import {
 } from "@/features/ai-task/services/AiTaskAmbientScheduleStateStore"
 import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
 import type { AiTaskHost } from "@/features/ai-task/types"
+import { getAiAgent, listAiAgents } from "@/features/ai-task/agents"
 import { buildTerminalArgs } from "@/features/ai-task/services/TerminalArguments"
 import type {
   AiTaskEditService,
@@ -113,28 +114,6 @@ type CreationMode = "reuse" | "copy"
 
 /** Human vs AI task selector state of the add-task modal (U3) */
 type TaskType = "human" | "ai"
-
-/** Main-agent cards of the AI mode (only hosts TCO can actually run) */
-const AI_AGENT_CARDS: ReadonlyArray<{
-  host: AiTaskHost
-  icon: string
-  labelKey: ScopedKey<"taskChuteView">
-  labelFallback: string
-}> = [
-  {
-    host: "claude",
-    // Reference parity: main-agents.ts gives Claude Code the 👑 icon.
-    icon: "👑",
-    labelKey: "addTask.aiAgentClaude",
-    labelFallback: "Claude Code",
-  },
-  {
-    host: "codex",
-    icon: "📜",
-    labelKey: "addTask.aiAgentCodex",
-    labelFallback: "Codex",
-  },
-]
 
 /** Longest prompt head shown inside the live command preview */
 const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
@@ -896,21 +875,21 @@ export default class TaskCreationController {
     agentGrid.className = "ai-task-agent-grid"
     agentField.appendChild(agentGrid)
     const agentCards = new Map<AiTaskHost, HTMLButtonElement>()
-    for (const cardDef of AI_AGENT_CARDS) {
+    for (const agent of listAiAgents()) {
       const card = doc.win.createEl("button")
       card.type = "button"
       card.className = "ai-task-agent-card"
-      card.dataset.aiHost = cardDef.host
+      card.dataset.aiHost = agent.id
       const icon = doc.win.createSpan()
       icon.className = "ai-task-agent-icon"
-      icon.textContent = cardDef.icon
+      icon.textContent = agent.icon
       const name = doc.win.createSpan()
       name.className = "ai-task-agent-name"
-      name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)
+      name.textContent = this.host.tv(agent.label.key, agent.label.fallback)
       card.appendChild(icon)
       card.appendChild(name)
       agentGrid.appendChild(card)
-      agentCards.set(cardDef.host, card)
+      agentCards.set(agent.id, card)
     }
 
     // Prompt textarea + live command preview.
@@ -1249,7 +1228,8 @@ export default class TaskCreationController {
     const refreshPreview = () => {
       const baseArgs = buildArgs()
       const sanitizedPrompt = promptInput.value.replace(/\r?\n+/g, " ").trim()
-      let text = [selectedHost as string, ...baseArgs].join(" ")
+      const command = getAiAgent(selectedHost).command
+      let text = [command, ...baseArgs].join(" ")
       if (sanitizedPrompt.length > 0) {
         const head =
           sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
@@ -1257,7 +1237,7 @@ export default class TaskCreationController {
             : sanitizedPrompt
         const previewArgs = buildTerminalArgs(baseArgs, head)
         text = [
-          selectedHost as string,
+          command,
           ...previewArgs.slice(0, -1),
           quotePreviewPrompt(previewArgs[previewArgs.length - 1]),
         ].join(" ")
@@ -1293,6 +1273,11 @@ export default class TaskCreationController {
       return this.host.tv(definition.key, definition.fallback)
     }
 
+    const ultraLabel = (): string => {
+      const label = getAiAgent(selectedHost).reasoning?.ultraLabel
+      return label ? this.host.tv(label.key, label.fallback) : ""
+    }
+
     const reasoningModeLabels = (): Record<AiReasoningMode, string> => ({
       automatic: this.host.tv(
         "addTask.aiReasoningModeAutomatic",
@@ -1302,14 +1287,7 @@ export default class TaskCreationController {
         "addTask.aiReasoningModeSpecified",
         "Specify budget",
       ),
-      ultra: this.host.tv(
-        selectedHost === "claude"
-          ? "addTask.aiReasoningModeClaudeUltra"
-          : "addTask.aiReasoningModeCodexUltra",
-        selectedHost === "claude"
-          ? "Ultracode (parallel workflow)"
-          : "Ultra (parallel delegation)",
-      ),
+      ultra: ultraLabel(),
     })
 
     const appendReasoningModeOption = (mode: AiReasoningMode) => {
@@ -1495,23 +1473,20 @@ export default class TaskCreationController {
     args: readonly string[],
     host: AiTaskHost,
   ): string[] {
+    const reasoning = getAiAgent(host).reasoning
+    if (reasoning === null) return [...args]
     const retained: string[] = []
     for (let index = 0; index < args.length; index += 1) {
-      const token = args[index]
-      if (host === "claude" && token.startsWith("--effort=")) continue
-      if (
-        host === "codex" &&
-        token === "--config" &&
-        index + 1 < args.length &&
-        /^model_reasoning_effort=/u.test(args[index + 1])
-      ) {
-        index += 1
+      const effort = reasoning.effortAt(args, index)
+      if (effort) {
+        index += effort.length - 1
         continue
       }
-      retained.push(token)
+      retained.push(args[index])
     }
     return retained
   }
+
 
   private resolveVaultWorkingDirectory(): string {
     const adapter = this.host.plugin.app.vault?.adapter as unknown as {
@@ -1535,8 +1510,6 @@ export default class TaskCreationController {
         "addTask.aiCustomModelEditTitle",
         "Edit custom model",
       ),
-      claudeAgent: "Claude Code",
-      codexAgent: "Codex",
       modelId: this.host.tv("addTask.aiCustomModelId", "Model ID"),
       modelIdPlaceholder: this.host.tv(
         "addTask.aiCustomModelIdPlaceholder",

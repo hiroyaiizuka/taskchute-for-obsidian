@@ -170,7 +170,7 @@ export interface AiTaskFields {
   /** Whether this task can be executed by a headless AI CLI */
   ai_task?: boolean;
 
-  /** CLI host to run ('claude' | 'codex'); defaults to 'claude' */
+  /** The agent to run (one of AI_TASK_HOSTS, e.g. 'claude'); defaults to 'claude' */
   ai_task_host?: string;
 
   /** Working directory override for the AI child process */

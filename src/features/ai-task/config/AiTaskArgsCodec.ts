@@ -1,10 +1,7 @@
 import type { AiTaskHost } from '../types'
 import type { ScopedKey } from '@/i18n'
-import {
-  AI_REASONING_BUDGETS,
-  type AiReasoningBudget,
-  type AiReasoningMode,
-} from './AiTaskAdvancedOptions'
+import { getAiAgent, mapAiAgents } from '../agents'
+import type { AiReasoningBudget, AiReasoningMode } from './AiTaskAdvancedOptions'
 
 /** One execution-mode choice and the argv tokens persisted for it. */
 export interface AiExecModeVariant {
@@ -15,49 +12,14 @@ export interface AiExecModeVariant {
 }
 
 /**
- * Execution-mode variants shared by the create/edit UI and the argv decoder.
- * Token order is significant because these arrays are written verbatim to
- * `ai_task_args`.
+ * Execution-mode variants of each agent (see `agents/`), shared by the
+ * create/edit UI and the argv decoder. Token order is significant because
+ * these arrays are written verbatim to `ai_task_args`.
  */
 export const AI_EXEC_MODE_VARIANTS: Record<
   AiTaskHost,
   readonly AiExecModeVariant[]
-> = {
-  claude: [
-    {
-      id: 'default',
-      labelKey: 'addTask.aiExecModeDefault',
-      labelFallback: 'Normal',
-      tokens: [],
-    },
-    {
-      id: 'auto',
-      labelKey: 'addTask.aiExecModeAuto',
-      labelFallback: 'Auto mode',
-      tokens: ['--permission-mode', 'auto'],
-    },
-    {
-      id: 'skip-permissions',
-      labelKey: 'addTask.aiExecModeSkipPermissions',
-      labelFallback: 'Skip permissions',
-      tokens: ['--dangerously-skip-permissions'],
-    },
-  ],
-  codex: [
-    {
-      id: 'default',
-      labelKey: 'addTask.aiExecModeDefault',
-      labelFallback: 'Normal',
-      tokens: [],
-    },
-    {
-      id: 'full-auto',
-      labelKey: 'addTask.aiExecModeFullAuto',
-      labelFallback: 'Full auto',
-      tokens: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
-    },
-  ],
-}
+> = mapAiAgents((agent) => agent.execModes)
 
 export interface DecodedAiTaskArgs {
   execModeId: string
@@ -96,13 +58,6 @@ function consumeRange(
   }
 }
 
-function isReasoningBudget(
-  host: AiTaskHost,
-  value: string,
-): value is AiReasoningBudget {
-  return AI_REASONING_BUDGETS[host].some((candidate) => candidate === value)
-}
-
 /**
  * Decode the modal-owned portion of persisted AI CLI arguments.
  *
@@ -117,6 +72,7 @@ export function decodeAiTaskArgs(
   isSelectableModelId: IsSelectableModelId,
 ): DecodedAiTaskArgs {
   const consumed = args.map(() => false)
+  const reasoning = getAiAgent(host).reasoning
   let execModeId = 'default'
   let modelId = ''
   let reasoningMode: AiReasoningMode = 'automatic'
@@ -160,38 +116,21 @@ export function decodeAiTaskArgs(
       continue
     }
 
-    if (host === 'claude' && token.startsWith('--effort=')) {
-      const effort = token.slice('--effort='.length)
-      if (effort === 'ultracode') {
+    const effort = reasoning?.effortAt(args, index)
+    if (reasoning && effort) {
+      const range = Array.from({ length: effort.length }, (_, offset) => index + offset)
+      if (range.some((position) => position >= args.length || consumed[position])) continue
+      const budget = reasoning.budgets.find((candidate) => candidate === effort.value)
+      if (effort.value !== undefined && effort.value === reasoning.ultraValue) {
         reasoningMode = 'ultra'
-        consumed[index] = true
-      } else if (isReasoningBudget(host, effort)) {
+      } else if (budget !== undefined) {
         reasoningMode = 'specified'
-        reasoningBudget = effort
-        consumed[index] = true
+        reasoningBudget = budget
+      } else {
+        continue
       }
-      continue
-    }
-
-    if (
-      host === 'codex' &&
-      token === '--config' &&
-      index + 1 < args.length &&
-      !consumed[index + 1]
-    ) {
-      const configValue = args[index + 1]
-      const match = /^model_reasoning_effort="([^"]+)"$/.exec(configValue)
-      const effort = match?.[1]
-      if (effort === 'ultra') {
-        reasoningMode = 'ultra'
-        consumeRange(consumed, index, 2)
-        index += 1
-      } else if (effort !== undefined && isReasoningBudget(host, effort)) {
-        reasoningMode = 'specified'
-        reasoningBudget = effort
-        consumeRange(consumed, index, 2)
-        index += 1
-      }
+      consumeRange(consumed, index, effort.length)
+      index += effort.length - 1
     }
   }
 

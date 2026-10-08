@@ -88,7 +88,7 @@ export const ja = {
       heading: "AIタスク",
       enable: "AIタスクを有効化",
       enableDesc:
-        `AI CLI（${CLAUDE_CODE_NAME} / Codex）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。`,
+        `AI CLI（${CLAUDE_CODE_NAME} / Codex / Cursor）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。`,
       runModeName: "実行モード",
       runModeDesc:
         "ターミナルは対話型CLIをそのまま埋め込みます。会話モードは解析済みイベントを流し、フォローアップ入力を受け付けます。Windowsのターミナルには Windows 10 1809 以降と PowerShell が必要で、利用できない環境では会話モードで実行します。",
@@ -102,6 +102,9 @@ export const ja = {
       codexPathName: "Codex CLIパス（詳細・予備）",
       codexPathDesc:
         "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではcodex.cmdではなくcodex.exeまたはbin/codex.jsを指定してください。",
+      cursorPathName: "Cursor CLIパス（詳細・予備）",
+      cursorPathDesc:
+        "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではcursor-agent.cmdではなく、versionsフォルダ内のnode.exeを指定してください。",
       pathPlaceholder: "自動検出（推奨）",
       pathBrowse: "参照",
       pathShimUnsupported:
@@ -522,12 +525,13 @@ export const ja = {
       aiAgentLabel: "👑 メインエージェント",
       aiAgentClaude: CLAUDE_CODE_NAME,
       aiAgentCodex: "Codex",
+      aiAgentCursor: "Cursor",
       aiPromptLabel: "指示（プロンプト）（任意）",
       aiPromptPlaceholder: "このPRをレビューして、改善点を指摘してください",
       aiCommandPreviewLabel: "実行コマンド:",
       aiRecipeLabel: "レシピ（任意）",
       aiRecipeNone: "レシピなし",
-      aiRecipeDisclosure: `選択したレシピの完了基準・手順・品質基準・制約は、実行時に${CLAUDE_CODE_NAME}またはCodexへ送信されます。秘密情報を含めないでください。`,
+      aiRecipeDisclosure: `選択したレシピの完了基準・手順・品質基準・制約は、実行時に選択したエージェント（${CLAUDE_CODE_NAME}・Codex・Cursor）へ送信されます。秘密情報を含めないでください。`,
       aiRecipePreview: "レシピ内容を確認",
       aiRecipeHasGoal: "完了基準あり",
       aiRecipeMissing: "見つかりません",
