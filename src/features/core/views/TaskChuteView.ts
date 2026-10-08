@@ -2730,6 +2730,7 @@ export class TaskChuteView
         return inst ? this.getInstanceDisplayTitle(inst) : ""
       },
       getCommandTargetInstanceId: () => this.getCommentTargetInstanceId(),
+      isDayCommentsEnabled: () => this.plugin.settings.dayCommentsEnabled === true,
       // The same width the prototype switched at: a phone, or a pane that narrow.
       isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
       loadLocalStorage: (key) =>

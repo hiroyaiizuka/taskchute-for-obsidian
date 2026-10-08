@@ -6,6 +6,7 @@ import { sectionCustomizationSection } from "./sectionCustomization"
 import type { SectionBoundaryDraft } from "./sectionBoundaryDraft"
 import { taskCreationSection } from "./taskCreation"
 import { timeSlotsSection } from "./timeSlots"
+import { dayCommentsSection } from "./dayComments"
 
 /** Folds one kind of handler map from each part into a single map. */
 function mergeHandlers<T extends Record<string, unknown>>(
@@ -31,6 +32,7 @@ export function advancedSection(draft: SectionBoundaryDraft): SectionModule {
     recipeSection,
     sectionCustomizationSection(draft),
     timeSlotsSection,
+    dayCommentsSection,
     externalToolsSection,
   ]
 

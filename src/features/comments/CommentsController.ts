@@ -1,4 +1,4 @@
-import type { App } from 'obsidian'
+import { Notice, type App } from 'obsidian'
 import type { ScopedTranslator } from '@/i18n'
 import type { DayComment, TaskInstance } from '@/types'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
@@ -46,6 +46,8 @@ export interface CommentsControllerHost {
    * rewriting then happen in a modal instead of in place.
    */
   isNarrow: () => boolean
+  /** The setting for the day's box; off by default. Running tasks take comments either way. */
+  isDayCommentsEnabled: () => boolean
   loadLocalStorage: (key: string) => unknown
   saveLocalStorage: (key: string, value: unknown) => void
   registerInterval: (id: number) => void
@@ -79,6 +81,7 @@ export class CommentsController {
   /** A confirm modal is up; focus moving into it must not close anything. */
   private confirming = false
   private dayBox: HTMLElement | null = null
+  private dayGrip: HTMLElement | null = null
   private height: DayCommentsHeight | null = null
 
   constructor(private readonly host: CommentsControllerHost) {}
@@ -86,6 +89,7 @@ export class CommentsController {
   /** Takes the box above the task list and the grip under it. */
   mountDay(box: HTMLElement, grip: HTMLElement): void {
     this.dayBox = box
+    this.dayGrip = grip
     box.setAttribute('aria-label', this.host.tv('comments.regionLabel', 'Comments for the day'))
     grip.setAttribute('role', 'separator')
     grip.setAttribute('aria-orientation', 'horizontal')
@@ -126,6 +130,15 @@ export class CommentsController {
   renderDay(): void {
     const box = this.dayBox
     if (!box) return
+    const enabled = this.host.isDayCommentsEnabled()
+    box.classList.toggle('taskchute-day-comments--off', !enabled)
+    if (!enabled) {
+      // Turned off in settings: no box and no grip. A draft stays for when it is turned back on.
+      box.empty()
+      this.composing.delete(DAY)
+      this.dayGrip?.classList.add('taskchute-day-comments-resizer--hidden')
+      return
+    }
     const previousScroll = box.querySelector('.taskchute-day-comments__entries')?.scrollTop ?? 0
     box.empty()
     const placeholder = this.host.isViewingToday()
@@ -188,6 +201,15 @@ export class CommentsController {
   /** The "leave a comment" command: the running task's input, or else the day's. */
   leaveComment(): void {
     const instanceId = this.host.getCommandTargetInstanceId()
+    if (!instanceId && !this.host.isDayCommentsEnabled()) {
+      new Notice(
+        this.host.tv(
+          'comments.noTarget',
+          'Start a task to comment on it, or turn on comments for the day in settings.',
+        ),
+      )
+      return
+    }
     if (instanceId) this.openInstanceId = instanceId
     const key = instanceId ?? DAY
     if (this.host.isNarrow()) {

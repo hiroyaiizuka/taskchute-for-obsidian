@@ -62,6 +62,9 @@ export interface TaskChuteSettings {
   // Collapsible time slots (click header to collapse/expand)
   collapsibleTimeSlots?: boolean
 
+  // The box of the day's comments above the task list (#181); default false
+  dayCommentsEnabled?: boolean
+
   // AI Task (manual CLI runs; desktop only)
   aiTaskEnabled?: boolean // default false; enables the AI Task feature
   aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless

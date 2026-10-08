@@ -147,6 +147,8 @@ export const en = {
       },
       collapsibleTimeSlots: "Collapsible time slots",
       collapsibleTimeSlotsDesc: "Click time slot headers to collapse/expand sections",
+      dayComments: "Comments for the day",
+      dayCommentsDesc: "Show a box above the task list for comments on the day. Comments on a running task (💬 on its row) work either way.",
     },
     reminder: {
       defaultMinutesName: "Default reminder time (minutes)",
@@ -457,6 +459,7 @@ export const en = {
       toAi: "Changed to an AI task",
     },
     comments: {
+      noTarget: "Start a task to comment on it, or turn on comments for the day in settings.",
       dayPlaceholder: "Add a comment for today…",
       otherDayPlaceholder: "Add a comment for this day…",
       taskPlaceholder: "Add a comment while working…",

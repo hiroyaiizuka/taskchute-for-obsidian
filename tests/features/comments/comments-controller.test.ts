@@ -49,6 +49,7 @@ async function setup(initial: DayState = emptyDay()) {
   const instances: TaskInstance[] = []
   const local = new Map<string, unknown>()
   const narrow = { value: false }
+  const dayEnabled = { value: true }
 
   // eslint-disable-next-line prefer-const -- assigned after the host that refers to it
   let controller: CommentsController
@@ -73,6 +74,7 @@ async function setup(initial: DayState = emptyDay()) {
     getInstanceTitle: () => 'Write the plan',
     getCommandTargetInstanceId: () => instances.find(canCommentWhileRunning)?.instanceId ?? null,
     isNarrow: () => narrow.value,
+    isDayCommentsEnabled: () => dayEnabled.value,
     loadLocalStorage: (key) => local.get(key) ?? null,
     saveLocalStorage: (key, value) => local.set(key, value),
     registerInterval: () => undefined,
@@ -80,7 +82,7 @@ async function setup(initial: DayState = emptyDay()) {
   }
   controller = new CommentsController(host)
   controller.mountDay(dayBox, grip)
-  return { controller, store, root, dayBox, grip, list, instances, rerender, narrow }
+  return { controller, store, root, dayBox, grip, list, instances, rerender, narrow, dayEnabled }
 }
 
 const flush = async () => {
@@ -289,6 +291,41 @@ describe('CommentsController', () => {
       controller.togglePanel(running)
       expect(list.querySelector('.taskchute-task-comments .taskchute-comment-tap')).not.toBeNull()
       expect(document.querySelector('.taskchute-comment-entry-modal')).toBeNull()
+    })
+  })
+
+  describe("the setting for the day's box (off by default)", () => {
+    it('draws no box and no grip when off, even with comments stored', async () => {
+      const { controller, store, dayBox, grip, dayEnabled } = await setup()
+      await store.addCommentTo(DATE, { text: 'kept while hidden' })
+      dayEnabled.value = false
+      controller.renderDay()
+      expect(dayBox.childElementCount).toBe(0)
+      expect(dayBox.classList.contains('taskchute-day-comments--off')).toBe(true)
+      expect(grip.classList.contains('taskchute-day-comments-resizer--hidden')).toBe(true)
+
+      dayEnabled.value = true
+      controller.renderDay()
+      expect(dayBox.classList.contains('taskchute-day-comments--off')).toBe(false)
+      expect(dayBox.querySelector('.taskchute-comment-text')?.textContent).toBe('kept while hidden')
+    })
+
+    it("still takes comments on a running task when the day's box is off", async () => {
+      const { controller, instances, list, dayEnabled } = await setup()
+      dayEnabled.value = false
+      const running = instance({ instanceId: 'i-1' })
+      instances.push(running)
+      controller.togglePanel(running)
+      expect(list.querySelector('.taskchute-task-comments textarea')).not.toBeNull()
+    })
+
+    it('"Leave a comment" with no running task explains what to do instead of opening anything', async () => {
+      const { controller, dayEnabled, dayBox } = await setup()
+      dayEnabled.value = false
+      controller.renderDay()
+      controller.leaveComment()
+      expect(Notice).toHaveBeenCalledWith('Start a task to comment on it, or turn on comments for the day in settings.')
+      expect(dayBox.querySelector('textarea')).toBeNull()
     })
   })
 })

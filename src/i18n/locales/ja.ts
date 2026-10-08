@@ -145,6 +145,8 @@ export const ja = {
       },
       collapsibleTimeSlots: "セクションの折りたたみ",
       collapsibleTimeSlotsDesc: "セクションヘッダーをクリックして折りたためるようにします",
+      dayComments: "今日のコメント",
+      dayCommentsDesc: "タスク一覧の上に、その日のコメントを書く欄を出します。実行中のタスクへのコメント（行の 💬）は、この設定に関係なく使えます。",
     },
     reminder: {
       defaultMinutesName: "デフォルトのリマインダー時間（分）",
@@ -454,6 +456,7 @@ export const ja = {
       toAi: "AI タスクに変更しました",
     },
     comments: {
+      noTarget: "コメントを残すには、タスクを開始するか、設定で「今日のコメント」をオンにしてください。",
       dayPlaceholder: "今日のコメントを追加…",
       otherDayPlaceholder: "この日のコメントを追加…",
       taskPlaceholder: "実行中のコメントを追加…",
