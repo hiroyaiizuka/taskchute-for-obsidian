@@ -80,6 +80,8 @@ export class CommentsController {
   private readonly showAll = new Set<string>()
   /** A confirm modal is up; focus moving into it must not close anything. */
   private confirming = false
+  /** Bumped to cancel a refocus still waiting for the next frame. */
+  private focusToken = 0
   private dayBox: HTMLElement | null = null
   private dayGrip: HTMLElement | null = null
   private height: DayCommentsHeight | null = null
@@ -152,6 +154,8 @@ export class CommentsController {
       scroller.scrollTop = previousScroll
     }
     this.height?.apply()
+    // The input grows to fit its text on the next frame; measure again then.
+    window.requestAnimationFrame(() => this.height?.apply())
   }
 
   // --- a running task's panel -------------------------------------------------
@@ -269,14 +273,21 @@ export class CommentsController {
   }
 
   private textarea(parent: HTMLElement, key: string, placeholder: string, submit: (text: string) => void): HTMLTextAreaElement {
-    return createCommentTextarea(parent, {
+    const textarea = createCommentTextarea(parent, {
       cls: 'taskchute-comment-input',
       focusKey: this.composeKey(key),
       value: this.drafts.get(key) ?? '',
       placeholder,
       onInput: (value) => this.drafts.set(key, value),
       onSubmit: submit,
+      // Esc leaves the input the way clicking elsewhere does: an empty input
+      // closes, unsaved text asks first.
+      onEscape: () => {
+        this.focusToken += 1
+        textarea.blur()
+      },
     })
+    return textarea
   }
 
   private afterComposerBlur(key: string): void {
@@ -553,7 +564,10 @@ export class CommentsController {
 
   private focusAfterRender(focusKey: string, caret: 'end' | 'keep' = 'end'): void {
     this.host.rerender()
+    const token = ++this.focusToken
     window.requestAnimationFrame(() => {
+      // Leaving the input (Esc) in the meantime cancels the refocus.
+      if (token !== this.focusToken) return
       const root = this.host.getRoot()
       const target = root ? findFocusTarget(root, focusKey) : null
       if (!target) return

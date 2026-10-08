@@ -108,3 +108,55 @@ test("a running task takes comments, and the completion modal lists them", async
   await expect(recap).toBeVisible()
   await expect(recap.locator(".taskchute-comment-text")).toHaveText(["Outline done"])
 })
+
+test("an opened input is not cut off when the box's height is fixed small", async ({ obsidian }) => {
+  const { page } = obsidian
+  await enableDayComments(page)
+  await openTaskChute(page)
+  const input = () => page.locator(".taskchute-day-comments textarea")
+  for (const text of ["one", "two", "three", "four"]) {
+    await input().click()
+    await input().fill(text)
+    await input().press("Enter")
+  }
+  // After adding, focus comes back to the input a frame later; wait for it, then leave with Esc.
+  await expect(input()).toBeFocused()
+  await page.keyboard.press("Escape")
+  // The input closes a moment after it loses focus; fix the height only then.
+  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toHaveCount(0)
+
+  // Drag the grip as far up as it goes: the height is now fixed at its smallest.
+  const grip = page.locator(".taskchute-day-comments-resizer")
+  const box = (await grip.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + 3)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y - 300, { steps: 10 })
+  await page.mouse.up()
+
+  await input().click()
+  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const dayBox = document.querySelector(".taskchute-day-comments")!.getBoundingClientRect()
+        const composer = document.querySelector(".taskchute-day-comments .taskchute-comment-composer")!.getBoundingClientRect()
+        return Math.round(dayBox.bottom - composer.bottom)
+      }),
+    )
+    .toBeGreaterThanOrEqual(0)
+  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer__add")).toBeInViewport()
+})
+
+test("Esc leaves the input; an empty one closes", async ({ obsidian }) => {
+  const { page } = obsidian
+  await enableDayComments(page)
+  await openTaskChute(page)
+  const input = page.locator(".taskchute-day-comments textarea")
+  await input.click()
+  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(page.locator(".taskchute-day-comments textarea")).not.toBeFocused()
+  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toHaveCount(0)
+  // The TaskChute view is still the one shown.
+  await expect(page.locator(".taskchute-view-root")).toBeVisible()
+})

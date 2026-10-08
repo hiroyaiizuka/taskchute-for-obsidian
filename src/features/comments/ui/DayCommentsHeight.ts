@@ -44,8 +44,20 @@ export class DayCommentsHeight {
     const rows = this.rows()
     this.grip.classList.toggle('taskchute-day-comments-resizer--hidden', rows.length === 0)
     this.box.classList.toggle('is-fixed', this.fixed !== null)
-    const max = this.fixed ?? (rows.length > AUTO_ROWS ? this.heightThrough(AUTO_ROWS) : null)
+    const cap = this.fixed ?? (rows.length > AUTO_ROWS ? this.heightThrough(AUTO_ROWS) : null)
+    // The input never gets cut off: once it opens (taller, with its footer),
+    // the box makes room for it and the newest comment under it, whatever
+    // height was fixed. It goes back to the cap when the input closes.
+    const max = cap === null ? null : Math.max(cap, this.inputFloor(rows.length > 0))
     this.box.style.setProperty('--tc-day-comments-max', max === null ? 'none' : `${max}px`)
+  }
+
+  /** Height the box needs to show the whole input, plus the first comment when there is one. */
+  private inputFloor(hasRows: boolean): number {
+    const input = this.box.querySelector<HTMLElement>('.taskchute-comment-composer')
+    if (!input) return 0
+    const inputBottom = Math.ceil(input.getBoundingClientRect().bottom - this.box.getBoundingClientRect().top)
+    return hasRows ? Math.max(inputBottom, this.heightThrough(1) ?? 0) : inputBottom
   }
 
   private rows(): HTMLElement[] {
