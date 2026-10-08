@@ -1,4 +1,5 @@
 import { TaskChuteView } from '@/features/core/views/TaskChuteView';
+import { baseInstanceId } from '@/features/core/services/TaskLoaderService';
 import {
   DayState,
   HiddenRoutine,
@@ -1854,12 +1855,12 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
     const { context, load } = createRoutineLoadContext({
       duplicatedInstances: [duplicatedRecord],
     });
-    context.generateInstanceId.mockImplementationOnce(() => 'routine-base');
 
     await load();
 
     const instanceIds = context.taskInstances.map((inst) => inst.instanceId);
-    expect(instanceIds).toEqual(expect.arrayContaining(['routine-base', 'dup-visible']));
+    // The routine's own instance for the day has a stable id; the duplicate keeps its stored one.
+    expect(instanceIds).toEqual(expect.arrayContaining([baseInstanceId('TASKS/routine.md', context.getCurrentDateString()), 'dup-visible']));
     const duplicate = context.taskInstances.find((inst) => inst.instanceId === 'dup-visible');
     expect(duplicate?.slotKey).toBe('12:00-16:00');
     expect(duplicate?.task.path).toBe('TASKS/routine.md');
@@ -1930,12 +1931,11 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
       duplicatedInstances: [duplicatedRecord],
       hiddenRoutines: [{ path: 'TASKS/routine.md', instanceId: 'dup-hidden' }],
     });
-    context.generateInstanceId.mockImplementationOnce(() => 'routine-base');
 
     await load();
 
     const instanceIds = context.taskInstances.map((inst) => inst.instanceId);
-    expect(instanceIds).toContain('routine-base');
+    expect(instanceIds).toContain(baseInstanceId('TASKS/routine.md', context.getCurrentDateString()));
     expect(instanceIds).not.toContain('dup-hidden');
     expect(dayState.hiddenRoutines).toEqual(
       expect.arrayContaining([

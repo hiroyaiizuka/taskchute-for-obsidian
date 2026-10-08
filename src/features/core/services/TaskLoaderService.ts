@@ -528,7 +528,7 @@ async function createNonRoutineTask(
   const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
-    instanceId: context.generateInstanceId(taskData, dateKey),
+    instanceId: baseInstanceId(file.path, dateKey),
     state: 'idle',
     slotKey,
     date: dateKey,
@@ -686,7 +686,7 @@ async function createRoutineTask(
   const slotKey = storedSlot ?? context.getSectionConfig().calculateSlotKeyFromTime(getScheduledTime(metadata) || undefined) ?? DEFAULT_SLOT_KEY
   const instance: TaskInstance = {
     task: taskData,
-    instanceId: context.generateInstanceId(taskData, dateKey),
+    instanceId: baseInstanceId(file.path, dateKey),
     state: 'idle',
     slotKey,
     date: dateKey,
@@ -1368,6 +1368,18 @@ function getTaskFiles(context: TaskLoaderHost): TFile[] {
 
 function toStringField(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+/**
+ * The id of a task's own instance for a day: the one the loader makes for a
+ * task that has not run that day. It is the same on every load, so anything
+ * keyed by it — comments, a temporary deletion, a hidden instance — still
+ * finds it after the view reloads (a random id here lost them on reload).
+ * Duplicates, moves and runs keep their own stored ids. The `path_date_` shape
+ * matches the ids generated elsewhere, which some readers parse.
+ */
+export function baseInstanceId(path: string, dateKey: string): string {
+  return `${path}_${dateKey}_base`
 }
 
 function derivePathFromInstanceId(instanceId: string | undefined): string | undefined {

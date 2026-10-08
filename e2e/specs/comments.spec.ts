@@ -160,3 +160,28 @@ test("Esc leaves the input; an empty one closes", async ({ obsidian }) => {
   // The TaskChute view is still the one shown.
   await expect(page.locator(".taskchute-view-root")).toBeVisible()
 })
+
+test("a task's comments come back after it is reset, the view reloads, and it is started again", async ({ obsidian }) => {
+  const { page } = obsidian
+  const taskPath = await createTask(page, "Write report")
+  await openTaskChute(page)
+  const row = () => taskRow(page, taskPath)
+
+  await row().locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row())).toBe("running")
+  await row().locator(".comment-button").click()
+  await page.locator(".taskchute-task-comments textarea").fill("Outline done")
+  await page.locator(".taskchute-task-comments textarea").press("Enter")
+  await expect(row().locator(".comment-button__count")).toHaveText("1")
+
+  // Back to not started, then a fresh load of the view.
+  await row().locator(".settings-task-button").click()
+  await page.locator(".task-settings-tooltip .tooltip-item", { hasText: "Reset to not started" }).click()
+  await expect.poll(() => rowState(row())).toBe("idle")
+  await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
+  await openTaskChute(page)
+
+  await row().locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row())).toBe("running")
+  await expect(row().locator(".comment-button__count")).toHaveText("1")
+})
