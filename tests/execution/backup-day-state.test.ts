@@ -201,6 +201,56 @@ describe('making a backup set', () => {
     expect(backupsIn(files)).toEqual([])
   })
 
+  test('the day state and the execution log share one interval: a change that writes both makes one set', async () => {
+    const { plugin, files, dayStateService } = createPlugin()
+    files.set(TASKS, tasksFile('before'))
+    files.set(STATE, stateFile([{ id: 'c1', text: 'old' }]))
+    const date = new Date(2026, 9, 8)
+    const day = await dayStateService.loadDay(date)
+    await dayStateService.saveDay(date, { ...day, comments: [{ id: 'c2', text: 'new', at: 2, updatedAt: 2 }] })
+    jest.advanceTimersByTime(20)
+    // The log has never recorded a backup of its own, which used to mean "back up now".
+    await new LogSnapshotWriter(plugin).write('2026-10', JSON.parse(tasksFile('after')))
+    expect(backupsIn(files)).toEqual([
+      `${FOLDER}/2026-10-08T03-00-00-000Z.json`,
+      `${FOLDER}/2026-10-08T03-00-00-000Z.state.json`,
+    ])
+
+    // Either way round.
+    jest.advanceTimersByTime(3 * 60 * 60 * 1000)
+    await new LogSnapshotWriter(plugin).write('2026-10', JSON.parse(tasksFile('later')))
+    jest.advanceTimersByTime(20)
+    await dayStateService.saveDay(date, { ...day, comments: [{ id: 'c3', text: 'later', at: 3, updatedAt: 3 }] })
+    expect(backupsIn(files)).toHaveLength(4)
+  })
+
+  test('forcing a backup of the execution log still makes a set within the interval', async () => {
+    const { plugin, files, dayStateService } = createPlugin()
+    files.set(TASKS, tasksFile('before'))
+    files.set(STATE, stateFile([]))
+    const date = new Date(2026, 9, 8)
+    const day = await dayStateService.loadDay(date)
+    await dayStateService.saveDay(date, { ...day, comments: [{ id: 'c1', text: 'x', at: 1, updatedAt: 1 }] })
+    jest.advanceTimersByTime(1000)
+    await new LogSnapshotWriter(plugin).write('2026-10', JSON.parse(tasksFile('after')), { forceBackup: true })
+    expect(backupsIn(files)).toHaveLength(4)
+  })
+
+  test('after a failed backup, the next write tries again', async () => {
+    const { files, vault, dayStateService } = createPlugin()
+    files.set(STATE, stateFile([]))
+    vault.adapter.write.mockRejectedValueOnce(new Error('disk full'))
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const date = new Date(2026, 9, 8)
+    const day = await dayStateService.loadDay(date)
+    await dayStateService.saveDay(date, { ...day, comments: [{ id: 'c1', text: 'x', at: 1, updatedAt: 1 }] })
+    expect(backupsIn(files)).toEqual([])
+    jest.advanceTimersByTime(1000)
+    await dayStateService.saveDay(date, { ...day, comments: [{ id: 'c2', text: 'y', at: 2, updatedAt: 2 }] })
+    expect(backupsIn(files)).toEqual([`${FOLDER}/2026-10-08T03-00-01-000Z.state.json`])
+    warn.mockRestore()
+  })
+
   test('a failed backup does not stop the write', async () => {
     const { files, vault, dayStateService } = createPlugin()
     files.set(STATE, stateFile([]))

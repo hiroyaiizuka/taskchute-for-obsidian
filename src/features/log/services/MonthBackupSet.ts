@@ -89,6 +89,57 @@ export function parseBackupTimestamp(fileName: string): number | null {
   return Number.isNaN(time) ? null : time
 }
 
+/** When this session last took a backup set of each month, shared by every writer of the vault. */
+const recentBackups = new WeakMap<object, Map<string, number>>()
+
+function recentBackupsOf(plugin: BackupPlugin): Map<string, number> {
+  let recent = recentBackups.get(plugin.app)
+  if (!recent) {
+    recent = new Map()
+    recentBackups.set(plugin.app, recent)
+  }
+  return recent
+}
+
+export interface BackupClaim {
+  /** Gives the slot back when no backup ended up written. */
+  release(): void
+}
+
+/**
+ * Decides whether a write is due a backup set, and claims it at once when it
+ * is. The day state and the execution log share one interval per month, so a
+ * change that writes both (deleting a task, say) makes one set, not one each.
+ * The newest of this session's sets, the backups in the folder (also those
+ * synced from another device) and `knownLast` (the execution log's own
+ * record) counts.
+ */
+export function claimBackup(
+  plugin: BackupPlugin,
+  monthKey: string,
+  options: { now?: number; knownLast?: number | null; force?: boolean } = {},
+): BackupClaim | null {
+  const now = options.now ?? Date.now()
+  const recent = recentBackupsOf(plugin)
+  const previous = recent.get(monthKey)
+  if (!options.force) {
+    const interval = backupIntervalMillis(plugin)
+    const times = [previous, latestBackupTime(plugin, monthKey), options.knownLast].filter(
+      (time): time is number => typeof time === 'number' && Number.isFinite(time),
+    )
+    const last = times.length > 0 ? Math.max(...times) : null
+    if (interval > 0 && last !== null && now - last < interval) return null
+  }
+  recent.set(monthKey, now)
+  return {
+    release: () => {
+      if (recent.get(monthKey) !== now) return
+      if (previous === undefined) recent.delete(monthKey)
+      else recent.set(monthKey, previous)
+    },
+  }
+}
+
 export function backupIntervalMillis(plugin: BackupPlugin): number {
   const hours = plugin.settings.backupIntervalHours ?? 2
   if (!Number.isFinite(hours) || hours <= 0) return 0
