@@ -9,7 +9,7 @@
 
 import type { ScopedKey, TranslationKey } from '@/i18n'
 import type { AiTaskHost } from '../types'
-import type { AiExecModeVariant } from '../config/AiTaskArgsCodec'
+import type { AiExecModeId } from '../config/AiTaskArgsCodec'
 import type {
   AiModelPreset,
   AiReasoningBudget,
@@ -101,13 +101,22 @@ export interface AiAgentDefinition {
   /** Runs the agent headlessly (stream of JSON lines) for one task run. */
   createDispatcher(gateway: ProcessGateway): AiDispatcher
   /**
-   * Arguments the plugin always adds in front of a task's own when it runs
-   * the agent in the terminal (the headless runs add theirs in the
-   * dispatcher). Never written to the task note.
+   * The option that trusts the task's folder, so the agent starts without
+   * first asking whether to (a new folder asks once). Offered in auto mode
+   * as an opt-in, since it also trusts the folder's own config and scripts.
+   * Agents without one show a note that they ask once per folder instead.
    */
-  terminalArgs?: readonly string[]
-  /** Execution-mode choices; the first, with no tokens, is the default. */
-  execModes: readonly AiExecModeVariant[]
+  trustFolderArgs?: readonly string[]
+  /**
+   * The arguments for each execution mode (the same three for every agent):
+   * manual asks before acting, auto lets the agent act within safe limits on
+   * its own, skip-permissions lets it do anything. Written to the task note.
+   */
+  execModes: Readonly<Record<AiExecModeId, readonly string[]>>
+  /** What auto mode does for this agent, when that needs saying (shown in auto mode, dismissible). */
+  autoModeNote?: AiAgentLabel<ScopedKey<'taskChuteView'>>
+  /** Older spellings still found in notes, read as the mode they stand for and kept as written. */
+  legacyExecModes?: readonly { mode: AiExecModeId; tokens: readonly string[] }[]
   /** Built-in model choices; more can be added per device. */
   models: readonly AiModelPreset[]
   reasoning: AiAgentReasoning | null

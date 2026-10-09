@@ -2,6 +2,7 @@ import { getAiAgent, listAiAgents } from '@/features/ai-task/agents'
 import { decodeAiTaskArgs } from '@/features/ai-task/config/AiTaskArgsCodec'
 import { buildReasoningArgs } from '@/features/ai-task/config/AiTaskAdvancedOptions'
 import { AI_TASK_HOSTS } from '@/features/ai-task/types'
+import { AI_EXEC_MODE_IDS } from '@/features/ai-task/config/AiTaskArgsCodec'
 
 // Every agent a task can run is one definition. These check the definitions
 // are complete and consistent, so a new agent cannot be half-registered.
@@ -22,11 +23,14 @@ describe('AI agent definitions', () => {
     for (const command of commands) expect(command).toMatch(/^[a-z0-9][a-z0-9_-]*$/u)
   })
 
-  test("each agent's first execution mode is the default, with no arguments", () => {
+  test('every agent offers the same three execution modes, each with distinct arguments', () => {
     for (const agent of listAiAgents()) {
-      expect(agent.execModes[0]).toEqual(expect.objectContaining({ id: 'default', tokens: [] }))
-      const ids = agent.execModes.map((mode) => mode.id)
-      expect(new Set(ids).size).toBe(ids.length)
+      expect(Object.keys(agent.execModes).sort()).toEqual([...AI_EXEC_MODE_IDS].sort())
+      const spellings = [
+        ...AI_EXEC_MODE_IDS.map((mode) => agent.execModes[mode].join(' ')),
+        ...(agent.legacyExecModes ?? []).map((legacy) => legacy.tokens.join(' ')),
+      ]
+      expect(new Set(spellings).size).toBe(spellings.length)
     }
   })
 

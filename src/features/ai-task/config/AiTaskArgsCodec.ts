@@ -3,9 +3,33 @@ import type { ScopedKey } from '@/i18n'
 import { getAiAgent, mapAiAgents } from '../agents'
 import type { AiReasoningBudget, AiReasoningMode } from './AiTaskAdvancedOptions'
 
+/** The execution modes every agent offers, in the order the UI lists them. */
+export const AI_EXEC_MODE_IDS = ['manual', 'auto', 'skip-permissions'] as const
+
+export type AiExecModeId = (typeof AI_EXEC_MODE_IDS)[number]
+
+/**
+ * The mode a new AI task starts in, for every agent. A task that already
+ * exists keeps what its note says: no execution-mode arguments read as
+ * manual, so opening and saving it never widens what it may do.
+ */
+export const DEFAULT_AI_EXEC_MODE: AiExecModeId = 'auto'
+
+const AI_EXEC_MODE_LABELS: Record<
+  AiExecModeId,
+  { labelKey: ScopedKey<'taskChuteView'>; labelFallback: string }
+> = {
+  manual: { labelKey: 'addTask.aiExecModeManual', labelFallback: 'Manual' },
+  auto: { labelKey: 'addTask.aiExecModeAuto', labelFallback: 'Auto mode' },
+  'skip-permissions': {
+    labelKey: 'addTask.aiExecModeSkipPermissions',
+    labelFallback: 'Skip permissions',
+  },
+}
+
 /** One execution-mode choice and the argv tokens persisted for it. */
 export interface AiExecModeVariant {
-  id: string
+  id: AiExecModeId
   labelKey: ScopedKey<'taskChuteView'>
   labelFallback: string
   tokens: readonly string[]
@@ -19,10 +43,20 @@ export interface AiExecModeVariant {
 export const AI_EXEC_MODE_VARIANTS: Record<
   AiTaskHost,
   readonly AiExecModeVariant[]
-> = mapAiAgents((agent) => agent.execModes)
+> = mapAiAgents((agent) =>
+  AI_EXEC_MODE_IDS.map((id) => ({ id, ...AI_EXEC_MODE_LABELS[id], tokens: agent.execModes[id] })),
+)
 
 export interface DecodedAiTaskArgs {
-  execModeId: string
+  execModeId: AiExecModeId
+  /**
+   * The execution-mode tokens exactly as the note has them: the mode's own,
+   * an older spelling of it, or none (a note without any reads as manual).
+   * Saving with the mode untouched writes these back, so nothing changes.
+   */
+  execModeTokens: readonly string[]
+  /** Whether the note carries the agent's trust-the-folder option. */
+  trustFolder: boolean
   modelId: string
   reasoningMode: AiReasoningMode
   reasoningBudget: AiReasoningBudget
@@ -72,25 +106,39 @@ export function decodeAiTaskArgs(
   isSelectableModelId: IsSelectableModelId,
 ): DecodedAiTaskArgs {
   const consumed = args.map(() => false)
-  const reasoning = getAiAgent(host).reasoning
-  let execModeId = 'default'
+  const agent = getAiAgent(host)
+  const reasoning = agent.reasoning
+  let execModeId: AiExecModeId = 'manual'
+  let execModeTokens: readonly string[] = []
+  let trustFolder = false
   let modelId = ''
   let reasoningMode: AiReasoningMode = 'automatic'
   let reasoningBudget: AiReasoningBudget = DEFAULT_REASONING_BUDGET
 
   // Consume exact non-default variants. When conflicting known variants are
   // present, the last occurrence mirrors ordinary CLI last-option semantics.
-  const nonDefaultVariants = AI_EXEC_MODE_VARIANTS[host].filter(
-    (variant) => variant.tokens.length > 0,
-  )
+  // Older spellings (agent.legacyExecModes) read as the mode they stand for.
+  const spellings = [
+    ...AI_EXEC_MODE_IDS.map((id) => ({ mode: id, tokens: agent.execModes[id] })),
+    ...(agent.legacyExecModes ?? []),
+  ].filter((spelling) => spelling.tokens.length > 0)
   for (let index = 0; index < args.length; index += 1) {
-    for (const variant of nonDefaultVariants) {
-      if (!tokensMatchAt(args, index, variant.tokens, consumed)) continue
-      consumeRange(consumed, index, variant.tokens.length)
-      execModeId = variant.id
-      index += variant.tokens.length - 1
+    for (const spelling of spellings) {
+      if (!tokensMatchAt(args, index, spelling.tokens, consumed)) continue
+      consumeRange(consumed, index, spelling.tokens.length)
+      execModeId = spelling.mode
+      execModeTokens = spelling.tokens
+      index += spelling.tokens.length - 1
       break
     }
+  }
+
+  const trustTokens = agent.trustFolderArgs ?? []
+  for (let index = 0; trustTokens.length > 0 && index < args.length; index += 1) {
+    if (!tokensMatchAt(args, index, trustTokens, consumed)) continue
+    consumeRange(consumed, index, trustTokens.length)
+    trustFolder = true
+    index += trustTokens.length - 1
   }
 
   for (let index = 0; index < args.length; index += 1) {
@@ -136,6 +184,8 @@ export function decodeAiTaskArgs(
 
   return {
     execModeId,
+    execModeTokens,
+    trustFolder,
     modelId,
     reasoningMode,
     reasoningBudget,

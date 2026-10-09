@@ -50,7 +50,11 @@ test("a task made with Cursor in the add-task modal runs the Cursor CLI", async 
   await modal.locator('.ai-task-agent-card[data-ai-host="cursor"]').click()
   await expect(modal.locator('.ai-task-agent-card[data-ai-host="cursor"]')).toHaveClass(/is-selected/)
   await modal.locator(".ai-task-advanced > summary").click()
-  await modal.locator(".ai-task-exec-mode").selectOption("auto")
+  // A new task starts in auto mode; nothing to choose.
+  await expect(modal.locator(".ai-task-exec-mode")).toHaveValue("auto")
+  // Trusting the folder is opt-in (off by default).
+  await expect(modal.locator(".ai-task-trust__checkbox")).not.toBeChecked()
+  await modal.locator(".ai-task-trust__checkbox").check()
   await modal.locator(".ai-task-prompt-input").fill("Review the open pull request")
   await expect(modal.locator(".ai-task-command-preview code")).toContainText("cursor-agent")
   await modal.locator("form").evaluate((form: HTMLFormElement) => form.requestSubmit())
@@ -59,14 +63,15 @@ test("a task made with Cursor in the add-task modal runs the Cursor CLI", async 
   const taskPath = "TaskChute/Task/Review with Cursor.md"
   const note = () => fs.readFileSync(path.join(vaultDir, taskPath), "utf8")
   await expect.poll(note).toContain("ai_task_host: cursor")
-  expect(note()).toContain("--force")
+  expect(note()).toMatch(/- "?--sandbox"?\n\s*- "?disabled"?/)
 
   await taskRow(page, taskPath).locator(".play-stop-button").click()
   await expect.poll(() => aiRunLogStatuses(vaultDir), { timeout: 20_000 }).toEqual({ [taskPath]: "succeeded" })
   expect(await aiRuns(page)).toEqual([expect.objectContaining({ taskPath })])
 
   const argv = fs.readFileSync(cursor.argvFile, "utf8").trimEnd().split("\n")
-  expect(argv.slice(0, 4)).toEqual(["-p", "--output-format", "stream-json", "--trust"])
-  expect(argv).toContain("--force")
+  expect(argv.slice(0, 3)).toEqual(["-p", "--output-format", "stream-json"])
+  expect(argv).toContain("--trust")
+  expect(argv.join(" ")).toContain("--sandbox disabled")
   expect(argv.slice(-2)).toEqual(["--", expect.stringContaining("Review the open pull request")])
 })

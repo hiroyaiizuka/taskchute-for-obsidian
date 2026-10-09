@@ -43,26 +43,14 @@ export const claudeAgent: AiAgentDefinition = {
     ],
   },
   createDispatcher: (gateway) => new ClaudeCodeDispatcher(gateway),
-  execModes: [
-    {
-      id: 'default',
-      labelKey: 'addTask.aiExecModeDefault',
-      labelFallback: 'Normal',
-      tokens: [],
-    },
-    {
-      id: 'auto',
-      labelKey: 'addTask.aiExecModeAuto',
-      labelFallback: 'Auto mode',
-      tokens: ['--permission-mode', 'auto'],
-    },
-    {
-      id: 'skip-permissions',
-      labelKey: 'addTask.aiExecModeSkipPermissions',
-      labelFallback: 'Skip permissions',
-      tokens: ['--dangerously-skip-permissions'],
-    },
-  ],
+  // `--permission-mode manual` is spelled out so a manual task asks even when
+  // the user's Claude settings default to another mode (2.1.295 lists
+  // manual, auto, acceptEdits, bypassPermissions, dontAsk, plan).
+  execModes: {
+    manual: ['--permission-mode', 'manual'],
+    auto: ['--permission-mode', 'auto'],
+    'skip-permissions': ['--dangerously-skip-permissions'],
+  },
   // Verified against the local CLI and the model documentation on 2026-07-13.
   models: [
     { id: 'claude-fable-5', label: 'Claude Fable 5' },

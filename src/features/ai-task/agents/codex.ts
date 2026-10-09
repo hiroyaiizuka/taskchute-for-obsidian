@@ -60,19 +60,16 @@ export const codexAgent: AiAgentDefinition = {
     ],
   },
   createDispatcher: (gateway) => new CodexDispatcher(gateway),
-  execModes: [
-    {
-      id: 'default',
-      labelKey: 'addTask.aiExecModeDefault',
-      labelFallback: 'Normal',
-      tokens: [],
-    },
-    {
-      id: 'full-auto',
-      labelKey: 'addTask.aiExecModeFullAuto',
-      labelFallback: 'Full auto',
-      tokens: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
-    },
+  // Both flags work in the terminal and in `codex exec` (verified on 0.150.1).
+  // Manual is the CLI's own default: it asks before acting.
+  execModes: {
+    manual: [],
+    auto: ['--approve-for-me'],
+    'skip-permissions': ['--dangerously-bypass-approvals-and-sandbox'],
+  },
+  // The former "Full auto": never asks, failures go back to the model.
+  legacyExecModes: [
+    { mode: 'auto', tokens: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'] },
   ],
   // Verified against the local CLI and the model documentation on 2026-07-13.
   models: [
