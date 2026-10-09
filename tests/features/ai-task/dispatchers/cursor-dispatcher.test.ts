@@ -23,7 +23,7 @@ describe('CursorDispatcher', () => {
   })
 
   describe('argv construction (spawn spy)', () => {
-    test('runs headless stream-json, trusts the workspace, and keeps the prompt behind --', () => {
+    test('runs headless stream-json and keeps the prompt behind --; trusting the folder comes from the task', () => {
       const gateway = createSpyGateway()
       const dispatcher = new CursorDispatcher(gateway, createRecordingGraceTimer())
 
@@ -32,7 +32,7 @@ describe('CursorDispatcher', () => {
           binaryPath: '/fake/bin/cursor-agent',
           prompt: '--looks-like-a-flag',
           cwd: '/some/project',
-          extraArgs: ['--model', 'auto', '--force'],
+          extraArgs: ['--sandbox', 'disabled', '--trust', '--model', 'auto'],
         },
         { onEvent: () => undefined, onExit: () => undefined },
       )
@@ -43,10 +43,11 @@ describe('CursorDispatcher', () => {
         '-p',
         '--output-format',
         'stream-json',
+        '--sandbox',
+        'disabled',
         '--trust',
         '--model',
         'auto',
-        '--force',
         '--',
         '--looks-like-a-flag',
       ])
@@ -63,10 +64,10 @@ describe('CursorDispatcher', () => {
       dispatcher.start({ binaryPath: 'c', prompt: 'p', resumeSessionId: '' }, callbacks)
 
       expect(gateway.spawnMock.mock.calls[0][0].args).toEqual([
-        '-p', '--output-format', 'stream-json', '--trust', '--resume', 'abc-123', '--', 'more',
+        '-p', '--output-format', 'stream-json', '--resume', 'abc-123', '--', 'more',
       ])
       expect(gateway.spawnMock.mock.calls[1][0].args).toEqual([
-        '-p', '--output-format', 'stream-json', '--trust', '--', 'p',
+        '-p', '--output-format', 'stream-json', '--', 'p',
       ])
     })
   })

@@ -102,6 +102,15 @@ describe('Cursor stream-json lines', () => {
     expect(parseCursorLine(completed)).toEqual([{ kind: 'tool-result', text: 'boom', isError: true }])
   })
 
+  test('a command refused in manual mode shows what was refused', () => {
+    const refused = line({
+      type: 'tool_call',
+      subtype: 'completed',
+      tool_call: { shellToolCall: { args: { command: 'rm -rf build' }, result: { rejected: { command: 'rm -rf build', reason: '' } } } },
+    })
+    expect(parseCursorLine(refused)).toEqual([{ kind: 'tool-result', text: 'Rejected: rm -rf build', isError: true }])
+  })
+
   test('a tool call without success is failed; a read shows the file content', () => {
     const rejected = line({
       type: 'tool_call',

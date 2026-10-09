@@ -1375,6 +1375,73 @@ body.is-phone {
   padding: 0 10px;
 }
 
+/* Auto mode: trust the folder (opt-in), or a note for agents that ask once per folder. */
+.ai-task-trust {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-task-trust.hidden,
+.ai-task-trust__option.hidden,
+.ai-task-trust__notice.hidden {
+  display: none;
+}
+
+.ai-task-trust__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ai-task-trust__checkbox {
+  margin-top: 3px;
+  flex: none;
+}
+
+.ai-task-trust__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-task-trust__label {
+  color: var(--text-normal);
+}
+
+.ai-task-trust__hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ai-task-trust__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--tc-radius-md);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-task-trust__notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-task-trust__dismiss {
+  flex: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
 .task-restore-banner {
   margin-top: 12px;
   padding: 10px 12px;

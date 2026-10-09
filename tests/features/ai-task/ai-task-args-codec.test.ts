@@ -1,5 +1,6 @@
 import {
   AI_EXEC_MODE_VARIANTS,
+  DEFAULT_AI_EXEC_MODE,
   decodeAiTaskArgs,
 } from '@/features/ai-task/config/AiTaskArgsCodec'
 
@@ -7,62 +8,33 @@ const selectable = (...modelIds: string[]) => (modelId: string): boolean =>
   modelIds.includes(modelId)
 
 describe('AI_EXEC_MODE_VARIANTS', () => {
-  test('exposes the persisted Claude, Codex, and Cursor execution-mode tokens', () => {
-    expect(AI_EXEC_MODE_VARIANTS).toEqual({
-      claude: [
-        {
-          id: 'default',
-          labelKey: 'addTask.aiExecModeDefault',
-          labelFallback: 'Normal',
-          tokens: [],
-        },
-        {
-          id: 'auto',
-          labelKey: 'addTask.aiExecModeAuto',
-          labelFallback: 'Auto mode',
-          tokens: ['--permission-mode', 'auto'],
-        },
-        {
-          id: 'skip-permissions',
-          labelKey: 'addTask.aiExecModeSkipPermissions',
-          labelFallback: 'Skip permissions',
-          tokens: ['--dangerously-skip-permissions'],
-        },
-      ],
-      codex: [
-        {
-          id: 'default',
-          labelKey: 'addTask.aiExecModeDefault',
-          labelFallback: 'Normal',
-          tokens: [],
-        },
-        {
-          id: 'full-auto',
-          labelKey: 'addTask.aiExecModeFullAuto',
-          labelFallback: 'Full auto',
-          tokens: [
-            '--ask-for-approval',
-            'never',
-            '--sandbox',
-            'workspace-write',
-          ],
-        },
-      ],
-      cursor: [
-        {
-          id: 'default',
-          labelKey: 'addTask.aiExecModeDefault',
-          labelFallback: 'Normal',
-          tokens: [],
-        },
-        {
-          id: 'auto',
-          labelKey: 'addTask.aiExecModeAuto',
-          labelFallback: 'Auto mode',
-          tokens: ['--force'],
-        },
-      ],
-    })
+  test('every agent offers manual, auto, and skip-permissions, with its own arguments', () => {
+    const tokens = (host: keyof typeof AI_EXEC_MODE_VARIANTS) =>
+      AI_EXEC_MODE_VARIANTS[host].map((variant) => [variant.id, variant.tokens])
+    expect(tokens('claude')).toEqual([
+      ['manual', ['--permission-mode', 'manual']],
+      ['auto', ['--permission-mode', 'auto']],
+      ['skip-permissions', ['--dangerously-skip-permissions']],
+    ])
+    expect(tokens('codex')).toEqual([
+      ['manual', []],
+      ['auto', ['--approve-for-me']],
+      ['skip-permissions', ['--dangerously-bypass-approvals-and-sandbox']],
+    ])
+    expect(tokens('cursor')).toEqual([
+      ['manual', []],
+      ['auto', ['--sandbox', 'disabled']],
+      ['skip-permissions', ['--force']],
+    ])
+    expect(AI_EXEC_MODE_VARIANTS.claude.map((variant) => variant.labelKey)).toEqual([
+      'addTask.aiExecModeManual',
+      'addTask.aiExecModeAuto',
+      'addTask.aiExecModeSkipPermissions',
+    ])
+  })
+
+  test('a new task starts in auto mode', () => {
+    expect(DEFAULT_AI_EXEC_MODE).toBe('auto')
   })
 })
 
@@ -70,8 +42,11 @@ describe('decodeAiTaskArgs', () => {
   test('returns modal defaults and preserves unrelated args in order', () => {
     const args = ['--verbose', '--config', 'unrelated=true', '--color=always']
 
+    // No execution-mode arguments: an existing task reads as manual.
     expect(decodeAiTaskArgs('claude', args, selectable())).toEqual({
-      execModeId: 'default',
+      execModeId: 'manual',
+      execModeTokens: [],
+      trustFolder: false,
       modelId: '',
       reasoningMode: 'automatic',
       reasoningBudget: 'medium',
@@ -95,6 +70,8 @@ describe('decodeAiTaskArgs', () => {
       ),
     ).toEqual({
       execModeId: 'auto',
+      execModeTokens: ['--permission-mode', 'auto'],
+      trustFolder: false,
       modelId: 'claude-fable-5',
       reasoningMode: 'specified',
       reasoningBudget: 'max',
@@ -116,6 +93,8 @@ describe('decodeAiTaskArgs', () => {
       ),
     ).toEqual({
       execModeId: 'skip-permissions',
+      execModeTokens: ['--dangerously-skip-permissions'],
+      trustFolder: false,
       modelId: 'claude-opus-4-8',
       reasoningMode: 'ultra',
       reasoningBudget: 'medium',
@@ -123,7 +102,7 @@ describe('decodeAiTaskArgs', () => {
     })
   })
 
-  test('decodes Codex full-auto, split-model, and a quoted effort config pair', () => {
+  test("reads Codex's former Full auto as auto and keeps its arguments as written", () => {
     expect(
       decodeAiTaskArgs(
         'codex',
@@ -142,7 +121,9 @@ describe('decodeAiTaskArgs', () => {
         selectable('gpt-5.6-sol'),
       ),
     ).toEqual({
-      execModeId: 'full-auto',
+      execModeId: 'auto',
+      execModeTokens: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+      trustFolder: false,
       modelId: 'gpt-5.6-sol',
       reasoningMode: 'specified',
       reasoningBudget: 'xhigh',
@@ -158,7 +139,9 @@ describe('decodeAiTaskArgs', () => {
         selectable('gpt-5.6-terra'),
       ),
     ).toEqual({
-      execModeId: 'default',
+      execModeId: 'manual',
+      execModeTokens: [],
+      trustFolder: false,
       modelId: 'gpt-5.6-terra',
       reasoningMode: 'ultra',
       reasoningBudget: 'medium',
@@ -178,7 +161,9 @@ describe('decodeAiTaskArgs', () => {
     ]
 
     expect(decodeAiTaskArgs('codex', args, selectable('gpt-5.6-sol'))).toEqual({
-      execModeId: 'default',
+      execModeId: 'manual',
+      execModeTokens: [],
+      trustFolder: false,
       modelId: '',
       reasoningMode: 'automatic',
       reasoningBudget: 'medium',
@@ -215,3 +200,33 @@ describe('decodeAiTaskArgs', () => {
     expect(args).toEqual(before)
   })
 })
+
+describe('execution modes in existing notes', () => {
+  test.each([
+    ['claude', ['--permission-mode', 'manual'], 'manual'],
+    ['codex', ['--approve-for-me'], 'auto'],
+    ['codex', ['--dangerously-bypass-approvals-and-sandbox'], 'skip-permissions'],
+    ['cursor', ['--sandbox', 'disabled'], 'auto'],
+    ['cursor', ['--force'], 'skip-permissions'],
+    ['cursor', ['--yolo'], 'skip-permissions'],
+  ] as const)('%s %j reads as %s', (host, args, mode) => {
+    const decoded = decodeAiTaskArgs(host, [...args], selectable())
+    expect(decoded.execModeId).toBe(mode)
+    expect(decoded.execModeTokens).toEqual(args)
+    expect(decoded.passthroughArgs).toEqual([])
+  })
+})
+
+describe('trusting the folder', () => {
+  test("reads Cursor's --trust as trusting the folder, wherever it is", () => {
+    const decoded = decodeAiTaskArgs('cursor', ['--sandbox', 'disabled', '--trust', '--model=auto'], selectable('auto'))
+    expect(decoded).toEqual(expect.objectContaining({ execModeId: 'auto', trustFolder: true, passthroughArgs: [] }))
+  })
+
+  test('an agent without a trust option keeps --trust as an ordinary argument', () => {
+    const decoded = decodeAiTaskArgs('codex', ['--approve-for-me', '--trust'], selectable())
+    expect(decoded.trustFolder).toBe(false)
+    expect(decoded.passthroughArgs).toEqual(['--trust'])
+  })
+})
+

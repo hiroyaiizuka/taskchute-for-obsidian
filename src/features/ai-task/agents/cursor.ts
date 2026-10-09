@@ -62,25 +62,27 @@ export const cursorAgent: AiAgentDefinition = {
     },
   },
   createDispatcher: (gateway) => new CursorDispatcher(gateway),
-  // Without it, the interactive CLI first asks whether to trust the folder
-  // and waits there; it works in the terminal too, not only with -p
-  // (verified on 2026.10.01).
-  terminalArgs: ['--trust'],
-  execModes: [
-    {
-      id: 'default',
-      labelKey: 'addTask.aiExecModeDefault',
-      labelFallback: 'Normal',
-      tokens: [],
-    },
-    {
-      // "Force allow commands unless explicitly denied."
-      id: 'auto',
-      labelKey: 'addTask.aiExecModeAuto',
-      labelFallback: 'Auto mode',
-      tokens: ['--force'],
-    },
-  ],
+  // Without it, a folder not trusted yet makes the terminal ask first and a
+  // headless run exit 1; works in both, not only with -p (verified on 2026.10.01).
+  trustFolderArgs: ['--trust'],
+  // Verified on 2026.10.01, headless: with no flag, shell commands are
+  // refused; `--sandbox disabled` runs the commands on the user's Cursor
+  // allowlist (`permissions.allow` in ~/.cursor/cli-config.json) on their
+  // own and refuses the rest, the same on every OS; `--force` ("Run
+  // Everything") allows anything not explicitly denied. `--sandbox enabled`
+  // is not used: its sandbox needs macOS or Linux, and on Windows a headless
+  // run exits ("Sandbox requires macOS or Linux").
+  execModes: {
+    manual: [],
+    auto: ['--sandbox', 'disabled'],
+    'skip-permissions': ['--force'],
+  },
+  autoModeNote: {
+    key: 'addTask.aiAutoNoteCursor',
+    fallback:
+      "In auto mode Cursor runs only the commands on its allowlist (permissions.allow in ~/.cursor/cli-config.json) without asking. Other commands ask first in the terminal and are not run in conversation mode.",
+  },
+  legacyExecModes: [{ mode: 'skip-permissions', tokens: ['--yolo'] }],
   // Cursor's model names change often (`cursor-agent models` lists them), so
   // none are built in: the CLI's default (auto) or a model added per device.
   models: [],

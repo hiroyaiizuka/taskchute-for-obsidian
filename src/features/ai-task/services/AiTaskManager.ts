@@ -919,7 +919,7 @@ export class AiTaskManager {
             terminalFallbackCommand: getAiAgent(host).command,
             prompt,
             cwd,
-            extraArgs: [...(getAiAgent(host).terminalArgs ?? []), ...extraArgs],
+            extraArgs,
             launchInShell: true,
             rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
             cols: record.cols ?? DEFAULT_TERMINAL_COLS,

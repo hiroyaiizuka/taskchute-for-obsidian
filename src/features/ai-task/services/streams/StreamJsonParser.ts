@@ -437,7 +437,14 @@ function cursorToolResult(body: UnknownRecord): AiStreamEvent {
   const result = body['result']
   const success = isRecord(result) ? result['success'] : undefined
   if (!isRecord(success)) {
-    const failure = isRecord(result) ? (result['error'] ?? result['failure'] ?? result['rejected']) : undefined
+    // In manual mode a headless run cannot ask, so Cursor refuses the command.
+    const rejected = isRecord(result) ? result['rejected'] : undefined
+    if (isRecord(rejected)) {
+      const reason = asString(rejected['reason'])
+      const command = asString(rejected['command']) ?? ''
+      return { kind: 'tool-result', text: capTextTail(`Rejected: ${command}${reason ? ` (${reason})` : ''}`), isError: true }
+    }
+    const failure = isRecord(result) ? (result['error'] ?? result['failure']) : undefined
     const message = isRecord(failure) ? asString(failure['message']) ?? asString(failure['error']) : asString(failure)
     return { kind: 'tool-result', text: capOptionalTextTail(message), isError: true }
   }

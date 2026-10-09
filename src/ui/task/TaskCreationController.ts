@@ -37,6 +37,7 @@ import {
 } from "@/features/ai-task/config/AiTaskAdvancedOptions"
 import {
   AI_EXEC_MODE_VARIANTS,
+  DEFAULT_AI_EXEC_MODE,
   decodeAiTaskArgs,
 } from "@/features/ai-task/config/AiTaskArgsCodec"
 import type {
@@ -58,6 +59,7 @@ import {
   AiCustomModelStore,
 } from "@/features/ai-task/models/AiCustomModelStore"
 import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
+import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
 import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
@@ -806,7 +808,9 @@ export default class TaskCreationController {
       saveLocalStorage: (key, value) =>
         storageApp.saveLocalStorage?.(key, value),
     })
-    const decodedInitialArgs = initialValue
+    // A human task turning into an AI task has no AI settings yet: it starts
+    // like a new one. Only a task that already was AI is read back.
+    const decodedInitialArgs = initialValue && initialValue.initialType !== "human"
       ? decodeAiTaskArgs(
         initialValue.host,
         initialValue.args,
@@ -817,6 +821,12 @@ export default class TaskCreationController {
       )
       : null
     let passthroughArgs = [...(decodedInitialArgs?.passthroughArgs ?? [])]
+    // The execution-mode tokens as the note has them, kept until the mode is
+    // changed, so saving an untouched task writes back exactly what it had.
+    let keptExecMode: { id: string; tokens: readonly string[] } | null =
+      decodedInitialArgs
+        ? { id: decodedInitialArgs.execModeId, tokens: decodedInitialArgs.execModeTokens }
+        : null
     const initialModelIsCustom = Boolean(
       decodedInitialArgs?.modelId &&
         customModelStore
@@ -1070,6 +1080,13 @@ export default class TaskCreationController {
     const execModeSelect = doc.win.createEl("select")
     execModeSelect.className = "form-input ai-task-exec-mode"
     execModeField.appendChild(execModeSelect)
+    const trustControl = new AiTrustFolderControl({
+      doc,
+      tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+      storage: storageApp,
+      onChange: () => refreshPreview(),
+    })
+    execModeField.appendChild(trustControl.root)
 
     const modelField = buildAdvancedField(
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
@@ -1203,6 +1220,7 @@ export default class TaskCreationController {
 
     // --- Behavior -----------------------------------------------------------
     const currentVariantTokens = (): readonly string[] => {
+      if (keptExecMode && keptExecMode.id === execModeSelect.value) return keptExecMode.tokens
       const variants = AI_EXEC_MODE_VARIANTS[selectedHost]
       const selected = variants.find((variant) => variant.id === execModeSelect.value)
       return selected?.tokens ?? []
@@ -1210,6 +1228,11 @@ export default class TaskCreationController {
 
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
+      // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
+      const trustArgs = getAiAgent(selectedHost).trustFolderArgs ?? []
+      if (trustControl.isChecked() && (execModeSelect.value === "auto" || keptExecMode !== null)) {
+        args.push(...trustArgs)
+      }
       const model = modelSelect.getValue().modelId ?? ""
       if (model.length > 0 && AI_MODEL_ID_SAFE_PATTERN.test(model)) {
         args.push(`--model=${model}`)
@@ -1226,6 +1249,7 @@ export default class TaskCreationController {
     }
 
     const refreshPreview = () => {
+      trustControl.update(selectedHost, execModeSelect.value)
       const baseArgs = buildArgs()
       const sanitizedPrompt = promptInput.value.replace(/\r?\n+/g, " ").trim()
       const command = getAiAgent(selectedHost).command
@@ -1235,10 +1259,7 @@ export default class TaskCreationController {
           sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
             ? `${sanitizedPrompt.slice(0, AI_PREVIEW_PROMPT_HEAD_LIMIT)}…`
             : sanitizedPrompt
-        const previewArgs = buildTerminalArgs(
-          [...(getAiAgent(selectedHost).terminalArgs ?? []), ...baseArgs],
-          head,
-        )
+        const previewArgs = buildTerminalArgs(baseArgs, head)
         text = [
           command,
           ...previewArgs.slice(0, -1),
@@ -1258,7 +1279,7 @@ export default class TaskCreationController {
         option.textContent = this.host.tv(variant.labelKey, variant.labelFallback)
         execModeSelect.appendChild(option)
       }
-      execModeSelect.value = "default"
+      execModeSelect.value = DEFAULT_AI_EXEC_MODE
     }
 
     const reasoningBudgetLabel = (budget: AiReasoningBudget): string => {
@@ -1350,6 +1371,8 @@ export default class TaskCreationController {
       rebuildExecModeOptions()
       if (hostChanged) {
         passthroughArgs = []
+        keptExecMode = null
+        trustControl.setChecked(false)
         modelSelect.setHost(nextHost)
       }
       rebuildReasoningModeOptions(false)
@@ -1395,12 +1418,16 @@ export default class TaskCreationController {
       refreshPreview()
     })
     reasoningBudgetSelect.addEventListener("change", refreshPreview)
-    execModeSelect.addEventListener("change", refreshPreview)
+    execModeSelect.addEventListener("change", () => {
+      keptExecMode = null
+      refreshPreview()
+    })
 
     selectTaskType(initialValue?.initialType ?? (initialValue ? "ai" : "human"))
     selectHost(initialValue?.host ?? "claude")
     if (decodedInitialArgs) {
       execModeSelect.value = decodedInitialArgs.execModeId
+      trustControl.setChecked(decodedInitialArgs.trustFolder)
       const modeAvailable = Array.from(reasoningModeSelect.options).some(
         (option) => option.value === decodedInitialArgs.reasoningMode,
       )

@@ -256,9 +256,9 @@ describe('AiTaskManager terminal mode routing', () => {
     })
   })
 
-  test("Cursor in the terminal trusts the folder, so it does not stop at Cursor's first-run question", async () => {
+  test("Cursor in the terminal gets the task's own args; the folder is trusted only when the task says so", async () => {
     const harness = createTerminalHarness({
-      frontmatter: { ai_task: true, ai_task_host: 'cursor', ai_task_args: '--force' },
+      frontmatter: { ai_task: true, ai_task_host: 'cursor', ai_task_args: '--sandbox disabled' },
     })
 
     await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
@@ -266,7 +266,7 @@ describe('AiTaskManager terminal mode routing', () => {
     expect(harness.terminal.last.request).toEqual(
       expect.objectContaining({
         terminalFallbackCommand: 'cursor-agent',
-        extraArgs: ['--trust', '--force'],
+        extraArgs: ['--sandbox', 'disabled'],
       }),
     )
   })

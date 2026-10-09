@@ -162,8 +162,24 @@ describe('CodexDispatcher', () => {
       expect(request.args).toEqual(['exec', '--json', '--skip-git-repo-check', '--', 'p'])
     })
 
-    test('strips interactive-only approval flags (modal "Full auto") but keeps --sandbox', () => {
-      // The U3 modal writes the interactive full-auto pair into ai_task_args;
+    test.each([
+      ['auto', ['--approve-for-me']],
+      ['skip-permissions', ['--dangerously-bypass-approvals-and-sandbox']],
+    ])('passes the %s mode flag to codex exec unchanged', (_mode, flags) => {
+      // Unlike --ask-for-approval, both flags exist in `codex exec` (0.150.1).
+      const gateway = createSpyGateway()
+      const dispatcher = new CodexDispatcher(gateway, createRecordingGraceTimer())
+      dispatcher.start(
+        { binaryPath: '/fake/bin/codex', prompt: 'p', extraArgs: flags },
+        { onEvent: () => undefined, onExit: () => undefined },
+      )
+      expect(gateway.spawnMock.mock.calls[0][0].args).toEqual([
+        'exec', '--json', '--skip-git-repo-check', ...flags, '--', 'p',
+      ])
+    })
+
+    test('strips interactive-only approval flags (the former "Full auto") but keeps --sandbox', () => {
+      // Notes made before LEV-315 hold the interactive full-auto pair in ai_task_args;
       // `codex exec` (0.144.1) has no --ask-for-approval flag and exits 2 on
       // it, so the headless pipeline must drop it while keeping --sandbox.
       const gateway = createSpyGateway()
