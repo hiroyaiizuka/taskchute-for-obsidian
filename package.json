@@ -10,6 +10,7 @@
     "test:unit": "jest --testPathIgnorePatterns \"/node_modules/\" \"\\.integration\\.test\\.\"",
     "test:integration": "jest --testPathPatterns \"\\.integration\\.test\\.\"",
     "test:e2e": "playwright test -c e2e",
+    "record:video": "playwright test -c e2e/recording",
     "test:watch": "jest --watch --testPathIgnorePatterns \"/node_modules/\" \"\\.integration\\.test\\.\"",
     "test:coverage": "jest --coverage --testPathIgnorePatterns \"/node_modules/\" \"\\.integration\\.test\\.\"",
     "prepare": "husky",

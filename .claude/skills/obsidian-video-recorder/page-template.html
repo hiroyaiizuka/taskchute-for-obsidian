@@ -1,0 +1,131 @@
+<!-- Template for a recording page. Replace every {{…}}; keep the three sections. -->
+<title>{{短い名前（2〜4語）}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: one reading column — what was checked, the recording with its seekable scenes, then how it was recorded. Same house style as the earlier TaskChute Plus recordings. */
+  :root {
+    --bg: #f6f5fa;
+    --fg: #23212c;
+    --muted: #6b6878;
+    --line: #e2dfec;
+    --accent: #7f6df2;
+    --accent-soft: #ece9fd;
+    --good: #15803d;
+    --good-soft: #e3f4e8;
+    --stage: #111015;
+    --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17161c; --fg: #e9e7f1; --muted: #a29fb2; --line: #34323f;
+      --accent: #a596ff; --accent-soft: #2c2843; --good: #4ade80; --good-soft: #17301f; --stage: #0c0b10;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17161c; --fg: #e9e7f1; --muted: #a29fb2; --line: #34323f;
+    --accent: #a596ff; --accent-soft: #2c2843; --good: #4ade80; --good-soft: #17301f; --stage: #0c0b10;
+    color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.75; }
+  main { max-width: 880px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 56px; display: grid; gap: 32px; }
+  header { display: grid; gap: 6px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); text-transform: uppercase; }
+  h1 { margin: 0; font-size: clamp(24px, 4vw, 32px); font-weight: 700; line-height: 1.35; text-wrap: balance; }
+  h2 { margin: 0; font-size: 19px; font-weight: 700; }
+  p { margin: 0; }
+  .lead { color: var(--muted); max-width: 62ch; }
+  section { display: grid; gap: 12px; min-width: 0; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  td:first-child { font-family: var(--font-mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; color: var(--good); background: var(--good-soft); white-space: nowrap; }
+  .run-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+  .run-head p { color: var(--muted); font-size: 14px; }
+  .player { background: var(--stage); border-radius: 10px; overflow: hidden; box-shadow: 0 10px 30px rgba(20, 16, 40, .18); }
+  video { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; max-width: 100%; background: var(--stage); }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
+  .steps li { border-bottom: 1px solid var(--line); }
+  .steps button {
+    width: 100%; display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: baseline;
+    padding: 9px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 6px;
+  }
+  .steps button:hover, .steps button[aria-current="true"] { background: var(--accent-soft); }
+  .steps button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .steps button[aria-current="true"] time { color: var(--accent); }
+  .steps time { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .steps strong { display: block; font-weight: 500; }
+  .steps span { display: block; min-width: 0; color: var(--muted); font-size: 14px; }
+  .notes { display: grid; gap: 8px; margin: 0; padding: 0 0 0 1.2em; }
+  .notes li { max-width: 68ch; }
+  code { font-family: var(--font-mono); font-size: 13px; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">TaskChute Plus · 動作確認 · {{課題番号}} · {{YYYY-MM-DD}}</div>
+    <h1>{{何が確かめられたかを一文で}}</h1>
+    <p class="lead">{{何を、どの環境で録画したか。}}画面の下に、いま何をしているかを出しています。赤い丸はマウスの位置です。</p>
+  </header>
+
+  <section aria-labelledby="result-title">
+    <h2 id="result-title">確かめたこと</h2>
+    <p>録画のスクリプトは、場面ごとに状態を読み、期待どおりでなければ止まります。{{結果の要約}}</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>操作</th><th>操作後の状態</th><th>結果</th></tr></thead>
+        <tbody>
+          <!-- One row per chapter. -->
+          <tr><td>①</td><td>{{操作}}</td><td>{{期待した状態}}</td><td><span class="tag">期待どおり</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="video-title">
+    <div class="run-head">
+      <h2 id="video-title">録画</h2>
+      <p>{{ブランチ}} のコミット <code>{{コミット}}</code> をビルドして録画（{{秒数}} 秒）</p>
+    </div>
+    <!-- src is the mp4 published next to this page. -->
+    <div class="player"><video id="video-main" src="{{名前}}.mp4" controls playsinline preload="metadata"></video></div>
+    <ol class="steps" data-video="video-main">
+      <!-- One item per entry of chapters.json: data-t is its t, <time> is m:ss. -->
+      <li><button type="button" data-t="0"><time>0:00</time><div><strong>{{title}}</strong><span>{{sub、または結果を一文で}}</span></div></button></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="notes-title">
+    <h2 id="notes-title">録画の条件</h2>
+    <ul class="notes">
+      <li>{{OS と Obsidian のバージョン。使い捨ての設定と Vault で起動し、台本どおりにスクリプトで操作したこと}}</li>
+      <li>{{偽物にしたもの（偽の CLI、ライセンスの扱いなど）。なければこの項目を消す}}</li>
+      <li>{{読み上げを入れた場合：音声は edge-tts（{{声の名前}}）で合成したこと}}</li>
+      <li>確かめていないこと：{{この動画が扱っていない操作や条件}}</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+  document.querySelectorAll(".steps").forEach((list) => {
+    const video = document.getElementById(list.dataset.video)
+    const buttons = Array.from(list.querySelectorAll("button"))
+    const starts = buttons.map((b) => Number(b.dataset.t))
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        video.currentTime = Number(button.dataset.t)
+        video.play().catch(() => {})
+      })
+    })
+    video.addEventListener("timeupdate", () => {
+      let current = 0
+      starts.forEach((t, i) => { if (video.currentTime >= t) current = i })
+      buttons.forEach((b, i) => b.setAttribute("aria-current", String(i === current)))
+    })
+  })
+</script>

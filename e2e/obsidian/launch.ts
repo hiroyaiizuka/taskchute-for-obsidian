@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process"
+import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import fs from "node:fs"
 import net from "node:net"
 import path from "node:path"
@@ -84,10 +84,28 @@ function prepareDirectories(workDir: string): { configDir: string; vaultDir: str
 function killGroup(child: ChildProcess): void {
   if (child.pid === undefined) return
   try {
-    process.kill(-child.pid, "SIGKILL")
+    if (process.platform === "win32") {
+      // No process groups on Windows; taskkill /T takes the helpers with it.
+      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" })
+    } else {
+      process.kill(-child.pid, "SIGKILL")
+    }
   } catch {
     // Already gone.
   }
+}
+
+// macOS reports /private/tmp for /tmp, and Windows paths differ in case.
+function samePath(left: string, right: string): boolean {
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync(p)
+    } catch {
+      return path.resolve(p)
+    }
+  }
+  const [a, b] = [real(left), real(right)]
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
 async function connect(port: number): Promise<Browser> {
@@ -110,7 +128,7 @@ async function findVaultWindow(browser: Browser, vaultDir: string): Promise<Page
         .evaluate(() => window.app?.vault?.adapter?.basePath ?? null)
         .catch(() => null)
       // Guard against attaching to some other Obsidian instance.
-      if (basePath !== null && path.resolve(basePath) === path.resolve(vaultDir)) return page
+      if (basePath !== null && samePath(basePath, vaultDir)) return page
     }
     await sleep(250)
   }
