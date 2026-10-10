@@ -67,7 +67,12 @@ export interface TaskChuteSettings {
 
   // AI Task (manual CLI runs; desktop only)
   aiTaskEnabled?: boolean // default false; enables the AI Task feature
-  aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless
+  /**
+   * Not a setting (removed from the settings tab, and dropped when settings
+   * load): runs use the terminal where it can run, else conversation mode.
+   * Only the E2E suite sets 'headless' at runtime, for deterministic runs.
+   */
+  aiTaskRunMode?: 'terminal' | 'headless'
   aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskCursorPath?: string // advanced fallback only (empty = cross-platform auto detect)

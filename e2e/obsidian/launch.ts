@@ -1,6 +1,7 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import fs from "node:fs"
 import net from "node:net"
+import os from "node:os"
 import path from "node:path"
 import { type Browser, type Page, chromium } from "@playwright/test"
 import { PLUGIN_ID, REPO_ROOT, pluginArtifactsDir } from "./paths"
@@ -13,6 +14,11 @@ export interface LaunchOptions {
   language: ObsidianLanguage
   obsidianExecutable: string
   ldLibraryPath: string
+  /**
+   * A home folder for Obsidian (and every CLI it spawns) other than the
+   * user's, so a test never reads or writes the real ~/.claude and the like.
+   */
+  home?: string
 }
 
 export interface ObsidianSession {
@@ -143,8 +149,25 @@ async function findVaultWindow(browser: Browser, vaultDir: string): Promise<Page
  * disables Node's --inspect, so the suite connects over the Chrome DevTools
  * protocol instead.
  */
+/**
+ * Fonts installed for the user only (Linux: ~/.local/share/fonts, ~/.fonts)
+ * are found through the home folder, so a home of Obsidian's own loses them
+ * and Japanese text turns into boxes. Link them in.
+ */
+function linkUserFonts(home: string): void {
+  if (process.platform !== "linux") return
+  for (const relative of [path.join(".local", "share", "fonts"), ".fonts"]) {
+    const source = path.join(os.homedir(), relative)
+    const target = path.join(home, relative)
+    if (!fs.existsSync(source) || fs.existsSync(target)) continue
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.symlinkSync(source, target, "dir")
+  }
+}
+
 export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSession> {
   const { configDir, vaultDir } = prepareDirectories(options.workDir)
+  if (options.home) linkUserFonts(options.home)
   const port = await freePort()
 
   const child = spawn(
@@ -153,7 +176,11 @@ export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSe
     {
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, LD_LIBRARY_PATH: options.ldLibraryPath },
+      env: {
+        ...process.env,
+        LD_LIBRARY_PATH: options.ldLibraryPath,
+        ...(options.home ? { HOME: options.home, USERPROFILE: options.home } : {}),
+      },
     },
   )
   const onExit = () => killGroup(child)

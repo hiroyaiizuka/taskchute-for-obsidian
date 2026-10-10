@@ -1,12 +1,10 @@
 import { Notice } from "obsidian"
-import type { Setting, SettingDefinition, SettingDefinitionRender } from "obsidian"
+import type { Setting, SettingDefinitionRender } from "obsidian"
 import { t } from "@/i18n"
 import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
-import { isTerminalModeSupportedHere } from "@/features/ai-task/services/ptyPlatform"
 import { listAiAgents, type AiCliPathSettingKey } from "@/features/ai-task/agents"
-import type { TaskChuteSettings } from "@/types"
 import { DEFAULT_SETTINGS } from "@/settings/defaults"
-import { clampedNumber, choice } from "@/settings/controlHandlers"
+import { clampedNumber } from "@/settings/controlHandlers"
 import {
   AiTaskToggleGuard,
   handleAiTaskEnabledToggle,
@@ -16,8 +14,6 @@ import type {
   SectionContext,
   SectionModule,
 } from "@/settings/types"
-
-type AiTaskRunMode = NonNullable<TaskChuteSettings["aiTaskRunMode"]>
 
 /**
  * On Windows these launch through a shim that swallows the child process, so a
@@ -135,44 +131,6 @@ function cliPathRow(
   }
 }
 
-/**
- * The run-mode row, or the note that replaces it.
- *
- * Terminal mode needs a pseudoterminal the plugin can drive (macOS, Linux,
- * Windows); elsewhere `resolveRunMode()` degrades every run to the
- * conversation pipeline, so the row becomes a plain explanation instead. The
- * stored value is left untouched so moving the vault restores the choice.
- */
-function runModeRow(): SettingDefinition<keyof TaskChuteSettings> {
-  if (!isTerminalModeSupportedHere()) {
-    return {
-      name: t("settings.aiTask.runModeName", "Run mode"),
-      desc: t(
-        "settings.aiTask.runModeFixedDesc",
-        "Conversation mode. This platform has no pseudoterminal the plugin can drive, so runs stream parsed events and take follow-up input instead of embedding the interactive CLI.",
-      ),
-    }
-  }
-  return {
-    name: t("settings.aiTask.runModeName", "Run mode"),
-    desc: t(
-      "settings.aiTask.runModeDesc",
-      "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead. On Windows the terminal needs Windows 10 1809 or later with PowerShell; where it cannot run, runs use conversation mode.",
-    ),
-    control: {
-      type: "dropdown",
-      key: "aiTaskRunMode",
-      defaultValue: "terminal",
-      options: {
-        terminal: t("settings.aiTask.runModeTerminal", "Terminal (interactive)"),
-        headless: t(
-          "settings.aiTask.runModeHeadless",
-          "Conversation (cross-platform)",
-        ),
-      },
-    },
-  }
-}
 
 /**
  * Everything a Pro license unlocks. Only reached from the Pro page, which has
@@ -199,7 +157,6 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
               defaultValue: false,
             },
           },
-          runModeRow(),
           ...paths.map((path) => cliPathRow(ctx, path)),
           {
             name: t("settings.aiTask.retentionName", "Run log retention (days)"),
@@ -229,13 +186,6 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
         write: (value, ctx) =>
           handleAiTaskEnabledToggle(ctx.plugin, guard, Boolean(value)),
       },
-      aiTaskRunMode: choice<AiTaskRunMode>({
-        read: (settings) => settings.aiTaskRunMode,
-        write: (settings, value) => {
-          settings.aiTaskRunMode = value
-        },
-        normalize: (raw) => (raw === "headless" ? "headless" : "terminal"),
-      }),
       aiTaskLogRetentionDays: clampedNumber({
         read: (settings) => settings.aiTaskLogRetentionDays,
         write: (settings, value) => {
