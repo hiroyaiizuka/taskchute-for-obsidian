@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -88,13 +88,22 @@ async function locate(command: string): Promise<string | null> {
 
 /** Runs a real CLI once in the vault, headless, so it leaves a session behind. */
 async function seed(vault: string, command: string, args: string[]): Promise<void> {
-  // Windows starts .cmd launchers through the shell, which splits on spaces.
-  const argv = WINDOWS ? args.map((arg) => `"${arg}"`) : args
-  await run(WINDOWS ? `"${command}"` : command, argv, {
-    cwd: vault,
-    timeout: 180_000,
-    maxBuffer: 16 * 1024 * 1024,
-    shell: WINDOWS,
+  await new Promise<void>((resolve, reject) => {
+    // Windows starts .cmd launchers through the shell, which splits on spaces.
+    const child = WINDOWS
+      ? spawn(`"${command}" ${args.map((arg) => `"${arg}"`).join(" ")}`, { cwd: vault, shell: true, stdio: ["ignore", "pipe", "pipe"] })
+      : // No stdin: Codex waits for more input on an open one.
+        spawn(command, args, { cwd: vault, stdio: ["ignore", "pipe", "pipe"] })
+    let output = ""
+    child.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
+    child.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
+    const timer = setTimeout(() => child.kill(), 180_000)
+    child.on("error", reject)
+    child.on("close", (code) => {
+      clearTimeout(timer)
+      if (code === 0) resolve()
+      else reject(new Error(`${path.basename(command)} ended with ${code}: ${output.slice(-600)}`))
+    })
   })
   // Sessions are listed newest first by file time: keep the order certain.
   await new Promise((resolve) => setTimeout(resolve, 1500))
