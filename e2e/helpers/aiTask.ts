@@ -41,9 +41,13 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
  * which build the AiTaskManager (syncAiTaskManagerToLicense) and tell open
  * views about it — the same path a real license activation takes.
  */
-export async function enableAiTasks(page: Page, claudePath: string): Promise<void> {
+export async function enableAiTasks(
+  page: Page,
+  claudePath: string,
+  runMode: "headless" | "terminal" = "headless",
+): Promise<void> {
   await page.evaluate(
-    ([id, claude]) => {
+    ([id, claude, mode]) => {
       const plugin = window.app.plugins.plugins[id] as {
         settings: Record<string, unknown>
         licenseManager: {
@@ -53,8 +57,9 @@ export async function enableAiTasks(page: Page, claudePath: string): Promise<voi
         }
       }
       plugin.settings.aiTaskEnabled = true
-      // Headless: the run is a plain child process, no terminal broker.
-      plugin.settings.aiTaskRunMode = "headless"
+      // Headless by default: the run is a plain child process, no terminal
+      // broker. Recordings ask for the terminal, which is what users see.
+      plugin.settings.aiTaskRunMode = mode
       plugin.settings.aiTaskClaudePath = claude
 
       const license = plugin.licenseManager
@@ -63,7 +68,7 @@ export async function enableAiTasks(page: Page, claudePath: string): Promise<voi
       license.isActive = () => true
       for (const listener of license.listeners) listener(active)
     },
-    [PLUGIN_ID, claudePath] as const,
+    [PLUGIN_ID, claudePath, runMode] as const,
   )
   await page.waitForFunction(
     (id) => !!(window.app.plugins.plugins[id] as { aiTaskManager?: unknown }).aiTaskManager,
