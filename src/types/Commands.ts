@@ -14,6 +14,7 @@ export interface ViewActions {
   triggerShowTodayTasks(): Promise<void>;
   reorganizeIdleTasks(): void;
   triggerLeaveComment(): Promise<void>;
+  triggerOpenSessionHistory(): Promise<void>;
 }
 
 export interface CommandRegistrar {

@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import path from "node:path"
 import { test as base, expect } from "@playwright/test"
 import { type ObsidianLanguage, type ObsidianSession, launchObsidian } from "../obsidian/launch"
@@ -12,6 +13,10 @@ export const RECORDINGS_DIR = path.join(REPO_ROOT, "e2e-results", "recordings")
 interface Fixtures {
   /** Obsidian's UI language. Recordings are for Japanese readers by default. */
   language: ObsidianLanguage
+  /** true gives Obsidian a fresh, empty home folder of its own (see `home`). */
+  isolatedHome: boolean
+  /** That home folder, when isolatedHome is on. */
+  home: string | undefined
   /** A fresh Obsidian with the built plugin loaded. */
   obsidian: ObsidianSession
   /** Captions, narration, pointing and clicking; see Recorder. */
@@ -25,12 +30,28 @@ function slug(title: string): string {
 export const test = base.extend<Fixtures>({
   language: ["ja", { option: true }],
 
-  obsidian: async ({ language }, use, testInfo) => {
+  isolatedHome: [false, { option: true }],
+
+  // For scenarios that read the user's own files (the agent CLIs' session
+  // folders): the recording shows prepared ones, never the recorder's.
+  home: async ({ isolatedHome }, use, testInfo) => {
+    if (!isolatedHome) {
+      await use(undefined)
+      return
+    }
+    const dir = testInfo.outputPath("home")
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.mkdirSync(dir, { recursive: true })
+    await use(dir)
+  },
+
+  obsidian: async ({ language, home }, use, testInfo) => {
     const obsidianExecutable = process.env.TASKCHUTE_E2E_OBSIDIAN
     if (!obsidianExecutable) throw new Error("global-setup did not locate Obsidian")
     const session = await launchObsidian({
       workDir: testInfo.outputPath("run"),
       language,
+      home,
       obsidianExecutable,
       ldLibraryPath: process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH ?? "",
     })

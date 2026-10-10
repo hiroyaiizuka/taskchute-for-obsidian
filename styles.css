@@ -7194,16 +7194,23 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   width: 24px;
 }
 
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-toolbar {
+  padding: 0;
+}
+
 .ai-run-pane__sidebar-toolbar {
   display: flex;
   align-items: center;
-  min-height: 26px;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 4px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .ai-run-pane__sidebar-toggle,
-.ai-run-pane__sidebar-files {
+.ai-run-pane__sidebar-files,
+.ai-run-pane__sidebar-history {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7219,13 +7226,17 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .ai-run-pane__sidebar-toggle:hover,
 .ai-run-pane__sidebar-files:hover,
-.ai-run-pane__sidebar-files[aria-pressed="true"] {
+.ai-run-pane__sidebar-files[aria-pressed="true"],
+.ai-run-pane__sidebar-history:hover,
+.ai-run-pane__sidebar-history[aria-pressed="true"] {
   color: var(--text-normal);
 }
 
 .ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files,
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-history,
 .ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-runs,
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files-view {
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files-view,
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-history-view {
   display: none;
 }
 
@@ -7295,8 +7306,117 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 .ai-run-pane__sidebar-runs.is-hidden,
-.ai-run-pane__sidebar-files-view.is-hidden {
+.ai-run-pane__sidebar-files-view.is-hidden,
+.ai-run-pane__sidebar-history-view.is-hidden {
   display: none;
+}
+
+/* Session history (LEV-320): past agent sessions of the vault's folder. */
+.ai-run-pane__sidebar-history-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  font-size: var(--font-ui-smaller);
+}
+
+/* Wider than the runs list, for the titles. */
+.ai-run-pane.is-history-mode:not(.is-sidebar-collapsed) .ai-run-pane__sidebar {
+  width: min(280px, 50%);
+}
+
+/* Nothing running: the terminal's side stays an empty terminal, so the pane
+   keeps its shape when a session is resumed into it. */
+.ai-run-pane.is-without-runs:not(.has-file-panel) .ai-run-pane__panels {
+  background: var(--tc-code-surface);
+}
+
+.ai-run-pane.is-without-runs:not(.has-file-panel) .ai-run-pane__composer {
+  display: none;
+}
+
+.ai-session-history__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.ai-session-history__search {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-session-history__refresh,
+.ai-session-history__archived,
+.ai-session-history__resume,
+.ai-session-history__archive {
+  flex: none;
+  padding: 2px;
+}
+
+
+.ai-session-history__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ai-session-history__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ai-session-history__row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-session-history__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-session-history__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-weight: var(--font-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-session-history__actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.ai-session-history__snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ai-session-history__meta {
+  display: flex;
+  gap: 8px;
+  color: var(--text-faint);
+}
+
+.ai-session-history__message {
+  padding: 8px;
+  color: var(--text-faint);
 }
 
 .ai-run-pane__run {
@@ -7736,23 +7856,90 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   height: 14px;
 }
 
-.ai-run-pane button.ai-run-pane__expand {
+/* Icon-only buttons of the pane's chrome: a bare square, no frame, a faint
+   ground on hover and while switched on (as in an editor's panel toolbar). */
+.ai-run-pane button.ai-run-pane__collapse,
+.ai-run-pane button.ai-run-pane__expand,
+.ai-run-pane button.ai-run-pane__sidebar-toggle,
+.ai-run-pane button.ai-run-pane__sidebar-files,
+.ai-run-pane button.ai-run-pane__sidebar-history,
+.ai-run-pane button.ai-session-history__refresh,
+.ai-run-pane button.ai-session-history__archived,
+.ai-run-pane button.ai-session-history__resume,
+.ai-run-pane button.ai-session-history__archive {
   appearance: none;
-  height: auto;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   min-height: 0;
   margin: 0;
-  padding: 2px 4px;
+  padding: 0;
   border: none;
-  border-radius: 0;
+  border-radius: 4px;
   background-color: transparent;
   box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
 }
 
-.ai-run-pane button.ai-run-pane__expand:hover,
-.ai-run-pane button.ai-run-pane__expand:focus-visible {
+.ai-run-pane button.ai-run-pane__collapse svg,
+.ai-run-pane button.ai-run-pane__expand svg,
+.ai-run-pane button.ai-run-pane__sidebar-toggle svg,
+.ai-run-pane button.ai-run-pane__sidebar-files svg,
+.ai-run-pane button.ai-run-pane__sidebar-history svg,
+.ai-run-pane button.ai-session-history__refresh svg,
+.ai-run-pane button.ai-session-history__archived svg,
+.ai-run-pane button.ai-session-history__resume svg,
+.ai-run-pane button.ai-session-history__archive svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ai-run-pane button.ai-run-pane__collapse:hover:not(:disabled),
+.ai-run-pane button.ai-run-pane__collapse:focus-visible,
+.ai-run-pane button.ai-run-pane__expand:hover:not(:disabled),
+.ai-run-pane button.ai-run-pane__expand:focus-visible,
+.ai-run-pane button.ai-run-pane__sidebar-toggle:hover:not(:disabled),
+.ai-run-pane button.ai-run-pane__sidebar-toggle:focus-visible,
+.ai-run-pane button.ai-run-pane__sidebar-files:hover:not(:disabled),
+.ai-run-pane button.ai-run-pane__sidebar-files:focus-visible,
+.ai-run-pane button.ai-run-pane__sidebar-history:hover:not(:disabled),
+.ai-run-pane button.ai-run-pane__sidebar-history:focus-visible,
+.ai-run-pane button.ai-session-history__refresh:hover:not(:disabled),
+.ai-run-pane button.ai-session-history__refresh:focus-visible,
+.ai-run-pane button.ai-session-history__archived:hover:not(:disabled),
+.ai-run-pane button.ai-session-history__archived:focus-visible,
+.ai-run-pane button.ai-session-history__resume:hover:not(:disabled),
+.ai-run-pane button.ai-session-history__resume:focus-visible,
+.ai-run-pane button.ai-session-history__archive:hover:not(:disabled),
+.ai-run-pane button.ai-session-history__archive:focus-visible {
   border: none;
-  background-color: transparent;
+  background-color: var(--background-modifier-hover);
   box-shadow: none;
+  color: var(--text-normal);
+}
+
+.ai-run-pane button.ai-run-pane__sidebar-files[aria-pressed="true"],
+.ai-run-pane button.ai-run-pane__sidebar-history[aria-pressed="true"],
+.ai-run-pane button.ai-session-history__archived[aria-pressed="true"] {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ai-run-pane button.ai-run-pane__collapse:disabled,
+.ai-run-pane button.ai-run-pane__expand:disabled,
+.ai-run-pane button.ai-run-pane__sidebar-toggle:disabled,
+.ai-run-pane button.ai-run-pane__sidebar-files:disabled,
+.ai-run-pane button.ai-run-pane__sidebar-history:disabled,
+.ai-run-pane button.ai-session-history__refresh:disabled,
+.ai-run-pane button.ai-session-history__archived:disabled,
+.ai-run-pane button.ai-session-history__resume:disabled,
+.ai-run-pane button.ai-session-history__archive:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .ai-run-pane button.ai-run-pane__split:hover,

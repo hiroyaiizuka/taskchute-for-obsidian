@@ -172,50 +172,24 @@ describe('TaskChute AI task settings section', () => {
 
     const items = tab.getSettingDefinitions()
     expect(findByKey(items, 'aiTaskEnabled')?.name).toBe('Enable AI tasks')
-    expect(findByKey(items, 'aiTaskRunMode')?.control.type).toBe('dropdown')
     expect(findByKey(items, 'aiTaskLogRetentionDays')?.control.type).toBe(
       'number',
     )
   })
 
-  /**
-   * resolveRunMode() degrades every run to the conversation pipeline where no
-   * pseudoterminal exists, so offering "Terminal (interactive)" there named a
-   * mode the platform could never enter. The row becomes an explanation, and
-   * the stored value is left alone so moving the vault to a Mac restores it.
-   */
-  test('replaces the run mode choice with a note where no pseudoterminal exists', () => {
-    // A desktop OS that is neither macOS, Linux, nor Windows.
-    Platform.isMacOS = false
-    Platform.isLinux = false
-    Platform.isWin = false
-
-    const { tab, plugin } = createTab()
-    plugin.settings.aiTaskRunMode = 'terminal'
-
-    const items = tab.getSettingDefinitions()
-    expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
-
-    const row = findByName(items, 'Run mode')
-    expect(row).toBeDefined()
-    expect(row?.control).toBeUndefined()
-    expect(row?.desc).toContain('Conversation mode')
-    // Left untouched: the choice survives a move to a supported platform.
-    expect(plugin.settings.aiTaskRunMode).toBe('terminal')
-  })
-
-  test('offers the run mode choice on Windows and explains the conversation fallback', () => {
-    Platform.isMacOS = false
-    Platform.isLinux = false
-    Platform.isWin = true
-
+  // LEV-320: runs use the terminal where it can run and fall back to
+  // conversation mode elsewhere, so there is nothing to choose.
+  test.each([
+    ['macOS', { isMacOS: true, isLinux: false, isWin: false }],
+    ['Windows', { isMacOS: false, isLinux: false, isWin: true }],
+    ['an OS without a pseudoterminal', { isMacOS: false, isLinux: false, isWin: false }],
+  ])('offers no run mode setting on %s', (_os, flags) => {
+    Object.assign(Platform, flags)
     const { tab } = createTab()
 
     const items = tab.getSettingDefinitions()
-    expect(findByKey(items, 'aiTaskRunMode')?.control.type).toBe('dropdown')
-    const row = findByName(items, 'Run mode')
-    expect(row?.desc).toContain('Windows 10 1809')
-    expect(row?.desc).toContain('conversation mode')
+    expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
+    expect(findByName(items, 'Run mode')).toBeUndefined()
   })
 
   /**
@@ -435,38 +409,6 @@ describe('TaskChute AI task settings section', () => {
       expect(plugin.settings.aiTaskEnabled).toBe(false)
       expect(createAiTaskManagerMock).not.toHaveBeenCalled()
       expect(plugin.aiTaskManager).toBeUndefined()
-    })
-  })
-
-  describe('run mode', () => {
-    test('offers terminal and headless, defaulting to terminal', () => {
-      const { tab } = createTab()
-
-      const control = findByKey(tab.getSettingDefinitions(), 'aiTaskRunMode')
-        ?.control as { options: Record<string, string> } | undefined
-      expect(Object.keys(control?.options ?? {})).toEqual([
-        'terminal',
-        'headless',
-      ])
-      expect(tab.getControlValue('aiTaskRunMode')).toBe('terminal')
-    })
-
-    test('reflects a stored headless preference', () => {
-      const { tab, plugin } = createTab()
-      plugin.settings.aiTaskRunMode = 'headless'
-
-      expect(tab.getControlValue('aiTaskRunMode')).toBe('headless')
-    })
-
-    test('persists a change and normalizes anything unknown', async () => {
-      const { tab, plugin } = createTab()
-
-      await tab.setControlValue('aiTaskRunMode', 'headless')
-      expect(plugin.settings.aiTaskRunMode).toBe('headless')
-      expect(plugin.saveSettings).toHaveBeenCalledTimes(1)
-
-      await tab.setControlValue('aiTaskRunMode', 'bogus')
-      expect(plugin.settings.aiTaskRunMode).toBe('terminal')
     })
   })
 

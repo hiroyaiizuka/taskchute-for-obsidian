@@ -89,13 +89,6 @@ export const ja = {
       enable: "AIタスクを有効化",
       enableDesc:
         `AI CLI（${CLAUDE_CODE_NAME} / Codex / Cursor）でタスクを実行し、AI実行ペインに表示します（デスクトップ専用）。`,
-      runModeName: "実行モード",
-      runModeDesc:
-        "ターミナルは対話型CLIをそのまま埋め込みます。会話モードは解析済みイベントを流し、フォローアップ入力を受け付けます。Windowsのターミナルには Windows 10 1809 以降と PowerShell が必要で、利用できない環境では会話モードで実行します。",
-      runModeFixedDesc:
-        "会話モードで実行します。このプラットフォームには本プラグインから扱える疑似端末がないため、対話型CLIを埋め込む代わりに、解析済みイベントの表示とフォローアップ入力で動作します。",
-      runModeTerminal: "ターミナル（対話型）",
-      runModeHeadless: "会話モード（全OS対応）",
       claudePathName: `${CLAUDE_CODE_NAME} CLIパス（詳細・予備）`,
       claudePathDesc:
         "通常は空欄のままで、macOS / Linux / Windowsから自動検出します。Windowsの独自配置ではclaude.cmdではなくclaude.exeまたはcli-wrapper.cjsを指定してください。",
@@ -189,9 +182,11 @@ export const ja = {
     showToday: "今日のタスクを表示",
     reorganizeIdle: "未実行タスクを現在の時間帯に整理",
     leaveComment: "コメントを残す",
+    openSessionHistory: "AI のセッション履歴を開く",
   },
   notices: {
     viewNotOpen: "TaskChuteビューが開かれていません",
+    sessionHistoryUnavailable: "セッション履歴を使うには、AI タスクを有効にしてください。",
     folderCreationFailed: "{label}の作成に失敗しました",
     routineAliasLoadFailed: "ルーチンタスクの名前変更履歴の読み込みに失敗しました",
     routineAliasSaveFailed: "ルーチンタスクの名前変更履歴の保存に失敗しました",
@@ -247,6 +242,23 @@ export const ja = {
       shellSessionName: "ターミナル",
       contentTabs: "ターミナルタブ",
       runTabs: "AI実行タブ",
+      history: {
+        label: "セッション履歴",
+        search: "セッションを検索",
+        refresh: "再読み込み",
+        showArchived: "アーカイブを表示",
+        loading: "セッションを読み込み中…",
+        unavailable: "この環境ではセッション履歴を使えません。",
+        empty: "この保管庫で動かしたセッションはまだありません。",
+        emptyArchived: "アーカイブしたセッションはありません。",
+        noMatch: "見つかりませんでした。",
+        resume: "再開",
+        resumeUnavailable: "再開にはターミナルが必要ですが、この環境では使えません",
+        archive: "アーカイブ",
+        restore: "一覧に戻す",
+        missing: "このセッションはもう見つかりません（ファイルか作業フォルダが消えています）。",
+        resumeFailed: "セッションを再開できませんでした: {error}",
+      },
       files: {
         label: "ファイル",
         loading: "ファイルを読み込み中…",

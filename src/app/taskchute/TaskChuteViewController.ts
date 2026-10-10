@@ -256,6 +256,19 @@ export class TaskChuteViewController {
     view.leaveComment();
   }
 
+  /** Shows the AI pane with the session history, bringing the view up first. */
+  async triggerOpenSessionHistory(): Promise<void> {
+    const view = await this.getOrCreateView(["openSessionHistory"]);
+    if (!view) {
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
+      return;
+    }
+    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    if (!view.openSessionHistory()) {
+      new Notice(t("notices.sessionHistoryUnavailable", "Turn on AI tasks to use the session history."));
+    }
+  }
+
   reorganizeIdleTasks(): void {
     const view = this.getView();
     if (!view) {

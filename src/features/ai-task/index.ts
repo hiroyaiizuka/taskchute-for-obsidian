@@ -21,6 +21,8 @@ import { BinaryLocator } from './services/BinaryLocator'
 import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { listAiAgents, mapAiAgents } from './agents'
+import { AgentSessionHistory } from './sessions/AgentSessionHistory'
+import { SessionArchiveStore } from './sessions/SessionArchiveStore'
 import {
   TerminalDispatcher,
   type AiTerminalDispatcher,
@@ -182,8 +184,26 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         )
       : new TerminalDispatcher(gateway)
 
+  const sessionHistory = new AgentSessionHistory(
+    {
+      homeDirectory: () => gateway.getHomeDirectory(),
+      listEntries: (path) => gateway.listEntries(path),
+      stat: (path) => gateway.statPath(path),
+      readRange: (path, position, length) => gateway.readFileRange(path, position, length),
+      readSqliteTable: (path, table, keys) => gateway.readSqliteTable(path, table, keys),
+    },
+    new Map(
+      listAiAgents().flatMap((agent) => (agent.sessions ? [[agent.id, agent.sessions] as const] : [])),
+    ),
+    new SessionArchiveStore({
+      loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
+    }),
+  )
+
   const deps: AiTaskManagerDeps = {
     app: plugin.app,
+    sessionHistory,
     dispatchers,
     binaryLocator,
     logWriter,

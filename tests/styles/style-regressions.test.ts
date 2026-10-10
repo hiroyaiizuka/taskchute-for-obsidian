@@ -178,9 +178,28 @@ describe('style regressions', () => {
     )
     expect(splitIcon).toMatch(/width:\s*14px;/)
     expect(splitIcon).toMatch(/height:\s*14px;/)
-    const expand = readRule(css, '.ai-run-pane button.ai-run-pane__expand {')
-    expect(expand).toMatch(/min-height:\s*0;/)
-    expect(expand).toMatch(/background-color:\s*transparent;/)
+  })
+
+  test("the pane's icon-only buttons are bare squares without a frame", () => {
+    const rule = readRule(styles(), '.ai-run-pane button.ai-run-pane__collapse,')
+    for (const name of [
+      'ai-run-pane__expand',
+      'ai-run-pane__sidebar-toggle',
+      'ai-run-pane__sidebar-files',
+      'ai-run-pane__sidebar-history',
+      'ai-session-history__refresh',
+      'ai-session-history__archived',
+      'ai-session-history__resume',
+      'ai-session-history__archive',
+    ]) {
+      expect(rule).toContain(`.ai-run-pane button.${name}`)
+    }
+    expect(rule).toMatch(/width:\s*24px;/)
+    expect(rule).toMatch(/height:\s*24px;/)
+    expect(rule).toMatch(/min-height:\s*0;/)
+    expect(rule).toMatch(/border:\s*none;/)
+    expect(rule).toMatch(/box-shadow:\s*none;/)
+    expect(rule).toMatch(/background-color:\s*transparent;/)
   })
 
   test('Obsidian-linked AI task icon keeps space from the task title', () => {
