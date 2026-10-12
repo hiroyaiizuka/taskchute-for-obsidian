@@ -175,7 +175,8 @@ test("session-history", async ({ obsidian, recorder }) => {
   await recorder.chapter("① コマンド「AI のセッション履歴を開く」で開く", {
     sub: "この保管庫で動かしたセッションが、新しい順に並ぶ",
   })
-  await page.keyboard.press("Control+P")
+  // The command palette: Cmd+P on macOS, Ctrl+P elsewhere.
+  await page.keyboard.press("ControlOrMeta+P")
   const prompt = page.locator(".prompt-input")
   await prompt.waitFor()
   await prompt.pressSequentially("セッション履歴", { delay: 80 })
