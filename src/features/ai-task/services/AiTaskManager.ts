@@ -33,6 +33,7 @@ import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { getAiAgent } from '../agents'
+import type { AgentSessionHistory } from '../sessions/AgentSessionHistory'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
 import { capEventText } from './streams/StreamJsonParser'
@@ -207,6 +208,8 @@ interface AiTaskFileCacheLike {
 }
 
 export interface AiTaskManagerDeps {
+  /** Past agent sessions on this device, for the session history (desktop only). */
+  sessionHistory?: AgentSessionHistory
   app: {
     vault: {
       cachedRead(file: TFile): Promise<string>
@@ -362,6 +365,18 @@ export interface PreparedAiRun {
 export interface AiTaskStartReservation {
   readonly taskPath: string
   readonly reservationId: symbol
+}
+
+/** A past agent session to resume (see resumeAgentSession). */
+export interface AiSessionResumeOptions {
+  host: AiTaskHost
+  sessionId: string
+  /** The folder the session ran in; it resumes there. */
+  cwd: string
+  /** The tab's name. */
+  name: string
+  cols?: number
+  rows?: number
 }
 
 export interface AiShellSessionOptions {
@@ -1255,6 +1270,129 @@ export class AiTaskManager {
       this.notifyChange(record)
       // The lifecycle contract still ends with 'persisted' (transcript
       // cleanup only — shell sessions never write a note).
+      this.queueExitPersist(internal)
+      throw error
+    }
+
+    if (!internal.exited && record.status === 'starting') {
+      record.pid = internal.handle.pid
+      record.status = 'running'
+      this.notifyChange(record)
+    }
+    return record
+  }
+
+  /** The session history, and the folder whose sessions it lists (the vault's). */
+  getSessionHistory(): { history: AgentSessionHistory; folder: string } | undefined {
+    const folder = this.getVaultBasePath()
+    if (!this.deps.sessionHistory || folder === undefined) return undefined
+    return { history: this.deps.sessionHistory, folder }
+  }
+
+  /** Whether a past agent session can be resumed here: it always opens in a terminal. */
+  supportsSessionResume(): boolean {
+    return this.deps.terminal !== undefined && this.deps.terminal.isSupported()
+  }
+
+  /** Waits for the Windows ConPTY probe, so supportsSessionResume() gives its real answer. */
+  async settleSessionResumeSupport(): Promise<void> {
+    await this.ensureTerminalSupportSettled('terminal')
+  }
+
+  /**
+   * Resume a past agent session (from the session history) in a new terminal
+   * tab, in the folder it ran in. Like a shell session, the run belongs to no
+   * task: no log note, no task state. The CLI is run with its own resume
+   * arguments (`claude --resume <id>` and the like), so the conversation
+   * continues where it left off. The caller checks the session still exists
+   * first: a CLI asked for a missing id may not fail (see AgentSessionHistory).
+   */
+  async resumeAgentSession(options: AiSessionResumeOptions): Promise<AiRunRecord> {
+    this.throwIfDisposed()
+    const terminal = this.deps.terminal
+    const resumeArgs = getAiAgent(options.host).sessions?.resumeArgs(options.sessionId)
+    await this.ensureTerminalSupportSettled('terminal')
+    if (!terminal || !this.supportsSessionResume() || !resumeArgs) {
+      throw new AiShellUnavailableError()
+    }
+    const resolution = await this.deps.binaryLocator.resolve(options.host)
+    const { binaryPath, binaryArgsPrefix, binaryEnvPatch, terminalCommand } =
+      normalizeBinaryResolution(resolution)
+    this.throwIfDisposed()
+
+    this.runSequence += 1
+    const record: AiRunRecord = {
+      id: `ai-run-${Date.now()}-${this.runSequence}`,
+      taskPath: '',
+      taskName: options.name,
+      cwd: options.cwd,
+      host: 'shell',
+      status: 'starting',
+      mode: 'terminal',
+      startedAt: Date.now(),
+      events: [],
+    }
+    record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+    record.rows = options.rows ?? DEFAULT_TERMINAL_ROWS
+    record.cols = options.cols ?? DEFAULT_TERMINAL_COLS
+
+    const internal: InternalRun = {
+      record,
+      handle: null,
+      terminalHandle: null,
+      exited: false,
+      terminalData: { chunks: [], totalLength: 0 },
+      terminalListeners: new Set(),
+      cwd: record.cwd,
+      extraArgs: [...resumeArgs],
+      continuation: null,
+      persistQueue: Promise.resolve(),
+      consumedTranscriptPaths: new Set(),
+      exitPersisted: false,
+      needsTaskStateReconciliation: false,
+      taskStateReconciliationClaimed: false,
+      taskStateReconciliationOperation: null,
+    }
+    this.runs.set(record.id, internal)
+    this.persistSessionStateNow()
+    this.notifyChange(record)
+
+    try {
+      const command = getAiAgent(options.host).command
+      const terminalHandle = terminal.dispatcher.start(
+        {
+          sessionId: record.id,
+          binaryPath,
+          binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
+          ...(binaryEnvPatch === undefined ? {} : { envPatch: binaryEnvPatch }),
+          ...(terminalCommand === options.host ? { terminalCommand: command } : {}),
+          terminalFallbackCommand: command,
+          prompt: '',
+          cwd: options.cwd,
+          extraArgs: [...resumeArgs],
+          launchInShell: true,
+          rows: record.rows,
+          cols: record.cols,
+          transcriptPath: record.transcriptPath,
+        },
+        {
+          onData: (chunk) => this.handleTerminalData(internal, chunk),
+          onExit: (outcome) => this.handleExit(internal, outcome),
+          onAttached: (pid, transcriptPath) =>
+            this.handleTerminalAttached(internal, pid, transcriptPath),
+          onUnavailable: (transcriptPath) =>
+            this.markTerminalUnavailable(internal, undefined, transcriptPath),
+        },
+      )
+      record.terminalSessionId = terminalHandle.sessionId
+      internal.terminalHandle = terminalHandle
+      internal.handle = terminalHandle
+    } catch (error) {
+      internal.exited = true
+      record.status = 'failed'
+      record.endedAt = Date.now()
+      record.errorMessage = error instanceof Error ? error.message : String(error)
+      this.notifyChange(record)
       this.queueExitPersist(internal)
       throw error
     }

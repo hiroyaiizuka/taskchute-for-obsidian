@@ -9,6 +9,7 @@
 import { CodexDispatcher } from '../services/dispatchers/CodexDispatcher'
 import type { AiAgentDefinition, WindowsInstallDirs } from './AiAgentDefinition'
 import { windowsJoin } from './windowsPaths'
+import { createCodexSessions } from '../sessions/codexSessions'
 
 const EFFORT_PATTERN = /^model_reasoning_effort="([^"]+)"$/u
 
@@ -60,6 +61,7 @@ export const codexAgent: AiAgentDefinition = {
     ],
   },
   createDispatcher: (gateway) => new CodexDispatcher(gateway),
+  sessions: createCodexSessions(),
   // Both flags work in the terminal and in `codex exec` (verified on 0.150.1).
   // Manual is the CLI's own default: it asks before acting.
   execModes: {

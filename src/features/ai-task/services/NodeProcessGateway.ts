@@ -251,6 +251,7 @@ interface ChildProcessModuleLike {
 interface OsModuleLike {
   tmpdir(): string
   release(): string
+  homedir(): string
 }
 
 interface FsModuleLike {
@@ -285,6 +286,7 @@ interface NodeFileHandleLike {
 interface NodeDirectoryEntryLike {
   name: string
   isDirectory(): boolean
+  isFile(): boolean
 }
 
 interface NodeStatsLike {
@@ -338,6 +340,27 @@ function loadPathModule(): PathModuleLike {
   // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; vault-relative paths are joined with Node path
   return require('path') as PathModuleLike
 }
+
+interface SqliteModuleLike {
+  DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => {
+    prepare(sql: string): { all(...params: string[]): Array<Record<string, unknown>> }
+    close(): void
+  }
+}
+
+/** Node's built-in SQLite reader, or null on a runtime that does not have it. */
+function loadSqliteModule(): SqliteModuleLike | null {
+  if (!Platform.isDesktop) return null
+  try {
+    // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; reads an agent CLI's own session database, read-only
+    const loaded = require('node:sqlite') as Partial<SqliteModuleLike>
+    return typeof loaded.DatabaseSync === 'function' ? (loaded as SqliteModuleLike) : null
+  } catch {
+    return null
+  }
+}
+
+const SQLITE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u
 
 function loadTextCodecModule(): TextCodecModuleLike {
   if (!Platform.isDesktop) {
@@ -1312,6 +1335,98 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
     } catch {
       return []
+    }
+  }
+
+  /** The user's home folder (where the AI CLIs keep their sessions). */
+  getHomeDirectory(): string | undefined {
+    try {
+      return loadOsModule().homedir() || undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Files and folders directly inside `path`; empty when it cannot be read. */
+  async listEntries(path: string): Promise<Array<{ name: string; isFile: boolean; isDirectory: boolean }>> {
+    try {
+      const entries = await loadFsModule().promises.readdir(path, { withFileTypes: true })
+      return entries.map((entry) => ({ name: entry.name, isFile: entry.isFile(), isDirectory: entry.isDirectory() }))
+    } catch {
+      return []
+    }
+  }
+
+  /** Size and last change of a path, or null when it does not exist. */
+  async statPath(path: string): Promise<{ size: number; mtimeMs: number; isDirectory: boolean } | null> {
+    try {
+      const stats = await loadFsModule().promises.stat(path)
+      return { size: stats.size, mtimeMs: stats.mtimeMs, isDirectory: stats.isDirectory() }
+    } catch {
+      return null
+    }
+  }
+
+  /** Up to `length` bytes of a file from `position`, as UTF-8 (a cut character becomes U+FFFD). */
+  async readFileRange(path: string, position: number, length: number): Promise<string> {
+    const handle = await loadFsModule().promises.open(path, 'r')
+    try {
+      const buffer = new Uint8Array(Math.max(0, length))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, Math.max(0, position))
+      return new TextDecoder('utf-8').decode(buffer.subarray(0, bytesRead))
+    } finally {
+      await handle.close()
+    }
+  }
+
+  /**
+   * The rows of a key/value table of a SQLite file, opened read-only: every
+   * row, or only those whose key is in `keys`. null when the file cannot be
+   * read that way (no SQLite in this runtime, not a database, no such table).
+   */
+  readSqliteTable(
+    path: string,
+    table: { name: string; key: string; value: string },
+    keys?: readonly string[],
+  ): Promise<Map<string, string | Uint8Array> | null> {
+    return Promise.resolve(this.readSqliteTableSync(path, table, keys))
+  }
+
+  private readSqliteTableSync(
+    path: string,
+    table: { name: string; key: string; value: string },
+    keys?: readonly string[],
+  ): Map<string, string | Uint8Array> | null {
+    const sqlite = loadSqliteModule()
+    if (!sqlite || ![table.name, table.key, table.value].every((name) => SQLITE_IDENTIFIER.test(name))) return null
+    if (keys && keys.length === 0) return new Map()
+    try {
+      const database = new sqlite.DatabaseSync(path, { readOnly: true })
+      try {
+        const where = keys ? ` WHERE ${table.key} IN (${keys.map(() => '?').join(', ')})` : ''
+        const rows = database
+          .prepare(`SELECT ${table.key} AS k, ${table.value} AS v FROM ${table.name}${where}`)
+          .all(...(keys ?? []))
+        const result = new Map<string, string | Uint8Array>()
+        for (const row of rows) {
+          const key = row['k']
+          const value = row['v']
+          if (typeof key !== 'string') continue
+          if (typeof value === 'string') {
+            result.set(key, value)
+          } else if (ArrayBuffer.isView(value)) {
+            // A copy in this realm's Uint8Array, whichever one SQLite handed over.
+            const bytes = new Uint8Array(value.byteLength)
+            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
+            result.set(key, bytes)
+          }
+        }
+        return result
+      } finally {
+        database.close()
+      }
+    } catch {
+      return null
     }
   }
 

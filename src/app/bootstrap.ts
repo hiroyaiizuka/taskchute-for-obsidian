@@ -52,9 +52,9 @@ export async function prepareSettings(
   if (typeof settings.aiTaskEnabled !== "boolean") {
     settings.aiTaskEnabled = false
   }
-  if (settings.aiTaskRunMode !== "terminal" && settings.aiTaskRunMode !== "headless") {
-    settings.aiTaskRunMode = "terminal"
-  }
+  // There is no run-mode setting any more: runs use the terminal where it can
+  // run and fall back to conversation mode elsewhere. Drop a stored choice.
+  delete settings.aiTaskRunMode
   if (!Number.isFinite(settings.aiTaskLogRetentionDays)) {
     settings.aiTaskLogRetentionDays = 30
   } else {

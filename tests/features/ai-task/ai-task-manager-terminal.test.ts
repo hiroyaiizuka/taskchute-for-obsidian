@@ -271,6 +271,32 @@ describe('AiTaskManager terminal mode routing', () => {
     )
   })
 
+  test('resumes a past agent session in a terminal tab with the CLI resume arguments, attached to no task', async () => {
+    const harness = createTerminalHarness()
+
+    const record = await harness.manager.resumeAgentSession({
+      host: 'claude',
+      sessionId: 'abc-123',
+      cwd: '/work/project',
+      name: 'Plan the move',
+      cols: 100,
+      rows: 30,
+    })
+
+    expect(record).toEqual(expect.objectContaining({ host: 'shell', taskPath: '', taskName: 'Plan the move', mode: 'terminal', cwd: '/work/project' }))
+    expect(harness.terminal.last.request).toEqual(
+      expect.objectContaining({
+        binaryPath: '/bin/claude',
+        terminalFallbackCommand: 'claude',
+        prompt: '',
+        cwd: '/work/project',
+        extraArgs: ['--resume', 'abc-123'],
+        cols: 100,
+        rows: 30,
+      }),
+    )
+  })
+
   test('renderer transition preserves a broker-owned terminal run', async () => {
     const harness = createTerminalHarness()
     harness.terminal.isPersistent = true
@@ -508,6 +534,32 @@ describe('AiTaskManager runtime terminal capability', () => {
 
     expect(ensureSupported).toHaveBeenCalledTimes(1)
     expect(record.mode).toBe('terminal')
+    expect(harness.terminal.runs).toHaveLength(1)
+  })
+
+  test('session resume waits for the capability check (Windows ConPTY probe)', async () => {
+    const harness = createTerminalHarness()
+    let supported = false
+    harness.isSupported.mockImplementation(() => supported)
+    terminalDepsOf(harness).ensureSupported = jest.fn(async () => {
+      supported = true
+    })
+
+    expect(harness.manager.supportsSessionResume()).toBe(false)
+    await harness.manager.settleSessionResumeSupport()
+    expect(harness.manager.supportsSessionResume()).toBe(true)
+  })
+
+  test('resumes a session before the capability check has settled', async () => {
+    const harness = createTerminalHarness()
+    let supported = false
+    harness.isSupported.mockImplementation(() => supported)
+    terminalDepsOf(harness).ensureSupported = jest.fn(async () => {
+      supported = true
+    })
+
+    await harness.manager.resumeAgentSession({ host: 'claude', sessionId: 'abc-123', cwd: '/work/project', name: 'Plan the move' })
+
     expect(harness.terminal.runs).toHaveLength(1)
   })
 

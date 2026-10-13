@@ -17,6 +17,7 @@ import type {
 } from '../config/AiTaskAdvancedOptions'
 import type { AiDispatcher } from '../services/dispatchers/Dispatcher'
 import type { ProcessGateway } from '../services/NodeProcessGateway'
+import type { AgentSessionSource } from '../sessions/AgentSessionTypes'
 
 /** Settings that hold a manually chosen CLI path, one per agent. */
 export type AiCliPathSettingKey = 'aiTaskClaudePath' | 'aiTaskCodexPath' | 'aiTaskCursorPath'
@@ -98,6 +99,8 @@ export interface AiAgentDefinition {
     desc: AiAgentLabel<TranslationKey>
   }
   windows: AiAgentWindowsInstall
+  /** Where the agent's CLI keeps past sessions, for the session history. */
+  sessions?: AgentSessionSource
   /** Runs the agent headlessly (stream of JSON lines) for one task run. */
   createDispatcher(gateway: ProcessGateway): AiDispatcher
   /**

@@ -2753,6 +2753,13 @@ export class TaskChuteView
     return running[0]?.instanceId ?? null
   }
 
+  /** The "open AI session history" command; false when the AI pane is not available. */
+  public openSessionHistory(): boolean {
+    if (!this.aiRunPaneController) return false
+    this.aiRunPaneController.openSessionHistory()
+    return true
+  }
+
   /** The "leave a comment" command. */
   public leaveComment(): void {
     this.commentsController?.leaveComment()

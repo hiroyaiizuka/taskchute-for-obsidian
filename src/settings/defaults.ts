@@ -29,7 +29,6 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
 
   // AI Task defaults
   aiTaskEnabled: false,
-  aiTaskRunMode: 'terminal',
   aiTaskLogRetentionDays: 30,
 
   // License (empty until the user activates)

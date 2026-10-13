@@ -101,6 +101,7 @@ import {
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
   type AiRunChangeType,
+  type AiSessionResumeOptions,
   type AiShellSessionOptions,
 } from '../services/AiTaskManager'
 import { formatAiResultSummary } from '../services/AiResultSummary'
@@ -123,6 +124,9 @@ import type { FileEditorAdapterFactory } from './FileEditorAdapter'
 import { AI_PANE_MAX_HEIGHT_RATIO, AiPaneResizer } from './AiPaneResizer'
 import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
 import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
+import { AgentSessionHistoryView } from './AgentSessionHistoryView'
+import { getAiAgent } from '../agents'
+import type { AgentSessionHistory, AgentSessionListItem } from '../sessions/AgentSessionHistory'
 import type { ScopedTranslator } from '@/i18n'
 
 export interface AiRunPaneManagerLike {
@@ -169,6 +173,14 @@ export interface AiRunPaneManagerLike {
   startShellSession?(options?: AiShellSessionOptions): AiRunRecord
   /** False hides the split and + controls (Windows). Absent keeps them. */
   supportsShellSessions?(): boolean
+  /** The past agent sessions of the vault's folder (the session history). */
+  getSessionHistory?(): { history: AgentSessionHistory; folder: string } | undefined
+  /** Whether a past session can be resumed here (it opens in a terminal). */
+  supportsSessionResume?(): boolean
+  /** Settles supportsSessionResume() (the Windows ConPTY probe). */
+  settleSessionResumeSupport?(): Promise<void>
+  /** Resume a past agent session in a new terminal tab. */
+  resumeAgentSession?(options: AiSessionResumeOptions): Promise<AiRunRecord>
   /**
    * Single-provider registration used by the manager to read a terminal
    * run's live xterm buffer when its log note is composed at run exit; the
@@ -305,6 +317,12 @@ const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
 }
 
 /** Pixel slack when deciding whether the body is pinned to the bottom */
+/** Statuses after which a run's session file has changed for good. */
+const TERMINAL_RUN_STATUSES: ReadonlySet<AiRunStatus> = new Set(['succeeded', 'failed', 'stopped'])
+
+/** What the pane's left sidebar shows: the runs, the workspace files, or past sessions. */
+type SidebarMode = 'runs' | 'files' | 'history'
+
 const SCROLL_PIN_THRESHOLD_PX = 8
 /** Longest serialized tool input rendered inline before truncation */
 const TOOL_INPUT_PREVIEW_LIMIT = 200
@@ -407,6 +425,10 @@ export class AiRunPaneController {
   private sidebarFilesEl: HTMLElement | null = null
   private sidebarToggleButton: HTMLButtonElement | null = null
   private sidebarFilesButton: HTMLButtonElement | null = null
+  private sidebarHistoryButton: HTMLButtonElement | null = null
+  private sidebarHistoryEl: HTMLElement | null = null
+  private sessionHistoryView: AgentSessionHistoryView | null = null
+  private sessionHistoryRefreshTimer: number | null = null
   private workspaceFileTree: WorkspaceFileTreeController | null = null
   private workspaceFileEditor: WorkspaceFileEditorController | null = null
   private fileEditorContainer: HTMLElement | null = null
@@ -435,7 +457,7 @@ export class AiRunPaneController {
   private paneResizer: AiPaneResizer | null = null
   /** Drag-resized height share; null while the stylesheet default applies. */
   private paneHeightRatio: number | null = null
-  private sidebarMode: 'runs' | 'files' = 'runs'
+  private sidebarMode: SidebarMode = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
   private readonly unregisterManagedDisposers: Array<() => void> = []
@@ -550,7 +572,17 @@ export class AiRunPaneController {
     setIcon(this.sidebarFilesButton, 'folder-closed')
     this.sidebarFilesButton.addEventListener('click', (event) => {
       event.stopPropagation()
-      this.setSidebarMode(this.sidebarMode === 'runs' ? 'files' : 'runs')
+      this.setSidebarMode(this.sidebarMode === 'files' ? 'runs' : 'files')
+    })
+    const historyLabel = this.host.tv('aiTask.history.label', 'Session history')
+    this.sidebarHistoryButton = sidebarToolbar.createEl('button', {
+      cls: 'ai-run-pane__sidebar-history',
+      attr: { 'aria-label': historyLabel, title: historyLabel, 'aria-pressed': 'false' },
+    })
+    setIcon(this.sidebarHistoryButton, 'history')
+    this.sidebarHistoryButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.setSidebarMode(this.sidebarMode === 'history' ? 'runs' : 'history')
     })
     this.sidebarRunsEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-runs',
@@ -562,6 +594,30 @@ export class AiRunPaneController {
     })
     this.sidebarFilesEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-files-view is-hidden',
+    })
+    this.sidebarHistoryEl = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__sidebar-history-view ai-session-history is-hidden',
+    })
+    this.sessionHistoryView = new AgentSessionHistoryView(this.sidebarHistoryEl, {
+      tv: this.host.tv,
+      source: () => {
+        const found = this.host.manager.getSessionHistory?.()
+        if (!found) return undefined
+        return {
+          folder: found.folder,
+          // The resume buttons ask whether a terminal runs here; on Windows
+          // that is known once the ConPTY probe has settled.
+          refresh: async () => {
+            await this.host.manager.settleSessionResumeSupport?.()
+            await found.history.refresh()
+          },
+          page: (request) => found.history.page(request),
+        }
+      },
+      archive: (item) => this.host.manager.getSessionHistory?.()?.history.archiveSession(item.host, item.id),
+      restore: (item) => this.host.manager.getSessionHistory?.()?.history.restoreSession(item.host, item.id),
+      resume: (item) => void this.resumeSession(item),
+      canResume: () => this.host.manager.supportsSessionResume?.() === true,
     })
     this.workspaceFileTree = new WorkspaceFileTreeController(
       this.sidebarFilesEl,
@@ -702,6 +758,14 @@ export class AiRunPaneController {
     this.sidebarFilesEl = null
     this.sidebarToggleButton = null
     this.sidebarFilesButton = null
+    this.sidebarHistoryButton = null
+    this.sidebarHistoryEl = null
+    this.sessionHistoryView?.destroy()
+    this.sessionHistoryView = null
+    if (this.sessionHistoryRefreshTimer !== null) {
+      window.clearTimeout(this.sessionHistoryRefreshTimer)
+      this.sessionHistoryRefreshTimer = null
+    }
     this.workspaceFileTree?.dispose()
     this.workspaceFileTree = null
     this.workspaceFileEditor?.dispose()
@@ -725,6 +789,14 @@ export class AiRunPaneController {
     this.sidebarMode = 'runs'
     this.runViews.clear()
     this.pendingCloseRunIds.clear()
+  }
+
+  /** Reveal the pane with the session history in its sidebar (even with no runs). */
+  openSessionHistory(): void {
+    this.revealPane()
+    this.setCollapsed(false)
+    if (this.sidebarCollapsed) this.setSidebarCollapsed(false, true)
+    this.setSidebarMode('history')
   }
 
   /** Reveal the pane, expand it, focus the run's panel, and select the run */
@@ -777,14 +849,65 @@ export class AiRunPaneController {
     this.fitVisibleTerminalViews()
   }
 
-  private setSidebarMode(mode: 'runs' | 'files'): void {
+  private setSidebarMode(mode: SidebarMode): void {
     this.sidebarMode = mode
     const files = mode === 'files'
+    const history = mode === 'history'
     this.root?.classList.toggle('is-files-mode', files)
+    this.root?.classList.toggle('is-history-mode', history)
     this.sidebarFilesButton?.setAttribute('aria-pressed', files ? 'true' : 'false')
-    this.sidebarRunsEl?.classList.toggle('is-hidden', files)
+    this.sidebarHistoryButton?.setAttribute('aria-pressed', history ? 'true' : 'false')
+    this.sidebarRunsEl?.classList.toggle('is-hidden', mode !== 'runs')
     this.sidebarFilesEl?.classList.toggle('is-hidden', !files)
+    this.sidebarHistoryEl?.classList.toggle('is-hidden', !history)
     if (files) this.refreshWorkspaceFiles()
+    if (history) void this.sessionHistoryView?.refresh()
+  }
+
+  /** Resume a past session from the history in a new terminal tab of the focused panel. */
+  private async resumeSession(item: AgentSessionListItem): Promise<void> {
+    const manager = this.host.manager
+    const found = manager.getSessionHistory?.()
+    if (!found || typeof manager.resumeAgentSession !== 'function') {
+      this.notifyShellError(new AiShellUnavailableError())
+      return
+    }
+    // A CLI asked for a missing id may report success or start afresh: check first.
+    if (!(await found.history.canResume(item))) {
+      new Notice(this.host.tv('aiTask.history.missing', 'This session can no longer be found (its file or folder is gone).'))
+      void this.sessionHistoryView?.refresh()
+      return
+    }
+    const panel = this.getFocusedPanel()
+    if (!panel) return
+    this.focusPanel(panel)
+    const agent = getAiAgent(item.host)
+    const size = this.computeTerminalSize()
+    const preexistingRunIds = new Set(this.runViews.keys())
+    try {
+      const record = await manager.resumeAgentSession({
+        host: item.host,
+        sessionId: item.id,
+        cwd: item.cwd,
+        name: `${agent.icon} ${item.title}`,
+        cols: size.cols,
+        rows: size.rows,
+      })
+      if (this.panels.includes(panel)) this.adoptRunIntoPanel(panel, record.id)
+    } catch (error) {
+      this.closeRunViewsCreatedSince(preexistingRunIds)
+      const message = error instanceof Error ? error.message : String(error)
+      new Notice(this.host.tv('aiTask.history.resumeFailed', 'Could not resume the session: {error}', { error: message }))
+    }
+  }
+
+  /** A run ended while the history is shown: its session changed, so list again (once). */
+  private scheduleSessionHistoryRefresh(): void {
+    if (this.sidebarMode !== 'history' || this.sessionHistoryRefreshTimer !== null) return
+    this.sessionHistoryRefreshTimer = window.setTimeout(() => {
+      this.sessionHistoryRefreshTimer = null
+      if (this.sidebarMode === 'history') void this.sessionHistoryView?.refresh()
+    }, 500)
   }
 
   private refreshWorkspaceFiles(): void {
@@ -1474,6 +1597,7 @@ export class AiRunPaneController {
     if (record.status === 'interrupted' && record.host !== 'shell') {
       this.host.onInterruptedTaskRun?.(record)
     }
+    if (TERMINAL_RUN_STATUSES.has(record.status)) this.scheduleSessionHistoryRefresh()
     const existing = this.runViews.get(record.id)
     if (!existing) {
       // Stopped runs never (re)gain a view: their view auto-closed at
@@ -1647,7 +1771,8 @@ export class AiRunPaneController {
       while (this.panels.length > 1) {
         this.closePanel(this.panels[this.panels.length - 1])
       }
-      if (!this.workspaceFileEditor?.hasOpenFiles()) {
+      // The history stays open with no runs: it is where they start from.
+      if (!this.workspaceFileEditor?.hasOpenFiles() && this.sidebarMode !== 'history') {
         this.root?.classList.add('is-hidden')
       }
       const primary = this.getPrimaryPanel()
@@ -2364,6 +2489,8 @@ export class AiRunPaneController {
     if (!container) return
     const paneVisible = !this.isHidden()
     const visible = !this.isCollapsed() && paneVisible
+    // With nothing running, the terminal side shows as an empty terminal.
+    this.root?.classList.toggle('is-without-runs', this.runViews.size === 0)
     const anyTerminalOnScreen = this.getVisiblePanels().some(
       (panel) =>
         panel.selectedRunId !== null &&

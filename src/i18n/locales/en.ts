@@ -91,13 +91,6 @@ export const en = {
       enable: "Enable AI tasks",
       enableDesc:
         "Run tasks with the Claude, Codex, or Cursor CLI inside the AI run pane (desktop only).",
-      runModeName: "Run mode",
-      runModeDesc:
-        "Terminal embeds the interactive CLI session. Conversation mode streams parsed events and supports follow-up input instead. On Windows the terminal needs Windows 10 1809 or later with PowerShell; where it cannot run, runs use conversation mode.",
-      runModeFixedDesc:
-        "Conversation mode. This platform has no pseudoterminal the plugin can drive, so runs stream parsed events and take follow-up input instead of embedding the interactive CLI.",
-      runModeTerminal: "Terminal (interactive)",
-      runModeHeadless: "Conversation (cross-platform)",
       claudePathName: "Claude CLI path (advanced fallback)",
       claudePathDesc:
         "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
@@ -191,9 +184,11 @@ export const en = {
     showToday: "Show today's tasks",
     reorganizeIdle: "Reorganize idle tasks to current slot",
     leaveComment: "Leave a comment",
+    openSessionHistory: "Open AI session history",
   },
   notices: {
     viewNotOpen: "TaskChute view is not open",
+    sessionHistoryUnavailable: "Turn on AI tasks to use the session history.",
     folderCreationFailed: "Failed to create {label}",
     routineAliasLoadFailed: "Failed to load routine alias history",
     routineAliasSaveFailed: "Failed to save routine alias history",
@@ -249,6 +244,23 @@ export const en = {
       shellSessionName: "Terminal",
       contentTabs: "Terminal tabs",
       runTabs: "AI run tabs",
+      history: {
+        label: "Session history",
+        search: "Search sessions",
+        refresh: "Reload",
+        showArchived: "Show archived",
+        loading: "Loading sessions…",
+        unavailable: "Session history is unavailable here.",
+        empty: "No sessions have run in this vault yet.",
+        emptyArchived: "No archived sessions.",
+        noMatch: "No sessions match.",
+        resume: "Resume",
+        resumeUnavailable: "Resume needs a terminal, which is not available here",
+        archive: "Archive",
+        restore: "Restore to the list",
+        missing: "This session can no longer be found (its file or folder is gone).",
+        resumeFailed: "Could not resume the session: {error}",
+      },
       files: {
         label: "Files",
         loading: "Loading files…",

@@ -15,6 +15,7 @@
 import { CursorDispatcher } from '../services/dispatchers/CursorDispatcher'
 import type { AiAgentDefinition } from './AiAgentDefinition'
 import { windowsJoin } from './windowsPaths'
+import { cursorSessions } from '../sessions/cursorSessions'
 
 /** `2026.10.01-e373342`, or the newer `2026.10.01-12-30-45-e373342` with a build time. */
 const VERSION_PATTERN = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$/u
@@ -62,6 +63,7 @@ export const cursorAgent: AiAgentDefinition = {
     },
   },
   createDispatcher: (gateway) => new CursorDispatcher(gateway),
+  sessions: cursorSessions,
   // Without it, a folder not trusted yet makes the terminal ask first and a
   // headless run exit 1; works in both, not only with -p (verified on 2026.10.01).
   trustFolderArgs: ['--trust'],

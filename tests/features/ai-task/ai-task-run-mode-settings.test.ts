@@ -8,30 +8,15 @@ function makePlugin(loaded: Record<string, unknown> | undefined): TaskChutePlugi
   } as unknown as TaskChutePlugin
 }
 
-describe('aiTaskRunMode setting', () => {
-  test('defaults to terminal', () => {
-    expect(DEFAULT_SETTINGS.aiTaskRunMode).toBe('terminal')
+// LEV-320: there is no run-mode setting. Runs use the terminal where it can
+// run and fall back to conversation mode elsewhere.
+describe('run mode is not a setting', () => {
+  test('has no default', () => {
+    expect(DEFAULT_SETTINGS.aiTaskRunMode).toBeUndefined()
   })
 
-  test('prepareSettings fills terminal for fresh installs', async () => {
-    const settings = await prepareSettings(makePlugin(undefined))
-    expect(settings.aiTaskRunMode).toBe('terminal')
-  })
-
-  test('prepareSettings keeps an explicit headless preference', async () => {
-    const settings = await prepareSettings(makePlugin({ aiTaskRunMode: 'headless' }))
-    expect(settings.aiTaskRunMode).toBe('headless')
-  })
-
-  test('prepareSettings keeps an explicit terminal preference', async () => {
-    const settings = await prepareSettings(makePlugin({ aiTaskRunMode: 'terminal' }))
-    expect(settings.aiTaskRunMode).toBe('terminal')
-  })
-
-  test('prepareSettings normalizes invalid values back to terminal', async () => {
-    for (const bogus of ['tui', 42, true, null]) {
-      const settings = await prepareSettings(makePlugin({ aiTaskRunMode: bogus }))
-      expect(settings.aiTaskRunMode).toBe('terminal')
-    }
+  test.each([undefined, 'headless', 'terminal', 'tui', 42])('prepareSettings drops a stored value (%p)', async (stored) => {
+    const settings = await prepareSettings(makePlugin(stored === undefined ? {} : { aiTaskRunMode: stored }))
+    expect(settings.aiTaskRunMode).toBeUndefined()
   })
 })

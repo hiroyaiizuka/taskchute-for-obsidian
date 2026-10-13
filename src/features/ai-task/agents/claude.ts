@@ -8,6 +8,7 @@
 import { ClaudeCodeDispatcher } from '../services/dispatchers/ClaudeCodeDispatcher'
 import type { AiAgentDefinition } from './AiAgentDefinition'
 import { windowsJoin } from './windowsPaths'
+import { claudeSessions } from '../sessions/claudeSessions'
 
 const EFFORT_PREFIX = '--effort='
 
@@ -43,6 +44,7 @@ export const claudeAgent: AiAgentDefinition = {
     ],
   },
   createDispatcher: (gateway) => new ClaudeCodeDispatcher(gateway),
+  sessions: claudeSessions,
   // `--permission-mode manual` is spelled out so a manual task asks even when
   // the user's Claude settings default to another mode (2.1.295 lists
   // manual, auto, acceptEdits, bypassPermissions, dontAsk, plan).

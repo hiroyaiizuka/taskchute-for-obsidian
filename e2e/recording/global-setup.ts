@@ -15,6 +15,16 @@ export default async function globalSetup(): Promise<void> {
   }
   assertFfmpeg()
 
+  // A recording started from inside an AI agent's own session (Claude Code
+  // running this command) must not hand that session's markers to the CLIs it
+  // records: a real `claude` that inherits them runs as a child session and
+  // does not show the conversation it resumes. Workers inherit this env.
+  for (const name of Object.keys(process.env)) {
+    if (name === "CLAUDECODE" || name.startsWith("CLAUDE_CODE_") || name === "CLAUDE_PID" || name === "CLAUDE_EFFORT") {
+      delete process.env[name]
+    }
+  }
+
   // Record what the source says now, not whatever main.js was last built.
   if (!process.env.TASKCHUTE_E2E_PLUGIN_DIR && process.env.TASKCHUTE_E2E_SKIP_BUILD !== "1") {
     execSync("npm run build", { cwd: REPO_ROOT, stdio: "inherit" })

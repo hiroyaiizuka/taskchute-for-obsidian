@@ -64,6 +64,14 @@ class CommandRegistrarImpl implements CommandRegistrar {
         fallback: "Leave a comment",
         callback: () => this.view.triggerLeaveComment(),
       },
+      {
+        // Past agent sessions (LEV-320): the AI pane is hidden while nothing
+        // runs, so this is the way in when the pane is not on screen.
+        id: "open-session-history",
+        nameKey: "commands.openSessionHistory",
+        fallback: "Open AI session history",
+        callback: () => this.view.triggerOpenSessionHistory(),
+      },
     ];
 
     const selectionCommands: ConditionalCommandDefinition[] = [
