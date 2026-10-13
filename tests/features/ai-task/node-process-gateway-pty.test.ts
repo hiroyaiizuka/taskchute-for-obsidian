@@ -121,7 +121,9 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     ])
     const wrapper = command.args[1]
     expect(wrapper).toContain(BROKER_WATCHDOG)
-    expect(wrapper).toContain('cat 2>/dev/null | {')
+    // dd, not cat: a cat that copies with splice(2) stalls script (see buildPtyCommand).
+    expect(wrapper).toContain(`${BROKER_WATCHDOG}dd bs=65536 2>/dev/null | {`)
+    expect(wrapper).not.toContain('cat ')
     expect(wrapper).toContain('TASKCHUTE_AI_TTY_PATH="$0.tty"')
     expect(wrapper).toContain(`printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2`)
     expect(wrapper).toContain('kill -9 0 2>/dev/null')

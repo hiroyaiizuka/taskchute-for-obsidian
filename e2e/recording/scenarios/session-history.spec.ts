@@ -15,10 +15,6 @@ import { expect, test } from "../fixtures"
 // records are run once each in the vault (Claude Code twice; Codex and Cursor
 // when they are installed), and the recording resumes a Claude Code session
 // with the real CLI. The CLIs must be signed in, and each run spends a request.
-//
-// Record this where the terminal shows a real CLI: macOS or Windows. On Linux
-// the resumed CLI's screen stays empty (a known terminal bug, LEV-313), and
-// the scenario stops at the resume scene.
 
 const run = promisify(execFile)
 
