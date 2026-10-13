@@ -140,8 +140,8 @@ export class TerminalUnsupportedError extends Error {
  * Marker the PTY wrapper prints to STDERR (followed by the child's exit
  * code) just before it force-kills its own process group. Needed because:
  * (1) `script` refuses a socketpair stdin (Node's 'pipe' stdio) with
- * "tcgetattr: Operation not supported on socket", so a `cat |` stage
- * interposes a REAL pipe; (2) `cat` never sees EOF while the plugin holds
+ * "tcgetattr: Operation not supported on socket", so a `cat |` stage (`dd |`
+ * on Linux) interposes a REAL pipe; (2) it never sees EOF while the plugin holds
  * stdin open, so after `script` exits the wrapper must `kill -9 0` to reap
  * the pipeline - which destroys the shell's exit status; the sentinel
  * carries the child's real code out on the (wrapper-only) stderr channel.
@@ -149,6 +149,9 @@ export class TerminalUnsupportedError extends Error {
  * codes, records the transcript, and survives SIGTERM group stops.
  */
 export const TERMINAL_EXIT_SENTINEL = '__TASKCHUTE_AI_EXIT__'
+
+/** What carries keystrokes into `script` on Linux; see buildPtyCommand. */
+export const LINUX_STDIN_PUMP = 'dd bs=65536'
 
 /**
  * Upper bound on the transcript bytes readAndDeleteFile loads into memory.
@@ -1722,8 +1725,8 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       'if [ "${TASKCHUTE_BROKER_WATCH_FD:-}" = "3" ]; then ' +
       '(IFS= read -r _ <&3; kill -9 0 2>/dev/null) & fi; '
     // See TERMINAL_EXIT_SENTINEL for why the wrapper looks like this.
-    const wrap = (scriptInvocation: string): string =>
-      `${brokerWatchdog}cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
+    const wrap = (scriptInvocation: string, stdinPump: string): string =>
+      `${brokerWatchdog}${stdinPump} 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
       `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
     if (platform === 'darwin') {
@@ -1741,6 +1744,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           wrap(
             `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -q -F "$0" ` +
               `/bin/sh -c '${ptyPreamble}; ${ptySupervisor}' "$@"`,
+            'cat',
           ),
           request.transcriptPath,
           request.binaryPath,
@@ -1756,6 +1760,13 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       const execCommand = [request.binaryPath, ...request.args]
         .map(shellQuote)
         .join(' ')
+      // The stdin pump is `dd`, not `cat`: a `cat` that copies with splice(2)
+      // (uutils coreutils, the default on Ubuntu 25.10 and later) keeps the
+      // pipe locked while it waits for the next keystroke, and `script` then
+      // hangs in read() on that pipe — with the CLI's output stuck behind it.
+      // A CLI that queries the terminal at startup (Claude Code, Cursor)
+      // triggers it at once: the terminal's replies arrive back to back.
+      // `dd` reads and writes each chunk as it comes.
       return {
         command: '/bin/sh',
         args: [
@@ -1763,6 +1774,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           wrap(
             `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -qefc ` +
               `${shellQuote(`${ptyPreamble}; ${ptySupervisor.replace('"$0" "$@"', execCommand)}`)} "$0"`,
+            LINUX_STDIN_PUMP,
           ),
           request.transcriptPath,
           // Unused outer-shell positionals: the broker validates the real
