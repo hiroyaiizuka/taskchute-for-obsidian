@@ -18,6 +18,7 @@
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
 import { joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readSmallText } from './jsonLines'
+import { joinMessages } from './sessionText'
 
 const META_MAX_BYTES = 64 * 1024
 /** Message blobs read from each end of a conversation to find the first prompt and the last reply. */
@@ -114,41 +115,54 @@ interface Conversation {
   lastText?: string
 }
 
-async function readConversation(fs: SessionFileSystem, storePath: string): Promise<Conversation> {
-  if (!fs.readSqliteTable) return {}
+/** The chat's name (unless Cursor has not named it yet) and its message ids, in order. */
+async function readChat(fs: SessionFileSystem, storePath: string): Promise<{ name?: string; ids: string[] } | null> {
+  if (!fs.readSqliteTable) return null
   const metaRows = await fs.readSqliteTable(storePath, META_TABLE)
   const metaHex = metaRows ? Array.from(metaRows.values())[0] : undefined
   const metaBytes = typeof metaHex === 'string' ? fromHex(metaHex) : null
   const meta = metaBytes ? parseJson(metaBytes) : undefined
-  if (!isRecord(meta)) return {}
+  if (!isRecord(meta)) return null
   const name = typeof meta['name'] === 'string' && meta['name'].trim() !== '' ? meta['name'].trim() : undefined
-  const conversation: Conversation = name && name !== UNNAMED_CHAT ? { name } : {}
-
+  const chat = { ...(name && name !== UNNAMED_CHAT ? { name } : {}), ids: [] as string[] }
   const rootId = meta['latestRootBlobId']
-  if (typeof rootId !== 'string') return conversation
+  if (typeof rootId !== 'string') return chat
   const root = (await fs.readSqliteTable(storePath, BLOBS_TABLE, [rootId]))?.get(rootId)
-  if (!(root instanceof Uint8Array)) return conversation
-  const ids = messageIdsOfRoot(root)
+  if (root instanceof Uint8Array) chat.ids = messageIdsOfRoot(root)
+  return chat
+}
+
+/** The messages with these ids, in the order given. */
+async function readMessages(fs: SessionFileSystem, storePath: string, ids: readonly string[]): Promise<Array<Record<string, unknown>>> {
+  const blobs = fs.readSqliteTable ? await fs.readSqliteTable(storePath, BLOBS_TABLE, ids) : null
+  if (!blobs) return []
+  return ids.map((id) => parseJson(blobs.get(id))).filter(isRecord)
+}
+
+/** The words of one message: what the user typed, or the agent's reply; nothing else. */
+function wordsOf(message: Record<string, unknown>): string | undefined {
+  if (message['role'] === 'user') return userQuery(textOf(message['content']))
+  if (message['role'] !== 'assistant') return undefined
+  const text = textOf(message['content']).trim()
+  return text.length > 0 ? text : undefined
+}
+
+async function readConversation(fs: SessionFileSystem, storePath: string): Promise<Conversation> {
+  const chat = await readChat(fs, storePath)
+  if (!chat) return {}
+  const conversation: Conversation = chat.name ? { name: chat.name } : {}
+  const ids = chat.ids
   const wanted = Array.from(new Set([...ids.slice(0, MESSAGES_PER_END), ...ids.slice(-MESSAGES_PER_END)]))
-  const blobs = await fs.readSqliteTable(storePath, BLOBS_TABLE, wanted)
-  if (!blobs) return conversation
-  const messages = wanted.map((id) => parseJson(blobs.get(id))).filter(isRecord)
-  for (const message of messages) {
-    if (message['role'] !== 'user') continue
-    const query = userQuery(textOf(message['content']))
-    if (query) {
-      conversation.firstText = query
-      break
-    }
-  }
-  for (const message of [...messages].reverse()) {
-    const text = message['role'] === 'assistant' ? textOf(message['content']) : userQuery(textOf(message['content']))
-    if ((message['role'] === 'assistant' || message['role'] === 'user') && text && text.trim().length > 0) {
-      conversation.lastText = text
-      break
-    }
-  }
+  const messages = await readMessages(fs, storePath, wanted)
+  const first = messages.find((message) => message['role'] === 'user' && wordsOf(message))
+  if (first) conversation.firstText = wordsOf(first)
+  const last = [...messages].reverse().find((message) => wordsOf(message))
+  if (last) conversation.lastText = wordsOf(last)
   return conversation
+}
+
+function storePathOf(file: AgentSessionFile): string {
+  return `${file.path.slice(0, -'meta.json'.length)}store.db`
 }
 
 export const cursorSessions: AgentSessionSource = {
@@ -183,8 +197,7 @@ export const cursorSessions: AgentSessionSource = {
     const cwd = typeof meta['cwd'] === 'string' ? meta['cwd'] : undefined
     if (!cwd) return null
     const updatedAt = typeof meta['updatedAtMs'] === 'number' ? meta['updatedAtMs'] : file.mtimeMs
-    const storePath = `${file.path.slice(0, -'meta.json'.length)}store.db`
-    const { name, firstText, lastText } = await readConversation(fs, storePath)
+    const { name, firstText, lastText } = await readConversation(fs, storePathOf(file))
     return {
       host: 'cursor',
       id: file.id,
@@ -195,6 +208,13 @@ export const cursorSessions: AgentSessionSource = {
       ...(lastText ? { lastText: preview(lastText) } : {}),
       updatedAt,
     }
+  },
+
+  async conversationText(fs, file): Promise<string | null> {
+    const chat = await readChat(fs, storePathOf(file))
+    if (!chat) return null
+    const messages = await readMessages(fs, storePathOf(file), chat.ids)
+    return joinMessages(messages.map(wordsOf).filter((text): text is string => text !== undefined))
   },
 
   resumeArgs: (id) => ['--resume', id],

@@ -4,7 +4,8 @@
  * Lists the past agent sessions of the vault's folder, newest first: a search
  * box, a reload button and an archive switch on top, then one row per session
  * (title, last message, agent and time) with Resume and Archive (or Restore)
- * actions. Pages load as the list scrolls to its end.
+ * actions. Pages load as the list scrolls to its end. The search box searches
+ * whole conversations; a matching row shows where its words occur.
  */
 
 import { setIcon } from 'obsidian'
@@ -110,6 +111,10 @@ export class AgentSessionHistoryView {
     const generation = this.generation
     this.loading = true
     try {
+      // A first search may have to read whole conversations: say so.
+      if (first && this.searchInput.value.trim()) {
+        this.showMessage(this.deps.tv('aiTask.history.searching', 'Searching conversations…'))
+      }
       const page = await source.page({
         folder: source.folder,
         query: this.searchInput.value,
@@ -117,6 +122,7 @@ export class AgentSessionHistoryView {
         cursor: this.nextCursor,
       })
       if (generation !== this.generation) return
+      if (first) this.listEl.empty()
       this.nextCursor = page.nextCursor
       for (const item of page.items) this.renderRow(item)
       if (first && page.items.length === 0) {
@@ -174,7 +180,8 @@ export class AgentSessionHistoryView {
       row.remove()
     })
 
-    const snippet = item.lastText ?? item.firstText
+    // When searching, the place in the conversation where the words occur.
+    const snippet = item.matchText ?? item.lastText ?? item.firstText
     if (snippet) row.createDiv({ cls: 'ai-session-history__snippet', text: snippet })
     const meta = row.createDiv({ cls: 'ai-session-history__meta' })
     meta.createSpan({ cls: 'ai-session-history__agent', text: `${agent.icon} ${tv(agent.label.key, agent.label.fallback)}` })

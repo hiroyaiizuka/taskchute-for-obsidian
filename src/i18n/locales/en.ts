@@ -250,6 +250,7 @@ export const en = {
         refresh: "Reload",
         showArchived: "Show archived",
         loading: "Loading sessions…",
+        searching: "Searching conversations…",
         unavailable: "Session history is unavailable here.",
         empty: "No sessions have run in this vault yet.",
         emptyArchived: "No archived sessions.",

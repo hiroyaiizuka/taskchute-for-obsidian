@@ -610,6 +610,8 @@ export class AiRunPaneController {
           refresh: async () => {
             await this.host.manager.settleSessionResumeSupport?.()
             await found.history.refresh()
+            // Ready the folder's conversations for search, in the background.
+            void found.history.prepareSearch(found.folder)
           },
           page: (request) => found.history.page(request),
         }

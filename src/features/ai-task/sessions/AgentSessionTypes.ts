@@ -59,6 +59,12 @@ export interface AgentSessionSource {
   listFiles(fs: SessionFileSystem): Promise<AgentSessionFile[]>
   /** null when the file cannot be read as a session (unknown or changed format). */
   summarize(fs: SessionFileSystem, file: AgentSessionFile): Promise<AgentSessionSummary | null>
+  /**
+   * Every message of the conversation (the user's and the agent's words, not
+   * tool calls or their output), joined, for full-text search. null when the
+   * file cannot be read as a session.
+   */
+  conversationText?(fs: SessionFileSystem, file: AgentSessionFile): Promise<string | null>
   /** The CLI arguments that resume the session in a terminal. */
   resumeArgs(id: string): string[]
 }

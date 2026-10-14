@@ -248,6 +248,7 @@ export const ja = {
         refresh: "再読み込み",
         showArchived: "アーカイブを表示",
         loading: "セッションを読み込み中…",
+        searching: "会話を検索中…",
         unavailable: "この環境ではセッション履歴を使えません。",
         empty: "この保管庫で動かしたセッションはまだありません。",
         emptyArchived: "アーカイブしたセッションはありません。",
