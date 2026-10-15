@@ -5,12 +5,14 @@
  * `C--Users-…` and `c--Users-…` occur), so the directory is taken from the
  * `cwd` the lines carry instead. Only `user`, `assistant`, `ai-title` and
  * `custom-title` lines are read; every other line type (there are dozens,
- * and new ones appear) is skipped. Verified on 2.1.296.
+ * and new ones appear) is skipped. Full-text search reads the user's and the
+ * agent's words only, never tool results. Verified on 2.1.296.
  */
 
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
 import { joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readJsonLineEnds, type JsonRecord } from './jsonLines'
+import { forEachJsonLine, joinMessages } from './sessionText'
 
 /** Text the user typed: a string, or text blocks (tool results and wrapped commands are not). */
 function userText(line: JsonRecord): string | undefined {
@@ -100,6 +102,22 @@ export const claudeSessions: AgentSessionSource = {
       ...(lastText ? { lastText: preview(lastText) } : {}),
       updatedAt: file.mtimeMs,
     }
+  },
+
+  async conversationText(fs, file): Promise<string | null> {
+    const messages: string[] = []
+    await forEachJsonLine(
+      fs,
+      file.path,
+      file.size,
+      // A user line that carries a tool result is tool output, often huge.
+      (raw) => raw.includes('"type":"assistant"') || (raw.includes('"type":"user"') && !raw.includes('"type":"tool_result"')),
+      (line) => {
+        const text = userText(line) ?? assistantText(line)
+        if (text) messages.push(text)
+      },
+    )
+    return joinMessages(messages)
   },
 
   resumeArgs: (id) => ['--resume', id],

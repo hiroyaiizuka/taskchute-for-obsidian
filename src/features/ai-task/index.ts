@@ -23,6 +23,7 @@ import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { listAiAgents, mapAiAgents } from './agents'
 import { AgentSessionHistory } from './sessions/AgentSessionHistory'
 import { SessionArchiveStore } from './sessions/SessionArchiveStore'
+import { IndexedDbSessionTextStore } from './sessions/SessionTextStore'
 import {
   TerminalDispatcher,
   type AiTerminalDispatcher,
@@ -199,6 +200,8 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
       saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
     }),
+    // Conversations extracted for search stay on this device, out of the vault.
+    new IndexedDbSessionTextStore(window.indexedDB),
   )
 
   const deps: AiTaskManagerDeps = {

@@ -12,6 +12,7 @@
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
 import { joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readJsonLineEnds, readSmallText, type JsonRecord } from './jsonLines'
+import { forEachJsonLine, joinMessages } from './sessionText'
 
 const ROLLOUT_ID = /^rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/u
 const INDEX_MAX_BYTES = 8 * 1024 * 1024
@@ -98,6 +99,21 @@ export function createCodexSessions(): AgentSessionSource {
       ...(lastText ? { lastText: preview(lastText) } : {}),
       updatedAt: file.mtimeMs,
     }
+  },
+
+  async conversationText(fs, file): Promise<string | null> {
+    const messages: string[] = []
+    await forEachJsonLine(
+      fs,
+      file.path,
+      file.size,
+      (raw) => raw.includes('"type":"response_item"') && raw.includes('"type":"message"'),
+      (line) => {
+        const text = messageText(line, 'user') ?? messageText(line, 'assistant')
+        if (text) messages.push(text)
+      },
+    )
+    return joinMessages(messages)
   },
 
   resumeArgs: (id) => ['resume', id],

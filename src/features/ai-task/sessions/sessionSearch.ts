@@ -2,8 +2,8 @@
  * Session search: the query is split into words with the browser's own
  * Japanese-aware word breaker (Intl.Segmenter, built into Obsidian's
  * Chromium, so no dictionary ships with the plugin), and a session matches
- * when its title, first message or last message contains every word, in any
- * order. Single hiragana (particles such as の, を) are not required.
+ * when its title and its conversation together contain every word, in any
+ * order (see AgentSessionHistory). Single hiragana (particles such as の, を) are not required.
  */
 
 const PARTICLE = /^[぀-ゟ]$/u

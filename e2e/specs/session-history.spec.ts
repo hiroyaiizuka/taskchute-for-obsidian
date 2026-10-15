@@ -17,6 +17,11 @@ function write(file: string, content: string, mtime: number) {
   fs.utimesSync(file, mtime, mtime)
 }
 
+/** What each Claude Code session says halfway through, away from its first and last messages. */
+const MIDDLE: Record<string, string> = {
+  "11111111-1111-4111-8111-111111111111": "粗大ごみの回収を予約する",
+}
+
 /** Sessions of Claude Code, Codex and Cursor in the vault, and one elsewhere. */
 function writeSessions(home: string, vault: string) {
   const now = Date.now() / 1000
@@ -26,6 +31,9 @@ function writeSessions(home: string, vault: string) {
       jsonl(
         { type: "user", cwd, message: { role: "user", content: ask } },
         { type: "ai-title", aiTitle: title },
+        // Mid-conversation: only full-text search finds what is said here.
+        { type: "user", cwd, message: { role: "user", content: `Also: ${MIDDLE[id] ?? "nothing else"}` } },
+        { type: "assistant", cwd, message: { role: "assistant", content: [{ type: "text", text: "Noted." }] } },
         { type: "assistant", cwd, message: { role: "assistant", content: [{ type: "text", text: `Answered: ${ask}` }] } },
       ),
       now - age,
@@ -82,9 +90,12 @@ test("lists the vault's sessions of every agent, searches them, archives and res
   await expect(page.locator('.ai-session-history__row[data-session-host="codex"]')).toHaveCount(1)
   await expect(page.locator('.ai-session-history__row[data-session-host="cursor"]')).toHaveCount(1)
 
-  // Search: every word, in the title or the first and last messages.
+  // Search: every word, in the title or anywhere in the conversation.
   await page.locator(".ai-session-history__search").fill("ステージング デプロイ")
   await expect(rowTitles(page)).toHaveText(["デプロイの失敗を調べる"])
+  await page.locator(".ai-session-history__search").fill("粗大ごみ 予約")
+  await expect(rowTitles(page)).toHaveText(["引っ越しの準備"])
+  await expect(rows(page).first().locator(".ai-session-history__snippet")).toContainText("粗大ごみの回収を予約する")
   await page.locator(".ai-session-history__search").fill("")
   await expect(rows(page)).toHaveCount(4)
 
