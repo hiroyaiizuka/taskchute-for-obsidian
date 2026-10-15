@@ -342,12 +342,12 @@ const TERMINAL_CELL_HEIGHT_PX = 17
 const TERMINAL_HORIZONTAL_INSET_PX = 16
 /**
  * Pane chrome above one panel's terminal body when deriving its height:
- * the pane header (~26px incl. padding and border), the per-panel tab
- * strip (26px min-height + 1px border), the pane borders, plus slack —
- * mirrors styles.css. The composer is hidden for terminal runs, so it is
- * not part of this allowance.
+ * the pane header (24px + 1px border), the per-panel tab strip (26px
+ * min-height + 1px border), the pane borders, plus slack — mirrors
+ * styles.css. The composer is hidden for terminal runs, so it is not part
+ * of this allowance.
  */
-const TERMINAL_VERTICAL_INSET_PX = 64
+const TERMINAL_VERTICAL_INSET_PX = 56
 /**
  * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
  * sidebar lives INSIDE the measured host container but not inside the
@@ -358,10 +358,11 @@ const TERMINAL_VERTICAL_INSET_PX = 64
  */
 export const RUN_SIDEBAR_WIDTH_PX = 180
 /**
- * Default share of the view height the terminal pane occupies (mirrors
- * styles.css). A drag-resized pane reports its own share instead.
+ * Default share of the view height the terminal pane occupies: half, so the
+ * terminal is usable without dragging (mirrors styles.css). A drag-resized
+ * pane reports its own share instead.
  */
-const TERMINAL_PANE_HEIGHT_RATIO = 0.4
+const TERMINAL_PANE_HEIGHT_RATIO = 0.5
 /** Share of the view height while expanded (mirrors styles.css) */
 const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 1
 const TERMINAL_MIN_COLS = 20
@@ -382,6 +383,11 @@ export const SPLIT_MIN_PANEL_WIDTH_PX = 320
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 /** Chrome class on the host container while the pane is expanded */
 const EXPANDED_CONTAINER_CLASS = 'ai-pane-container--expanded'
+/**
+ * On the TaskChute view root while the pane is expanded (⤢): full screen is
+ * the whole view, so the date row and the day's comments step aside.
+ */
+const EXPANDED_VIEW_CLASS = 'taskchute-view-root--ai-pane-expanded'
 /** Layout participation class while the pane (or a future artifact) is visible. */
 const VISIBLE_CONTAINER_CLASS = 'ai-pane-container--visible'
 /** Chrome class while the user dragged the splitter to an explicit height */
@@ -748,6 +754,7 @@ export class AiRunPaneController {
     this.paneHeightRatio = null
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
     this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
+    this.containerEl?.closest('.taskchute-view-root')?.classList.remove(EXPANDED_VIEW_CLASS)
     this.containerEl?.classList.remove(VISIBLE_CONTAINER_CLASS)
     this.containerEl?.classList.remove(SIZED_CONTAINER_CLASS)
     this.containerEl?.classList.remove(COLLAPSED_CONTAINER_CLASS)
@@ -2503,6 +2510,7 @@ export class AiRunPaneController {
       anyTerminalOnScreen && visible,
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
+    container.closest('.taskchute-view-root')?.classList.toggle(EXPANDED_VIEW_CLASS, this.expanded && visible)
     container.classList.toggle(
       SIZED_CONTAINER_CLASS,
       this.paneHeightRatio !== null && !this.isCollapsed(),

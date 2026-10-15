@@ -429,7 +429,7 @@ describe('AiRunPaneController terminal mode', () => {
     })
 
     const size = controller.computeTerminalSize()
-    // 40% of the parent height minus the pane chrome, divided by the cell
+    // Half of the parent height minus the pane chrome, divided by the cell
     // height; the exact cell constants live in the controller — assert sane
     // bounds (strictly below the 120x30 fallback, so a fallback return
     // cannot masquerade as a measurement) instead of duplicating them here.
