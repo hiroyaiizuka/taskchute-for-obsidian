@@ -1,7 +1,15 @@
 import type { AiTaskHost } from '../types'
 import { getAiAgent, mapAiAgents } from '../agents'
 
-export const CUSTOM_AI_MODEL_VALUE = '__custom__'
+/**
+ * The model IDs passed to a CLI as `--model`. The first character cannot be a
+ * hyphen, so an ID is never read as a flag.
+ */
+export const AI_MODEL_ID_SAFE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/u
+
+export function isSafeAiModelId(modelId: string): boolean {
+  return AI_MODEL_ID_SAFE_PATTERN.test(modelId)
+}
 
 export interface AiModelPreset {
   id: string
@@ -17,12 +25,10 @@ export type AiReasoningBudget =
   | 'max'
 
 export interface AiReasoningModelOptions {
-  /**
-   * Persistent custom models carry their real ID instead of the legacy
-   * `__custom__` sentinel, so callers must be able to identify them without
-   * inferring capabilities from an unknown ID.
-   */
-  isCustomModel?: boolean
+  /** A model the shown list does not have (an older task's model). */
+  isUnlisted?: boolean
+  /** The efforts the CLI's own list gives for the model, when it gives them. */
+  levels?: readonly string[]
 }
 
 /** Built-in model choices of each agent (see `agents/`). */
@@ -43,14 +49,11 @@ export function getAvailableReasoningModes(
   // "Default" resolves through the user's CLI configuration. It may point to
   // a model outside our preset capability table (for example Haiku or Luna),
   // so only promise explicit reasoning controls after a concrete model is
-  // selected. Custom remains separately conservative (see each agent).
+  // selected. An unlisted model stays conservative (see each agent).
   if (selectedModel === '') return ['automatic']
   const reasoning = getAiAgent(host).reasoning
   if (reasoning === null) return ['automatic']
-
-  const isCustomModel =
-    options.isCustomModel === true || selectedModel === CUSTOM_AI_MODEL_VALUE
-  return reasoning.modesFor(selectedModel, isCustomModel)
+  return reasoning.modesFor(selectedModel, options.isUnlisted === true, options.levels)
 }
 
 export function buildReasoningArgs(

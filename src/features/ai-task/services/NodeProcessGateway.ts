@@ -167,7 +167,12 @@ export const TRANSCRIPT_TRUNCATED_MARKER =
 
 export interface ProcessGateway {
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle
-  execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult>
+  execCapture(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+    envPatch?: Readonly<Record<string, string | undefined>>,
+  ): Promise<ExecCaptureResult>
   getBaseEnv(): Record<string, string | undefined>
   getShellPath(): string
   /**
@@ -1250,9 +1255,15 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     }
   }
 
-  execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult> {
+  execCapture(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+    envPatch?: Readonly<Record<string, string | undefined>>,
+  ): Promise<ExecCaptureResult> {
     return new Promise((resolve) => {
-      const handle = this.spawnProcess({ command, args, env: this.getBaseEnv() })
+      const env = { ...this.getBaseEnv(), ...(envPatch ?? {}) }
+      const handle = this.spawnProcess({ command, args, env })
       let stdout = ''
       let stderr = ''
       let timedOut = false

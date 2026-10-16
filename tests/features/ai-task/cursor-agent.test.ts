@@ -3,7 +3,6 @@ import type { BinaryLocatorGateway } from '@/features/ai-task/services/BinaryLoc
 import type { ExecCaptureResult } from '@/features/ai-task/services/NodeProcessGateway'
 import { newestCursorVersionsFirst } from '@/features/ai-task/agents/cursor'
 import { parseCursorLine } from '@/features/ai-task/services/streams/StreamJsonParser'
-import { AiCustomModelStore, AI_CUSTOM_MODEL_STORAGE_KEY } from '@/features/ai-task/models/AiCustomModelStore'
 
 // Cursor's CLI (cursor-agent), as installed and run on 2026.10.01.
 
@@ -136,17 +135,5 @@ describe('Cursor stream-json lines', () => {
     expect(parseCursorLine(line({ type: 'interaction_query' }))).toEqual([
       { kind: 'raw', text: '[unhandled] interaction_query' },
     ])
-  })
-})
-
-describe('custom models saved before Cursor existed', () => {
-  test('still load, and Cursor starts with none', () => {
-    const store = new AiCustomModelStore({
-      loadLocalStorage: (key) =>
-        key === AI_CUSTOM_MODEL_STORAGE_KEY ? { claude: [{ id: 'private/x', label: 'X' }], codex: [] } : null,
-      saveLocalStorage: () => undefined,
-    })
-    expect(store.getCustomModels('claude')).toEqual([{ id: 'private/x', label: 'X' }])
-    expect(store.getCustomModels('cursor')).toEqual([])
   })
 })

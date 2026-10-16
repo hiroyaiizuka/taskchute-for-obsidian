@@ -71,8 +71,12 @@ export interface AiAgentReasoning {
   /** The effort value that means the agent's ultra mode (e.g. `ultracode`). */
   ultraValue: string
   ultraLabel: AiAgentLabel<ScopedKey<'taskChuteView'>>
-  /** Modes offered for a concrete model; the CLI's default model only gets "automatic". */
-  modesFor(modelId: string, isCustomModel: boolean): readonly AiReasoningMode[]
+  /**
+   * Modes offered for a concrete model; the CLI's default model only gets
+   * "automatic". `isUnlisted` is a model the list does not know (an older
+   * task's model); `levels` are the efforts the CLI's own list gives for it.
+   */
+  modesFor(modelId: string, isUnlisted: boolean, levels?: readonly string[]): readonly AiReasoningMode[]
   /** The argv for one effort value: a budget or `ultraValue`. */
   effortArgs(value: string): string[]
   /**
@@ -81,6 +85,34 @@ export interface AiAgentReasoning {
    * there is not an effort option.
    */
   effortAt(args: readonly string[], index: number): { length: number; value?: string } | null
+}
+
+/** One model as the agent's CLI lists it. */
+export interface AiListedModel {
+  id: string
+  label: string
+  /** The efforts the CLI says the model takes, when its list says. */
+  reasoningLevels?: readonly string[]
+}
+
+/** How to ask the agent's CLI for its current model list. */
+export interface AiAgentModelList {
+  /** Arguments that make the CLI print its models and exit. */
+  args: readonly string[]
+  /**
+   * The models in the CLI's output, newest version of each model only, in
+   * the CLI's order. Throws when the output is not what this expects.
+   */
+  parse(output: string): AiListedModel[]
+}
+
+/** What the agent reads to find the model it uses when a task names none. */
+export interface AiDefaultModelSource {
+  home: string | undefined
+  env: Readonly<Record<string, string | undefined>>
+  /** A small text file, or null when it is missing or unreadable. */
+  readText(path: string): Promise<string | null>
+  join(...parts: string[]): string
 }
 
 export interface AiAgentDefinition {
@@ -120,7 +152,17 @@ export interface AiAgentDefinition {
   autoModeNote?: AiAgentLabel<ScopedKey<'taskChuteView'>>
   /** Older spellings still found in notes, read as the mode they stand for and kept as written. */
   legacyExecModes?: readonly { mode: AiExecModeId; tokens: readonly string[] }[]
-  /** Built-in model choices; more can be added per device. */
+  /**
+   * The models offered before (or without) asking the CLI. For an agent with
+   * `modelList` this is only the fallback for when the CLI cannot be asked.
+   */
   models: readonly AiModelPreset[]
+  /** Asks the CLI for its current models; absent when the CLI has no such list. */
+  modelList?: AiAgentModelList
+  /**
+   * The model the CLI uses when a task names none, as its own settings say;
+   * null when they say nothing (the CLI then decides).
+   */
+  defaultModel?(source: AiDefaultModelSource): Promise<string | null>
   reasoning: AiAgentReasoning | null
 }
