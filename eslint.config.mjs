@@ -317,6 +317,7 @@ export default [
           enforceCamelCaseLower: false,
           brands: [
             "Claude",
+            "Claude Code",
             "Codex",
             "Cursor",
             "Google Calendar",

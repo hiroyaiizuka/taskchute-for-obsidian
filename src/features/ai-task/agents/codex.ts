@@ -7,11 +7,52 @@
  */
 
 import { CodexDispatcher } from '../services/dispatchers/CodexDispatcher'
-import type { AiAgentDefinition, WindowsInstallDirs } from './AiAgentDefinition'
+import { newestPerLine } from '../models/modelLines'
+import type { AiAgentDefinition, AiListedModel, WindowsInstallDirs } from './AiAgentDefinition'
 import { windowsJoin } from './windowsPaths'
 import { createCodexSessions } from '../sessions/codexSessions'
 
 const EFFORT_PATTERN = /^model_reasoning_effort="([^"]+)"$/u
+
+/**
+ * `codex debug models`: JSON `{ models: [{ slug, display_name, visibility,
+ * supported_reasoning_levels: [{ effort }] }] }`. Only `visibility: "list"`
+ * models are offered (the others are Codex's own). A debug command, so its
+ * shape may change: anything unexpected throws and the built-in list stays.
+ */
+function parseCodexModels(output: string): AiListedModel[] {
+  const parsed: unknown = JSON.parse(output.slice(output.indexOf('{')))
+  const models = (parsed as { models?: unknown }).models
+  if (!Array.isArray(models)) throw new Error('codex debug models: no models array')
+  const listed: AiListedModel[] = []
+  for (const model of models) {
+    if (typeof model !== 'object' || model === null) continue
+    const entry = model as Record<string, unknown>
+    if (entry['visibility'] !== 'list' || typeof entry['slug'] !== 'string') continue
+    const levels = Array.isArray(entry['supported_reasoning_levels'])
+      ? entry['supported_reasoning_levels']
+        .map((level) => (typeof level === 'object' && level !== null ? (level as Record<string, unknown>)['effort'] : null))
+        .filter((effort): effort is string => typeof effort === 'string')
+      : undefined
+    listed.push({
+      id: entry['slug'],
+      label: typeof entry['display_name'] === 'string' ? entry['display_name'] : entry['slug'],
+      ...(levels ? { reasoningLevels: levels } : {}),
+    })
+  }
+  if (listed.length === 0) throw new Error('codex debug models: no listed models')
+  return newestPerLine(listed, (model) => model.id)
+}
+
+/** A top-level `model = "…"` in ~/.codex/config.toml (before any [table]). */
+function configuredModel(toml: string): string | null {
+  for (const line of toml.split(/\r?\n/u)) {
+    if (/^\s*\[/u.test(line)) break
+    const match = /^\s*model\s*=\s*"([^"]+)"/u.exec(line)
+    if (match) return match[1]
+  }
+  return null
+}
 
 /** The native codex.exe that @openai/codex vendors, for this machine's architecture first. */
 function nativeCandidates(npmDirectory: string, dirs: WindowsInstallDirs): string[] {
@@ -79,16 +120,25 @@ export const codexAgent: AiAgentDefinition = {
     { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
     { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
   ],
+  modelList: { args: ['debug', 'models'], parse: parseCodexModels },
+  async defaultModel(source) {
+    if (!source.home) return null
+    const toml = await source.readText(source.join(source.home, '.codex', 'config.toml'))
+    return toml ? configuredModel(toml) : null
+  },
   reasoning: {
     budgets: ['low', 'medium', 'high', 'xhigh', 'max'],
     ultraValue: 'ultra',
     ultraLabel: { key: 'addTask.aiReasoningModeCodexUltra', fallback: 'Ultra (parallel delegation)' },
-    // Codex 0.144.1's bundled catalog advertises Ultra for Sol and Terra, but
-    // not Luna. A custom provider/model is unknown, so do not promise Ultra.
-    modesFor: (modelId, isCustomModel) =>
-      modelId === 'gpt-5.6-luna' || isCustomModel
+    // The CLI's own list says which models take Ultra. Without it (the
+    // built-in list), Luna does not; a model the list does not know is not
+    // promised Ultra.
+    modesFor: (modelId, isUnlisted, levels) => {
+      if (levels) return levels.includes('ultra') ? ['automatic', 'specified', 'ultra'] : ['automatic', 'specified']
+      return modelId === 'gpt-5.6-luna' || isUnlisted
         ? ['automatic', 'specified']
-        : ['automatic', 'specified', 'ultra'],
+        : ['automatic', 'specified', 'ultra']
+    },
     // Codex parses --config values as TOML. Keep the quotes inside this argv
     // token so the effort is unambiguously a TOML string in both PTY and exec.
     effortArgs: (value) => ['--config', `model_reasoning_effort="${value}"`],

@@ -54,23 +54,39 @@ export const claudeAgent: AiAgentDefinition = {
     'skip-permissions': ['--dangerously-skip-permissions'],
   },
   // Verified against the local CLI and the model documentation on 2026-07-13.
+  // Claude Code has no command that lists models. Its aliases always mean the
+  // newest version of each model (`--model opus`), so these never go stale.
   models: [
-    { id: 'claude-fable-5', label: 'Claude Fable 5' },
-    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    { id: 'fable', label: 'Claude Fable' },
+    { id: 'opus', label: 'Claude Opus' },
+    { id: 'sonnet', label: 'Claude Sonnet' },
+    { id: 'haiku', label: 'Claude Haiku' },
   ],
+  // ~/.claude/settings.json `model`, or ANTHROPIC_MODEL. Without either,
+  // Claude Code picks by the account's plan, which only it knows.
+  async defaultModel(source) {
+    const fromEnv = source.env['ANTHROPIC_MODEL']?.trim()
+    if (fromEnv) return fromEnv
+    if (!source.home) return null
+    const text = await source.readText(source.join(source.home, '.claude', 'settings.json'))
+    try {
+      const settings: unknown = text ? JSON.parse(text) : null
+      const model = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['model'] : null
+      return typeof model === 'string' && model.trim() ? model.trim() : null
+    } catch {
+      return null
+    }
+  },
   reasoning: {
     budgets: ['low', 'medium', 'high', 'xhigh', 'max'],
     ultraValue: 'ultracode',
     ultraLabel: { key: 'addTask.aiReasoningModeClaudeUltra', fallback: 'Ultracode (parallel workflow)' },
-    modesFor: (modelId, isCustomModel) => {
-      // The current Claude Code docs do not list Haiku 4.5 as supporting
-      // effort. Custom remains permissive for ordinary effort because a
-      // private provider/model may support it, but does not advertise
-      // Ultracode.
-      if (modelId === 'claude-haiku-4-5') return ['automatic']
-      if (isCustomModel) return ['automatic', 'specified']
+    modesFor: (modelId, isUnlisted) => {
+      // The Claude Code docs do not list Haiku as supporting effort. A model
+      // the list does not know (an older task's) keeps ordinary effort but is
+      // not promised Ultracode.
+      if (modelId === 'haiku' || modelId.startsWith('claude-haiku')) return ['automatic']
+      if (isUnlisted) return ['automatic', 'specified']
       return ['automatic', 'specified', 'ultra']
     },
     effortArgs: (value) => [`${EFFORT_PREFIX}${value}`],

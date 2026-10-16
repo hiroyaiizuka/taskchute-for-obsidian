@@ -13,9 +13,29 @@
  */
 
 import { CursorDispatcher } from '../services/dispatchers/CursorDispatcher'
-import type { AiAgentDefinition } from './AiAgentDefinition'
+import { newestPerLine, onePerFamily, withoutVariantWords } from '../models/modelLines'
+import type { AiAgentDefinition, AiListedModel } from './AiAgentDefinition'
 import { windowsJoin } from './windowsPaths'
 import { cursorSessions } from '../sessions/cursorSessions'
+
+/**
+ * `cursor-agent models`: a heading, then "<id> - <name>" per line. Every
+ * model comes at several efforts and speeds, and in several versions; one row
+ * per model, newest version only. "auto" is what the CLI's default already is.
+ */
+function parseCursorModels(output: string): AiListedModel[] {
+  const rows: AiListedModel[] = []
+  for (const raw of output.split(/\r?\n/u)) {
+    const line = raw.replace(/\u200b|\u200c|\u200d|\ufeff/gu, '').trim()
+    const at = line.indexOf(' - ')
+    if (at <= 0) continue
+    const id = line.slice(0, at).trim()
+    if (!/^[A-Za-z0-9._:/-]+$/u.test(id) || id === 'auto') continue
+    rows.push({ id, label: withoutVariantWords(line.slice(at + 3).trim()) || id })
+  }
+  if (rows.length === 0) throw new Error('cursor-agent models: no models')
+  return newestPerLine(onePerFamily(rows, (row) => row.id), (row) => row.id)
+}
 
 /** `2026.10.01-e373342`, or the newer `2026.10.01-12-30-45-e373342` with a build time. */
 const VERSION_PATTERN = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$/u
@@ -85,8 +105,23 @@ export const cursorAgent: AiAgentDefinition = {
       "In auto mode Cursor runs only the commands on its allowlist (permissions.allow in ~/.cursor/cli-config.json) without asking. Other commands ask first in the terminal and are not run in conversation mode.",
   },
   legacyExecModes: [{ mode: 'skip-permissions', tokens: ['--yolo'] }],
-  // Cursor's model names change often (`cursor-agent models` lists them), so
-  // none are built in: the CLI's default (auto) or a model added per device.
+  // Cursor's models change often, so none are built in: the list comes from
+  // `cursor-agent models` (asks the account; a few seconds).
   models: [],
+  modelList: { args: ['models'], parse: parseCursorModels },
+  // ~/.cursor/cli-config.json: the model Cursor uses when none is given.
+  async defaultModel(source) {
+    if (!source.home) return null
+    const text = await source.readText(source.join(source.home, '.cursor', 'cli-config.json'))
+    try {
+      const config: unknown = text ? JSON.parse(text) : null
+      const model = typeof config === 'object' && config !== null ? (config as Record<string, unknown>)['model'] : null
+      if (typeof model !== 'object' || model === null) return null
+      const name = (model as Record<string, unknown>)['displayName'] ?? (model as Record<string, unknown>)['modelId']
+      return typeof name === 'string' && name.trim() ? name.trim() : null
+    } catch {
+      return null
+    }
+  },
   reasoning: null,
 }

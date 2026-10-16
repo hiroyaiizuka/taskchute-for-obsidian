@@ -34,6 +34,7 @@ import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { getAiAgent } from '../agents'
 import type { AgentSessionHistory } from '../sessions/AgentSessionHistory'
+import type { AiModelCatalog } from '../models/AiModelCatalog'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
 import { capEventText } from './streams/StreamJsonParser'
@@ -210,6 +211,8 @@ interface AiTaskFileCacheLike {
 export interface AiTaskManagerDeps {
   /** Past agent sessions on this device, for the session history (desktop only). */
   sessionHistory?: AgentSessionHistory
+  /** The models each agent's CLI offers, for the model picker (desktop only). */
+  modelCatalog?: AiModelCatalog
   app: {
     vault: {
       cachedRead(file: TFile): Promise<string>
@@ -513,7 +516,7 @@ function joinCwd(basePath: string, relative: string): string {
   return `${base}/${rest}`
 }
 
-function normalizeBinaryResolution(resolution: AiBinaryResolution): {
+export function normalizeBinaryResolution(resolution: AiBinaryResolution): {
   binaryPath: string
   binaryArgsPrefix?: string[]
   binaryEnvPatch?: Readonly<Record<string, string | undefined>>
@@ -1283,6 +1286,10 @@ export class AiTaskManager {
   }
 
   /** The session history, and the folder whose sessions it lists (the vault's). */
+  getModelCatalog(): AiModelCatalog | undefined {
+    return this.deps.modelCatalog
+  }
+
   getSessionHistory(): { history: AgentSessionHistory; folder: string } | undefined {
     const folder = this.getVaultBasePath()
     if (!this.deps.sessionHistory || folder === undefined) return undefined
