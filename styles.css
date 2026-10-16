@@ -218,6 +218,23 @@ body.is-phone {
 .taskchute-calendar-export-modal .setting-item-info.is-hidden {
   display: none;
 }
+/* Project picker (a SuggestModal): the row that creates a project, and the
+   check on the task's current one. */
+.taskchute-project-picker .taskchute-project-picker__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskchute-project-picker .taskchute-project-picker__choice.is-create {
+  color: var(--text-accent);
+}
+
+.taskchute-project-picker .taskchute-project-picker__current {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
 .taskchute-calendar-export-modal .setting-item.is-hidden {
   display: none;
   border-top: 0;

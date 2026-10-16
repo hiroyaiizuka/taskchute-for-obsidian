@@ -95,8 +95,13 @@ test("my-feature", async ({ obsidian, recorder }) => {
 })
 ```
 
-- `recorder.start(title, { sub, say })` – sizes the window to 1280×800, draws
-  the overlay, starts recording.
+- `recorder.start(title, { sub, say, size })` – sizes the window to 1280×800
+  (or `size`), draws the overlay, starts recording.
+- **Phone layout**: call `window.app.emulateMobile(true)` before creating notes,
+  then start with `size: { width: 430, height: 880 }`. Obsidian switches to
+  its phone UI (`is-mobile`, `is-phone`, `Platform.isMobile`). There is no
+  on-screen keyboard and no IME in the emulation; say so on the page.
+  `project-picker-mobile.spec.ts` is the example.
 - `recorder.chapter(title, { sub, say })` – new scene and chapter-list entry.
   `recorder.caption(...)` changes the caption inside a scene.
 - `recorder.click(locator)` / `recorder.hover(locator)` – move the mouse there

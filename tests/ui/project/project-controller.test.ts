@@ -1,9 +1,10 @@
 import ProjectController from '@/ui/project/ProjectController'
 import { TaskChutePluginLike, TaskData, TaskInstance } from '@/types'
-import ProjectSettingsModal from '@/ui/modals/ProjectSettingsModal'
+import ProjectPickerModal from '@/ui/modals/ProjectPickerModal'
 import { TFile } from 'obsidian'
+import { ProjectBoardService } from '@/services/projects'
 
-jest.mock('@/ui/modals/ProjectSettingsModal', () => {
+jest.mock('@/ui/modals/ProjectPickerModal', () => {
   return {
     __esModule: true,
     default: jest.fn().mockImplementation(() => ({
@@ -13,7 +14,7 @@ jest.mock('@/ui/modals/ProjectSettingsModal', () => {
   }
 })
 
-const MockedProjectSettingsModal = ProjectSettingsModal as jest.MockedClass<typeof ProjectSettingsModal>
+const MockedProjectPickerModal = ProjectPickerModal as jest.MockedClass<typeof ProjectPickerModal>
 
 describe('ProjectController', () => {
   function attachCreateEl(target: HTMLElement): void {
@@ -177,7 +178,7 @@ describe('ProjectController', () => {
     expect(placeholder?.textContent).toBe('Click to set project')
   })
 
-  test('showProjectModal opens ProjectSettingsModal with project options', async () => {
+  test('showProjectModal opens the project picker with project options', async () => {
     const { controller, controllerOptions, inst, app } = createController({}, {
       'PROJ/Project - Alpha.md': 'todo',
     })
@@ -192,12 +193,12 @@ describe('ProjectController', () => {
       return null
     })
 
-    MockedProjectSettingsModal.mockClear()
+    MockedProjectPickerModal.mockClear()
 
     controller.showProjectModal(inst)
 
-    expect(MockedProjectSettingsModal).toHaveBeenCalledTimes(1)
-    const [modalAppArg, modalOptions] = MockedProjectSettingsModal.mock.calls[0] as [
+    expect(MockedProjectPickerModal).toHaveBeenCalledTimes(1)
+    const [modalAppArg, modalOptions] = MockedProjectPickerModal.mock.calls[0] as [
       unknown,
       {
         displayTitle: string
@@ -219,13 +220,43 @@ describe('ProjectController', () => {
 
     expect(controllerOptions.registerDisposer).toHaveBeenCalledTimes(1)
     const disposer = (controllerOptions.registerDisposer).mock.calls[0][0] as () => void
-    const instance = MockedProjectSettingsModal.mock.results[0]?.value as {
+    const instance = MockedProjectPickerModal.mock.results[0]?.value as {
       open: jest.Mock
       close?: jest.Mock
     }
     expect(instance?.close?.mock.calls.length ?? 0).toBe(0)
     disposer()
     expect(instance?.close).toHaveBeenCalled()
+  })
+
+  test('a project made from the modal is created as todo, and its path is what gets linked', async () => {
+    const { controller, inst } = createController()
+    const create = jest
+      .spyOn(ProjectBoardService.prototype, 'createProject')
+      .mockResolvedValue({ path: 'PROJ/Project - Launch.md' } as Awaited<ReturnType<ProjectBoardService['createProject']>>)
+    MockedProjectPickerModal.mockClear()
+
+    controller.showProjectModal(inst)
+
+    const [, modalOptions] = MockedProjectPickerModal.mock.calls[0] as [
+      unknown,
+      { createProject?: (title: string) => Promise<string> },
+    ]
+    await expect(modalOptions.createProject?.('Launch')).resolves.toBe('PROJ/Project - Launch.md')
+    expect(create).toHaveBeenCalledWith({ title: 'Launch', status: 'todo' })
+    create.mockRestore()
+  })
+
+  test('without a project folder, the modal does not open; settings open to choose one', () => {
+    const { controller, inst, app, plugin } = createController()
+    ;(plugin.pathManager as unknown as { getProjectFolderPath: () => string | null }).getProjectFolderPath = () => null
+    MockedProjectPickerModal.mockClear()
+
+    controller.showProjectModal(inst)
+
+    expect(MockedProjectPickerModal).not.toHaveBeenCalled()
+    expect(app.setting.open).toHaveBeenCalled()
+    expect(app.setting.openTabById).toHaveBeenCalledWith('taskchute-plus')
   })
 
   test('showProjectModal includes files without status metadata', async () => {
@@ -241,12 +272,12 @@ describe('ProjectController', () => {
       return null
     })
 
-    MockedProjectSettingsModal.mockClear()
+    MockedProjectPickerModal.mockClear()
 
     controller.showProjectModal(inst)
 
-    expect(MockedProjectSettingsModal).toHaveBeenCalledTimes(1)
-    const [, modalOptions] = MockedProjectSettingsModal.mock.calls[0] as [unknown, { projectFiles: TFile[] }]
+    expect(MockedProjectPickerModal).toHaveBeenCalledTimes(1)
+    const [, modalOptions] = MockedProjectPickerModal.mock.calls[0] as [unknown, { projectFiles: TFile[] }]
     expect(modalOptions.projectFiles).toHaveLength(1)
     expect(modalOptions.projectFiles[0].path).toBe(projectFile.path)
   })

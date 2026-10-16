@@ -12,6 +12,7 @@ const {
   ExtraButtonComponent,
   Modal,
   Setting,
+  SuggestModal,
   TextAreaComponent,
   TextComponent,
   ToggleComponent,
@@ -333,23 +334,6 @@ const createMockElement = (tag = 'div') => {
     }),
   }
   return element
-}
-
-class SuggestModal {
-  constructor(app) {
-    this.app = app
-    this.open = jest.fn()
-    this.close = jest.fn()
-    this.setPlaceholder = jest.fn()
-  }
-
-  getSuggestions() {
-    return []
-  }
-
-  renderSuggestion() {}
-
-  onChooseSuggestion() {}
 }
 
 const mockLeaf = {
