@@ -128,6 +128,7 @@ describe('AiModelSelectController', () => {
     create('cursor')
     await flush()
     expect(container.querySelector('.ai-model-select__trigger-sub')?.textContent).toBe('Auto')
+    expect(container.querySelector('.ai-model-select__trigger')?.classList).toContain('has-sub')
     expect(openMenu().querySelector('[data-model-id=""]')?.textContent).toContain('Auto')
   })
 

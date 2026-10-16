@@ -183,6 +183,7 @@ export class AiModelSelectController {
       sub.className = 'ai-model-select__trigger-sub'
       sub.textContent = this.defaultModelName
       trigger.appendChild(sub)
+      trigger.classList.add('has-sub')
     }
     trigger.appendChild(chevron)
     trigger.addEventListener('click', () => this.toggleMenu())

@@ -1133,7 +1133,8 @@ body.is-phone {
   white-space: nowrap;
 }
 
-.ai-model-select__trigger:has(.ai-model-select__trigger-sub) {
+/* A class, not `:has()`: Obsidian's review rejects `:has` for its cost. */
+.ai-model-select__trigger.has-sub {
   grid-template-columns: 20px minmax(0, 1fr) auto 18px;
 }
 
