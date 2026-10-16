@@ -1,6 +1,7 @@
 import { t } from "@/i18n"
 import { DEFAULT_SETTINGS } from "../defaults"
-import { text, validateVaultPath, vaultPath } from "../controlHandlers"
+import { choice, text, validateVaultPath, vaultPath } from "../controlHandlers"
+import { isBasesKanbanSupported } from "@/features/project/services/ProjectBasesKanban"
 import type { SectionModule } from "../types"
 
 /** Where project notes are created and what they are named. */
@@ -42,6 +43,29 @@ export const projectCandidateSection: SectionModule = {
           },
         },
         {
+          name: t("settings.projectCandidates.viewName", "Project view"),
+          // Shown on every version; before 1.14 it stays on the own board and says why.
+          desc: isBasesKanbanSupported()
+            ? t(
+                "settings.projectCandidates.viewDesc",
+                "What \"Projects\" opens. A Bases kanban is a .base file in the project folder, grouped by status; it has no manual card order, and projects made from it get no prefix or template.",
+              )
+            : t(
+                "settings.projectCandidates.viewUnsupported",
+                "A Bases kanban needs Obsidian 1.14 or later.",
+              ),
+          control: {
+            type: "dropdown",
+            key: "projectBoardView",
+            defaultValue: "board",
+            options: {
+              board: t("settings.projectCandidates.viewOptions.board", "TaskChute board"),
+              bases: t("settings.projectCandidates.viewOptions.bases", "Bases kanban"),
+            },
+            disabled: () => !isBasesKanbanSupported(),
+          },
+        },
+        {
           name: t("settings.projectCandidates.templateName", "Template file"),
           desc: t(
             "settings.projectCandidates.templateDesc",
@@ -60,6 +84,13 @@ export const projectCandidateSection: SectionModule = {
   ],
 
   handlers: {
+    projectBoardView: choice<"board" | "bases">({
+      read: (settings) => settings.projectBoardView,
+      write: (settings, value) => {
+        settings.projectBoardView = value
+      },
+      normalize: (raw) => (raw === "bases" ? "bases" : "board"),
+    }),
     projectTitlePrefix: text({
       read: (settings) =>
         settings.projectTitlePrefix ?? DEFAULT_SETTINGS.projectTitlePrefix,

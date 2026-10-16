@@ -208,4 +208,20 @@ describe('NavigationController', () => {
     expect(view.navigationPanel?.classList.contains('navigation-panel-hidden')).toBe(true);
     expect(view.navigationOverlay?.classList.contains('navigation-overlay-hidden')).toBe(true);
   });
+
+  test('after a menu item closes the panel, one ☰ opens it again', () => {
+    const { controller, view } = createController();
+    const container = document.createElement('div');
+    attachCreateEl(container);
+    controller.createNavigationUI(container);
+
+    controller.toggleNavigation();
+    // What a menu item (or the overlay) does after it is chosen.
+    controller.closeNavigation();
+    expect(view.navigationState.isOpen).toBe(false);
+
+    controller.toggleNavigation();
+    expect(view.navigationState.isOpen).toBe(true);
+    expect(view.navigationPanel?.classList.contains('navigation-panel-hidden')).toBe(false);
+  });
 });

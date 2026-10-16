@@ -126,12 +126,16 @@ export default class NavigationController {
     }
   }
 
+  // The state follows the panel however it opened or closed (a menu item, the
+  // overlay), so the next ☰ always toggles from what is on screen.
   openNavigation(): void {
+    this.view.navigationState.isOpen = true
     this.view.navigationPanel?.classList.remove('navigation-panel-hidden')
     this.view.navigationOverlay?.classList.remove('navigation-overlay-hidden')
   }
 
   closeNavigation(): void {
+    this.view.navigationState.isOpen = false
     this.view.navigationPanel?.classList.add('navigation-panel-hidden')
     this.view.navigationOverlay?.classList.add('navigation-overlay-hidden')
   }

@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   projectsFolder: null, // unset by default
   projectTitlePrefix: 'Project - ',
   projectTemplatePath: null,
+  projectBoardView: 'board',
 
   useOrderBasedSort: true,
   slotKeys: {},

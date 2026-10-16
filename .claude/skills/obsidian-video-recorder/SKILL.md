@@ -102,6 +102,10 @@ test("my-feature", async ({ obsidian, recorder }) => {
   its phone UI (`is-mobile`, `is-phone`, `Platform.isMobile`). There is no
   on-screen keyboard and no IME in the emulation; say so on the page.
   `project-picker-mobile.spec.ts` is the example.
+- `recorder.follow(page)` – records another window from here on, caption
+  included. Obsidian 1.14 opens Settings in a window of its own: wait for it
+  with `page.context().waitForEvent("page")`, `follow` it, and `follow` the
+  main page again before closing it. `project-bases-kanban.spec.ts` does this.
 - `recorder.chapter(title, { sub, say })` – new scene and chapter-list entry.
   `recorder.caption(...)` changes the caption inside a scene.
 - `recorder.click(locator)` / `recorder.hover(locator)` – move the mouse there

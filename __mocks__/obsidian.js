@@ -390,6 +390,9 @@ const mockApp = {
   },
 }
 
+// The running app's API version; tests set what they need (`mockReturnValue`).
+const requireApiVersion = jest.fn(() => true)
+
 const normalizePath = (path) => {
   // Normalize path by removing redundant slashes and dots
   return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/\.$/, '')
@@ -473,6 +476,7 @@ module.exports = {
   getLanguage,
   setIcon,
   normalizePath,
+  requireApiVersion,
   mockApp,
   mockLeaf,
 }

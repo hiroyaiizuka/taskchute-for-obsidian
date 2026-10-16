@@ -9,6 +9,10 @@ import { VIEW_TYPE_PROJECT_BOARD } from '@/types'
 import type { RoutineTaskShape } from '@/types/routine'
 import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
 import { t, type ScopedTranslator } from '@/i18n'
+import {
+  ensureProjectBase,
+  isBasesKanbanSupported,
+} from '@/features/project/services/ProjectBasesKanban'
 
 export interface NavigationSectionHost {
   tv: ScopedTranslator<'taskChuteView'>
@@ -88,6 +92,10 @@ export default class NavigationSectionController {
 
   async handleNavigationItemClick(section: NavigationSection): Promise<void> {
     if (section === 'projects') {
+      if (await this.openProjectBase()) {
+        this.callbacks.closeNavigation()
+        return
+      }
       this.openProjectBoard()
       this.callbacks.closeNavigation()
       return
@@ -136,6 +144,46 @@ export default class NavigationSectionController {
 
   renderRoutineList(): void {
     this.routineController.renderRoutineList()
+  }
+
+  /**
+   * Opens the projects' Bases kanban when that is the chosen view and this
+   * Obsidian has it. False sends the caller to TaskChute's own board — which
+   * also explains an unset project folder.
+   */
+  private async openProjectBase(): Promise<boolean> {
+    const { plugin, app } = this.host
+    if (plugin.settings.projectBoardView !== 'bases' || !isBasesKanbanSupported()) return false
+    const folder = plugin.pathManager.getProjectFolderPath()
+    if (!folder) return false
+    try {
+      const file = await ensureProjectBase(
+        app,
+        folder,
+        t('settings.projectCandidates.heading', 'Projects'),
+      )
+      const open = app.workspace
+        .getLeavesOfType('bases')
+        .find((leaf) => (leaf.view as { file?: { path?: string } }).file?.path === file.path)
+      const leaf = open ?? app.workspace.getLeaf(true)
+      if (!open) await leaf.openFile(file)
+      // With the Bases core plugin off, a .base file has no view to open in.
+      if (leaf.view.getViewType() !== 'bases') {
+        if (!open) leaf.detach()
+        new Notice(
+          t(
+            'projectBoard.basesUnavailable',
+            'Turn on the Bases core plugin to open projects as a kanban. Showing the TaskChute board instead.',
+          ),
+        )
+        return false
+      }
+      await app.workspace.revealLeaf(leaf)
+      return true
+    } catch (error) {
+      console.error('[Navigation] Failed to open the projects base:', error)
+      return false
+    }
   }
 
   private openProjectBoard(): void {

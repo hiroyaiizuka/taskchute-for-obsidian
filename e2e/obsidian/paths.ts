@@ -5,8 +5,9 @@ import path from "node:path"
  * The Obsidian desktop build the suite runs against. Pinned so a run is
  * reproducible; bump it deliberately. Only releases that ship an AppImage
  * qualify — some tags (v1.13.8) are Android-only.
+ * TASKCHUTE_E2E_OBSIDIAN_VERSION runs a one-off check against another release.
  */
-export const OBSIDIAN_VERSION = "1.13.7"
+export const OBSIDIAN_VERSION = process.env.TASKCHUTE_E2E_OBSIDIAN_VERSION ?? "1.13.7"
 
 export const PLUGIN_ID = "taskchute-plus"
 
