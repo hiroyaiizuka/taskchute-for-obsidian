@@ -12,7 +12,6 @@ export const ja = {
     heading: "タスクシュートのファイルパス",
     version: {
       name: "バージョン",
-      proUnlocked: "Pro 設定を表示しました。",
     },
     storage: {
       baseLocationName: "デフォルトの場所",
