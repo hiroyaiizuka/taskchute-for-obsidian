@@ -157,6 +157,13 @@ export const en = {
       folderDesc: "Folder where project notes will be saved.",
       templateName: "Template file",
       templateDesc: "Optional Markdown template applied when creating new projects.",
+      viewName: "Project view",
+      viewDesc: "What \"Projects\" opens. A Bases kanban is a .base file in the project folder, grouped by status; it has no manual card order, and projects made from it get no prefix or template.",
+      viewUnsupported: "A Bases kanban needs Obsidian 1.14 or later.",
+      viewOptions: {
+        board: "TaskChute board",
+        bases: "Bases kanban",
+      },
     },
     validation: {
       missingFolder: "Folder was not found: {path}",
@@ -731,6 +738,7 @@ export const en = {
     },
   },
   projectBoard: {
+    basesUnavailable: "Turn on the Bases core plugin to open projects as a kanban. Showing the TaskChute board instead.",
     heading: "Project list",
     actions: {
       addProject: "Add new project",

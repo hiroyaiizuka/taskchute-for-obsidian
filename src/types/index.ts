@@ -22,6 +22,8 @@ export interface TaskChuteSettings {
   projectsFolder?: string | null // independent; can be unset
   projectTemplatePath?: string | null
   projectTitlePrefix?: string
+  /** How "Projects" opens: TaskChute's own board (default) or a Bases kanban (Obsidian 1.14+). */
+  projectBoardView?: 'board' | 'bases'
 
   // Legacy (kept for migration/compat; UI should not expose)
   taskFolderPath?: string

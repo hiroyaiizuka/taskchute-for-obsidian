@@ -155,6 +155,13 @@ export const ja = {
       folderDesc: "プロジェクトノートを保存するフォルダです。",
       templateName: "テンプレートファイルの場所",
       templateDesc: "プロジェクト作成時に適用する任意のMarkdownテンプレートです。",
+      viewName: "プロジェクトの表示",
+      viewDesc: "メニューの「プロジェクト」で開くものです。Bases カンバンは、プロジェクトのフォルダに .base ファイルを作り、status ごとの列で表示します。カードの手動の並び順はなく、そこから作ったプロジェクトには接頭辞やテンプレートが付きません。",
+      viewUnsupported: "Bases カンバンは Obsidian 1.14 以降で使えます。",
+      viewOptions: {
+        board: "TaskChute のボード",
+        bases: "Bases カンバン",
+      },
     },
     validation: {
       missingFolder: "フォルダが見つかりません: {path}",
@@ -730,6 +737,7 @@ export const ja = {
     },
   },
   projectBoard: {
+    basesUnavailable: "Bases コアプラグインを有効にすると、プロジェクトをカンバンで開けます。いまは TaskChute のボードを表示します。",
     heading: "プロジェクト一覧",
     actions: {
       addProject: "新規プロジェクトを追加",

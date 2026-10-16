@@ -38,6 +38,8 @@ test("project-picker-mobile", async ({ obsidian, recorder }) => {
   }, [PHONE.width, PHONE.height] as const)
   await page.evaluate(() => (window.app as unknown as { emulateMobile(on: boolean): void }).emulateMobile(true))
   await page.waitForFunction(() => document.body.classList.contains("is-phone"), undefined, { timeout: 15_000 })
+  // Turning the emulation on reloads the plugins.
+  await page.waitForFunction((id) => !!window.app.plugins.plugins[id], PLUGIN_ID, { timeout: 15_000 })
   await setProjectsFolder(page, PROJECTS)
   const today = await todayKey(page)
   const task = (date: string) => ["---", "tags:", "  - task", `target_date: "${date}"`, "---", ""].join("\n")
